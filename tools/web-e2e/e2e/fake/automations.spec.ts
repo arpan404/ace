@@ -13,7 +13,9 @@ test("a new automation is created, listed, and runs by hand once automations are
   await enabled.click();
   await expect(enabled).toHaveAttribute("aria-checked", "true");
 
-  await page.getByRole("link", { name: "Automations" }).click();
+  await page.getByRole("link", { name: "Back to app" }).click();
+  await page.getByRole("button", { name: /, account/ }).click();
+  await page.getByRole("menuitem", { name: "Automations", exact: true }).click();
   await page.getByRole("link", { name: "New automation" }).click();
   await page.getByRole("textbox", { name: "Name" }).fill("Weekly flaky-test sweep");
   await page
@@ -28,7 +30,6 @@ test("a new automation is created, listed, and runs by hand once automations are
   await expect(aside.getByRole("link", { name: /Weekly flaky-test sweep/ })).toBeVisible();
 
   await page.getByRole("button", { name: "Run now" }).click();
-  await expect(page.getByText("Started · Weekly flaky-test sweep")).toBeVisible();
   await expect(
     page.getByRole("main").getByRole("list", { name: "Recent runs" }).getByText("Running…"),
   ).toBeVisible();

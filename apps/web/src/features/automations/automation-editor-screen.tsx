@@ -1,5 +1,6 @@
 import { ClockIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
@@ -9,6 +10,9 @@ import { AutomationEditor } from "./automation-form.tsx";
 import { automationFromForm, blankForm, formFromAutomation } from "./automation-values.ts";
 import { localTimeZone } from "./schedule.ts";
 import { useAutomation, useAutomationActions } from "./use-automations.ts";
+import type { AutomationEntry } from "./automations-source.ts";
+import { useDaemonConnection } from "@/boot/connection.tsx";
+import { normalizeDaemonKey } from "./run-intents.ts";
 
 /** /automations/new: a blank form; saving opens the new automation. */
 export function NewAutomationScreen() {
@@ -34,7 +38,7 @@ export function NewAutomationScreen() {
               id: `auto-${crypto.randomUUID()}`,
               now: Date.now(),
             });
-            await save(automation);
+            await save(automation, null);
             committed();
             await navigate({
               to: "/automations/$automationId",
@@ -49,11 +53,19 @@ export function NewAutomationScreen() {
 
 /** /automations/$id/edit: the same form over an existing definition. */
 export function EditAutomationScreen(props: { id: string }) {
+  const { url } = useDaemonConnection();
+  const daemonKey = normalizeDaemonKey(url);
+  return <EditSession key={`${daemonKey}:${props.id}`} id={props.id} />;
+}
+
+function EditSession(props: { id: string }) {
   const { entry, pending, error, retry } = useAutomation(props.id);
   const { ids: workspaces, name: workspaceName } = useProjectChoices();
   const { save } = useAutomationActions();
   const navigate = useNavigate();
-  const previous = entry?.automation;
+  // Keep the definition and its revision together for the lifetime of this draft.
+  const [previous, setPrevious] = useState<AutomationEntry | undefined>(entry);
+  if (!previous && entry) setPrevious(entry);
   if (!previous)
     return (
       <Screen title="Edit automation">
@@ -87,13 +99,16 @@ export function EditAutomationScreen(props: { id: string }) {
         )}
       </Screen>
     );
-  const back = { to: "/automations/$automationId", params: { automationId: previous.id } } as const;
+  const back = {
+    to: "/automations/$automationId",
+    params: { automationId: previous.automation.id },
+  } as const;
   return (
     <Screen title="Automations">
       <Page>
         <PageTitle title="Edit automation" />
         <AutomationEditor
-          initial={formFromAutomation(previous, localTimeZone())}
+          initial={formFromAutomation(previous.automation, localTimeZone())}
           workspaces={workspaces}
           workspaceName={workspaceName}
           submitLabel="Save changes"
@@ -105,11 +120,16 @@ export function EditAutomationScreen(props: { id: string }) {
           }
           onSave={async (form, committed) => {
             const automation = automationFromForm(form, {
-              id: previous.id,
+              id: previous.automation.id,
               now: Date.now(),
-              previous,
+              previous: previous.automation,
             });
-            await save(automation);
+            try {
+              await save(automation, previous.revision);
+            } catch (failure) {
+              retry();
+              throw failure;
+            }
             committed();
             await navigate(back);
           }}

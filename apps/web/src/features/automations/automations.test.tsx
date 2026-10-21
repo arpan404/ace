@@ -3,8 +3,8 @@ import { workbench, workbenchServices } from "@ace/fake-daemon";
 import { configure, fireEvent, act, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test, vi } from "vitest";
-import { harness } from "@/test/harness.tsx";
+import { beforeEach, expect, test } from "vitest";
+import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -16,7 +16,7 @@ type Seed = ReturnType<typeof workbenchServices>;
 
 /** The design's daemon: its threads, then the automations and recent runs it holds. */
 async function open(path: string, change?: (seed: Seed) => void) {
-  const app = harness({ clock: () => Date.now() });
+  const app = harness({ clock: () => Date.now(), storage: localStorage });
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   const seed = workbenchServices(Date.now(), "UTC");
   change?.(seed);
@@ -430,47 +430,234 @@ test("editing an automation's schedule changes how it reads everywhere", async (
   expect(await screen.findByRole("tooltip", { name: "Mondays at 06:00 · ace" })).toBeTruthy();
 });
 
-test("deleting an automation hides it at once, and Undo brings it back untouched", async () => {
+test("deleting an automation removes it at once, and Undo recreates it with history intact", async () => {
   const { app, sidebar } = await open("/automations/auto-flaky-triage");
   await heading("Flaky test triage");
 
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
 
-  // Automations moves on to the next one in the list.
   await heading("Changelog draft");
   await waitFor(() =>
     expect(sidebar.queryByRole("link", { name: /Flaky test triage/ })).toBeNull(),
   );
-  // Still on the daemon while Undo is offered.
-  expect(await stored(app, "auto-flaky-triage")).toBeTruthy();
-  const toasts = within(screen.getByRole("region", { name: "Notifications" }));
-  await userEvent.click(await toasts.findByRole("button", { name: "Undo" }));
+  expect(await stored(app, "auto-flaky-triage")).toBeUndefined();
+  await screen.findByText("Deleted · Flaky test triage");
+  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
   expect(await sidebar.findByRole("link", { name: /Flaky test triage/ })).toBeTruthy();
+  expect(await stored(app, "auto-flaky-triage")).toBeTruthy();
+  await userEvent.click(await sidebar.findByRole("link", { name: /Flaky test triage/ }));
+  await heading("Flaky test triage");
+  expect(
+    within(await screen.findByRole("list", { name: "Recent runs" })).getByText(
+      "Nothing flaky across 3 runs",
+    ),
+  ).toBeTruthy();
+});
+
+test("a rejected delete keeps the row and never shows Deleted", async () => {
+  const { app, sidebar } = await open("/automations/auto-flaky-triage");
+  await heading("Flaky test triage");
+  const automation = await stored(app, "auto-flaky-triage");
+  if (!automation) throw new Error("Missing automation");
+  await app.client.request({
+    type: "automation.put",
+    automation: { ...automation, title: `${automation.title} elsewhere` },
+  });
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+  expect(
+    within(await screen.findByRole("alertdialog")).getByText(/changed elsewhere.*before deleting/i),
+  ).toBeTruthy();
+  expect(await sidebar.findByRole("link", { name: /Flaky test triage/ })).toBeTruthy();
+  expect(screen.queryByText(/Deleted · Flaky test triage/)).toBeNull();
   expect(await stored(app, "auto-flaky-triage")).toBeTruthy();
 });
 
-test("a deletion that isn't undone is sent once its toast closes", async () => {
-  const { app, sidebar } = await open("/automations/auto-changelog");
-  await heading("Changelog draft");
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
-  const toasts = within(screen.getByRole("region", { name: "Notifications" }));
-  await toasts.findByText("Deleted · Changelog draft");
-  await userEvent.hover(await toasts.findByText("Deleted · Changelog draft"));
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+test("a committed delete offers Undo while the list refresh is unavailable", async () => {
+  const { app } = await open("/automations/auto-flaky-triage");
+  await heading("Flaky test triage");
+  app.daemon.holdRequests("automation.list");
   try {
-    const viewport = screen.getByRole("region", { name: "Notifications" });
-    fireEvent.pointerLeave(viewport);
-    fireEvent.mouseLeave(viewport);
-    act(() => {
-      vi.advanceTimersByTime(10000);
-    });
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    expect(await screen.findByText("Deleted · Flaky test triage")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Undo" })).toBeTruthy();
   } finally {
-    vi.useRealTimers();
+    app.daemon.restoreRequests();
   }
-  await waitFor(async () => expect(await stored(app, "auto-changelog")).toBeUndefined());
-  expect(sidebar.queryByRole("link", { name: /Changelog draft/ })).toBeNull();
+  expect(await stored(app, "auto-flaky-triage")).toBeUndefined();
+});
+
+test("offline pause cannot claim that an enabled automation stopped", async () => {
+  const { app } = await open("/automations/auto-dependency-audit");
+  await heading("Nightly dependency audit");
+  act(() => app.daemon.refuseConnections(true));
+  const enabled = screen.getByRole("switch", { name: "Enabled" });
+  await waitFor(() =>
+    expect(
+      enabled.getAttribute("aria-disabled") === "true" || enabled.hasAttribute("disabled"),
+    ).toBe(true),
+  );
+  await userEvent.click(enabled);
+  expect(enabled.getAttribute("aria-checked")).toBe("true");
+  act(() => app.daemon.refuseConnections(false));
+  await waitFor(() =>
+    expect(
+      enabled.getAttribute("aria-disabled") === "true" || enabled.hasAttribute("disabled"),
+    ).toBe(false),
+  );
+  expect((await stored(app, "auto-dependency-audit"))?.enabled).toBe(true);
+});
+
+test("a stale editor reports the conflict instead of overwriting", async () => {
+  const { app } = await open("/automations/auto-flaky-triage/edit");
+  await heading("Edit automation");
+  const automation = await stored(app, "auto-flaky-triage");
+  if (!automation) throw new Error("Missing automation");
+  await app.client.request({
+    type: "automation.put",
+    automation: { ...automation, prompt: `${automation.prompt} Elsewhere.` },
+  });
+  await userEvent.type(field("Name"), "!");
+  await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  expect(await screen.findByText(/changed elsewhere.*Reload/i)).toBeTruthy();
+  expect((await stored(app, "auto-flaky-triage"))?.prompt).toContain("Elsewhere.");
+});
+
+test("an uncertain run keeps its key, and Retry reuses it without duplicating", async () => {
+  const { app } = await open("/automations/auto-dependency-audit");
+  await heading("Nightly dependency audit");
+  await setAutomations(app, true);
+  app.daemon.failRequests("automation.run");
+  await userEvent.click(screen.getByRole("button", { name: "Run now" }));
+  expect(await screen.findByRole("button", { name: "Retry run" })).toBeTruthy();
+  const kept = JSON.parse(localStorage.getItem("ace.automation.runIntents") ?? "[]");
+  expect(kept).toHaveLength(1);
+  const requestId = kept[0].requestId as string;
+  app.daemon.restoreRequests();
+  await userEvent.click(screen.getByRole("button", { name: "Retry run" }));
+  const runs = within(await screen.findByRole("list", { name: "Recent runs" }));
+  expect(await runs.findByText("Running…")).toBeTruthy();
+  expect(JSON.parse(localStorage.getItem("ace.automation.runIntents") ?? "[]")).toHaveLength(0);
+  const inbox = await app.client.request({ type: "automation.inbox", limit: 50 });
+  expect(inbox.inbox?.runs.filter((run) => run.id === `run-${requestId}`)).toHaveLength(1);
+});
+
+test("a lost acknowledgement still retries to the same admitted run after reopen", async () => {
+  const { app, sidebar } = await open("/automations/auto-dependency-audit");
+  await heading("Nightly dependency audit");
+  await setAutomations(app, true);
+  app.daemon.failRequests("automation.run");
+  await userEvent.click(screen.getByRole("button", { name: "Run now" }));
+  expect(await screen.findByRole("button", { name: "Retry run" })).toBeTruthy();
+  const kept = JSON.parse(localStorage.getItem("ace.automation.runIntents") ?? "[]");
+  const requestId = kept[0].requestId as string;
+  app.daemon.restoreRequests();
+  await app.client.request(
+    { type: "automation.run", id: "auto-dependency-audit", variables: {} },
+    { requestId },
+  );
+  await userEvent.click(sidebar.getByRole("link", { name: /Review pull requests/ }));
+  await heading("Review pull requests on open");
+  await userEvent.click(sidebar.getByRole("link", { name: /Nightly dependency audit/ }));
+  await heading("Nightly dependency audit");
+  expect(await screen.findByRole("button", { name: "Retry run" })).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Retry run" }));
+  const inbox = await app.client.request({ type: "automation.inbox", limit: 100 });
+  expect(inbox.inbox?.runs.filter((run) => run.id === `run-${requestId}`)).toHaveLength(1);
+});
+
+test("Run now refuses dispatch when the browser can only remember its retry key in memory", async () => {
+  const app = harness({ storage: { ...memoryKeyValue(), durable: false } });
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  app.daemon.seedServices(workbenchServices(Date.now(), "UTC"));
+  await app.open("/automations/auto-dependency-audit");
+  await heading("Nightly dependency audit");
+  await setAutomations(app, true);
+  const before = await app.client.request({ type: "automation.inbox", limit: 100 });
+  await userEvent.click(screen.getByRole("button", { name: "Run now" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("Couldn't save the run request");
+  const after = await app.client.request({ type: "automation.inbox", limit: 100 });
+  expect(after.inbox?.runs.map((run) => run.id)).toEqual(before.inbox?.runs.map((run) => run.id));
+});
+
+test("double-clicking Run now dispatches once", async () => {
+  const { app } = await open("/automations/auto-dependency-audit");
+  await heading("Nightly dependency audit");
+  await setAutomations(app, true);
+  const before = await app.client.request({ type: "automation.inbox", limit: 100 });
+  const beforeIds = new Set(
+    (before.inbox?.runs ?? [])
+      .filter(
+        (candidate) =>
+          candidate.automationId === "auto-dependency-audit" && candidate.trigger === "manual",
+      )
+      .map((candidate) => candidate.id),
+  );
+  app.daemon.holdRequests("automation.run");
+  const run = screen.getByRole("button", { name: "Run now" });
+  fireEvent.click(run);
+  fireEvent.click(run);
+  app.daemon.restoreRequests();
+  const runs = within(await screen.findByRole("list", { name: "Recent runs" }));
+  expect(await runs.findByText("Running…")).toBeTruthy();
+  const inbox = await app.client.request({ type: "automation.inbox", limit: 100 });
+  const fresh = (inbox.inbox?.runs ?? []).filter(
+    (candidate) =>
+      candidate.automationId === "auto-dependency-audit" &&
+      candidate.trigger === "manual" &&
+      !beforeIds.has(candidate.id),
+  );
+  expect(fresh).toHaveLength(1);
+});
+
+test("a valid custom RRULE is created and reads back", async () => {
+  await open("/automations/new");
+  await heading("New automation");
+  await userEvent.type(field("Name"), "Monday sweep");
+  await userEvent.type(field("What should the agent do?"), "Summarise the week.");
+  await choose("Repeat", "Custom (RRULE or cron)");
+  await userEvent.clear(field("Expression"));
+  await userEvent.type(field("Expression"), "FREQ=WEEKLY;BYDAY=MO;BYHOUR=8;BYMINUTE=30");
+  await userEvent.click(screen.getByRole("button", { name: "Create automation" }));
+  await heading("Monday sweep");
+  expect(main().getByText(/^Mondays at 08:30/)).toBeTruthy();
+});
+
+test("an invalid custom RRULE fails in the form instead of reading no upcoming run", async () => {
+  await open("/automations/new");
+  await heading("New automation");
+  await userEvent.type(field("Name"), "Bogus");
+  await userEvent.type(field("What should the agent do?"), "Nothing.");
+  await choose("Repeat", "Custom (RRULE or cron)");
+  await userEvent.clear(field("Expression"));
+  await userEvent.type(field("Expression"), "FREQ=BOGUS");
+  await userEvent.click(screen.getByRole("button", { name: "Create automation" }));
+  expect(await screen.findByText(/valid RRULE/i)).toBeTruthy();
+  expect(screen.queryByText("No upcoming run")).toBeNull();
+});
+
+test("a busy inbox still marks the failed automation from its own last run", async () => {
+  const { sidebar } = await open("/automations/auto-flaky-triage", (seed) => {
+    const failed = seed.runs?.find((run) => run.automationId === "auto-flaky-triage");
+    if (failed) failed.status = "failed";
+    const base = Date.now() + 60_000;
+    const extra = Array.from({ length: 60 }, (_, index) => ({
+      id: `busy-${index}`,
+      automationId: "auto-dependency-audit",
+      title: "Nightly dependency audit",
+      eventKey: `busy-${index}`,
+      trigger: "manual" as const,
+      status: "succeeded" as const,
+      startedAt: base + index,
+      finishedAt: base + index + 1,
+      result: `Busy ${index}`,
+    }));
+    seed.runs = [...(seed.runs ?? []), ...extra];
+  });
+  const flaky = sidebar.getByRole("link", { name: /Flaky test triage/ });
+  expect(await within(flaky).findByRole("img", { name: "Needs attention" })).toBeTruthy();
 });
 
 test("Automations opens on the first automation rather than an empty pane", async () => {
@@ -625,13 +812,13 @@ test("file change automations require globs and save them from the create screen
   ).toEqual({ kind: "file", paths: ["src/**/*.test.ts", "packages/**/*.ts"] });
 });
 
-test("a poll failure shows a fix hint and stays visible until the trigger is replaced", async () => {
+test("a trigger error shows a fix hint, survives a rename, and clears with retry or a new trigger", async () => {
   const { sidebar } = await open("/automations/auto-pr-review", (seed) => {
     seed.pollErrors = { "auto-pr-review": { at: Date.now(), message: "gh auth required: 401" } };
   });
   await heading("Review pull requests on open");
   const error = await main().findByRole("alert");
-  expect(error.textContent).toContain("Couldn't check GitHub");
+  expect(error.textContent).toContain("Trigger needs attention");
   expect(error.textContent).toContain("Sign in to GitHub on this machine");
   expect(error.textContent).not.toContain("401");
   expect(
@@ -639,6 +826,7 @@ test("a poll failure shows a fix hint and stays visible until the trigger is rep
       name: "Needs attention",
     }),
   ).toBeTruthy();
+  expect(await main().findByRole("button", { name: "Retry trigger" })).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
   await heading("Edit automation");

@@ -6,7 +6,7 @@ import {
   PlayIcon,
   SlidersHorizontalIcon,
 } from "@phosphor-icons/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { plainRow } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
@@ -15,10 +15,14 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useNow } from "@/lib/time.ts";
+import { useLayout } from "@/lib/layout.tsx";
 import type { AutomationEntry } from "./automations-source.ts";
 import { NextRun } from "./automation-next-run.tsx";
 import { describeWhen, localTimeZone } from "./schedule.ts";
 import { useAutomationActions, useAutomations } from "./use-automations.ts";
+import { useDaemonConnection } from "@/boot/connection.tsx";
+import { clearRunIntent, ensureRunIntent, normalizeDaemonKey } from "./run-intents.ts";
+import { staleWriteMessage } from "./revision-conflicts.ts";
 
 /**
  * The project's schedules, read with the same query as Automations: `entries` once read,
@@ -77,26 +81,67 @@ export function WorkAutomations(props: {
 }
 
 function AutomationLine(props: { entry: AutomationEntry; onClose(): void }) {
-  const { automation, nextRunAt } = props.entry;
+  const { storage } = useLayout();
+  const { automation, nextRunAt, revision } = props.entry;
   const actions = useAutomationActions();
   const navigate = useNavigate();
   const toast = useToast();
   const now = useNow();
   const [running] = useDaemonSetting("automations.enabled");
   const ready = useConnectionState() === "ready";
+  const { url } = useDaemonConnection();
+  const daemonKey = normalizeDaemonKey(url);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const guard = () => {
+    if (busyRef.current || !ready) return false;
+    busyRef.current = true;
+    setBusy(true);
+    return true;
+  };
+  const release = () => {
+    busyRef.current = false;
+    setBusy(false);
+  };
   /** The row shows the change; only a failure needs saying. */
   const perform = async (write: () => Promise<unknown>) => {
-    if (busy || !ready) return;
-    setBusy(true);
+    if (!guard()) return;
     try {
       await write();
-    } catch {
+    } catch (error) {
       toast.error({
-        title: "Couldn't update this automation. Try again",
+        title:
+          error instanceof Error
+            ? staleWriteMessage(error)
+            : "Couldn't update this automation. Try again",
       });
     } finally {
-      setBusy(false);
+      release();
+    }
+  };
+  const run = async () => {
+    if (!guard()) return;
+    const intent = ensureRunIntent(
+      storage,
+      daemonKey,
+      automation.id,
+      () => Date.now(),
+      () => crypto.randomUUID(),
+    );
+    if (!intent) {
+      release();
+      toast.error({ title: "Couldn't save the run request. Try again." });
+      return;
+    }
+    try {
+      await actions.runNow(automation.id, intent.requestId);
+      clearRunIntent(storage, daemonKey, automation.id);
+    } catch (error) {
+      toast.error({
+        title: error instanceof Error ? error.message : "Couldn't start the run. Try again.",
+      });
+    } finally {
+      release();
     }
   };
   const runBlocked = !ready
@@ -155,7 +200,7 @@ function AutomationLine(props: { entry: AutomationEntry; onClose(): void }) {
           label={runBlocked ?? `Run ${automation.title} now`}
           size="sm"
           disabled={busy || !!runBlocked}
-          onClick={() => void perform(() => actions.runNow(automation.id))}
+          onClick={() => void run()}
         />
       </span>
       <Switch
@@ -163,7 +208,9 @@ function AutomationLine(props: { entry: AutomationEntry; onClose(): void }) {
         checked={automation.enabled}
         disabled={busy || !ready}
         className="ml-1"
-        onCheckedChange={(enabled) => void perform(() => actions.setEnabled(automation, enabled))}
+        onCheckedChange={(enabled) =>
+          void perform(() => actions.setEnabled(automation.id, enabled, revision))
+        }
       />
     </div>
   );
