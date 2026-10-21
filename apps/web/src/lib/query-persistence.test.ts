@@ -1,7 +1,7 @@
 import type { ReadSnapshotStorage } from "@ace/client";
 import { QueryClient, QueryObserver, type QueryKey } from "@tanstack/react-query";
 import { expect, test, vi } from "vitest";
-import { persistQueries, queryRecordKey } from "./query-persistence.ts";
+import { keptForgeLimit, persistQueries, queryRecordKey } from "./query-persistence.ts";
 
 const host = "6b0f9c1e-1f5c-4b5e-9d0a-2f8f6a3c7d11";
 
@@ -142,6 +142,40 @@ test("a kept record never replaces what the daemon has already answered", async 
   await Promise.resolve();
   await Promise.resolve();
   expect(next.queries.getQueryData(["projects"])).toEqual(["live"]);
+  next.stop();
+});
+
+test("a PR panel's reads are kept without provider payloads and never crowd out the app's lookups", async () => {
+  const m = memory();
+  const s = session(m.storage);
+  const repository = { forge: "github", host: "github.com", owner: "acme", name: "api" };
+  const last = keptForgeLimit + 6;
+  await s.queries.fetchQuery({ queryKey: ["projects"], queryFn: async () => ["ace"] });
+  for (let number = 1; number <= last; number++)
+    await s.queries.fetchQuery({
+      queryKey: ["forge", "api", undefined, "pr", number],
+      queryFn: async () => ({ title: `PR ${number}`, status: { raw: { token: "payload" } } }),
+    });
+  await s.queries.fetchQuery({
+    queryKey: ["forge", "api", { repository, number: 1 }, "file-pages", "b", "h", ""],
+    queryFn: async () => "diff contents",
+  });
+  s.time.flush();
+  await vi.waitFor(() => expect(m.values.has(queryRecordKey)).toBe(true));
+  const text = JSON.stringify(m.values.get(queryRecordKey));
+  expect(text).not.toContain("payload");
+  expect(text).not.toContain("diff contents");
+  expect(text).toContain('"projects"');
+  expect(text.match(/"title":"PR \d+"/g)).toHaveLength(keptForgeLimit);
+  s.stop();
+
+  const next = session(m.storage);
+  const key = ["forge", "api", undefined, "pr", last];
+  await vi.waitFor(() => expect(next.queries.getQueryData(key)).toBeDefined());
+  // Shown as kept first, then replaced by what the daemon says now.
+  expect(await observe(next.queries, key, { title: "PR now", status: {} })).toMatchObject({
+    title: `PR ${last}`,
+  });
   next.stop();
 });
 
