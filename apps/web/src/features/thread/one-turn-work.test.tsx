@@ -42,7 +42,9 @@ test("one turn that talks between steps, finishes a background task and starts a
   expect(
     follows(interim, within(steps).getByRole("button", { name: /^Read src\/replay.ts/ })),
   ).toBe(true);
-  expect(within(steps).getByText(/Check the replay path/)).toBeTruthy();
+  expect(
+    within(steps).getByRole("group", { name: "Background task OpenCode background work" }),
+  ).toBeTruthy();
 });
 
 test("while the turn runs, a note followed by more work never opens a second log", async () => {

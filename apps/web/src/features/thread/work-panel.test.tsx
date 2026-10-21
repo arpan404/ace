@@ -1,4 +1,10 @@
-import { gitAction, machineRow, openWorkCard, openWorkPanel } from "@/test/open-work.ts";
+import {
+  gitAction,
+  machineRow,
+  openDoneAgents,
+  openWorkCard,
+  openWorkPanel,
+} from "@/test/open-work.ts";
 import { facts, workCardScenario } from "@ace/fake-daemon";
 import { Automation, ThreadId } from "@ace/protocol";
 import { act, screen, waitFor, within } from "@testing-library/react";
@@ -65,7 +71,9 @@ test("a child keeps working through a non-blocking question and requests attenti
   await waitFor(() =>
     expect(within(card).queryByRole("treeitem", { name: /.*: Needs you/ })).toBeNull(),
   );
-  expect(within(card).getByText("1 working · 1 done")).toBeTruthy();
+  expect(
+    await within(card).findByRole("treeitem", { name: "Check supervisor logs: Working" }),
+  ).toBeTruthy();
   expect(
     within(screen.getByRole("banner")).queryByRole("button", {
       name: "Thread details, something needs you",
@@ -133,10 +141,10 @@ test("a failed child opens its own work without leaking its raw error into the t
   app.play(fixture).runUntilBlocked();
   const work = await openWork(app, fixture.thread.id);
   // Needs you says why it failed; the tree only says that it did.
-  const tree = await within(work).findByRole("tree", { name: "Agent tree" });
+  const tree = await openDoneAgents(work);
   expect(within(tree).queryByText("The test command failed. Check its output.")).toBeNull();
   await userEvent.click(
-    within(work).getByRole("treeitem", { name: "Check supervisor logs: Failed" }),
+    within(tree).getByRole("treeitem", { name: "Check supervisor logs: Failed" }),
   );
   // A subagent opens as the whole chat (042b898e3).
   expect(
@@ -154,9 +162,9 @@ test("an ended parent remains active until its nested child settles", async () =
     name: /^Write retry tests: Waiting on (work|subagents|background task)$/,
   });
   act(() => app.daemon.apply(fixture.thread.id, [facts.endTurn("worker-1")]));
-  // Both of the main agent's subagents completed: they fold into one row.
-  await userEvent.click(await within(work).findByRole("treeitem", { name: "2 done" }));
-  await within(work).findByRole("treeitem", { name: "Write retry tests: Idle" });
+  // Both of the main agent's subagents completed: they move to the folded Done section.
+  const done = await openDoneAgents(work);
+  await within(done).findByRole("treeitem", { name: "Write retry tests: Idle" });
   expect(
     within(work).getByRole("treeitem", { name: /^Main agent: Waiting on (work|background task)$/ }),
   ).toBeTruthy();

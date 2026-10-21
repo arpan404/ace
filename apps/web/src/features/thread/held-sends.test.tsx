@@ -65,37 +65,43 @@ async function sendWhileUploading(app: ReturnType<typeof harness>, message: HTML
 async function sendWhileReading(message: HTMLDivElement) {
   const file = png();
   const gate = Promise.withResolvers<void>();
+  let failed = false;
   const slice = file.slice.bind(file);
   file.slice = (start, end, type) => {
     const part = slice(start, end, type);
     const read = part.arrayBuffer.bind(part);
     part.arrayBuffer = async () => {
-      await gate.promise;
+      if (!failed) await gate.promise;
       return read();
     };
     return part;
   };
   await userEvent.upload(screen.getByLabelText("Files to attach"), file);
   await userEvent.type(message, "Why is this banner orange?{Enter}");
-  return { finish: () => gate.resolve() };
+  return {
+    finish: () => gate.resolve(),
+    fail() {
+      failed = true;
+      gate.reject(new Error("File read failed"));
+    },
+  };
 }
 
 test("an upload that fails after Enter leaves the message as not sent in the composer's strip, and Retry delivers it", async () => {
   const { app, feed, message } = await open();
-  await sendWhileUploading(app, message);
+  const upload = await sendWhileReading(message);
   expect(await within(await strip()).findByText("Uploading an image…")).toBeTruthy();
   // The person moves on: the next draft is already in the composer.
   await userEvent.type(message, "And the footer colour");
 
-  // The connection drops mid-upload, so the upload fails.
-  act(() => app.daemon.disconnectAll());
+  // Reading the file fails after Enter; a reconnect alone can retry a pending upload.
+  act(() => upload.fail());
   const alert = await within(await strip()).findByRole("alert");
   expect(within(alert).getByText(/screen\.png didn't upload/)).toBeTruthy();
   expect(within(await strip()).getByText("Why is this banner orange?")).toBeTruthy();
   expect(within(feed).queryByText("Why is this banner orange?")).toBeNull();
   expect(message.textContent).toBe("And the footer colour");
 
-  app.daemon.restoreRequests();
   await waitFor(() => expect(app.client.state).toBe("ready"));
   await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
   // Delivered: the daemon has the message with its image, and it shows once.
@@ -109,10 +115,10 @@ test("an upload that fails after Enter leaves the message as not sent in the com
 });
 
 test("Edit on a failed held message gives back its text, beside what the composer holds", async () => {
-  const { app, feed, message } = await open();
-  await sendWhileUploading(app, message);
+  const { feed, message } = await open();
+  const upload = await sendWhileReading(message);
   await userEvent.type(message, "And the footer colour");
-  act(() => app.daemon.disconnectAll());
+  act(() => upload.fail());
   const alert = await within(await strip()).findByRole("alert");
 
   await userEvent.click(within(alert).getByRole("button", { name: "Edit" }));
