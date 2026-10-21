@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { accessSync, constants } from "node:fs";
 import { setTimeout } from "node:timers/promises";
 import { performance } from "node:perf_hooks";
-import { constants as osConstants, tmpdir } from "node:os";
+import { constants as osConstants, tmpdir, userInfo } from "node:os";
 import { spawn } from "node-pty";
 import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
 import type { ExitStatus, OpenTerminalOptions } from "./types.ts";
@@ -54,17 +54,47 @@ export const shutdownScheduler: ShutdownScheduler = {
   },
 };
 
-export function resolveShell(shell?: string): string {
-  if (shell !== undefined) return shell;
-  if (process.env.SHELL) return process.env.SHELL;
-  for (const candidate of ["/bin/zsh", "/bin/bash"]) {
+export interface ShellHost {
+  /** The account's login shell (`os.userInfo().shell`); null where the OS doesn't say. */
+  accountShell(): string | null;
+  env: NodeJS.ProcessEnv;
+  executable(path: string): boolean;
+}
+
+const systemShellHost: ShellHost = {
+  accountShell: () => {
     try {
-      accessSync(candidate, constants.X_OK);
-      return candidate;
+      return userInfo().shell;
     } catch {
-      /* Try the next installed shell. */
+      return null;
     }
-  }
+  },
+  env: process.env,
+  executable: (path) => {
+    try {
+      accessSync(path, constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+};
+
+// Accounts that may not log in name these instead of a shell.
+const refusing = /\/(?:nologin|false)$/;
+
+/**
+ * The shell a terminal opens: the one asked for, else `$SHELL` (the session's choice), else the
+ * account's login shell (a daemon started by systemd or launchd may have no `$SHELL`), else
+ * the first of bash and sh that is installed.
+ */
+export function resolveShell(shell?: string, host: ShellHost = systemShellHost): string {
+  if (shell !== undefined) return shell;
+  if (host.env.SHELL) return host.env.SHELL;
+  const account = host.accountShell();
+  if (account && !refusing.test(account) && host.executable(account)) return account;
+  for (const candidate of ["/bin/bash", "/bin/sh"])
+    if (host.executable(candidate)) return candidate;
   throw new Error("No login shell found");
 }
 
@@ -111,7 +141,7 @@ export function createPosixBackendFactory(
       .join(" ");
     // The helper retains the ORIGINAL group ID, which cannot be reused while a
     // member remains. It ignores catchable signals and cleans the session on FIFO EOF.
-    const launcher = `trap '' ${ignored}; "$3" "$1" "$2" >/dev/null 2>&1 & keeper=$!; while [ ! -f "$2" ]; do kill -0 "$keeper" 2>/dev/null || exit 1; /bin/sleep 0.01; done; trap - ${ignored}; shift 3; exec "$@"`;
+    const launcher = `trap '' ${ignored}; "$3" "$1" "$2" >/dev/null 2>&1 & keeper=$!; while [ ! -f "$2" ]; do kill -0 "$keeper" 2>/dev/null || exit 1; sleep 0.01; done; trap - ${ignored}; shift 3; exec "$@"`;
     const loginArgs = options.args ?? ["-l", "-i"];
     let pty: NativePty;
     try {
