@@ -22,7 +22,7 @@ struct InboxThreadRow: View {
             lines {
                 if !row.project.isEmpty {
                     HStack(spacing: 7) {
-                        ProjectMark(badge: row.badge ?? row.project)
+                        ProjectTag(initials: row.badge ?? row.project)
                         Text(row.project).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).lineLimit(stacked ? nil : 1)
                     }
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -109,7 +109,7 @@ struct InboxUnsentRow: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             HStack(spacing: 7) {
                 if let thread, !thread.project.isEmpty {
-                    ProjectMark(badge: thread.badge ?? thread.project)
+                    ProjectTag(initials: thread.badge ?? thread.project)
                     Text(thread.project).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).lineLimit(1)
                 }
                 Spacer(minLength: AceTheme.Spacing.sm)
