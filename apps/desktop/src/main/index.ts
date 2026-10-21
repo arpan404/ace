@@ -40,6 +40,7 @@ import { applyDevCsp, installDaemonNetwork, registerAppScheme, serveRenderer } f
 import { DaemonNetwork } from "./daemon-network.ts";
 import { SettingsStore } from "./settings-store.ts";
 import { checkUserData, desktopUserData, legacyFolders } from "./user-data.ts";
+import { timers } from "./os/timers.ts";
 import { createMainWindow } from "./window/main-window.ts";
 import { applyZoom } from "./window/zoom.ts";
 import {
@@ -94,13 +95,6 @@ if (unsafe) {
       crashDumps,
     );
 }
-
-const timers = {
-  set(delayMs: number, callback: () => void) {
-    const timer = setTimeout(callback, delayMs);
-    return () => clearTimeout(timer);
-  },
-};
 
 function isDirectory(path: string): boolean {
   try {
@@ -479,12 +473,17 @@ function main(target: DaemonTarget, crashDumps: string): void {
     if (!hidden) createWindow();
     // The background link follows the daemon from here on: it attaches whenever one is ready.
     background.start();
-    updates.start();
-    // Launched by `ace update apply` from the bundled CLI.
-    if (process.argv.includes(desktopUpdateArgument)) void updates.apply();
+    // The daemon starts first: nothing the updater does can keep it from running.
     void runtime
       .start()
       .catch((error: unknown) => log("error", `Daemon start failed: ${String(error)}`));
+    try {
+      updates.start();
+    } catch (error) {
+      log("error", `Update checks failed to start: ${String(error)}`);
+    }
+    // Launched by `ace update apply` from the bundled CLI.
+    if (process.argv.includes(desktopUpdateArgument)) void updates.apply();
     // The `ace` command belongs to the installed app; development builds never write one. It
     // goes in the managed daemon's home, which `desktopTarget` already prepared: after a fresh
     // start it lands in the new home, never in the backup.
