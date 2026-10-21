@@ -7,9 +7,10 @@ import {
   type ForgeReviewState,
 } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
 import { actionErrorText } from "@ace/ui-core";
-import { readForge } from "./source.ts";
+import { readForge } from "@/lib/forge-read.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { readFailureText } from "./query-state.tsx";
 const Context = createContext<{
@@ -34,6 +35,7 @@ export function PrReviewWorkspace(props: {
   const query = useDaemonQuery({
     queryKey: ["forge", props.workspaceId, pr, "review-state", props.detail.status.headSha],
     retry: false,
+    gcTime: keptForgeMs,
     refetchOnReconnect: "always",
     staleTime: 0,
     read: async (readerClient, signal) => {

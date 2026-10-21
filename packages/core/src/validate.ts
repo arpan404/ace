@@ -67,6 +67,7 @@ const allowed: Record<Fact["type"], string[]> = {
     "item",
     "childAgent",
     "ambient",
+    "internal",
     "stoppable",
     "outputPath",
     "raw",
@@ -325,6 +326,7 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
         typeof fact.title === "string" &&
         typeof fact.stoppable === "boolean" &&
         optionalBoolean(fact.ambient) &&
+        (fact.internal === undefined || fact.internal === true) &&
         optionalString(fact.outputPath) &&
         (fact.raw === undefined || validData(raw, fact.raw))
       );

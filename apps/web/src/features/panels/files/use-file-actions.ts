@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { DownloadError, saveDownload } from "@/lib/save-download.ts";
 import { useToast } from "@/components/ui/toast.tsx";
+import { useCopy } from "@/components/use-copy.ts";
 import { useOpenInEditor } from "@/lib/open-in-editor.ts";
 import { checkoutError, fromCode, type CheckoutError } from "./checkout-source.ts";
 import { useCheckoutSource } from "./use-checkout.ts";
@@ -26,6 +27,9 @@ export function useFileActions(threadId: string, onUploaded: (path: string) => v
   const source = useCheckoutSource();
   const client = useClient();
   const toast = useToast();
+  const pathCopy = useCopy(() =>
+    toast.error({ title: "Couldn't copy. Select the path and copy it yourself." }),
+  );
   const queries = useQueryClient();
   const {
     editors,
@@ -124,13 +128,6 @@ export function useFileActions(threadId: string, onUploaded: (path: string) => v
     }
   };
 
-  const copyPath = (path: string) => {
-    void navigator.clipboard?.writeText(path).then(
-      () => toast.add({ title: "Path copied" }),
-      () => toast.error({ title: "Couldn't copy. Select the path and copy it yourself." }),
-    );
-  };
-
   return {
     saving,
     save,
@@ -148,6 +145,8 @@ export function useFileActions(threadId: string, onUploaded: (path: string) => v
     editorUnavailable,
     editor,
     openInEditor,
-    copyPath,
+    copyPath: pathCopy.copy,
+    /** A path was just copied: Copy path shows a check for a moment. */
+    pathCopied: pathCopy.copied,
   };
 }

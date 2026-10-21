@@ -1,6 +1,7 @@
 import { modelDisplayName } from "@ace/models/display-name";
 import type { ProviderKind, ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
 import type {
+  OffshiftCardCriterion,
   OffshiftEvidenceKind,
   OffshiftEvidenceState,
   OffshiftPhase,
@@ -32,20 +33,22 @@ export interface OffshiftTree {
   request?: "approval" | "question" | undefined;
 }
 
-export interface OffshiftEvidenceRow {
+/**
+ * A required kind still without a current pass: "UI", or "Independent UI" when the pass must
+ * come from another provider or model than the owner's. Failed when its latest check failed.
+ */
+export interface OffshiftNeedRow {
   kind: string;
-  state: string;
-  /** Status hue for a current pass or failure; none while out of date or not checked. */
-  tone: Tone | undefined;
-  /** Who recorded it: "Claude Code · Opus 4.5". Undefined when nothing is recorded. */
-  by: string | undefined;
+  failed: boolean;
 }
 export interface OffshiftCriterionRow {
   id: string;
   description: string;
-  /** Passes count only from another provider or model than the run owner's. */
-  independent: boolean;
-  evidence: OffshiftEvidenceRow[];
+  /** Met: every required kind has a current pass. Failed: one kind's check failed. */
+  state: "Met" | "Failed" | "Open";
+  needs: OffshiftNeedRow[];
+  /** Each required kind's standing and who recorded it, one per line: "UI check · Passed · Codex". */
+  detail: string;
 }
 /** One step of the current phase: its title, state word and, when skipped, the reason. */
 export interface OffshiftStepRow {
@@ -60,10 +63,6 @@ export interface OffshiftSummary {
   /** "Fix · Verify · 3 of 5"; the playbook leads when the run started from one. */
   phase: string;
   blocker: string | undefined;
-  /** Evidence still missing, failing or out of date: "Bad password shows an error", "UI check". */
-  missing: { key: string; description: string; kind: string }[];
-  /** Missing evidence beyond the card's list. */
-  moreMissing: number;
   outcome: string;
   criteria: OffshiftCriterionRow[];
   /** Criteria beyond the card's list. */
@@ -81,13 +80,13 @@ const kindNames: Record<OffshiftEvidenceKind, string> = {
   human: "Human review",
   manual: "Manual check",
 };
-/** A kind still needing a pass from another provider or model than the owner's. */
-const independentKindNames: Record<OffshiftEvidenceKind, string> = {
-  automated: "Independent automated check",
-  source: "Independent source review",
-  ui: "Independent UI check",
-  human: "Independent human review",
-  manual: "Independent manual check",
+/** A kind in a criterion row, where room is short. */
+const shortKindNames: Record<OffshiftEvidenceKind, string> = {
+  automated: "Automated",
+  source: "Source review",
+  ui: "UI",
+  human: "Human review",
+  manual: "Manual",
 };
 const stateNames: Record<OffshiftEvidenceState, string> = {
   pass: "Passed",
@@ -141,7 +140,6 @@ export function offshiftSummary(card: OffshiftRunCard, tree: OffshiftTree): Offs
         (unfinished
           ? { word: "Waiting" as const, tone: "waiting" as const }
           : { word: "Done" as const, tone: "done" as const }));
-  const descriptions = new Map(card.criteria.map((item) => [item.id, item.description]));
   return {
     ...state,
     phase: [
@@ -152,24 +150,8 @@ export function offshiftSummary(card: OffshiftRunCard, tree: OffshiftTree): Offs
       .filter(Boolean)
       .join(" · "),
     blocker: card.blocker ?? undefined,
-    missing: card.pending.map((item) => ({
-      key: `${item.criterionId}:${item.kind}`,
-      description: descriptions.get(item.criterionId) ?? item.criterionId,
-      kind: (item.needs ? independentKindNames : kindNames)[item.kind],
-    })),
-    moreMissing: card.pendingCount - card.pending.length,
     outcome: card.outcome,
-    criteria: card.criteria.map((item) => ({
-      id: item.id,
-      description: item.description,
-      independent: item.independent,
-      evidence: item.evidence.map((evidence) => ({
-        kind: kindNames[evidence.kind],
-        state: stateNames[evidence.state],
-        tone: evidence.state === "pass" ? "done" : evidence.state === "fail" ? "failed" : undefined,
-        by: evidence.by ? who(evidence.by.provider, evidence.by.model) : undefined,
-      })),
-    })),
+    criteria: card.criteria.map(criterionRow),
     moreCriteria: card.criteriaCount - card.criteria.length,
     steps: card.steps.map((step) => ({
       id: step.id,
@@ -179,4 +161,35 @@ export function offshiftSummary(card: OffshiftRunCard, tree: OffshiftTree): Offs
     })),
     done: state.word === "Done",
   };
+}
+
+/** One criterion: whether it holds, the kinds it still needs, and each kind's standing. */
+function criterionRow(item: OffshiftCardCriterion): OffshiftCriterionRow {
+  const open = item.evidence.filter((evidence) => evidence.state !== "pass");
+  return {
+    id: item.id,
+    description: item.description,
+    state: open.length === 0 ? "Met" : open.some(failed) ? "Failed" : "Open",
+    needs: open.map((evidence) => ({
+      kind: item.independent
+        ? `Independent ${shortKindNames[evidence.kind]}`
+        : shortKindNames[evidence.kind],
+      failed: failed(evidence),
+    })),
+    detail: item.evidence
+      .map((evidence) =>
+        [
+          kindNames[evidence.kind],
+          stateNames[evidence.state],
+          evidence.by && who(evidence.by.provider, evidence.by.model),
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      )
+      .join("\n"),
+  };
+}
+
+function failed(evidence: { state: OffshiftEvidenceState }): boolean {
+  return evidence.state === "fail";
 }

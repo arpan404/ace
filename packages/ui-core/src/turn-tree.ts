@@ -1,6 +1,7 @@
 import type { ThreadReader, ThreadSource } from "@ace/client";
 import type { Interaction, BackgroundTask } from "@ace/protocol";
 import { isActionableInteraction } from "@ace/core/human";
+import { isInternalTask, standsForSubagent } from "@ace/projection";
 import { isRunning } from "./agents.ts";
 import { TurnStretches } from "./turn-stretches.ts";
 import { rootRunOf } from "./turn-ordinals.ts";
@@ -238,11 +239,12 @@ export class TurnTree {
         if (turn) ended = { turn, at: task.endedAt };
       }
       if (task && (task.status === "running" || task.status === "unknown"))
+        // Bookkeeping only holds the turn open; a stand-in for a subagent counts as one.
         next = {
           turn: ownerTurn(task.agentId, task.toolCallId, task.startedAt),
-          agent: false,
+          agent: task.status === "running" && standsForSubagent(task),
           needsYou: false,
-          shell: task.kind === "shell" ? task : undefined,
+          shell: task.kind === "shell" && !isInternalTask(task) ? task : undefined,
         };
     } else {
       const request = reader.interaction(id);

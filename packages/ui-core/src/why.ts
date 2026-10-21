@@ -1,3 +1,4 @@
+import { listedBackgroundWork, standsForSubagent } from "@ace/projection";
 import type { Agent, BackgroundTask, Interaction, ThreadStatus } from "@ace/protocol";
 
 /**
@@ -71,18 +72,26 @@ export function whyNotDone(input: WhyInput): { title: string; body: string } {
     open.push("the main agent is still working");
     settles.push("it finishes its turn");
   }
-  const subagents = input.agents.filter((agent) => agent.id !== input.rootAgentId && busy(agent));
-  if (subagents.length) {
-    open.push(`${plural(subagents.length, "subagent is", "subagents are")} still running`);
+  // A task standing for a subagent the provider hasn't registered yet counts as that subagent;
+  // ace's own bookkeeping is never named.
+  const standIns = input.tasks.filter(
+    (task) => task.status === "running" && standsForSubagent(task),
+  ).length;
+  const subagents =
+    input.agents.filter((agent) => agent.id !== input.rootAgentId && busy(agent)).length + standIns;
+  if (subagents) {
+    open.push(`${plural(subagents, "subagent is", "subagents are")} still running`);
     settles.push(
-      subagents.length === 1
+      subagents === 1
         ? "it reports back"
-        : subagents.length === 2
+        : subagents === 2
           ? "both report back"
-          : `all ${count(subagents.length)} report back`,
+          : `all ${count(subagents)} report back`,
     );
   }
-  const running = input.tasks.filter((task) => task.status === "running" && !task.ambient);
+  const running = input.tasks.filter(
+    (task) => task.status === "running" && !task.ambient && listedBackgroundWork(task),
+  );
   const shells = running.filter((task) => task.kind === "shell");
   const others = running.filter((task) => task.kind !== "shell");
   if (shells.length) {
@@ -95,7 +104,9 @@ export function whyNotDone(input: WhyInput): { title: string; body: string } {
     open.push(`${plural(others.length, "background task is", "background tasks are")} running`);
     settles.push(others.length === 1 ? "that task ends" : "those tasks end");
   }
-  const lost = input.tasks.filter((task) => task.status === "unknown" && !task.ambient);
+  const lost = input.tasks.filter(
+    (task) => task.status === "unknown" && !task.ambient && listedBackgroundWork(task),
+  );
   if (lost.length)
     open.push(
       `${plural(lost.length, "background task", "background tasks")} may still be running (ace lost track of ${lost.length === 1 ? "it" : "them"})`,

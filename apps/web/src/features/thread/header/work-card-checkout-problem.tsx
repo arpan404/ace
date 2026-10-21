@@ -37,20 +37,10 @@ export function CheckoutProblem(props: { thread: ThreadRef; move(move: Move): vo
       <RowStatic label="Worktree missing" className="flex-wrap">
         <WarningCircleIcon aria-hidden size={16} className="shrink-0 text-status-failed" />
         <RowLabel>Worktree missing</RowLabel>
-        <RowAction
-          className="ml-0"
-          onClick={() =>
-            props.move({ change: { mode: "local" }, done: "Moved to the local checkout" })
-          }
-        >
+        <RowAction className="ml-0" onClick={() => props.move({ change: { mode: "local" } })}>
           Move to local
         </RowAction>
-        <RowAction
-          className="ml-0"
-          onClick={() =>
-            props.move({ change: { mode: "worktree" }, done: "Recreated the worktree" })
-          }
-        >
+        <RowAction className="ml-0" onClick={() => props.move({ change: { mode: "worktree" } })}>
           Recreate worktree
         </RowAction>
       </RowStatic>
@@ -76,10 +66,8 @@ function FailedMove(props: {
     setClearing(true);
     void sources.workspace
       .clearCheckoutMove(props.thread)
-      .then(
-        () => toast.add({ title: "Move cleared" }),
-        (error: unknown) =>
-          toast.error({ title: "Couldn't clear the move", description: failure(error) }),
+      .catch((error: unknown) =>
+        toast.error({ title: "Couldn't clear the move", description: failure(error) }),
       )
       .finally(() => setClearing(false));
   };
@@ -95,7 +83,6 @@ function FailedMove(props: {
           onClick={() =>
             props.move({
               change: { mode, ...(change.branch ? { branch: change.branch } : {}) },
-              done: mode === "worktree" ? "Moved to a worktree" : "Moved the checkout",
             })
           }
         >

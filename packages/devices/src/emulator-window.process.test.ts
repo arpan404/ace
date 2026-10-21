@@ -72,16 +72,30 @@ it("ace boots an emulator without its window unless the person asked to see it",
   }
 });
 
-it("a headless emulator on macOS renders with the host GPU", async () => {
+it("a headless emulator on macOS renders with the host GPU and streams its screen to the host", async () => {
   const started = await bootEmulator({ platform: "darwin" });
   expect(started).toEqual([
-    ["-avd", "Pixel_API_35", "-port", "5554", "-no-window", "-no-boot-anim", "-gpu", "host"],
+    [
+      "-avd",
+      "Pixel_API_35",
+      "-port",
+      "5554",
+      "-grpc",
+      "8554",
+      "-grpc-use-token",
+      "-no-window",
+      "-no-boot-anim",
+      "-gpu",
+      "host",
+    ],
   ]);
 });
 
 it("with Show emulator window on, the emulator boots with its window", async () => {
   const started = await bootEmulator({ platform: "darwin", emulatorWindow: async () => true });
-  expect(started).toEqual([["-avd", "Pixel_API_35", "-port", "5554"]]);
+  expect(started).toEqual([
+    ["-avd", "Pixel_API_35", "-port", "5554", "-grpc", "8554", "-grpc-use-token"],
+  ]);
 });
 
 it("an unreadable window setting boots the emulator without its window", async () => {

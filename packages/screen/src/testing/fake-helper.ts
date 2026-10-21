@@ -33,6 +33,7 @@ function frame(imageCodec = codec) {
           scale: Number(process.env.MODEL_NATIVE_SCALE ?? 1),
           codec: imageCodec,
           bytes: payload.length,
+          ...(imageCodec === "h264" ? { keyframe: true } : {}),
           dirtyRects: [{ x: 0, y: 0, w: 100, h: 100 }],
         }
       : {
@@ -45,6 +46,8 @@ function frame(imageCodec = codec) {
           scale: Number(process.env.MODEL_NATIVE_SCALE ?? 1),
           codec: imageCodec,
           bytes: payload.length,
+          // Each fake video picture stands alone, as a keyframe a viewer can start from.
+          ...(imageCodec === "h264" ? { keyframe: true } : {}),
         },
     payload,
   );
@@ -255,6 +258,8 @@ function processRequest(request: ScreenHelperRequest) {
   if (request.op === "stream.configure") {
     codec = request.settings.codec;
     data = { codec };
+    // As the real helper does (markInitial), a capturing stream starts over with a fresh picture.
+    if (capturing) frame();
   }
   if (request.op === "stream.image") {
     if (!capturing) {
@@ -423,7 +428,7 @@ function processRequest(request: ScreenHelperRequest) {
           windowId: 1,
           bundleId: "dev.ace.test",
           title: v2
-            ? `capture:${capturing};actions:${actions};clicked:${clickedTarget};held:${Boolean(heldUI)};heldInput:${Boolean(held)};pointerHeld:${pointerHeld};pointerUps:${pointerUps};pid:${process.pid}`
+            ? `capture:${capturing};codec:${codec};actions:${actions};clicked:${clickedTarget};held:${Boolean(heldUI)};heldInput:${Boolean(held)};pointerHeld:${pointerHeld};pointerUps:${pointerUps};pid:${process.pid}`
             : process.env.MODEL_FRAME_WIDTH
               ? `Test;clicked:${clickedTarget}`
               : "Test",

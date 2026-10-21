@@ -31,14 +31,30 @@ import { AndroidPlatform, type AndroidOptions } from "./android-platform.ts";
 import { deviceScreenshot, emulatorScreenshot, type DeviceShot } from "./one-off-screenshot.ts";
 import { androidClipboardUnavailable, type ClipboardRead } from "./clipboard.ts";
 import { simulatorCopy, simulatorPaste } from "./simulator-clipboard.ts";
+import { downloadDeviceTools, type DeviceTools } from "./device-tools.ts";
+import type { DeviceRuntime } from "./runtime.ts";
+import { managedServeSim, type ServeSimCommand } from "./serve-sim-install.ts";
+import {
+  emulatorConsolePort,
+  emulatorGrpc,
+  emulatorRunningDirectory,
+  type EmulatorGrpc,
+} from "./emulator-discovery.ts";
 
 export type PlatformOptions = SDKOptions & {
   spawn?: typeof spawnSupervised;
   /** Byte-exact processes, for tools whose stdout is data rather than lines (the pasteboard). */
   spawnRaw?: typeof spawnRawSupervised;
   screen?: ScreenManager;
-  /** Where ace keeps downloaded device tools (the pinned scrcpy server), inside ace's home. */
+  /** Where ace keeps downloaded device tools (serve-sim, the scrcpy server), inside ace's home. */
   toolsDirectory?: string;
+  /** The daemon's Node, which runs the tools download and ace's serve-sim. */
+  node?: string;
+  /**
+   * The screen helper, whose `--encode-frames` mode encodes an emulator's picture on the Mac's
+   * hardware (macOS only; absent elsewhere, where scrcpy's video stays).
+   */
+  frameEncoder?: string;
   emulatorWindow?: NonNullable<AndroidOptions["emulatorWindow"]>;
 };
 export type ScreenBinding = { sessionId: string; actor: "human" | "agent"; owner: string };
@@ -65,6 +81,7 @@ export class DevicePlatform {
   private missingSDKs: DeviceError[] = [];
   private inputHint: DeviceError | undefined;
   private checkedInput = false;
+  private toolsDownload: Promise<DeviceTools> | undefined;
   private readonly appProcesses = new Map<string, string>();
   diagnostics(): DeviceFailure[] {
     return [
@@ -128,6 +145,62 @@ export class DevicePlatform {
   }
   get toolsDirectory(): string | undefined {
     return this.options.toolsDirectory;
+  }
+  /** The screen helper that encodes on the Mac's hardware (macOS only). */
+  get frameEncoder(): string | undefined {
+    return this.options.platform === "darwin" ? this.options.frameEncoder : undefined;
+  }
+  /**
+   * How to encode an emulator's picture on the host, when it can be: a helper to encode with, a
+   * place for the shared picture file, and the emulator's gRPC endpoint (one ace booted).
+   */
+  async hostEncoding(
+    serial: string,
+  ): Promise<{ grpc: EmulatorGrpc; encoder: string; directory: string } | undefined> {
+    const { frameEncoder: encoder, toolsDirectory: directory } = this.options;
+    const consolePort = emulatorConsolePort(serial);
+    if (this.options.platform !== "darwin" || !encoder || !directory || consolePort === undefined)
+      return undefined;
+    const grpc = await emulatorGrpc(
+      emulatorRunningDirectory({
+        platform: this.options.platform,
+        home: this.options.home,
+        env: this.options.env,
+      }),
+      consolePort,
+    );
+    return grpc && { grpc, encoder, directory };
+  }
+  /** ace's own serve-sim, once the device tools are downloaded (Macs only). */
+  async managedServeSim(): Promise<ServeSimCommand | undefined> {
+    const { toolsDirectory: directory, node } = this.options;
+    if (this.options.platform !== "darwin" || !directory || !node) return undefined;
+    return managedServeSim({ directory, node });
+  }
+  /**
+   * Downloads the device tools ace runs (serve-sim on a Mac, the scrcpy server), in a process
+   * of their own. Concurrent asks share one download; a finished one is reused.
+   */
+  downloadTools(runtime: Pick<DeviceRuntime, "spawn" | "after">): Promise<DeviceTools> {
+    const { toolsDirectory: directory, node } = this.options;
+    if (!directory || !node)
+      return Promise.reject(
+        new DeviceError(
+          "tool_missing",
+          "ace has nowhere to keep device tools",
+          "Restart ace; its home directory should hold them.",
+        ),
+      );
+    this.toolsDownload ??= downloadDeviceTools(
+      { directory, node, runtime, env: this.options.env },
+      { serveSim: this.options.platform === "darwin", scrcpy: true },
+    ).finally(() => {
+      this.toolsDownload = undefined;
+      // The next inventory read looks for serve-sim again.
+      this.checkedInput = false;
+      this.inputHint = undefined;
+    });
+    return this.toolsDownload;
   }
   transportCommand(
     device: Device,
@@ -230,16 +303,17 @@ export class DevicePlatform {
     );
     for (const id of this.appProcesses.keys()) if (!present.has(id)) this.appProcesses.delete(id);
     if (!this.checkedInput && devices.some((device) => device.platform === "ios")) {
-      const [serve, idb] = await Promise.all([
+      const [managed, serve, idb] = await Promise.all([
+        this.managedServeSim(),
         findExecutable(this.options.env["ACE_SERVE_SIM"] ?? "serve-sim", this.options.env),
         findExecutable("idb", this.options.env),
       ]);
       this.checkedInput = true;
-      if (!serve && !idb)
+      if (!managed && !serve && !idb)
         this.inputHint = new DeviceError(
           "tool_missing",
-          "iOS background input needs serve-sim or idb",
-          "Install serve-sim on this Mac for Simulator capture and background gestures, typing and keys, or install idb with idb_companion.",
+          "The Simulator's device tools aren't downloaded",
+          "Download device tools in Devices: ace's serve-sim streams the Simulator and takes its gestures, typing and keys.",
         );
     }
     if (missing.length && outcomes.every((result) => result.status === "rejected"))

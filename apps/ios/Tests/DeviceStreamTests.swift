@@ -13,6 +13,24 @@ import Testing
     /// with its SPS (4-byte start code) and PPS (3-byte start code) in front of the slice.
     static let keyframe = "41434553010400450000000c0000005b00000000000000000000000040000000000000000438096040280000010e010b617663312e3432453031460015616e64726f69643a656d756c61746f722d3535353400056361702d32000000016742e01f00000168ce3c8000000001658884"
 
+    @Test func screenFramesStayScopedToTheirSessionAndCannotMasqueradeAsDevicePictures() throws {
+        let golden = try hex(Self.keyframe)
+        let old = golden.subdata(in: 20..<(20 + 69))
+        let reader = ByteReader(old)
+        let sourceAt = 28 + Int(reader.u8(27))
+        let sourceEnd = sourceAt + 2 + Int(reader.u16(sourceAt))
+        let session = Data("screen-session".utf8)
+        var meta = Data(old.prefix(sourceAt)); meta.append(contentsOf: [0, UInt8(session.count)]); meta.append(session)
+        meta.append(old.suffix(from: sourceEnd))
+        let pieces = BrowserStreamTests.pieces(kind: StreamWire.Kind.screenFrame, id: 1, meta: meta, payload: Data([0, 0, 1, 0x65]))
+        var router = BinaryRouter()
+        guard case .screen(let picture) = router.route(pieces[0]) else { Issue.record("Screen picture was not routed natively"); return }
+        #expect(picture.deviceId == "screen-session" && picture.streamId == "cap-2")
+        #expect(picture.width == 1080 && picture.height == 2400)
+        let impostor = BrowserStreamTests.pieces(kind: StreamWire.Kind.deviceFrame, id: 2, meta: meta, payload: Data([0, 0, 1, 0x65]))
+        #expect(router.route(impostor[0]) == .broken)
+    }
+
     @Test func aSimulatorJPEGFromTheDaemonReadsWithItsSizeScaleRotationAndBytes() throws {
         var router = BinaryRouter()
         guard case .device(let frame) = router.route(try hex(Self.jpeg)) else { Issue.record("no device frame"); return }

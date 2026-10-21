@@ -38,7 +38,7 @@ import XCTest
         open("ios-agents", in: app)
         let worked = app.buttons["work.toggle"].firstMatch
         XCTAssertTrue(worked.waitForExistence(timeout: 25))
-        app.collectionViews["transcript"].swipeDown(velocity: .fast)
+        app.scrollViews["transcript"].swipeDown(velocity: .fast)
         worked.tap()
         XCTAssertTrue(app.staticTexts["Ran"].waitForExistence(timeout: 15))
         screenshot("worked-full-steps")

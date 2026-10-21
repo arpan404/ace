@@ -124,6 +124,14 @@ export class GitHubReviews {
     throw new ForgeError("limit");
   }
   async viewed(number: number, headSha: string, signal: AbortSignal) {
+    return (await this.#viewed(number, headSha, signal)).files;
+  }
+  /** The viewer's viewed marks at whatever head the PR has now, and that head. */
+  viewedNow(number: number, signal: AbortSignal) {
+    return this.#viewed(number, undefined, signal);
+  }
+  async #viewed(number: number, expected: string | undefined, signal: AbortSignal) {
+    let headSha = expected;
     const { owner, name } = this.#pr(number).repository;
     let after: string | null = null;
     const files: { path: string; state: string }[] = [];
@@ -135,9 +143,11 @@ export class GitHubReviews {
       });
       budget.add(result.bytes);
       const pr = decode(Files, result.body).data.repository.pullRequest;
+      // Every page must come from one head: the first page's when none was named.
+      headSha ??= pr.headRefOid;
       if (pr.headRefOid !== headSha) throw new ForgeError("conflict");
       files.push(...pr.files.nodes.map((f) => ({ path: f.path, state: f.viewerViewedState })));
-      if (!pr.files.pageInfo.hasNextPage) return files;
+      if (!pr.files.pageInfo.hasNextPage) return { headSha, files };
       const next = pr.files.pageInfo.endCursor;
       if (!next || next === after) throw new ForgeError("invalid_data");
       after = next;

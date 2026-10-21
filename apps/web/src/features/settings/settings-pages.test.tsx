@@ -118,7 +118,9 @@ test("Reset restores the follow-up behavior on every device", async () => {
     within(dialog).getByText(/Appearance, themes and this computer's notifications stay/),
   ).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: "Reset settings" }));
-  expect(await screen.findByText("Settings reset")).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Reset all settings?" })).toBeNull(),
+  );
   await goTo("General");
   await waitFor(() =>
     expect(

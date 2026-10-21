@@ -221,16 +221,20 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       // Frames are JSON data. Lenient readers never decode through a strict SDK union.
       const data = object(frame.data);
       if (frame.channel === "lifecycle" && data["type"] === "process.started") {
+        // Placeholders of the replaced process keep its keys; nothing of it is live anymore.
+        pending.close(state);
+        const ended = state.facts;
         state = new ClaudeState(init.rootKey);
+        state.facts = ended;
         accounting = new ResultUsage();
         queue = new NativeQueue();
         consumed = new ConsumedInputs();
         steers = new SteerContinuation();
         streams.clear();
         messages.clear();
-        pending.clear();
       }
       taskTick(state, now);
+      pending.expire(state, now);
       state.ensureRoot(data);
       state.emit({ type: "signal", agent: state.agentFor(data) });
       if (
@@ -244,7 +248,8 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       }
       queue.observe(state, frame, data);
       steers.observe(state, frame, data);
-      if (pending.defer(state, frame)) return state.facts;
+      if (pending.defer(state, frame, now)) return state.facts;
+      if (frame.channel === "sdk") pending.observe(state, data);
       if (interactionFrame(state, frame, data)) {
         // Interaction owner reports only lifecycle facts.
       } else if (frame.channel === "lifecycle" && data["type"] === "process.exited") {
@@ -253,9 +258,10 @@ export function createTranslator(init: { rootKey: Key }): Translator {
           deliberate: data["deliberate"] === true,
           message: string(data["message"]),
         });
+        // After the exit fact, so work the exit cost still counts; then nothing of it is live.
+        pending.close(state);
         state.level.clear();
         state.missing.clear();
-        pending.clear();
       } else if (frame.channel === "lifecycle" && data["type"] === "process.started") {
         // ensureRoot already emitted the startup fact.
       } else if (frame.channel !== "sdk" || !sdk(data, frame, now)) {
@@ -268,13 +274,18 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         );
       }
       consumed.observe(state, frame, data);
+      pending.bindRegistered(state);
       const bindings = state.bindings;
       state.bindings = [];
       for (const spawn of bindings)
         for (const deferred of pending.take(state, spawn)) {
           const start = state.facts.length;
           const diagnosticStart = state.diagnostics.length;
-          if (!pending.defer(state, deferred)) sdk(object(deferred.data), deferred, now);
+          if (!pending.defer(state, deferred, now)) {
+            const replayed = object(deferred.data);
+            pending.observe(state, replayed);
+            sdk(replayed, deferred, now);
+          }
           // Receipt already retained this payload; replay only enriches canonical facts.
           state.diagnostics.length = diagnosticStart;
           for (let index = start; index < state.facts.length; index++) {
@@ -285,6 +296,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       for (const fact of state.facts)
         if (fact.type === "turn.ended" && fact.agent !== state.root)
           finishStream(state, streams, fact.agent);
+        else if (fact.type === "turn.ended") pending.turnEnded(now);
       const carriesRaw = state.facts.some((fact) =>
         factRaw(fact).some(
           (payload) => "data" in payload && (payload.data === frame.data || payload.data === data),
@@ -298,10 +310,12 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       return state.facts;
     },
     nextDeadline() {
-      const missing = state.missing.nextDeadline();
-      return missing === undefined
-        ? state.wakeUntil
-        : Math.min(missing, state.wakeUntil ?? Infinity);
+      const deadlines = [
+        state.missing.nextDeadline(),
+        state.wakeUntil,
+        pending.nextDeadline(),
+      ].filter((at) => at !== undefined);
+      return deadlines.length ? Math.min(...deadlines) : undefined;
     },
     tick(now) {
       state.facts = [];
@@ -309,6 +323,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         state.wake = undefined;
         state.wakeUntil = undefined;
       }
+      pending.expire(state, now);
       return [...taskTick(state, now), { type: "tick" }];
     },
   };

@@ -33,6 +33,26 @@ const unavailable = (message: string) =>
   );
 
 /**
+ * The pinned server already in place (`ACE_SCRCPY_SERVER`, or ace's downloaded copy), verified
+ * by checksum; undefined when it still has to be downloaded.
+ */
+export async function installedScrcpyJar(options: {
+  directory: string | undefined;
+  env: NodeJS.ProcessEnv;
+  release?: ScrcpyRelease;
+}): Promise<string | undefined> {
+  const release = options.release ?? scrcpyRelease;
+  const explicit = options.env["ACE_SCRCPY_SERVER"];
+  if (explicit) {
+    if (await verified(explicit, release.sha256)) return explicit;
+    throw unavailable(`ACE_SCRCPY_SERVER is not scrcpy-server v${release.version}`);
+  }
+  if (!options.directory) return undefined;
+  const path = join(options.directory, `scrcpy-server-v${release.version}`);
+  return (await verified(path, release.sha256)) ? path : undefined;
+}
+
+/**
  * A local copy of the pinned server, verified by checksum. `ACE_SCRCPY_SERVER` names one
  * explicitly; otherwise it is downloaded once into `directory` (ace's home) and reused.
  */

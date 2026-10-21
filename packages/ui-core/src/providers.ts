@@ -1,5 +1,6 @@
 import { modelDisplayName } from "@ace/models/display-name";
 import type { ProviderKind } from "@ace/protocol";
+import { acpAgentBrands, acpRegistryId } from "./acp-agents.ts";
 
 /** The provider's product name, as people know it. */
 export const providerNames: Record<ProviderKind, string> = {
@@ -13,13 +14,15 @@ export const providerNames: Record<ProviderKind, string> = {
 };
 
 /**
- * The product name for a provider; an ACP agent's id without its source prefix ("gemini" for
- * "official:gemini"). `acpAgentName` in `@ace/ui-core/provider-icons` knows registry names.
+ * The product name for a provider. An ACP agent gets its registry name ("Gemini CLI" for
+ * "official:gemini"), or its id without the source prefix when the registry doesn't know it.
  */
 export function providerDisplayName(provider: ProviderKind, acpAgentId?: string): string {
-  return provider === "acp" && acpAgentId
-    ? acpAgentId.replace(/^(official|local|registry):/, "")
-    : providerNames[provider];
+  if (provider !== "acp" || !acpAgentId) return providerNames[provider];
+  return (
+    acpAgentBrands[acpRegistryId(acpAgentId)]?.name ??
+    acpAgentId.replace(/^(official|local|registry):/, "")
+  );
 }
 
 /** "Codex", or "Claude Code · 2 subagents running" while subagents work. */

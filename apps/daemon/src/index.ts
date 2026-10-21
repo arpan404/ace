@@ -7,7 +7,7 @@ export { planStorageItem, type StorageCandidate } from "./storage/planner.ts";
 import { shutdownDeadline } from "./shutdown.ts";
 import { shutdownControl } from "./shutdown-receipt.ts";
 import { connectedDoctorReport } from "./diagnostics-report.ts";
-import { daemonToolchains } from "./toolchains.ts";
+import { daemonToolchains, daemonServeSim } from "./toolchains.ts";
 export { runDaemonProcess } from "./process-daemon.ts";
 export { NewerDataError, HOME_FORMAT_VERSION } from "@ace/service";
 export type { StopReason } from "./stop-reason.ts";
@@ -35,6 +35,7 @@ import { buildFields, daemonLogDirectory, logStartupRefusal, openDaemonLog } fro
 import { logHomeBackup } from "./home-backup-log.ts";
 import { sqliteFailureDetails, systemDiskSpace } from "./sqlite-failure.ts";
 import { createLoopMonitor, systemLoopClock } from "./loop-monitor.ts";
+import { watchStalls } from "./stall-log.ts";
 import { DaemonStop, type StopReason } from "./stop-reason.ts";
 import { stopRecorder, type Stopping } from "./stop-record.ts";
 import { beginRun, previousRunRecord, type DaemonRun } from "./run-marker.ts";
@@ -82,7 +83,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const config = options.config ?? readConfig();
   const diagnostics = options.diagnostics ?? {
     doctor: () => connectedDoctorReport(config, process.env, now),
-    toolchains: () => daemonToolchains(process.env, process.platform),
+    toolchains: () =>
+      daemonToolchains(process.env, process.platform, daemonServeSim(config.dataDir)),
   };
   const sharedDiagnostics = shareDiagnostics(diagnostics);
   options = { ...options, diagnostics: sharedDiagnostics };
@@ -188,6 +190,10 @@ export async function startDaemon(options: DaemonOptions = {}) {
     stopInventory();
     inventory.close();
   }, "process inventory");
+  resources.own(
+    watchStalls(log, daemonLogDirectory(config), options.stallTiming),
+    "stall watchdog",
+  );
   const lifetime = new AbortController();
   resources.onShutdown(() => lifetime.abort());
   let initialized = false;

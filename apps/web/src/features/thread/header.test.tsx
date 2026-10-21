@@ -345,12 +345,13 @@ test("the card's git actions walk the branch from Commit & push to Create PR, an
   await userEvent.type(message, "Wait for the payment intent before asserting");
   await within(commit).findByRole("list", { name: "Files to commit" });
   await userEvent.click(within(commit).getByRole("button", { name: /^Commit & push/ }));
-  expect(await screen.findByText("Committed and pushed", {}, { timeout: 15000 })).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: /^Commit to / })).toBeNull(), {
+    timeout: 15000,
+  });
 
   await userEvent.click(await gitStep("Create PR"));
   const pr = await screen.findByRole("dialog", { name: "Open a pull request" });
   await userEvent.click(within(pr).getByRole("button", { name: /^Create PR/ }));
-  expect(await screen.findByText(/^Pull request #1 opened$/)).toBeTruthy();
 
   expect(
     await within(await openWorkCard()).findByRole("button", {
@@ -402,7 +403,7 @@ test("Commit lists exactly the files git reports, preselects new and tracked fil
 
   await userEvent.click(box("src/checkout.ts"));
   await userEvent.click(within(dialog).getByRole("button", { name: commitButton }));
-  expect(await screen.findByText("Committed")).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: /^Commit to / })).toBeNull());
   // The rename went in with its old path; the unticked files stayed uncommitted.
   expect(app.daemon.workspace.gitStatus("thread-checkout").map((file) => file.path)).toEqual([
     "src/checkout.ts",
@@ -523,7 +524,9 @@ test("the commit dialog lists the checkout's uncommitted files and can push too,
   expect(within(commit).getByRole("button", { name: /^Commit & push/ })).toBeTruthy();
   await userEvent.click(within(commit).getByRole("textbox", { name: "Commit details" }));
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
-  expect(await screen.findByText("Committed and pushed", {}, { timeout: 15000 })).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: /^Commit to / })).toBeNull(), {
+    timeout: 15000,
+  });
   const details = app.daemon.snapshot({
     kind: "thread",
     threadId: ThreadId.parse("thread-checkout"),
@@ -544,7 +547,11 @@ test("the PR dialog's Draft option opens a draft pull request", async () => {
   const pr = await screen.findByRole("dialog", { name: "Open a pull request" });
   await userEvent.click(within(pr).getByRole("checkbox", { name: /Draft/ }));
   await userEvent.click(within(pr).getByRole("button", { name: /^Create draft PR/ }));
-  expect(await screen.findByText(/^Draft pull request #\d+ opened$/)).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Open a pull request" })).toBeNull(),
+  );
+  // The PR's own line says it is a draft.
+  expect(await within(await openWorkCard()).findByText(/A draft can't merge/)).toBeTruthy();
 });
 
 const renamed = (index: number) => ({
@@ -568,7 +575,7 @@ test("a full page of renames commits in one go: each names both its paths", asyn
   const dialog = await screen.findByRole("dialog", { name: /^Commit to / });
   expect(await within(dialog).findByRole("button", { name: "251 files" })).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: commitButton }));
-  expect(await screen.findByText("Committed")).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: /^Commit to / })).toBeNull());
   expect(app.daemon.workspace.gitStatus("thread-checkout")).toEqual([]);
 });
 
@@ -593,7 +600,7 @@ test("past 500 files the list says it is cut short, and commits only what it lis
     within(dialog).getByText("Only the first 500 files are listed; the rest stay uncommitted."),
   ).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: commitButton }));
-  expect(await screen.findByText("Committed")).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: /^Commit to / })).toBeNull());
   expect(app.daemon.workspace.gitStatus("thread-checkout").map((file) => file.path)).toEqual([
     "src/file-500.ts",
   ]);
@@ -631,7 +638,6 @@ test("from the card, an idle thread switches branch and moves into a worktree of
     within(card).getByRole("button", { name: "Branch sketch/parser, switch branch" }),
   );
   await userEvent.click(await screen.findByRole("menuitem", { name: "develop" }));
-  expect(await screen.findByText("Switched to develop")).toBeTruthy();
   const after = await openWorkCard();
   expect(
     await within(after).findByRole("button", { name: "Branch develop, switch branch" }),
@@ -642,9 +648,13 @@ test("from the card, an idle thread switches branch and moves into a worktree of
     within(await screen.findByRole("menuitem", { name: /^Local/ })).getByText("current"),
   ).toBeTruthy();
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Worktree/ }));
-  expect(await screen.findByText("Moved to a worktree")).toBeTruthy();
-  const snapshot = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-idle") });
-  expect(snapshot && "thread" in snapshot && snapshot.thread.details?.mode).toBe("worktree");
+  await waitFor(() => {
+    const snapshot = app.daemon.snapshot({
+      kind: "thread",
+      threadId: ThreadId.parse("thread-idle"),
+    });
+    expect(snapshot && "thread" in snapshot && snapshot.thread.details?.mode).toBe("worktree");
+  });
 });
 
 // ---------------------------------------------------------------------------------------------

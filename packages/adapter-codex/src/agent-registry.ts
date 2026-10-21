@@ -89,7 +89,8 @@ export function createAgentRegistry(config: {
         agent: config.rootKey,
         task: `unknown:${id}`,
         kind: "other",
-        title: "Recovering uncertain Codex child work",
+        title: "Subagent recovery",
+        internal: true,
         stoppable: false,
       });
     }
@@ -174,7 +175,7 @@ export function createAgentRegistry(config: {
               agent: agent.key,
               task: shellKey(itemId),
               kind: "shell",
-              title: "Codex background command",
+              title: recoveredCommand(turns, itemId) ?? "Background command",
               stoppable: true,
             });
         }
@@ -248,4 +249,15 @@ export function createAgentRegistry(config: {
     return agent;
   }
   return { ensure, discover };
+}
+
+/** The command of a live terminal's item, when the thread's history still has it. */
+function recoveredCommand(turns: readonly unknown[], itemId: string): string | undefined {
+  for (const turn of turns)
+    for (const value of list(obj(turn)["items"])) {
+      const item = obj(value);
+      if (item["id"] === itemId && item["type"] === "commandExecution")
+        return str(item["command"]).trim() || undefined;
+    }
+  return undefined;
 }

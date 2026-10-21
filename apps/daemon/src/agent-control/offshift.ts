@@ -87,7 +87,13 @@ export function createOffshifts(context: ServiceContext, delegations: Delegation
       }
       signal.throwIfAborted();
       if (workspace.root(ownerId) !== root) return { ok: false, code: "not_ready" };
-      const revision = createHash("sha256").update(root).update("\0").update(source).digest("hex");
+      // Agents copy this into every evidence call: 12 hex digits tell a checkout's states apart.
+      const revision = createHash("sha256")
+        .update(root)
+        .update("\0")
+        .update(source)
+        .digest("hex")
+        .slice(0, 12);
       // Canonical status is read after the awaited Git I/O. The monitor counts local and remote
       // descendants and unsettled deliveries; a provider turn end never becomes completion.
       const owner = store.getThread(ownerId);

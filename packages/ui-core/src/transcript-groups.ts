@@ -1,9 +1,8 @@
 /*
  * The transcript's one grouping rule. Consecutive items of the same kind by the same agent within
- * one run merge into one row: subagents, tool calls (by family, `stepFamily`), background tasks,
- * file edits. Anything the agent says, a person's message, a question or an error ends a group,
+ * one run merge into one row: subagents, tool calls, background tasks, file edits. Anything the agent says, a person's message, a question or an error ends a group,
  * whatever follows it. A group of one is a plain row. The work log applies it step by step
- * (`groupSteps`); the transcript's blocks apply it to background tasks and launches. Pure.
+ * (`groupSteps`), background tasks among its steps. Pure.
  */
 
 /** What can merge with its neighbour. */
@@ -17,8 +16,6 @@ export interface GroupEntry {
   agentId: string;
   /** The run it happened in; items of two runs never merge. */
   runId?: string | undefined;
-  /** A tool call's family (`stepFamily`): calls of two families never merge. */
-  family?: string | undefined;
 }
 
 const breaking = new Set<GroupEntry["kind"]>(["prose", "user", "question", "error"]);
@@ -30,7 +27,6 @@ export function mergesWith(previous: GroupEntry | undefined, next: GroupEntry): 
   return (
     previous.kind === next.kind &&
     previous.agentId === next.agentId &&
-    previous.runId === next.runId &&
-    previous.family === next.family
+    previous.runId === next.runId
   );
 }

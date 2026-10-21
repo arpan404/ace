@@ -1,3 +1,4 @@
+import { isInternalTask } from "@ace/projection";
 import type { Agent, BackgroundTask, Interaction } from "@ace/protocol";
 import type { ThreadReader } from "@ace/client";
 import { agentName, agentTreeWork, agentWorkState, taskState } from "./agents.ts";
@@ -211,8 +212,9 @@ export function agentSheet(
     });
   }
 
-  // Running work first, then the newest that ended.
-  const shownTasks = tasks
+  // Running work first, then the newest that ended; ace's bookkeeping is never listed.
+  const listed = tasks.filter((task) => !isInternalTask(task));
+  const shownTasks = listed
     .toSorted(
       (a, b) =>
         Number(b.status === "running") - Number(a.status === "running") ||
@@ -233,7 +235,7 @@ export function agentSheet(
       startedAt: task.startedAt,
       endedAt: task.endedAt ?? null,
     })),
-    hiddenTasks: tasks.length - shownTasks.length,
+    hiddenTasks: listed.length - shownTasks.length,
     totals: {
       agents: order.length,
       running: order.filter(({ agent }) => work.running.has(agent.id)).length,

@@ -20,7 +20,10 @@ export type LiveFact =
   | { kind: "child-asking"; agent: string }
   | { kind: "limited"; until: number | undefined }
   | { kind: "subagents"; count: number }
-  /** Background work holds the thread; `title` names it when there is exactly one. */
+  /**
+   * Background work holds the thread; `title` is the command of a single shell. A `count` of 0
+   * is work the thread holds for but doesn't list.
+   */
   | { kind: "watching"; count: number; title: string | undefined }
   | { kind: "tests" };
 
@@ -75,7 +78,7 @@ export function describeLive(fact: LiveFact, now: number, locale?: string): Live
         tone: "working",
       };
     case "watching":
-      return fact.count === 1 && fact.title
+      return (fact.count === 1 && fact.title) || fact.count === 0
         ? { label: "Running in background", code: fact.title, tone: "background" }
         : {
             label: `Running ${pluralCount(fact.count, "command", "commands")} in background`,
@@ -115,9 +118,14 @@ export function threadLiveFact(thread: {
       return live?.step === "tests" ? { kind: "tests" } : undefined;
     case "waiting": {
       if (status.on !== "background_task") return undefined;
+      // Only shells are named; bookkeeping holds the thread without being counted.
       const watching = live?.watching ?? [];
-      const count = watching.length || live?.backgroundTaskCount || 1;
-      return { kind: "watching", count, title: count === 1 ? watching[0]?.title : undefined };
+      const count = Math.max(watching.length, live?.backgroundTaskCount ?? 0);
+      return {
+        kind: "watching",
+        count,
+        title: count === 1 && watching.length === 1 ? watching[0]?.title : undefined,
+      };
     }
     default:
       return undefined;

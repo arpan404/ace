@@ -146,7 +146,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   // Out from under a menu, the page is drawn from the live video (once a newer picture
   // replaces the still taken as the menu opened), so it keeps moving while the menu shows.
   const still = useCoverStill(native.frozen, page.frame);
-  // Picture-in-picture lays the page out at the size it had here.
+  // Picture-in-picture takes the shape the page had here.
   useEffect(() => {
     const element = pageArea.current;
     if (!element || typeof ResizeObserver === "undefined") return;

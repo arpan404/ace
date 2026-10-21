@@ -92,7 +92,6 @@ export function FileOperations(props: {
                 () => {
                   refresh();
                   props.onChanged(original);
-                  toast.add({ title: `Restored ${original}` });
                 },
                 (failure: unknown) =>
                   toast.error({

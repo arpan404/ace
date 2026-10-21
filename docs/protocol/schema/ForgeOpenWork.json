@@ -1,0 +1,79 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeOpenWork.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "failingPullRequests": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ForgePrRow.json"
+          },
+          "maxItems": 25,
+          "type": "array"
+        },
+        "total": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "items",
+        "total"
+      ],
+      "type": "object"
+    },
+    "issues": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ForgeIssueRow.json"
+          },
+          "maxItems": 25,
+          "type": "array"
+        },
+        "total": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "items",
+        "total"
+      ],
+      "type": "object"
+    },
+    "pullRequests": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ForgePrRow.json"
+          },
+          "maxItems": 25,
+          "type": "array"
+        },
+        "total": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "items",
+        "total"
+      ],
+      "type": "object"
+    },
+    "repository": {
+      "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+    }
+  },
+  "required": [
+    "repository",
+    "pullRequests",
+    "failingPullRequests",
+    "issues"
+  ],
+  "type": "object"
+}

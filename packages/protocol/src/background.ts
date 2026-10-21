@@ -21,6 +21,11 @@ export const BackgroundTask = z.object({
    * never hold a thread open.
    */
   ambient: z.boolean().default(false),
+  /**
+   * ace's own bookkeeping (recovery, correlation, limits) rather than work the agent started.
+   * It holds the thread open exactly like running work, but clients never list or name it.
+   */
+  internal: z.literal(true).optional(),
   /** File the provider writes the task's output to, if any. */
   outputPath: z.string().optional(),
   /** Tool call that started it. */

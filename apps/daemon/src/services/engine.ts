@@ -17,7 +17,7 @@ import { daemonCursorInstance } from "./cursor-instance.ts";
 import { cursorCheckpointLimitOverride } from "./cursor-limits.ts";
 import { bindCursorSdk, createInstance } from "@ace/accounts";
 import { activateCursorProvider } from "./cursor-activation.ts";
-import type { ProviderAdapter } from "@ace/engine-api";
+import { adapterWarning, type ProviderAdapter } from "@ace/engine-api";
 import { recoveryPorts, prepareQueuedInput } from "./recovery.ts";
 import { recoverOnFreshReadings } from "./limit-recovery.ts";
 import { Engine } from "../engine/index.ts";
@@ -310,7 +310,10 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     onProviderDiagnostic:
       engineOptions.onProviderDiagnostic ??
       ((thread, raw) => {
-        const warnings = raw.filter((payload) => payload.type === "stderr");
+        // stderr, and an adapter's own bookkeeping that hit a limit, are worth a warning.
+        const warnings = raw.filter(
+          (payload) => payload.type === "stderr" || payload.type === adapterWarning,
+        );
         const evidence = config.logLevel === "debug" ? raw : warnings;
         if (!evidence.length) return;
         log.log(

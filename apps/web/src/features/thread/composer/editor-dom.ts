@@ -79,11 +79,26 @@ export function insertEditorText(el: HTMLElement, text: string): void {
   range.deleteContents();
   const node = el.ownerDocument.createTextNode(text);
   range.insertNode(node);
+  // A trailing newline draws no line of its own: give the caret the tail break the editor
+  // renders after a final newline, so the new empty line shows (and is measured) at once.
+  if (text.endsWith("\n") && !followingContent(el, node)) {
+    const tail = el.ownerDocument.createElement("br");
+    tail.dataset.editorTail = "";
+    el.append(tail);
+  }
   range.setStartAfter(node);
   range.collapse(true);
   selection.removeAllRanges();
   selection.addRange(range);
   el.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/** Whether anything is drawn after `node` in the editor: text, a chip or a break. */
+function followingContent(el: HTMLElement, node: Node): boolean {
+  for (let at: Node | null = node; at && at !== el; at = at.parentNode)
+    for (let next = at.nextSibling; next; next = next.nextSibling)
+      if (next.nodeType !== Node.TEXT_NODE || next.textContent) return true;
+  return false;
 }
 
 /** The text each chip in the editor stands for, in document order. */

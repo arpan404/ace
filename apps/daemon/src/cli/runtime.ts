@@ -1,7 +1,9 @@
+import { setPriority } from "node:os";
 import { serviceCommand } from "@ace/service";
 import { incompatibleData } from "@ace/provider-kit/incompatible-data";
 import { readHistoryInstances } from "../history.ts";
 import { readModelInstances } from "../models.ts";
+import { logPriority, raiseDaemonPriority } from "../process-priority.ts";
 import { createDevThread, stubHandler } from "../commands.ts";
 import type { Config } from "../config.ts";
 import { validateArgs, type Args } from "./args.ts";
@@ -23,6 +25,11 @@ export async function runtimeCommand(args: Args, config: Config) {
   validateArgs(args, [], 0, 1);
   const development = process.env.ACE_DEV === "1";
   const { startDaemon, runDaemonProcess, NewerDataError } = await import("../index.ts");
+  // Before startup, so a loaded machine schedules the startup work too.
+  const priority = raiseDaemonPriority({
+    platform: process.platform,
+    setPriority: (value) => setPriority(value),
+  });
   // A daemon that cannot start (for example, another one holds the lock) failed; the
   // request itself was valid, so it is not a refusal.
   const daemon = await runDaemonProcess(startDaemon, {
@@ -53,6 +60,7 @@ export async function runtimeCommand(args: Args, config: Config) {
     );
   });
   if (!daemon) return;
+  logPriority(priority, daemon.log);
   try {
     if (development && daemon.store.listThreads().length === 0)
       createDevThread(daemon.store, daemon.store.createWorkspace(process.cwd(), "Development"));

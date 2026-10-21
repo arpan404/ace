@@ -58,7 +58,9 @@ test("a device that can't stream video shows the daemon's reason and how to fix 
   expect(alert.textContent).toContain(
     "This Mac's screen helper can't stream video for the Simulator live view",
   );
-  expect(alert.textContent).toContain("npm install -g serve-sim@0.1.48");
+  expect(alert.textContent).toContain(
+    "Download device tools in Devices for ace's serve-sim 0.1.48",
+  );
   expect(browser.draws(screenImage)).toBe(0);
 });
 
@@ -83,7 +85,6 @@ test("stopping the live view closes the H.264 decoder and every decoded frame", 
 test("a reconnect closes the old decoder and shows the screen through a fresh one, replaying no input", async () => {
   const { app, panel, iphone, screenImage, browser } = await liveIphone("decodes");
   await waitFor(() => expect(browser.events).toContain("drew h264"));
-  await userEvent.click(within(iphone).getByRole("button", { name: /Take control/ }));
   await userEvent.click(await within(iphone).findByRole("button", { name: "Home" }));
   await waitFor(() => expect(app.daemon.appDevices.inputs).toHaveLength(1));
   const before = [...browser.decoders];
@@ -100,15 +101,9 @@ test("a reconnect closes the old decoder and shows the screen through a fresh on
   expect(app.daemon.appDevices.inputs).toHaveLength(1);
 });
 
-test("in control, a drag on the simulator's H.264 screen reaches the device as down, moves and up, in order", async () => {
-  const { app, iphone, screenImage, browser } = await liveIphone("decodes");
+test("a drag on the simulator's H.264 screen reaches the device as down, moves and up, in order", async () => {
+  const { app, screenImage, browser } = await liveIphone("decodes");
   await waitFor(() => expect(browser.events).toContain("drew h264"));
-  await userEvent.click(within(iphone).getByRole("button", { name: /Take control/ }));
-  await waitFor(() =>
-    expect(within(iphone).getByRole("button", { name: "Home" }).hasAttribute("disabled")).toBe(
-      false,
-    ),
-  );
   const drawn = browser.draws(screenImage);
 
   await userEvent.pointer([
