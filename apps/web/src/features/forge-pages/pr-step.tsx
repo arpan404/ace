@@ -75,7 +75,8 @@ export function useStepAction(project: string, back: string) {
 
 /**
  * The row's step as one text button, laid over the space `StepSpace` keeps for it. Merge
- * toggles the row in the merge selection (`pressed`); the others act at once.
+ * toggles the row in the merge selection (`pressed`), reading "Selected" while it is in; the
+ * others act at once.
  */
 export function StepButton(props: {
   label: string;
@@ -97,7 +98,7 @@ export function StepButton(props: {
         "absolute right-[calc(var(--forge-gutter)-0.375rem)] bottom-2.5 text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover disabled:opacity-50",
       )}
     >
-      {props.label}
+      {props.pressed ? "Selected" : props.label}
     </button>
   );
 }

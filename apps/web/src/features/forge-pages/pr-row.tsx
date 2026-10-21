@@ -138,7 +138,7 @@ export function PrRow(props: {
               )}
               <Age at={row.updatedAt} />
             </span>
-            <StepSpace label={action?.label} />
+            <StepSpace label={action?.pressed ? "Selected" : action?.label} />
           </span>
         </span>
       </Link>
