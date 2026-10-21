@@ -176,12 +176,7 @@ function ProviderLine(props: { machine: Machine; entry: ProviderEntry }) {
   const { install, row, view } = props.entry;
   const open = useOpenOnMachine();
   return (
-    <div
-      role="group"
-      aria-label={install.name}
-      data-setting-slot=""
-      className="-mx-3 rounded-md px-3 py-1 transition-colors duration-(--motion-fast) hover:bg-hover"
-    >
+    <div role="group" aria-label={install.name} data-setting-slot="" className="py-1">
       <ProviderSetupRow
         columns
         provider={install.kind}

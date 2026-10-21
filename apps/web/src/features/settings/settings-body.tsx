@@ -39,7 +39,7 @@ export function SettingsBody(props: {
     // its controls, with the view's name for assistive tech.
     <Screen title={<span className="sr-only">Settings</span>} actions={props.actions}>
       <div className="h-full overflow-auto">
-        <div className="@container mx-auto w-full max-w-[860px] px-5 pt-5 pb-20 sm:px-7">
+        <div className="@container mx-auto w-full max-w-[700px] px-5 pt-8 pb-20 sm:px-7">
           {props.back && <div className="mb-1 text-ui">{props.back}</div>}
           {/* The title row is a band of its own: the first group starts a clear step below it. */}
           <div className="mb-7 flex min-h-8 flex-wrap items-center gap-x-3 gap-y-2">

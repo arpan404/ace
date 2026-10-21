@@ -56,9 +56,7 @@ export function SettingRow(props: {
       data-flash={flashing || undefined}
       className={cn(
         "@container group/setting transition-colors duration-(--motion-slow)",
-        inCard
-          ? "-mx-3 rounded-md px-3 transition-colors duration-(--motion-fast) hover:bg-hover"
-          : "",
+        inCard ? "" : "",
         flashing && "bg-accent",
       )}
     >
@@ -77,7 +75,7 @@ export function SettingRow(props: {
                 id={titleId}
                 tabIndex={0}
                 aria-describedby={hintId}
-                className="w-fit rounded-sm text-ui text-foreground focus-ring"
+                className="w-fit rounded-sm text-md text-foreground focus-ring"
               >
                 {props.title}
               </Title>
@@ -87,7 +85,7 @@ export function SettingRow(props: {
               {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
               id={titleId}
               tabIndex={!props.htmlFor && compact && props.description ? 0 : undefined}
-              className="w-fit rounded-sm text-ui text-foreground focus-ring"
+              className="w-fit rounded-sm text-md text-foreground focus-ring"
             >
               {props.title}
             </Title>
@@ -189,8 +187,7 @@ export function SettingSection(props: {
  * A settings group: its title in a left gutter beside its rows, so nothing needs a rule to say
  * where a group starts. Narrow, the title sits above. Shared by every grouped settings page.
  */
-export const settingsGroup =
-  "mb-(--settings-group-gap) grid gap-x-10 gap-y-1.5 @[44rem]:grid-cols-[11rem_minmax(0,1fr)]";
+export const settingsGroup = "mb-9 flex flex-col";
 
 /** A group's title in the gutter, with its one-line note and actions under it. */
 export function SettingsGroupTitle(props: {
@@ -200,16 +197,18 @@ export function SettingsGroupTitle(props: {
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1 @[44rem]:pt-2.5">
-      <h3 id={props.id} className="text-ui font-medium text-foreground">
-        {props.children}
-      </h3>
+    <div className="mb-1 flex min-w-0 flex-col gap-0.5">
+      <div className="flex min-h-7 items-center gap-2">
+        <h3 id={props.id} className="text-ui font-medium text-muted-foreground">
+          {props.children}
+        </h3>
+        {props.actions && (
+          <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground [&>[data-variant=ghost]:last-child]:-mr-2.5">
+            {props.actions}
+          </div>
+        )}
+      </div>
       {props.note && <p className="text-xs text-muted-foreground">{props.note}</p>}
-      {props.actions && (
-        <div className="-ml-2.5 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-          {props.actions}
-        </div>
-      )}
     </div>
   );
 }
@@ -223,7 +222,9 @@ export function SettingsGroupTitle(props: {
 export function SettingCard(props: { children: ReactNode; className?: string }) {
   return (
     <InCard value>
-      <div className={cn("flex flex-col", props.className)}>{props.children}</div>
+      <div className={cn("flex flex-col divide-y divide-border-soft", props.className)}>
+        {props.children}
+      </div>
     </InCard>
   );
 }
