@@ -162,12 +162,11 @@ function Conversation(props: { entry: AutomationEntry; daemonKey: string; refetc
           className="min-h-0 flex-1 overflow-y-auto pb-8 [scrollbar-gutter:stable]"
         >
           <div className={readingColumn}>
-            <header className="sticky top-0 z-10 flex items-start gap-4 bg-background pt-6 pb-4">
-              <div className="min-w-0 flex-1">
-                <h2 className="text-xl font-semibold tracking-title break-words">
-                  {automation.title}
-                </h2>
-                <p className="mt-1 text-ui text-muted-foreground">
+            {/* The app header already names it; one pinned line says when it runs, with the switch. */}
+            <header className="sticky top-0 z-10 bg-background pt-4 pb-2">
+              <h2 className="sr-only">{automation.title}</h2>
+              <div className="flex min-h-10 items-center gap-3 rounded-lg border border-border px-3 py-1.5 text-ui text-muted-foreground">
+                <p className="min-w-0 flex-1 truncate">
                   {describeWhen(automation.trigger, localTimeZone())} ·{" "}
                   <span className="text-foreground">
                     <NextRun
@@ -180,16 +179,15 @@ function Conversation(props: { entry: AutomationEntry; daemonKey: string; refetc
                   · {projectName(automation.workspace)}
                   {entry.owner && <OwnerLink threadId={entry.owner} />}
                 </p>
+                <Switch
+                  aria-label="Enabled"
+                  checked={automation.enabled}
+                  disabled={controls.busy || !controls.ready}
+                  onCheckedChange={(checked) => controls.toggle(checked)}
+                />
               </div>
-              <Switch
-                aria-label="Enabled"
-                className="mt-1.5"
-                checked={automation.enabled}
-                disabled={controls.busy || !controls.ready}
-                onCheckedChange={(checked) => controls.toggle(checked)}
-              />
             </header>
-            <div className="mt-4 flex justify-end">
+            <div className="mt-6 flex justify-end">
               <div aria-label="Prompt" role="group" className={promptBubble}>
                 {automation.prompt}
               </div>

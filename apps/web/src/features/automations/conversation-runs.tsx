@@ -18,10 +18,8 @@ import type { AutomationSource } from "@ace/protocol";
  */
 
 /** The transcript's answer prose: reading size and line height. */
-const answer = "min-w-0 font-prose text-prose leading-[1.6] tracking-[-0.005em] wrap-break-word";
-/** The transcript's one-line rows ("Worked for 3m 40s"), flush with the column. */
-const row =
-  "-mx-2 flex min-h-8 w-[calc(100%+--spacing(4))] items-center gap-1 rounded-md px-2 py-1 text-ui text-muted-foreground pointer-coarse:min-h-11";
+export const answer =
+  "min-w-0 font-prose text-prose leading-[1.6] tracking-[-0.005em] wrap-break-word";
 
 /** A plain text action inside a sentence: "Run again", "Open run". */
 export function TextAction(props: {
@@ -51,68 +49,62 @@ const dot = (
   </span>
 );
 
-/** "Failed · Today 2:00 AM ────": the turn's date, a status word when it needs one, a hairline. */
+/** A status turn's head (trigger stopped, GitHub check failing): the same row as a run's. */
 export function TurnDivider(props: { status?: { tone: string; word: string }; when: string }) {
-  return (
-    <div className="flex items-center gap-3 text-xs text-subtle-foreground">
-      <span className="shrink-0 tabular-nums">
-        {props.status && (
-          <>
-            <span data-tone={props.status.tone} className="font-medium text-(--tone-text)">
-              {props.status.word}
-            </span>
-            {" · "}
-          </>
-        )}
-        {props.when}
-      </span>
-      <span aria-hidden className="h-px flex-1 bg-border" />
-    </div>
-  );
+  return <TurnHead when={props.when} status={props.status} />;
 }
 
-function OpenRun(props: { threadId: string; children: ReactNode; className?: string }) {
-  return (
+/** The turn's head, like the thread's "Worked for" row: date, how it went, a hairline under it. */
+function TurnHead(props: {
+  when: string;
+  status?: { tone: string; word: string } | undefined;
+  detail?: string | undefined;
+  threadId?: string | undefined;
+  live?: boolean;
+}) {
+  const words = (
+    <>
+      {props.status && (
+        <span data-tone={props.status.tone} className="font-medium text-(--tone-text)">
+          {props.status.word}
+          {dot}
+        </span>
+      )}
+      <span className="tabular-nums">{props.when}</span>
+      {props.detail && (
+        <>
+          {dot}
+          {props.detail}
+        </>
+      )}
+    </>
+  );
+  // Flush with the column, so its hairline lines up with the bubble and the composer.
+  const shape =
+    "flex min-h-8 items-center gap-1 border-b border-border py-1 text-ui text-muted-foreground pointer-coarse:min-h-11";
+  return props.threadId ? (
     <Link
       to="/t/$threadId"
       params={{ threadId: props.threadId }}
+      aria-label={`Open run, ${props.when}`}
       className={cn(
-        "rounded-xs text-muted-foreground focus-ring hover:text-foreground",
-        props.className,
+        shape,
+        "transition-colors duration-(--motion-fast) hover:text-foreground focus-ring-inset",
       )}
     >
-      {props.children}
+      {words}
+      <CaretRightIcon aria-hidden size={12} className="text-faint-foreground" />
     </Link>
-  );
-}
-
-function WorkingLine(props: { startedAt: number }) {
-  const now = useSeconds(true);
-  return (
-    <div role="status" className={row}>
-      Working for {formatElapsed(now - props.startedAt)}
+  ) : (
+    <div role={props.live ? "status" : undefined} className={shape}>
+      {words}
     </div>
   );
 }
 
-function WorkedLine(props: { run: AutomationRun & { finishedAt: number } }) {
-  const label = `Worked for ${formatElapsed(props.run.finishedAt - props.run.startedAt)}`;
-  const threadId = props.run.threadId;
-  return threadId ? (
-    <Link
-      to="/t/$threadId"
-      params={{ threadId }}
-      className={cn(
-        row,
-        "transition-colors duration-(--motion-fast) hover:bg-hover hover:text-foreground focus-ring-inset",
-      )}
-    >
-      {label}
-      <CaretRightIcon aria-hidden size={12} className="text-faint-foreground" />
-    </Link>
-  ) : (
-    <div className={row}>{label}</div>
-  );
+function Working(props: { startedAt: number }) {
+  const now = useSeconds(true);
+  return <>Working for {formatElapsed(now - props.startedAt)}</>;
 }
 
 function RunTurn(props: {
@@ -124,48 +116,50 @@ function RunTurn(props: {
   const { run } = props;
   const now = useNow();
   const when = formatWhen(run.startedAt, now, props.timezone);
-  const status =
-    run.status === "failed"
-      ? { tone: "failed", word: "Failed" }
-      : run.status === "skipped"
-        ? { tone: "idle", word: "Skipped" }
-        : undefined;
+  const took =
+    run.finishedAt !== undefined ? formatElapsed(run.finishedAt - run.startedAt) : undefined;
+  const threadId = run.threadId;
   return (
-    <article aria-label={`Run, ${when}`} className="mt-8 flex flex-col gap-3">
-      <TurnDivider when={when} {...(status ? { status } : {})} />
-      {run.status === "running" && <WorkingLine startedAt={run.startedAt} />}
-      {run.status === "succeeded" && run.finishedAt !== undefined && (
-        <WorkedLine run={{ ...run, finishedAt: run.finishedAt }} />
+    <article aria-label={`Run, ${when}`} className="mt-10 flex flex-col gap-3">
+      {run.status === "running" ? (
+        <TurnHead when={when} detail={undefined} live threadId={threadId} />
+      ) : run.status === "succeeded" ? (
+        <TurnHead when={when} detail={took && `Worked for ${took}`} threadId={threadId} />
+      ) : run.status === "failed" ? (
+        <TurnHead
+          when={when}
+          status={{ tone: "failed", word: "Failed" }}
+          detail={took && `after ${took}`}
+          threadId={threadId}
+        />
+      ) : (
+        <TurnHead when={when} status={{ tone: "idle", word: "Skipped" }} threadId={threadId} />
       )}
-      {run.status === "succeeded" && run.result && (
-        <div className={answer}>
-          <Prose text={run.result} />
+      {run.status === "running" && (
+        <p role="status" className="text-ui text-muted-foreground">
+          <Working startedAt={run.startedAt} />
+        </p>
+      )}
+      {run.status !== "running" && (
+        <div className={cn(answer, run.status !== "succeeded" && "text-muted-foreground")}>
+          <Prose
+            text={
+              run.result ??
+              (run.status === "failed"
+                ? "The run stopped before it finished."
+                : run.status === "skipped"
+                  ? "Nothing to do this time."
+                  : "Finished with nothing to report.")
+            }
+          />
         </div>
       )}
       {run.status === "failed" && (
-        <p className="text-ui">
-          {run.result ?? "The run stopped before it finished."}{" "}
+        <div className="text-ui">
           <TextAction strong onClick={props.onRunAgain} disabled={props.runDisabled}>
             Run again
           </TextAction>
-          {run.threadId && (
-            <>
-              {dot}
-              <OpenRun threadId={run.threadId} className="hover:underline">
-                Open run
-              </OpenRun>
-            </>
-          )}
-        </p>
-      )}
-      {run.status === "skipped" && (
-        <p className="text-ui text-muted-foreground">{run.result ?? "Nothing to do this time."}</p>
-      )}
-      {run.status === "succeeded" && run.threadId && (
-        <OpenRun threadId={run.threadId} className="inline-flex w-fit items-center gap-1 text-ui">
-          Open run
-          <CaretRightIcon aria-hidden size={12} className="text-faint-foreground" />
-        </OpenRun>
+        </div>
       )}
     </article>
   );

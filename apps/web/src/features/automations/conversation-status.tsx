@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
 import type { AutomationEntry } from "@/features/automation-data/index.ts";
-import { TextAction, TurnDivider } from "./conversation-runs.tsx";
+import { answer, TextAction, TurnDivider } from "./conversation-runs.tsx";
 import { staleWriteMessage } from "@/features/automation-data/index.ts";
 import { formatWhen } from "@/features/automation-schedule/index.ts";
 import { githubHint, triggerErrorCopy } from "@/features/automation-data/index.ts";
@@ -42,12 +42,12 @@ export function ConversationStatus(props: {
   return (
     <>
       {entry.triggerError ? (
-        <section role="alert" aria-label="Trigger" className="mt-8 flex flex-col gap-3">
+        <section role="alert" aria-label="Trigger" className="mt-10 flex flex-col gap-3">
           <TurnDivider
             status={{ tone: "failed", word: "Not watching" }}
             when={`since ${formatWhen(entry.triggerError.at, now)}`}
           />
-          <p className="text-ui">
+          <p className={answer}>
             {triggerErrorCopy(automation.trigger, entry.triggerError)} {editWhen}
             {own && (
               <>
@@ -59,24 +59,24 @@ export function ConversationStatus(props: {
         </section>
       ) : (
         entry.lastPollError && (
-          <section role="alert" aria-label="GitHub check" className="mt-8 flex flex-col gap-3">
+          <section role="alert" aria-label="GitHub check" className="mt-10 flex flex-col gap-3">
             <TurnDivider
               status={{ tone: "failed", word: "Couldn't check GitHub" }}
               when={`since ${formatWhen(entry.lastPollError.at, now)}`}
             />
-            <p className="text-ui">
+            <p className={answer}>
               {githubHint(entry.lastPollError.message)} {editWhen}
             </p>
           </section>
         )
       )}
       {(controls.pendingIntent || controls.runError) && (
-        <section role="alert" aria-label="Run now" className="mt-8 flex flex-col gap-3">
+        <section role="alert" aria-label="Run now" className="mt-10 flex flex-col gap-3">
           <TurnDivider
             status={{ tone: "failed", word: "Not started" }}
             when={formatWhen(controls.pendingIntent?.createdAt ?? now, now)}
           />
-          <p className="text-ui">
+          <p className={answer}>
             {controls.runError ?? "Couldn't confirm the run started."}{" "}
             {controls.pendingIntent && (
               <TextAction

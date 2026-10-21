@@ -151,11 +151,11 @@ test("an automation reads as a conversation: its prompt once, then each run olde
   expect(runs[0]?.textContent).toContain("The npm registry timed out twice");
   const latest = runs.at(-1);
   if (!latest) throw new Error("No runs");
-  expect(within(latest).getByText(/^Worked for 12m 0s/)).toBeTruthy();
+  // The turn's head says when and how long, and opens the run's own thread.
+  const head = within(latest).getByRole("link", { name: /^Open run, / });
+  expect(head.textContent).toContain("Worked for 12m 0s");
+  expect(head.getAttribute("href")).toBe("/t/thread-bump-codex");
   expect(await within(latest).findByText(/Found 2 advisories/)).toBeTruthy();
-  expect(within(latest).getByRole("link", { name: "Open run" }).getAttribute("href")).toBe(
-    "/t/thread-bump-codex",
-  );
 });
 
 test("the header says when it runs next, or that automations are off on this machine", async () => {
