@@ -27,11 +27,16 @@ impl Actor<'_> {
         self.refresh().await;
         let focused = self.session.focused.as_ref().and_then(|f| f.obj.clone());
         for obj in [focused, self.session.text_focus.clone()].into_iter().flatten() {
-            let Ok(element) = element::read(self.bus, &obj).await else { continue };
+            let Ok(element) = element::read(self.bus, &obj).await else {
+                continue;
+            };
             if element.defunct || !element.interfaces.text {
                 continue;
             }
-            let label = self.session.label_of(&obj).unwrap_or_else(|| "the focused element".into());
+            let label = self
+                .session
+                .label_of(&obj)
+                .unwrap_or_else(|| "the focused element".into());
             return Ok(Some((element, label)));
         }
         Ok(None)
