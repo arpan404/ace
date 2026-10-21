@@ -68,30 +68,15 @@ export function AgentDriver(props: {
   );
 }
 
-/** "You", "Another connection", "No one", or the agent driving: the tile's and chip's words. */
+/** The agent driving a device, for its tile; nothing while a person or no one does. */
 export function ControllerLabel(props: { controller: Controller; className?: string | undefined }) {
   const { controller } = props;
-  if (controller.kind === "agent")
-    return (
-      <AgentDriver
-        threadId={controller.threadId}
-        agentId={controller.agentId}
-        className={props.className}
-      />
-    );
+  if (controller.kind !== "agent") return null;
   return (
-    <span
-      className={cn(
-        "truncate",
-        controller.kind === "you" ? "text-foreground" : "text-subtle-foreground",
-        props.className,
-      )}
-    >
-      {controller.kind === "you"
-        ? "You"
-        : controller.kind === "other"
-          ? "Another connection"
-          : "No one"}
-    </span>
+    <AgentDriver
+      threadId={controller.threadId}
+      agentId={controller.agentId}
+      className={props.className}
+    />
   );
 }

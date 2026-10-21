@@ -29,7 +29,6 @@ import {
   PermissionRecord,
   createPermissionTables,
   migratePermissions,
-  migrateRecordedPermissionStates,
   permissionState,
 } from "./permission-storage.ts";
 
@@ -79,7 +78,6 @@ export class Permissions {
   constructor(repo: EngineRepository) {
     this.repo = repo;
     createPermissionTables(repo);
-    migrateRecordedPermissionStates(repo);
     migratePermissions(repo);
   }
   private read(id: ThreadId): PermissionRecord {

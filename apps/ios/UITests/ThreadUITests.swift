@@ -66,7 +66,7 @@ import XCTest
             app.buttons["thread.ios-agents"].tap()
             let worked = app.buttons["work.toggle"].firstMatch
             XCTAssertTrue(worked.waitForExistence(timeout: 25))
-            let transcript = app.collectionViews["transcript"]
+            let transcript = app.scrollViews["transcript"]
             transcript.swipeDown(velocity: .fast)
             if round == 0, worked.isHittable { worked.tap() }
             transcript.swipeUp(velocity: .fast)
@@ -95,7 +95,7 @@ import XCTest
         return app
     }
     private func swipeToTop(_ app: XCUIApplication) {
-        let transcript = app.collectionViews["transcript"]
+        let transcript = app.scrollViews["transcript"]
         if transcript.exists { transcript.swipeDown(velocity: .fast) }
     }
     private func screenshot(_ name: String) {

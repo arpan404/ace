@@ -7,6 +7,11 @@ import type { DeviceRuntime } from "./runtime.ts";
 import { SimulatorInput } from "./simulator-input.ts";
 import { SimulatorJpeg } from "./simulator-jpeg.ts";
 import { SimulatorH264 } from "./simulator-h264.ts";
+import {
+  simulatorNeedsTranscode,
+  startSimulatorTranscode,
+  type SimulatorTranscode,
+} from "./simulator-transcode.ts";
 import { simulatorUI } from "./simulator-ui.ts";
 import { nativeId } from "./commands.ts";
 import { simulatorRotation } from "./simulator-rotation.ts";
@@ -49,11 +54,15 @@ function sibling(stream: URL, name: string): URL {
 
 /**
  * The public serve-sim CLI owns the native framebuffer, HID and accessibility connection for
- * this UDID. Live views get serve-sim's H.264 as-is. Its MJPEG, resized, only feeds agents'
- * stills and recordings while nobody watches.
+ * this UDID. Live views get serve-sim's H.264 as-is, unless a viewer can't carry it (its link is
+ * under 5 Mbit/s, or its panel is smaller than the native picture): then the screen helper
+ * re-encodes it (`--transcode`, hardware) at the size and rate asked for. Its MJPEG, resized,
+ * only feeds agents' stills and recordings while nobody watches.
  */
 export async function simulatorCapture(options: {
   command: string;
+  /** Arguments before serve-sim's own: ace's copy runs as `node <script>`. */
+  commandArgs?: readonly string[];
   device: AppDevice;
   streamId: string;
   fps: number;
@@ -62,6 +71,8 @@ export async function simulatorCapture(options: {
   signal?: AbortSignal;
   publish(frame: Frame): void;
   failure(error: unknown): void;
+  /** The screen helper, to re-encode for a viewer who can't carry serve-sim's stream. */
+  transcoder?: string;
 }): Promise<DeviceCapture> {
   const { runtime } = options;
   const fetcher = runtime.fetch ?? fetch;
@@ -72,7 +83,7 @@ export async function simulatorCapture(options: {
   controller.signal.throwIfAborted();
   const child = runtime.spawn({
     command: options.command,
-    args: ["--no-preview", "--quiet", nativeId(options.device)],
+    args: [...(options.commandArgs ?? []), "--no-preview", "--quiet", nativeId(options.device)],
     env: options.env,
     name: "simulator-framebuffer",
   });
@@ -85,6 +96,10 @@ export async function simulatorCapture(options: {
   let input: SimulatorInput | undefined;
   let jpeg: SimulatorJpeg | undefined;
   let h264: SimulatorH264 | undefined;
+  /** Re-encoding for a thin link or a small panel; undefined while serve-sim passes through. */
+  let transcode: SimulatorTranscode | undefined;
+  /** serve-sim's native picture, from its stream's parameter sets. */
+  let native: { width: number; height: number } | undefined;
   let socket: WebSocket | undefined;
   let closing: Promise<void> | undefined;
   const stop = () =>
@@ -97,6 +112,7 @@ export async function simulatorCapture(options: {
         Promise.resolve(released).finally(() => socket?.close()),
         jpeg?.stop(),
         h264?.stop(),
+        transcode?.stop(),
         child.stop({ graceMs: 1500 }),
       ]);
       terminated = true;
@@ -246,6 +262,7 @@ export async function simulatorCapture(options: {
     input = new SimulatorInput({
       runtime,
       command: options.command,
+      commandArgs: options.commandArgs ?? [],
       device: value.device,
       env: options.env,
       dimensions: () => screen,
@@ -271,6 +288,8 @@ export async function simulatorCapture(options: {
           // The first IDR is the switch: later JPEG frames are dropped from here on.
           mode = "h264";
           Object.assign(screen, { width: config.width, height: config.height });
+          native = { width: config.width, height: config.height };
+          if (transcode) return transcode.push(payload, keyframe, sequence, runtime.now());
           publish(
             {
               version: 1,
@@ -301,13 +320,77 @@ export async function simulatorCapture(options: {
         throw new DeviceError(
           "command_failed",
           "serve-sim's H.264 stream didn't start",
-          `Open the live view again. If it keeps failing, reinstall serve-sim: npm install -g serve-sim@${pinnedServeSim}`,
+          `Open the live view again. If it keeps failing, download device tools again in Devices (serve-sim ${pinnedServeSim}).`,
         );
       }
       const previous = jpeg;
       jpeg = undefined;
       await previous?.stop();
       return "h264";
+    };
+    const stopTranscode = async () => {
+      const previous = transcode;
+      transcode = undefined;
+      await previous?.stop();
+    };
+    /**
+     * serve-sim's stream as it is while the viewers can carry it; re-encoded at their size and
+     * rate when they can't. Each switch starts from a keyframe, so a viewer's decoder can follow.
+     */
+    const followViewer = async (settings: ScreenStreamSettings) => {
+      const helper = options.transcoder;
+      if (!helper) return;
+      const need = simulatorNeedsTranscode({
+        transcoding: transcode !== undefined,
+        bitrate: settings.bitrate,
+        box: settings,
+        native,
+      });
+      if (need) {
+        if (!transcode) {
+          transcode = startSimulatorTranscode({
+            helper,
+            runtime,
+            env: options.env,
+            // The re-encoder went away: serve-sim's own stream keeps the view going.
+            failed: () =>
+              void stopTranscode()
+                .then(() => h264?.keyframe())
+                .catch(() => {}),
+            frame: (frame) => {
+              if (stopped) return;
+              const scale = native ? frame.header.width / native.width : 1;
+              publish(
+                {
+                  version: 1,
+                  sessionId: options.streamId,
+                  sequence: sequence++,
+                  timestamp: runtime.now(),
+                  width: frame.header.width,
+                  height: frame.header.height,
+                  scale,
+                  codec: "h264",
+                  keyframe: frame.header.keyframe === true,
+                  ...(frame.header.videoCodec ? { videoCodec: frame.header.videoCodec } : {}),
+                  bytes: frame.payload.length,
+                },
+                frame.payload,
+              );
+            },
+          });
+          // The transcoder's decoder starts at serve-sim's next IDR.
+          void h264?.keyframe().catch(() => {});
+        }
+        transcode.settings({
+          bitrate: settings.bitrate,
+          maxWidth: settings.maxWidth,
+          maxHeight: settings.maxHeight,
+        });
+      } else if (transcode) {
+        await stopTranscode();
+        // Back to serve-sim's own stream: viewers start again from its next IDR.
+        void h264?.keyframe().catch(() => {});
+      }
     };
     const toJpeg = async (settings: ScreenStreamSettings): Promise<"jpeg"> => {
       const source = jpeg ?? (await startJpeg(streamUrl));
@@ -330,11 +413,18 @@ export async function simulatorCapture(options: {
       },
       async configure(settings) {
         controller.signal.throwIfAborted();
-        return { codec: settings.codec === "h264" ? await toH264() : await toJpeg(settings) };
+        if (settings.codec !== "h264") {
+          await stopTranscode();
+          return { codec: await toJpeg(settings) };
+        }
+        const codec = await toH264();
+        await followViewer(settings);
+        return { codec };
       },
       keyframe: async () => {
         controller.signal.throwIfAborted();
-        if (mode === "h264" && h264) await h264.keyframe();
+        if (transcode) transcode.keyframe();
+        else if (mode === "h264" && h264) await h264.keyframe();
         else await jpeg?.replay();
       },
       releaseInput: () => nativeInput.release(),

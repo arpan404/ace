@@ -1,6 +1,6 @@
 import SwiftUI
 
-private struct CatalogReply: Decodable {
+struct CatalogReply: Decodable {
     struct Entry: Decodable, Identifiable {
         let id: String
         let kind: String

@@ -953,7 +953,7 @@ Example:
 
 ## offshift
 
-Track a multi-step coding outcome in this thread's durable record: criteria, steps, phase, blocker and evidence. Steps come from a playbook or your own; phases are plan, implement, verify, review and delivery; evidence binds to the workspace's Git revision. It records work and never runs it. Changes take the last version. Every result's next says what to do now. Each action's fields are named in action's description.
+Track a multi-step coding outcome in this thread's durable record: criteria, steps, phase, blocker and evidence. Steps come from a playbook or your own; phases are plan, implement, verify, review and delivery; evidence binds to the workspace's Git revision. It records work and never runs it. Every result's next says what to do now and, for a change, which version to send. Each action's fields are named in action's description.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -965,10 +965,10 @@ Semantic rule: start needs runId, outcome, endpoint and criteria; get needs runI
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| action | yes | ["start","get","list","playbooks","advance","block","resume","evidence","revise","step"] | {"description":"start: open a run with its outcome, endpoint, criteria, and optional playbook and steps. get: the run, revision, pending evidence and next. list: this thread's runs. playbooks: the built-in playbooks and their steps. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. step: mark stepId done or skipped (note: what you saw, or why)."} |
+| action | yes | ["start","get","list","playbooks","advance","block","resume","evidence","revise","step"] | {"description":"start: open a run with its outcome, endpoint, criteria, and optional playbook and steps. get: the run, revision, pending evidence and next. list: this thread's runs. playbooks: the built-in playbooks and their steps. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record the result of one check or several. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. step: mark stepId done or skipped (note: what you saw, or why)."} |
 | runId | no | string | {"description":"Every action but list: the run's id, chosen at start (letters, digits, _ . -).","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
 | requestId | no | string | {"description":"Optional on changes; omitted, an identical retry still applies once.","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| version | no | integer | {"description":"Every change after start: the version the last result returned. A mismatch means the run changed; get it again.","minimum":0,"maximum":9007199254740991} |
+| version | no | integer | {"description":"Every change after start: run.version from the last result, which next repeats when the next change is yours. A mismatch means the run changed; get it again.","minimum":0,"maximum":9007199254740991} |
 | outcome | no | string | {"description":"start: the observable result the work delivers.","minLength":1,"maxLength":4096} |
 | endpoint | no | string | {"description":"start: where the work stops, as authorized (local changes, an open PR, ...).","minLength":1,"maxLength":4096} |
 | criteria | no | [OffshiftCriteria.json](schema/OffshiftCriteria.json) | {"description":"start: what must hold for the outcome, up to 64."} |
@@ -979,7 +979,7 @@ Semantic rule: start needs runId, outcome, endpoint and criteria; get needs runI
 | steps | no | [OffshiftStepsInput.json](schema/OffshiftStepsInput.json) | {"description":"start: your own steps ({id, title, phase}), after the playbook's; up to 24 in all."} |
 | stepId | no | string | {"description":"step: the step to mark.","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
 | state | no | ["done","skipped"] | {"description":"step: done or skipped."} |
-| evidence | no | [OffshiftEvidenceInput.json](schema/OffshiftEvidenceInput.json) | {"description":"evidence: one check, at the revision get returned before it ran."} |
+| evidence | no | union | {"description":"evidence: the checks you ran, one or a list of up to 32, each at the revision get returned before it ran. A list is one write: all are recorded or none.","anyOf":[{"$ref":"https://ace.local/protocol/v1/OffshiftEvidenceInput.json"},{"$ref":"https://ace.local/protocol/v1/OffshiftEvidenceBatch.json"}]} |
 | runOwner | no | [ThreadId.json](schema/ThreadId.json) | {"description":"get and evidence only: the ancestor thread whose run you check, as its brief named it."} |
 
 Example:

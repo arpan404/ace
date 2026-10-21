@@ -9,9 +9,10 @@ import type { DeviceInput } from "@ace/protocol";
 import { deviceGesture, devicePoint, type FrameSize } from "@ace/ui-core";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { cn } from "@/lib/cn.ts";
-import { webCodecsDecoder } from "@/lib/video/codecs.ts";
+import { webCodecsDecoder, type DecoderPreference } from "@/lib/video/codecs.ts";
 import { TouchGestures, type TouchEffect } from "@/lib/touch-gestures.ts";
 import type { DeviceSession } from "./device-session.ts";
+import { nextFrame } from "@/lib/next-frame.ts";
 import { pictureRenderer, type PictureImage } from "@/lib/video/picture-renderer.ts";
 import { drawUpright } from "@/lib/video/picture-canvas.ts";
 import { DeviceFingers, pinchPartner } from "./device-fingers.ts";
@@ -56,9 +57,16 @@ const at = (event: PointerEvent<HTMLCanvasElement>, page: { x: number; y: number
 /** A mouse pinch's mirrored finger, apart from any real pointer id. */
 const partnerId = 1_000_000;
 
+/** Told of each picture that reaches the page and each keyframe the view asks for. */
+export interface StreamObserver {
+  receive(at: number, bytes: number): void;
+  keyframeAsked(at: number): void;
+  decoder(preference: DecoderPreference, reason?: string): void;
+}
+
 /**
  * The device's live screen on a canvas, with no React render per frame. Pictures come on the
- * shared media stream as H.264 at 60 fps, decoded with WebCodecs, and are acked as they show; a
+ * shared media stream as H.264 at 60 fps, decoded with WebCodecs and acked as they decode; the newest is drawn at each refresh, and a
  * landscape picture is turned upright. A browser without an H.264 decoder, or a device that can't
  * stream video, shows why instead of a picture. Unmounting, a reconnect (a new
  * session) or a hidden page closes the decoder and its frames. With control, fingers stream
@@ -73,6 +81,8 @@ export function DeviceScreen(props: {
   onInput(input: DeviceInput): void | Promise<void>;
   /** Each picture as it is drawn. */
   onFrame?(shown: ShownScreen): void;
+  /** The stream's arrivals and keyframe requests, for its stats (`StreamMeter`). */
+  stream?: StreamObserver | undefined;
   /** Classes for the canvas, over its defaults (a drawn device frame clips the corners). */
   className?: string;
 }) {
@@ -80,10 +90,12 @@ export function DeviceScreen(props: {
   const image = useRef<HTMLCanvasElement>(null);
   const latestInput = useRef(props.onInput);
   const latestFrame = useRef(props.onFrame);
+  const latestStream = useRef(props.stream);
   useEffect(() => {
     latestInput.current = props.onInput;
     latestFrame.current = props.onFrame;
-  }, [props.onInput, props.onFrame]);
+    latestStream.current = props.stream;
+  }, [props.onInput, props.onFrame, props.stream]);
   const touch = useRef<Touch>("gestures");
   /** Why there is no picture: no H.264 decoder here, or the daemon refused the video. */
   const [unavailable, setUnavailable] = useState<DeviceProblem | undefined>();
@@ -94,7 +106,7 @@ export function DeviceScreen(props: {
         gestures: TouchGestures;
         fingers: DeviceFingers;
         pointers: Set<number>;
-        /** Each finger's newest move not yet sent; sent together, one batch in flight. */
+        /** Each finger's newest move not yet sent; sent together, a few batches in flight. */
         moved: Map<number, DeviceInput>;
         moves: ReturnType<typeof coalescedPointerMoves<true>>;
       }
@@ -195,9 +207,15 @@ export function DeviceScreen(props: {
     };
     // Video only: no JPEG decoder, and a platform that refuses H.264 says so.
     const renderer = pictureRenderer<DevicePicture>({
-      decoder: webCodecsDecoder(),
+      decoder: webCodecsDecoder((preference, reason) =>
+        latestStream.current?.decoder(preference, reason),
+      ),
+      nextFrame,
       show,
-      ack: (picture, keyframe) => session.client.ack(picture, keyframe),
+      ack: (picture, keyframe) => {
+        if (keyframe) latestStream.current?.keyframeAsked(Date.now());
+        session.client.ack(picture, keyframe);
+      },
       fallback: cannotDecode,
       pressure: () => {
         const now = performance.now();
@@ -209,6 +227,7 @@ export function DeviceScreen(props: {
       },
     });
     const release = session.client.watchPictures(deviceId, async (next) => {
+      latestStream.current?.receive(Date.now(), next.bytes.length);
       if (document.visibilityState === "hidden") {
         // Nothing draws it: hold the ack, so the daemon stops sending until the page shows.
         renderer.reset();
@@ -315,7 +334,8 @@ export function DeviceScreen(props: {
         async () => {
           const batch = [...moved.values()];
           moved.clear();
-          for (const input of batch) await latestInput.current(input);
+          // Sent in order at once: the transport keeps the order, so fingers don't wait in turn.
+          await Promise.all(batch.map((input) => latestInput.current(input)));
         },
         () => {},
       ),

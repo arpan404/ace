@@ -347,15 +347,17 @@ test("purging a thread removes its Offshift outcome and evidence while preservin
         runId: "feature",
         requestId: "evidence",
         version: 0,
-        evidence: {
-          criterionId: "behavior",
-          kind: "source",
-          result: "pass",
-          revision: "source",
-          action: "Inspect diff",
-          artifact: "private report",
-          note: "Private observation",
-        },
+        evidence: [
+          {
+            criterionId: "behavior",
+            kind: "source",
+            result: "pass",
+            revision: "source",
+            action: "Inspect diff",
+            artifact: "private report",
+            note: "Private observation",
+          },
+        ],
       },
       context,
     );

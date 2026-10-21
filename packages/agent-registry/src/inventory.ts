@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
 import { realpath, stat } from "node:fs/promises";
-import { isAbsolute } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import { z } from "zod";
 import { RegistryInstallation, AcpIdentity } from "@ace/protocol";
 import { findExecutable, isPackageRunner } from "@ace/provider-kit/discovery";
@@ -68,11 +68,24 @@ export async function executableDigest(path: string): Promise<string> {
   }
   return hash.digest("hex");
 }
+/** The approved artifact a launch revalidates: the script behind a Windows node launch. */
+function installationArtifact(entry: Pick<LocalInstallation, "command" | "args">): string {
+  const [script] = entry.args;
+  if (
+    script !== undefined &&
+    isAbsolute(script) &&
+    /\.[cm]?js$/i.test(script) &&
+    /^node(\.exe)?$/i.test(basename(entry.command))
+  )
+    return script;
+  return entry.command;
+}
 export async function bindLocal(
   input: LocalBinding,
   environment: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
 ): Promise<LocalInstallation> {
-  const command = await findExecutable(input.command, environment);
+  const command = await findExecutable(input.command, environment, platform);
   if (!command) throw new Error("Local ACP executable unavailable");
   // Package runners cannot satisfy an offline installed-artifact binding.
   const path = await realpath(command);
@@ -100,6 +113,15 @@ export async function bindLocal(
     )
   )
     throw new Error("Private launch environment must be injected by the account owner");
+  // A shebang cannot launch on Windows, so a JS entrypoint runs as `node <script>`.
+  let launch = path;
+  let launchArgs = [...input.args];
+  if (platform === "win32" && /\.[cm]?js$/i.test(path)) {
+    const node = await findExecutable("node", environment, platform);
+    if (!node) throw new Error("Node unavailable for Windows script entrypoint");
+    launch = await realpath(node);
+    launchArgs = [path, ...launchArgs];
+  }
   return LocalInstallation.parse({
     metadata: {
       acpAgentId: input.acpAgentId,
@@ -110,10 +132,12 @@ export async function bindLocal(
       profileRevision: profile?.revision ?? "generic-v1",
       evidence: "user_local_binding",
     },
-    command: path,
-    args: [...input.args],
+    command: launch,
+    args: launchArgs,
     env,
-    executableDigest: await executableDigest(path),
+    executableDigest: await executableDigest(
+      installationArtifact({ command: launch, args: launchArgs }),
+    ),
     ...(bridgeCommand
       ? { bridgeCommand, bridgeDigest: await executableDigest(bridgeCommand) }
       : {}),
@@ -150,7 +174,7 @@ export class LocalInventory {
     const identity = AcpIdentity.parse(input);
     const entry = this.#entries.get(identity.installationId);
     if (!entry || !this.has(identity)) throw new Error("Approved ACP installation unavailable");
-    if ((await executableDigest(entry.command)) !== entry.executableDigest)
+    if ((await executableDigest(installationArtifact(entry))) !== entry.executableDigest)
       throw new Error("ACP artifact changed; new approval required");
     // A reviewed agent older than ace's floor for it is refused before it launches. Agents
     // without a reviewed profile are admitted by ACP protocol version at initialize.

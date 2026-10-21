@@ -27,6 +27,11 @@ const ComposeAction = z.discriminatedUnion("kind", [
     path: z.string().min(1).max(4096),
     requestId: z.string().min(1).max(64),
   }),
+  z.object({
+    kind: z.literal("createProject"),
+    payload: z.unknown(),
+    requestId: z.string().min(1).max(64),
+  }),
   CreateAction,
   ChoiceAction,
   /** A file picked for the first message, uploaded into the project's draft scope. */
@@ -109,6 +114,9 @@ export class ComposeActions {
         break;
       case "addProject":
         void this.search.addProject(action.path, action.requestId);
+        break;
+      case "createProject":
+        void this.search.createProject(action.payload, action.requestId);
         break;
       case "create":
         void this.newThread.create(action);

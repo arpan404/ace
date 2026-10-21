@@ -68,6 +68,7 @@ final class PinnedHTTP: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         } catch { completion(.failure(error)); return }
         let exchange = PinnedHTTP(host: origin.host, pin: pin ?? "", now: now, completion: completion)
         let config = URLSessionConfiguration.ephemeral
+        config.tlsMinimumSupportedProtocolVersion = .TLSv12
         config.urlCache = nil
         config.httpCookieStorage = nil
         config.urlCredentialStorage = nil

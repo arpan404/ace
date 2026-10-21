@@ -31,7 +31,16 @@ await proc.stop({ graceMs: 5_000 });
 
 On POSIX, each spawn creates a separate process group. A registry contains only group leaders spawned by this module. Spawning installs only a synchronous exit hook as a final SIGKILL safety net. It does not register SIGINT/SIGTERM handlers. Applications can call `installShutdownHandlers({ graceMs })` to stop owned groups with SIGTERM, escalate after the grace period, then restore default termination and re-raise the received signal. The returned disposer removes those handlers without disturbing application handlers. The recorder and doctor opt into this policy. Existing application handlers run on the first incoming signal; final re-raise removes listeners for that signal so the owner terminates by signal. macOS can report EPERM for a group containing only zombies; cleanup tolerates that race and retries when Node reaps the leader.
 
-Windows is rejected explicitly because Node built-ins do not expose Job Objects. Exit hooks cannot run after SIGKILL, a host crash, or a child deliberately escaping its group. Later daemon startup recovery will handle groups recorded in its own state file, as a separate milestone. No unconditional orphan guarantee is possible with exit hooks alone.
+On Windows there are no process groups and negative-pid signals are invalid, so
+the exit safety net runs the destroy each owner registered instead. Each
+spawn also creates a kill-on-close Job Object through koffi (no native code
+ships), and the tree stops with `taskkill /pid /T`, escalating to `/T /F` after the grace period.
+A hard-killed owner still contains its trees, because the kernel kills job
+members when the last job handle closes; a denied join falls back to the
+tree stop. `.cmd`/`.bat` entrypoints ride through `cmd.exe /d /s /c` with
+verbatim quoting, and interactive logins inherit the console with the window
+kept visible. The `ProcessInventory` restart reaper and directory reaping
+stay POSIX-only.
 
 `probeOutput(command, args, { timeoutMs, env, maxBytes })` runs bounded, supervised commands and returns trimmed stdout/stderr and exit code. Defaults are 30 seconds and 1 MiB total raw stdout/stderr bytes, including line terminators. Unterminated output counts immediately. `probe` returns stdout on success and rejects failed probes. These functions return raw output to their caller, which must choose what is safe to expose.
 

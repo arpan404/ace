@@ -72,6 +72,12 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
             self.markInitial(); continuation.resume()
         } }
     }
+    /// Only the bit rate changed: the encoder takes it in place, on the capture queue.
+    func retune(bitrate: Int) async {
+        await withCheckedContinuation { continuation in queue.async {
+            self.video.retune(bitrate: bitrate); continuation.resume()
+        } }
+    }
     func requestKeyframe() { queue.async {
         self.video.requestKeyframe(); self.markInitial()
         if self.codec == "h264", let image = self.latestImage() { self.pendingVideo.offer(image) }
@@ -255,6 +261,13 @@ struct ShareableContent {
         guard ["jpeg", "h264"].contains(settings.codec), (64...3840).contains(settings.maxWidth), (64...3840).contains(settings.maxHeight),
               (1...60).contains(settings.fps), (128000...20000000).contains(settings.bitrate), let configuration, let output else {
             throw HelperError("Invalid stream settings", code: "bounds")
+        }
+        if let previous = self.settings, previous.codec == "h264", settings.codec == "h264",
+           previous.maxWidth == settings.maxWidth, previous.maxHeight == settings.maxHeight, previous.fps == settings.fps {
+            // A link-driven rate change: same picture, same encoder, no keyframe.
+            self.settings = settings
+            await output.retune(bitrate: settings.bitrate)
+            return
         }
         self.settings = settings
         let config = configuration.config
