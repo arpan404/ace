@@ -141,3 +141,19 @@ The same VM runs x86_64 Linux code through Lima's Rosetta binfmt handler. Rosett
 Found and fixed: the deb lacked ALSA (`libasound.so.2`), which Electron links and electron-builder's default `Depends` omits, so it failed on minimal installs; it now depends on `libasound2t64 | libasound2`. Without a `systemctl` binary at all, `ace service` failed with `spawn systemctl ENOENT`; it now gives the no-session message.
 
 The workflow: `actionlint` 1.7.12 with shellcheck 0.11.0 reports nothing for `.github/workflows/release.yml`. A local harness executed its jobs step by step as written, evaluating `${{ }}` expressions, honouring `GITHUB_ENV`/`GITHUB_PATH` and emulating artifact upload and download. The `linux` job (linux-arm64) passed in a clean `debian:11` from a checkout without `.git` or `node_modules`. `linux-verify` passed on the Ubuntu 26.04 host: smoke, deb install with both AppArmor profiles loaded, removal, and AppImage contents. That check previously passed when only one of the two profiles was loaded; it now requires each.
+
+## After merging main's desktop release pipeline (2026-10-21, linux-arm64)
+
+`bun run release:build` (`apps/desktop/scripts/release.ts build 0.0.4`) ran in a fresh `debian:11` container, from a git checkout of the merged branch with a throwaway public key. `bun install` left no tracked changes, so release.ts's clean-tree check passes in the container.
+
+- **Staged** in `dist/releases/v0.0.4`: `ace-0.0.4-arm64.AppImage` (208,293,883 B), `ace-0.0.4-arm64.deb` (166,148,740 B), `ace-0.0.4-arm64.tar.gz` (210,644,643 B), `latest-linux-arm64.yml`, `release.json` and `SHA256SUMS`.
+- **Feed:** its `path` is the AppImage, and it also lists the deb.
+- **deb:**
+  - Depends ends with `libasound2t64 | libasound2`.
+  - Installs `/usr/bin/ace-desktop` → `/opt/ace/ace-desktop` and no `/usr/bin/ace`.
+  - Both AppArmor profiles loaded.
+  - `resources/app-update.yml` names the GitHub feed (`arpan404/ace`), and `resources/package-type` is `deb`.
+- **Launch:** on Xvfb `:61` + openbox, the deb ran with the sandbox and the AppImage through its own launcher. Each showed the onboarding window, and its daemon answered status 0.0.4.
+- **Updater:** both checked GitHub's latest release and found no `latest-linux-arm64.yml` there (HTTP 404, logged as a warning). Releases published so far carry only the macOS files; one published with `release:publish --include` for the Linux staged folders will have it.
+- **Removal:** removing the deb deleted both profiles.
+- **actionlint:** reports nothing for the reworked workflow.
