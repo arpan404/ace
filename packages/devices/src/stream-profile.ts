@@ -42,6 +42,35 @@ export function deviceStreamProfile(
   };
 }
 
+/** A Mac screen is landscape and full of text: larger boxes and more bits than a phone's. */
+const screenBudgets: Record<DeviceConnection, { width: number; height: number; bitrate: number }> =
+  {
+    local: { width: 3840, height: 3840, bitrate: 16_000_000 },
+    remote: { width: 2560, height: 2560, bitrate: 10_000_000 },
+    relay: { width: 1920, height: 1920, bitrate: 6_000_000 },
+  };
+
+/**
+ * The stream a computer-use live view asks for: H.264 at 60 fps sized to its panel (physical
+ * pixels), with pressure lowering the bit rate first, as for a device.
+ */
+export function screenStreamProfile(
+  panel: { width: number; height: number },
+  connection: DeviceConnection,
+  pressure = 0,
+): ScreenStreamSettings {
+  const budget = screenBudgets[connection];
+  const level = Math.max(0, Math.min(3, pressure));
+  const shrink = level >= 3 && connection !== "local" ? 0.75 : 1;
+  return {
+    codec: "h264",
+    maxWidth: bucket(Math.min(panel.width, budget.width) * shrink, budget.width),
+    maxHeight: bucket(Math.min(panel.height, budget.height) * shrink, budget.height),
+    fps: deviceFrameRate,
+    bitrate: Math.max(minimumBitrate, Math.round(budget.bitrate / (1 + level * 0.5))),
+  };
+}
+
 /**
  * Whether this client's WebCodecs decodes the H.264 device live views stream: High profile
  * level 5.1, as Simulators send it (scrcpy's Baseline decodes wherever High does).

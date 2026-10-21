@@ -110,15 +110,29 @@ export class DesktopLink {
   setPresence(threadId: string | null): void {
     if (threadId === this.presence) return;
     this.presence = threadId;
-    this.send?.({ type: "presence.update", threadId, inputAgeMs: 0 });
+    this.sendIfReady({ type: "presence.update", threadId, inputAgeMs: 0 });
   }
 
   /** Re-send preferences after the desktop notification settings change. */
   updatePreferences(): void {
-    this.send?.({
+    this.sendIfReady({
       type: "notification.preferences",
       preferences: { quietHours: this.options.quietHours(), includePreview: true },
     });
+  }
+
+  /**
+   * Window focus and settings changes arrive at any time, also while the socket is still
+   * opening, where a WebSocket send throws. Offline changes are kept and `register` sends
+   * them on the next ready.
+   */
+  private sendIfReady(frame: unknown): void {
+    if (this.client.connectionState().getSnapshot() !== "ready") return;
+    try {
+      this.send?.(frame);
+    } catch {
+      // The socket went away between ready and this send; the reconnect registers again.
+    }
   }
 
   enqueue(id: string, payload: CommandPayload): Promise<string> {
@@ -126,13 +140,13 @@ export class DesktopLink {
   }
 
   private register(): void {
-    this.send?.({
+    this.sendIfReady({
       type: "notification.register",
       device: { channel: "websocket", platform: "desktop" },
     });
     this.updatePreferences();
     if (this.presence)
-      this.send?.({ type: "presence.update", threadId: this.presence, inputAgeMs: 0 });
+      this.sendIfReady({ type: "presence.update", threadId: this.presence, inputAgeMs: 0 });
   }
 
   /** The client's own transport, with notification frames and closes observed on the way in. */

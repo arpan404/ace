@@ -12,6 +12,7 @@
     "./video-fanout": "./src/video-fanout.ts",
     "./video-encoder": "./src/video-encoder.ts",
     "./picture-channel": "./src/picture-channel.ts",
+    "./h264": "./src/h264.ts",
     "./live-view": "./src/live-view.ts",
     "./history": "./src/page-history.ts",
     "./testing": "./src/backend-test-support.ts",

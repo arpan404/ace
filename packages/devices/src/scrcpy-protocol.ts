@@ -292,21 +292,28 @@ export type ServerProfile = {
   maxSize: number;
   bitrate: number;
   fps: number;
+  /** false: control only, the picture comes from elsewhere (an emulator encoded on the host). */
+  video?: boolean;
 };
-/** Server arguments after the class name: video on, audio off, control on, forward tunnel. */
+/** Server arguments after the class name: video on (unless asked off), audio off, control on. */
 export function scrcpyServerArgs(version: string, profile: ServerProfile): string[] {
+  const video = profile.video !== false;
   return [
     version,
     `scid=${profile.scid.toString(16).padStart(8, "0")}`,
     "log_level=warn",
-    "video=true",
+    `video=${video}`,
     "audio=false",
     "control=true",
     "tunnel_forward=true",
-    "video_codec=h264",
-    `max_size=${Math.max(0, Math.floor(profile.maxSize))}`,
-    `video_bit_rate=${Math.max(1, Math.floor(profile.bitrate))}`,
-    `max_fps=${Math.max(1, Math.floor(profile.fps))}`,
+    ...(video
+      ? [
+          "video_codec=h264",
+          `max_size=${Math.max(0, Math.floor(profile.maxSize))}`,
+          `video_bit_rate=${Math.max(1, Math.floor(profile.bitrate))}`,
+          `max_fps=${Math.max(1, Math.floor(profile.fps))}`,
+        ]
+      : []),
     // Device clipboard changes would otherwise be pushed to the daemon, which never uses them.
     "clipboard_autosync=false",
     "cleanup=true",

@@ -7,6 +7,10 @@ import Darwin
         // Before anything else: macOS must attribute permissions to this helper, not its launcher.
         Responsibility.disclaimIfNeeded()
         if CommandLine.arguments.contains("--computer") { ComputerService.run() }
+        if CommandLine.arguments.contains("--transcode") { Transcoder.run() }
+        if let index = CommandLine.arguments.firstIndex(of: "--encode-frames"), index + 1 < CommandLine.arguments.count {
+            FrameFileEncoder.run(path: CommandLine.arguments[index + 1])
+        }
         let arguments = CommandLine.arguments.filter { $0 != "--inherit-responsibility" }
         guard arguments.count == 3, ["--socket", "--endpoint"].contains(arguments[1]) else { exit(2) }
         let argument = arguments[2]

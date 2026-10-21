@@ -1,15 +1,17 @@
 import SwiftUI
 
 /// The models this thread's account offers. Picking one switches the thread from its next turn.
-struct ModelPickerSheet: View {
+struct ModelPickerSheet<Tuning: View>: View {
     @Bindable var screen: ThreadScreenModel
     let load: () -> Void
     let choose: (ModelOption) async -> Bool
+    @ViewBuilder var tuning: () -> Tuning
     @Environment(\.dismiss) private var dismiss
     @State private var choosing: String?
     var body: some View {
         NavigationStack {
             List {
+                Section { tuning() }
                 switch screen.modelsState {
                 case "ready" where screen.models.isEmpty:
                     ContentUnavailableView("No models listed", systemImage: "cpu", description: Text("Check this account on your machine."))

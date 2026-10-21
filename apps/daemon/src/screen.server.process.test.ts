@@ -25,6 +25,8 @@ it("authenticated devices receive visible screen state and stream pictures and d
     args: [
       new URL("../../../packages/screen/src/testing/fake-helper.ts", import.meta.url).pathname,
     ],
+    // A Mac helper that encodes H.264: live views are video only.
+    env: { FAKE_V2: "1", FAKE_VIDEO: "1" },
     nextId: () => `id-${++id}`,
     recordingDirectory: directory,
     publishArtifact: async () => {},
@@ -83,6 +85,13 @@ it("authenticated devices receive visible screen state and stream pictures and d
   expect(started, JSON.stringify(started)).toMatchObject({ ok: true });
   const state = ScreenState.parse(started.data);
   await request({ op: "subscribe", sessionId: state.sessionId });
+  expect(
+    await request({
+      op: "stream.configure",
+      sessionId: state.sessionId,
+      settings: { codec: "h264", maxWidth: 1280, maxHeight: 800, fps: 60, bitrate: 8_000_000 },
+    }),
+  ).toMatchObject({ ok: true, data: { codec: "h264" } });
   await request({ op: "controller", sessionId: state.sessionId, controller: "human" });
   expect(
     await request({
@@ -92,7 +101,8 @@ it("authenticated devices receive visible screen state and stream pictures and d
     }),
   ).toMatchObject({ ok: true });
   expect((await frameReady).sourceId).toBe(state.sessionId);
-  expect(Buffer.from(frames[0]?.frame.bytes ?? []).toString()).toBe("jpeg-0");
+  // The session's stills never reached the viewer: only its video did.
+  expect(frames.every((frame) => frame.frame.codec !== "jpeg")).toBe(true);
   expect(foreign).toBe(0);
   // The viewer's ack is taken without a reply.
   socket.send(

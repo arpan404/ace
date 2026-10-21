@@ -7,8 +7,16 @@ import {
   type ScreenServerMessage,
 } from "@ace/protocol";
 import { streamKinds } from "@ace/browser/stream";
-import { PictureChannel, type PictureTransport } from "@ace/browser/picture-channel";
+import {
+  LinkFollow,
+  PictureChannel,
+  pictureLinkLimits,
+  type PictureTransport,
+} from "@ace/browser/picture-channel";
 import { framePicture } from "./frame-picture.ts";
+import type { Frame } from "./frames.ts";
+import { PicturesToVideo } from "./picture-video.ts";
+import type { VideoHost } from "@ace/browser";
 import type { ScreenManager } from "./manager.ts";
 import type { Simulators } from "./simulator.ts";
 
@@ -21,6 +29,11 @@ export type ScreenPeer = {
   /** Clock for keyframe pacing; defaults to the wall clock and timers. */
   now?(): number;
   after?(ms: number, run: () => void): () => void;
+  /**
+   * The browser service's encoder-only Chrome: video from a helper that only makes JPEG (Linux,
+   * Windows), so every platform's live view is video. Absent, such a view says it can't stream.
+   */
+  pictureEncoder?(): VideoHost | undefined;
 };
 /**
  * Attach only after the host transport authenticates a human device. A subscribed session's
@@ -35,6 +48,19 @@ export function screenConnection(
   const subscriptions = new Map<string, () => void>();
   let closed = false;
   let pending = 0;
+  const later =
+    peer.after ??
+    ((ms: number, run: () => void) => {
+      const timer = setTimeout(run, ms);
+      return () => clearTimeout(timer);
+    });
+  /** Each watched session's stream request, kept within this viewer's link. */
+  const follows = new Map<string, LinkFollow>();
+  let cancelTick: (() => void) | undefined;
+  const tick = () => {
+    for (const follow of follows.values()) follow.tick();
+    cancelTick = follows.size && !closed ? later(1000, tick) : undefined;
+  };
   const pictures = new PictureChannel(streamKinds.screenFrame, {
     transport: peer.media,
     now: peer.now ?? (() => performance.now()),
@@ -160,20 +186,53 @@ export function screenConnection(
             subscriptions.delete(operation.sessionId);
             if (subscriptions.size >= 8) throw new Error("Screen subscription limit");
             const sessionId = operation.sessionId;
+            const now = peer.now ?? (() => performance.now());
+            // Video for a helper that makes only JPEG; the Mac's helper encodes its own.
+            const converter = new PicturesToVideo({
+              host: () => peer.pictureEncoder?.(),
+              sessionId,
+              now,
+              frame: (frame: Frame) => {
+                if (!closed) view.push(framePicture(frame));
+              },
+            });
             const view = pictures.open(sessionId, {
-              keyframe: () => void manager.requestKeyframe(sessionId).catch(() => {}),
+              keyframe: () => {
+                if (!converter.keyframe()) void manager.requestKeyframe(sessionId).catch(() => {});
+              },
               guard: () => {
                 if (closed) throw new Error("Screen connection closed");
+              },
+              link: pictureLinkLimits,
+            });
+            const follow = new LinkFollow({
+              rate: () => view.rate(),
+              apply: async (settings) => {
+                const result = await manager.configureStream(sessionId, settings);
+                if (result.codec === "h264" || settings.codec !== "h264") {
+                  converter.stop();
+                  return result;
+                }
+                return converter.want(settings) ? { codec: "h264" as const } : result;
               },
             });
             try {
               // Every frame, unhurried: the viewer's window paces the pictures, not the hub.
               const stop = manager.subscribeEvery(sessionId, (frame) => {
-                if (!closed) view.push(framePicture(frame));
+                // Live views are video only: the stills agents read never reach a viewer, except
+                // encoded as video for one whose helper makes no video of its own.
+                if (closed) return;
+                if (frame.header.codec === "h264") view.push(framePicture(frame));
+                else converter.push(frame);
               });
+              follows.set(sessionId, follow);
+              cancelTick ??= later(1000, tick);
               subscriptions.set(sessionId, () => {
                 stop();
                 view.close();
+                follow.close();
+                converter.close();
+                if (follows.get(sessionId) === follow) follows.delete(sessionId);
               });
             } catch (error) {
               view.close();
@@ -183,6 +242,14 @@ export function screenConnection(
               type: "screen.state",
               state: ScreenState.parse(manager.state(operation.sessionId)),
             });
+            break;
+          }
+          case "stream.configure": {
+            // The view's request, with its bit rate held to what its link carries.
+            const follow = follows.get(operation.sessionId);
+            data = follow
+              ? await follow.ask(operation.settings)
+              : await manager.configureStream(operation.sessionId, operation.settings);
             break;
           }
           case "unsubscribe":
@@ -225,6 +292,8 @@ export function screenConnection(
     },
     close() {
       closed = true;
+      cancelTick?.();
+      cancelTick = undefined;
       pictures.close();
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();

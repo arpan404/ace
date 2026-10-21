@@ -83,7 +83,7 @@ function noVideo(): Refusal {
   return new Refusal(
     "tool_missing",
     "This Mac's screen helper can't stream video for the Simulator live view",
-    "Install serve-sim 0.1.48 for the live view: npm install -g serve-sim@0.1.48",
+    "Download device tools in Devices for ace's serve-sim 0.1.48.",
   );
 }
 /** The daemon's refusal when its screen helper lacks a macOS permission. */
@@ -121,6 +121,10 @@ export class FakeAppDevices {
   readonly permissions: DevicePermissions = { screenRecording: true, accessibility: true };
   /** Each permission a person asked macOS for, in order. */
   readonly requested: DevicePermission[] = [];
+  /** Whether the device tools are downloaded; `tools.install` downloads them. */
+  toolsReady = true;
+  /** How many times a person asked for the device tools download. */
+  toolDownloads = 0;
   /**
    * Whether the capture can stream H.264, as serve-sim always does. On, viewers get a real IDR
    * of the screen for every picture. Off, a live view is refused with the daemon's serve-sim
@@ -174,7 +178,7 @@ export class FakeAppDevices {
     this.sessions.set(parsed.id, idleSession(parsed));
     const devices = [...this.sessions.values()].map((session) => session.device);
     for (const channel of this.channels)
-      this.send(channel, { type: "devices.inventory", devices, issues: [] });
+      this.send(channel, { type: "devices.inventory", devices, issues: this.issues() });
   }
 
   /** A thread's agent takes a device, as the daemon's claim for an agent does. */
@@ -197,6 +201,19 @@ export class FakeAppDevices {
     else if (activity.point) session.screen = "app";
     this.publish(session);
     this.paint(session);
+  }
+
+  /** The inventory's notes: the missing device tools, until they are downloaded. */
+  private issues() {
+    return this.toolsReady
+      ? []
+      : [
+          {
+            code: "tool_missing" as const,
+            message: "The Simulator's device tools aren't downloaded",
+            hint: "Download device tools in Devices.",
+          },
+        ];
   }
 
   private known(deviceId: string): Session {
@@ -385,7 +402,15 @@ export class FakeAppDevices {
       return { enabled: this.enabled };
     }
     if (operation.op === "list")
-      return { devices: [...this.sessions.values()].map((s) => s.device), issues: [] };
+      return { devices: [...this.sessions.values()].map((s) => s.device), issues: this.issues() };
+    if (operation.op === "tools.install") {
+      this.toolDownloads++;
+      this.toolsReady = true;
+      const devices = [...this.sessions.values()].map((s) => s.device);
+      for (const open of this.channels)
+        this.send(open, { type: "devices.inventory", devices, issues: [] });
+      return { serveSim: true, scrcpy: true };
+    }
     if (operation.op === "states")
       return {
         states: this.enabled ? [...this.sessions.values()].map((s) => this.state(s, channel)) : [],

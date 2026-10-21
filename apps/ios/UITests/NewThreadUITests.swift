@@ -7,8 +7,8 @@ import XCTest
 
     func testStartingAThreadWithAMentionOpensIt() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.compose"].waitForExistence(timeout: 25))
-        app.buttons["inbox.compose"].tap()
+        XCTAssertTrue(app.buttons["inbox.startTask"].waitForExistence(timeout: 25))
+        app.buttons["inbox.startTask"].tap()
         XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
         screenshot("newthread-sheet")
         app.buttons["newThread.project"].tap()
@@ -28,14 +28,15 @@ import XCTest
         let visible = (0..<min(models.count, 40)).map { models.element(boundBy: $0) }.first { $0.isHittable }
         XCTAssertNotNil(visible)
         visible?.tap()
-        let worktree = app.switches["newThread.worktree"]
-        if worktree.waitForExistence(timeout: 10), worktree.isEnabled { worktree.switches.firstMatch.tap() }
+        let worktree = app.buttons["newThread.worktree"]
+        if worktree.waitForExistence(timeout: 10), worktree.isEnabled { worktree.tap() }
         let message = element(app, "newThread.message")
         // Speed and access rows can push the message below the fold.
         for _ in 0..<6 where !message.waitForExistence(timeout: 2) || !message.isHittable { app.swipeUp() }
         XCTAssertTrue(message.waitForExistence(timeout: 5))
         message.tap()
         message.typeText("Tighten the outbox retry ")
+        app.buttons["newThread.options"].tap()
         app.buttons["newThread.mention"].tap()
         let search = app.searchFields.firstMatch
         XCTAssertTrue(search.waitForExistence(timeout: 10))
@@ -54,9 +55,10 @@ import XCTest
 
     func testAProfileCreatedFromTheDraftIsOfferedOnReturnAndSuppliesItsInstructions() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.compose"].waitForExistence(timeout: 25))
-        app.buttons["inbox.compose"].tap()
+        XCTAssertTrue(app.buttons["inbox.startTask"].waitForExistence(timeout: 25))
+        app.buttons["inbox.startTask"].tap()
         XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
+        app.buttons["newThread.options"].tap()
         let manage = app.buttons["newThread.profiles"]
         for _ in 0..<8 where !manage.isHittable { app.swipeUp() }
         manage.tap()
@@ -88,8 +90,8 @@ import XCTest
 
     func testTheFirstMessageOffersSpeedAccessAndFilesAndLongModelListsCollapse() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.compose"].waitForExistence(timeout: 25))
-        app.buttons["inbox.compose"].tap()
+        XCTAssertTrue(app.buttons["inbox.startTask"].waitForExistence(timeout: 25))
+        app.buttons["inbox.startTask"].tap()
         XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
         app.buttons["newThread.project"].tap()
         XCTAssertTrue(app.buttons["project.ace"].waitForExistence(timeout: 15))
@@ -114,6 +116,7 @@ import XCTest
         let tuned = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier CONTAINS[c] %@", "model.codex.", "ultra")).firstMatch
         for _ in 0..<25 where !tuned.isHittable { app.swipeUp() }
         tuned.tap()
+        app.buttons["newThread.options"].tap()
         XCTAssertTrue(element(app, "newThread.speed").waitForExistence(timeout: 10))
         XCTAssertTrue(element(app, "newThread.access").waitForExistence(timeout: 15))
         screenshot("newthread-tuning")
@@ -123,9 +126,9 @@ import XCTest
         screenshot("newthread-access-menu")
         readOnly.tap()
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Reads and plans")).firstMatch.waitForExistence(timeout: 10))
-        // Attach sits below the fold in the Form; scroll it into view before asserting.
-        app.swipeUp()
-        for _ in 0..<6 where !element(app, "newThread.attach").isHittable { app.swipeUp() }
+        app.navigationBars.buttons["BackButton"].firstMatch.tap()
+        // The compact composer keeps attachment next to the input.
+        XCTAssertTrue(element(app, "newThread.attach").waitForExistence(timeout: 5))
         XCTAssertTrue(element(app, "newThread.attach").isHittable)
         element(app, "newThread.attach").tap()
         XCTAssertTrue(app.buttons["Choose File"].waitForExistence(timeout: 5))
@@ -134,8 +137,8 @@ import XCTest
 
     func testAddingAFolderFromTheComputerSelectsItAsTheProject() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.compose"].waitForExistence(timeout: 25))
-        app.buttons["inbox.compose"].tap()
+        XCTAssertTrue(app.buttons["inbox.startTask"].waitForExistence(timeout: 25))
+        app.buttons["inbox.startTask"].tap()
         app.buttons["newThread.project"].tap()
         XCTAssertTrue(app.buttons["projects.add"].waitForExistence(timeout: 15))
         app.buttons["projects.add"].tap()
@@ -153,7 +156,7 @@ import XCTest
 
     func testFilesListsAFolderWithinItsCapAndPreviewsTheStartOfALargeFile() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.compose"].waitForExistence(timeout: 25))
+        XCTAssertTrue(app.buttons["inbox.startTask"].waitForExistence(timeout: 25))
         for _ in 0..<8 where !app.buttons["inbox.settled"].isHittable { app.swipeUp() }
         if !app.buttons["thread.ios-done"].exists { app.buttons["inbox.settled"].tap() }
         for _ in 0..<6 where !app.buttons["thread.ios-done"].isHittable { app.swipeUp() }
@@ -185,12 +188,13 @@ import XCTest
 
     func testNewThreadBrowsesAndPreviewsTheProjectsFolderBeforeAThreadExists() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.compose"].waitForExistence(timeout: 25))
-        app.buttons["inbox.compose"].tap()
+        XCTAssertTrue(app.buttons["inbox.startTask"].waitForExistence(timeout: 25))
+        app.buttons["inbox.startTask"].tap()
         XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
         app.buttons["newThread.project"].tap()
         XCTAssertTrue(app.buttons["project.ace"].waitForExistence(timeout: 15))
         app.buttons["project.ace"].tap()
+        app.buttons["newThread.options"].tap()
         let browse = app.buttons["newThread.files"]
         XCTAssertTrue(browse.waitForExistence(timeout: 10))
         browse.tap()

@@ -4,6 +4,19 @@ import Testing
 @testable import Ace
 
 @Suite @MainActor struct PatchPumpTests {
+    @Test func thinkingAndEditsStayGroupedWithNarrationInOrderOnTheNativeBridge() throws {
+        let harness = try DeliveryHarness()
+        harness.call("queueWorkFlow")
+        for _ in 0..<8 { try harness.step() }
+        let block = try #require(harness.model.thread?.screen.blocks["flow"])
+        let groups = try #require(block.row.groups)
+        #expect(groups.map(\.items) == [["thought"], ["edit-1", "edit-2"], ["narration"]])
+        #expect(groups[1].label == "Edited 2 files")
+        #expect(groups[2].single)
+        #expect(harness.model.thread?.items["narration"]?.row.text == "The layout is fixed. Checking the result.")
+        #expect(harness.model.thread?.items["edit-1"]?.row.step?.verb == "Edited")
+        #expect(harness.rejected == 0)
+    }
     @Test func aSurrogateBoundaryTitleAndLaterCanonicalStatusBothArrive() throws {
         let harness = try DeliveryHarness()
         harness.call("queueUnicode")
@@ -161,6 +174,11 @@ import Testing
         context.setObject(tail, forKeyedSubscript: "nativeTail" as NSString)
         context.setObject(emit, forKeyedSubscript: "nativeEmit" as NSString)
         context.setObject(encode, forKeyedSubscript: "nativeEncode" as NSString)
+        let parseURL: @convention(block) (String) -> String = { text in
+            guard let parsed = ParsedURL.parse(text), let data = try? JSONEncoder().encode(parsed) else { return "" }
+            return String(decoding: data, as: UTF8.self)
+        }
+        context.setObject(parseURL, forKeyedSubscript: "nativeParseURL" as NSString)
         context.evaluateScript("""
           let time = 0, nextID = 0;
           const timers = new Map();
@@ -168,7 +186,7 @@ import Testing
             now: () => time, uuid: () => String(++nextID),
             timer: (id, delay, run) => timers.set(id, {at: time + delay, run}),
             cancelTimer: id => timers.delete(id), emit: nativeEmit, utf8Base64: nativeEncode, encode: nativeBytes,
-            previewHead: nativeHead, previewTail: nativeTail
+            previewHead: nativeHead, previewTail: nativeTail, parseURL: nativeParseURL
           };
           function advance() {
             const pending = [...timers].sort((a,b) => a[1].at-b[1].at)[0];
