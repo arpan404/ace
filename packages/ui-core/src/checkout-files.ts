@@ -4,6 +4,20 @@
  * Pure, so the web and mobile clients share one rule.
  */
 
+/** The most a viewer reads to show a file; bigger files are offered as a download. */
+export const checkoutViewLimit = 2 * 1024 * 1024;
+/** The largest text a file editor opens (the daemon's `write` cap). */
+export const checkoutEditLimit = 1024 * 1024;
+
+/** A path without its trailing slashes ("src/" → "src"). */
+export const cleanPath = (path: string) => path.replace(/\/+$/, "");
+/** The folder holding `path`, ending in "/" ("" at the top). */
+export const parentPath = (path: string) => {
+  const clean = cleanPath(path);
+  const slash = clean.lastIndexOf("/");
+  return slash < 0 ? "" : clean.slice(0, slash + 1);
+};
+
 /** A relative path inside a checkout: no root, no `..`, no backslashes, no empty segments. */
 export function isCheckoutPath(path: string): boolean {
   if (!path || path.length > 1024 || path.startsWith("/") || path.includes("\\")) return false;

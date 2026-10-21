@@ -103,6 +103,7 @@ export * from "./explore-command.ts";
 export * from "./browser-address.ts";
 export * from "./browser-help.ts";
 export * from "./checkout-files.ts";
+export * from "./checkout-errors.ts";
 export * from "./projects.ts";
 export * from "./folder-search.ts";
 export * from "./path-picker.ts";
