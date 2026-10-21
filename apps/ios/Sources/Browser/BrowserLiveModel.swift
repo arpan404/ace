@@ -15,6 +15,15 @@ import Observation
     private(set) var pageSize: CGSize?
     /// Whether the open thread has a browser with a tab open (its Browser entry).
     private(set) var live: (threadId: String, epoch: Int, value: Bool)?
+    /// The tools' answers while the view is open: find's count, the newest screenshot, the
+    /// console's lines, the thread's history, the last failed command and an upload's progress.
+    private(set) var find: BrowserFindResult?
+    var shot: BrowserShot?
+    private(set) var logs: BrowserLog?
+    private(set) var visits: [BrowserVisit] = []
+    private(set) var visitCount = 0
+    var problem: BrowserProblem?
+    private(set) var upload: (chooserId: String, progress: Double)?
 
     @ObservationIgnored private var renderer: BrowserRenderer?
     @ObservationIgnored private var latest: LatestBrowserPicture?
@@ -46,7 +55,11 @@ import Observation
         acks?.close()
         renderer = nil; latest = nil; acks = nil
         threadId = nil; view = nil; page = nil; pageSize = nil; generation = nil
+        find = nil; shot = nil; logs = nil; visits = []; visitCount = 0; problem = nil; upload = nil
     }
+    func clearFind() { find = nil }
+    func clearLogs() { logs = nil }
+    func clearUpload() { upload = nil }
     /// The app came to the foreground or left it.
     func setVisible(_ value: Bool) {
         visible = value
@@ -74,6 +87,16 @@ import Observation
         case .page(let threadId, _, let info):
             guard threadId == self.threadId else { return }
             if page != info { page = info }
+        case .visits(let threadId, let list, let total):
+            guard threadId == self.threadId else { return }
+            visits = list
+            visitCount = total
+        // The rest answer the open view's own commands; none apply once it has closed.
+        case .find(let result): if threadId != nil { find = result }
+        case .shot(let result): if threadId != nil { shot = result }
+        case .logs(let result): if threadId != nil { logs = result }
+        case .problem(let result): if threadId != nil { problem = result }
+        case .upload(let chooserId, let progress): if threadId != nil { upload = (chooserId, progress) }
         }
     }
 }

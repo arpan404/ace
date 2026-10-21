@@ -7,9 +7,10 @@ import {
   type ForgeReviewState,
 } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
 import { actionErrorText } from "@ace/ui-core";
-import { readForge } from "./source.ts";
+import { readForge } from "@/lib/forge-read.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { readFailureText } from "./query-state.tsx";
 const Context = createContext<{
@@ -17,6 +18,10 @@ const Context = createContext<{
   pending: boolean;
   ready: boolean;
   run(action: ForgeReviewAction): Promise<boolean>;
+  /** Inline comments whose suggestions wait to be committed together. */
+  batch: readonly number[];
+  toggleBatch(commentId: number): void;
+  clearBatch(): void;
 } | null>(null);
 export function PrReviewWorkspace(props: {
   workspaceId: string;
@@ -30,10 +35,12 @@ export function PrReviewWorkspace(props: {
   const ready = useConnectionState() === "ready";
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
+  const [batch, setBatch] = useState<readonly number[]>([]);
   const pr = props.detail.status.ref;
   const query = useDaemonQuery({
     queryKey: ["forge", props.workspaceId, pr, "review-state", props.detail.status.headSha],
     retry: false,
+    gcTime: keptForgeMs,
     refetchOnReconnect: "always",
     staleTime: 0,
     read: async (readerClient, signal) => {
@@ -88,9 +95,25 @@ export function PrReviewWorkspace(props: {
     },
     [client, workspaceId, pr, refetch, onRefresh, disabled, pending, ready],
   );
+  const toggleBatch = useCallback(
+    (id: number) =>
+      setBatch((current) =>
+        current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id],
+      ),
+    [],
+  );
+  const clearBatch = useCallback(() => setBatch([]), []);
   const value = useMemo(
-    () => ({ state: query.data, pending: pending || disabled, ready: ready && !disabled, run }),
-    [query.data, pending, ready, run, disabled],
+    () => ({
+      state: query.data,
+      pending: pending || disabled,
+      ready: ready && !disabled,
+      run,
+      batch,
+      toggleBatch,
+      clearBatch,
+    }),
+    [query.data, pending, ready, run, disabled, batch, toggleBatch, clearBatch],
   );
   const uncertain = (query.data?.operations ?? []).filter((op) => op.state === "uncertain");
   return (

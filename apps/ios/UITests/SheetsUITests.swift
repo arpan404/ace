@@ -7,7 +7,7 @@ import XCTest
 
     func testAgentsSheetShowsTheTreeAndAsksBeforeStoppingIt() throws {
         let app = launchIntoTree()
-        app.buttons["thread.agents"].tap()
+        app.openAgents()
         XCTAssertTrue(app.buttons["agents.stopAll"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Reviewer")).firstMatch.waitForExistence(timeout: 15))
         screenshot("agents-medium")
@@ -22,7 +22,6 @@ import XCTest
 
     func testChangesSheetShowsFilesADiffAndTheNextStep() throws {
         let app = launchIntoTree()
-        app.buttons["thread.menu"].tap()
         app.buttons["thread.changes"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["changes.totals"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["changes.step"].waitForExistence(timeout: 10))
@@ -30,7 +29,6 @@ import XCTest
         app.buttons["changes.file.packages/provider-kit/src/process-owner.ts"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["diff.view"].waitForExistence(timeout: 10))
         screenshot("changes-diff")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
         app.buttons["changes.file.apps/daemon/src/cli/kill-all.fixtures.ts"].tap()
         let truncated = app.descendants(matching: .any)["diff.truncated"]
         for _ in 0..<40 where !truncated.exists { app.swipeUp(velocity: .fast) }
@@ -40,7 +38,6 @@ import XCTest
 
     func testCommitEditorFillsTheMessageFromTheDaemonsDraft() throws {
         let app = launchIntoTree()
-        app.buttons["thread.menu"].tap()
         app.buttons["thread.changes"].tap()
         XCTAssertTrue(app.buttons["changes.step"].waitForExistence(timeout: 15))
         app.buttons["changes.step"].tap()

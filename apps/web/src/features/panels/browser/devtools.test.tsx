@@ -194,7 +194,6 @@ test("Clear browsing data asks first, then clears and empties the thread's histo
   await userEvent.click(await screen.findByRole("menuitem", { name: "Clear browsing data…" }));
   const confirm = await screen.findByRole("dialog", { name: "Clear browsing data?" });
   await userEvent.click(within(confirm).getByRole("button", { name: "Clear data" }));
-  expect(await screen.findByText("Browsing data cleared")).toBeTruthy();
   await waitFor(() =>
     expect(screen.queryByRole("dialog", { name: "Clear browsing data?" })).toBeNull(),
   );

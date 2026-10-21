@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeLabelColors.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {
+    "$ref": "https://ace.local/protocol/v1/ForgeLabelColor.json"
+  },
+  "propertyNames": {
+    "maxLength": 256,
+    "type": "string"
+  },
+  "type": "object"
+}

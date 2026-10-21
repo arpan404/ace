@@ -28,7 +28,7 @@ const { pumpFrames, pumpTimers } = vi.hoisted(() => {
 import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
 import { Client } from "@ace/client";
 import { FakeDaemon, facts } from "@ace/fake-daemon";
-import { followInbox, type InboxClock } from "./inbox.ts";
+import { followInbox, inboxAction, type InboxClock } from "./inbox.ts";
 import { PatchPump } from "./patch-pump.ts";
 import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
@@ -217,6 +217,22 @@ describe("inbox snooze expiry", () => {
     stop();
     // Only the open follower's timer remains.
     expect(clock.armed).toEqual([start + 10 * minute]);
+  });
+});
+
+describe("inbox settling", () => {
+  test("settling a finished thread moves it to Settled, and unsettling brings it back to Done", async () => {
+    const { client, sink } = await following((daemon) => finished(daemon, "notes", "Notes"));
+    await until(() => groups(sink).done?.includes("notes") === true, "done");
+
+    inboxAction(client, { kind: "settle", threadId: "notes" }, "settle-1", sink);
+    await until(() => groups(sink).settled?.includes("notes") === true, "settled");
+    expect(groups(sink).done).toBeUndefined();
+    expect(sink.read("admission:settle-1")).toMatchObject({ ok: true });
+
+    inboxAction(client, { kind: "unsettle", threadId: "notes" }, "unsettle-1", sink);
+    await until(() => groups(sink).done?.includes("notes") === true, "unsettled");
+    expect(groups(sink).settled).toBeUndefined();
   });
 });
 

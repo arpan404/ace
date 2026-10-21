@@ -5,37 +5,34 @@ import { harness } from "@/test/harness.tsx";
 
 // Like the app harness, warm deferred modules before test deadlines start.
 await Promise.all([
-  import("./general-page.tsx"),
+  import("./agents-page.tsx"),
   import("./pair-device.tsx"),
   import("./prompts-page.tsx"),
 ]);
 beforeEach(() => localStorage.clear());
 
-test("General finishes loading and keyboard changes are stored", async () => {
+test("Agents finishes loading and keyboard changes are stored", async () => {
   const app = harness();
-  await app.open("/settings/general");
+  await app.open("/settings/agents");
   const worktree = await screen.findByRole("switch", { name: "New threads use a worktree" });
   await userEvent.click(worktree);
   worktree.focus();
   await userEvent.keyboard(" ");
   await waitFor(() => expect(app.daemon.services.settings.get("threads.useWorktree")).toBe(true));
-  expect(await screen.findByRole("textbox", { name: "Your name" })).toBeTruthy();
 });
 
 test("keyboard users can read a compact switch hint and still change its setting", async () => {
-  const app = harness();
-  await app.open("/settings/remote");
-  const control = await screen.findByRole("switch", { name: "Remote access" });
-  await waitFor(() => expect(control.hasAttribute("disabled")).toBe(false));
+  await harness().open("/settings/notifications");
+  const control = await screen.findByRole("switch", { name: "Needs you", checked: true });
   control.focus();
   await userEvent.tab({ shift: true });
   expect(
-    await screen.findByRole("tooltip", { name: "Only paired devices can connect." }),
+    await screen.findByRole("tooltip", { name: "Approvals, questions and plans." }),
   ).toBeTruthy();
   await userEvent.tab();
   expect(document.activeElement).toBe(control);
   await userEvent.keyboard(" ");
-  await waitFor(() => expect(app.daemon.services.settings.get("remote.enabled")).toBe(false));
+  await screen.findByRole("switch", { name: "Needs you", checked: false });
 });
 
 test("settings search reveals and highlights the pairing control before it opens", async () => {
@@ -44,7 +41,9 @@ test("settings search reveals and highlights the pairing control before it opens
     await screen.findByRole("searchbox", { name: "Search settings" }),
     "Pair a device",
   );
-  await userEvent.click(await screen.findByRole("link", { name: /Pair a device.*Remote devices/ }));
+  await userEvent.click(
+    await screen.findByRole("link", { name: /Pair a device.*Machines and devices/ }),
+  );
   const button = await screen.findByRole("button", { name: "Pair a device" });
   await waitFor(() => expect(button.closest(".bg-accent")).not.toBeNull());
   expect(screen.queryByRole("dialog", { name: "Pair a device" })).toBeNull();

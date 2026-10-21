@@ -121,6 +121,4 @@ test("Fix with agent shows the linked task's composer and puts the request there
   );
   const message = await screen.findByRole("combobox", { name: /Message/i });
   await waitFor(() => expect(message.textContent).toContain('The check "links" fails on PR #42'));
-  // Still a draft: nothing went to the agent.
-  expect(await screen.findByText("Added to your message")).toBeTruthy();
 });

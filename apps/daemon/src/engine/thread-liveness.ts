@@ -6,6 +6,7 @@ import type { IntentWorkers } from "./workers.ts";
 import type { Recovery } from "./recovery.ts";
 import type { Sessions } from "./sessions.ts";
 import { lostWork } from "./lost-work.ts";
+import { settleSessionBoundTasks } from "./session-bound-tasks.ts";
 import { threadAttention } from "@ace/projection";
 
 /** Live engine work in a thread tree; durable records alone never count. */
@@ -214,6 +215,8 @@ export function reconcileStoppedThread(repo: EngineRepository, id: ThreadId, at:
         at,
       );
     }
+    const stale = settleSessionBoundTasks(repo, state);
+    if (stale.length) repo.apply(id, stale, at);
     for (const intent of repo.pending.headers(id)) {
       if (resumable.has(intent.kind)) continue;
       repo.mark(intent, "failed", "Owning provider session is no longer running");

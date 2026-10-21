@@ -14,6 +14,9 @@ import type { SettingsService } from "@ace/settings";
 import { GitError } from "@ace/git";
 import type { WorkspaceGit } from "./workspace-roots.ts";
 
+/** How long a verified account may name backends while it is probed again behind them. */
+const identityReuseMs = 30 * 60_000;
+
 /** Machine-local nonsecret preferences. Every scan reads fresh CLI facts. */
 export class SourceControl {
   private settings: SettingsService;
@@ -23,6 +26,8 @@ export class SourceControl {
   private listeners = new Set<() => void>();
   /** Verified API accounts per host and preferences revision, reused for a short window. */
   private identities = new Map<string, { account: string; revision: number; at: number }>();
+  /** Hosts whose account is being probed again behind a reused answer. */
+  private reverifying = new Set<string>();
   private aliases: SshHostAliases;
   get revision(): number {
     return this.currentRevision;
@@ -110,13 +115,28 @@ export class SourceControl {
   ) {
     const cached = this.identities.get(host);
     const now = this.now();
-    if (
-      cached &&
-      cached.revision === revision &&
-      now - cached.at >= 0 &&
-      now - cached.at < identityVerificationMs
-    )
+    const age = cached && cached.revision === revision ? now - cached.at : -1;
+    if (cached && age >= 0 && age < identityVerificationMs) return cached;
+    // A recent answer still names the backend, and the runner proves the account of every
+    // request it sends, so the next read need not wait for this probe; it runs behind it.
+    if (cached && age >= 0 && age < identityReuseMs) {
+      if (!this.reverifying.has(host)) {
+        this.reverifying.add(host);
+        void this.probeAccount(runner, host, revision, signal)
+          .catch(() => undefined)
+          .finally(() => this.reverifying.delete(host));
+      }
       return cached;
+    }
+    return this.probeAccount(runner, host, revision, signal);
+  }
+  private async probeAccount(
+    runner: CommandRunner,
+    host: string,
+    revision: number,
+    signal: AbortSignal,
+  ) {
+    const now = this.now();
     const verified = {
       account: await githubIdentity(runner, host, signal, this.now),
       revision,

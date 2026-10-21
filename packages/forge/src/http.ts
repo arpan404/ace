@@ -3,7 +3,7 @@ import { MutationDispatch, isForgeMutation } from "./mutation.ts";
 import { createHash } from "node:crypto";
 import { immutable } from "./immutable.ts";
 import { z } from "zod";
-import { ForgeError } from "./errors.ts";
+import { ForgeError, ForgeQueryRefused } from "./errors.ts";
 import { redactData } from "./redact.ts";
 import type { CommandRunner } from "./command.ts";
 
@@ -48,10 +48,14 @@ function assertGraphqlResult(
     error = new ForgeError("forbidden", undefined, false);
   else if (refused && codes.every((code) => code === "NOT_FOUND"))
     error = new ForgeError("not_found", undefined, false);
-  else if (refused && codes.every((code) => code === "UNPROCESSABLE"))
+  // STALE_DATA: a guarded write's expected state (such as a branch head) no longer holds.
+  else if (refused && codes.every((code) => code === "UNPROCESSABLE" || code === "STALE_DATA"))
     error = new ForgeError("conflict", undefined, false);
-  else if (refused && codes.every((code) => code === "GRAPHQL_VALIDATION_FAILED"))
-    error = new ForgeError("invalid_data", undefined, false);
+  else if (
+    refused &&
+    codes.every((code) => code === "GRAPHQL_VALIDATION_FAILED" || code === "undefinedField")
+  )
+    error = new ForgeQueryRefused();
   if (!error) throw new ForgeError("invalid_data");
   dispatch.reject();
   throw error;
@@ -89,6 +93,7 @@ export class GhApi {
   readonly #command: string;
   readonly #host: string;
   readonly #now: () => number;
+  readonly #onWrite: (() => void) | undefined;
   readonly #cache = new Map<string, Cached>();
   #cacheBytes = 0;
   constructor(options: {
@@ -96,11 +101,14 @@ export class GhApi {
     command?: string;
     host: string;
     now: () => number;
+    /** Runs as a write starts and once it ends, however it ends. */
+    onWrite?: () => void;
   }) {
     this.#runner = options.runner;
     this.#command = options.command ?? "gh";
     this.#host = options.host;
     this.#now = options.now;
+    this.#onWrite = options.onWrite;
   }
   async request(
     path: string,
@@ -116,10 +124,14 @@ export class GhApi {
       signal,
       mode: "json" as const,
     };
+    const write = isForgeMutation(request);
+    if (write) this.#onWrite?.();
     try {
       return await this.#request(path, signal, body, method, dispatch);
     } catch (error) {
-      throw isForgeMutation(request) ? dispatch.failure(error) : error;
+      throw write ? dispatch.failure(error) : error;
+    } finally {
+      if (write) this.#onWrite?.();
     }
   }
   async #request(
@@ -315,11 +327,19 @@ export class GhApi {
   next(page: Page, path: string): string | undefined {
     return this.#next(page.headers.link, path);
   }
-  #next(link: string | undefined, path: string): string | undefined {
+  /** The number of the last page GitHub links from `page`, if it links one. */
+  lastPage(page: Page, path: string): number | undefined {
+    const last = this.#next(page.headers.link, path, "last");
+    if (last === undefined) return undefined;
+    const number = Number(new URLSearchParams(last.split("?")[1] ?? "").get("page"));
+    if (!Number.isSafeInteger(number) || number < 1) throw new ForgeError("invalid_data");
+    return number;
+  }
+  #next(link: string | undefined, path: string, rel = "next"): string | undefined {
     const match = link
       ?.split(",")
-      .map((part) => /<([^>]+)>;\s*rel="next"/.exec(part))
-      .find(Boolean);
+      .map((part) => /<([^>]+)>;\s*rel="([a-z]+)"/.exec(part))
+      .find((found) => found?.[2] === rel);
     if (!match?.[1]) return undefined;
     let url: URL;
     try {
@@ -343,12 +363,18 @@ export class GhApi {
       return `${requested}${url.search}`;
     throw new ForgeError("invalid_data");
   }
-  async log(jobPath: string, signal: AbortSignal): Promise<{ text: string; truncated: boolean }> {
+  /** A job log's newest `tailBytes`; `gh api` follows GitHub's redirect to the log text. */
+  async log(
+    jobPath: string,
+    signal: AbortSignal,
+    tailBytes?: number,
+  ): Promise<{ text: string; truncated: boolean }> {
     const result = await this.#runner({
       command: this.#command,
       args: ["api", jobPath, "--hostname", this.#host, "--method", "GET"],
       signal,
       mode: "tail",
+      ...(tailBytes === undefined ? {} : { tailBytes }),
     });
     if (result.code !== 0) throw new ForgeError("cli");
     return { text: result.stdout, truncated: result.truncated };

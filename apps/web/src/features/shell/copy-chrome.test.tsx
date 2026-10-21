@@ -21,14 +21,17 @@ test("the connected machine keeps its name in menus, settings and the details ca
   expect(menu.textContent).not.toContain("memory://");
   expect(menu.textContent).not.toMatch(/daemon/i);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Connection settings" }));
+  await screen.findByRole("heading", { name: "General", level: 2 });
+  expect(await screen.findByRole("region", { name: "Connection" })).toBeTruthy();
+  await userEvent.click(screen.getByRole("link", { name: "Advanced", current: false }));
   await screen.findByRole("heading", { name: "Advanced", level: 2 });
   await userEvent.click(await screen.findByRole("button", { name: "Show" }));
   expect(
     await within(screen.getByRole("region", { name: "Health" })).findByText("Workshop Mac"),
   ).toBeTruthy();
-  await userEvent.click(screen.getByRole("link", { name: "Remote devices", current: false }));
+  await userEvent.click(screen.getByRole("link", { name: "Machines and devices", current: false }));
   expect(
-    await within(await screen.findByRole("region", { name: "Machines" })).findByText(
+    await within(await screen.findByRole("region", { name: "This machine" })).findByText(
       "Workshop Mac",
     ),
   ).toBeTruthy();

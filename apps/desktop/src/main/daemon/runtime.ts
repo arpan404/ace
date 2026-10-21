@@ -4,6 +4,7 @@ import { prepareDaemonHome, resolveDaemonHome } from "@ace/service/home";
 import type { DaemonConnection, DaemonStatus } from "../../shared/contract.ts";
 import { DoctorReport, providerSummaries, type ProviderSummary } from "../../shared/onboarding.ts";
 import type { Log } from "../log/desktop-log.ts";
+import { daemonLaunchPolicy, systemLaunchPort } from "./launch-priority.ts";
 import { loginShellPath } from "./login-path.ts";
 import {
   findRunningDaemon,
@@ -109,6 +110,7 @@ export class DaemonRuntime {
           : { state: "starting", source, restarts: 0, paused: false };
     if (this.target.kind === "managed" || this.target.kind === "attach") {
       const home = this.target.home;
+      const prioritize = daemonLaunchPolicy(systemLaunchPort(options.platform ?? process.platform));
       this.supervisor = new DaemonSupervisor(
         {
           spawn:
@@ -116,6 +118,7 @@ export class DaemonRuntime {
               ? () =>
                   (options.spawnDaemon ?? spawnDaemon)({
                     ...this.spawnOptions(home, this.resolvedPath),
+                    prioritize,
                     onOutput:
                       options.daemonOutput ??
                       ((line, stream) =>
@@ -231,6 +234,16 @@ export class DaemonRuntime {
 
   async providers(): Promise<ProviderSummary[]> {
     return providerSummaries(await this.diagnose());
+  }
+
+  /**
+   * Before the app restarts into an update: close admission on the daemon this app started
+   * and wait up to `deadlineMs` for running work to finish. Any other daemon (the CLI's, the
+   * login service's, a remote one) keeps running through the app's restart, so nothing waits.
+   */
+  async drainForUpdate(deadlineMs: number, waiting: (count: number) => void): Promise<boolean> {
+    if (!this.supervisor || this.target.kind !== "managed") return true;
+    return this.supervisor.drain(deadlineMs, 1_000, waiting);
   }
 
   /** Stop only a daemon this app started. */

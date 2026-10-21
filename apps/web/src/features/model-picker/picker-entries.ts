@@ -1,6 +1,5 @@
 import type { AccountView, PickerModel, PickerProvider } from "@ace/ui-core";
-import { accountLimit, isPlainCliLogin, providerNames } from "@ace/ui-core";
-import { acpAgentName } from "@ace/ui-core/provider-icons";
+import { accountLimit, isPlainCliLogin, providerDisplayName, providerNames } from "@ace/ui-core";
 import type { ProviderKind } from "@ace/protocol";
 
 export interface PickerEntry {
@@ -67,7 +66,7 @@ export function pickerEntries(
         // agent is signed in more than once.
         const agent =
           entry.provider === "acp" && account?.acpAgentId
-            ? acpAgentName(account.acpAgentId)
+            ? providerDisplayName("acp", account.acpAgentId)
             : undefined;
         const twins = own.filter((candidate) => candidate.acpAgentId === account?.acpAgentId);
         // The CLI's own login, never renamed, is the provider itself: "Codex", no bubble.

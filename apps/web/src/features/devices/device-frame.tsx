@@ -10,8 +10,7 @@ import {
 import type { ReactNode } from "react";
 import type { IconGlyph } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
-import type { DeviceKind } from "./device-catalog.ts";
-import { fitFrame, type FrameGeometry, type Size } from "./device-frame-geometry.ts";
+import { type DeviceKind, fitFrame, type FrameGeometry, type Size } from "@ace/ui-core/devices";
 import { HomeButton, SideButtons, type Hardware } from "./hardware-buttons.tsx";
 
 /** One glyph per kind of device, so a list of them reads at a glance. */

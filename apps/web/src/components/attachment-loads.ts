@@ -9,6 +9,18 @@ export const originalLimit = 32 * 1024 * 1024;
 const thumbnailLimit = 512 * 1024;
 const keyOf = (source: AttachmentSource, variant: ImageVariant) =>
   `${source.threadId}\u0000${source.sha256}\u0000${variant}`;
+const attempts = 4;
+
+/**
+ * Whether a failed read can never succeed by asking again: the bytes are gone or refused, or
+ * the daemon speaks another protocol. Everything else (a dropped or reconnecting socket, a
+ * deadline on a slow link, a busy decoder or channel) is transient and is retried.
+ */
+export function permanentFailure(error: unknown): boolean {
+  if (!(error instanceof ClientError)) return false;
+  if (error.code === "daemon") return ["NOT_FOUND", "FORBIDDEN", "QUOTA"].includes(error.message);
+  return ["protocol", "version_mismatch", "identity", "auth"].includes(error.code);
+}
 
 interface Job {
   key: string;
@@ -31,6 +43,8 @@ export interface ImageLease {
 /** One connection's shared image reads. Jobs retain metadata until admitted, never image bytes.
  * Two reads match the daemon decoder budget; originals also share a 32 MiB in-flight budget.
  * The 64-job cap includes delayed retries. Only mounted consumers retain an unfinished job.
+ * While the connection is not ready (a phone asleep, a reconnect) jobs wait for it instead of
+ * failing, and a transient failure is retried with backoff before it is reported.
  */
 export class AttachmentLoads {
   private blobs = new LruCache<string, Blob>({
@@ -44,12 +58,17 @@ export class AttachmentLoads {
   private weight = 0;
   private client: ClientApi;
   private schedule: (delay: number, callback: () => void) => () => void;
+  private stopWaiting: (() => void) | undefined;
   constructor(client: ClientApi, schedule: (delay: number, callback: () => void) => () => void) {
     this.client = client;
     this.schedule = schedule;
   }
   cached(source: AttachmentSource, variant: ImageVariant): Blob | undefined {
     return this.blobs.get(keyOf(source, variant));
+  }
+  /** Forget kept bytes the browser could not show, so the next read asks the daemon again. */
+  evict(source: AttachmentSource, variant: ImageVariant): void {
+    this.blobs.delete(keyOf(source, variant));
   }
   acquire(source: AttachmentSource, variant: ImageVariant): ImageLease {
     const key = keyOf(source, variant);
@@ -99,6 +118,10 @@ export class AttachmentLoads {
     };
   }
   private drain(): void {
+    if (this.queue.length && this.reconnecting()) {
+      this.waitForReady();
+      return;
+    }
     while (this.active < 2 && this.queue.length) {
       // FIFO keeps large originals from starving behind a continuous stream of thumbnails.
       const job = this.queue[0];
@@ -134,10 +157,13 @@ export class AttachmentLoads {
       job.resolve(blob);
     } catch (error) {
       if (this.jobs.get(job.key) !== job) return;
-      // Other connections share the daemon decoder and socket queue. Retry their temporary
-      // admission failure, but bound both attempts and retained jobs. Release capacity first.
-      if (error instanceof ClientError && error.code === "busy" && job.attempts < 4) {
-        job.cancelRetry = this.schedule(100 * job.attempts, () => {
+      if (!permanentFailure(error) && this.reconnecting()) {
+        // The connection dropped under the read; it resumes once the connection is back.
+        job.attempts--;
+        this.queue.push(job);
+      } else if (!permanentFailure(error) && job.attempts < attempts) {
+        // Bound both attempts and retained jobs. Release capacity first.
+        job.cancelRetry = this.schedule(100 * 2 ** (job.attempts - 1), () => {
           job.cancelRetry = undefined;
           if (this.jobs.get(job.key) !== job) return;
           this.queue.push(job);
@@ -152,5 +178,20 @@ export class AttachmentLoads {
       this.weight -= job.weight;
       this.drain();
     }
+  }
+  /** Not ready yet, but coming back; a fatal connection reports its reads as failed. */
+  private reconnecting(): boolean {
+    return this.client.state !== "ready" && this.client.state !== "fatal";
+  }
+  private waitForReady(): void {
+    if (this.stopWaiting) return;
+    const selection = this.client.connectionState();
+    const stop = selection.subscribe(() => {
+      if (this.client.state !== "ready") return;
+      stop();
+      this.stopWaiting = undefined;
+      this.drain();
+    });
+    this.stopWaiting = stop;
   }
 }

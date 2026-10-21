@@ -8,7 +8,7 @@ import { DataTable, type DataColumns } from "@/components/data-table.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { useDaemonConnection } from "@/boot/connection.tsx";
+import { useCopy } from "@/components/use-copy.ts";
 
 /**
  * Request/response daemon reads go through TanStack Query, wrapping @ace/client request APIs.
@@ -51,8 +51,8 @@ export function DaemonHealth() {
   const client = useClient();
   const identity = useHostIdentity();
   const host = identity?.displayName ?? "This machine";
-  const connection = useDaemonConnection();
   const toast = useToast();
+  const report = useCopy(() => toast.error({ title: "Couldn't copy the diagnostics" }));
   const ready = useConnectionState() === "ready";
   const health = useQuery({
     ...daemonQueries.health(client),
@@ -79,14 +79,9 @@ export function DaemonHealth() {
       </div>
     );
   const data = health.data;
-  const copy = () => {
-    const report = JSON.stringify({ url: connection.url, health: data }, null, 2);
-    const copied = navigator.clipboard?.writeText(report) ?? Promise.reject(new Error());
-    void copied.then(
-      () => toast.add({ title: "Diagnostics copied" }),
-      () => toast.error({ title: "Couldn't copy the diagnostics" }),
-    );
-  };
+  // The machine this page reads, not this window's own: Settings may be editing another.
+  const copy = () =>
+    report.copy(JSON.stringify({ machine: host, hostId: identity?.hostId, health: data }, null, 2));
   const rows: [string, string][] = [
     ["Machine", host],
     ["Memory", mb(data.memory.rssBytes)],
@@ -110,7 +105,7 @@ export function DaemonHealth() {
       <DataTable caption="Pending work" columns={columns} data={queues} empty="No queues." />
       <div>
         <Button size="sm" variant="secondary" onClick={copy}>
-          Copy diagnostics
+          {report.copied ? "Copied" : "Copy diagnostics"}
         </Button>
       </div>
     </div>

@@ -74,6 +74,12 @@ export { downloadArtifact } from "@ace/files/client";
 export type { ArtifactChannel, ArtifactSink } from "@ace/files/client";
 
 export { downloadFile, uploadFile } from "./files.ts";
+export {
+  readFile,
+  type FileReadInput,
+  type FileReadOutcome,
+  type FileReader,
+} from "./file-read.ts";
 export type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 
 export { deferredProjectsApi, type ProjectsApi, type ProjectCallsModule } from "./projects.ts";
@@ -99,3 +105,5 @@ export { fitsUtf8 } from "./bounds.ts";
 export { attachmentReadScope } from "./attachment-scope.ts";
 
 export type { ReadSnapshotStorage } from "./read-snapshot-storage.ts";
+
+export { windowSource, type ThreadWindow } from "./window-source.ts";

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import type { Bounds } from "./device-stage.tsx";
-import { shortRefs, type RefNode } from "./ui-tree-refs.ts";
+import { shortRefs, type RefNode } from "@ace/ui-core/devices";
 
 export type TreeState =
   | { state: "loading" }

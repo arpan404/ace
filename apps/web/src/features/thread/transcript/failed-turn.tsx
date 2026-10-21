@@ -28,6 +28,8 @@ export function FailedTurn(props: {
   errorId: string | undefined;
   error: Failure | undefined;
   latest: boolean;
+  /** The thread's composer strip already says a usage or rate limit: no row for it here. */
+  limitInStrip?: boolean | undefined;
 }) {
   const { error, latest } = props;
   const thread = useThreadMeta(props.threadId);
@@ -80,6 +82,7 @@ export function FailedTurn(props: {
       setSending(false);
     }
   };
+  if (props.limitInStrip && isLimitError(view)) return null;
   const fixable = latest && view.action !== undefined && fixes.has(view.action);
   // Nothing said why: "Turn failed" alone. A fix names the failure itself ("Not signed in").
   const known = reported !== undefined || error !== undefined;

@@ -55,14 +55,14 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
         layer: { kind: "global" },
       });
       if (!retention.ok)
-        throw new Error("Host administrator access is required to save retention.");
+        throw new Error("Couldn't save retention. Administrator access is required.");
       const scheduled = await client.request({
         type: "settings.set",
         key: "storage.scheduledCleanup",
         value: scheduledDraft ?? query.data?.scheduled ?? false,
         layer: { kind: "global" },
       });
-      if (!scheduled.ok) throw new Error("Scheduled cleanup could not be saved.");
+      if (!scheduled.ok) throw new Error("Couldn't save daily cleanup.");
       props.onSaved();
       await query.refetch();
       setDraft(undefined);
@@ -77,7 +77,7 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
     <SettingSection
       label="Retention"
       scope="daemon"
-      note="Days to keep archived threads and unused data. Empty keeps it indefinitely; pins and live work always stay."
+      note="Days to keep archived threads and unused data, by kind. Empty keeps it; pins and live work always stay."
     >
       {values ? (
         StorageKind.options.map((kind) => (
@@ -101,15 +101,13 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
           </SettingRow>
         ))
       ) : query.isError ? (
-        <SettingNote role="alert">
-          Retention could not be loaded. Reconnect and try again.
-        </SettingNote>
+        <SettingNote role="alert">Couldn't load retention. Reconnect and try again.</SettingNote>
       ) : (
         <ListSkeleton label="retention" shape="row" rows={3} />
       )}
       <SettingRow
         title="Daily cleanup"
-        description="Automatically applies the saved retention policy. Forced worktree removal stays manual."
+        description="Applies the saved retention every day. Forced worktree removal stays manual."
         inline
       >
         <Switch

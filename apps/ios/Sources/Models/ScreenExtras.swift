@@ -51,6 +51,7 @@ extension ThreadScreenModel {
             turnSteps(ordinal).pages[page] = rows
         case .tune(let row): if tune != row { tune = row }
         case .attachments(let files): if attachments != files { attachments = files }
+        case .activity(let row): if activity != row { activity = row }
         case .laneBlock(let agentId, let id, let row):
             if lane?.agentId == agentId { lane?.apply(id, row: row) }
         case .laneBlockPosition(let agentId, let id, let index):

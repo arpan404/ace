@@ -1,10 +1,9 @@
 import Foundation
 
-/// New thread, Add project and the Files sheet (`bridge/compose-actions.ts`). Swift sends the
-/// person's choices; the bridge decides what can start and what `thread.create` carries.
+/// New thread and Add project (`bridge/compose-actions.ts`). Swift sends the person's choices;
+/// the bridge decides what can start and what `thread.create` carries.
 extension ClientModel {
     @discardableResult func composeAction(_ value: [String: Any]) -> Bool { action(["type": "compose", "action": value]) }
-    @discardableResult func filesAction(_ value: [String: Any]) -> Bool { action(["type": "files", "action": value]) }
 
     /// Save the start in the SDK's outbox under `commandId`: true once it is on this phone.
     /// A view-only machine submits nothing.
@@ -51,5 +50,15 @@ extension ClientModel {
     func addProject(path: String, requestId: String) async -> Bool {
         guard canOperate else { return false }
         return await admissions.wait(id: requestId) { composeAction(["kind": "addProject", "path": path, "requestId": requestId]) }
+    }
+    func createProject(_ draft: ProjectCreationDraft, cloning: Bool, requestId: String) async -> Bool {
+        guard canOperate else { return false }
+        var payload: [String: Any] = ["type": cloning ? "workspace.clone" : "workspace.create", "parent": draft.parent, "name": draft.name]
+        if cloning { payload["url"] = draft.url }
+        else if draft.git {
+            payload["git"] = draft.branch.isEmpty ? [:] : ["initialBranch": draft.branch]
+            if !draft.gitignore.isEmpty { payload["gitignore"] = draft.gitignore }
+        }
+        return await admissions.wait(id: requestId) { composeAction(["kind": "createProject", "payload": payload, "requestId": requestId]) }
     }
 }

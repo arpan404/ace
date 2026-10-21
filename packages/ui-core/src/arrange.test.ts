@@ -94,25 +94,17 @@ test("snoozed tasks fold away until expiry, but renewed requests stay exposed", 
   expect(arrange(entries, state({ project: "other" }), now).snoozed).toEqual([]);
 });
 
-test.each(["not_sent", "uncertain"])(
-  "a completed snoozed task resurfaces when its queue needs %s recovery",
+test.each(["restart", "not_sent", "uncertain"])(
+  "a thread snoozed while its queue waits on %s recovery folds away with the rest",
   (reason) => {
     const quiet = entry("quiet", { state: "done" }, now, { snoozedUntil: now + hour });
-    const waiting = entry("recovery", { state: "done" }, now, { snoozedUntil: now + hour });
-    expect(arrange([quiet, waiting], state(), now).snoozed).toEqual(["quiet", "recovery"]);
-    const recovered = entry("recovery", { state: "done" }, now, {
-      snoozedUntil: now + hour,
+    const held = entry("held", { state: "waiting", on: "queue" }, now, {
+      snoozedUntil: now + 2 * hour,
       queue: { revision: 1, paused: true, reason, resumeAt: null, pendingCount: 1 },
     });
-    const order = arrange([quiet, recovered], state(), now);
-    expect(order.recent).toEqual(["recovery"]);
-    expect(order.snoozed).toEqual(["quiet"]);
-    expect(order.settled).toEqual([]);
-    const scheduled = entry("recovery", { state: "done" }, now, {
-      snoozedUntil: now + hour,
-      queue: { revision: 1, paused: true, reason, resumeAt: now + hour, pendingCount: 1 },
-    });
-    expect(arrange([scheduled], state(), now).snoozed).toEqual(["recovery"]);
+    const order = arrange([quiet, held], state(), now);
+    expect(order.snoozed).toEqual(["quiet", "held"]);
+    expect([...order.active, ...order.recent]).toEqual([]);
   },
 );
 

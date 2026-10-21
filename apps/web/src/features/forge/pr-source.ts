@@ -1,7 +1,7 @@
 import { prFromUrl } from "@ace/forge/pr-reference";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { actionErrorText } from "@ace/ui-core";
-import { failureCode, readForge } from "./source.ts";
+import { failureCode, readForge } from "@/lib/forge-read.ts";
 export function usePrSource(workspaceId: string | undefined, url: string | undefined) {
   let pr;
   try {

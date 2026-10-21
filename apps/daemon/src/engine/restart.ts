@@ -4,6 +4,7 @@ import type { EngineClock } from "./actor.ts";
 import type { Recovery } from "./recovery.ts";
 import type { ThreadId } from "@ace/protocol";
 import { lostWork } from "./lost-work.ts";
+import { settleSessionBoundTasks, threadsWithOpenTasks } from "./session-bound-tasks.ts";
 import { skippableAtStartup } from "./startup-skip.ts";
 /** Startup is a cold pass over stored thread headers and outstanding sends. */
 export function recoverEngine(
@@ -141,6 +142,17 @@ export function recoverEngine(
       }),
     );
   }
+  // No provider process survives a restart: work that lived inside one has stopped, in any
+  // thread, settled or not.
+  for (const id of threadsWithOpenTasks(repo))
+    isolated(id, skip, () =>
+      repo.store.atomic(() => {
+        if (repo.cleaning(id)) return;
+        const state = repo.requireState(id);
+        const stale = settleSessionBoundTasks(repo, state);
+        if (stale.length) repo.apply(id, stale, clock.now());
+      }),
+    );
   for (const intent of repo.pending.headers()) {
     isolated(intent.threadId, skip, () =>
       repo.store.atomic(() => {

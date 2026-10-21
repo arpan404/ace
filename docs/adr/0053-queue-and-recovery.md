@@ -226,13 +226,24 @@ interrupt the model, so it must not wait for a command.
 
 A person's steer now reaches the model at once, however long the running command:
 
-- **Providers differ in when a native steer lands.** Claude (priority `now`, CLI 2.1.286+)
-  backgrounds the running tool and joins the turn; the Cursor SDK cancels and restarts the
-  operation. Both reach the model at once. Codex `turn/steer` waits in the turn's pending input
-  for the next model request, after the running command returns; Pi's `steer` and OpenCode's
-  busy-session prompt also land at the next step. Adapters say which through the
-  `steerTiming` capability (`after_tool`; omitted means immediate).
+- **Providers differ in when a native steer lands.** The Cursor SDK cancels and restarts the
+  operation, so its steer reaches the model at once. Codex `turn/steer` waits in the turn's
+  pending input for the next model request, after the running command returns; Pi's `steer` and
+  OpenCode's busy-session prompt also land at the next step. Claude's `priority: "now"` message
+  waits too: Claude Code 2.1.304 holds it in its input queue until the running foreground tool
+  returns (#1184; an earlier version of this amendment said it backgrounds the tool, which it
+  does not). Adapters say which through the `steerTiming` capability (`after_tool`; omitted
+  means immediate).
 - **Immediate providers steer natively mid-tool.** The engine sends the steer as before.
+- **Claude backgrounds the running tool.** Claude omits `steerTiming` and its session implements
+  `backgroundTools`. The steering lane sends the person's steer natively, then asks the session
+  to move the running foreground tools to the background (the `background_tasks` control, the
+  terminal's Ctrl+B). Each blocking Bash or subagent call returns at once with a "running in the
+  background" result, the turn takes the steer at that boundary, and the command keeps running
+  as a background task that reports when it ends. Nothing is interrupted or killed. If the
+  control fails (background tasks disabled with `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`), the
+  engine reports the error and never falls back to an interrupt: the steer lands when the tool
+  returns. Only the person's own steer backgrounds tools; daemon input never does.
 - **`after_tool` providers yield the turn.** The steering lane interrupts the root turn once
   (provider-native, no cascade: background commands and children keep running). The steer stays
   an unclaimed intent until that turn ends, then goes in as the next input. No other steer slips

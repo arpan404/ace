@@ -315,7 +315,6 @@ test.each(["success", "refusal"] as const)(
       false,
     );
     expect(daemon.projects.list().workspaces.map((project) => project.name)).toContain("site");
-    expect(screen.queryByText("Removed docs")).toBeNull();
     stop();
     view.unmount();
   },

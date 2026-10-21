@@ -6,6 +6,7 @@ import {
   useThreadStore,
 } from "@ace/client-react";
 import { useComposerActions } from "./composer-actions.ts";
+import { useLeavesLimit } from "./held-turn-strip.tsx";
 import type { ThreadStatus } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
 import {
@@ -45,7 +46,7 @@ import {
 import { DeferredComposerStrip } from "./deferred-cards.ts";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { finishQueueEdit, queueEditSession, saveQueueEdit } from "./queue-edit.ts";
-import { lastSentText } from "./last-sent.ts";
+import { sentText } from "./last-sent.ts";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useStopFence, useStopping } from "./stop-state.ts";
 import { useNavigate } from "@tanstack/react-router";
@@ -108,7 +109,9 @@ export function ThreadComposer({
   // capabilities are unknown) a follow-up queues (SY-14).
   const canSteer = meta?.capabilities?.steer === true;
   const followUp = canSteer ? setting : "queue";
-  const busy = isBusy(props.status);
+  // Picking an account with room while a limit holds: the message goes straight out there.
+  const leavesLimit = useLeavesLimit(props.thread.id);
+  const busy = isBusy(props.status) && !(props.status?.state === "limited" && leavesLimit);
   // The root only waits on its subagents: the model itself isn't busy, so a message goes in now.
   const wait = useTurnActivity(props.thread.id)?.waitingOn;
   const subagentWait = wait?.kind === "subagents" ? wait : undefined;
@@ -161,7 +164,6 @@ export function ThreadComposer({
         draft,
       });
       setContinuation(undefined);
-      toast.add({ title: `Continues on ${target.choice.model} in a new thread` });
       void navigate({ to: "/t/$threadId", params: { threadId: opened } });
       return true;
     } catch (error) {
@@ -362,7 +364,7 @@ export function ThreadComposer({
         followUp={followUp}
         canSteer={canSteer}
         onSubmit={submit}
-        recall={() => (transcript ? lastSentText(transcript) : undefined)}
+        recall={(older) => (transcript ? sentText(transcript, older) : undefined)}
         onStop={canStop ? stop : undefined}
         onStopKey={stopKey}
         stopping={stopping}
@@ -401,7 +403,8 @@ export function ThreadComposer({
           <Suspense fallback={<ControlsPending />}>
             <DeferredModelControl.Component
               thread={props.thread}
-              busy={busy}
+              // A limit holds no turn to wait for: a switch made now takes effect now.
+              busy={busy && props.status?.state !== "limited"}
               next={next}
               continued={continued}
               pickerRequest={pickerRequest}

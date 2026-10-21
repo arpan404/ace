@@ -20,10 +20,17 @@ import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import type { PrWorkspaceExtensions } from "./pr-extensions.ts";
 import type { PrActions } from "./pr-actions.ts";
 import { PrPrimaryButton } from "./pr-primary-button.tsx";
+import { WorkTitle } from "@/components/work-heading.tsx";
+import { PrMergeLines } from "./pr-merge-lines.tsx";
 import { PrAgentChip } from "./pr-agent-chip.tsx";
 
 /** The title, editable in place where GitHub lets this account change it. */
-function PrTitle(props: { actions: PrActions; condensed: boolean }) {
+export function PrTitle(props: {
+  actions: PrActions;
+  condensed: boolean;
+  /** On a page of its own: large type with the number, as an issue's page has. */
+  page?: boolean | undefined;
+}) {
   const { lifecycle, context } = props.actions;
   const title = context.detail.status.title;
   const [draft, setDraft] = useState<string | undefined>();
@@ -69,6 +76,18 @@ function PrTitle(props: { actions: PrActions; condensed: boolean }) {
         </Button>
       </form>
     );
+  const edit = editable && !props.condensed && (
+    <IconButton
+      icon={PencilSimpleIcon}
+      label="Edit title"
+      size="sm"
+      disabled={lifecycle.blocked}
+      className="opacity-0 group-focus-within/title:opacity-100 group-hover/title:opacity-100 pointer-coarse:opacity-100"
+      onClick={() => setDraft(title)}
+    />
+  );
+  if (props.page)
+    return <WorkTitle text={title} number={context.detail.status.ref.number} trailing={edit} />;
   return (
     <div className="group/title flex min-w-0 items-center gap-1">
       <h2
@@ -80,22 +99,13 @@ function PrTitle(props: { actions: PrActions; condensed: boolean }) {
       >
         {title}
       </h2>
-      {editable && !props.condensed && (
-        <IconButton
-          icon={PencilSimpleIcon}
-          label="Edit title"
-          size="sm"
-          disabled={lifecycle.blocked}
-          className="opacity-0 group-focus-within/title:opacity-100 group-hover/title:opacity-100 pointer-coarse:opacity-100"
-          onClick={() => setDraft(title)}
-        />
-      )}
+      {edit}
     </div>
   );
 }
 
 /** An amber "Behind · Update" chip beside the branches, offering to update the branch. */
-function BehindBase(props: {
+export function BehindBase(props: {
   actions: PrActions;
   open: boolean;
   onOpenChange(open: boolean): void;
@@ -147,6 +157,27 @@ function BehindBase(props: {
  * primary control and ⋯ on the first line; then the title, author and checkout, and the
  * branches with the diff size. Scrolled, it folds to the first line plus a thin branch line.
  */
+/** The header's one primary control (merge, auto-merge, resolve…), with turning auto-merge off. */
+export function PrPrimaryControl(props: { actions: PrActions }) {
+  const { actions } = props;
+  const working = actions.writes.pending || actions.mergeState.pending || actions.lifecycle.pending;
+  return (
+    <PrPrimaryButton
+      primary={actions.primary}
+      blocked={actions.primaryBlocked}
+      working={working}
+      onRun={() => void actions.runPrimary()}
+      onDisable={() => void actions.mergeState.run("disable", actions.method)}
+      disableBlocked={
+        actions.mergeState.blocked ??
+        (actions.mergeState.state?.canDisable
+          ? undefined
+          : "GitHub doesn't let this account turn auto-merge off")
+      }
+    />
+  );
+}
+
 export function PrHeader(props: {
   actions: PrActions;
   extensions?: PrWorkspaceExtensions | undefined;
@@ -166,10 +197,11 @@ export function PrHeader(props: {
   const repository = status.ref.repository;
   const checkout = `gh pr checkout ${status.ref.number} --repo ${repository.host}/${repository.owner}/${repository.name}`;
   const toast = useToast();
-  const { copied, copy } = useCopy();
+  const { copied, copy } = useCopy(() =>
+    toast.error({ title: "Couldn't copy the checkout command" }),
+  );
   const openUrl = (url: string) =>
     void openExternal(url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
-  const working = actions.writes.pending || actions.mergeState.pending || actions.lifecycle.pending;
   const branches = (
     <>
       {detail.baseBranch} ← {detail.headBranch}
@@ -213,12 +245,7 @@ export function PrHeader(props: {
         <div className="ml-auto flex shrink-0 items-center gap-1">
           {props.extensions?.headerActions?.(context)}
           <PrAgentChip detail={detail} compact={props.condensed} />
-          <PrPrimaryButton
-            primary={actions.primary}
-            blocked={actions.primaryBlocked}
-            working={working}
-            onRun={() => void actions.runPrimary()}
-          />
+          <PrPrimaryControl actions={actions} />
           {props.menu}
         </div>
       </div>
@@ -273,6 +300,7 @@ export function PrHeader(props: {
             </div>
           </div>
           {props.gates}
+          <PrMergeLines actions={actions} />
         </div>
       </div>
       {props.condensed && (

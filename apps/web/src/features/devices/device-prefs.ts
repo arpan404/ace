@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { z } from "zod";
 import { webStorage } from "@/boot/web-storage.ts";
-import { recentLimit, rememberUse, type DeviceUse } from "./device-catalog.ts";
+import { recentLimit, rememberUse, type DeviceUse } from "@ace/ui-core/devices";
 
 /*
  * What the Devices views remember on this machine, never on the daemon: the devices this person
@@ -62,6 +62,7 @@ const drawer = new Remembered<DrawerPrefs>("ace.devices.drawer", Drawer, {
   section: "logs",
 });
 const screenOnly = new Remembered<boolean>("ace.devices.screen-only", z.boolean(), false);
+const streamStats = new Remembered<boolean>("ace.devices.stream-stats", z.boolean(), false);
 
 function useRemembered<T>(store: Remembered<T>): T {
   return useSyncExternalStore(store.subscribe, store.get, store.get);
@@ -97,4 +98,10 @@ export function takeBootRequest(id: string): boolean {
 export const useScreenOnly = () => useRemembered(screenOnly);
 export function setScreenOnly(value: boolean): void {
   screenOnly.set(() => value);
+}
+
+/** The live screen's stream stats, over the stage. */
+export const useStreamStatsShown = () => useRemembered(streamStats);
+export function setStreamStatsShown(value: boolean): void {
+  streamStats.set(() => value);
 }

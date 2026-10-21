@@ -18,6 +18,8 @@ interface ViewList {
   setInPage(inPage: boolean): void;
 }
 const ViewListContext = createContext<ViewList | null>(null);
+/** The list is drawn as a page, under the page's own title. */
+const InPageContext = createContext(false);
 
 /**
  * Where a view's own list goes. `threads`: the view is the thread list the sidebar always shows
@@ -84,7 +86,7 @@ export function ViewListPage(props: { title: string; fallback: ReactNode }) {
         aria-label={list.label}
         className="mx-auto flex h-full w-full max-w-(--column) min-h-0 flex-col"
       >
-        {list.sidebar}
+        <InPageContext.Provider value>{list.sidebar}</InPageContext.Provider>
       </aside>
     </Screen>
   );
@@ -114,11 +116,11 @@ export function ViewSidebar(props: {
   toolbar?: ReactNode;
   children: ReactNode;
 }) {
+  // As a page, the header already carries the title.
+  const title = useContext(InPageContext) ? undefined : props.title;
   return (
     <>
-      {(props.title || props.actions) && (
-        <SidebarHeader title={props.title} actions={props.actions} />
-      )}
+      {(title || props.actions) && <SidebarHeader title={title} actions={props.actions} />}
       {props.toolbar}
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-4">{props.children}</div>
     </>

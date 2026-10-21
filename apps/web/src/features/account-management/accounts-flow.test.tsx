@@ -76,7 +76,7 @@ test("a renamed default account immediately names the new-thread composer and pi
   ).toBe(true);
 });
 
-test("account-switch confirmations name the account and disappear when another thread opens", async () => {
+test("switching the account shows the new account on the model chip", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   app.play(longHistory(2)).runUntilBlocked();
@@ -84,12 +84,8 @@ test("account-switch confirmations name the account and disappear when another t
   const popover = await openModelControl(/^Model: Opus 5.5/);
   await chooseAccount(popover, "Work");
   await closeModelControl();
-  expect(await screen.findByText("Next turn runs on Claude Code · Work")).toBeTruthy();
-  await userEvent.click(screen.getByRole("link", { name: /Document the router/ }));
-  await screen.findByRole("heading", { level: 1, name: "Document the router" });
-  await waitFor(() =>
-    expect(screen.queryByText("Next turn runs on Claude Code · Work")).toBeNull(),
-  );
+  const chip = await screen.findByRole("button", { name: /^Model: Opus 5.5/ });
+  expect(await within(chip).findByRole("img", { name: "Claude Code · Work" })).toBeTruthy();
 });
 
 test("a limited current account remains selected while account management stays in Settings", async () => {

@@ -62,27 +62,33 @@ test("the person proceeds past an untrusted certificate for the address they wer
   await waitFor(() => expect(within(panel).queryByRole("alert")).toBeNull());
 });
 
-test("a tab playing sound gets a speaker the person turns on and off", async () => {
+test("a tab playing sound shows a speaker in the address bar the person mutes and unmutes", async () => {
   const { panel, browser, tabId } = await openBrowser();
   const tabs = within(panel).getByRole("tablist", { name: "Thread panel tabs" });
-  const soundMenuItem = async (name: RegExp) => {
-    await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
-    return screen.findByRole("menuitem", { name });
-  };
+  // A silent page has no speaker anywhere.
+  expect(within(panel).queryByRole("button", { name: /^(Mute|Unmute) tab$/ })).toBeNull();
   expect(within(tabs).queryByRole("img", { name: /^(Muted|Playing sound)$/ })).toBeNull();
-  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
-  await screen.findByRole("menu");
-  expect(screen.queryByRole("menuitem", { name: /^(Mute|Unmute) tab$/ })).toBeNull();
-  await userEvent.keyboard("{Escape}");
 
   act(() => browser.sound(thread, tabId, true, true));
   await within(tabs).findByRole("img", { name: "Muted" });
-  await userEvent.click(await soundMenuItem(/^Unmute tab$/));
+  await userEvent.click(await within(panel).findByRole("button", { name: "Unmute tab" }));
   await waitFor(() => expect(browser.tab(thread, tabId)?.muted).toBe(false));
   await within(tabs).findByRole("img", { name: "Playing sound" });
-  await userEvent.click(await soundMenuItem(/^Mute tab$/));
+  await userEvent.click(await within(panel).findByRole("button", { name: "Mute tab" }));
   await waitFor(() => expect(browser.tab(thread, tabId)?.muted).toBe(true));
   await within(tabs).findByRole("img", { name: "Muted" });
+});
+
+test("right-clicking a browser tab mutes and unmutes it, even while it is silent", async () => {
+  const { panel, browser, tabId } = await openBrowser();
+  const tabs = within(panel).getByRole("tablist", { name: "Thread panel tabs" });
+  const pageTab = within(tabs).getByRole("tab", { selected: true });
+  await userEvent.pointer({ keys: "[MouseRight]", target: pageTab });
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Mute tab" }));
+  await waitFor(() => expect(browser.tab(thread, tabId)?.muted).toBe(true));
+  await userEvent.pointer({ keys: "[MouseRight]", target: pageTab });
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Unmute tab" }));
+  await waitFor(() => expect(browser.tab(thread, tabId)?.muted).toBe(false));
 });
 
 test("a page's file picker takes the files the person picks on this device", async () => {

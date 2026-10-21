@@ -65,3 +65,29 @@ test("native service bridge refuses thread commands so they cannot bypass durabl
   await until(() => sink.read("service:bad") !== undefined, "refused");
   expect(sink.read("service:bad")).toMatchObject({ ok: false, value: null });
 });
+
+test("phone search finds message content beyond the loaded inbox titles", async () => {
+  const { client } = sheetFixture();
+  close = () => client.close();
+  await client.start();
+  await until(() => client.state === "ready", "connected");
+  const sink = new RecordingSink();
+  new NativeServices(client, sink).handle({
+    type: "service",
+    id: "search",
+    request: { type: "search.query", text: "sequence number", filters: { kind: "message" } },
+  });
+  await until(() => sink.read("service:search") !== undefined, "searched");
+  expect(sink.read("service:search")).toMatchObject({
+    ok: true,
+    value: {
+      type: "search.results",
+      hits: [
+        expect.objectContaining({
+          threadId: "thread-dedupe",
+          snippet: expect.objectContaining({ text: expect.stringContaining("sequence number") }),
+        }),
+      ],
+    },
+  });
+});

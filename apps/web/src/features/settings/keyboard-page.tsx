@@ -102,7 +102,7 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
   { label: "Tools", ids: ["changes", "agents", "files", "preview", "devices", "logs"] },
   {
     label: "Terminal & browser",
-    ids: ["terminal", "terminalPanel", "newTerminal", "findInTerminal", "browser", "takeControl"],
+    ids: ["terminal", "terminalPanel", "newTerminal", "findInTerminal", "browser"],
   },
   {
     label: "Thread list",
@@ -253,7 +253,8 @@ export function KeyboardShortcuts() {
 
   return (
     <div id="keyboard.shortcuts">
-      <div className="mt-6 flex items-center gap-3">
+      {/* The filter sits in the title band; the first group starts a clear step below it. */}
+      <div className="mb-6 flex items-center gap-3">
         <SearchField
           label="Filter shortcuts"
           placeholder="Search shortcuts"

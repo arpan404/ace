@@ -126,7 +126,7 @@ test("armed auto-merge and queue membership show in the header and clear on refr
   app.daemon.workspace.setForgeRead(operation, { resource: "prMergeState", value: state });
   await openPullRequest(app, { project: "api", number: 42 });
   await screen.findByRole("article", { name: "Pull request #42" }, { timeout: 10_000 });
-  await waitFor(() => expect(panel().getByText("Auto-merge (squash)")).toBeTruthy(), {
+  await waitFor(() => expect(panel().getByText(/^Auto-merge on · squash/)).toBeTruthy(), {
     timeout: 10_000,
   });
   expect(panel().queryByRole("button", { name: "Squash and merge" })).toBeNull();
@@ -140,7 +140,7 @@ test("armed auto-merge and queue membership show in the header and clear on refr
   });
   await userEvent.click(await menuItem("Refresh"));
   expect(await panel().findByRole("button", { name: "Link to merge" })).toBeTruthy();
-  expect(panel().queryByText("Auto-merge (squash)")).toBeNull();
+  expect(panel().queryByText(/^Auto-merge on · squash/)).toBeNull();
 });
 
 test("linked workspace controls cancel auto-merge and queue membership separately", async () => {
@@ -153,7 +153,7 @@ test("linked workspace controls cancel auto-merge and queue membership separatel
       canDequeue: true,
     }),
   );
-  expect(await panel().findByText("Auto-merge (squash)")).toBeTruthy();
+  expect(await panel().findByText(/^Auto-merge on · squash/)).toBeTruthy();
   const cancel = await menuItem(/^Disable auto-merge/);
   await waitFor(() => expect(disabled(cancel)).toBe(false));
   await userEvent.click(cancel);
@@ -195,7 +195,7 @@ test("an uncertain receipt blocks further writes until a fresh read reconciles t
   seed(mergeState({ autoMerge: armed, canEnable: false, canDisable: true }));
   app.daemon.restoreRequests();
   await userEvent.click(check);
-  expect(await panel().findByText("Auto-merge (squash)")).toBeTruthy();
+  expect(await panel().findByText(/^Auto-merge on · squash/)).toBeTruthy();
   const cancel = await menuItem(/^Disable auto-merge/);
   await waitFor(() => expect(disabled(cancel)).toBe(false));
   await userEvent.click(cancel);
@@ -212,7 +212,7 @@ test("reconnecting reads external cancellation before re-enabling controls", asy
       canDequeue: true,
     }),
   );
-  await panel().findByText("Auto-merge (squash)");
+  await panel().findByText(/^Auto-merge on · squash/);
   act(() => app.daemon.refuseConnections(true));
   await waitFor(() => expect(app.client.state).not.toBe("ready"));
   expect(disabled(await menuItem(/^Disable auto-merge/))).toBe(true);

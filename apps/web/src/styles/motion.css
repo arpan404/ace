@@ -286,7 +286,8 @@
  *   .fx-breathe         the startup mark while ace starts
  *   [data-agent-driving] a browser tab an agent is using: its title sweeps like a live step's
  *                       words (.step-shimmer), for as long as the agent drives it
- *   .fx-indeterminate   a progress bar that doesn't know how far along it is
+ *   .agent-shimmer      a working subagent's current activity, the same sweep while it works
+ *   .fx-indeterminate  a progress bar that doesn't know how far along it is
  *   .animate-pulse      Tailwind's pulse (streaming caret, connection dot, browser agent line)
  */
 .spin-ring {
@@ -370,6 +371,35 @@
   }
 }
 [data-live-held] [data-agent-driving] ~ [data-tab-title] {
+  animation-play-state: paused;
+}
+/*
+ * What a working subagent does now ("Reading row-parts.tsx"): the same sweep across its words, for
+ * as long as it works; the line becomes its result when it ends. Still under reduced motion.
+ */
+.agent-shimmer {
+  color: transparent;
+  background-image: linear-gradient(
+    100deg,
+    var(--muted-foreground) 42%,
+    var(--foreground) 50%,
+    var(--muted-foreground) 58%
+  );
+  background-size: 300% 100%;
+  background-position: 100% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: fx-agent-sweep 2.2s linear infinite;
+}
+:root[data-reduce-motion] .agent-shimmer {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-shimmer {
+    animation: none;
+  }
+}
+[data-live-held] .agent-shimmer {
   animation-play-state: paused;
 }
 .fx-indeterminate {

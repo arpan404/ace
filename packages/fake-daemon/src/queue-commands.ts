@@ -6,6 +6,7 @@ import { QueuePage, type CommandPayload, type ThreadId } from "@ace/protocol";
 import {
   admissionFacts,
   inputText,
+  releaseHold,
   splitSteerSelection,
   steerOrStart,
   type ThreadCommandOutcome,
@@ -57,18 +58,6 @@ function hold(host: ThreadHost, reason: FakeQueuedHold, resumeAt: number | null)
   host.queueDirty = true;
 }
 type FakeQueuedHold = NonNullable<ThreadHost["queue"]["reason"]>;
-
-/** Release the hold, clear quota evidence, and let the queue drain. */
-function release(host: ThreadHost): Fact[] {
-  host.queue.paused = false;
-  host.queue.reason = null;
-  host.queue.resumeAt = null;
-  host.queueDirty = true;
-  const root = host.state.rootKey;
-  return root !== undefined && host.state.agents[root]?.limited
-    ? [{ type: "limit.cleared", agent: root }]
-    : [];
-}
 
 function limitedUntil(host: ThreadHost): number | undefined {
   const status = host.view.thread.status;
@@ -163,7 +152,7 @@ export function queueCommand(
     case "queue.resume":
     case "thread.resume":
       if (host.queued.some((m) => m.state === "uncertain")) return fail("uncertain_delivery");
-      return { ok: true, facts: release(host) };
+      return { ok: true, facts: releaseHold(host) };
     case "thread.limit": {
       if (payload.action === "resume_at_reset" || payload.action === "snooze_until_reset") {
         const accountReset = account ? blockedUntil(account.quota, now) : undefined;
@@ -194,9 +183,9 @@ export function queueCommand(
                   },
                 },
               ];
-        return { ok: true, facts: [...release(host), ...notice] };
+        return { ok: true, facts: [...releaseHold(host), ...notice] };
       }
-      return { ok: true, facts: release(host) };
+      return { ok: true, facts: releaseHold(host) };
     }
   }
 }

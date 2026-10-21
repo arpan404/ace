@@ -1,23 +1,20 @@
-import { prIndicatorFields, prIndicators } from "./github-browser-enrichment.ts";
+import { prIndicatorFields, prIndicators, viewerLogin } from "./github-browser-enrichment.ts";
+import { avatars, labelColors, logins } from "./github-row-facts.ts";
 import { z } from "zod";
 import { ForgePrRef, type ForgeRepository, type ForgePrStatus } from "@ace/protocol/forge";
 import {
   ForgePrSearch,
-  ForgePageInput,
+  ForgeActivityPageInput,
+  ForgeFilePageInput,
   ForgePrFiles,
   type ForgePrList,
   type ForgePrDetail,
-  type ForgeCommit,
 } from "@ace/protocol/forge-browser";
-import {
-  BrowserPr,
-  SearchPage,
-  CommitRecord,
-  FileRecord,
-  CommitFiles,
-} from "./github-browser-schemas.ts";
+import { BrowserPr, SearchPage, FileRecord, CommitFiles } from "./github-browser-schemas.ts";
 import { ForgeError } from "./errors.ts";
 import { TimelinePage, timelineActivity } from "./github-activity.ts";
+import { prHasCommit, readCommitPage, type CommitPage } from "./github-commits.ts";
+import { GitHubFileOverflow, listedPages } from "./github-file-overflow.ts";
 import type { GhApi } from "./http.ts";
 
 const stateQuery = {
@@ -26,6 +23,7 @@ const stateQuery = {
   closed: "is:closed is:unmerged",
   merged: "is:merged",
   active: "is:open",
+  all: "",
 };
 /** The states a list counts: each PR falls in exactly one. */
 const countedStates = ["open", "draft", "closed", "merged"] as const;
@@ -34,7 +32,7 @@ export function prSearchQuery(repository: ForgeRepository, query: ForgePrSearch)
   return [
     `repo:${repository.owner}/${repository.name}`,
     "is:pr",
-    stateQuery[query.state],
+    ...(stateQuery[query.state] ? [stateQuery[query.state]] : []),
     ...query.search
       .trim()
       .split(/\s+/)
@@ -42,8 +40,11 @@ export function prSearchQuery(repository: ForgeRepository, query: ForgePrSearch)
       .map((word) => JSON.stringify(word)),
     ...(query.author ? [`author:${query.author}`] : []),
     ...(query.reviewer ? [`review-requested:${query.reviewer}`] : []),
+    ...(query.assignee ? [`assignee:${query.assignee}`] : []),
+    ...query.labels.map((label) => `label:${JSON.stringify(label)}`),
+    ...(query.review === "any" ? [] : [`review:${query.review}`]),
     // GitHub's combined status of the head commit, check runs included.
-    ...(query.ci === "failure" ? ["status:failure"] : []),
+    ...(query.ci === "any" ? [] : [`status:${query.ci}`]),
   ].join(" ");
 }
 const Counts = z.object({
@@ -60,10 +61,29 @@ const Decision = z.object({
       pullRequest: z.object({
         reviewDecision: z.string().max(100).nullable(),
         headRefOid: z.string(),
+        files: z.unknown().optional(),
       }),
     }),
   }),
 });
+const DetailFiles = z.object({
+  nodes: z
+    .array(
+      z.object({
+        path: z.string().max(65_536),
+        additions: z.number().int().nonnegative(),
+        deletions: z.number().int().nonnegative(),
+        changeType: z.string().max(100),
+      }),
+    )
+    .max(100),
+});
+/** GraphQL's change types in the REST file statuses `ForgeFile.status` uses. */
+const fileStatuses: Partial<Record<string, string>> = { DELETED: "removed" };
+/** The highest timeline page the protocol can ask for (`ForgeActivityPageInput`). */
+const maxActivityPage = 10_000;
+/** A timeline page's source bytes; its reply must fit the daemon's 2 MiB reply frame. */
+const activityPageBytes = 1_536 * 1024;
 function decode<T>(schema: z.ZodType<T>, body: unknown): T {
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw new ForgeError("invalid_data");
@@ -73,22 +93,33 @@ export class GitHubBrowser {
   readonly #api: GhApi;
   readonly #repository: ForgeRepository;
   readonly #root: string;
+  readonly #mergeBases = new Map<string, string>();
+  readonly #overflow: GitHubFileOverflow;
   constructor(api: GhApi, repository: ForgeRepository) {
     this.#api = api;
     this.#repository = repository;
     this.#root = `repos/${repository.owner}/${repository.name}`;
+    this.#overflow = new GitHubFileOverflow(api, this.#root);
   }
+  /**
+   * One page of a PR's timeline, oldest page first. It names the last page too, so a caller
+   * can read the newest page next and the ones between side by side.
+   */
   async activity(number: number, page: number, signal: AbortSignal) {
     ForgePrRef.parse({ repository: this.#repository, number });
-    ForgePageInput.parse({ page });
-    const path = `${this.#root}/issues/${number}/timeline?per_page=25&page=${page}`;
+    ForgeActivityPageInput.parse({ page });
+    const path = `${this.#root}/issues/${number}/timeline?per_page=100&page=${page}`;
     const response = await this.#api.request(path, signal);
+    // One page is one reply: a page of huge records fails plainly rather than overrunning it.
+    if (response.bytes > activityPageBytes) throw new ForgeError("limit");
     const records = decode(TimelinePage, response.body);
     const next = this.#api.next(response, path);
+    const last = this.#api.lastPage(response, path);
     return {
       events: records.map((record, index) => timelineActivity(record, page, index)),
-      ...(next && page < 120 ? { nextPage: page + 1 } : {}),
-      truncated: Boolean(next && page === 120),
+      ...(next && page < maxActivityPage ? { nextPage: page + 1 } : {}),
+      ...(last === undefined ? {} : { lastPage: Math.min(last, maxActivityPage) }),
+      truncated: Boolean(next && page === maxActivityPage) || (last ?? 0) > maxActivityPage,
     };
   }
   async list(input: ForgePrSearch, signal: AbortSignal): Promise<ForgePrList> {
@@ -109,15 +140,17 @@ export class GitHubBrowser {
       return `${state}: search(type: ISSUE, query: ${JSON.stringify(prSearchQuery(this.#repository, selected))}, first: 1) { issueCount }`;
     });
     const response = await this.#api.request("graphql", signal, {
-      query: `query { ${fields.join(" ")} ${prIndicatorFields(
+      query: `query { viewer { login } ${fields.join(" ")} ${prIndicatorFields(
         this.#repository,
         page.items.map((item) => item.number),
       )} }`,
     });
     const counts = decode(Counts, response.body).data;
     const indicators = prIndicators(response.body);
+    const viewer = viewerLogin(response.body);
     return {
       repository: this.#repository,
+      ...(viewer ? { viewer } : {}),
       items: page.items.map((item, index) =>
         Object.assign({}, indicators[`p${index}`], {
           raw: { search: item, indicators: indicators[`p${index}`]?.raw },
@@ -128,6 +161,13 @@ export class GitHubBrowser {
           authorAvatarUrl: item.user?.avatar_url,
           commentCount: indicators[`p${index}`]?.commentCount ?? item.comments,
           labels: item.labels.map((l) => l.name),
+          labelColors: labelColors(item.labels),
+          assignees: logins(item.assignees),
+          avatars: {
+            ...avatars([...(item.user ? [item.user] : []), ...(item.assignees ?? [])]),
+            ...indicators[`p${index}`]?.avatars,
+          },
+          ...(item.created_at ? { createdAt: item.created_at } : {}),
           updatedAt: item.updated_at,
           state: item.pull_request.merged_at
             ? "merged"
@@ -150,19 +190,41 @@ export class GitHubBrowser {
       truncated: page.total_count > 1000,
     };
   }
-  async detail(status: ForgePrStatus, signal: AbortSignal): Promise<ForgePrDetail> {
-    const raw = decode(z.object({ pr: BrowserPr }), status.raw).pr;
+  /**
+   * A PR's detail. Its status and review decision are independent reads, so they run at
+   * once; both must name the same head, else a push landed between them and the read is retried.
+   */
+  async detail(
+    number: number,
+    status: (signal: AbortSignal) => Promise<ForgePrStatus>,
+    signal: AbortSignal,
+  ): Promise<ForgePrDetail> {
+    for (let attempt = 0; ; attempt++) {
+      const reads = [status(signal), this.#decision(number, signal)] as const;
+      await Promise.allSettled(reads);
+      const [current, decision] = await Promise.all(reads);
+      if (decision.headRefOid === current.headSha) return this.#detail(current, decision);
+      if (attempt > 0) throw new ForgeError("conflict");
+    }
+  }
+  async #decision(number: number, signal: AbortSignal) {
     const { owner, name } = this.#repository;
-    const decision = decode(
+    return decode(
       Decision,
       (
         await this.#api.request("graphql", signal, {
-          query: `query($owner:String!, $name:String!, $number:Int!) { repository(owner:$owner,name:$name) { pullRequest(number:$number) { reviewDecision headRefOid } } }`,
-          variables: { owner, name, number: status.ref.number },
+          query: `query($owner:String!, $name:String!, $number:Int!) { repository(owner:$owner,name:$name) { pullRequest(number:$number) { reviewDecision headRefOid files(first:100) { nodes { path additions deletions changeType } } } } }`,
+          variables: { owner, name, number },
         })
       ).body,
     ).data.repository.pullRequest;
-    if (decision.headRefOid !== status.headSha) throw new ForgeError("conflict");
+  }
+  #detail(
+    status: ForgePrStatus,
+    decision: z.infer<typeof Decision>["data"]["repository"]["pullRequest"],
+  ): ForgePrDetail {
+    const raw = decode(z.object({ pr: BrowserPr }), status.raw).pr;
+    const files = DetailFiles.safeParse(decision.files);
     return {
       status,
       updatedAt: raw.updated_at,
@@ -182,10 +244,21 @@ export class GitHubBrowser {
         ? { ...this.#repository, owner: raw.head.repo.owner.login, name: raw.head.repo.name }
         : null,
       labels: raw.labels.map((l) => l.name),
+      labelColors: labelColors(raw.labels),
       reviewers: raw.requested_reviewers.map((u) => u.login),
       reviewDecision: decision.reviewDecision,
       commits: raw.commits,
       changedFiles: raw.changed_files,
+      ...(files.success
+        ? {
+            files: files.data.nodes.map((node) => ({
+              path: node.path,
+              additions: node.additions,
+              deletions: node.deletions,
+              status: fileStatuses[node.changeType] ?? node.changeType.toLowerCase(),
+            })),
+          }
+        : {}),
       relatedThreads: [],
       relatedThreadsTruncated: false,
     };
@@ -204,63 +277,40 @@ export class GitHubBrowser {
       throw new ForgeError("conflict");
     return raw;
   }
-  async commits(number: number, page: number, headSha: string, signal: AbortSignal) {
-    ForgePageInput.parse({ page });
-    const raw = await this.#head(number, headSha, undefined, signal);
-    const path = `${this.#root}/pulls/${number}/commits?per_page=25&page=${page}`;
-    const response = await this.#api.request(path, signal);
-    const items = decode(z.array(CommitRecord).max(25), response.body);
-    const commits: ForgeCommit[] = items.map((item) => ({
-      raw: item,
-      sha: item.sha,
-      message: item.commit.message,
-      author: item.author?.login ?? item.commit.author?.name ?? "deleted user",
-      authorAvatarUrl: item.author?.avatar_url,
-      date: item.commit.author?.date ?? null,
-      url: item.html_url,
-    }));
-    // One bounded GraphQL batch supplies statistics absent from REST's commit list.
-    if (commits.length) {
-      const fields = commits.map(
-        (c, i) =>
-          `c${i}: object(oid: ${JSON.stringify(c.sha)}) { ... on Commit { oid additions deletions } }`,
-      );
-      const stats = decode(
-        z.object({
-          data: z.object({
-            repository: z.record(
-              z.string(),
-              z
-                .looseObject({
-                  oid: z.string(),
-                  additions: z.number().int().nonnegative(),
-                  deletions: z.number().int().nonnegative(),
-                })
-                .nullable(),
-            ),
-          }),
-        }),
-        (
-          await this.#api.request("graphql", signal, {
-            query: `query { repository(owner:${JSON.stringify(this.#repository.owner)}, name:${JSON.stringify(this.#repository.name)}) { ${fields.join(" ")} } }`,
-          })
-        ).body,
-      ).data.repository;
-      commits.forEach((commit, i) => {
-        const stat = stats[`c${i}`];
-        if (stat) commit.raw = { commit: commit.raw, statistics: stat };
-        if (stat?.oid === commit.sha) {
-          commit.additions = stat.additions;
-          commit.deletions = stat.deletions;
-        }
-      });
+  /** One page of commits, newest page first, each page proven to belong to `headSha`. */
+  async commits(
+    number: number,
+    before: string | undefined,
+    headSha: string,
+    signal: AbortSignal,
+  ): Promise<CommitPage & { truncated: boolean }> {
+    ForgePrRef.parse({ repository: this.#repository, number });
+    const page = await readCommitPage(
+      this.#api,
+      this.#repository,
+      { number, before, headSha },
+      signal,
+    );
+    return { ...page, truncated: false };
+  }
+  /** Where two commits' histories meet: fixed for the pair, so a pair is asked for once. */
+  async #mergeBase(base: string, head: string, signal: AbortSignal): Promise<string> {
+    const key = `${base}...${head}`;
+    const known = this.#mergeBases.get(key);
+    if (known) return known;
+    const comparison = decode(
+      z.looseObject({
+        merge_base_commit: z.looseObject({ sha: z.string().regex(/^[a-fA-F0-9]{40,64}$/) }),
+      }),
+      (await this.#api.request(`${this.#root}/compare/${key}`, signal)).body,
+    );
+    const sha = comparison.merge_base_commit.sha;
+    this.#mergeBases.set(key, sha);
+    if (this.#mergeBases.size > 128) {
+      const oldest = this.#mergeBases.keys().next().value;
+      if (oldest !== undefined) this.#mergeBases.delete(oldest);
     }
-    await this.#head(number, headSha, undefined, signal);
-    return {
-      commits,
-      ...(this.#api.next(response, path) && page < 10 ? { nextPage: page + 1 } : {}),
-      truncated: raw.commits > 250,
-    };
+    return sha;
   }
   async files(
     input: {
@@ -273,23 +323,39 @@ export class GitHubBrowser {
     signal: AbortSignal,
   ): Promise<ForgePrFiles> {
     const parsed = ForgePrFiles.pick({ headSha: true, baseSha: true, commit: true }).parse(input);
-    ForgePageInput.parse(input);
-    const pr = await this.#head(input.number, parsed.headSha, parsed.baseSha, signal);
+    ForgeFilePageInput.parse(input);
+    // A commit's files come only from GitHub's list.
+    if (parsed.commit && input.page > listedPages) throw new ForgeError("not_found");
+    ForgePrRef.parse({ repository: this.#repository, number: input.number });
+    // The merge base is named by two commits, so it is read beside the files, never after.
+    const mergeBase = parsed.commit
+      ? undefined
+      : this.#mergeBase(parsed.baseSha, parsed.headSha, signal);
+    // Handled here: it may fail while the files are still being read.
+    void mergeBase?.catch(() => undefined);
+    try {
+      return await this.#files(input, parsed, signal, mergeBase);
+    } finally {
+      // No read outlives the call, even one whose answer an earlier failure made moot.
+      await mergeBase?.catch(() => undefined);
+    }
+  }
+  async #files(
+    input: { number: number; page: number },
+    parsed: { headSha: string; baseSha: string; commit?: string | undefined },
+    signal: AbortSignal,
+    mergeBase: Promise<string> | undefined,
+  ): Promise<ForgePrFiles> {
+    if (input.page > listedPages && mergeBase)
+      return this.#overflowFiles(input, parsed, mergeBase, signal);
     let path = `${this.#root}/pulls/${input.number}/files?per_page=25&page=${input.page}`;
     let baseSha = parsed.baseSha;
     let headSha = parsed.headSha;
     if (parsed.commit) {
       // A URL cannot select an unrelated repository commit as a PR commit.
-      let found = false;
-      for (let page = 1; page <= 3 && !found; page++) {
-        const commitsPath = `${this.#root}/pulls/${input.number}/commits?per_page=100&page=${page}`;
-        const response = await this.#api.request(commitsPath, signal);
-        found = decode(z.array(CommitRecord).max(100), response.body).some(
-          (c) => c.sha === parsed.commit,
-        );
-        if (!this.#api.next(response, commitsPath)) break;
-      }
-      if (!found) throw new ForgeError("not_found");
+      const member = { number: input.number, headSha: parsed.headSha, sha: parsed.commit };
+      if (!(await prHasCommit(this.#api, this.#repository, member, signal)))
+        throw new ForgeError("not_found");
       path = `${this.#root}/commits/${parsed.commit}?per_page=25&page=${input.page}`;
       headSha = parsed.commit;
     }
@@ -303,9 +369,12 @@ export class GitHubBrowser {
       baseSha = parent.sha;
       records = commit.files;
     } else records = decode(z.array(FileRecord).max(25), response.body);
+    // A page carries at most 256 KB of patches. One that doesn't fit is left out whole (never
+    // cut short): the page diffs it from the file's content when it is wanted.
     let remaining = 262_144;
     const files = records.map((file) => {
-      const patch = file.patch === undefined ? null : file.patch.slice(0, remaining);
+      const fits = file.patch !== undefined && file.patch.length <= remaining;
+      const patch = fits ? (file.patch ?? null) : null;
       remaining -= patch?.length ?? 0;
       return {
         raw: Object.assign({}, file, { patch }),
@@ -315,37 +384,51 @@ export class GitHubBrowser {
         additions: file.additions,
         deletions: file.deletions,
         patch,
-        truncated: patch === null || patch.length < (file.patch?.length ?? 0),
+        truncated: patch === null,
       };
     });
-    if (!parsed.commit) {
-      const comparison = decode(
-        z.looseObject({
-          merge_base_commit: z.looseObject({ sha: z.string().regex(/^[a-fA-F0-9]{40,64}$/) }),
-        }),
-        (
-          await this.#api.request(
-            `${this.#root}/compare/${parsed.baseSha}...${parsed.headSha}`,
-            signal,
-          )
-        ).body,
-      );
-      baseSha = comparison.merge_base_commit.sha;
-    }
     const next = this.#api.next(response, path);
-    // Revalidate after long reads, so a moved head never labels old data as current.
-    await this.#head(input.number, parsed.headSha, parsed.baseSha, signal);
+    const [comparison] = await Promise.allSettled([mergeBase]);
+    // Revalidate after the reads, so a moved head never labels old data as current. A moved
+    // head or base also explains a failed comparison, so it is reported first.
+    const pr = await this.#head(input.number, parsed.headSha, parsed.baseSha, signal);
+    if (comparison.status === "rejected") throw comparison.reason;
+    if (comparison.value !== undefined) baseSha = comparison.value;
     return {
       ref: { repository: this.#repository, number: input.number },
       baseSha,
       headSha,
       ...(parsed.commit ? { commit: parsed.commit } : {}),
       files,
-      ...(next && input.page < 120 ? { nextPage: input.page + 1 } : {}),
-      truncated:
-        (!parsed.commit && pr.changed_files > 3000) ||
-        Boolean(next && input.page === 120) ||
-        files.some((f) => f.truncated),
+      ...(next && input.page < listedPages
+        ? { nextPage: input.page + 1 }
+        : // Past GitHub's 3,000 the list goes on from the trees.
+          !parsed.commit && input.page === listedPages && pr.changed_files > 3000
+          ? { nextPage: listedPages + 1 }
+          : {}),
+      truncated: Boolean(next && input.page === listedPages),
+    };
+  }
+  async #overflowFiles(
+    input: { number: number; page: number },
+    parsed: { headSha: string; baseSha: string },
+    mergeBase: Promise<string>,
+    signal: AbortSignal,
+  ): Promise<ForgePrFiles> {
+    const base = await mergeBase;
+    const page = await this.#overflow.page(
+      { number: input.number, base, head: parsed.headSha, page: input.page },
+      signal,
+    );
+    // As for listed pages: a moved head or base never labels these as current.
+    await this.#head(input.number, parsed.headSha, parsed.baseSha, signal);
+    return {
+      ref: { repository: this.#repository, number: input.number },
+      baseSha: base,
+      headSha: parsed.headSha,
+      files: page.files,
+      ...(page.nextPage ? { nextPage: page.nextPage } : {}),
+      truncated: !page.complete,
     };
   }
 }

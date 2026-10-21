@@ -2,7 +2,7 @@ import { matchProfile } from "./profiles.ts";
 import { readBoundedJson } from "./files.ts";
 import { createHash } from "node:crypto";
 import { mkdir, rename, rm, open, stat, chmod, readdir, realpath } from "node:fs/promises";
-import { join, dirname, relative, sep } from "node:path";
+import { join, dirname, posix, relative, sep } from "node:path";
 import { z } from "zod";
 import {
   spawnSupervised,
@@ -30,7 +30,24 @@ async function download(
   request: typeof fetch,
   progress: InstallRuntime["onProgress"],
 ): Promise<void> {
-  const response = await request(plan.archive ?? "", { signal, redirect: "error" });
+  let current = plan.archive ?? "";
+  let response: Response | undefined;
+  // GitHub Releases answers with a 302 to release-assets; follow it by hand so every hop stays HTTPS.
+  for (let redirects = 0; ; redirects++) {
+    const target = new URL(current);
+    if (target.protocol !== "https:" || target.username || target.password)
+      throw new Error("Artifact redirect must use HTTPS");
+    const hop = await request(current, { signal, redirect: "manual" });
+    const location = hop.headers.get("location");
+    if ([301, 302, 303, 307, 308].includes(hop.status) && location) {
+      await hop.body?.cancel().catch(() => {});
+      if (redirects >= 5) throw new Error("Too many artifact redirects");
+      current = new URL(location, current).toString();
+      continue;
+    }
+    response = hop;
+    break;
+  }
   if (!response.ok || !response.body) throw new Error("Artifact download failed");
   const reader = response.body.getReader();
   const file = await open(path, "wx", 0o600);
@@ -93,12 +110,13 @@ async function runManager(
     await proc.stop({ graceMs: 0 });
   }
 }
+// Entrypoints are relative paths joined with "/" on every platform: `contained` rejects "\".
 async function packageEntrypoint(plan: InstallPlan, stage: string): Promise<string> {
   if (plan.preview.runtime === "uv") {
     const names = await readdir(join(stage, "bin"));
     if (names.length !== 1 || !names[0])
       throw new Error("Ambiguous Python entrypoint; explicit local binding required");
-    return join("bin", names[0]);
+    return posix.join("bin", names[0]);
   }
   const spec = plan.agent.distribution.npx?.package ?? "";
   const name = spec.slice(0, spec.lastIndexOf("@"));
@@ -118,7 +136,7 @@ async function packageEntrypoint(plan: InstallPlan, stage: string): Promise<stri
       : [...new Set(Object.values(manifest.bin))];
   if (bins.length !== 1 || !bins[0])
     throw new Error("Ambiguous package entrypoint; explicit local binding required");
-  return relative(stage, contained(root, bins[0]));
+  return relative(stage, contained(root, bins[0])).split(sep).join("/");
 }
 async function packageEvidence(plan: InstallPlan, root: string) {
   if (plan.preview.runtime === "binary") return undefined;
@@ -170,8 +188,10 @@ export async function executeInstall(
       const pathname = new URL(plan.archive ?? "").pathname.toLowerCase();
       const files = join(stage, "files");
       await mkdir(files, { mode: 0o700 });
-      entrypoint = join("files", plan.entrypoint ?? "");
-      if (/\.(tar\.gz|tgz)$/.test(pathname)) await extractTar(artifact, files, signal);
+      entrypoint = posix.join("files", plan.entrypoint ?? "");
+      if (/\.(tar\.gz|tgz)$/.test(pathname)) await extractTar(artifact, files, signal, "gzip");
+      else if (/\.(tar\.bz2|tbz2?)$/.test(pathname))
+        await extractTar(artifact, files, signal, "bzip2");
       else if (pathname.endsWith(".zip")) await extractZip(artifact, files, signal);
       else {
         const target = contained(files, plan.entrypoint ?? "");

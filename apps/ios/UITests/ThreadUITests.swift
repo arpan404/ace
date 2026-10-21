@@ -15,6 +15,7 @@ import XCTest
         screenshot("thread-transcript")
         worked.tap()
         screenshot("thread-worked-expanded")
+        app.buttons["subagents.rollup"].firstMatch.tap()
         let review = app.buttons["subagent.Review PID-reuse safety"]
         XCTAssertTrue(review.waitForExistence(timeout: 10))
         review.tap()
@@ -32,13 +33,17 @@ import XCTest
         XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10))
         sleep(2)
         screenshot("thread-models")
-        app.buttons["Done"].tap()
+        app.closeSheet()
         let input = app.textViews["composer.input"]
         XCTAssertTrue(input.waitForExistence(timeout: 10))
         input.tap()
         input.typeText("Then update the docs")
         app.buttons["composer.send"].tap()
-        XCTAssertTrue(app.otherElements["queue.strip"].waitForExistence(timeout: 15) || app.staticTexts["Then update the docs"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["capsule.queue"].waitForExistence(timeout: 15) || app.staticTexts["Then update the docs"].waitForExistence(timeout: 5))
+        if app.buttons["capsule.queue"].exists {
+            app.buttons["capsule.queue"].tap()
+            XCTAssertTrue(app.otherElements["queue.strip"].waitForExistence(timeout: 5))
+        }
         screenshot("thread-queue")
         app.buttons["thread.menu"].tap()
         XCTAssertTrue(app.buttons["Stop all agents"].waitForExistence(timeout: 10))
@@ -66,7 +71,7 @@ import XCTest
             app.buttons["thread.ios-agents"].tap()
             let worked = app.buttons["work.toggle"].firstMatch
             XCTAssertTrue(worked.waitForExistence(timeout: 25))
-            let transcript = app.collectionViews["transcript"]
+            let transcript = app.scrollViews["transcript"]
             transcript.swipeDown(velocity: .fast)
             if round == 0, worked.isHittable { worked.tap() }
             transcript.swipeUp(velocity: .fast)
@@ -95,7 +100,7 @@ import XCTest
         return app
     }
     private func swipeToTop(_ app: XCUIApplication) {
-        let transcript = app.collectionViews["transcript"]
+        let transcript = app.scrollViews["transcript"]
         if transcript.exists { transcript.swipeDown(velocity: .fast) }
     }
     private func screenshot(_ name: String) {

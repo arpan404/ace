@@ -1,9 +1,9 @@
-import { Client, type ClientApi, type RequestOptions } from "@ace/client";
+import { Client, ClientError, type ClientApi, type RequestOptions } from "@ace/client";
 import { ClientProvider } from "@ace/client-react";
 import { ClientHost, RemoteClient } from "@ace/client-worker";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, type ContextResult } from "@ace/protocol";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ImageUrl } from "./attachment-bytes.tsx";
 
@@ -77,6 +77,8 @@ async function backend(capacity: number) {
   const finish: (() => void)[] = [];
   let active = 0;
   let busy = 0;
+  // Failures a slow or sleeping link produces, handed to the next reads in order.
+  const failures: ClientError[] = [];
   const original = client.request.bind(client);
   vi.spyOn(client, "request").mockImplementation((input, options?: RequestOptions) => {
     if (input.type !== "context.request" || input.operation.op !== "attachment.read")
@@ -87,6 +89,8 @@ async function backend(capacity: number) {
       hash: op.sha256,
       ...(options?.signal ? { signal: options.signal } : {}),
     });
+    const failure = failures.shift();
+    if (failure) return Promise.reject(failure);
     if (active >= capacity) {
       busy++;
       return Promise.resolve({
@@ -132,6 +136,7 @@ async function backend(capacity: number) {
     reads,
     finish,
     busy: () => busy,
+    fail: (...errors: ClientError[]) => failures.push(...errors),
     active: () => active,
     admit: () => {
       capacity = 2;
@@ -348,4 +353,84 @@ test("an oversized gallery has bounded admission and unmount releases its waitin
   await act(async () => view.unmount());
   expect(f.reads).toHaveLength(2);
   expect(f.active()).toBe(0);
+});
+
+test("an image posted while the phone's connection is down appears once it reconnects", async () => {
+  const f = await backend(2);
+  act(() => f.client.networkOnline(false));
+  await waitFor(() => expect(f.client.state).not.toBe("ready"));
+  render(images(f.client, ["a"]));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(screen.getByText("a: loading")).toBeTruthy();
+  act(() => f.client.networkOnline(true));
+  await waitFor(() => expect(f.active()).toBe(1));
+  await act(async () => {
+    f.finish.splice(0).forEach((finish) => finish());
+  });
+  expect(await screen.findByRole("img", { name: "a" })).toBeTruthy();
+});
+
+test("a read that times out on a slow link is asked again until the image is visible", async () => {
+  const f = await backend(2);
+  f.fail(new ClientError("timeout"));
+  render(images(f.client, ["a"]));
+  await waitFor(() => expect(f.active()).toBe(1));
+  await act(async () => {
+    f.finish.splice(0).forEach((finish) => finish());
+  });
+  expect(await screen.findByRole("img", { name: "a" })).toBeTruthy();
+  expect(f.reads).toHaveLength(2);
+});
+
+test("an image that kept failing recovers by itself when the connection comes back", async () => {
+  const f = await backend(2);
+  f.fail(...Array.from({ length: 4 }, () => new ClientError("daemon", "IO_ERROR")));
+  render(images(f.client, ["a"]));
+  await screen.findByText("a: unavailable");
+  act(() => f.client.networkOnline(false));
+  await waitFor(() => expect(f.client.state).not.toBe("ready"));
+  act(() => f.client.networkOnline(true));
+  await waitFor(() => expect(f.active()).toBe(1));
+  await act(async () => {
+    f.finish.splice(0).forEach((finish) => finish());
+  });
+  expect(await screen.findByRole("img", { name: "a" })).toBeTruthy();
+});
+
+test("bytes the browser can no longer show are fetched again once, then the image gives up", async () => {
+  const f = await backend(2);
+  render(
+    <ClientProvider client={f.client}>
+      <ImageUrl
+        source={{
+          kind: "attachment",
+          threadId: "thread",
+          sha256: "a".padStart(64, "0"),
+          bytes: 3,
+          thumbnail: false,
+        }}
+      >
+        {(image) =>
+          image.state === "ready" ? (
+            <img src={image.url} alt="a" onError={image.reload} />
+          ) : (
+            <span>a: {image.state}</span>
+          )
+        }
+      </ImageUrl>
+    </ClientProvider>,
+  );
+  await waitFor(() => expect(f.active()).toBe(1));
+  await act(async () => {
+    f.finish.splice(0).forEach((finish) => finish());
+  });
+  // Safari can drop a kept blob while the tab sleeps; its URL then fails to load.
+  fireEvent.error(await screen.findByRole("img", { name: "a" }));
+  await waitFor(() => expect(f.active()).toBe(1));
+  await act(async () => {
+    f.finish.splice(0).forEach((finish) => finish());
+  });
+  fireEvent.error(await screen.findByRole("img", { name: "a" }));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(f.reads).toHaveLength(2);
 });

@@ -163,10 +163,7 @@ const startup = createStartup({
     const timer = setTimeout(run, delayMs);
     return () => clearTimeout(timer);
   },
-  frame: (run) => {
-    const frame = requestAnimationFrame(run);
-    return () => cancelAnimationFrame(frame);
-  },
+  frame: nextFrame,
 });
 
 async function start(root: Root) {

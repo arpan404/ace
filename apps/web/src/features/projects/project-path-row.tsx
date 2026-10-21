@@ -1,6 +1,8 @@
 import { displayPath } from "@ace/ui-core";
-import { CopyIcon, FolderOpenIcon } from "@phosphor-icons/react";
+import { CheckIcon, CopyIcon, FolderOpenIcon } from "@phosphor-icons/react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { useToast } from "@/components/ui/toast.tsx";
+import { useCopy } from "@/components/use-copy.ts";
 import { useFolderActions } from "@/lib/folder-actions.ts";
 import { usePrimaryMachine } from "@/lib/machines.ts";
 import { useHostHome } from "./use-folders.ts";
@@ -9,6 +11,8 @@ import { useHostHome } from "./use-folders.ts";
 export function ProjectPathRow(props: { path: string }) {
   const home = useHostHome(usePrimaryMachine()).data;
   const folder = useFolderActions(props.path);
+  const toast = useToast();
+  const { copied, copy } = useCopy(() => toast.error({ title: "Couldn't copy the path" }));
   return (
     <div className="flex min-w-0 items-center gap-1">
       <span
@@ -17,7 +21,12 @@ export function ProjectPathRow(props: { path: string }) {
       >
         {displayPath(props.path, home?.path)}
       </span>
-      <IconButton size="sm" icon={CopyIcon} label="Copy path" onClick={folder.copy} />
+      <IconButton
+        size="sm"
+        icon={copied ? CheckIcon : CopyIcon}
+        label={copied ? "Copied" : "Copy path"}
+        onClick={() => copy(props.path)}
+      />
       {folder.reveal && (
         <IconButton
           size="sm"

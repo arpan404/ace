@@ -1,14 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { ClientApi } from "@ace/client";
-import { ClientProvider, useNotifyBatch } from "@ace/client-react";
+import { useClient } from "@ace/client-react";
 import { actionErrorText } from "@ace/ui-core";
 import {
   SourceControlPreferences,
   SettingsValues,
   type SourceControlReadiness,
 } from "@ace/protocol";
-import { useMachines } from "@/lib/machines.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { daemonErrorCode } from "@/lib/daemon-command.ts";
 import {
@@ -22,61 +21,23 @@ import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import {
-  SettingCard,
   SettingFooter,
   SettingNote,
   SettingRow,
   SettingSection,
 } from "@/components/setting-row.tsx";
+import { useSettingsMachine } from "./machine-scope.tsx";
 
+/**
+ * Settings › Source control for the machine Settings edits (`SettingsOutlet` renders this page
+ * against it): its gh CLI's readiness, the host and account requests use, and a Git transport
+ * check per project.
+ */
 export function SourceControlSettings() {
-  const machines = useMachines();
-  const batch = useNotifyBatch();
-  const [chosen, setChosen] = useState<{ id: string; primary: boolean }>();
-  const machine = chosen
-    ? machines.find((entry) => entry.id === chosen.id || (chosen.primary && entry.primary))
-    : machines[0];
-  return (
-    <>
-      <SettingCard className="mt-7">
-        <SettingRow
-          title="Machine"
-          description="Readiness and preferences belong to the selected daemon."
-        >
-          <Select
-            label="Source control machine"
-            value={machine?.id ?? chosen?.id ?? ""}
-            options={[
-              ...machines.map((entry) => ({
-                value: entry.id,
-                label: `${entry.name}${entry.status !== "online" ? " (offline)" : ""}`,
-              })),
-              ...(!machine && chosen ? [{ value: chosen.id, label: "Unavailable machine" }] : []),
-            ]}
-            onValueChange={(id) => {
-              const next = machines.find((entry) => entry.id === id);
-              if (next) setChosen({ id: next.id, primary: next.primary });
-            }}
-          />
-        </SettingRow>
-      </SettingCard>
-      {machine?.client ? (
-        // Reads go to the selected daemon, gated on its own connection.
-        <ClientProvider client={machine.client} batch={batch}>
-          {/* The primary machine keeps its key while its host identity loads, so edits survive. */}
-          <MachineSourceControl
-            key={machine.primary ? "primary" : machine.id}
-            client={machine.client}
-            machineId={machine.primary ? "primary" : machine.id}
-          />
-        </ClientProvider>
-      ) : (
-        <p role="status" className="py-3 text-sm text-muted-foreground">
-          Connect to this machine to inspect its source control CLI.
-        </p>
-      )}
-    </>
-  );
+  const client = useClient();
+  const { machine } = useSettingsMachine();
+  const machineId = !machine || machine.primary ? "primary" : machine.id;
+  return <MachineSourceControl key={machineId} client={client} machineId={machineId} />;
 }
 
 /** Why saving failed: admin copy only when the daemon said this device may not. */
@@ -161,6 +122,14 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
       setSaving(false);
     }
   };
+  const savedAccount =
+    status?.preferences.hosts.find((entry) => entry.host === status.preferences.host)?.account ??
+    "";
+  const changed =
+    !!status &&
+    (host !== status.preferences.host ||
+      account !== savedAccount ||
+      remote !== status.preferences.remote);
   const loading = readiness.isFetching && !readiness.isError;
   const disabled = saving || loading;
   const readError = readiness.isError
@@ -168,12 +137,12 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
     : undefined;
   return (
     <>
-      <SettingSection label="GitHub CLI on this computer">
+      <SettingSection label="GitHub">
         <SettingRow
-          title="Readiness"
+          title="GitHub CLI"
           description={
             status && !loading ? (
-              `${status.cli === "available" ? `gh ${status.version}` : "gh unavailable"} · ${status.preferences.host}`
+              `${status.cli === "available" ? `gh ${status.version}` : "Not installed"} · ${status.preferences.host}`
             ) : loading ? (
               <Skeleton className="mt-1 w-40" />
             ) : undefined
@@ -181,6 +150,7 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
         >
           <Button
             variant="secondary"
+            size="sm"
             disabled={disabled}
             onClick={() => void refreshSourceControl(queries, client)}
           >
@@ -201,17 +171,20 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
             </span>
           </SettingRow>
         ) : null}
-        {status && !loading && <SettingNote role="status">{status.instructions}</SettingNote>}
+        {/* What to do next; when everything is ready the rows above already say so. */}
+        {status && !loading && status.api !== "ready" && (
+          <SettingNote role="status">{status.instructions}</SettingNote>
+        )}
         {(readError ?? error) && (
           <SettingNote role="alert" className="text-destructive">
             {readError ?? error}
           </SettingNote>
         )}
       </SettingSection>
-      <SettingSection label="Host and expected account" scope="daemon">
+      <SettingSection label="Preferences" scope="daemon">
         <SettingRow
           title="GitHub host"
-          description="Add an explicit GitHub Enterprise hostname, or use github.com."
+          description="github.com, or a GitHub Enterprise hostname."
           htmlFor="sc-host"
         >
           <Input
@@ -223,19 +196,20 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
         </SettingRow>
         <SettingRow
           title="Expected account"
-          description="Optional GitHub login. Requests stop if the CLI uses another account. Switch accounts in your own CLI, then Rescan."
+          description="Requests stop if gh is signed in as someone else."
           htmlFor="sc-account"
         >
           <Input
             id="sc-account"
             value={account}
+            placeholder="Any account"
             onChange={(event) => setAccount(event.target.value)}
             disabled={disabled}
           />
         </SettingRow>
         <SettingRow
           title="Repository remote"
-          description="Choose the Git remote used to identify repositories, such as origin or upstream."
+          description="The Git remote that names a project's repository."
           htmlFor="sc-remote"
         >
           <Input
@@ -246,15 +220,15 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
           />
         </SettingRow>
         <SettingFooter>
-          <Button disabled={disabled || !status} onClick={() => void save()}>
+          <Button size="sm" disabled={disabled || !changed} onClick={() => void save()}>
             Save preferences
           </Button>
         </SettingFooter>
       </SettingSection>
       <SettingSection label="Git transport">
         <SettingRow
-          title="Check project remote"
-          description="A read checks Git transport access without pushing."
+          title="Check a project's remote"
+          description="Reads from the remote; nothing is pushed."
         >
           <Select
             label="Project transport check"
@@ -280,7 +254,7 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
         )}
         <SettingNote>
           {status?.transportInstructions ??
-            "Clone and push use Git's own credential helper or SSH keys on this computer. GitHub API sign-in is separate. Push permission is checked by the push itself."}
+            "Clone and push use Git's credential helper or SSH keys on this machine, not the GitHub API sign-in."}
         </SettingNote>
       </SettingSection>
     </>

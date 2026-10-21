@@ -13,11 +13,13 @@
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
     "tar-stream": "3.2.1",
+    "unbzip2-stream": "1.4.3",
     "yauzl": "3.4.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/tar-stream": "^3.1.4",
+    "@types/unbzip2-stream": "^1.4.3",
     "@types/yauzl": "^2.10.3"
   }
 }

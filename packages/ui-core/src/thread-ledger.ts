@@ -1,6 +1,7 @@
 import type { ThreadReader, ThreadSource } from "@ace/client";
 import type { Interaction, Item, Run } from "@ace/protocol";
 import { rootRunOf } from "./turn-ordinals.ts";
+import { isPersonMessage } from "./person-message.ts";
 
 /*
  * One incremental projection per thread reader, shared by every transcript selector: the spans
@@ -60,7 +61,7 @@ function waitsOnPerson(interaction: Interaction): boolean {
  * waiting on the person is left out of the timer), so its "Worked for" log is one per turn.
  */
 export function closesStretch(item: Item): boolean {
-  return item.type === "message" && item.role === "user" && !item.synthetic;
+  return isPersonMessage(item);
 }
 
 const carryingOn = new Set<Run["trigger"]>(["background_completion", "subagent_result"]);
@@ -322,7 +323,7 @@ export class ThreadLedger {
       const task = reader.task(ids[index] ?? "");
       if (!task?.toolCallId) continue;
       this.backgroundCalls.add(task.toolCallId);
-      if (!task.ambient) this.background.set(task.toolCallId, task.id);
+      if (!task.ambient && !task.internal) this.background.set(task.toolCallId, task.id);
       this.tasksVersion++;
     }
     this.taskCount = ids.length;

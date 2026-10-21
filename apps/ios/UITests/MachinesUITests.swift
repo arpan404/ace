@@ -27,7 +27,7 @@ import XCTest
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(first.waitForExistence(timeout: 10))
 
-        app.buttons["inbox.machines"].tap()
+        app.openBrowseDestination("inbox.machines")
         screenshot("machines-sheet-opening")
         XCTAssertTrue(app.descendants(matching: .any)["machines.row.ios-spike-host-9852"].firstMatch.waitForExistence(timeout: 10))
         XCTAssertTrue(app.descendants(matching: .any)["machines.row.ios-spike-host-9863"].firstMatch.exists)
@@ -36,8 +36,8 @@ import XCTest
         XCTAssertTrue(app.descendants(matching: .any)["provider.codex"].firstMatch.waitForExistence(timeout: 20))
         screenshot("machines-detail")
         app.navigationBars["studio-9852"].buttons.firstMatch.tap()
-        XCTAssertTrue(app.buttons["Done"].firstMatch.waitForExistence(timeout: 5))
-        app.buttons["Done"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["settings.close"].waitForExistence(timeout: 5))
+        app.closeSheet()
         XCTAssertTrue(first.waitForExistence(timeout: 10))
 
         // One machine drops: its banner appears, the other machine's rows stay and stay live.

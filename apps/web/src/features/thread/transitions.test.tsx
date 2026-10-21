@@ -171,7 +171,9 @@ test("picking another provider's model asks first, then switches after the runni
   const dialog = await screen.findByRole("dialog", { name: "Switch to Codex?" });
   expect(within(dialog).getByText(/doesn't carry over/)).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: /^Switch to/ }));
-  expect(await screen.findByText(/Next turn runs on Codex · Personal/)).toBeTruthy();
+  await waitFor(() =>
+    expect(thread(app, "thread-replay-cursor")?.switch).toMatchObject({ state: "queued" }),
+  );
   expect(thread(app, "thread-replay-cursor")?.switch).toMatchObject({
     state: "queued",
     selection: { provider: "codex" },
@@ -187,7 +189,6 @@ test("deleting from the ⋯ menu leaves the thread and persists deletion immedia
   const dialog = await screen.findByRole("dialog", { name: "Delete thread?" });
   await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
-  expect(await screen.findByText("Deleted · Document the router")).toBeTruthy();
   await waitFor(() => expect(thread(app, "thread-router")).toBeUndefined(), { timeout: 9_000 });
 }, 15_000);
 

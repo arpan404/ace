@@ -8,9 +8,10 @@ import {
 } from "@ace/protocol";
 import { actionErrorText } from "@ace/ui-core";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
 import { useToast } from "@/components/ui/toast.tsx";
-import { readForge } from "./source.ts";
+import { readForge } from "@/lib/forge-read.ts";
 
 /** What each lifecycle write is called wherever it shows: menu rows, result strips, toasts. */
 export const lifecycleLabels: Record<ForgeLifecycleAction["kind"], string> = {
@@ -53,6 +54,7 @@ export function usePrLifecycle(props: {
       props.detail.status.title,
     ],
     retry: false,
+    gcTime: keptForgeMs,
     staleTime: 0,
     refetchOnReconnect: "always",
     read: async (reader, signal) => {

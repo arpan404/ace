@@ -6,7 +6,8 @@ import { useClaimConnectionNotice } from "@/features/shell/index.ts";
 import { useShownPlans } from "@/lib/use-plans.ts";
 import { failedHead, withoutMessage } from "./failed-head.ts";
 import { withoutAgentPending, withoutAgentResults } from "./queued-agent-result.ts";
-import { stoppedHold } from "@ace/ui-core";
+import { holdsTurn, stoppedHold } from "@ace/ui-core";
+import { HeldTurnStrip, useHeldTurn } from "./held-turn-strip.tsx";
 import { useHeldQueue } from "./queue-notice.tsx";
 import { QueueStrip } from "./queue-strip.tsx";
 import { queuedCount } from "./queued.tsx";
@@ -20,8 +21,8 @@ import { ConnectionStrip, PlanStrip, StripIndicators, type StripCounts } from ".
 import { GoalStrip } from "./goal-strip.tsx";
 import { pickStrip, stripSlot, type StripFacts } from "./strip-slot.ts";
 import { StripSurface } from "./strip-surface.tsx";
-import { ConfirmStopStrip, StoppedStrip, useStoppedCommands } from "./stop-strips.tsx";
-import { WaitingStrip } from "./waiting-strip.tsx";
+import { ConfirmStopStrip, useStoppedCommands } from "./stop-strips.tsx";
+import { StoppedStrip, WaitingStrip } from "./waiting-strip.tsx";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { registerQueueEditSaver, useQueueEdit } from "./queue-edit.ts";
 import { useQueue } from "./use-queue.ts";
@@ -31,7 +32,8 @@ const noRequests: readonly string[] = [];
 /**
  * The one strip above the thread's composer (`stripSlot` decides what it shows): a Stop waiting
  * for its second Esc, the agent's open requests, the person's messages on their way (or that
- * didn't go: the transcript only ever shows the daemon's items), trouble with the connection,
+ * didn't go: the transcript only ever shows the daemon's items), a usage or rate limit (with
+ * Switch and Continue), trouble with the connection,
  * background commands a stopped turn left running, the queue, what the main agent waits on
  * (with its Stop), the goal the agent is pursuing, or the main agent's task list, with the
  * others as indicators inside it. Loads after the thread has painted, unless the thread opens on a request.
@@ -67,9 +69,15 @@ export function ComposerStrip(props: {
   // A message that wasn't sent is in the transcript with its reason; the strip lists the rest.
   const failed = failedHead(allHeld, noAgents);
   const queue = withoutMessage(noAgents, failed?.id);
-  // A failed send is in the transcript; a stopped turn is the pill over the composer.
+  // A failed send is in the transcript; a stopped turn is the pill over the composer; a limit
+  // has its own colored strip, so the queue's strip lists only the messages.
   const held =
-    allHeld?.notice.kind === "not_sent" || stoppedHold(allHeld?.notice) ? undefined : allHeld;
+    allHeld?.notice.kind === "not_sent" ||
+    stoppedHold(allHeld?.notice) ||
+    holdsTurn(allHeld?.notice)
+      ? undefined
+      : allHeld;
+  const heldTurn = useHeldTurn(props.threadId, allHeld);
   const pending = withoutAgentPending(
     useQueuedPending(props.threadId, noAgents.page, noAgents.retained).filter(
       (message) => message.id !== failed?.id,
@@ -106,6 +114,7 @@ export function ComposerStrip(props: {
     target: props.requestTarget,
     sending: sending.length > 0,
     connection: offline || connection === "reconnecting",
+    held: !!heldTurn,
     stopped: stopped.length > 0,
     waiting: wait !== undefined,
     queue: queued > 0 || queue.failed || !!held || !!editing,
@@ -154,8 +163,16 @@ export function ComposerStrip(props: {
     <StripSurface slot={slot.shown}>
       {slot.shown === "confirm-stop" ? (
         <ConfirmStopStrip subagents={props.confirmStop?.subagents ?? 0} />
+      ) : slot.shown === "held" && heldTurn ? (
+        <HeldTurnStrip
+          threadId={props.threadId}
+          turn={heldTurn}
+          queue={noAgents}
+          indicators={indicators}
+          onSwitch={props.onChooseModel}
+        />
       ) : slot.shown === "stopped" ? (
-        <StoppedStrip commands={stopped} indicators={indicators} />
+        <StoppedStrip threadId={props.threadId} commands={stopped} indicators={indicators} />
       ) : slot.shown === "waiting" && wait ? (
         <WaitingStrip
           threadId={props.threadId}

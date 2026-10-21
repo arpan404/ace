@@ -1,4 +1,4 @@
-import type { VideoCaptureHandle, VideoHost } from "./backend.ts";
+import type { BrowserCdp, CaptureEvents, VideoCaptureHandle, VideoHost } from "./backend.ts";
 import { ChromeHost, type ChromeHostOptions } from "./chrome-host.ts";
 import type { ChromeInstance } from "./chrome-instance.ts";
 import { ChromeVideo } from "./chrome-video.ts";
@@ -32,7 +32,17 @@ export class EncoderChrome {
         lease.release();
       }
     },
-    open: async (page, width, height, events) => {
+    open: (page, width, height, events) => this.capture(page, width, height, events),
+    encodePictures: (width, height, events) => this.capture(undefined, width, height, events),
+  };
+  /** One encode fed pictures: a Chrome lease held while it runs. */
+  private async capture(
+    page: BrowserCdp | undefined,
+    width: number,
+    height: number,
+    events: CaptureEvents,
+  ): Promise<VideoCaptureHandle> {
+    {
       const lease = await this.host.acquire(this.lifetime.signal);
       let held = true;
       const release = (): boolean => {
@@ -67,8 +77,8 @@ export class EncoderChrome {
           handle.close();
         },
       };
-    },
-  };
+    }
+  }
   /** Stops the encoder now; later captures fail. */
   async close(): Promise<void> {
     this.lifetime.abort();

@@ -1,14 +1,37 @@
-import { useRemoteStatus } from "./data/use-settings.ts";
 import { useId } from "react";
-import { SettingCard, SettingNote, SettingRow } from "@/components/setting-row.tsx";
+import { SettingNote, SettingRow } from "@/components/setting-row.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { Switch } from "@/components/ui/switch.tsx";
+import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
-import { useSettingControl } from "./data/use-settings.ts";
+import { Switch } from "@/components/ui/switch.tsx";
 import { settingKeys } from "./data/setting-keys.ts";
+import { useRemoteStatus, useSettingControl } from "./data/use-settings.ts";
 import { DaemonSlot } from "./setting-control.tsx";
 
-export function RemoteAccess() {
+const transports = [
+  { value: "lan", label: "LAN" },
+  { value: "tailscale", label: "Tailscale" },
+  { value: "relay", label: "Relay" },
+] as const;
+
+/** What each transport means for the devices that connect, in one line. */
+const transportNotes: Record<(typeof transports)[number]["value"], string> = {
+  lan: "Local network only. Browsers must trust its HTTPS certificate.",
+  tailscale: "Your private Tailscale network. Tailscale must be running.",
+  relay: "Through a relay you host. LAN stays on for pairing.",
+};
+
+const agentAccess = [
+  { value: "off", label: "Off" },
+  { value: "read", label: "Read" },
+  { value: "operate", label: "Read and act" },
+] as const;
+
+/**
+ * How other devices reach this window's own daemon: remote access, its transport, a relay
+ * address, and whether agents on other machines may use it. Rows for the "This machine" card.
+ */
+export function RemoteAccessRows() {
   const id = useId();
   const enabled = useSettingControl(settingKeys.remoteEnabled, "Remote access");
   const transport = useSettingControl(settingKeys.remoteTransport, "Transport");
@@ -28,14 +51,13 @@ export function RemoteAccess() {
         ? "lan"
         : transport.value;
   return (
-    <SettingCard className="mt-7">
+    <>
       <SettingRow
         id="remote.enabled"
         title="Remote access"
         description="Only paired devices can connect."
         htmlFor={id}
         inline
-        compact
       >
         <DaemonSlot control={enabled}>
           <Switch
@@ -47,10 +69,7 @@ export function RemoteAccess() {
         </DaemonSlot>
       </SettingRow>
       {overridden && (
-        <SettingNote>
-          Remote access is controlled by this computer's launch configuration. Change it there to
-          use these controls.
-        </SettingNote>
+        <SettingNote>Set by this computer's launch configuration. Change it there.</SettingNote>
       )}
       {status.data?.error && (
         <SettingNote role="alert" className="text-destructive">
@@ -58,66 +77,19 @@ export function RemoteAccess() {
         </SettingNote>
       )}
       {status.isError && <SettingNote role="alert">{status.error.message}</SettingNote>}
-      <SettingRow
-        id="remote.transport"
-        title="Transport"
-        description={selected === "lan" ? "Trust this computer’s HTTPS certificate." : undefined}
-        inline
-        compact
-      >
+      <SettingRow id="remote.transport" title="Transport" description={transportNotes[selected]}>
         <DaemonSlot control={transport}>
           <Select
             label="Transport"
             value={selected}
-            options={[
-              { value: "lan", label: "LAN" },
-              { value: "tailscale", label: "Tailscale" },
-              { value: "relay", label: "Relay" },
-            ]}
+            options={transports}
             disabled={transport.offline || transport.pending || overridden || !status.data}
             onValueChange={transport.set}
           />
         </DaemonSlot>
       </SettingRow>
-      <SettingNote>
-        {selected === "lan"
-          ? "Encrypted access on your local network. Browsers must trust this computer's HTTPS certificate. Never forward its local port to the internet."
-          : selected === "tailscale"
-            ? "Encrypted access on your private Tailscale network. Tailscale must be running; ace never falls back to LAN."
-            : "Use a relay you host yourself for encrypted files, delegation, browser and computer controls. Direct LAN access stays on for pairing and conversations."}
-      </SettingNote>
-      <SettingRow
-        id="remote.agentAccess"
-        title="Agents on other devices can use this machine"
-        htmlFor={`${id}-agents`}
-        inline
-        compact
-      >
-        <DaemonSlot control={agents}>
-          <Switch
-            id={`${id}-agents`}
-            checked={agents.value !== "off"}
-            disabled={agents.offline || agents.pending}
-            onCheckedChange={(on) => agents.set(on ? "read" : "off")}
-          />
-        </DaemonSlot>
-      </SettingRow>
-      {agents.value !== "off" && (
-        <SettingRow title="Scope" inline compact>
-          <Select
-            label="Scope"
-            value={agents.value}
-            options={[
-              { value: "read", label: "Read only" },
-              { value: "operate", label: "Read and act" },
-            ]}
-            disabled={agents.offline || agents.pending}
-            onValueChange={agents.set}
-          />
-        </SettingRow>
-      )}
       {selected === "relay" && (
-        <SettingRow title="Relay address" htmlFor={`${id}-relay`} compact>
+        <SettingRow title="Relay address" htmlFor={`${id}-relay`}>
           <Input
             id={`${id}-relay`}
             aria-label="Relay address"
@@ -131,6 +103,27 @@ export function RemoteAccess() {
           />
         </SettingRow>
       )}
-    </SettingCard>
+      <SettingRow
+        id="remote.agentAccess"
+        title="Agents on other devices can use this machine"
+        description={
+          agents.value === "operate"
+            ? "They can start work here, answer and use its browser."
+            : agents.value === "read"
+              ? "They can check status and read pages, never start work."
+              : undefined
+        }
+      >
+        <DaemonSlot control={agents}>
+          <SegmentedControl
+            label="Agents on other devices can use this machine"
+            value={agents.value}
+            options={agentAccess}
+            disabled={agents.offline || agents.pending}
+            onValueChange={agents.set}
+          />
+        </DaemonSlot>
+      </SettingRow>
+    </>
   );
 }

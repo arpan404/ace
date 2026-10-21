@@ -1,8 +1,8 @@
 // oxlint-disable-next-line import/no-unassigned-import -- Install the test host before the bridge reads it.
 import "./test-host.ts";
 import { expect, test } from "vitest";
-import { Item } from "@ace/protocol";
-import { itemRow } from "./presentation.ts";
+import { Item, ThreadListEntry } from "@ace/protocol";
+import { itemRow, threadRow } from "./presentation.ts";
 
 let ids = 0;
 function stored(text: string, extra: Record<string, unknown> = {}) {
@@ -59,4 +59,27 @@ test("an ordinary assistant reply keeps its bubble", () => {
   expect(row.role).toBe("assistant");
   expect(row.type).toBe("message");
   expect(row.text).toBe("Done, all green.");
+});
+
+test("a thread row names its pull request and, while working, when the stretch began", () => {
+  const working = ThreadListEntry.parse({
+    id: "t1",
+    workspaceId: "ace",
+    title: "Fix the flaky queue test",
+    provider: "claude",
+    createdAt: 0,
+    updatedAt: 10,
+    status: { state: "working", agents: 1 },
+    live: { workingSince: 5 },
+    details: { branch: "fix/queue", linkedPr: { number: 1188, state: "open", draft: true } },
+  });
+  expect(threadRow(working)).toMatchObject({
+    branch: "fix/queue",
+    pr: { number: 1188, state: "draft" },
+    workingSince: 5,
+  });
+  const finished = ThreadListEntry.parse({ ...working, status: { state: "done" } });
+  expect(threadRow(finished)).toMatchObject({ pr: { number: 1188 }, workingSince: null });
+  const bare = ThreadListEntry.parse({ ...working, details: undefined });
+  expect(threadRow(bare).pr).toBeNull();
 });

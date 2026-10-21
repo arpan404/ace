@@ -41,8 +41,11 @@ const sizeOptions = TranscriptSize.options.map((value) => ({
 function PickerGroup(props: { id: SettingId; children: ReactNode }) {
   const titleId = useId();
   return (
-    <section id={props.id} aria-labelledby={titleId} className="mt-8 flex flex-col gap-3">
-      <h3 id={titleId} className="px-1 text-ui font-medium text-foreground">
+    <section id={props.id} aria-labelledby={titleId} className="mb-(--settings-group-gap)">
+      <h3
+        id={titleId}
+        className="mb-3 flex min-h-7 items-center text-md font-medium text-foreground"
+      >
         {settingRow(props.id).title}
       </h3>
       {props.children}

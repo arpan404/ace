@@ -159,9 +159,8 @@ test("when only the push fails, the commit is reported made and the form offers 
   expect(details(app)?.ahead).toBe(2);
   app.daemon.restoreRequests();
   await userEvent.click(within(form).getByRole("button", { name: /^Push/ }));
-  expect(await screen.findByText("Pushed")).toBeTruthy();
   // One commit: retrying pushed it, it didn't commit again.
-  expect(details(app)?.ahead).toBe(0);
+  await waitFor(() => expect(details(app)?.ahead).toBe(0));
   expect(details(app)?.head).toBe("a".repeat(40));
 });
 
@@ -179,7 +178,10 @@ test("a push the remote rejects after a rebase offers a force push leased to the
   );
   expect(within(confirm).getByText("bbbbbbb")).toBeTruthy();
   await userEvent.click(within(confirm).getByRole("button", { name: "Force push (with lease)" }));
-  expect(await screen.findByText("Force pushed")).toBeTruthy();
+  // The dialog closes once the push landed; a refusal stays in it.
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: /^Push fix\/replay-cursor/ })).toBeNull(),
+  );
   expect(details(app)?.ahead).toBe(0);
 });
 

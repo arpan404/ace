@@ -1,0 +1,13 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeAvatars.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {
+    "maxLength": 65536,
+    "type": "string"
+  },
+  "propertyNames": {
+    "maxLength": 100,
+    "type": "string"
+  },
+  "type": "object"
+}

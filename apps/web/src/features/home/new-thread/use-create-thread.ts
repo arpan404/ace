@@ -31,7 +31,6 @@ import {
   useCreateRecovery,
 } from "./use-create-recovery.ts";
 import { useLayout } from "@/lib/layout.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
 import { dismissSend } from "@/lib/dismissed-sends.ts";
 import { rememberProvider } from "@/lib/provider-statuses.ts";
 
@@ -72,7 +71,6 @@ export function useCreateThread(
 } {
   const client = useClient();
   const navigate = useNavigate();
-  const toast = useToast();
   const { storage } = useLayout();
   const connection = useDaemonConnection();
   const host = useHostIdentity();
@@ -149,17 +147,8 @@ export function useCreateThread(
           /* Reconnect recovers the saved payload under its original ID. */
         });
         const threadId = pendingThreadId(commandId);
-        if (after === "stay") {
-          toast.add({
-            title: "Thread started",
-            description: provisionalTitle(attempt.payload.input),
-            actionProps: {
-              children: "Open",
-              onClick: () => void navigate({ to: "/t/$threadId", params: { threadId } }),
-            },
-          });
-          return sameSubmittedDraft(requested, attempt.payload);
-        }
+        // Staying put: the new row in the task list is the confirmation.
+        if (after === "stay") return sameSubmittedDraft(requested, attempt.payload);
         // Its view drawn at once on arrival: no empty frame between New thread and the thread.
         await preloadPendingThread().catch(() => {});
         if (mounted.current && canNavigate?.() !== false)
@@ -193,7 +182,7 @@ export function useCreateThread(
         return false;
       }
     },
-    [client, navigate, toast, storage, recoveryKey, host, canNavigate],
+    [client, navigate, storage, recoveryKey, host, canNavigate],
   );
   const create = useCallback(
     (request: CreateRequest, after: AfterCreate = "open") => {

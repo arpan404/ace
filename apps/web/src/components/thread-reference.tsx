@@ -3,6 +3,11 @@ import { ThreadId, ItemId } from "@ace/protocol";
 import { useQuery } from "@tanstack/react-query";
 import { Suspense, createContext, useContext, useCallback, useEffect, type ReactNode } from "react";
 import { isCheckoutPath } from "@ace/ui-core";
+import {
+  checkoutLinkPath,
+  localLinkPath as localPath,
+  normalizedPath,
+} from "@ace/ui-core/file-references";
 import { fileTab, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 const InlineImage = deferredComponent(() =>
@@ -26,21 +31,6 @@ export function ThreadReference(props: {
 }) {
   const scope = useContext(ThreadReferenceScope);
   return scope ? <ScopedReference {...props} {...scope} /> : props.children;
-}
-
-function localPath(reference: string): string | undefined {
-  try {
-    if (reference.startsWith("file:")) {
-      const url = new URL(reference);
-      if (url.host && url.host !== "localhost") return;
-      return decodeURIComponent(url.pathname);
-    }
-    return /^[a-z][a-z\d+.-]*:/i.test(reference)
-      ? undefined
-      : reference.replace(/:\d+(?::\d+)?$/, "");
-  } catch {
-    return;
-  }
 }
 
 function ScopedReference(props: {
@@ -145,12 +135,7 @@ function ScopedReference(props: {
     if (!store) return;
     return watchImageCaptures(store, refreshImage);
   }, [candidate, localCapture, resolvedImage, refreshImage, store]);
-  const absolute = path ? resolvePath(path) : undefined;
-  const relative = absolute?.startsWith("/")
-    ? root && absolute.startsWith(`${root}/`)
-      ? absolute.slice(root.length + 1)
-      : undefined
-    : absolute;
+  const relative = path ? checkoutLinkPath(path, root, props.cwd) : undefined;
   const attachment = localCapture ?? captured.data;
   if (attachment)
     return (
@@ -191,16 +176,6 @@ const readTools = (reader: ThreadReader) =>
   reader.order.filter((id) => reader.item(id)?.type === "tool_call");
 const sameIds = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((id, index) => id === b[index]);
-
-function normalizedPath(path: string): string {
-  const parts: string[] = [];
-  for (const part of path.split("/")) {
-    if (!part || part === ".") continue;
-    if (part === ".." && parts.length && parts.at(-1) !== "..") parts.pop();
-    else if (part !== ".." || !path.startsWith("/")) parts.push(part);
-  }
-  return (path.startsWith("/") ? "/" : "") + parts.join("/");
-}
 
 // One small metadata lookup at a time per connection; image bytes use their own bounded cache.
 const lookupTails = new WeakMap<ClientApi, Promise<unknown>>();

@@ -3,6 +3,7 @@ import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
+import { desktopUpdateArgument } from "@ace/service/desktop-update-argument";
 import {
   app,
   BrowserWindow,
@@ -33,12 +34,13 @@ import { cliShimCheck, cliShimLog, runningAppImage, type CliShimResult } from ".
 import { installCliShim } from "./os/cli-shim-install.ts";
 import { backgroundArgument, startHidden } from "./os/login.ts";
 import { settingsEffects } from "./os/settings-effects.ts";
-import { checkWithFeedback } from "./os/update-feedback.ts";
+import { appUpdates } from "./os/app-updates.ts";
 import { appPaths } from "./paths.ts";
 import { applyDevCsp, installDaemonNetwork, registerAppScheme, serveRenderer } from "./renderer.ts";
 import { DaemonNetwork } from "./daemon-network.ts";
 import { SettingsStore } from "./settings-store.ts";
 import { checkUserData, desktopUserData, legacyFolders } from "./user-data.ts";
+import { timers } from "./os/timers.ts";
 import { createMainWindow } from "./window/main-window.ts";
 import { applyZoom } from "./window/zoom.ts";
 import {
@@ -93,13 +95,6 @@ if (unsafe) {
       crashDumps,
     );
 }
-
-const timers = {
-  set(delayMs: number, callback: () => void) {
-    const timer = setTimeout(callback, delayMs);
-    return () => clearTimeout(timer);
-  },
-};
 
 function isDirectory(path: string): boolean {
   try {
@@ -195,6 +190,34 @@ function main(target: DaemonTarget, crashDumps: string): void {
     open: (link) => open(link),
     quitAll: () => app.quit(),
     log: (message) => log("warn", message),
+  });
+
+  let quitting = false;
+  let systemShutdown = false;
+  /** The browser backend tells the daemon first, then the daemon this app started stops. */
+  const shutDown = async () => {
+    globalShortcut.unregisterAll();
+    await background.stop();
+    await runtime.stop();
+  };
+  const updates = appUpdates({
+    version: info.version,
+    packaged: app.isPackaged,
+    platform: process.platform,
+    resourcesPath: process.resourcesPath,
+    execPath: process.execPath,
+    env: process.env,
+    timers,
+    random: Math.random,
+    report: (status) => emit(contents(), "updates.status", status),
+    drain: (deadlineMs, waiting) => runtime.drainForUpdate(deadlineMs, waiting),
+    // Quit's own question and shutdown are skipped: the drain already let agents finish.
+    prepareQuit: async () => {
+      quitting = true;
+      await shutDown();
+    },
+    quit: () => app.quit(),
+    log: logger("updates"),
   });
 
   /** Show the window (creating it if needed) and follow a deep link. */
@@ -295,6 +318,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
     const links = linksFromArgv(argv.slice(process.defaultApp ? 2 : 1), isDirectory);
     if (links.length === 0) open();
     for (const link of links) open(link);
+    // `ace update apply` from the bundled CLI, while the app runs.
+    if (argv.includes(desktopUpdateArgument)) void updates.apply();
   });
   app.on("open-url", (event, url) => {
     event.preventDefault();
@@ -306,8 +331,6 @@ function main(target: DaemonTarget, crashDumps: string): void {
     if (isDirectory(path)) open({ kind: "open-folder", path });
   });
 
-  let quitting = false;
-  let systemShutdown = false;
   app.on("before-quit", (event) => {
     if (quitting) return;
     event.preventDefault();
@@ -324,11 +347,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
       if (choice !== 0) return;
     }
     quitting = true;
-    globalShortcut.unregisterAll();
-    // The browser backend tells the daemon first, then the daemon this app started stops.
-    void background
-      .stop()
-      .then(() => runtime.stop())
+    void shutDown()
       .catch((error: unknown) => log("error", String(error)))
       .finally(() => app.quit());
   });
@@ -392,6 +411,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
         return check ? [check] : [];
       },
       openVisualization: (request) => void openVisualizationWindow(request),
+      updates,
       setWindowBackground: (value) => {
         if (!backgrounds.set(value).changed || !window || window.isDestroyed()) return;
         window.setBackgroundColor(windowBackground(value, nativeTheme.shouldUseDarkColors));
@@ -411,11 +431,9 @@ function main(target: DaemonTarget, crashDumps: string): void {
             bindings,
             trigger: (id) => emit(contents(), "keymap.action", id),
             checkForUpdates: () =>
-              void checkWithFeedback({
-                check: async () => handlers["updates.check"](undefined),
-                report: (status) => emit(contents(), "updates.status", status),
-                timers,
-              }),
+              void updates
+                .check("person")
+                .then((status) => emit(contents(), "updates.checked", status)),
             openUrl: (url) => void shell.openExternal(url).catch(() => {}),
             showLogs: () =>
               void showLogs().catch((error: unknown) =>
@@ -456,9 +474,17 @@ function main(target: DaemonTarget, crashDumps: string): void {
     if (!hidden) createWindow();
     // The background link follows the daemon from here on: it attaches whenever one is ready.
     background.start();
+    // The daemon starts first: nothing the updater does can keep it from running.
     void runtime
       .start()
       .catch((error: unknown) => log("error", `Daemon start failed: ${String(error)}`));
+    try {
+      updates.start();
+    } catch (error) {
+      log("error", `Update checks failed to start: ${String(error)}`);
+    }
+    // Launched by `ace update apply` from the bundled CLI.
+    if (process.argv.includes(desktopUpdateArgument)) void updates.apply();
     // The `ace` command belongs to the installed app; development builds never write one. It
     // goes in the managed daemon's home, which `desktopTarget` already prepared: after a fresh
     // start it lands in the new home, never in the backup.

@@ -437,25 +437,29 @@ test("closing the other window restores the retained view without taking it over
   );
 });
 
-test("closing the panel while the agent browses moves the embedded page into picture-in-picture without hiding it", async () => {
-  await openEmbeddedBrowser();
+test("the page floats in picture-in-picture as its live video, never as the native page over the app", async () => {
+  const { browser } = await openEmbeddedBrowser();
   await waitFor(() => expect(last()?.visible).toBe(true));
-  const before = placed.length;
   await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
-  await screen.findByRole("region", { name: /^Picture in picture/ });
+  const floating = await screen.findByRole("region", { name: /^Picture in picture/ });
+  // A native view paints above the whole window and can't be clipped to the floating box.
   await waitFor(() =>
-    expect(last()).toMatchObject({
-      threadId: "thread-cold-start",
-      bounds: { x: 600, y: 500, width: 320, height: 200 },
-      visible: true,
-      // Laid out at a page's size and scaled down, so it never reflows.
-      device: { width: expect.any(Number), height: expect.any(Number) },
-    }),
+    expect(last()).toMatchObject({ threadId: "thread-cold-start", visible: false }),
   );
-  // The panel let go of the page without hiding it: the floating window took it over.
-  await act(async () => {});
-  expect(placed.slice(before).some((placement) => !placement.visible)).toBe(false);
-  expect(last()?.visible).toBe(true);
+  // The agent keeps working: the page draws again, and its video reaches the floating window.
+  act(() => browser.type("thread-cold-start", "x"));
+  const live = await within(floating).findByRole("img", {
+    name: "Live view of http://localhost:5173/settings/devices",
+  });
+  expect(placed.some((placement) => placement.visible && placement.bounds.y === 500)).toBe(false);
+  // Its click is the app's own: the page goes back over the panel's page area.
+  await userEvent.click(live);
+  await waitFor(() =>
+    expect(screen.queryByRole("region", { name: /^Picture in picture/ })).toBeNull(),
+  );
+  await waitFor(() =>
+    expect(last()).toMatchObject({ visible: true, bounds: { x: 500, y: 100, width: 400 } }),
+  );
 });
 
 const latest = (tabId: string) => placed.findLast((placement) => placement.tabId === tabId);

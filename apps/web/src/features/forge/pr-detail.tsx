@@ -7,17 +7,21 @@ import type { ForgePrDetail, ForgePrStatus, ForgeRepository } from "@ace/protoco
 import { prPollInterval } from "@ace/ui-core";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { cn } from "@/lib/cn.ts";
 import { PrActivity } from "./pr-activity.tsx";
 import { PrHeader } from "./pr-header.tsx";
+import { PrPageHeader } from "./pr-page-header.tsx";
 import { PrSummary } from "./pr-summary.tsx";
 import { PrComposer } from "./pr-composer.tsx";
 import { PrChecksPill } from "./pr-presentation.tsx";
 import { PrFiles, preloadPrFiles } from "./pr-files.tsx";
 import { whenIdle } from "@/lib/idle.ts";
 import { useFreshSinceReconnect } from "./query-state.tsx";
-import { readForge } from "./source.ts";
+import { keptForgeMs } from "@/lib/query-persistence.ts";
+import { prDetailKey, prDetailStaleMs, readPrDetail } from "@/lib/forge-pr-detail.ts";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrReviewWorkspace, usePrReview } from "./pr-review-context.tsx";
+import { PrSuggestionBatch } from "./pr-suggestions.tsx";
 import { usePrActions } from "./pr-actions.ts";
 import { PrOverflowMenu } from "./pr-overflow-menu.tsx";
 import { PrDialogs, type PrDialog } from "./pr-dialogs.tsx";
@@ -38,6 +42,9 @@ export function prWorkspaceTab(tab: string): PrTab {
       ? "code"
       : "summary";
 }
+
+/** A page's reading width: the header, summary and timeline; the Code tab takes all of it. */
+const pageWidth = "mx-auto w-full max-w-[64rem]";
 
 /** Scrolled this far into a tab, the header folds its title block away. */
 const condenseAt = 64;
@@ -63,6 +70,8 @@ function PrTabs(props: {
   context: Record<PrTab, ReactNode>;
   panels: Record<PrTab, ReactNode>;
   onScroll(tab: PrTab, top: number): void;
+  /** On a page of its own: the bar and the reading tabs keep a readable width; Code is full. */
+  readable?: string | undefined;
 }) {
   const order: PrTab[] = ["summary", "timeline", "code"];
   const names: Record<PrTab, string> = { summary: "Summary", timeline: "Timeline", code: "Code" };
@@ -72,15 +81,17 @@ function PrTabs(props: {
       onValueChange={(value) => typeof value === "string" && props.onTab(value)}
       className="flex min-h-0 flex-1 flex-col"
     >
-      <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-4 py-2">
-        <TabsList aria-label="Pull request detail" className="rounded-md bg-muted p-0.5">
-          {order.map((tab) => (
-            <TabsTab key={tab} value={tab} className="h-6 data-active:bg-panel">
-              {names[tab]}
-            </TabsTab>
-          ))}
-        </TabsList>
-        <div className="flex min-w-0 items-center gap-2">{props.context[props.tab]}</div>
+      <div className="shrink-0 border-t border-border px-4 py-2">
+        <div className={cn("flex items-center justify-between gap-2", props.readable)}>
+          <TabsList aria-label="Pull request detail" className="rounded-md bg-muted p-0.5">
+            {order.map((tab) => (
+              <TabsTab key={tab} value={tab} className="h-6 data-active:bg-panel">
+                {names[tab]}
+              </TabsTab>
+            ))}
+          </TabsList>
+          <div className="flex min-w-0 items-center gap-2">{props.context[props.tab]}</div>
+        </div>
       </div>
       {order.map((tab) => (
         <TabsPanel
@@ -89,7 +100,11 @@ function PrTabs(props: {
           className="overflow-auto border-t border-border"
           onScroll={(e: UIEvent<HTMLDivElement>) => props.onScroll(tab, e.currentTarget.scrollTop)}
         >
-          {props.panels[tab]}
+          {props.readable && tab !== "code" ? (
+            <div className={props.readable}>{props.panels[tab]}</div>
+          ) : (
+            props.panels[tab]
+          )}
         </TabsPanel>
       ))}
     </Tabs>
@@ -118,15 +133,18 @@ function PrDetailLoaded(props: {
   extensions?: PrWorkspaceExtensions | undefined;
   onBack?: (() => void) | undefined;
   onOpen(number: number): void;
+  page?: boolean | undefined;
 }) {
   const { context } = props;
+  const readable = props.page ? pageWidth : undefined;
   const { detail } = context;
+  const [dialog, setDialog] = useState<PrDialog>();
   const actions = usePrActions({
     context,
     extensions: props.extensions,
     hostThreadId: props.hostThreadId,
+    openConflicts: () => setDialog("conflicts"),
   });
-  const [dialog, setDialog] = useState<PrDialog>();
   const [behindOpen, setBehindOpen] = useState(false);
   const [revealChecks, setRevealChecks] = useState(0);
   const [codeFocus, setCodeFocus] = useState<{ path: string; seq: number }>();
@@ -180,14 +198,26 @@ function PrDetailLoaded(props: {
         ?.writeText(
           `gh pr checkout ${status.ref.number} --repo ${repository.host}/${repository.owner}/${repository.name}`,
         )
-        .then(() => toast.add({ title: "Checkout command copied" }));
+        .catch(() => toast.error({ title: "Couldn't copy the checkout command" }));
     } else
       event.currentTarget
         .querySelector<HTMLButtonElement>("[data-pr-primary]:not(:disabled)")
         ?.click();
   };
   const editable = !!actions.lifecycle.snapshot?.editableFields.length;
-  const canRequestReview = detail.status.state === "open" && actions.threadId !== undefined;
+  const menu = (
+    <PrOverflowMenu
+      actions={actions}
+      extensions={props.extensions}
+      hostThreadId={props.hostThreadId}
+      refreshing={props.refreshing}
+      onRefresh={refresh}
+      onEdit={() => setDialog("edit")}
+      onRevert={() => setDialog("revert")}
+      onRequestReview={() => setDialog("review")}
+    />
+  );
+  const canRequestReview = detail.status.state === "open";
   return (
     // Shortcuts work anywhere in the panel; `contents` keeps the layout the article's.
     <div role="presentation" className="contents" onKeyDown={onKeyDown}>
@@ -198,29 +228,30 @@ function PrDetailLoaded(props: {
         disabled={context.disabled}
         onRefresh={refresh}
         header={
-          <>
-            <PrHeader
-              actions={actions}
-              extensions={props.extensions}
-              condensed={condensed[props.tab]}
-              behindOpen={behindOpen}
-              onBehindOpen={setBehindOpen}
-              gates={<PrGatesRow actions={actions} onSelect={onGate} />}
-              onBack={props.onBack}
-              onOpen={props.onOpen}
-              menu={
-                <PrOverflowMenu
-                  actions={actions}
-                  extensions={props.extensions}
-                  hostThreadId={props.hostThreadId}
-                  refreshing={props.refreshing}
-                  onRefresh={refresh}
-                  onEdit={() => setDialog("edit")}
-                  onRevert={() => setDialog("revert")}
-                  onRequestReview={() => setDialog("review")}
-                />
-              }
-            />
+          <div className={readable}>
+            {props.page ? (
+              <PrPageHeader
+                actions={actions}
+                extensions={props.extensions}
+                behindOpen={behindOpen}
+                onBehindOpen={setBehindOpen}
+                gates={<PrGatesRow actions={actions} onSelect={onGate} />}
+                onBack={props.onBack}
+                menu={menu}
+              />
+            ) : (
+              <PrHeader
+                actions={actions}
+                extensions={props.extensions}
+                condensed={condensed[props.tab]}
+                behindOpen={behindOpen}
+                onBehindOpen={setBehindOpen}
+                gates={<PrGatesRow actions={actions} onSelect={onGate} />}
+                onBack={props.onBack}
+                onOpen={props.onOpen}
+                menu={menu}
+              />
+            )}
             {props.refreshFailed && (
               <p role="status" className="flex items-center gap-2 px-4 pb-1 text-xs">
                 <span className="min-w-0 truncate text-muted-foreground">
@@ -232,13 +263,15 @@ function PrDetailLoaded(props: {
               </p>
             )}
             <PrWriteStatus actions={actions} refreshing={props.refreshing} />
-          </>
+            <PrSuggestionBatch />
+          </div>
         }
       >
         <PrTabs
           tab={props.tab}
           onTab={props.onTab}
           onScroll={onScroll}
+          readable={readable}
           context={{
             summary: <SummaryContext detail={detail} />,
             timeline: (
@@ -301,7 +334,12 @@ function PrDetailLoaded(props: {
           }}
         />
         <PrComposer context={context} extensions={props.extensions} />
-        <PrDialogs actions={actions} open={dialog} onClose={() => setDialog(undefined)} />
+        <PrDialogs
+          actions={actions}
+          hostThreadId={props.hostThreadId}
+          open={dialog}
+          onClose={() => setDialog(undefined)}
+        />
       </PrReviewWorkspace>
     </div>
   );
@@ -321,35 +359,36 @@ export function PrDetail(props: {
   onBack?(): void;
   onOpen(number: number): void;
   extensions?: PrWorkspaceExtensions | undefined;
+  /** Shown as a page of its own rather than in a side panel. */
+  page?: boolean | undefined;
 }) {
   // Only a refresh someone asked for (or a write's reconciliation) holds writes; polls don't.
   const [refreshing, setRefreshing] = useState(false);
   const ready = useConnectionState() === "ready";
   const cache = useQueryClient();
+  const queryKey = prDetailKey(props.workspaceId, props.repository, props.number);
   const query = useDaemonQuery<ForgePrDetail>({
-    queryKey: ["forge", props.workspaceId, props.repository, "pr", props.number],
+    queryKey,
     retry: false,
-    staleTime: 15_000,
+    staleTime: prDetailStaleMs,
+    // Kept in memory, and so between sessions, for a while after the panel closes: opening the
+    // PR again paints what was last read and reads it again behind it.
+    gcTime: keptForgeMs,
     refetchOnReconnect: "always",
     // Re-read while GitHub is still deciding: running checks or mergeability not computed yet.
     // The thread's work card polls on the same rule, so both views agree.
     refetchInterval: (q) => prPollInterval(q.state.data?.status),
-    read: async (client, signal) => {
-      const result = await readForge(
+    read: (client, signal) =>
+      readPrDetail(
         client,
-        {
-          op: "forge.pr.detail",
-          workspaceId: props.workspaceId,
-          repository: props.repository,
-          number: props.number,
-        },
+        { workspaceId: props.workspaceId, repository: props.repository, number: props.number },
         signal,
-      );
-      if (result.resource !== "prDetail") throw new Error("No pull request detail.");
-      return result.value;
-    },
+      ),
   });
   const detail = query.data;
+  // What an earlier session kept is shown at once but is not current: writes wait for the
+  // read behind it. (`isStale` is read so this view re-renders when that read lands.)
+  const unconfirmed = query.isStale && cache.getQueryState(queryKey)?.isInvalidated === true;
   const onState = props.onState;
   useEffect(() => {
     if (detail) onState?.(detail.status.state);
@@ -378,7 +417,8 @@ export function PrDetail(props: {
     ? {
         workspaceId: props.workspaceId,
         detail,
-        disabled: !fresh || query.isError || refreshing || detail.writeState !== undefined,
+        disabled:
+          !fresh || unconfirmed || query.isError || refreshing || detail.writeState !== undefined,
         refresh,
       }
     : undefined;
@@ -398,6 +438,7 @@ export function PrDetail(props: {
           extensions={props.extensions}
           onBack={props.onBack}
           onOpen={props.onOpen}
+          page={props.page}
         />
       ) : query.error ? (
         <PrFailure

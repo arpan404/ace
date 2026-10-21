@@ -17,6 +17,7 @@ import { useClient } from "@ace/client-react";
 import type { ClientApi } from "@ace/client";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useDaemonConnection, type DaemonEndpoint } from "@/boot/connection.tsx";
+import { isLoopbackUrl } from "@/boot/fragment-handoff.ts";
 
 const schedule = (callback: () => void, delayMs: number) => {
   const timer = setTimeout(callback, delayMs);
@@ -58,6 +59,8 @@ export interface ScreenSnapshot {
 }
 
 export interface ScreenSession {
+  /** Which way the channel goes: a live view sizes its stream for it. */
+  readonly connection: "local" | "remote";
   subscribe(listener: () => void): () => void;
   get(): ScreenSnapshot;
   /** Read enablement, permissions and the session list again (after a reconnect). */
@@ -169,6 +172,7 @@ function openSession(endpoint: DaemonEndpoint): ScreenSession {
       listeners.add(listener);
       return () => void listeners.delete(listener);
     },
+    connection: endpoint.kind === "fake" || isLoopbackUrl(endpoint.target.url) ? "local" : "remote",
     get: () => snapshot,
     refresh,
     async request(operation, timeoutMs) {

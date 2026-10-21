@@ -85,12 +85,12 @@ function AutomationLine(props: { entry: AutomationEntry; onClose(): void }) {
   const [running] = useDaemonSetting("automations.enabled");
   const ready = useConnectionState() === "ready";
   const [busy, setBusy] = useState(false);
-  const perform = async (write: () => Promise<unknown>, done: string) => {
+  /** The row shows the change; only a failure needs saying. */
+  const perform = async (write: () => Promise<unknown>) => {
     if (busy || !ready) return;
     setBusy(true);
     try {
       await write();
-      toast.add({ title: done });
     } catch {
       toast.error({
         title: "Couldn't update this automation. Try again",
@@ -155,9 +155,7 @@ function AutomationLine(props: { entry: AutomationEntry; onClose(): void }) {
           label={runBlocked ?? `Run ${automation.title} now`}
           size="sm"
           disabled={busy || !!runBlocked}
-          onClick={() =>
-            void perform(() => actions.runNow(automation.id), `Started · ${automation.title}`)
-          }
+          onClick={() => void perform(() => actions.runNow(automation.id))}
         />
       </span>
       <Switch
@@ -165,12 +163,7 @@ function AutomationLine(props: { entry: AutomationEntry; onClose(): void }) {
         checked={automation.enabled}
         disabled={busy || !ready}
         className="ml-1"
-        onCheckedChange={(enabled) =>
-          void perform(
-            () => actions.setEnabled(automation, enabled),
-            `${enabled ? "Resumed" : "Paused"} · ${automation.title}`,
-          )
-        }
+        onCheckedChange={(enabled) => void perform(() => actions.setEnabled(automation, enabled))}
       />
     </div>
   );

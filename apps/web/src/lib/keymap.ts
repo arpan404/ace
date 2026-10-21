@@ -110,7 +110,6 @@ export const keymap = {
   preview: { keys: "ctrl+shift+p", label: "Preview" },
   devices: { keys: "ctrl+shift+m", label: "Devices" },
   logs: { keys: "ctrl+shift+l", label: "Logs" },
-  takeControl: { keys: "ctrl+shift+c", label: "Take or hand back control of a browser or device" },
   // A long thread (features/thread/long): its turns, moving between them, searching it.
   turns: { keys: "alt+mod+g", label: "Turns of this thread" },
   previousTurn: { keys: "shift+alt+mod+arrowup", label: "Previous turn" },
@@ -147,6 +146,8 @@ export const keymap = {
   goHome: { keys: "g h", label: "Go to Home" },
   goAutomations: { keys: "g u", label: "Go to Automations" },
   goSkills: { keys: "g s", label: "Go to Skills" },
+  goPullRequests: { keys: "g p", label: "Go to Pull requests" },
+  goIssues: { keys: "g i", label: "Go to Issues" },
   // The Home thread list (features/home): plain keys on the focused row.
   "home.pin": { keys: "p", label: "Pin or unpin the focused thread", scope: "home" },
   "home.select": { keys: "x", label: "Select the focused thread", scope: "home" },

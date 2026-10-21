@@ -48,9 +48,6 @@ function loadedOrder(block: WorkBlock): string[] {
       case "message":
         ids.push(inner.itemId);
         break;
-      case "background":
-        ids.push(...inner.itemIds);
-        break;
       default:
         break;
     }

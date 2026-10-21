@@ -8,15 +8,21 @@ import { assertLinuxRuntimeFloor } from "@ace/release/glibc";
 // The canonical ace-chromium profile (PR #1221); the deb installs exactly what `ace doctor` prints.
 import { chromiumAppArmorProfile } from "@ace/browser/linux-sandbox";
 import { desktop, dist, electronVersion, installedElectronDist, targetArch } from "./common.ts";
+import { notaryCredentials } from "../src/packaging/release-signing.ts";
 import { verifyNatives } from "./verify-natives.ts";
 
 /**
  * `bun run desktop:build`: an unsigned app for this machine (macOS: `.app` and dmg).
  * `bun run desktop:package`: the full platform package for one architecture (macOS dmg+zip,
- * Windows NSIS, Linux AppImage, deb and tar.gz), signed and notarized when the release credentials
- * are present (CSC_LINK / CSC_NAME, APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER).
- * On macOS the Developer ID identity must already be in a keychain on the search list: the
- * screen helper is signed during the build, before electron-builder imports CSC_LINK.
+ * Windows NSIS, Linux AppImage, deb and tar.gz) with the update feed (`app-update.yml` inside the
+ * app, `latest*.yml` beside the packages; ADR 0091). On macOS it is signed with the Developer
+ * ID in the keychain (CSC_NAME picks one) and notarized with whichever notarytool
+ * credentials are set (see `notaryCredentials`). The identity must already be in a keychain
+ * on the search list: the screen helper is signed during the build, before electron-builder
+ * imports CSC_LINK. `--unsigned` builds the same full package ad-hoc signed and not
+ * notarized, for releases before a Developer ID exists; those builds cannot update
+ * themselves on macOS and offer the release page instead. `bun run release:build` drives
+ * this for a release.
  *
  * One run builds one architecture, the host's (`--arch` may name it and must match): the
  * daemon's native modules, ripgrep and the screen helper are built for the host, and the
@@ -24,13 +30,23 @@ import { verifyNatives } from "./verify-natives.ts";
  * runs this once per architecture on a matching runner.
  */
 const full = process.argv.includes("--full");
+const unsigned = process.argv.includes("--unsigned");
+/** Signed with the release identity (macOS Developer ID, Windows CSC_LINK). */
+const signed = full && !unsigned;
 const arch = targetArch(process.argv);
+const notary = notaryCredentials(process.env);
+if (signed && process.platform === "darwin" && notary.kind === "incomplete")
+  throw new Error(`Notarization needs ${notary.missing.join(", ")} as well`);
 if (!process.argv.includes("--skip-build"))
   execFileSync(process.execPath, [join(desktop, "scripts/build.ts"), "--arch", arch], {
     stdio: "inherit",
     // A release package without its screen helper would silently lose screen use.
     env: full
-      ? { ...process.env, ACE_REQUIRE_SCREEN_HELPER: "1", ACE_SCREEN_SIGN_RELEASE: "1" }
+      ? {
+          ...process.env,
+          ACE_REQUIRE_SCREEN_HELPER: "1",
+          ...(unsigned ? {} : { ACE_SCREEN_SIGN_RELEASE: "1" }),
+        }
       : process.env,
   });
 
@@ -50,7 +66,8 @@ if (process.platform === "linux") {
   await writeFile(join(linuxResources, "apparmor-chromium"), chromiumAppArmorProfile());
 }
 
-const notarize = Boolean(process.env.APPLE_API_KEY && process.env.APPLE_API_ISSUER);
+const notarize =
+  signed && process.platform === "darwin" && notary.kind !== "none" && notary.kind !== "incomplete";
 const helper = join(dist, "helpers/AceScreenHelper.app");
 
 const config: Configuration = {
@@ -137,10 +154,10 @@ const config: Configuration = {
     hardenedRuntime: true,
     entitlements: join(desktop, "build/entitlements.mac.plist"),
     entitlementsInherit: join(desktop, "build/entitlements.mac.plist"),
-    notarize: full && notarize,
-    // Local builds are ad-hoc signed ("-"): Apple silicon kills binaries whose signature the
-    // fuse flip invalidated, and no Developer ID is needed to test locally.
-    ...(full ? {} : { identity: "-" }),
+    notarize,
+    // Local and --unsigned builds are ad-hoc signed ("-"): Apple silicon kills binaries whose
+    // signature the fuse flip invalidated, and no Developer ID is needed to test locally.
+    ...(signed ? {} : { identity: "-" }),
     // The screen helper keeps its own stable identity (dev.ace.screen-helper), signed by
     // native/screen-helper/build.sh; re-signing would break the daemon's manifest check.
     signIgnore: ["Contents/Helpers/AceScreenHelper.app"],
@@ -158,8 +175,14 @@ const config: Configuration = {
       NSScreenCaptureUsageDescription: "ace shows only apps you explicitly approve.",
     },
   },
-  dmg: { sign: false },
-  win: { target: [{ target: "nsis", arch: [arch] }], icon: join(desktop, "build/icon.png") },
+  // A Developer ID signature on the disk image too, so Gatekeeper trusts the download.
+  dmg: { sign: signed },
+  win: {
+    target: [{ target: "nsis", arch: [arch] }],
+    icon: join(desktop, "build/icon.png"),
+    // One naming scheme for every release file (`desktopAssets` in release-plan.ts).
+    artifactName: "ace-${version}-${arch}-setup.${ext}",
+  },
   nsis: { oneClick: false, perMachine: false, include: join(desktop, "build/installer.nsh") },
   linux: {
     // `ace` is the daemon CLI (`~/.ace/bin/ace`); the GUI must never install /usr/bin/ace.
@@ -176,6 +199,7 @@ const config: Configuration = {
     synopsis: "Desktop app for ace, the local multi-agent coding environment",
     category: "Development",
     icon: join(desktop, "build/icon.png"),
+    artifactName: "ace-${version}-${arch}.${ext}",
     mimeTypes: ["x-scheme-handler/ace", "inode/directory"],
   },
   // The static type2 AppImage runtime (FUSE 3). The legacy default links an unversioned
@@ -202,10 +226,15 @@ const config: Configuration = {
     afterInstall: join(desktop, "build/linux/after-install.tpl"),
     afterRemove: join(desktop, "build/linux/after-remove.tpl"),
   },
-  publish: null,
+  // The update feed: GitHub releases tagged v<version>. Only a full package carries it, so
+  // a local build never offers updates. Nothing uploads from here (`publish: "never"`);
+  // `bun run release:publish` creates the release with the GitHub CLI.
+  publish: full
+    ? [{ provider: "github", owner: "arpan404", repo: "ace", releaseType: "release" }]
+    : null,
 };
 
-if (!full) process.env.CSC_IDENTITY_AUTO_DISCOVERY = "false";
+if (!signed) process.env.CSC_IDENTITY_AUTO_DISCOVERY = "false";
 
 const targets =
   process.platform === "darwin"

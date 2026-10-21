@@ -93,7 +93,7 @@ export async function codeLines(
     return plain;
   }
   const colored = lang
-    ? await import("./source-highlight.ts")
+    ? await import("@ace/ui-core/source-highlight")
         .then((module) => module.sourceHighlight(code, lang))
         .catch(() => undefined)
     : undefined;

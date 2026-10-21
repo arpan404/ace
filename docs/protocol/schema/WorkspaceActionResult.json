@@ -311,6 +311,9 @@
           "type": "object"
         },
         {
+          "$ref": "https://ace.local/protocol/v1/GitConflictsResult.json"
+        },
+        {
           "properties": {
             "code": {
               "maxLength": 128,

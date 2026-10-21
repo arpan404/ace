@@ -1,46 +1,96 @@
+import { useLocation } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { FilterMenu } from "@/components/ui/filter-menu.tsx";
+import { machineStatus } from "@/lib/machine-status.ts";
 import { Screen } from "@/features/shell/index.ts";
+import { useSettingsMachine } from "./machine-scope.tsx";
+import { settingsPageOf } from "./settings-pages.ts";
 
 /**
- * One settings page: the header says "Settings"; the page title (22/600) and its lede head a
- * centred column that grows with the window (`--settings-column`), so cards fill the space they
- * have and every control stays within reach of its label.
+ * One settings page, cardless like the rest of the app: a centred column, as the thread view
+ * and Usage centre theirs, under a 20/600 page title; groups are a section title over hairline
+ * rows. The title row carries the page's controls
+ * at its right and, on a Machine page with more than one machine, the machine it edits as a
+ * quiet menu ("This Mac ⌄"), as Usage picks its environment. Content rises in when the page
+ * or the machine changes.
+ *
+ * Nothing on a page is a card: a group is its title over hairline-separated rows, and groups
+ * are set apart by `--settings-group-gap` (see `SettingSection`).
  */
 export function SettingsBody(props: {
   page: string;
   lede?: ReactNode;
   actions?: ReactNode;
+  /** The page's controls (a refresh, a scope), at the right of the title row. */
   titleActions?: ReactNode;
-  /** A quiet link above the title, e.g. "‹ Appearance" on the Theme editor. */
+  /** The page this one sits under, as a quiet link above the title ("‹ Providers"). */
   back?: ReactNode;
   /** A mark beside the title (a provider's page). */
   icon?: ReactNode;
   trailing?: ReactNode;
   children?: ReactNode;
 }) {
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const machinePage = settingsPageOf(pathname)?.group === "machine";
+  const { machine, machines } = useSettingsMachine();
+  const picker = machinePage && machines.length > 1;
   return (
-    <Screen title="Settings" actions={props.actions}>
+    // The sidebar already says Settings and the page names itself below: the header keeps only
+    // its controls, with the view's name for assistive tech.
+    <Screen title={<span className="sr-only">Settings</span>} actions={props.actions}>
       <div className="h-full overflow-auto">
-        <div className="@container mx-auto w-full max-w-(--settings-column) px-4 pt-6 pb-20 sm:px-8 sm:pt-10">
-          {props.back}
-          <div className="flex items-center gap-4">
+        <div className="@container mx-auto w-full max-w-[860px] px-5 pt-5 pb-20 sm:px-7">
+          {props.back && <div className="mb-1 text-ui">{props.back}</div>}
+          {/* The title row is a band of its own: the first group starts a clear step below it. */}
+          <div className="mb-7 flex min-h-8 flex-wrap items-center gap-x-3 gap-y-2">
             {props.icon}
-            <div className="min-w-0 flex-1">
-              <h2 className="text-2xl font-semibold tracking-title">{props.page}</h2>
+            <div className="min-w-0">
+              <h2 className="text-xl leading-[26px] font-semibold tracking-[-0.015em]">
+                {props.page}
+              </h2>
               {props.lede && (
-                <div className="mt-1 max-w-[62ch] text-base leading-normal text-muted-foreground">
-                  {props.lede}
-                </div>
+                <div className="mt-0.5 text-ui text-muted-foreground">{props.lede}</div>
               )}
             </div>
-            {props.trailing}
-            {props.titleActions && (
-              <div className="shrink-0 self-start pt-1">{props.titleActions}</div>
+            {(picker || props.trailing || props.titleActions) && (
+              <div className="ml-auto flex items-center gap-2">
+                {picker && <MachineFilter />}
+                {props.trailing}
+                {props.titleActions}
+              </div>
             )}
           </div>
-          {props.children}
+          <div
+            // A new page or machine starts its content over, with one short rise.
+            key={`${pathname}:${machine?.primary ? "primary" : (machine?.id ?? "")}`}
+            className="fx-rise-in"
+          >
+            {props.children}
+          </div>
         </div>
       </div>
     </Screen>
+  );
+}
+
+/** The machine a Machine page edits, as Usage picks its environment: a quiet text menu. */
+function MachineFilter() {
+  const { machine, machines, choose } = useSettingsMachine();
+  return (
+    <FilterMenu
+      label="Machine"
+      value={machine?.id ?? ""}
+      options={machines.map((entry) => ({
+        value: entry.id,
+        label:
+          entry.status === "online"
+            ? entry.name
+            : `${entry.name} · ${machineStatus[entry.status].label}`,
+      }))}
+      onValueChange={(id) => {
+        const next = machines.find((entry) => entry.id === id);
+        choose(next && !next.primary ? next.id : undefined);
+      }}
+    />
   );
 }

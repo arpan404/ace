@@ -3,10 +3,90 @@ import { host } from "../bridge/polyfills.ts";
 import { PatchPump } from "../bridge/patches.ts";
 import { itemRow, threadRow } from "../bridge/presentation.ts";
 import { Item, ThreadListEntry } from "@ace/protocol";
+import { itemDetail } from "../bridge/thread-rows.ts";
+import { workGroups } from "../bridge/work-groups.ts";
+import { installHistoryScenarios } from "./transcript-history.ts";
+
+installHistoryScenarios();
 
 const pump = new PatchPump();
 const largeId = "large-" + "x".repeat(100 * 1024);
 let revision = 0;
+function queueWorkFlow() {
+  const common = { agentId: "agent", createdAt: 0, complete: true };
+  const edit = (id: string, path: string) =>
+    Item.parse({
+      ...common,
+      id,
+      type: "tool_call",
+      call: {
+        id,
+        agentId: "agent",
+        kind: "file.edit",
+        title: `Edit ${path}`,
+        status: "succeeded",
+        raw: [],
+        startedAt: 0,
+        detail: {
+          kind: "file.edit",
+          changes: [{ path, kind: "update", oldText: "old", newText: "new" }],
+        },
+      },
+    });
+  const entries = [
+    Item.parse({
+      ...common,
+      id: "thought",
+      type: "reasoning",
+      text: "Check how progress is grouped.",
+    }),
+    edit("edit-1", "one.swift"),
+    edit("edit-2", "two.swift"),
+    Item.parse({
+      ...common,
+      id: "narration",
+      type: "message",
+      role: "assistant",
+      parts: [{ type: "text", text: "The layout is fixed. Checking the result." }],
+    }),
+  ];
+  const items = new Map<string, Item>(entries.map((item) => [item.id, item]));
+  entries.forEach((item, index) =>
+    pump.put(`thread:item:${item.id}`, () => ({
+      type: "thread.item",
+      threadId: "thread",
+      epoch: 1,
+      id: item.id,
+      row: { ...itemRow(item, index), ...itemDetail(item) },
+    })),
+  );
+  pump.put("thread:block:flow", () => ({
+    type: "thread.block",
+    threadId: "thread",
+    epoch: 1,
+    id: "flow",
+    row: {
+      index: 0,
+      kind: "work",
+      items: entries.map((item) => item.id),
+      headed: false,
+      interactionId: "",
+      work: {
+        label: "Working",
+        counts: "Edited 2 files",
+        current: "",
+        ongoing: true,
+        outcome: "",
+        startedAt: 0,
+        failed: 0,
+      },
+      groups: workGroups(
+        entries.map((item) => item.id),
+        (id) => items.get(id),
+      ),
+    },
+  }));
+}
 function content(id: string, text: string) {
   const item = Item.parse({
     id,
@@ -114,6 +194,7 @@ function brokenContent(invalidIdentity: boolean) {
   }));
 }
 Object.assign(globalThis, {
+  queueWorkFlow,
   queueBrokenContent: () => brokenContent(false),
   queueInvalidIdentity: () => brokenContent(true),
   repairIdentity: () => brokenContent(false),

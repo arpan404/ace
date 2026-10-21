@@ -1,3 +1,4 @@
+import { nextFrame } from "./next-frame.ts";
 import { useEffect } from "react";
 import { useStartupHandoff } from "./startup/startup.tsx";
 
@@ -31,7 +32,6 @@ export function useDismissBootSplash(): void {
   useStartupHandoff();
   useEffect(() => {
     // The frame after commit: the screen underneath has painted, so the fade reveals it.
-    const frame = requestAnimationFrame(() => dismissBootSplash(document));
-    return () => cancelAnimationFrame(frame);
+    return nextFrame(() => dismissBootSplash(document));
   }, []);
 }

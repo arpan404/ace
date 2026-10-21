@@ -5,7 +5,7 @@ import Testing
 /// Going back from a child thread, view-only machines on the new request cards and composer
 /// controls, and the steps a settled log reads. Native models only; the bridge is recorded.
 @Suite @MainActor struct ThreadGapsTests {
-    @Test func backFromAChildKeepsTheParentsTranscriptUntilItsReopenedSessionsFirstBlock() throws {
+    @Test func backFromAChildKeepsTheParentsTranscriptUntilItsReopenedSnapshotIsReady() throws {
         let model = ClientModel(now: { 0 })
         model.open("parent")
         model.receive(try frame([
@@ -26,10 +26,12 @@ import Testing
         model.receive(try frame([block("late", thread: "parent", epoch: 1, items: [], index: 1)]))
         #expect(model.thread?.screen.blocks["late"] == nil)
         #expect(model.thread?.placeholder?.screen.blocks["late"] == nil)
-        // The reset alone would flash empty; the placeholder holds until the first block.
+        // The reset and individual blocks must not replace the readable previous snapshot.
         model.receive(try frame([["type": "thread.reset", "threadId": "parent", "epoch": 3], item("ask", thread: "parent", epoch: 3, index: 0)]))
         #expect(model.thread?.placeholder != nil)
         model.receive(try frame([block("turn", thread: "parent", epoch: 3, items: ["ask"], index: 0)]))
+        #expect(model.thread?.placeholder != nil)
+        model.receive(try frame([["type": "thread.ready", "threadId": "parent", "epoch": 3, "count": 1]]))
         #expect(model.thread?.placeholder == nil)
         #expect(model.thread?.screen.blockOrder == ["turn"])
     }

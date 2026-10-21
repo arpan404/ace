@@ -1,3 +1,4 @@
+import { NativeTranscript, NativeTranscriptRequest } from "./native-transcript.ts";
 import type { ClientCore } from "@ace/client";
 import {
   AutomationRequest,
@@ -5,18 +6,34 @@ import {
   CatalogList,
   CommandsList,
   CommandsResolve,
+  HistoryListRequest,
+  HistoryImportRequest,
+  HistoryReleaseRequest,
+  ProviderAccountsRequest,
+  ProjectsRequest,
+  SearchQueryRequest,
+  SearchStatusRequest,
   McpProviderRequest,
   PromptFilesRequest,
+  PluginClientMessage,
   ProviderLoginRequest,
   ScreenClientMessage,
   SettingsRequest,
   StorageRequest,
+  SourceControlRequest,
   TerminalRequest,
   UsageSummary,
 } from "@ace/protocol";
 import { z } from "zod";
 import type { PatchSink } from "./agents.ts";
+import type { CheckoutFiles } from "./checkout-files.ts";
+import { NativeFilesRequest } from "./checkout-request.ts";
 import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
+import { NativeHistoryWindow, readHistoryWindow } from "./native-search.ts";
+import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
+import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
+import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
+import { NativeScreenRequest, type NativeScreen } from "./native-screen.ts";
 
 // The SDK validates every request and reply. The native bridge exposes only these services;
 // mutations of threads continue to go through the SDK's durable command outbox.
@@ -26,15 +43,31 @@ const Request = z.union([
   CatalogList,
   CommandsList,
   CommandsResolve,
+  HistoryListRequest,
+  HistoryImportRequest,
+  HistoryReleaseRequest,
+  ProviderAccountsRequest,
+  ProjectsRequest,
+  SearchQueryRequest,
+  SearchStatusRequest,
   McpProviderRequest,
   PromptFilesRequest,
+  PluginClientMessage,
   ProviderLoginRequest,
   ScreenClientMessage,
   SettingsRequest,
   StorageRequest,
+  SourceControlRequest,
   TerminalRequest,
   UsageSummary,
 ]);
+const DeviceRequestType = z.object({
+  type: z.enum(["devices.request", "devices.gesture", "devices.tree"]),
+});
+const invalidDeviceValue = {
+  message: "The device doesn't take that value.",
+  hint: "Check it, such as en-US for a language, and try again.",
+};
 export const NativeServiceAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("service"), id: z.string().min(1).max(128), request: z.unknown() }),
   z.object({ type: z.literal("service.cancel"), id: z.string().min(1).max(128) }),
@@ -42,11 +75,25 @@ export const NativeServiceAction = z.discriminatedUnion("type", [
 
 export class NativeServices {
   #pending = new Map<string, AbortController>();
+  readonly transcript: NativeTranscript;
   readonly owner: ClientCore;
   readonly sink: PatchSink;
-  constructor(owner: ClientCore, sink: PatchSink) {
+  readonly devices: NativeDevices | undefined;
+  readonly screen: NativeScreen | undefined;
+  readonly files: CheckoutFiles | undefined;
+  constructor(
+    owner: ClientCore,
+    sink: PatchSink,
+    devices?: NativeDevices,
+    screen?: NativeScreen,
+    files?: CheckoutFiles,
+  ) {
     this.owner = owner;
+    this.transcript = new NativeTranscript(owner);
     this.sink = sink;
+    this.devices = devices;
+    this.screen = screen;
+    this.files = files;
   }
   handle(action: z.infer<typeof NativeServiceAction>): void {
     if (action.type === "service.cancel") {
@@ -64,6 +111,82 @@ export class NativeServices {
     }
     this.#pending.set(id, controller);
     try {
+      const screen = NativeScreenRequest.safeParse(raw);
+      if (screen.success && this.screen) {
+        try {
+          const data = await this.screen.request(screen.data, controller.signal);
+          this.#reply(id, true, { ok: true, data }, "");
+        } catch (error) {
+          this.#reply(
+            id,
+            true,
+            {
+              ok: false,
+              error: { message: error instanceof Error ? error.message : "Screen request failed" },
+            },
+            "",
+          );
+        }
+        return;
+      }
+      const device = NativeDeviceRequest.safeParse(raw);
+      if (device.success && this.devices) {
+        try {
+          const data = await this.devices.request(device.data, controller.signal);
+          this.#reply(id, true, { ok: true, data }, "");
+        } catch (error) {
+          this.#reply(
+            id,
+            true,
+            {
+              ok: false,
+              error: deviceFailure(error),
+            },
+            "",
+          );
+        }
+        return;
+      }
+      // A device form whose value the protocol refuses (a locale, a location): say so plainly.
+      if (this.devices && DeviceRequestType.safeParse(raw).success) {
+        this.#reply(id, true, { ok: false, error: invalidDeviceValue }, "");
+        return;
+      }
+      const message = NativeMessageRequest.safeParse(raw);
+      if (message.success) {
+        this.#reply(
+          id,
+          true,
+          await readNativeMessage(this.owner, message.data, controller.signal),
+          "",
+        );
+        return;
+      }
+      const limits = UsageLimitsRequest.safeParse(raw);
+      if (limits.success) {
+        this.#reply(id, true, await readUsageLimits(this.owner, controller.signal), "");
+        return;
+      }
+      const transcript = NativeTranscriptRequest.safeParse(raw);
+      if (transcript.success) {
+        this.#reply(id, true, await this.transcript.read(transcript.data, controller.signal), "");
+        return;
+      }
+      const window = NativeHistoryWindow.safeParse(raw);
+      if (window.success) {
+        this.#reply(
+          id,
+          true,
+          await readHistoryWindow(this.owner, window.data, controller.signal),
+          "",
+        );
+        return;
+      }
+      const files = NativeFilesRequest.safeParse(raw);
+      if (files.success && this.files) {
+        this.#reply(id, true, await this.files.request(files.data, controller.signal), "");
+        return;
+      }
       const media = NativeMediaRequest.safeParse(raw);
       if (media.success) {
         this.#reply(id, true, await readNativeMedia(this.owner, media.data, controller.signal), "");
