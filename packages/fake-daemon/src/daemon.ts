@@ -6,7 +6,7 @@ import { markUncertainInput, restoreInput, repeatInput } from "./queue-fixtures.
 import { authTerminalOutput } from "./auth-terminal-output.ts";
 import { FakeWorktreeCreations } from "./worktree-creation.ts";
 import { prepareFakeDelete, reconcileFakeTerminals, withExitFacts } from "./thread-lifecycle.ts";
-import { threadMoveError, threadMoveEvents } from "@ace/projection";
+import { queueWakesSnooze, threadMoveError, threadMoveEvents } from "@ace/projection";
 import { automaticTarget } from "@ace/accounts/availability";
 import { providerCommandDisabled } from "@ace/core";
 import { providerConfiguration } from "@ace/models/preferences";
@@ -601,6 +601,8 @@ export class FakeDaemon implements Host {
       host.queueDirty = false;
       host.queue.revision++;
       host.queue.pendingCount = host.queued.length;
+      if (queueWakesSnooze(host.view.thread, host.queue, now))
+        follow.push({ type: "thread.client.updated", changes: { snoozedUntil: null } });
       follow.push({ type: "queue.updated", ...host.queue });
     }
     this.append(host, follow, now);

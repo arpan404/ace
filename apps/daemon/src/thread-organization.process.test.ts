@@ -10,6 +10,7 @@ import {
 } from "@ace/protocol";
 import { token, fixture } from "./socket-test-support.ts";
 import { ThreadOrganizer } from "./thread-organizer.ts";
+import { EngineRepository } from "./engine/repository.ts";
 let close: (() => Promise<void>) | undefined;
 afterEach(async () => {
   await close?.();
@@ -378,4 +379,18 @@ test("a thread waiting on the person settles by hand and stays settled; a runnin
     settledReason: "manual",
     queue: { paused: true, reason: "not_sent" },
   });
+});
+
+test("a queue hold wakes a snoozed thread only when it starts after the snooze", async () => {
+  const f = await setup();
+  const { queue } = new EngineRepository(f.store);
+  queue.ensure(f.thread.id);
+  await f.command({ type: "thread.snooze", threadId: f.thread.id, until: 9000 });
+  queue.set(f.thread.id, { paused: true, reason: "restart" }, 1000);
+  expect(f.store.getThread(f.thread.id)?.snoozedUntil).toBeUndefined();
+  await f.command({ type: "thread.snooze", threadId: f.thread.id, until: 9000 });
+  queue.set(f.thread.id, { paused: true, reason: "restart" }, 1000);
+  expect(f.store.getThread(f.thread.id)?.snoozedUntil).toBe(9000);
+  queue.set(f.thread.id, { paused: true, reason: "uncertain" }, 1000);
+  expect(f.store.getThread(f.thread.id)?.snoozedUntil).toBeUndefined();
 });

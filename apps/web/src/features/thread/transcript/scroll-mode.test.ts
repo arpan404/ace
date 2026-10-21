@@ -27,10 +27,10 @@ const wheel = (upward: boolean, at = 100, atEnd = false): ScrollEvent => ({
   detached: false,
   at,
 });
-const scrolled = (atEnd: boolean): ScrollEvent => ({
+const scrolled = (atEnd: boolean, upward = false): ScrollEvent => ({
   type: "scrolled",
   atEnd,
-  upward: false,
+  upward,
   detached: false,
   gliding: false,
 });
@@ -140,6 +140,24 @@ test("the row the reader sees stays held while older rows settle above it", () =
   expect(heldKey(run(following, jump).mode, above, seen)).toMatchObject({ key: "turn-3" });
   // Following holds nothing.
   expect(heldKey(following, above, seen)).toBeUndefined();
+});
+
+test("a small scroll up at the live end keeps following, so no Scroll to end shows", () => {
+  const nudge = wheel(true, 100, true);
+  expect(run(following, nudge, scrolled(true, true)).mode.kind).toBe("following");
+  expect(run(following, nudge, scrolled(false, true)).mode.kind).toBe("free");
+});
+
+test("new content does not pull back a reader still scrolling up from the live end", () => {
+  const nudged = run(following, wheel(true, 100, true), scrolled(true, true)).mode;
+  expect(correction(nudged, undefined, undefined, 200)).toEqual({ kind: "none" });
+  const still = run(nudged, wheel(true, 350, true)).mode;
+  expect(correction(still, undefined, undefined, 600)).toEqual({ kind: "none" });
+  // They stopped short of leaving: the next content keeps the end in view again.
+  expect(correction(still, undefined, undefined, 1_000)).toEqual({ kind: "end" });
+  expect(correction(run(nudged, wheel(false, 150, true)).mode, undefined, undefined, 200)).toEqual({
+    kind: "end",
+  });
 });
 
 test("following stays at the end through growth and resizes", () => {

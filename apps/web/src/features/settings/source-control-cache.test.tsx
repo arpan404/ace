@@ -191,3 +191,66 @@ test("switching the expected GitHub account re-reads the PR panel instead of sho
     await client.close();
   }
 });
+
+test("a kept PR read survives a reconnect with unchanged preferences, and is dropped when preferences change", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  const titled = (title: string) =>
+    daemon.workspace.setForgeRead(forgeRead, {
+      resource: "prDetail",
+      value: { ...detail, status: { ...detail.status, title } },
+    });
+  titled("Kept");
+  const client = fakeClient(daemon);
+  await client.start();
+  await waitFor(() => expect(client.state).toBe("ready"));
+  const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const storage = memoryKeyValue();
+  const router = createRouter({
+    routeTree: createRootRoute({
+      component: () => (
+        <AppFrame environment={{ storage, root: document.documentElement }}>
+          <QueryClientProvider client={queries}>
+            <ClientProvider client={client}>
+              <Watch client={client} />
+              <ForgeTitle />
+            </ClientProvider>
+          </QueryClientProvider>
+        </AppFrame>
+      ),
+    }),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
+  const view = render(<RouterProvider router={router} />);
+  try {
+    await screen.findByText("Kept");
+    const held = daemon.workspace.holdForgeRead(forgeRead);
+    daemon.refuseConnections(true);
+    act(() => daemon.disconnectAll());
+    await waitFor(() => expect(client.state).not.toBe("ready"));
+    daemon.refuseConnections(false);
+    act(() => client.reconnectNow());
+    await waitFor(() => expect(client.state).toBe("ready"));
+    await waitFor(() => expect(daemon.workspace.forgeReadCount(forgeRead)).toBeGreaterThan(1));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(screen.getByText("Kept")).toBeTruthy();
+    expect(screen.queryByText("Reading PR panel")).toBeNull();
+    held();
+    const changing = daemon.workspace.holdForgeRead(forgeRead);
+    act(() => {
+      titled("New");
+      daemon.services.settings.write("sourceControl.preferences", {
+        hosts: [{ host: "github.com", account: "other" }],
+        host: "github.com",
+        remote: "origin",
+      });
+    });
+    await screen.findByText("Reading PR panel");
+    changing();
+    await screen.findByText("New");
+    expect(screen.queryByText("Kept")).toBeNull();
+  } finally {
+    view.unmount();
+    queries.clear();
+    await client.close();
+  }
+});
