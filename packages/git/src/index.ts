@@ -312,7 +312,7 @@ export class GitService {
     return takeSide(this.repository, options);
   }
   /** Commit the merge in progress with what is staged; the person's commit (hooks, signing). */
-  commitMerge(options: { worktree: string; expectedHead: string; message: string }) {
+  commitMerge(options: { worktree: string; expectedHead: string }) {
     return commitMerge(this.repository, options);
   }
   switchBranch(options: {

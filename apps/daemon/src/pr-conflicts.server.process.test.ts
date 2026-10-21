@@ -65,11 +65,7 @@ test("a PR task merges its fetched base, resolves the conflict by hand and commi
         revision: file.content.revision,
       }),
     ).toMatchObject({ ok: true, code: "conflict_resolved" });
-    const result = await step({
-      action: "commit",
-      expectedHead: d.head,
-      message: "Merge branch 'main' into feat/fix",
-    });
+    const result = await step({ action: "commit", expectedHead: d.head });
     expect(result).toMatchObject({ ok: true });
     const commit = result.type === "commandResult" ? (result.commit ?? "") : "";
     expect(await run(path, "rev-parse", "HEAD", `${commit}^1`, `${commit}^2`)).toBe(

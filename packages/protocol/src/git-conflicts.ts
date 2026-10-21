@@ -102,17 +102,8 @@ export const GitConflictStep = z.discriminatedUnion("action", [
   }),
   /** Take one side's whole file (deleting it when that side deleted it), and stage it. */
   z.object({ action: z.literal("take"), path: repoPath, side: z.enum(["ours", "theirs"]) }),
-  /** Commit the merge with what is staged, once no path is unmerged. */
-  z.object({
-    action: z.literal("commit"),
-    expectedHead: commit,
-    message: z
-      .string()
-      .min(1)
-      .max(65_536)
-      .refine((value) => value.trim().length > 0)
-      .meta({ "x-ace-constraint": "Must contain a non-whitespace commit message." }),
-  }),
+  /** Commit the merge with what is staged and the message Git prepared, once nothing is unmerged. */
+  z.object({ action: z.literal("commit"), expectedHead: commit }),
 ]);
 export type GitConflictStep = z.infer<typeof GitConflictStep>;
 export const GitConflictsCommand = z.object({

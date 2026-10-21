@@ -82,9 +82,9 @@ test("merging a diverged base lists each conflicted file with its ours, base and
 test("resolving every hunk by hand stages the file, and the merge commits with both parents", async () => {
   const { root, base, head, start } = await diverged();
   await start();
-  await expect(
-    service.commitMerge({ worktree: root, expectedHead: head, message: "Merge main into pr" }),
-  ).rejects.toMatchObject({ code: "conflicts" });
+  await expect(service.commitMerge({ worktree: root, expectedHead: head })).rejects.toMatchObject({
+    code: "conflicts",
+  });
   const shared = file((await service.conflicts(root)).files, "shared.txt");
   await expect(
     service.writeResolution({
@@ -106,12 +106,10 @@ test("resolving every hunk by hand stages the file, and the merge commits with b
   await service.takeSide({ worktree: root, path: "removed.txt", side: "ours" });
   const resolved = await service.conflicts(root);
   expect(resolved).toMatchObject({ merging: true, files: [] });
-  const merge = await service.commitMerge({
-    worktree: root,
-    expectedHead: head,
-    message: "Merge main into pr",
-  });
+  const merge = await service.commitMerge({ worktree: root, expectedHead: head });
   expect(await scalar(root, "rev-parse", `${merge}^1`, `${merge}^2`)).toBe(`${head}\n${base}`);
+  // The message the merge started with, without Git's "# Conflicts:" notes.
+  expect(await scalar(root, "log", "-1", "--format=%B", merge)).toBe("Merge main into pr\n");
   expect(await scalar(root, "show", `${merge}:shared.txt`)).toBe("one\nPR two and main two\nthree");
   expect(await git(root, "show", `${merge}:image.bin`)).toEqual(Buffer.from([0, 7, 7]));
   await expect(access(join(root, "removed.txt"))).rejects.toThrow();

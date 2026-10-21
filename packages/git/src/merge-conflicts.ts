@@ -178,15 +178,14 @@ export async function takeSide(
 }
 
 /**
- * Commit the merge in progress with exactly what is staged. Unstaged edits made meanwhile
+ * Commit the merge in progress with exactly what is staged and the message `startMerge` gave. Unstaged edits made meanwhile
  * stay where they are; nothing new is added. Returns the merge commit.
  */
 export async function commitMerge(
   repository: Repository,
-  options: { worktree: string; expectedHead: string; message: string },
+  options: { worktree: string; expectedHead: string },
 ): Promise<string> {
   const expected = commit.parse(options.expectedHead);
-  const text = message.parse(options.message);
   // ace's own reads keep the checkout's protections; only `commit` is the person's.
   const read = <T>(operation: () => Promise<T>) => repository.cli.bookkeeping(operation);
   const root = await read(() => repository.root(options.worktree));
@@ -197,10 +196,10 @@ export async function commitMerge(
       throw new GitError("invalid_argument", "No merge is in progress");
     if (status.conflicted.length)
       throw new GitError("conflicts", "Resolve every conflicted file first");
-    await repository.cli.call(root, ["commit", "--file=-"], {
+    // The message the merge prepared, without the `# Conflicts:` notes Git appends to it.
+    await repository.cli.call(root, ["commit", "--no-edit", "--cleanup=strip"], {
       write: true,
       timeoutMs: longWriteTimeoutMs,
-      input: text,
       captureBytes: 65_536,
       env: { GIT_TRACE2_EVENT: "1" },
     });

@@ -117,7 +117,7 @@ export async function runPrConflictStep(
   else {
     // The person's merge commit: their signing, but no hook that lives inside the PR's code.
     const commit = await git.asReviewer(() =>
-      git.commitMerge({ worktree: cwd, expectedHead: step.expectedHead, message: step.message }),
+      git.commitMerge({ worktree: cwd, expectedHead: step.expectedHead }),
     );
     return { ok: true, commit };
   }
