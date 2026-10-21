@@ -13,7 +13,7 @@ export type ChromiumArtifact = z.infer<typeof ChromiumArtifact>;
 const version = "153.0.8010.12";
 const artifacts = {
   linux64: ["jZzsnTCZ7NfoJuQp7GY8qQ==", "1787696957613313", "chrome-linux64/chrome"],
-  // Published by Chrome for Testing from 153.0.8001.0; 195926016 bytes (ADR 0091).
+  // Published by Chrome for Testing from 153.0.8001.0; 195926016 bytes (ADR 0093).
   "linux-arm64": ["cvNEHdP94czbLvLdzI1d4A==", "1787694950497100", "chrome-linux-arm64/chrome"],
   "mac-arm64": [
     "tqjGccJBGrRav/OCALeFXA==",

@@ -22,7 +22,7 @@ const Environment = z.object({
   ACE_HOME: z.string().optional(),
   /** A Chromium for ace's headless browser instead of its pinned Chrome for Testing. */
   ACE_CHROMIUM_PATH: z.string().min(1).optional(),
-  /** "1" runs ace's Chrome without its sandbox: the person's explicit choice (ADR 0091). */
+  /** "1" runs ace's Chrome without its sandbox: the person's explicit choice (ADR 0093). */
   ACE_CHROMIUM_NO_SANDBOX: z.enum(["0", "1"]).optional(),
   ACE_ATTACHMENT_FILE_BYTES: z.coerce
     .number()
