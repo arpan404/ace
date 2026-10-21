@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeReactionSummary.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "groups": {
+      "items": {
+        "properties": {
+          "content": {
+            "$ref": "https://ace.local/protocol/v1/ForgeReactionContent.json"
+          },
+          "count": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "viewer": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "content",
+          "count",
+          "viewer"
+        ],
+        "type": "object"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "subject": {
+      "$ref": "https://ace.local/protocol/v1/ForgeReactionSubject.json"
+    }
+  },
+  "required": [
+    "subject",
+    "groups"
+  ],
+  "type": "object"
+}

@@ -15,9 +15,11 @@ import { PrChecksPill } from "./pr-presentation.tsx";
 import { PrFiles, preloadPrFiles } from "./pr-files.tsx";
 import { whenIdle } from "@/lib/idle.ts";
 import { useFreshSinceReconnect } from "./query-state.tsx";
-import { readForge } from "./source.ts";
+import { keptForgeMs } from "@/lib/query-persistence.ts";
+import { prDetailKey, prDetailStaleMs, readPrDetail } from "@/lib/forge-pr-detail.ts";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrReviewWorkspace, usePrReview } from "./pr-review-context.tsx";
+import { PrSuggestionBatch } from "./pr-suggestions.tsx";
 import { usePrActions } from "./pr-actions.ts";
 import { PrOverflowMenu } from "./pr-overflow-menu.tsx";
 import { PrDialogs, type PrDialog } from "./pr-dialogs.tsx";
@@ -121,12 +123,13 @@ function PrDetailLoaded(props: {
 }) {
   const { context } = props;
   const { detail } = context;
+  const [dialog, setDialog] = useState<PrDialog>();
   const actions = usePrActions({
     context,
     extensions: props.extensions,
     hostThreadId: props.hostThreadId,
+    openConflicts: () => setDialog("conflicts"),
   });
-  const [dialog, setDialog] = useState<PrDialog>();
   const [behindOpen, setBehindOpen] = useState(false);
   const [revealChecks, setRevealChecks] = useState(0);
   const [codeFocus, setCodeFocus] = useState<{ path: string; seq: number }>();
@@ -180,14 +183,14 @@ function PrDetailLoaded(props: {
         ?.writeText(
           `gh pr checkout ${status.ref.number} --repo ${repository.host}/${repository.owner}/${repository.name}`,
         )
-        .then(() => toast.add({ title: "Checkout command copied" }));
+        .catch(() => toast.error({ title: "Couldn't copy the checkout command" }));
     } else
       event.currentTarget
         .querySelector<HTMLButtonElement>("[data-pr-primary]:not(:disabled)")
         ?.click();
   };
   const editable = !!actions.lifecycle.snapshot?.editableFields.length;
-  const canRequestReview = detail.status.state === "open" && actions.threadId !== undefined;
+  const canRequestReview = detail.status.state === "open";
   return (
     // Shortcuts work anywhere in the panel; `contents` keeps the layout the article's.
     <div role="presentation" className="contents" onKeyDown={onKeyDown}>
@@ -232,6 +235,7 @@ function PrDetailLoaded(props: {
               </p>
             )}
             <PrWriteStatus actions={actions} refreshing={props.refreshing} />
+            <PrSuggestionBatch />
           </>
         }
       >
@@ -301,7 +305,12 @@ function PrDetailLoaded(props: {
           }}
         />
         <PrComposer context={context} extensions={props.extensions} />
-        <PrDialogs actions={actions} open={dialog} onClose={() => setDialog(undefined)} />
+        <PrDialogs
+          actions={actions}
+          hostThreadId={props.hostThreadId}
+          open={dialog}
+          onClose={() => setDialog(undefined)}
+        />
       </PrReviewWorkspace>
     </div>
   );
@@ -326,30 +335,29 @@ export function PrDetail(props: {
   const [refreshing, setRefreshing] = useState(false);
   const ready = useConnectionState() === "ready";
   const cache = useQueryClient();
+  const queryKey = prDetailKey(props.workspaceId, props.repository, props.number);
   const query = useDaemonQuery<ForgePrDetail>({
-    queryKey: ["forge", props.workspaceId, props.repository, "pr", props.number],
+    queryKey,
     retry: false,
-    staleTime: 15_000,
+    staleTime: prDetailStaleMs,
+    // Kept in memory, and so between sessions, for a while after the panel closes: opening the
+    // PR again paints what was last read and reads it again behind it.
+    gcTime: keptForgeMs,
     refetchOnReconnect: "always",
     // Re-read while GitHub is still deciding: running checks or mergeability not computed yet.
     // The thread's work card polls on the same rule, so both views agree.
     refetchInterval: (q) => prPollInterval(q.state.data?.status),
-    read: async (client, signal) => {
-      const result = await readForge(
+    read: (client, signal) =>
+      readPrDetail(
         client,
-        {
-          op: "forge.pr.detail",
-          workspaceId: props.workspaceId,
-          repository: props.repository,
-          number: props.number,
-        },
+        { workspaceId: props.workspaceId, repository: props.repository, number: props.number },
         signal,
-      );
-      if (result.resource !== "prDetail") throw new Error("No pull request detail.");
-      return result.value;
-    },
+      ),
   });
   const detail = query.data;
+  // What an earlier session kept is shown at once but is not current: writes wait for the
+  // read behind it. (`isStale` is read so this view re-renders when that read lands.)
+  const unconfirmed = query.isStale && cache.getQueryState(queryKey)?.isInvalidated === true;
   const onState = props.onState;
   useEffect(() => {
     if (detail) onState?.(detail.status.state);
@@ -378,7 +386,8 @@ export function PrDetail(props: {
     ? {
         workspaceId: props.workspaceId,
         detail,
-        disabled: !fresh || query.isError || refreshing || detail.writeState !== undefined,
+        disabled:
+          !fresh || unconfirmed || query.isError || refreshing || detail.writeState !== undefined,
         refresh,
       }
     : undefined;

@@ -163,6 +163,8 @@ export type Fact =
       item?: Key;
       childAgent?: Key;
       ambient?: boolean;
+      /** ace's own bookkeeping: holds the thread open, never listed by clients. */
+      internal?: true;
       stoppable: boolean;
       outputPath?: string;
       raw?: RawPayload[];

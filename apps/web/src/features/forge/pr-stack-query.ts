@@ -1,6 +1,7 @@
 import { ThreadId, type ForgePrRef } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { readForge } from "./source.ts";
+import { keptForgeMs } from "@/lib/query-persistence.ts";
+import { readForge } from "@/lib/forge-read.ts";
 
 /**
  * The native stack a PR belongs to, as GitHub and the task's checkout see it. The Summary's
@@ -11,6 +12,7 @@ export function usePrStackQuery(props: { workspaceId: string; pr: ForgePrRef; th
   return useDaemonQuery({
     queryKey: ["forge", props.workspaceId, ref, "stack", props.threadId],
     retry: false,
+    gcTime: keptForgeMs,
     staleTime: 0,
     refetchOnReconnect: "always",
     refetchInterval: 15_000,

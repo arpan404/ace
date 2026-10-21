@@ -16,7 +16,7 @@ import { PageSignIn } from "./page-sign-in.tsx";
 import { PageFileChooser } from "./page-file-chooser.tsx";
 import { useBrowserFeatures } from "./use-browser-features.ts";
 import { BrowserActions } from "./browser-actions.tsx";
-import { SpeakerButton } from "./speaker-button.tsx";
+import { SoundMark } from "./sound-mark.tsx";
 import { DownloadsButton } from "./downloads.tsx";
 import { ExtensionsMenu, extensionsHidden } from "./extensions-menu.tsx";
 import { PageNav, PageToolbar, ToolPill } from "./page-toolbar.tsx";
@@ -146,7 +146,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   // Out from under a menu, the page is drawn from the live video (once a newer picture
   // replaces the still taken as the menu opened), so it keeps moving while the menu shows.
   const still = useCoverStill(native.frozen, page.frame);
-  // Picture-in-picture lays the page out at the size it had here.
+  // Picture-in-picture takes the shape the page had here.
   useEffect(() => {
     const element = pageArea.current;
     if (!element || typeof ResizeObserver === "undefined") return;
@@ -351,6 +351,13 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
                     </span>
                   </Tip>
                 )}
+                <SoundMark
+                  tab={shown}
+                  source={source}
+                  threadId={threadId}
+                  video={page.frame !== undefined}
+                  muteTab={(tabId, muted) => void browser.muteTab(tabId, muted)}
+                />
               </>
             }
           />
@@ -359,7 +366,6 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
           <>
             <RecordingIndicator source={source} threadId={threadId} view={live} />
             {watch.watching !== undefined && <WatchButton {...watch} />}
-            <SpeakerButton source={source} threadId={threadId} frame={page.frame} />
             <ToolPill>
               {!extensionsOff && (
                 <ExtensionsMenu

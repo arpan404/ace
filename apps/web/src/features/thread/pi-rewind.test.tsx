@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -59,14 +59,14 @@ test("Pi rewind asks for confirmation, leaves files unchanged and keeps later co
   const dialog = await screen.findByRole("dialog", { name: "Rewind to here?" });
   expect(within(dialog).getByText(/Files are not reverted/)).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-  expect(screen.queryByText("Conversation rewound")).toBeNull();
   await userEvent.click(rewind);
   await userEvent.click(
     within(await screen.findByRole("dialog", { name: "Rewind to here?" })).getByRole("button", {
       name: "Rewind",
     }),
   );
-  expect(await screen.findByText("Conversation rewound")).toBeTruthy();
+  // The dialog closes only once the rewind landed; a refusal stays in it.
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Rewind to here?" })).toBeNull());
   expect(screen.getByText("The first approach is ready.")).toBeTruthy();
   expect(screen.getByText("The later approach is still visible.")).toBeTruthy();
 });

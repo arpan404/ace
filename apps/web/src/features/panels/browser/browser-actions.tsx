@@ -252,10 +252,9 @@ export function BrowserActions(props: {
           disabled={!shownUrl}
           onClick={() =>
             shownUrl &&
-            void navigator.clipboard?.writeText(shownUrl).then(
-              () => toast.add({ title: "Address copied" }),
-              () => toast.error({ title: "Couldn't copy the address" }),
-            )
+            void navigator.clipboard
+              ?.writeText(shownUrl)
+              .catch(() => toast.error({ title: "Couldn't copy the address" }))
           }
         >
           Copy address

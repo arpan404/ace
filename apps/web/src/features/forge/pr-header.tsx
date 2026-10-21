@@ -20,6 +20,7 @@ import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import type { PrWorkspaceExtensions } from "./pr-extensions.ts";
 import type { PrActions } from "./pr-actions.ts";
 import { PrPrimaryButton } from "./pr-primary-button.tsx";
+import { PrMergeLines } from "./pr-merge-lines.tsx";
 import { PrAgentChip } from "./pr-agent-chip.tsx";
 
 /** The title, editable in place where GitHub lets this account change it. */
@@ -166,7 +167,9 @@ export function PrHeader(props: {
   const repository = status.ref.repository;
   const checkout = `gh pr checkout ${status.ref.number} --repo ${repository.host}/${repository.owner}/${repository.name}`;
   const toast = useToast();
-  const { copied, copy } = useCopy();
+  const { copied, copy } = useCopy(() =>
+    toast.error({ title: "Couldn't copy the checkout command" }),
+  );
   const openUrl = (url: string) =>
     void openExternal(url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
   const working = actions.writes.pending || actions.mergeState.pending || actions.lifecycle.pending;
@@ -273,6 +276,7 @@ export function PrHeader(props: {
             </div>
           </div>
           {props.gates}
+          <PrMergeLines actions={actions} />
         </div>
       </div>
       {props.condensed && (

@@ -1,6 +1,6 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
+import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 
 /** How far below the viewport the next page starts loading. */
 const ahead = "800px 0px";
@@ -52,10 +52,9 @@ export function PrMoreFiles(props: {
           </Button>
         </div>
       ) : (
-        <>
-          <Spinner />
-          <span role="status">Loading more files…</span>
-        </>
+        <LoadingRegion label="more files" className="w-full">
+          <Skeleton className="h-8 rounded-md" />
+        </LoadingRegion>
       )}
     </div>
   );

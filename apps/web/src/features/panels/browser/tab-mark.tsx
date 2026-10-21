@@ -19,7 +19,7 @@ import { daemonTabId } from "./browser-data.ts";
 import { loadingKey, loadingTabs } from "./loading.ts";
 
 /** The daemon's tab behind a panel tab, re-read whenever the thread's browser changes. */
-function useDaemonTab(
+export function useDaemonTab(
   source: PreviewSource | undefined,
   threadId: string,
   tabId: string | undefined,

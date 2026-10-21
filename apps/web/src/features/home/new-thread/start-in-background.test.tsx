@@ -1,5 +1,5 @@
 import { workbench } from "@ace/fake-daemon";
-import { cleanup, configure, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -28,7 +28,7 @@ async function write(text: string) {
   );
 }
 
-test("Ctrl+Enter starts the thread and stays on New thread, and the toast's Open shows it", async () => {
+test("Ctrl+Enter starts the thread and stays on New thread, and its row in the list opens it", async () => {
   const made = app();
   await made.open("/new?project=relay");
   await write("Rotate the relay's signing keys");
@@ -39,8 +39,10 @@ test("Ctrl+Enter starts the thread and stays on New thread, and the toast's Open
   expect(screen.getByRole("heading", { level: 1, name: "New thread" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe("");
 
-  await screen.findByText("Thread started");
-  await userEvent.click(screen.getByRole("button", { name: "Open" }));
+  const threads = within(screen.getByRole("navigation", { name: "Threads" }));
+  await userEvent.click(
+    await threads.findByRole("link", { name: /Rotate the relay's signing keys/ }),
+  );
   await screen.findByRole("heading", { level: 1, name: "Rotate the relay's signing keys" });
 }, 30_000);
 

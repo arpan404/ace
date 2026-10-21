@@ -59,7 +59,7 @@ export function AdvancedSettings() {
 
 /**
  * Reset all: the dialog stays open while it runs ("Resetting…"); a failure shows inside it,
- * success closes it with a toast.
+ * success closes it.
  */
 function ResetAll() {
   const backend = useSettingsBackend();
@@ -74,7 +74,6 @@ function ResetAll() {
     try {
       await backend.reset();
       setOpen(false);
-      toast.add({ title: "Settings reset" });
     } catch {
       const message = "This machine couldn't save the reset. Try again.";
       setError(message);

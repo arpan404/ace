@@ -10,7 +10,7 @@ beforeEach(() => localStorage.clear());
 
 /*
  * The thread composer from the keyboard: the primary slot switches from Stop to a follow-up action, ↑
- * recalls the last message, ⌘Z / ⇧⌘Z walk the composer's own history, and the suggestion list
+ * and ↓ walk the sent messages, ⌘Z / ⇧⌘Z walk the composer's own history, and the suggestion list
  * follows the arrows, Home, End and the pointer.
  */
 
@@ -47,6 +47,34 @@ test("↑ in an empty idle composer brings back the last message sent, and ⌘Z 
   await waitFor(() => expect(message.textContent).toBe(""));
   await userEvent.keyboard("{Meta>}{Shift>}z{/Shift}{/Meta}");
   await waitFor(() => expect(message.textContent).toBe("Question 2: what does route 2 render?"));
+});
+
+test("↑ walks back through every sent message and ↓ walks forward to an empty composer", async () => {
+  const { message } = await open("idle");
+  const latest = "Question 2: what does route 2 render?";
+  const earlier = "Question 1: what does route 1 render?";
+  await userEvent.click(message);
+  await userEvent.keyboard("{ArrowUp}");
+  await waitFor(() => expect(message.textContent).toBe(latest));
+  await userEvent.keyboard("{ArrowUp}");
+  await waitFor(() => expect(message.textContent).toBe(earlier));
+  // Past the oldest, ↑ keeps it.
+  await userEvent.keyboard("{ArrowUp}");
+  expect(message.textContent).toBe(earlier);
+  await userEvent.keyboard("{ArrowDown}");
+  await waitFor(() => expect(message.textContent).toBe(latest));
+  await userEvent.keyboard("{ArrowDown}");
+  await waitFor(() => expect(message.textContent).toBe(""));
+});
+
+test("once a recalled message is edited, ↑ no longer replaces it", async () => {
+  const { message } = await open("idle");
+  await userEvent.click(message);
+  await userEvent.keyboard("{ArrowUp}");
+  await waitFor(() => expect(message.textContent).toBe("Question 2: what does route 2 render?"));
+  await userEvent.type(message, " Also 3");
+  await userEvent.keyboard("{ArrowUp}");
+  expect(message.textContent).toBe("Question 2: what does route 2 render? Also 3");
 });
 
 test("↑ recalls nothing while the agent works or once something is typed", async () => {

@@ -104,6 +104,22 @@ test("a click in the tree previews a file in place; a kept tab stays", async () 
   expect(names).not.toContain("outbox.ts");
 });
 
+test("a file the pointer rests on in the tree shows at once when clicked", async () => {
+  await openThread();
+  await quickOpen("replay.ts");
+  await userEvent.keyboard("{Enter}");
+  const side = await panel();
+  await within(side).findByRole("region", { name: /^Source of .*replay\.ts$/ });
+  const tree = within(side).getByRole("tree", { name: "Checkout files" });
+  const row = within(tree).getByRole("treeitem", { name: "outbox.ts" });
+  await userEvent.hover(row);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  fireEvent.click(row);
+  // No loading state in between: the source is there in the same render as the click.
+  expect(within(side).queryByRole("status", { name: "Loading the file" })).toBeNull();
+  expect(within(side).getByRole("region", { name: /^Source of .*outbox\.ts$/ })).toBeTruthy();
+});
+
 test("the tree's filter says when nothing in the checkout matches", async () => {
   await openThread();
   await quickOpen("replay.ts");

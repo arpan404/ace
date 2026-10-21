@@ -92,7 +92,6 @@ test("historical diffs bind annotations, line drafts and viewed marks to the dis
       workspaceId,
       repository,
       number: 7,
-      page: 1,
       headSha: detail.status.headSha,
     },
     {

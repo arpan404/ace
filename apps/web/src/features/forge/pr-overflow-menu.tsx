@@ -97,11 +97,12 @@ export function PrOverflowMenu(props: {
         : undefined;
   const apply = (kind: "ready" | "draft" | "reopen" | "update.merge" | "update.rebase") =>
     void lifecycle.apply({ kind });
-  const copy = (text: string, title: string) =>
-    void navigator.clipboard?.writeText(text).then(
-      () => toast.add({ title }),
-      () => toast.error({ title: "Couldn't copy", description: "Clipboard access is blocked." }),
-    );
+  const copy = (text: string) =>
+    void navigator.clipboard
+      ?.writeText(text)
+      .catch(() =>
+        toast.error({ title: "Couldn't copy", description: "Clipboard access is blocked." }),
+      );
   const openOnGitHub = (url: string) =>
     void openExternal(url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
   const lifecycleItem = (
@@ -226,7 +227,7 @@ export function PrOverflowMenu(props: {
               </MenuSub>
             )
           )}
-          {status.state === "open" && actions.threadId && (
+          {status.state === "open" && (
             <MenuItem
               icon={icon(UserPlusIcon)}
               disabled={writes.fenced || context.disabled}
@@ -325,19 +326,15 @@ export function PrOverflowMenu(props: {
             onClick={() =>
               copy(
                 `gh pr checkout ${status.ref.number} --repo ${status.ref.repository.host}/${status.ref.repository.owner}/${status.ref.repository.name}`,
-                "Checkout command copied",
               )
             }
           >
             Copy checkout command
           </MenuItem>
-          <MenuItem icon={icon(CopyIcon)} onClick={() => copy(status.url, "Link copied")}>
+          <MenuItem icon={icon(CopyIcon)} onClick={() => copy(status.url)}>
             Copy link
           </MenuItem>
-          <MenuItem
-            icon={icon(HashIcon)}
-            onClick={() => copy(`#${status.ref.number}`, "Number copied")}
-          >
+          <MenuItem icon={icon(HashIcon)} onClick={() => copy(`#${status.ref.number}`)}>
             Copy number
           </MenuItem>
           {lifecycle.revertPrs.map((ref) => (

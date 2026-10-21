@@ -949,7 +949,7 @@ export class EmbeddedPage implements ViewPage {
     if (this.closing || this.contents.isDestroyed()) return;
     if (this.placementPending) {
       // A view already on screen stays there while its new box's metrics apply (a panel
-      // resizing, the page moving into picture-in-picture): hiding it meanwhile would flash.
+      // resizing): hiding it meanwhile would flash.
       if (!(this.placed && this.presence === "placed")) this.show("hidden");
       return;
     }

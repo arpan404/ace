@@ -201,9 +201,6 @@ test("Run now starts a run on the daemon and lists it as running", async () => {
 
   const runs = within(screen.getByRole("list", { name: "Recent runs" }));
   expect(await runs.findByText("Running…")).toBeTruthy();
-  // The toast view loads on the first toast, so its region comes a moment after.
-  const toasts = within(await screen.findByRole("region", { name: "Notifications" }));
-  expect(await toasts.findByText("Started · Nightly dependency audit")).toBeTruthy();
 });
 
 test("Run now is off, and says why, while automations are off on this machine", async () => {
@@ -403,7 +400,7 @@ test("leaving the editor with unsaved changes asks first", async () => {
   await heading("Flaky test triage");
 });
 
-test("saving an edit isn't possible until something changed, and says it saved", async () => {
+test("saving an edit isn't possible until something changed, then shows the saved automation", async () => {
   await open("/automations/auto-flaky-triage/edit");
   await heading("Edit automation");
   const save = screen.getByRole("button", { name: "Save changes" });
@@ -411,8 +408,6 @@ test("saving an edit isn't possible until something changed, and says it saved",
   await userEvent.type(field("Name"), "!");
   await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await heading("Flaky test triage!");
-  const toasts = within(screen.getByRole("region", { name: "Notifications" }));
-  expect(await toasts.findByText("Saved · Flaky test triage!")).toBeTruthy();
 });
 
 test("editing an automation's schedule changes how it reads everywhere", async () => {

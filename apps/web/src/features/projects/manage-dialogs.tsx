@@ -10,7 +10,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { Footer, Problem } from "./form-parts.tsx";
 import { projectFailure, useProjectCommands } from "./project-commands.ts";
@@ -54,7 +53,6 @@ export function RemoveProjectDialog(props: {
   const project = useProject(props.projectId);
   const home = useHostHome(usePrimaryMachine()).data;
   const commands = useProjectCommands();
-  const toast = useToast();
   const running = useRunningThreads(props.projectId);
   const [busy, setBusy] = useState(false);
   const [refusedRunning, setRefusedRunning] = useState(false);
@@ -75,10 +73,6 @@ export function RemoveProjectDialog(props: {
     try {
       await commands.remove(project.id, archiveThreads);
       if (!current.current) return;
-      toast.add({
-        title: `Removed ${project.name}`,
-        description: "Its folder is still on disk. Add it again any time.",
-      });
       props.onOpenChange(false);
     } catch (error) {
       if (!current.current) return;

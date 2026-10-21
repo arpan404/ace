@@ -3,7 +3,7 @@ import { BrowserPr } from "./github-browser-schemas.ts";
 import { GitHubLifecycle } from "./github-lifecycle.ts";
 import type { WriteDispatch } from "./write-dispatch.ts";
 import { GitHubIssues } from "./github-issues.ts";
-import type { ForgeIssueSearch, ForgeIssueWrite } from "@ace/protocol/forge-issues";
+import { ForgeIssueSearch, type ForgeIssueWrite } from "@ace/protocol/forge-issues";
 import { GitHubMergeState } from "./github-merge-state.ts";
 import { sameStack } from "./stack-plan.ts";
 import { GitHubStacks } from "./github-stacks.ts";
@@ -11,8 +11,12 @@ import { LocalStacks } from "./local-stacks.ts";
 import type { StackPublisher } from "./stack-publish.ts";
 import { ForgeStackExpected } from "@ace/protocol/forge-stacks";
 import { GitHubReviews } from "./github-reviews.ts";
+import { GitHubChecks } from "./github-checks.ts";
 import { GitHubBrowser } from "./github-browser.ts";
-import type { ForgePrSearch } from "@ace/protocol/forge-browser";
+import { GitHubFileContent } from "./github-file-content.ts";
+import { ForgePrSearch } from "@ace/protocol/forge-browser";
+import { ForgeListCaches } from "./list-cache.ts";
+import { githubOpenWork } from "./github-open-work.ts";
 import { ForgeMutationOutcome, MutationDispatch, uncertainWriteExpired } from "./mutation.ts";
 import { githubRepositoryMetadata } from "./github-repository.ts";
 import { replyIntent, replyCutoff, reconcileReply, type ReplyReceipts } from "./reply-receipts.ts";
@@ -39,17 +43,21 @@ export class GitHubForge implements Forge, ForgeBrowser {
   readonly repository: ForgeRepository;
   readonly lifecycle: GitHubLifecycle;
   readonly reviews: GitHubReviews;
+  /** Check runs opened in the PR panel, and their re-runs. */
+  readonly checks: GitHubChecks;
   readonly #api: GhApi;
   readonly revisions = new StatusRevisions();
   readonly #status = new GitHubStatusReader(this.revisions);
   readonly #root: string;
   readonly #browser: GitHubBrowser;
+  readonly #content: GitHubFileContent;
   readonly #issues: GitHubIssues;
   readonly #mergeState: GitHubMergeState;
   readonly #stacks: GitHubStacks;
   readonly #localStacks: LocalStacks;
   readonly #replyReceipts: ReplyReceipts | undefined;
   readonly #now: () => number;
+  readonly #lists: ForgeListCaches;
   constructor(options: {
     repository: ForgeRepository;
     runner: CommandRunner;
@@ -58,6 +66,8 @@ export class GitHubForge implements Forge, ForgeBrowser {
     replyReceipts?: ReplyReceipts;
     /** Publishes rebased stack layers with one atomic leased push in the task checkout. */
     publishStack?: StackPublisher;
+    /** Open PR and issue lists, shared with other backends for the same repository and identity. */
+    lists?: ForgeListCaches;
   }) {
     this.#replyReceipts = options.replyReceipts;
     this.#now = options.now;
@@ -65,17 +75,28 @@ export class GitHubForge implements Forge, ForgeBrowser {
     if (this.repository.forge !== "github" || this.repository.owner.includes("/"))
       throw new ForgeError("unsupported");
     this.#root = `repos/${this.repository.owner}/${this.repository.name}`;
-    this.#api = new GhApi({ ...options, host: this.repository.host });
+    const lists = options.lists ?? new ForgeListCaches(options.now);
+    this.#lists = lists;
+    this.#api = new GhApi({
+      ...options,
+      host: this.repository.host,
+      onWrite: () => lists.invalidate(),
+    });
     this.#mergeState = new GitHubMergeState(this.#api, this.repository);
     this.#stacks = new GitHubStacks(this.#api, this.repository);
     this.#localStacks = new LocalStacks(options.runner, options.command, options.publishStack);
     this.#browser = new GitHubBrowser(this.#api, this.repository);
+    this.#content = new GitHubFileContent(this.#api, this.#root);
     this.lifecycle = new GitHubLifecycle(this.#api, this.repository);
     this.reviews = new GitHubReviews(this.#api, (number) => this.#ref(number));
+    this.checks = new GitHubChecks(this.#api, this.repository);
     this.#issues = new GitHubIssues(this.#api, this.repository);
   }
   listIssues(query: ForgeIssueSearch, signal: AbortSignal) {
-    return this.#issues.list(query, signal);
+    const parsed = ForgeIssueSearch.parse(query);
+    return this.#lists.issues.read(JSON.stringify(parsed), signal, (shared) =>
+      this.#issues.list(parsed, shared),
+    );
   }
   issueDetail(number: number, signal: AbortSignal) {
     return this.#issues.detail(number, signal);
@@ -211,13 +232,22 @@ export class GitHubForge implements Forge, ForgeBrowser {
     return this.#browser.activity(number, page, signal);
   }
   listPrs(query: ForgePrSearch, signal: AbortSignal) {
-    return this.#browser.list(query, signal);
+    const parsed = ForgePrSearch.parse(query);
+    return this.#lists.prs.read(JSON.stringify(parsed), signal, (shared) =>
+      this.#browser.list(parsed, shared),
+    );
+  }
+  openWork(signal: AbortSignal) {
+    return this.#lists.openWork.read("open", signal, (shared) =>
+      githubOpenWork(this.#api, this.repository, shared),
+    );
   }
   async prDetail(number: number, signal: AbortSignal) {
-    return this.#browser.detail(await this.status(number, signal), signal);
+    this.#ref(number);
+    return this.#browser.detail(number, (scope) => this.status(number, scope), signal);
   }
-  prCommits(number: number, page: number, headSha: string, signal: AbortSignal) {
-    return this.#browser.commits(number, page, headSha, signal);
+  prCommits(number: number, before: string | undefined, headSha: string, signal: AbortSignal) {
+    return this.#browser.commits(number, before, headSha, signal);
   }
   prFiles(
     input: {
@@ -230,6 +260,9 @@ export class GitHubForge implements Forge, ForgeBrowser {
     signal: AbortSignal,
   ) {
     return this.#browser.files(input, signal);
+  }
+  fileContent(input: Parameters<GitHubFileContent["read"]>[0], signal: AbortSignal) {
+    return this.#content.read(input, signal);
   }
   async states(numbers: readonly number[], signal: AbortSignal) {
     return githubStates(this.#api, this.repository, numbers, signal);

@@ -87,13 +87,6 @@ export function SkillPage(props: { skillId: string }) {
   );
 }
 
-/** "engineering available to Claude Code and Codex", "… to every provider". */
-function availabilityToast(plugin: string, providers: readonly ProviderKind[]): string {
-  if (!providers.length) return `${plugin} hidden from every provider`;
-  const text = availabilityText(providers);
-  return `${plugin} available to ${text === "Every provider" ? "every provider" : text}`;
-}
-
 const sameProviders = (a: readonly ProviderKind[], b: readonly ProviderKind[]) =>
   a.length === b.length && a.every((provider) => b.includes(provider));
 
@@ -107,7 +100,8 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
   const ownSkill = skill.kind === "skill";
   const policy = ownSkill ? (skill.skillAvailability ?? skill) : plugin;
   const controlled = ownSkill ? skill : plugin;
-  const change = (next: { enabled?: boolean; providers?: readonly ProviderKind[] }, done: string) =>
+  /** The page shows the change; only a failure needs saying. */
+  const change = (next: { enabled?: boolean; providers?: readonly ProviderKind[] }) =>
     setAvailability.mutate(
       {
         plugin: plugin.plugin,
@@ -116,7 +110,6 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
         providers: next.providers ?? policy.providers,
       },
       {
-        onSuccess: () => toast.add({ title: done }),
         onError: () =>
           toast.error({
             title: `Couldn't change ${skillTitle(controlled)}`,
@@ -125,14 +118,11 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
       },
     );
   const setEnabled = (enabled: boolean) =>
-    change(
-      {
-        enabled,
-        // Enabling an empty allowlist restores provider choices.
-        ...(enabled && !policy.providers.length ? { providers: ProviderKind.options } : {}),
-      },
-      `${skillTitle(controlled)} ${enabled ? "turned on" : "turned off"}`,
-    );
+    change({
+      enabled,
+      // Enabling an empty allowlist restores provider choices.
+      ...(enabled && !policy.providers.length ? { providers: ProviderKind.options } : {}),
+    });
   return (
     <Screen
       title="Skills"
@@ -216,9 +206,7 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
               >
                 <AvailabilityMenu
                   providers={policy.providers}
-                  onCommit={(providers) =>
-                    change({ providers }, availabilityToast(skillTitle(controlled), providers))
-                  }
+                  onCommit={(providers) => change({ providers })}
                 />
               </SettingRow>
             )}

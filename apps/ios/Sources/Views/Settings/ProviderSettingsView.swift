@@ -1,6 +1,6 @@
 import SwiftUI
 
-private struct LoginReply: Decodable {
+struct LoginReply: Decodable {
     struct Result: Decodable {
         let ok: Bool
         let error: String?
@@ -8,7 +8,7 @@ private struct LoginReply: Decodable {
     }
     let result: Result
 }
-private struct LoginProgress: Decodable {
+struct LoginProgress: Decodable {
     struct Choice: Decodable, Identifiable { let id: String; let label: String }
     let session: String
     let state: String
@@ -41,10 +41,12 @@ struct ProviderSettingsView: View {
         .task { model.refreshMachine() }.refreshable { model.refreshMachine() }
     }
 }
-private struct ProviderSignInView: View {
+struct ProviderSignInView: View {
     let model: ClientModel
     let provider: String
     let name: String
+    var instance: String? = nil
+    var initial: LoginProgress? = nil
     @State private var progress: LoginProgress?
     @State private var problem: String?
     @State private var busy = false
@@ -52,6 +54,9 @@ private struct ProviderSignInView: View {
     var body: some View {
         Form {
             Section {
+                if instance == nil, ["claude", "codex", "opencode", "cursor", "pi"].contains(provider) {
+                    NavigationLink("Accounts") { ProviderAccountsView(model: model, provider: provider, name: name) }
+                }
                 Text("Sign in to the coding agent installed on your paired machine.")
                 Button("Sign in") { request(["type": "provider.login.start", "provider": provider]) }
                     .disabled(busy || progress.map { !$0.finished } == true || !model.canOperate)
@@ -83,6 +88,7 @@ private struct ProviderSignInView: View {
             ServiceProblem(message: problem)
         }
         .navigationTitle(name).navigationBarTitleDisplayMode(.inline)
+        .onAppear { if progress == nil { progress = initial } }
         .task(id: progress?.session) {
             while let current = progress, !current.finished, !Task.isCancelled {
                 do {
@@ -100,6 +106,8 @@ private struct ProviderSignInView: View {
         }
     }
     private func request(_ payload: [String: Any]) {
+        var payload = payload
+        if payload["type"] as? String == "provider.login.start", let instance { payload["instance"] = instance }
         busy = true; problem = nil
         Task {
             defer { busy = false }

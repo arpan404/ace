@@ -6,8 +6,14 @@ import Foundation
 final class BrowserStreamHub: @unchecked Sendable {
     private let lock = NSLock()
     private var sink: (@Sendable (BrowserVideoChunk) -> Void)?
+    private var screenSink: (@Sendable (DeviceFrameChunk) -> Void)?
+    private var deviceSink: (@Sendable (DeviceFrameChunk) -> Void)?
 
     func attach(_ sink: (@Sendable (BrowserVideoChunk) -> Void)?) { lock.withLock { self.sink = sink } }
+    func attachScreen(_ sink: (@Sendable (DeviceFrameChunk) -> Void)?) { lock.withLock { screenSink = sink } }
+    func deliverScreen(_ chunk: DeviceFrameChunk) { lock.withLock { screenSink }?(chunk) }
+    func attachDevice(_ sink: (@Sendable (DeviceFrameChunk) -> Void)?) { lock.withLock { deviceSink = sink } }
+    func deliver(_ chunk: DeviceFrameChunk) { lock.withLock { deviceSink }?(chunk) }
     /// Called on the delivering socket's queue.
     func deliver(_ chunk: BrowserVideoChunk) {
         let sink = lock.withLock { self.sink }
@@ -24,6 +30,7 @@ struct BinaryRouter {
         case stream(BrowserVideoChunk)
         /// A simulator's or emulator's picture (kind 4), on the devices channel.
         case device(DeviceFrameChunk)
+        case screen(DeviceFrameChunk)
         /// Not a stream piece: the SDK's own binary channel reads it.
         case sdk
         /// A malformed piece: the connection is dropped, as the SDK does.
@@ -35,6 +42,7 @@ struct BinaryRouter {
         guard StreamWire.isPiece(bytes) else { return .sdk }
         do {
             guard let envelope = try assembler.push(bytes) else { return .none }
+            if envelope.kind == StreamWire.Kind.screenFrame { return .screen(try DeviceFrameChunk.decodeScreen(envelope.meta, envelope.payload)) }
             if envelope.kind == StreamWire.Kind.deviceFrame { return .device(try DeviceFrameChunk.decode(envelope.meta, envelope.payload)) }
             guard let chunk = try BrowserVideoChunk.decode(envelope) else { return .none }
             return .stream(chunk)

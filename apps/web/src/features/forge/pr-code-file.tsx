@@ -1,20 +1,42 @@
+import type { RefObject } from "react";
+import { CodeIcon } from "@phosphor-icons/react";
 import type { ForgeFile } from "@ace/protocol";
 import type { FileDiff } from "@ace/ui-core";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { DeferredFileDiffBlock, type FileView } from "@/features/panels/index.ts";
 import type { PrDiffContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrFileReview } from "./pr-file-review.tsx";
 import { hostedFileStatus } from "./pr-code-model.ts";
 import type { DiffMode } from "./pr-code-toolbar.tsx";
+import { prFileBody } from "./pr-file-body.tsx";
+import type { HostedFileShow } from "./pr-file-kind.ts";
+import type { FileSides } from "./pr-file-sides.ts";
 import type { PrViewedMark } from "./pr-viewed-marks.ts";
 
 const FileDiffBlock = DeferredFileDiffBlock.Component;
 
+/** How a file whose patch GitHub withheld, or that reads better rendered, is read and shown. */
+export interface HostedFileRead {
+  show: HostedFileShow;
+  /** Markdown or a notebook: drawn rendered unless `source`. */
+  rendered: "markdown" | "notebook" | undefined;
+  source: boolean;
+  onSource(source: boolean): void;
+  /** Both sides, once wanted. */
+  sides: FileSides | undefined;
+  /** The scroller, for reading a file as it nears the viewport. */
+  root: RefObject<HTMLElement | null>;
+  onWant(): void;
+  onRetry(): void;
+}
+
 /**
  * One changed file of the pull request: the shared diff block, whose sticky header carries the
  * Viewed mark (and "Changed" when GitHub dismissed it after a push), with comments drafted on
- * GitHub's review or handed to the adapter.
+ * GitHub's review or handed to the adapter. Where GitHub withheld the patch, both sides are read
+ * and diffed here; images, binaries and rendered documents show in place of the lines.
  */
 export function PrCodeFile(props: {
   id: string;
@@ -27,8 +49,9 @@ export function PrCodeFile(props: {
   mode: DiffMode;
   wrap: boolean;
   mark: PrViewedMark | undefined;
+  read: HostedFileRead;
 }) {
-  const { file, diff, context, extensions } = props;
+  const { file, diff, context, extensions, read } = props;
   if (!diff)
     return (
       <div id={props.id} className="flex h-8 items-center px-3.5 text-xs text-subtle-foreground">
@@ -37,6 +60,10 @@ export function PrCodeFile(props: {
         </span>
       </div>
     );
+  const rendered = read.source ? undefined : read.rendered;
+  const body = prFileBody({ ...read, file, rendered });
+  // GitHub counts the lines of every file it lists; files past its list are counted here.
+  const counted = file.additions + file.deletions > 0;
   return (
     <PrFileReview file={file} context={context}>
       {(native) => (
@@ -45,8 +72,8 @@ export function PrCodeFile(props: {
           file={{
             ...diff,
             status: hostedFileStatus(file),
-            additions: file.additions,
-            deletions: file.deletions,
+            additions: counted ? file.additions : diff.additions,
+            deletions: counted ? file.deletions : diff.deletions,
           }}
           view={props.view}
           onView={props.onView}
@@ -62,7 +89,22 @@ export function PrCodeFile(props: {
               : native.onComment
           }
           viewed={props.mark?.checked}
-          actions={props.mark && <ViewedMark path={file.path} mark={props.mark} />}
+          body={body}
+          actions={
+            <>
+              {read.rendered && (
+                <IconButton
+                  size="sm"
+                  icon={CodeIcon}
+                  label={`Show source of ${file.path}`}
+                  tip="Show source"
+                  pressed={read.source}
+                  onClick={() => read.onSource(!read.source)}
+                />
+              )}
+              {props.mark && <ViewedMark path={file.path} mark={props.mark} />}
+            </>
+          }
         />
       )}
     </PrFileReview>

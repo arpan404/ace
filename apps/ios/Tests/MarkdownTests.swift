@@ -41,4 +41,12 @@ import Testing
     @Test func hashesWithoutASpaceAndLoneDashesStayProse() {
         #expect(Markdown.blocks("#hashtag\n-not a list") == [.paragraph("#hashtag\n-not a list")])
     }
+    @Test func comparisonTablesKeepCellBoundariesAndFollowingProse() {
+        #expect(Markdown.blocks("Before\n\n| Area | Result |\n| --- | :---: |\n| UI | **Fixed** |\n| Code | `a|b` and a\\|b |\n\nAfter") == [
+            .paragraph("Before"),
+            .table(headers: ["Area", "Result"], rows: [["UI", "**Fixed**"], ["Code", "`a|b` and a|b"]]),
+            .paragraph("After"),
+        ])
+        #expect(Markdown.blocks("```\n| Raw | Table |\n| --- | --- |\n```") == [.code(language: "", text: "| Raw | Table |\n| --- | --- |")])
+    }
 }

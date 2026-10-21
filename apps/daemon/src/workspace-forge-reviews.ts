@@ -68,10 +68,27 @@ export class WorkspaceForgeReviews {
     backend: GitHubForge,
     signal: AbortSignal,
   ): Promise<ForgeReviewState> {
-    const host = await backend.reviews.host(pr.number, signal);
+    // The viewed marks are read beside the host, not after it: both name the head they saw, and
+    // marks for another head than the host's are never shown as current.
+    const reads = [
+      backend.reviews.host(pr.number, signal),
+      backend.reviews.viewedNow(pr.number, signal),
+      backend.reviews.reactions(pr.number, signal),
+    ] as const;
+    await Promise.allSettled(reads);
+    const host = await reads[0];
+    // Reactions are decoration: a failed read hides them and never fails the review state.
+    let reactions: ForgeReviewState["reactions"] = null;
+    try {
+      reactions = await reads[2];
+    } catch (error) {
+      if (signal.aborted) throw error;
+    }
     let viewed: ForgeReviewState["viewed"] = null;
     try {
-      viewed = await backend.reviews.viewed(pr.number, host.pr.headRefOid, signal);
+      const current = await reads[1];
+      if (current.headSha !== host.pr.headRefOid) throw new ForgeError("conflict");
+      viewed = current.files;
     } catch (error) {
       if (signal.aborted || (error instanceof ForgeError && error.kind === "conflict")) throw error;
     }
@@ -107,6 +124,7 @@ export class WorkspaceForgeReviews {
         .filter((t) => (t.isResolved ? t.viewerCanUnresolve : t.viewerCanResolve))
         .map((t) => t.id),
       operations,
+      reactions,
     };
   }
   #assertAvailable(pr: ForgePrRef, action: ForgeReviewAction) {

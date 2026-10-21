@@ -214,19 +214,11 @@ export function ThreadModelControl(props: {
     // The chip shows the new model at once. Effort and speed picked for the old one stay until
     // the switch lands; then they're checked against the new model (a refused switch takes the
     // choice back and keeps them as they were).
-    moving.switchTo(choice).then(
-      () =>
-        toast.add({
-          title:
-            choice.accountId !== shown?.accountId
-              ? `Next turn runs on ${providerNames[choice.provider]} · ${choice.account}`
-              : props.busy
-                ? `Next turn runs on ${choice.model}`
-                : `Continues on ${choice.model}`,
-        }),
-      (error: unknown) =>
+    moving
+      .switchTo(choice)
+      .catch((error: unknown) =>
         toast.error({ title: "Couldn't switch the model", description: failureMessage(error) }),
-    );
+      );
   };
   // What the chip names: a new thread's model, the switch just chosen here, else what the thread
   // runs on next.

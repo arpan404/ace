@@ -44,6 +44,20 @@
       "maxItems": 100,
       "type": "array"
     },
+    "reactions": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ForgeReactionSummary.json"
+          },
+          "maxItems": 4001,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "resolvableThreads": {
       "items": {
         "maxLength": 256,

@@ -1,10 +1,11 @@
-import type { ForgeActivity, ForgePrDetail } from "@ace/protocol";
-import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { readForge } from "./source.ts";
+import type { ForgePrDetail } from "@ace/protocol";
+import { readForge } from "@/lib/forge-read.ts";
+import { readActivityHistory, type ActivityHistory } from "./pr-history-pages.ts";
+import { useHistoryQuery } from "./pr-history-query.ts";
 
 /**
- * Every activity event of a pull request (up to 120 pages), read once and shared by the
- * Timeline and the merge gates (who merged it, whether its branch was deleted).
+ * Every activity event of a pull request, read once and shared by the Timeline and the merge
+ * gates (who merged it, whether its branch was deleted). The newest pages arrive first.
  */
 export function usePrActivityEvents(props: {
   workspaceId: string;
@@ -12,7 +13,7 @@ export function usePrActivityEvents(props: {
   enabled?: boolean;
 }) {
   const ref = props.detail.status.ref;
-  return useDaemonQuery({
+  return useHistoryQuery<ActivityHistory>({
     queryKey: [
       "forge",
       props.workspaceId,
@@ -22,12 +23,8 @@ export function usePrActivityEvents(props: {
       props.detail.status.headSha,
     ],
     enabled: props.enabled ?? true,
-    retry: false,
-    read: async (client, signal) => {
-      const events: ForgeActivity[] = [];
-      let page: number | undefined = 1;
-      let truncated = false;
-      while (page !== undefined) {
+    read: (client, signal, progress) =>
+      readActivityHistory(async (page) => {
         const result = await readForge(
           client,
           {
@@ -40,14 +37,7 @@ export function usePrActivityEvents(props: {
           signal,
         );
         if (result.resource !== "prActivity") throw new Error("No activity response.");
-        events.push(...result.events);
-        truncated ||= result.truncated;
-        page =
-          result.nextPage && result.nextPage > page && result.nextPage <= 120
-            ? result.nextPage
-            : undefined;
-      }
-      return { events, truncated };
-    },
+        return result;
+      }, progress),
   });
 }

@@ -22,7 +22,7 @@ import Observation
     /// Runs once a removed machine's runtime has stopped, so nothing keeps routing to it.
     @ObservationIgnored var afterRemove: ((ClientModel, String) -> Void)?
 
-    init(access: any MachineAccess, storage: URL, defaults: UserDefaults = .standard, itemLimit: Int = 2200,
+    init(access: any MachineAccess, storage: URL, defaults: UserDefaults = .standard, itemLimit: Int = 200,
          now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
          makeClient: @escaping @MainActor () -> ClientModel) {
         self.access = access; self.storage = storage; self.defaults = defaults; self.itemLimit = itemLimit; self.makeClient = makeClient

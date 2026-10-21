@@ -6,6 +6,7 @@ import { FakeDaemon, ScenarioPlayer, type Scenario } from "@ace/fake-daemon";
 import { fakeClient } from "./fake-client.ts";
 export { fakeClient } from "./fake-client.ts";
 import { createMemoryHistory, type RouterHistory } from "@tanstack/react-router";
+import type { QueryClient } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { App, AppFrame, createQueryClient } from "@/app.tsx";
@@ -94,6 +95,8 @@ export function harness(
      * 1.5 s apart on the daemon's clock, as in the slow fake.
      */
     worktreeSchedule?: (callback: () => void, delay: number) => () => void;
+    /** The app's query cache, for a test that seeds what an earlier session kept. */
+    queryClient?: QueryClient;
   } = {},
 ) {
   const time = createTimeSource(options.uiClock ?? (() => Date.now()));
@@ -169,7 +172,7 @@ export function harness(
             <DaemonConnectionContext.Provider value={connection}>
               <App
                 client={client}
-                queryClient={createQueryClient()}
+                queryClient={options.queryClient ?? createQueryClient()}
                 storage={storage}
                 history={options.history ?? createMemoryHistory({ initialEntries: [path] })}
                 machines={machines}

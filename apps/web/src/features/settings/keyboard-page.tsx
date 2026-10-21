@@ -102,7 +102,7 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
   { label: "Tools", ids: ["changes", "agents", "files", "preview", "devices", "logs"] },
   {
     label: "Terminal & browser",
-    ids: ["terminal", "terminalPanel", "newTerminal", "findInTerminal", "browser", "takeControl"],
+    ids: ["terminal", "terminalPanel", "newTerminal", "findInTerminal", "browser"],
   },
   {
     label: "Thread list",

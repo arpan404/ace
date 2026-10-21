@@ -1,5 +1,7 @@
+import { useState } from "react";
 import {
   ArrowClockwiseIcon,
+  CaretRightIcon,
   CheckCircleIcon,
   CircleIcon,
   ClockIcon,
@@ -8,11 +10,10 @@ import {
 } from "@phosphor-icons/react";
 import type { ForgeCheck } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
-import { openExternal } from "@/boot/open-external.ts";
-import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { PrWorkspaceContext } from "./pr-extensions.ts";
 import { PrSection } from "./pr-section.tsx";
+import { PrCheckDetail } from "./pr-check-detail.tsx";
 
 const checkLook: Record<
   ForgeCheck["status"],
@@ -26,18 +27,28 @@ const checkLook: Record<
 };
 
 /**
- * The PR's checks, folded by default: each with its state and a click to open it. When the
- * host couldn't say, one inline Refresh, the panel's only one.
+ * The PR's checks, folded by default: each with its state, opening in place to its log,
+ * annotations and re-runs (read only then). When the host couldn't say, one inline Refresh,
+ * the panel's only one.
  */
 export function PrChecks(props: {
   context: PrWorkspaceContext;
   refreshing: boolean;
   reveal?: number | undefined;
+  hostThreadId?: string | undefined;
   onRefresh(): void;
+  onOpen(number: number): void;
+  onOpenCode(path: string): void;
 }) {
   const { status } = props.context.detail;
-  const toast = useToast();
   const stale = status.ci === "unknown";
+  const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (id: string) =>
+    setOpened((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
   return (
     <PrSection
       id="pr-checks"
@@ -60,25 +71,37 @@ export function PrChecks(props: {
           {status.checks.map((check) => {
             const look = checkLook[check.status];
             const Glyph = look.icon;
-            const url = check.url;
+            const open = opened.has(check.id);
             return (
               <li key={check.id}>
                 <button
                   type="button"
-                  disabled={!url}
+                  aria-expanded={open}
                   aria-label={`${check.name}: ${look.word}`}
-                  onClick={() =>
-                    url &&
-                    void openExternal(url).catch(() =>
-                      toast.error({ title: "Couldn't open the check" }),
-                    )
-                  }
-                  className="flex min-h-7 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-ui transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover disabled:hover:bg-transparent"
+                  onClick={() => toggle(check.id)}
+                  className="flex min-h-7 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-ui transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover aria-expanded:bg-active"
                 >
                   <Glyph aria-hidden size={14} className={cn("shrink-0", look.tone)} />
                   <span className="min-w-0 flex-1 break-words">{check.name}</span>
                   <span className="shrink-0 text-xs text-muted-foreground">{look.word}</span>
+                  <CaretRightIcon
+                    aria-hidden
+                    size={12}
+                    className={cn(
+                      "shrink-0 text-faint-foreground transition-transform duration-(--motion-fast)",
+                      open && "rotate-90",
+                    )}
+                  />
                 </button>
+                {open && (
+                  <PrCheckDetail
+                    context={props.context}
+                    check={check}
+                    hostThreadId={props.hostThreadId}
+                    onOpen={props.onOpen}
+                    onOpenCode={props.onOpenCode}
+                  />
+                )}
               </li>
             );
           })}

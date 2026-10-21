@@ -94,7 +94,7 @@ test("a blocked run still says Answer or Failed when the tree asks the person or
   expect(failed).toMatchObject({ word: "Failed", blocker: "Need a test account", done: false });
 });
 
-test("missing evidence names each criterion and kind and never reads Done", () => {
+test("a criterion lists each kind it still needs once, and a failed check fails it", () => {
   const needs = offshiftSummary(
     card({
       phase: "verify",
@@ -113,28 +113,47 @@ test("missing evidence names each criterion and kind and never reads Done", () =
             },
           ],
         },
+        {
+          id: "copy",
+          description: "The error names the field",
+          independent: false,
+          evidence: [
+            { kind: "ui", state: "pass", recordedAt: 1, by: null },
+            { kind: "source", state: "missing", recordedAt: null, by: null },
+          ],
+        },
       ],
+      criteriaCount: 5,
       pending: [
         { criterionId: "error", kind: "ui" },
         { criterionId: "error", kind: "automated" },
-        { criterionId: "beyond", kind: "manual" },
+        { criterionId: "copy", kind: "source" },
       ],
-      pendingCount: 5,
+      pendingCount: 3,
     }),
     settled,
   );
   expect(needs.word).toBe("Waiting");
   expect(needs.phase).toBe("Verify · 3 of 5");
-  expect(needs.missing.map((item) => `${item.description} · ${item.kind}`)).toEqual([
-    "Bad password shows an error · UI check",
-    "Bad password shows an error · Automated check",
-    "beyond · Manual check",
+  expect(needs.criteria.map((row) => [row.description, row.state, row.needs])).toEqual([
+    [
+      "Bad password shows an error",
+      "Failed",
+      [
+        { kind: "UI", failed: false },
+        { kind: "Automated", failed: true },
+      ],
+    ],
+    ["The error names the field", "Open", [{ kind: "Source review", failed: false }]],
   ]);
-  expect(needs.moreMissing).toBe(2);
-  expect(needs.criteria[0]?.evidence).toEqual([
-    { kind: "UI check", state: "Out of date", tone: undefined, by: undefined },
-    { kind: "Automated check", state: "Failed", tone: "failed", by: "Claude Code · Opus 4.5" },
-  ]);
+  expect(needs.criteria[0]?.detail).toBe(
+    "UI check · Out of date\nAutomated check · Failed · Claude Code · Opus 4.5",
+  );
+  expect(needs.moreCriteria).toBe(3);
+});
+
+test("a criterion with a current pass for every kind is met and needs nothing", () => {
+  expect(offshiftSummary(card(), settled).criteria[0]).toMatchObject({ state: "Met", needs: [] });
 });
 
 test("a run still in progress on a settled tree waits instead of claiming Working", () => {
@@ -142,7 +161,7 @@ test("a run still in progress on a settled tree waits instead of claiming Workin
   expect(idle).toMatchObject({ word: "Waiting", phase: "Review · 4 of 5", done: false });
 });
 
-test("an independent criterion with only the owner's pass reads not independent and stays missing", () => {
+test("an independent criterion with only the owner's pass stays open until another provider or model checks it", () => {
   const summary = offshiftSummary(
     card({
       phase: "verify",
@@ -168,10 +187,10 @@ test("an independent criterion with only the owner's pass reads not independent 
   );
   expect(summary.word).toBe("Waiting");
   expect(summary.criteria[0]).toMatchObject({
-    independent: true,
-    evidence: [{ state: "Not independent", tone: undefined, by: "Codex · GPT-5" }],
+    state: "Open",
+    needs: [{ kind: "Independent UI", failed: false }],
+    detail: "UI check · Not independent · Codex · GPT-5",
   });
-  expect(summary.missing.map((item) => item.kind)).toEqual(["Independent UI check"]);
 });
 
 test("the current phase's steps read Done, Skipped with its reason, or To do", () => {

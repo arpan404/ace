@@ -9,6 +9,9 @@ import type { GhApi } from "./http.ts";
 import { ForgeError } from "./errors.ts";
 import { ReadBudget } from "./read-budget.ts";
 import { validHostedAnchor } from "./review-anchor.ts";
+import { decode, type ReviewIo } from "./review-io.ts";
+import { GitHubReactions } from "./github-reactions.ts";
+import { GitHubSuggestions } from "./github-suggestions.ts";
 const text = z.string().max(65_536);
 const positive = z.number().int().positive();
 const Comment = z.looseObject({
@@ -68,11 +71,9 @@ const Files = z.object({
     }),
   }),
 });
-function decode<T>(schema: z.ZodType<T>, body: unknown): T {
-  const result = schema.safeParse(body);
-  if (!result.success) throw new ForgeError("invalid_data");
-  return result.data;
-}
+const Requested = z.looseObject({
+  users: z.array(z.looseObject({ login: text })).max(1_000),
+});
 export function reviewWriteMarker(operationId: string): string {
   return `<!-- ace-write:${createHash("sha256").update(operationId).digest("hex")} -->`;
 }
@@ -81,11 +82,25 @@ export class GitHubReviews {
   readonly #api: GhApi;
   readonly #root: string;
   readonly #pr: (number: number) => ForgePrRef;
+  readonly #reactions: GitHubReactions;
+  readonly #suggestions: GitHubSuggestions;
   constructor(api: GhApi, pr: (number: number) => ForgePrRef) {
     this.#api = api;
     this.#pr = pr;
     const repo = pr(1).repository;
     this.#root = `repos/${repo.owner}/${repo.name}`;
+    const io: ReviewIo = {
+      root: this.#root,
+      request: (...args) => this.#request(...args),
+      records: (path, schema, signal) => this.#records(path, schema, signal),
+      comment: (number, source, id, signal) => this.#comment(number, source, id, signal),
+    };
+    this.#reactions = new GitHubReactions(io, pr);
+    this.#suggestions = new GitHubSuggestions(io);
+  }
+  /** Reacted subjects of the PR: its description, conversation comments and inline comments. */
+  reactions(number: number, signal: AbortSignal) {
+    return this.#reactions.summaries(number, signal);
   }
   async #request(...args: Parameters<GhApi["request"]>) {
     const response = await this.#api.request(...args);
@@ -124,6 +139,14 @@ export class GitHubReviews {
     throw new ForgeError("limit");
   }
   async viewed(number: number, headSha: string, signal: AbortSignal) {
+    return (await this.#viewed(number, headSha, signal)).files;
+  }
+  /** The viewer's viewed marks at whatever head the PR has now, and that head. */
+  viewedNow(number: number, signal: AbortSignal) {
+    return this.#viewed(number, undefined, signal);
+  }
+  async #viewed(number: number, expected: string | undefined, signal: AbortSignal) {
+    let headSha = expected;
     const { owner, name } = this.#pr(number).repository;
     let after: string | null = null;
     const files: { path: string; state: string }[] = [];
@@ -135,9 +158,11 @@ export class GitHubReviews {
       });
       budget.add(result.bytes);
       const pr = decode(Files, result.body).data.repository.pullRequest;
+      // Every page must come from one head: the first page's when none was named.
+      headSha ??= pr.headRefOid;
       if (pr.headRefOid !== headSha) throw new ForgeError("conflict");
       files.push(...pr.files.nodes.map((f) => ({ path: f.path, state: f.viewerViewedState })));
-      if (!pr.files.pageInfo.hasNextPage) return files;
+      if (!pr.files.pageInfo.hasNextPage) return { headSha, files };
       const next = pr.files.pageInfo.endCursor;
       if (!next || next === after) throw new ForgeError("invalid_data");
       after = next;
@@ -204,6 +229,19 @@ export class GitHubReviews {
         (f) => f.path === action.path,
       );
       return file?.state === (action.kind === "file.view" ? "VIEWED" : "UNVIEWED");
+    }
+    if (action.kind === "reaction.add" || action.kind === "reaction.remove")
+      return this.#reactions.reconcile(number, action, host.viewer, signal);
+    if (action.kind === "suggestions.apply")
+      return this.#suggestions.reconcile(number, action, signal);
+    if (action.kind === "reviewers.request") {
+      const requested = new Set(
+        decode(
+          Requested,
+          (await this.#request(`${this.#root}/pulls/${number}/requested_reviewers`, signal)).body,
+        ).users.map((u) => u.login.toLowerCase()),
+      );
+      return action.reviewers.every((name) => requested.has(name.toLowerCase()));
     }
     return false;
   }
@@ -366,6 +404,23 @@ export class GitHubReviews {
         signal,
         dispatch,
       );
+      return;
+    }
+    if (action.kind === "reaction.add" || action.kind === "reaction.remove")
+      return this.#reactions.write(number, action, host.viewer, signal, allowed, dispatch);
+    if (action.kind === "suggestions.apply")
+      return this.#suggestions.write(number, action, host, operationId, signal, allowed, dispatch);
+    if (action.kind === "reviewers.request") {
+      if (host.pr.state !== "OPEN") throw new ForgeError("conflict");
+      if (signal.aborted || !allowed()) throw new ForgeError("cancelled");
+      const response = await this.#request(
+        `${this.#root}/pulls/${number}/requested_reviewers`,
+        signal,
+        { reviewers: action.reviewers },
+        "POST",
+        dispatch,
+      );
+      decode(z.looseObject({ number: positive }), response.body);
     }
   }
 }

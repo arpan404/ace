@@ -1,6 +1,6 @@
 /*
- * The size each thread's page last had in the panel, in CSS pixels. Picture-in-picture lays the
- * page out at this size and scales it down, so moving it out of the panel never reflows it.
+ * The size each thread's page last had in the panel, in CSS pixels. Picture-in-picture takes its
+ * shape from it: the page keeps this size out of sight, and its video fills the floating box.
  */
 const sizes = new Map<string, { width: number; height: number }>();
 export const fallbackPageSize = { width: 1280, height: 800 } as const;

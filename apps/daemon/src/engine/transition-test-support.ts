@@ -35,6 +35,11 @@ export function transitionHarness(
     steer?: boolean;
     /** When the providers' native steer reaches the model; omitted means immediately. */
     steerTiming?: "immediate" | "after_tool";
+    /**
+     * The sessions can move running tools to the background, as Claude's can: `moves` answers
+     * true, `fails` rejects as a CLI with background tasks disabled does.
+     */
+    backgroundTools?: "moves" | "fails";
     /** A root interrupt ends the running turn, as a real provider's would. */
     interruptEndsTurn?: boolean;
     closeFails?: boolean;
@@ -71,6 +76,8 @@ export function transitionHarness(
   }[] = [];
   const held = new Set<ThreadId>();
   const interrupts: { threadId: ThreadId; cascade: boolean }[] = [];
+  /** Each request to background the running tools, with how many inputs the provider had by then. */
+  const backgroundRequests: { threadId: ThreadId; inputsBefore: number }[] = [];
   const emit = (id: ThreadId, ...facts: Fact[]) => {
     const session = sessions.findLast((entry) => entry.context.threadId === id && !entry.closed);
     if (!session) throw new Error("No fake provider session");
@@ -220,6 +227,19 @@ export function transitionHarness(
                 });
             }
           },
+          ...(options.backgroundTools
+            ? {
+                backgroundTools: async () => {
+                  backgroundRequests.push({
+                    threadId: context.threadId,
+                    inputsBefore: inputs.length,
+                  });
+                  if (options.backgroundTools === "fails")
+                    throw new Error("Background tasks are disabled");
+                  return true;
+                },
+              }
+            : {}),
           interrupt: async (target: { cascade: boolean }) => {
             interrupts.push({ threadId: context.threadId, cascade: target.cascade });
             const turn = histories.get(nativeId)?.at(-1)?.turn;
@@ -335,6 +355,7 @@ export function transitionHarness(
     sessions,
     inputs,
     interrupts,
+    backgroundRequests,
     histories,
     held,
     emit,

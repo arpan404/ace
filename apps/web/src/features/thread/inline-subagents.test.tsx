@@ -485,9 +485,37 @@ test("a finished result is a compact child-thread link with its summary", async 
   const waiting = await within(results).findByRole("link", {
     name: "Open Relay protocol reference's thread, Needs you",
   });
-  expect(waiting.textContent).toContain(
-    "Wrote docs/protocol/relay.md and documented reconnect behavior.",
-  );
+  // Revived and waiting on the person: its second line says so, and Review opens it there.
+  expect(waiting.textContent).toContain("Waiting for you");
+  expect(
+    within(results).getByRole("link", { name: "Review what Relay protocol reference needs" }),
+  ).toBeTruthy();
   await userEvent.click(waiting);
   expect(await screen.findByText(/Drafted the frame table/)).toBeTruthy();
+});
+
+test("a group leads with its providers' marks, not a status glyph, and a child's live line becomes its result", async () => {
+  const app = harness();
+  const script = app.play(scenario([...spawn("first"), ...spawn("second")]));
+  script.runUntilBlocked();
+  await app.open("/t/inline-subagents");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const pair = await group(feed, "2 subagents");
+  const header = within(pair).getByRole("button", { name: "2 subagents" });
+  // Two Codex subagents: one Codex mark, named for assistive tech; no glyph carries the state.
+  const lead = within(header).getByRole("img", { name: "Codex" });
+  expect(
+    [...lead.querySelectorAll("[data-provider]")].map((mark) => mark.getAttribute("data-provider")),
+  ).toEqual(["codex"]);
+  expect(header.querySelector("[data-state]")).toBeNull();
+  expect(within(pair).getByRole("status").textContent).toBe("2 working");
+  await userEvent.click(header);
+  const second = within(pair).getByRole("link", { name: "Open Review second, Running" });
+  const live = second.querySelector("[data-detail]");
+  expect(live?.getAttribute("data-detail")).toBe("live");
+  expect(live?.className).toContain("agent-shimmer");
+  await act(async () => app.daemon.apply("inline-subagents", [facts.endTurn("second")]));
+  const done = await within(pair).findByRole("link", { name: "Open Review second, Done" });
+  expect(done.querySelector("[data-detail='live']")).toBeNull();
+  expect(done.querySelector(".agent-shimmer")).toBeNull();
 });

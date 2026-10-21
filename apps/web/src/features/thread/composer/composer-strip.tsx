@@ -20,8 +20,8 @@ import { ConnectionStrip, PlanStrip, StripIndicators, type StripCounts } from ".
 import { GoalStrip } from "./goal-strip.tsx";
 import { pickStrip, stripSlot, type StripFacts } from "./strip-slot.ts";
 import { StripSurface } from "./strip-surface.tsx";
-import { ConfirmStopStrip, StoppedStrip, useStoppedCommands } from "./stop-strips.tsx";
-import { WaitingStrip } from "./waiting-strip.tsx";
+import { ConfirmStopStrip, useStoppedCommands } from "./stop-strips.tsx";
+import { StoppedStrip, WaitingStrip } from "./waiting-strip.tsx";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { registerQueueEditSaver, useQueueEdit } from "./queue-edit.ts";
 import { useQueue } from "./use-queue.ts";
@@ -155,7 +155,7 @@ export function ComposerStrip(props: {
       {slot.shown === "confirm-stop" ? (
         <ConfirmStopStrip subagents={props.confirmStop?.subagents ?? 0} />
       ) : slot.shown === "stopped" ? (
-        <StoppedStrip commands={stopped} indicators={indicators} />
+        <StoppedStrip threadId={props.threadId} commands={stopped} indicators={indicators} />
       ) : slot.shown === "waiting" && wait ? (
         <WaitingStrip
           threadId={props.threadId}

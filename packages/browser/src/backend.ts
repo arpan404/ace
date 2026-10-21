@@ -61,6 +61,16 @@ export interface VideoHost {
     height: number,
     events: CaptureEvents,
   ): Promise<VideoCaptureHandle>;
+  /**
+   * An encode fed JPEG pictures (its handle's `pictures.push`) with no tab behind it: another service's
+   * pictures as video, e.g. a computer-use session whose helper only makes JPEG (Linux,
+   * Windows). Present on an encoder-only Chrome.
+   */
+  encodePictures?(
+    width: number,
+    height: number,
+    events: CaptureEvents,
+  ): Promise<VideoCaptureHandle>;
 }
 export interface BackendLog {
   /** The tab that logged the entry, when the backend knows it. */

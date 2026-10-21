@@ -322,7 +322,7 @@ export class ThreadLedger {
       const task = reader.task(ids[index] ?? "");
       if (!task?.toolCallId) continue;
       this.backgroundCalls.add(task.toolCallId);
-      if (!task.ambient) this.background.set(task.toolCallId, task.id);
+      if (!task.ambient && !task.internal) this.background.set(task.toolCallId, task.id);
       this.tasksVersion++;
     }
     this.taskCount = ids.length;

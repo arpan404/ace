@@ -1,6 +1,6 @@
 import { Item } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { lastSentText } from "./last-sent.ts";
+import { sentText } from "./last-sent.ts";
 
 const message = (
   id: string,
@@ -31,7 +31,7 @@ test("the person's latest message is recalled, not the agent's reply after it", 
     message("3", "user", "add tests too"),
     message("4", "assistant", "added"),
   ];
-  expect(lastSentText(transcript(items))).toBe("add tests too");
+  expect(sentText(transcript(items), 0)).toBe("add tests too");
 });
 
 test("inputs ace sent for the person are skipped", () => {
@@ -40,9 +40,27 @@ test("inputs ace sent for the person are skipped", () => {
     message("2", "user", "ace restarted. Continue where you left off."),
     message("3", "user", "task finished", { synthetic: true }),
   ];
-  expect(lastSentText(transcript(items))).toBe("fix the build");
+  expect(sentText(transcript(items), 0)).toBe("fix the build");
 });
 
 test("a transcript with nothing from the person recalls nothing", () => {
-  expect(lastSentText(transcript([message("1", "assistant", "hello")]))).toBeUndefined();
+  expect(sentText(transcript([message("1", "assistant", "hello")]), 0)).toBeUndefined();
+});
+
+test("each step back reaches the message sent before, until there are none left", () => {
+  const items = [
+    message("1", "user", "first ask"),
+    message("2", "assistant", "done"),
+    message("3", "user", "task finished", { synthetic: true }),
+    message("4", "user", "second ask"),
+    message("5", "assistant", "done"),
+    message("6", "user", "third ask"),
+  ];
+  const sent = transcript(items);
+  expect([0, 1, 2, 3].map((older) => sentText(sent, older))).toEqual([
+    "third ask",
+    "second ask",
+    "first ask",
+    undefined,
+  ]);
 });

@@ -1,4 +1,5 @@
 import type { ForgeComment, ForgePrStatus } from "@ace/protocol";
+import { checkFixRequest } from "./pr-check-model.ts";
 
 /*
  * What the Summary tab lists, worked out from the PR detail without rendering: each reviewer's
@@ -93,7 +94,7 @@ export function attentionItems(
 /** What "Fix with agent" asks the agent, for the person to read over before sending. */
 export function fixRequest(item: AttentionItem, pr: { number: number; url: string }): string {
   if (item.kind === "check")
-    return `The check "${item.title}" fails on PR #${pr.number} (${item.url ?? pr.url}). Read its log, find the cause and push a fix to the PR branch.`;
+    return checkFixRequest({ name: item.title, url: item.url }, pr, undefined);
   return `Address ${item.author}'s review comment on ${item.detail} in PR #${pr.number}:\n\n> ${item.body.split("\n").join("\n> ")}\n\nMake the change, push it, and reply on the thread.`;
 }
 

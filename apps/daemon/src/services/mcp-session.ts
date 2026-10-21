@@ -96,6 +96,7 @@ export async function bindMcpSession(
     const setMode = session.setMode?.bind(session);
     const setGoal = session.setGoal?.bind(session);
     const clearGoal = session.clearGoal?.bind(session);
+    const backgroundTools = session.backgroundTools?.bind(session);
     return {
       get sessionConfirmed() {
         return session.sessionConfirmed ?? true;
@@ -117,6 +118,7 @@ export async function bindMcpSession(
       ...(setMode ? { setMode } : {}),
       ...(setGoal ? { setGoal } : {}),
       ...(clearGoal ? { clearGoal } : {}),
+      ...(backgroundTools ? { backgroundTools } : {}),
       send: (input, delivery, commandId, origin) =>
         session.send(input, delivery, commandId, origin),
       interrupt: (target) => session.interrupt(target),

@@ -2,15 +2,16 @@ import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { AddAccountHost } from "@/features/account-management/index.ts";
 import { useConnectionState } from "@ace/client-react";
 import { Outlet, useRouter, useRouterState } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { Notifier } from "@/features/notifications/index.ts";
 import { DeleteConfirmationHost, MoveToProjectHost } from "@/features/organize/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
 import { ProjectsHost, useNewThreadEntry, useProjectDialogs } from "@/features/projects/index.ts";
 import { loadPullRequestTab } from "@/features/forge/index.ts";
-import { PullRequestViewProvider } from "@/features/panels/index.ts";
+import { loadFloatingBrowsers, PullRequestViewProvider } from "@/features/panels/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import {
+  OpenWorkWarmup,
   ThreadLeaveProvider,
   ThreadStepKeys,
   ThreadsSidebar,
@@ -23,6 +24,8 @@ import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { useStartupShell } from "@/lib/startup/startup.tsx";
 import { cn } from "@/lib/cn.ts";
 import { liveIndicatorsHeld } from "./live-motion.ts";
+
+const FloatingBrowsers = lazy(loadFloatingBrowsers);
 
 /** A pull request in a thread's side panel: the forge's view, loaded when one first shows. */
 const PullRequestTab = deferredComponent(() => loadPullRequestTab().then((m) => m.default));
@@ -98,6 +101,14 @@ export function AppShell() {
             </LocalBoundary>
             <LocalBoundary label="notifications" fallback={null}>
               <Notifier />
+            </LocalBoundary>
+            <LocalBoundary label="picture in picture" fallback={null}>
+              <Suspense fallback={null}>
+                <FloatingBrowsers />
+              </Suspense>
+            </LocalBoundary>
+            <LocalBoundary label="open work" fallback={null}>
+              <OpenWorkWarmup />
             </LocalBoundary>
           </div>
         </AddAccountHost>

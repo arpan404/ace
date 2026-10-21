@@ -13,11 +13,13 @@ export type AdbCommand = (
 ) => Promise<{ stdout: string; stderr: string; code: number | null }>;
 
 export type ScrcpyConnection = {
-  /** Video socket, positioned at the codec id. */
-  video: Socket;
+  /** Video socket, positioned at the codec id; absent for a control-only server. */
+  video: Socket | undefined;
   control: Socket;
   /** Bytes the video socket delivered with the preamble, to be read before later chunks. */
   initialVideo: Buffer;
+  /** Device messages a control-only server sent with its preamble. */
+  initialControl: Buffer;
   deviceName: string;
   exited: Promise<unknown>;
   close(): Promise<void>;
@@ -76,7 +78,8 @@ function open(port: number): Promise<Socket> {
 
 /**
  * Starts the pinned scrcpy server on one emulator and connects its video and control sockets
- * through an `adb forward` tunnel: video on, audio off, control on.
+ * through an `adb forward` tunnel: video on (or off, `profile.video`), audio off, control on.
+ * The server greets its first socket: the video one, or the control one when video is off.
  */
 export async function startScrcpyServer(options: {
   adb: string;
@@ -153,9 +156,9 @@ export async function startScrcpyServer(options: {
     });
     const deadline = runtime.now() + (options.startupMs ?? 10_000);
     const remaining = () => Math.max(1, deadline - runtime.now());
-    let video: Socket | undefined;
+    let first: Socket | undefined;
     let early: Buffer = Buffer.alloc(0);
-    while (!video) {
+    while (!first) {
       check();
       if (exited || runtime.now() > deadline)
         throw new DeviceError(
@@ -169,17 +172,23 @@ export async function startScrcpyServer(options: {
         // The server answers its first socket with one dummy byte once it is listening.
         const greeting = await preamble(socket, 1, runtime, remaining());
         if (greeting) {
-          video = socket;
+          first = socket;
           early = greeting.subarray(1);
         } else socket.destroy();
       }
-      if (!video) await new Promise<void>((resolve) => runtime.after(100, resolve));
+      if (!first) await new Promise<void>((resolve) => runtime.after(100, resolve));
     }
-    const control = await open(port);
-    sockets.push(control);
+    const hasVideo = options.profile.video !== false;
+    const control = hasVideo ? await open(port) : first;
+    if (hasVideo) sockets.push(control);
     check();
     // The device name follows on the first socket once every socket is connected.
-    const rest = await preamble(video, deviceNameBytes - early.length, runtime, remaining());
+    const rest = await preamble(
+      first,
+      Math.max(0, deviceNameBytes - early.length),
+      runtime,
+      remaining(),
+    );
     if (!rest)
       throw new DeviceError(
         "command_failed",
@@ -190,9 +199,10 @@ export async function startScrcpyServer(options: {
     const nameBytes = meta.subarray(0, deviceNameBytes);
     const end = nameBytes.indexOf(0);
     return {
-      video,
+      video: hasVideo ? first : undefined,
       control,
-      initialVideo: meta.subarray(deviceNameBytes),
+      initialVideo: hasVideo ? meta.subarray(deviceNameBytes) : Buffer.alloc(0),
+      initialControl: hasVideo ? Buffer.alloc(0) : meta.subarray(deviceNameBytes),
       deviceName: nameBytes.subarray(0, end < 0 ? nameBytes.length : end).toString("utf8"),
       exited: server.exited,
       close,

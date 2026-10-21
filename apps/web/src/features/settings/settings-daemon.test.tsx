@@ -76,7 +76,9 @@ test("Reset all settings clears provider choices and native modes along with ord
   await userEvent.click(await screen.findByRole("button", { name: /^Reset$/ }));
   const dialog = await screen.findByRole("dialog", { name: "Reset all settings?" });
   await userEvent.click(within(dialog).getByRole("button", { name: /Reset/ }));
-  await screen.findByText("Settings reset");
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Reset all settings?" })).toBeNull(),
+  );
   for (const key of [
     "providers.default",
     "access.defaultMode",

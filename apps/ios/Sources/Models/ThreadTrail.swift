@@ -2,7 +2,7 @@ import Foundation
 
 /// The threads a person left by opening a child (a delegated agent, a started conversation). Going
 /// back reopens the parent under a new navigation generation; its last rendered transcript stays on
-/// screen until that session's first patch arrives, so the screen never flashes empty. Bounded:
+/// screen until that session's complete snapshot arrives, so the screen never flashes empty. Bounded:
 /// only the nearest few parents are kept.
 @MainActor struct ThreadTrail {
     static let depth = 4

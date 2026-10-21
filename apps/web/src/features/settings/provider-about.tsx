@@ -104,7 +104,6 @@ function useRemoveAgent(name: string) {
       await queryClient.invalidateQueries({
         queryKey: settingsQueries.providers(backend).queryKey,
       });
-      toast.add({ title: `Removed ${name}` });
       void navigate({ to: "/settings/providers" });
     },
     onError: (error) =>

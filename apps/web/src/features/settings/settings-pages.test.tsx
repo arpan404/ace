@@ -125,7 +125,9 @@ test("Reset restores the follow-up behavior on every device", async () => {
   const dialog = await screen.findByRole("dialog", { name: "Reset all settings?" });
   expect(within(dialog).getByText(/Appearance, themes and notifications stay/)).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: "Reset settings" }));
-  expect(await screen.findByText("Settings reset")).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Reset all settings?" })).toBeNull(),
+  );
   await goTo("Agents");
   await waitFor(async () =>
     expect(await pressed("Messages sent while the agent works")).toBe("Queue"),

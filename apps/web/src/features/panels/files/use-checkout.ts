@@ -1,8 +1,8 @@
 import type { ClientApi } from "@ace/client";
-import { useClient } from "@ace/client-react";
+import { useClient, useConnectionState } from "@ace/client-react";
 import { fileChanges, type Turn } from "@ace/ui-core";
-import { keepPreviousData } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useTurns } from "@/lib/diffs/use-turns.ts";
 import { daemonCheckout, type CheckoutSource } from "./checkout-source.ts";
@@ -59,13 +59,47 @@ export function useFileContent(threadId: string, path: string | undefined) {
   const turns = useTurns(threadId);
   const edits = useMemo(() => (path ? touches(turns, path) : 0), [turns, path]);
   return useDaemonQuery({
-    queryKey: ["checkout", "file", threadId, path, edits],
+    queryKey: fileKey(threadId, path, edits),
     enabled: path !== undefined,
-    // Files can be large; keep only the ones on screen and a few recent ones.
-    gcTime: 60_000,
+    gcTime: fileGcTime,
     retry: false,
     read: (_client, signal) => source.read(threadId, path ?? "", signal),
   });
+}
+
+const fileKey = (threadId: string, path: string | undefined, edits: number) => [
+  "checkout",
+  "file",
+  threadId,
+  path,
+  edits,
+];
+/** Files can be large; keep only the ones on screen and a few recent ones. */
+const fileGcTime = 60_000;
+
+/**
+ * Read a checkout file ahead of its opening (the pointer resting on its row), into the cache
+ * `useFileContent` reads, so the click shows it at once. A fresh copy already cached is kept.
+ */
+export function usePrefetchFile(threadId: string): (path: string) => void {
+  const client = useClient();
+  const source = useCheckoutSource();
+  const cache = useQueryClient();
+  const turns = useTurns(threadId);
+  const ready = useConnectionState() === "ready";
+  return useCallback(
+    (path: string) => {
+      if (!ready) return;
+      void cache.prefetchQuery({
+        queryKey: fileKey(threadId, path, touches(turns, path)),
+        meta: { daemonClient: client },
+        gcTime: fileGcTime,
+        retry: false,
+        queryFn: ({ signal }) => source.read(threadId, path, signal),
+      });
+    },
+    [cache, client, ready, source, threadId, turns],
+  );
 }
 
 /** `value`, once it has stopped changing for `ms`. */

@@ -1,0 +1,55 @@
+{
+  "$id": "https://ace.local/protocol/v1/FileReadResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "data": {
+      "maxLength": 349528,
+      "type": "string"
+    },
+    "encoding": {
+      "enum": [
+        "identity",
+        "gzip"
+      ],
+      "type": "string"
+    },
+    "offset": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "path": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "size": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "type": {
+      "enum": [
+        "file",
+        "directory",
+        "symlink",
+        "other"
+      ],
+      "type": "string"
+    },
+    "version": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/FileVersion.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "path",
+    "version"
+  ],
+  "type": "object"
+}
