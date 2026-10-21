@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import type { VerifyTarget } from "@ace/protocol";
-import { run, verifyFixture } from "./verify-test-support.ts";
+import type { VerifyRun, VerifyTarget } from "@ace/protocol";
+import { inRepo, verifyFixture } from "./verify-test-support.ts";
 
 type Fixture = Awaited<ReturnType<typeof verifyFixture>>;
 const allowed = () => true;
@@ -11,7 +11,7 @@ async function startedRun(f: Fixture, target: VerifyTarget) {
   return answer.run;
 }
 
-const steps = (run: { steps: { kind: string; pr?: number; state: string }[] }) =>
+const steps = (run: VerifyRun) =>
   run.steps.map((step) => `${step.kind}${step.pr ? `#${step.pr}` : ""}:${step.state}`);
 
 test("a verified batch checks the PRs together, then merges each on GitHub in order at its tested head", async () => {
@@ -21,7 +21,7 @@ test("a verified batch checks the PRs together, then merges each on GitHub in or
     f.setCommand("cat a.txt b.txt");
     const a = await f.pr(1, { "a.txt": "from one\n" });
     const b = await f.pr(2, { "b.txt": "from two\n" });
-    const base = await run(f.project, "rev-parse", "main");
+    const base = await inRepo(f.project, "rev-parse", "main");
     const done = await f.settled(
       (
         await startedRun(
@@ -57,7 +57,7 @@ test("a verified batch checks the PRs together, then merges each on GitHub in or
     ]);
     expect(f.verify.log(done.id)?.text).toContain("from one\nfrom two\n");
     expect(await f.trees()).toEqual([]);
-    expect(await run(f.project, "for-each-ref", "refs/ace/conductor/")).toBe("");
+    expect(await inRepo(f.project, "for-each-ref", "refs/ace/conductor/")).toBe("");
   } finally {
     await f.close();
   }
@@ -108,7 +108,7 @@ test("a PR whose head moved stops the batch before anything is combined", async 
     const a = await f.pr(1, { "a.txt": "one\n" });
     const stale = await f.pr(2, { "b.txt": "two\n" });
     await f.pr(3, { "b.txt": "two, revised\n" });
-    await run(f.project, "push", "-q", "-f", "origin", "pr-3:refs/pull/2/head");
+    await inRepo(f.project, "push", "-q", "-f", "origin", "pr-3:refs/pull/2/head");
     const done = await f.settled(
       (
         await startedRun(

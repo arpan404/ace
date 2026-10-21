@@ -17,18 +17,18 @@ run the project's own check command on this machine.
 `prNextStep` in `@ace/ui-core` is a pure rule from a list row, the viewer's login, the
 linked thread's attention and the PR's latest local check to one step:
 
-| Step       | When (first match wins)                                                        |
-| ---------- | ------------------------------------------------------------------------------ |
-| `answer`   | The linked thread needs the person.                                            |
-| `review`   | The viewer is a requested reviewer and not the author.                         |
-| `resolve`  | Open, the viewer's or ace's PR, and it conflicts with its base.                |
-| `fix`      | Open, the viewer's or ace's PR, and GitHub's checks or the local check failed. |
-| `address`  | Open, the viewer's or ace's PR, and changes were requested.                    |
-| `update`   | Open, the viewer's or ace's PR, and its branch is behind its base.             |
-| `merge`    | Open, not a draft, approved or no review required, no failing or running checks, not conflicting, not behind. |
-| `wait`     | Otherwise for an open PR: checks running or a review pending from someone else. |
-| `draft`    | A draft.                                                                       |
-| `none`     | Closed or merged.                                                              |
+| Step      | When (first match wins)                                                                                       |
+| --------- | ------------------------------------------------------------------------------------------------------------- |
+| `answer`  | The linked thread needs the person.                                                                           |
+| `review`  | The viewer is a requested reviewer and not the author.                                                        |
+| `resolve` | Open, the viewer's or ace's PR, and it conflicts with its base.                                               |
+| `fix`     | Open, the viewer's or ace's PR, and GitHub's checks or the local check failed.                                |
+| `address` | Open, the viewer's or ace's PR, and changes were requested.                                                   |
+| `update`  | Open, the viewer's or ace's PR, and its branch is behind its base.                                            |
+| `merge`   | Open, not a draft, approved or no review required, no failing or running checks, not conflicting, not behind. |
+| `wait`    | Otherwise for an open PR: checks running or a review pending from someone else.                               |
+| `draft`   | A draft.                                                                                                      |
+| `none`    | Closed or merged.                                                                                             |
 
 "ace's PR" means a thread links it. The list groups open PRs by step: **Needs you** (answer,
 review, resolve, fix, address, update), **Ready to merge** (merge), **Waiting** and **Drafts**.

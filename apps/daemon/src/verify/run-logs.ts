@@ -49,6 +49,7 @@ export class RunLogs {
   close(): void {
     clearTimeout(this.timer);
     this.timer = undefined;
-    for (const runId of [...this.live.keys()]) this.finish(runId);
+    this.flush();
+    this.live.clear();
   }
 }

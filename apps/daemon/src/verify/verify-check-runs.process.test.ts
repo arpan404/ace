@@ -2,11 +2,14 @@ import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { run, verifyFixture } from "./verify-test-support.ts";
+import { inRepo, verifyFixture } from "./verify-test-support.ts";
 
 const allowed = () => true;
 
-async function started(f: Awaited<ReturnType<typeof verifyFixture>>, target: Parameters<typeof f.verify.start>[1]) {
+async function started(
+  f: Awaited<ReturnType<typeof verifyFixture>>,
+  target: Parameters<typeof f.verify.start>[1],
+) {
   const answer = await f.verify.start(f.workspaceId, target, allowed);
   if (!answer.ok) throw new Error(`start refused: ${answer.error}`);
   return answer.run;
@@ -72,7 +75,7 @@ test("a passing check runs at the PR's head, keeps its output and removes its ch
     ]);
     expect(f.verify.log(queued.id)?.text).toContain("only on the PR\nall good\n");
     expect(await f.trees()).toEqual([]);
-    expect(await run(f.project, "branch", "--list", "ace-verify/*")).toBe("");
+    expect(await inRepo(f.project, "branch", "--list", "ace-verify/*")).toBe("");
     expect(await f.verify.list(f.workspaceId)).toMatchObject({ runs: [{ id: queued.id }] });
   } finally {
     await f.close();
@@ -102,7 +105,7 @@ test("the project's setup script runs in the checkout before the check", async (
   try {
     f.setCommand("cat prepared.txt");
     const head = await f.pr(7, {
-      "Makefile": "setup:\n\techo prepared-by-setup > prepared.txt\n",
+      Makefile: "setup:\n\techo prepared-by-setup > prepared.txt\n",
     });
     const done = await f.settled((await started(f, f.check(7, head))).id);
     expect(done).toMatchObject({ state: "passed" });
@@ -119,7 +122,7 @@ test("a PR whose head moved since it was selected fails as head_moved without ru
     f.setCommand("echo should-not-run");
     const old = await f.pr(7, { "pr.txt": "first\n" });
     await f.pr(8, { "pr.txt": "second\n" });
-    await run(f.project, "push", "-q", "-f", "origin", "pr-8:refs/pull/7/head");
+    await inRepo(f.project, "push", "-q", "-f", "origin", "pr-8:refs/pull/7/head");
     const done = await f.settled((await started(f, f.check(7, old))).id);
     expect(done).toMatchObject({ state: "failed", failure: { code: "head_moved", pr: 7 } });
     expect(f.verify.log(done.id)?.text ?? "").not.toContain("should-not-run");
@@ -136,7 +139,9 @@ test("a second run of the project waits until the first settles", async () => {
     const head = await f.pr(7, { "pr.txt": "work\n" });
     const first = await started(f, f.check(7, head));
     const second = await started(f, f.check(7, head));
-    await f.until(first.id, (entry) => entry.steps.some((s) => s.kind === "check" && s.state === "running"));
+    await f.until(first.id, (entry) =>
+      entry.steps.some((s) => s.kind === "check" && s.state === "running"),
+    );
     expect(f.changes.findLast((entry) => entry.id === second.id)?.state).toBe("queued");
     await writeFile(gate, "");
     const [a, b] = await Promise.all([f.settled(first.id), f.settled(second.id)]);
@@ -154,7 +159,9 @@ test("cancel stops the check command's whole process group and removes the check
     f.setCommand(`sleep 60 & echo $! > '${pidFile}'; wait`);
     const head = await f.pr(7, { "pr.txt": "work\n" });
     const run7 = await started(f, f.check(7, head));
-    await f.until(run7.id, (entry) => entry.steps.some((s) => s.kind === "check" && s.state === "running"));
+    await f.until(run7.id, (entry) =>
+      entry.steps.some((s) => s.kind === "check" && s.state === "running"),
+    );
     while (!existsSync(pidFile)) await new Promise((resolve) => setTimeout(resolve, 20));
     const child = Number((await readFile(pidFile, "utf8")).trim());
     const answer = await f.verify.cancel(run7.id);
@@ -174,7 +181,9 @@ test("a restart settles a run that was checking as interrupted and removes its c
     f.setCommand(`while [ ! -f '${gate}' ]; do sleep 0.05; done`);
     const head = await f.pr(7, { "pr.txt": "work\n" });
     const checking = await started(f, f.check(7, head));
-    await f.until(checking.id, (entry) => entry.steps.some((s) => s.kind === "check" && s.state === "running"));
+    await f.until(checking.id, (entry) =>
+      entry.steps.some((s) => s.kind === "check" && s.state === "running"),
+    );
     expect(await f.trees()).toHaveLength(1);
     // The daemon that ran it is gone; the next one starts over the same store.
     const next = f.open();

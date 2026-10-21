@@ -45,7 +45,8 @@ export function workspaceVerifyForge(runtime: Runtime): VerifyForge {
         return { outcome: "refused", message: refusalWords(result.error) };
       } catch (error) {
         // The hosted path rethrows only a write that certainly failed.
-        if (error instanceof ForgeError) return { outcome: "refused", message: describeError(error) };
+        if (error instanceof ForgeError)
+          return { outcome: "refused", message: describeError(error) };
         return { outcome: "uncertain" };
       }
     },

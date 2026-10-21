@@ -89,9 +89,11 @@ export class Verify {
       else this.apply(run, settleAfterRestart(run, undefined));
     }
     this.recovery = (async () => {
-      await this.trees.sweep((runId) => this.active.has(runId)).catch((error: unknown) => {
-        this.options.log?.("Verify could not remove a left-over checkout", error);
-      });
+      await this.trees
+        .sweep((runId) => this.active.has(runId))
+        .catch((error: unknown) => {
+          this.options.log?.("Verify could not remove a left-over checkout", error);
+        });
       await Promise.all(merging.map((run) => this.settleMerging(run, 0)));
     })();
     return this.recovery;
@@ -99,7 +101,9 @@ export class Verify {
 
   async list(
     workspaceId: WorkspaceId,
-  ): Promise<{ ok: true; runs: VerifyRun[]; command: string | null } | { ok: false; error: Refusal }> {
+  ): Promise<
+    { ok: true; runs: VerifyRun[]; command: string | null } | { ok: false; error: Refusal }
+  > {
     const project = this.options.project(workspaceId);
     if (!project) return { ok: false, error: "not_found" };
     const command = await resolveCheckCommand(project.path, project.checkCommand);

@@ -129,7 +129,8 @@ export async function setupAndCheck(
 
 export async function prRemote(session: RunSession, ports: RunPorts): Promise<string> {
   const target = session.current().target;
-  const repository = target.kind === "check" ? target.pr.pr.repository : target.prs[0]?.pr.repository;
+  const repository =
+    target.kind === "check" ? target.pr.pr.repository : target.prs[0]?.pr.repository;
   if (!repository) throw new RunStop(failure("internal", "No pull request to verify"));
   return ports.forge.remote(session.project, repository, session.signal);
 }

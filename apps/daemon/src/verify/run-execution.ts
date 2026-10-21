@@ -98,7 +98,9 @@ async function inTree(
       .create({ runId: id, repo: session.project, baseRef: ref, signal: session.signal })
       .catch((error: unknown) => {
         if (session.signal.aborted) throw error;
-        throw new RunStop(failure("internal", `Could not make a checkout: ${describeError(error)}`));
+        throw new RunStop(
+          failure("internal", `Could not make a checkout: ${describeError(error)}`),
+        );
       });
     await work(tree);
   } finally {

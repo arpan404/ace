@@ -28,7 +28,7 @@ export const repository = {
   name: "ace",
 } as const satisfies ForgePrRef["repository"];
 
-export async function run(cwd: string, ...args: string[]) {
+export async function inRepo(cwd: string, ...args: string[]) {
   return (await exec("git", ["-C", assertTestGitDirectory(cwd), ...args])).stdout.trim();
 }
 
@@ -41,13 +41,11 @@ export class FakeVerifyForge implements VerifyForge {
   mergedOnGitHub = new Set<number>();
   bases = new Map<number, string>();
   /** Merges of these PRs wait until the test releases them. */
-  held = new Map<number, () => void>();
   private waits = new Map<number, Promise<void>>();
   hold(pr: number): () => void {
-    let release = () => {};
-    this.waits.set(pr, new Promise((resolve) => (release = resolve)));
-    this.held.set(pr, release);
-    return release;
+    const { promise, resolve } = Promise.withResolvers<void>();
+    this.waits.set(pr, promise);
+    return resolve;
   }
   async remote() {
     return "origin";
@@ -82,14 +80,14 @@ export async function verifyFixture() {
   const project = join(scratch, "project");
   const origin = join(scratch, "origin.git");
   await exec("git", ["init", "-q", "-b", "main", project]);
-  await run(project, "config", "user.name", "Test");
-  await run(project, "config", "user.email", "test@ace.local");
+  await inRepo(project, "config", "user.name", "Test");
+  await inRepo(project, "config", "user.email", "test@ace.local");
   await writeFile(join(project, "file.txt"), "base\n");
-  await run(project, "add", ".");
-  await run(project, "commit", "-qm", "Initial");
+  await inRepo(project, "add", ".");
+  await inRepo(project, "commit", "-qm", "Initial");
   await exec("git", ["clone", "-q", "--bare", "--", project, origin]);
-  await run(project, "remote", "add", "origin", origin);
-  await run(project, "fetch", "-q", "origin");
+  await inRepo(project, "remote", "add", "origin", origin);
+  await inRepo(project, "fetch", "-q", "origin");
   const store = new Store(join(scratch, "events.sqlite"));
   let clock = 1_000;
   const now = () => ++clock;
@@ -156,13 +154,13 @@ export async function verifyFixture() {
       }),
     /** Commit `files` on a branch off `from` and advertise it as PR `number`; its head. */
     async pr(number: number, files: Record<string, string>, from = "main") {
-      await run(project, "switch", "-q", "-c", `pr-${number}`, from);
+      await inRepo(project, "switch", "-q", "-c", `pr-${number}`, from);
       for (const [name, text] of Object.entries(files)) await writeFile(join(project, name), text);
-      await run(project, "add", ".");
-      await run(project, "commit", "-qm", `PR ${number}`);
-      const head = await run(project, "rev-parse", "HEAD");
-      await run(project, "push", "-q", "origin", `HEAD:refs/pull/${number}/head`);
-      await run(project, "switch", "-q", "main");
+      await inRepo(project, "add", ".");
+      await inRepo(project, "commit", "-qm", `PR ${number}`);
+      const head = await inRepo(project, "rev-parse", "HEAD");
+      await inRepo(project, "push", "-q", "origin", `HEAD:refs/pull/${number}/head`);
+      await inRepo(project, "switch", "-q", "main");
       return head;
     },
     check: (number: number, headSha: string): VerifyTarget => ({
@@ -179,7 +177,7 @@ export async function verifyFixture() {
     }),
     /** Every worktree Git knows besides the project's own. */
     async trees() {
-      const listed = await run(project, "worktree", "list", "--porcelain");
+      const listed = await inRepo(project, "worktree", "list", "--porcelain");
       return listed
         .split("\n")
         .filter((line) => line.startsWith("worktree "))
