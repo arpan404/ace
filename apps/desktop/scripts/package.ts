@@ -183,6 +183,21 @@ const config: Configuration = {
   toolsets: { appimage: "1.0.3" },
   deb: {
     packageName: "ace-desktop",
+    // electron-builder's defaults plus ALSA, which Electron links but the defaults omit: a
+    // minimal Ubuntu install failed with "libasound.so.2: cannot open shared object file".
+    // The t64 name is Ubuntu 24.04+ and Debian 13+; the plain one is the older releases.
+    depends: [
+      "libgtk-3-0",
+      "libnotify4",
+      "libnss3",
+      "libxss1",
+      "libxtst6",
+      "xdg-utils",
+      "libatspi2.0-0",
+      "libuuid1",
+      "libsecret-1-0",
+      "libasound2t64 | libasound2",
+    ],
     // Ours, not electron-builder's: they also install and remove ace's Chromium profile.
     afterInstall: join(desktop, "build/linux/after-install.tpl"),
     afterRemove: join(desktop, "build/linux/after-remove.tpl"),
