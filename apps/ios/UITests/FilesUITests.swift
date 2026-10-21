@@ -98,6 +98,19 @@ import XCTest
         screenshot("link-line")
     }
 
+    func testAnAnswersLinkOutsideTheCheckoutOpensInQuickLook() throws {
+        let app = launchIntoThread()
+        let link = app.links["relay notes"].firstMatch
+        XCTAssertTrue(link.waitForExistence(timeout: 15))
+        link.tap()
+        // Quick Look draws out of process: it shows once it covers the thread, with no error.
+        let covered = expectation(for: NSPredicate(format: "hittable == false"), evaluatedWith: app.buttons["thread.menu"])
+        wait(for: [covered], timeout: 20)
+        sleep(1)
+        screenshot("linked-quicklook")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+    }
+
     private func launchIntoThread() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
