@@ -1,13 +1,12 @@
 import { open, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { z } from "zod";
 import { digestLogLines, type TriageFacts } from "@ace/diagnostics/triage";
 import { createTextRedactor, isSecretKey } from "@ace/redaction";
 import type { DiagnosticReport } from "@ace/protocol";
+import { RUN_MARKER_FILE, parseRunMarker } from "./run-marker.ts";
 import type { InstalledCli } from "./triage-launch.ts";
 
 const TAIL_BYTES = 512 * 1024;
-const RunFile = z.object({ state: z.string(), pid: z.number().int().positive() }).loose();
 /** Credentials and identities inside the ace folder. The agent is told never to open them. */
 const SECRET_ENTRIES = [
   "daemon-token",
@@ -40,13 +39,11 @@ export async function localDaemonState(
   dataDir: string,
   alive: (pid: number) => boolean = processAlive,
 ): Promise<"running" | "stopped"> {
-  const text = await readFile(join(dataDir, "daemon-run.json"), "utf8").catch(() => undefined);
+  const text = await readFile(join(dataDir, RUN_MARKER_FILE), "utf8").catch(() => undefined);
   if (!text) return "stopped";
   try {
-    const run = RunFile.safeParse(JSON.parse(text));
-    return run.success && run.data.state === "running" && alive(run.data.pid)
-      ? "running"
-      : "stopped";
+    const run = parseRunMarker(JSON.parse(text));
+    return run?.state === "running" && run.pid > 0 && alive(run.pid) ? "running" : "stopped";
   } catch {
     return "stopped";
   }
