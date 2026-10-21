@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { readConfig, type Config } from "../config.ts";
 import { parseArgs, type Args } from "./args.ts";
 import { reportFailure } from "./failure.ts";
@@ -41,7 +42,7 @@ export function rescueConfig(env: NodeJS.ProcessEnv): { config: Config; problem?
   try {
     return { config: readConfig(env) };
   } catch (error) {
-    const reason = error instanceof Error ? error.message.slice(0, 300) : "invalid settings";
+    const reason = settingsProblem(error);
     const { ACE_HOME, ...rest } = env;
     const others = Object.fromEntries(
       Object.entries(rest).filter(
@@ -60,4 +61,14 @@ export function rescueConfig(env: NodeJS.ProcessEnv): { config: Config; problem?
       };
     }
   }
+}
+
+/** "ACE_PORT: Invalid input: expected number, received NaN" rather than raw issue JSON. */
+function settingsProblem(error: unknown): string {
+  if (error instanceof z.ZodError)
+    return error.issues
+      .slice(0, 5)
+      .map((issue) => `${issue.path.join(".") || "settings"}: ${issue.message}`)
+      .join("; ");
+  return error instanceof Error ? error.message.slice(0, 300) : "invalid settings";
 }
