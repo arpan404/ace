@@ -99,7 +99,7 @@ export class WorkspaceForgeBrowse {
     if (operation.op === "forge.pr.commits")
       return {
         resource: "prCommits",
-        ...(await backend.prCommits(operation.number, operation.page, operation.headSha, signal)),
+        ...(await backend.prCommits(operation.number, operation.before, operation.headSha, signal)),
       };
     if (operation.op === "forge.pr.files")
       return { resource: "prFiles", value: await backend.prFiles(operation, signal) };

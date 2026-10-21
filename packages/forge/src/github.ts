@@ -243,8 +243,8 @@ export class GitHubForge implements Forge, ForgeBrowser {
     this.#ref(number);
     return this.#browser.detail(number, (scope) => this.status(number, scope), signal);
   }
-  prCommits(number: number, page: number, headSha: string, signal: AbortSignal) {
-    return this.#browser.commits(number, page, headSha, signal);
+  prCommits(number: number, before: string | undefined, headSha: string, signal: AbortSignal) {
+    return this.#browser.commits(number, before, headSha, signal);
   }
   prFiles(
     input: {

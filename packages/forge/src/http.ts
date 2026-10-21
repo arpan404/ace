@@ -324,11 +324,19 @@ export class GhApi {
   next(page: Page, path: string): string | undefined {
     return this.#next(page.headers.link, path);
   }
-  #next(link: string | undefined, path: string): string | undefined {
+  /** The number of the last page GitHub links from `page`, if it links one. */
+  lastPage(page: Page, path: string): number | undefined {
+    const last = this.#next(page.headers.link, path, "last");
+    if (last === undefined) return undefined;
+    const number = Number(new URLSearchParams(last.split("?")[1] ?? "").get("page"));
+    if (!Number.isSafeInteger(number) || number < 1) throw new ForgeError("invalid_data");
+    return number;
+  }
+  #next(link: string | undefined, path: string, rel = "next"): string | undefined {
     const match = link
       ?.split(",")
-      .map((part) => /<([^>]+)>;\s*rel="next"/.exec(part))
-      .find(Boolean);
+      .map((part) => /<([^>]+)>;\s*rel="([a-z]+)"/.exec(part))
+      .find((found) => found?.[2] === rel);
     if (!match?.[1]) return undefined;
     let url: URL;
     try {

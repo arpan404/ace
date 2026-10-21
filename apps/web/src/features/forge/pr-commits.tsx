@@ -1,26 +1,21 @@
 import type { ForgePrDetail, ForgeRepository } from "@ace/protocol";
-import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { readForge } from "@/lib/forge-read.ts";
-import { prContentStaleMs } from "@/lib/forge-pr-detail.ts";
+import { readCommitHistory, type CommitHistory } from "./pr-history-pages.ts";
+import { useHistoryQuery } from "./pr-history-query.ts";
 
-/** All provider-exposed PR commits, at most ten 25-commit pages. */
+/** Every commit of a PR, read newest page first, oldest first in the list. */
 export function usePrCommits(props: {
   workspaceId: string;
   repository: ForgeRepository;
   detail: ForgePrDetail;
 }) {
   const ref = props.detail.status.ref;
-  return useDaemonQuery({
+  return useHistoryQuery<CommitHistory>({
     queryKey: ["forge", props.workspaceId, ref, "workspace-commits", props.detail.status.headSha],
-    retry: false,
     gcTime: keptForgeMs,
-    staleTime: prContentStaleMs,
-    read: async (client, signal) => {
-      const commits: import("@ace/protocol").ForgeCommit[] = [];
-      let page: number | undefined = 1;
-      let truncated = false;
-      while (page !== undefined) {
+    read: (client, signal, progress) =>
+      readCommitHistory(async (before) => {
         const result = await readForge(
           client,
           {
@@ -29,19 +24,12 @@ export function usePrCommits(props: {
             repository: props.repository,
             number: ref.number,
             headSha: props.detail.status.headSha,
-            page,
+            ...(before === undefined ? {} : { before }),
           },
           signal,
         );
         if (result.resource !== "prCommits") throw new Error("No commit response.");
-        commits.push(...result.commits);
-        truncated ||= result.truncated;
-        page =
-          result.nextPage && result.nextPage > page && result.nextPage <= 10
-            ? result.nextPage
-            : undefined;
-      }
-      return { commits, truncated };
-    },
+        return result;
+      }, progress),
   });
 }

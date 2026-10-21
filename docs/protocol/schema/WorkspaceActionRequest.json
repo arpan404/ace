@@ -253,7 +253,7 @@
             },
             "page": {
               "default": 1,
-              "maximum": 120,
+              "maximum": 10000,
               "minimum": 1,
               "type": "integer"
             },
@@ -340,6 +340,11 @@
         },
         {
           "properties": {
+            "before": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
             "headSha": {
               "pattern": "^[a-fA-F0-9]{40,64}$",
               "type": "string"
@@ -352,12 +357,6 @@
             "op": {
               "const": "forge.pr.commits",
               "type": "string"
-            },
-            "page": {
-              "default": 1,
-              "maximum": 120,
-              "minimum": 1,
-              "type": "integer"
             },
             "repository": {
               "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
