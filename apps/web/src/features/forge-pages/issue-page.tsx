@@ -128,7 +128,7 @@ function IssueBody(props: { project: string; issue: ForgeIssueDetail; onBack(): 
         )}
       </div>
       <IssueTimeline project={props.project} number={issue.ref.number} />
-      <IssueComposer issue={issue} writes={writes} />
+      <IssueComposer project={props.project} issue={issue} writes={writes} />
     </div>
   );
 }

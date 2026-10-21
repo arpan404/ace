@@ -2,8 +2,8 @@ import { useState } from "react";
 import { z } from "zod";
 import type { ForgeLifecycleSnapshot, ForgeLifecycleAction } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
-import { Input, Textarea } from "@/components/ui/input.tsx";
-import { Prose } from "@/components/markdown/prose.tsx";
+import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
+import { Input } from "@/components/ui/input.tsx";
 const Draft = z.object({ title: z.string().max(256), body: z.string().max(60_000) });
 export function PrRevertForm(props: {
   snapshot: ForgeLifecycleSnapshot;
@@ -50,16 +50,12 @@ export function PrRevertForm(props: {
         value={draft.title}
         onChange={(e) => save({ ...draft, title: e.target.value })}
       />
-      <Textarea
-        aria-label="Revert PR description"
+      <MarkdownEditor
+        label="Revert PR description"
         maxLength={60_000}
         value={draft.body}
-        onChange={(e) => save({ ...draft, body: e.target.value })}
+        onChange={(body) => save({ ...draft, body })}
       />
-      <section aria-label="Revert PR summary">
-        <h4 className="font-medium">{draft.title}</h4>
-        <Prose text={draft.body} />
-      </section>
       <Button type="submit" disabled={props.disabled || !draft.title.trim()}>
         Create draft revert PR
       </Button>
