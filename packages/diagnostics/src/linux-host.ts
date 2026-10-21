@@ -8,6 +8,8 @@ import type { Check, Verdict } from "./doctor.ts";
 /** What the Linux checks read from the machine; the real one is `linuxHost`. */
 export interface LinuxHost {
   env: Readonly<Record<string, string | undefined>>;
+  /** The CPU architecture, as `process.arch` names it. */
+  arch: string;
   /** A small file's text, or undefined when it can't be read. */
   readText(path: string): Promise<string | undefined>;
   exists(path: string): Promise<boolean>;
@@ -27,6 +29,9 @@ const systemdFix =
   "Run ace from a systemd login session, or run `loginctl enable-linger $USER` so the user service manager starts.";
 const kvmFix =
   "Add yourself to the kvm group: sudo usermod -aG kvm $USER, then sign out and back in. If /dev/kvm is missing, enable virtualization (VT-x/AMD-V) in firmware.";
+
+const noArmEmulatorFix =
+  "Use Android devices from a Mac or an x86-64 Linux machine; Linux on arm64 can't run them.";
 
 const verdict = (status: Verdict["status"], message: string, fix: string): Verdict => ({
   status,
@@ -91,6 +96,19 @@ export function linuxHostChecks(host: LinuxHost): Check[] {
       run: async () => {
         const sdk = await installedSdk(host);
         if (!sdk) return verdict("ok", "Android SDK not installed; /dev/kvm not needed", kvmFix);
+        // Google's SDK repository has the emulator and platform-tools for x86-64 Linux only.
+        if (host.arch === "arm64")
+          return verdict(
+            "warn",
+            "Android emulators can't run here: Google publishes the Android Emulator and Platform Tools for x86-64 Linux only",
+            noArmEmulatorFix,
+          );
+        if (!sdk.emulator)
+          return verdict(
+            "ok",
+            "No Android Emulator in the Android SDK; /dev/kvm not needed",
+            kvmFix,
+          );
         if (!(await host.exists("/dev/kvm")))
           return verdict("warn", "/dev/kvm is missing; Android emulators run slowly", kvmFix);
         const usable = await host.readWrite("/dev/kvm");
@@ -106,16 +124,23 @@ export function linuxHostChecks(host: LinuxHost): Check[] {
   ];
 }
 
-async function installedSdk(host: LinuxHost): Promise<string | undefined> {
-  for (const root of androidSdkRoots(host.env, host.env.HOME))
-    if (await host.exists(join(root, "emulator"))) return root;
-  return undefined;
+/** The first Android SDK folder present, and whether it has the emulator. */
+async function installedSdk(
+  host: LinuxHost,
+): Promise<{ root: string; emulator: boolean } | undefined> {
+  let found: { root: string; emulator: boolean } | undefined;
+  for (const root of androidSdkRoots(host.env, host.env.HOME)) {
+    if (await host.exists(join(root, "emulator"))) return { root, emulator: true };
+    if (!found && (await host.exists(root))) found = { root, emulator: false };
+  }
+  return found;
 }
 
 /** `LinuxHost` on the real machine. */
-export function linuxHost(env: NodeJS.ProcessEnv): LinuxHost {
+export function linuxHost(env: NodeJS.ProcessEnv, arch: string): LinuxHost {
   return {
     env,
+    arch,
     readText: async (path) => {
       try {
         return (await readFile(path, "utf8")).slice(0, 4096);

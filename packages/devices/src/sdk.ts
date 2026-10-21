@@ -26,6 +26,8 @@ export class DeviceError extends Error {
 }
 export type SDKOptions = {
   platform: string;
+  /** The CPU architecture, as `process.arch` names it. */
+  arch?: string;
   home: string;
   env: NodeJS.ProcessEnv;
   probe?: typeof probeOutput;
@@ -41,6 +43,14 @@ export async function resolveAndroidSDK(
     ]);
     if (adb && emulator) return { adb, emulator };
   }
+  // Google's SDK repository has the emulator and platform-tools for x86-64 Linux only, so
+  // there is nothing to install here.
+  if (options.platform === "linux" && options.arch === "arm64")
+    throw new DeviceError(
+      "sdk_missing",
+      "Android emulators aren't available on Linux arm64",
+      "Google publishes the Android Emulator and Platform Tools for x86-64 Linux only; use Android devices from a Mac or an x86-64 Linux machine.",
+    );
   throw new DeviceError(
     "sdk_missing",
     "Android SDK platform-tools and emulator were not found",

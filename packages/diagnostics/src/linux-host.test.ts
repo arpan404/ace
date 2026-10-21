@@ -8,10 +8,12 @@ function machine(options: {
   writable?: string[];
   path?: Record<string, string>;
   env?: Record<string, string>;
+  arch?: string;
 }): LinuxHost {
   const files = options.files ?? {};
   return {
     env: { HOME: "/home/me", ...options.env },
+    arch: options.arch ?? "x64",
     readText: async (path) => files[path],
     exists: async (path) =>
       Object.keys(files).some((file) => file === path || file.startsWith(`${path}/`)),
@@ -98,4 +100,34 @@ it("an Android SDK on a machine with no /dev/kvm points at firmware virtualizati
 it("without an Android SDK, /dev/kvm access is not asked for", async () => {
   const result = await checks(machine({ files: { "/dev/kvm": "" } }));
   expect(result["linux.kvm"]?.status).toBe("ok");
+});
+
+it("an SDK without the Android Emulator says the emulator is missing, not the SDK", async () => {
+  const result = await checks(
+    machine({ files: { "/home/me/Android/Sdk/platform-tools/adb": "", "/dev/kvm": "" } }),
+  );
+  expect(result["linux.kvm"]).toMatchObject({
+    status: "ok",
+    message: "No Android Emulator in the Android SDK; /dev/kvm not needed",
+  });
+});
+
+it("on arm64 Linux the doctor says Google ships no Android Emulator or Platform Tools for it", async () => {
+  // Linux arm64 with a usable /dev/kvm and an SDK holding what sdkmanager could install there.
+  const result = await checks(
+    machine({
+      arch: "arm64",
+      files: {
+        "/home/me/Android/Sdk/cmdline-tools/latest/bin/sdkmanager": "",
+        "/home/me/Android/Sdk/platform-tools/adb": "",
+        "/dev/kvm": "",
+      },
+      writable: ["/dev/kvm"],
+    }),
+  );
+  expect(result["linux.kvm"]).toMatchObject({
+    status: "warn",
+    message: expect.stringContaining("x86-64 Linux only"),
+    fix: expect.stringContaining("x86-64 Linux"),
+  });
 });

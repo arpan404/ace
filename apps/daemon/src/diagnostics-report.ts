@@ -29,7 +29,7 @@ export async function collectDoctorReport(
           browserEngine: (signal) => checkBrowserEngine({ dataDir: config.dataDir, env, signal }),
         }),
       ),
-      ...(process.platform === "linux" ? linuxHostChecks(linuxHost(env)) : []),
+      ...(process.platform === "linux" ? linuxHostChecks(linuxHost(env, process.arch)) : []),
       ...remoteDoctorChecks(config, env),
     ],
     // A real Chrome start (version, then a headless launch) needs more than the 5 s default.

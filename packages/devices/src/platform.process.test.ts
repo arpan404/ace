@@ -159,6 +159,22 @@ it("reports a missing SDK with an actionable typed error", async () => {
     hint: expect.stringContaining("ANDROID_HOME"),
   });
 });
+it("on arm64 Linux a missing SDK says Google ships no emulator for it, not how to install one", async () => {
+  const f = await fixture();
+  const manager = new DevicePlatform({
+    platform: "linux",
+    arch: "arm64",
+    home: join(f.home, "empty"),
+    env: { PATH: "" },
+  });
+  onTestFinished(() => manager.close());
+  await expect(manager.list()).rejects.toMatchObject({
+    code: "sdk_missing",
+    message: expect.stringContaining("arm64"),
+    hint: expect.stringContaining("x86-64 Linux"),
+  });
+});
+
 it("reuses simulator discovery and boot then installs and launches a Simulator app", async () => {
   const f = await fixture("darwin");
   expect(await f.manager.list()).toContainEqual({

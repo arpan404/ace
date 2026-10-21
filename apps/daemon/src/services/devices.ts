@@ -27,6 +27,7 @@ export async function startDevices(context: ServiceContext): Promise<void> {
     new DevicesService({
       platform: new DevicePlatform({
         platform: process.platform,
+        arch: process.arch,
         home: homedir(),
         env: process.env,
         toolsDirectory: join(config.dataDir, "tools"),
