@@ -10,6 +10,9 @@ import {
 } from "@ace/protocol";
 import { z } from "zod";
 import type { PatchSink, Preview } from "./agents.ts";
+import { browserViewState } from "./browser-view.ts";
+import { BrowserToolAction, BrowserTools } from "./browser-tools.ts";
+import { nativeChunks, type ChunkReader } from "./thread-attachments.ts";
 
 /*
  * The thread's live browser view (ADR 0088, #1061). The bridge owns the subscription, the page's
@@ -28,8 +31,6 @@ export type Schedule = (delayMs: number, callback: () => void) => () => void;
 export const nativeVideoCodecs = ["avc1.42E033"] as const;
 /** A watched thread whose browser isn't there yet asks again this often, as the web does. */
 const retryMs = 5_000;
-/** Tabs listed in the view's tab menu; the rest are counted. */
-const tabLimit = 20;
 const subscriberId = "ios-live";
 
 const Viewport = z.object({
@@ -55,11 +56,6 @@ const BrowserAction = z.discriminatedUnion("kind", [
     sequence: z.number().int().nonnegative(),
     keyframe: z.boolean().optional(),
   }),
-  z.object({
-    kind: z.literal("history"),
-    direction: z.enum(["back", "forward", "reload", "stop"]),
-  }),
-  z.object({ kind: z.literal("tab"), tabId: z.string().min(1).max(256) }),
 ]);
 export type BrowserAction = z.infer<typeof BrowserAction>;
 
@@ -72,6 +68,22 @@ export function captureViewport(viewport: z.infer<typeof Viewport>): BrowserCapt
     devicePixelRatio: Math.min(4, Math.max(1, viewport.devicePixelRatio)),
   });
 }
+
+/** What the view reads from the open thread, beyond the browser itself. */
+export interface BrowserThreadContext {
+  /** The agent's display name, for "Claude is using this page". */
+  agentName(threadId: string, agentId: string | undefined): string;
+  /** The thread's project, to open its browser when it has none. */
+  workspaceId(threadId: string): string | undefined;
+  now(): number;
+  read: ChunkReader;
+}
+const noContext: BrowserThreadContext = {
+  agentName: () => "An agent",
+  workspaceId: () => undefined,
+  now: () => 0,
+  read: nativeChunks,
+};
 
 interface Watch {
   threadId: ThreadId;
@@ -95,11 +107,43 @@ export class BrowserLive {
   #probe: { threadId: string; epoch: number } | undefined;
   #requests = 0;
   #stops: (() => void)[] = [];
-  constructor(owner: BrowserOwner, sink: PatchSink, preview: Preview, schedule: Schedule) {
+  #context: BrowserThreadContext;
+  #tools: BrowserTools;
+  constructor(
+    owner: BrowserOwner,
+    sink: PatchSink,
+    preview: Preview,
+    schedule: Schedule,
+    context: BrowserThreadContext = noContext,
+  ) {
     this.#owner = owner;
     this.#sink = sink;
     this.#preview = preview;
     this.#schedule = schedule;
+    this.#context = context;
+    this.#tools = new BrowserTools({
+      owner,
+      sink,
+      preview,
+      schedule,
+      now: () => context.now(),
+      read: context.read,
+      current: () => {
+        const watch = this.#watch;
+        return watch ? { threadId: watch.threadId, state: watch.state } : undefined;
+      },
+      workspaceId: (threadId) => context.workspaceId(threadId),
+      changed: () => {
+        if (this.#watch) this.#putView(this.#watch);
+      },
+      opened: () => {
+        const watch = this.#watch;
+        if (!watch || watch.subscribed) return;
+        watch.retry?.();
+        watch.retry = undefined;
+        this.#subscribe(watch);
+      },
+    });
     this.#stops.push(owner.onMessage((message) => this.#receive(message)));
     const connection = owner.connectionState();
     this.#stops.push(
@@ -156,7 +200,12 @@ export class BrowserLive {
   /** False when the action can't be read or needs an open view that isn't there. */
   action(raw: unknown): boolean {
     const parsed = BrowserAction.safeParse(raw);
-    if (!parsed.success) return false;
+    if (!parsed.success) {
+      const tool = BrowserToolAction.safeParse(raw);
+      if (!tool.success || !this.#watch) return false;
+      this.#tools.handle(tool.data);
+      return true;
+    }
     const action = parsed.data;
     if (action.kind === "probe") {
       this.probe(action.threadId, action.epoch);
@@ -231,26 +280,6 @@ export class BrowserLive {
           // Offline: the subscription ended with the connection.
         }
         return true;
-      case "history": {
-        const tabId = watch.state?.activeTabId;
-        void this.#owner
-          .request({
-            type: "browser.execute",
-            threadId: watch.threadId,
-            command: {
-              action: "history",
-              direction: action.direction,
-              ...(tabId ? { tabId } : {}),
-            },
-          })
-          .catch(() => {});
-        return true;
-      }
-      case "tab":
-        void this.#owner
-          .request({ type: "browser.tabs.select", threadId: watch.threadId, tabId: action.tabId })
-          .catch(() => {});
-        return true;
     }
   }
   /** Stop watching: the daemon stops this viewer's pictures. */
@@ -259,6 +288,7 @@ export class BrowserLive {
     if (!watch) return;
     this.#watch = undefined;
     watch.retry?.();
+    this.#tools.close();
     this.#sink.clear("browser:view");
     this.#sink.clear("browser:page");
     if (this.#owner.state !== "ready") return;
@@ -341,6 +371,7 @@ export class BrowserLive {
       if (state.threadId !== watch.threadId) return;
       const previous = watch.state;
       watch.state = state;
+      this.#tools.observe(state);
       if (
         previous &&
         ((state.closed && !previous.closed) ||
@@ -367,32 +398,21 @@ export class BrowserLive {
     }
   }
   #putView(watch: Watch): void {
-    const preview = this.#preview;
+    const context = this.#context;
     this.#sink.put("browser:view", () => {
       if (this.#watch !== watch) return undefined;
       const state = watch.state;
-      const tabs = state?.tabs ?? [];
       return {
         type: "browser.view",
         threadId: watch.threadId,
         generation: watch.generation,
         error: watch.error ?? null,
         state: state
-          ? {
-              url: preview(state.url, 2048),
-              closed: state.closed,
-              status: state.status ?? "ready",
-              reason: state.reason ? preview(state.reason, 512) : null,
-              loading: state.loading === true,
-              loadError: state.loadError ? preview(state.loadError, 512) : null,
-              activeTabId: state.activeTabId ?? null,
-              tabs: tabs.slice(0, tabLimit).map((tab) => ({
-                id: tab.tabId,
-                title: preview(tab.title || tab.label || tab.url, 120),
-                url: preview(tab.url, 512),
-              })),
-              moreTabs: Math.max(0, tabs.length - tabLimit),
-            }
+          ? browserViewState(state, {
+              preview: this.#preview,
+              agentName: (agentId) => context.agentName(watch.threadId, agentId),
+              navigation: this.#tools.navigation,
+            })
           : null,
       };
     });

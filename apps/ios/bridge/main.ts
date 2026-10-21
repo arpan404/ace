@@ -20,6 +20,8 @@ import { ComposeActions } from "./compose-actions.ts";
 import { NativeServices, NativeServiceAction } from "./native-services.ts";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { BrowserLive } from "./browser-live.ts";
+import { nativeChunks } from "./thread-attachments.ts";
+import { agentName } from "@ace/ui-core";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 
@@ -164,7 +166,14 @@ async function start(json: string): Promise<void> {
   screen = new NativeScreen(featureConfig);
   services = new NativeServices(client, pump, devices, screen);
   terminal = new NativeTerminal(client, pump);
-  browser = new BrowserLive(client, pump, preview, scheduler.set);
+  browser = new BrowserLive(client, pump, preview, scheduler.set, {
+    agentName: (threadId, agentId) =>
+      threadId === openThreadId && agentId ? agentName(lease?.store.agent(agentId)) : "An agent",
+    workspaceId: (threadId) =>
+      threadId === openThreadId ? lease?.store.thread?.workspaceId : undefined,
+    now: () => host.now(),
+    read: nativeChunks,
+  });
   await client.start();
 }
 async function hydrate(
