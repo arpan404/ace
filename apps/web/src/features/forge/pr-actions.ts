@@ -22,6 +22,8 @@ export function usePrActions(props: {
   extensions?: PrWorkspaceExtensions | undefined;
   /** The task whose side panel shows this PR, when there is one. */
   hostThreadId?: string | undefined;
+  /** Opens the panel's own conflict view; GitHub's conflict page when there is none. */
+  openConflicts?: (() => void) | undefined;
 }) {
   const { context } = props;
   const { detail, workspaceId } = context;
@@ -92,6 +94,7 @@ export function usePrActions(props: {
       : undefined;
   const resolveConflicts = () => {
     if (props.extensions?.resolveInWorktree) props.extensions.resolveInWorktree(context);
+    else if (props.openConflicts) props.openConflicts();
     else void openExternal(`${status.url}/conflicts`).catch(() => {});
   };
   return {

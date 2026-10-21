@@ -271,6 +271,26 @@
     {
       "properties": {
         "op": {
+          "const": "stream.configure",
+          "type": "string"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "settings": {
+          "$ref": "https://ace.local/protocol/v1/ScreenStreamSettings.json"
+        }
+      },
+      "required": [
+        "op",
+        "sessionId",
+        "settings"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
           "const": "unsubscribe",
           "type": "string"
         },

@@ -48,6 +48,7 @@ export class TransitionReadiness {
       "SELECT agent_key FROM engine_transition_blockers WHERE thread_id=? LIMIT 1",
     );
     this.keys = db.prepare("SELECT agent_key FROM engine_transition_blockers WHERE thread_id=?");
+    // Reads agent records through `engine_agent_records` (engine-record-indexes.ts).
     db.exec("DELETE FROM engine_transition_blockers");
     for (const row of db
       .prepare("SELECT thread_id,key,value FROM engine_state_records WHERE section='agents'")

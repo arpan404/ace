@@ -485,7 +485,7 @@ export class FakeServicesWire {
                         id: "serve-sim",
                         available: true,
                         detail: "serve-sim 0.1.48",
-                        hint: "Install the pinned version: npm install -g serve-sim@0.1.48",
+                        hint: "Download device tools in Devices: ace keeps its own serve-sim 0.1.48.",
                         version: "0.1.48",
                       },
                       {

@@ -59,6 +59,56 @@ function serialDepth(calls: readonly Call[]): number {
   return Math.max(0, ...depth.values());
 }
 
+/**
+ * The Timeline's reads, as the panel makes them: the first page names the last, then the
+ * newest pages are read back toward the first, four at once. Returns the pages read.
+ */
+async function timelinePages(
+  read: (page: number) => Promise<{ nextPage?: number | undefined; lastPage?: number }>,
+): Promise<number> {
+  const first = await read(1);
+  if (first.lastPage === undefined) {
+    let pages = 1;
+    for (let page = first.nextPage; page !== undefined && pages < 100; pages++)
+      page = (await read(page)).nextPage;
+    return pages;
+  }
+  const last = Math.max(first.lastPage, 1);
+  const queue = Array.from({ length: Math.min(last - 1, 99) }, (_, i) => last - i);
+  await Promise.all(
+    Array.from({ length: 4 }, async () => {
+      for (let page = queue.shift(); page !== undefined; page = queue.shift()) await read(page);
+    }),
+  );
+  return Math.min(last, 100);
+}
+
+/**
+ * Every commit page as the panel reads them: listed pages one after another, each named by
+ * the one before it, beside the older pages the newest page names, three at once.
+ */
+async function commitPages(
+  read: (
+    before: string | undefined,
+  ) => Promise<{ before?: string | undefined; alongside?: string[] | undefined }>,
+): Promise<number> {
+  const newest = await read(undefined);
+  const older = (newest.alongside ?? []).slice(0, 100);
+  let pages = 1 + older.length;
+  const walk = async () => {
+    for (let before = newest.before; before !== undefined && pages < 200; pages++)
+      before = (await read(before)).before;
+  };
+  await Promise.all([
+    walk(),
+    ...Array.from({ length: 3 }, async () => {
+      for (let cursor = older.shift(); cursor !== undefined; cursor = older.shift())
+        await read(cursor);
+    }),
+  ]);
+  return pages;
+}
+
 async function daemonRun() {
   const workspaceId = args.get("workspace");
   if (!workspaceId) throw new Error("--workspace=<id> is required");
@@ -112,17 +162,22 @@ async function daemonRun() {
       return { label, ms: ms(start), error: String(error) };
     }
   };
-  /** Every page of a paged read, one after another, as the panel's queries do. */
-  const paged = async (label: string, operation: Record<string, unknown>, max: number) => {
+  /** Every timeline page, read as the panel reads them. */
+  const timelineRead = async (label: string, operation: Record<string, unknown>) => {
     const start = performance.now();
-    let page: number | undefined = 1;
-    let pages = 0;
-    while (page !== undefined && page <= max) {
+    const pages = await timelinePages(async (page) => {
       const result = await read({ ...operation, page });
-      pages++;
-      const next = "nextPage" in result ? result.nextPage : undefined;
-      page = typeof next === "number" && next > page ? next : undefined;
-    }
+      return result.resource === "prActivity" ? result : {};
+    });
+    return { label, ms: ms(start), pages };
+  };
+  /** Every commit page, read as the panel reads them. */
+  const commitRead = async (label: string, operation: Record<string, unknown>) => {
+    const start = performance.now();
+    const pages = await commitPages(async (before) => {
+      const result = await read({ ...operation, ...(before ? { before } : {}) });
+      return result.resource === "prCommits" ? result : {};
+    });
     return { label, ms: ms(start), pages };
   };
   for (let run = 1; run <= runs; run++) {
@@ -157,18 +212,18 @@ async function daemonRun() {
         baseSha: detail.baseSha,
       }),
       ...(detail.status.state === "merged" || detail.status.state === "closed"
-        ? [paged("forge.pr.activity (all pages)", { op: "forge.pr.activity", ...base }, 120)]
+        ? [timelineRead("forge.pr.activity (all pages)", { op: "forge.pr.activity", ...base })]
         : []),
     ]);
     const summaryMs = ms(summaryStart);
     const timelineStart = performance.now();
     const timeline = await Promise.all([
-      paged(
-        "forge.pr.commits (all pages)",
-        { op: "forge.pr.commits", ...base, headSha: detail.status.headSha },
-        10,
-      ),
-      paged("forge.pr.activity (all pages)", { op: "forge.pr.activity", ...base }, 120),
+      commitRead("forge.pr.commits (all pages)", {
+        op: "forge.pr.commits",
+        ...base,
+        headSha: detail.status.headSha,
+      }),
+      timelineRead("forge.pr.activity (all pages)", { op: "forge.pr.activity", ...base }),
     ]);
     const timelineMs = ms(timelineStart);
     const codeStart = performance.now();
@@ -266,18 +321,22 @@ async function forgeRun() {
       ),
     );
     await measure("prCommits (all pages)", async () => {
-      let page: number | undefined = 1;
-      while (page !== undefined) {
-        const result = await forge.prCommits(number, page, known.status.headSha, signal);
-        page = result.nextPage;
-      }
+      let commits = 0;
+      await commitPages(async (before) => {
+        const result = await forge.prCommits(number, before, known.status.headSha, signal);
+        commits += result.commits.length;
+        return result;
+      });
+      console.log(JSON.stringify({ commits }));
     });
     await measure("prActivity (all pages)", async () => {
-      let page: number | undefined = 1;
-      while (page !== undefined) {
+      let events = 0;
+      await timelinePages(async (page) => {
         const result = await forge.prActivity(number, page, signal);
-        page = result.nextPage;
-      }
+        events += result.events.length;
+        return result;
+      });
+      console.log(JSON.stringify({ events }));
     });
     // The panel's own sequence: first paint, then the Summary's reads side by side.
     const opened = performance.now();

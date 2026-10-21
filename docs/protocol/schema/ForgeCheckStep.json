@@ -1,0 +1,45 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeCheckStep.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "line": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "name": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "number": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "pending",
+        "success",
+        "failure",
+        "cancelled",
+        "skipped",
+        "unknown"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "number",
+    "name",
+    "status",
+    "line"
+  ],
+  "type": "object"
+}

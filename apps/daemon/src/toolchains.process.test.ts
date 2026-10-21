@@ -28,13 +28,13 @@ it("a Mac lists serve-sim after Xcode with its version, ready only at a version 
   expect(old.find((tool) => tool.id === "serve-sim")).toMatchObject({
     available: false,
     version: "0.0.9",
-    hint: expect.stringContaining("npm install -g serve-sim@"),
+    hint: expect.stringContaining("Download device tools"),
   });
 
   const missing = await daemonToolchains({ PATH: await pathWithServeSim() }, "darwin");
   expect(missing.find((tool) => tool.id === "serve-sim")).toMatchObject({
     available: false,
-    detail: "serve-sim not found",
+    detail: "serve-sim not downloaded",
   });
 });
 

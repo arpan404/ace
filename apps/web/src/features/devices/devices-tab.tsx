@@ -230,6 +230,17 @@ export function DevicesTab(props: { threadId: string }) {
             className="px-2 text-sm text-muted-foreground"
           />
         ))}
+        {(view.toolsMissing || view.downloadingTools) && (
+          <Button
+            size="sm"
+            variant="secondary"
+            className="self-start"
+            disabled={view.downloadingTools}
+            onClick={devices.downloadTools}
+          >
+            {view.downloadingTools ? "Downloading device tools…" : "Download device tools"}
+          </Button>
+        )}
         <div className="mt-auto px-2">
           <ToolReadiness onSetUp={() => setSetUp(true)} />
         </div>

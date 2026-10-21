@@ -162,6 +162,8 @@ export const DeviceOperation = z.discriminatedUnion("op", [
    * matching Privacy & Security pane in System Settings. Human only.
    */
   z.object({ op: z.literal("permissions.request"), permission: DevicePermission }),
+  /** Download the device tools ace runs (serve-sim on a Mac, the scrcpy server), if missing. */
+  z.object({ op: z.literal("tools.install") }),
   z.object({ op: z.literal("boot"), ...target }),
   z.object({ op: z.literal("shutdown"), ...target }),
   z.object({ op: z.literal("install"), ...target, path: z.string().min(1).max(4096) }),

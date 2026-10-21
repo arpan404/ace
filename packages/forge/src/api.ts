@@ -73,14 +73,17 @@ export interface ForgeBrowser {
     number: number,
     signal: AbortSignal,
   ): Promise<import("@ace/protocol/forge-browser").ForgePrDetail>;
+  /** One page of a PR's commits, newest page first; `before` names the page older than it. */
   prCommits(
     number: number,
-    page: number,
+    before: string | undefined,
     headSha: string,
     signal: AbortSignal,
   ): Promise<{
     commits: import("@ace/protocol/forge-browser").ForgeCommit[];
-    nextPage?: number | undefined;
+    before?: string | undefined;
+    alongside?: string[] | undefined;
+    total?: number | undefined;
     truncated: boolean;
   }>;
   prFiles(
@@ -93,4 +96,14 @@ export interface ForgeBrowser {
     },
     signal: AbortSignal,
   ): Promise<import("@ace/protocol/forge-browser").ForgePrFiles>;
+  /** One side of a changed file at a commit, for a diff GitHub withheld. */
+  fileContent(
+    input: {
+      sha: string;
+      path: string;
+      page: number;
+      image?: import("@ace/protocol/forge-file-content").ForgeImageType | undefined;
+    },
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol/forge-file-content").ForgeFileContent>;
 }

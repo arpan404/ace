@@ -7,6 +7,7 @@ import {
   type SourceControlSelection,
 } from "@ace/protocol";
 import { prBasePreparation, prReviewContext, type PrRemotes } from "./pr-worktree-resolution.ts";
+import { readPrConflicts, runPrConflictStep } from "./pr-conflicts.ts";
 import type { ForgePrStatus, ForgeRepository } from "@ace/protocol";
 import type { CreationWorkspace } from "./creation-workspace.ts";
 import { decodeProjectRow, projectSelect } from "./project-storage.ts";
@@ -402,7 +403,9 @@ export class WorkspaceRuntime {
       op.op === "forge.open-work" ||
       op.op === "forge.pr.detail" ||
       op.op === "forge.pr.commits" ||
-      op.op === "forge.pr.files"
+      op.op === "forge.pr.files" ||
+      op.op === "forge.pr.check" ||
+      op.op === "forge.file.content"
     ) {
       if (
         op.op === "forge.pr.stack" &&
@@ -524,6 +527,14 @@ export class WorkspaceRuntime {
       );
     if (op.op === "thread.details")
       return wrap({ kind: "details", details: await this.details(op.threadId) });
+    if (op.op === "git.conflicts") {
+      const held = this.reviewedPullRequest(op.threadId);
+      const conflicts = await readPrConflicts(
+        { git: this.git, cwd: this.root(op.threadId), held },
+        op.pr,
+      );
+      return wrap({ kind: "gitConflicts", conflicts });
+    }
     if (op.op === "git.diff") {
       const root = this.root(op.threadId);
       const diff = await this.git.diff({
@@ -590,6 +601,11 @@ export class WorkspaceRuntime {
         if (!cwd) return { ok: false, error: "workspace_not_found" };
         return this.forge.hostedReview({ ...command, payload: p }, cwd, allowed);
       }
+      if (p.type === "forge.hosted.checks") {
+        const cwd = this.store.getWorkspacePath(p.workspaceId);
+        if (!cwd) return { ok: false, error: "workspace_not_found" };
+        return this.forge.hostedChecks({ ...command, payload: p }, cwd, allowed);
+      }
       const id = "threadId" in p ? p.threadId : "link" in p ? p.link.threadId : undefined;
       if (!id) throw new Error("invalid_command");
       const threadId = ThreadId.parse(id);
@@ -644,6 +660,22 @@ export class WorkspaceRuntime {
       const review = this.reviewedPullRequest(threadId);
       const asPerson = <T>(operation: () => Promise<T>) =>
         review ? this.git.asReviewer(operation) : this.git.asPerson(operation);
+      if (p.type === "git.conflicts")
+        return runPrConflictStep(
+          {
+            git: this.git,
+            cwd,
+            held: review,
+            remote: this.options.prRemote,
+            hostAliases: this.options.sourceControl?.hostAliases.bind(this.options.sourceControl),
+            allowed: () => {
+              if (!allowed()) throw new Error("forbidden");
+            },
+            signal: this.prLifetime.signal,
+          },
+          p.pr,
+          p.step,
+        );
       if (p.type === "git.commit")
         return {
           ok: true,

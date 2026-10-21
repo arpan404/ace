@@ -222,7 +222,7 @@ export async function backendFixture(
   connection.on("close", () => backend.disconnect("Desktop disconnected"));
   const pages = new Map<string, FakePage>();
   const requests = new EventEmitter();
-  let hold: string | undefined;
+  let held = new Set<string>();
   let redirectUrl: string | undefined;
   let openError: string | undefined;
   const sendEvent = (sessionId: string, method: string, params: unknown) =>
@@ -245,9 +245,12 @@ export async function backendFixture(
     requests.emit(op.kind === "cdp" ? op.method : op.kind, message);
     if (op.kind === "cdp" && op.method === "ace.tabs.cdp" && typeof op.params?.method === "string")
       requests.emit(op.params.method, message);
+    // `hold` names CDP methods, or operations such as `close`, the desktop leaves unanswered.
     if (
-      op.kind === "cdp" &&
-      (hold === op.method || (op.method === "ace.tabs.cdp" && hold === op.params?.method))
+      op.kind === "cdp"
+        ? held.has(op.method) ||
+          (op.method === "ace.tabs.cdp" && held.has(String(op.params?.method)))
+        : held.has(op.kind)
     )
       return;
     let result: unknown = {};
@@ -352,11 +355,11 @@ export async function backendFixture(
     pressure() {
       pressured = true;
     },
-    hold(method: string) {
-      hold = method;
+    hold(...methods: string[]) {
+      held = new Set(methods);
     },
     releaseHold() {
-      hold = undefined;
+      held = new Set();
     },
     reply(request: import("@ace/protocol").BrowserBackendRequest, result: unknown) {
       desktop.send(

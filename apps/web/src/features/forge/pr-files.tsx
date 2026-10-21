@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ForgeFile, ForgePrDetail, ForgeRepository } from "@ace/protocol";
 import { useFileChanges } from "@/lib/diffs/use-file-diffs.ts";
 import { useScopeWorkspace } from "@/lib/workspace/index.ts";
@@ -14,7 +14,9 @@ import {
 } from "@/features/panels/index.ts";
 import { usePrCommits } from "./pr-commits.tsx";
 import { codeCaveats, hostedFileChanges, offDiffThreads } from "./pr-code-model.ts";
-import { PrCodeFile } from "./pr-code-file.tsx";
+import { PrCodeFile, type HostedFileRead } from "./pr-code-file.tsx";
+import { hostedFileShow, renderedKind } from "./pr-file-kind.ts";
+import { sideTexts, usePrFileSides } from "./pr-file-sides.ts";
 import { PrCodeToolbar, type CodeOptions } from "./pr-code-toolbar.tsx";
 import type { PrDiffContext, PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { usePrFilePages } from "./pr-file-pages.ts";
@@ -89,7 +91,25 @@ function PrCodeRange(
   const pages = usePrFilePages(props);
   const range = pages.range;
   const files = range?.files ?? noFiles;
-  const inputs = useMemo(() => hostedFileChanges(files), [files]);
+  // Files whose two sides are read: withheld patches as they near the viewport (or when asked),
+  // and rendered documents.
+  const [wanted, setWanted] = useState<ReadonlySet<string>>(noPaths);
+  const want = useCallback(
+    (path: string) =>
+      setWanted((previous) => (previous.has(path) ? previous : new Set(previous).add(path))),
+    [],
+  );
+  // Markdown and notebooks draw rendered; these paths show their source diff instead.
+  const [sources, setSources] = useState<ReadonlySet<string>>(noPaths);
+  const read = usePrFileSides({
+    workspaceId: props.workspaceId,
+    repository: props.repository,
+    range,
+    files,
+    wanted,
+  });
+  const texts = useMemo(() => sideTexts(read.sides), [read.sides]);
+  const inputs = useMemo(() => hostedFileChanges(files, texts), [files, texts]);
   const diffs = useFileChanges(inputs);
   const byPath = useMemo(() => new Map(diffs.files.map((diff) => [diff.path, diff])), [diffs]);
   const context: PrDiffContext | undefined = range && { ...props.context, files: range };
@@ -131,7 +151,6 @@ function PrCodeRange(
   const complete = pages.more === "done";
   const caveats = codeCaveats({
     viewed: marks.availability,
-    withheld: files.some((file) => file.patch === null || file.truncated),
     truncated: range?.truncated ?? false,
     commitsTruncated: props.commits.data?.truncated ?? false,
   });
@@ -142,6 +161,22 @@ function PrCodeRange(
   // A single commit's total is known only once its pages are read; the PR's comes with it.
   const fileCount = props.commit ? files.length : props.detail.changedFiles;
   const rows = diffs.files.reduce((sum, diff) => sum + diff.rows.length, 0);
+  const readOf = (file: ForgeFile): HostedFileRead => ({
+    show: hostedFileShow(file),
+    rendered: renderedKind(file.path),
+    source: sources.has(file.path),
+    onSource: (source) =>
+      setSources((previous) => {
+        const next = new Set(previous);
+        if (source) next.add(file.path);
+        else next.delete(file.path);
+        return next;
+      }),
+    sides: read.sides.get(file.path),
+    root: scroller,
+    onWant: () => want(file.path),
+    onRetry: read.retry,
+  });
   const renderFile = (file: ForgeFile, index: number) => {
     const diff = byPath.get(file.path);
     return (
@@ -158,6 +193,7 @@ function PrCodeRange(
           mode={props.options.mode}
           wrap={props.options.wrap}
           mark={markByPath.get(file.path)}
+          read={readOf(file)}
         />
       )
     );
@@ -276,4 +312,5 @@ function PrCodeRange(
 
 const pathOf = (file: ForgeFile) => file.path;
 const noFiles: readonly ForgeFile[] = [];
+const noPaths: ReadonlySet<string> = new Set();
 const noComments: ReadonlyMap<string, number> = new Map();

@@ -227,7 +227,7 @@ export function PrOverflowMenu(props: {
               </MenuSub>
             )
           )}
-          {status.state === "open" && actions.threadId && (
+          {status.state === "open" && (
             <MenuItem
               icon={icon(UserPlusIcon)}
               disabled={writes.fenced || context.disabled}

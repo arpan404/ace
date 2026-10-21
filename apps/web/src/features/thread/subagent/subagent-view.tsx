@@ -201,6 +201,7 @@ function SubagentBottom(props: { threadId: string; agent: Agent; root: boolean }
                   agent={agent}
                   pending
                   variant="ghost"
+                  feedback="toast"
                   className={barAction}
                   subagents={node ? countSubagents(node) : 0}
                 />

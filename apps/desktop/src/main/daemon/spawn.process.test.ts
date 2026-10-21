@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
+import { daemonLaunchPolicy, systemLaunchPort } from "./launch-priority.ts";
 import { spawnDaemon } from "./spawn.ts";
 
 const roots: string[] = [];
@@ -57,3 +58,40 @@ it("passes on each output line with its stream, including a last line without a 
     ["stdout", "second line"],
   ]);
 });
+
+it.runIf(process.platform === "darwin")(
+  "runs the daemon's event loop at the user-interactive priority on macOS, still signalled as the daemon",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-spawn-"));
+    roots.push(root);
+    const entry = join(root, "ace.mjs");
+    // The daemon stand-in reports its own main-thread priority, then waits to be stopped.
+    await writeFile(
+      entry,
+      [
+        'import { execFileSync } from "node:child_process";',
+        'const pri = execFileSync("/bin/ps", ["-o", "pri=", "-p", String(process.pid)]);',
+        'console.log("priority " + String(pri).trim());',
+        "setInterval(() => {}, 1000);",
+      ].join("\n"),
+    );
+    const output: string[] = [];
+    const child = spawnDaemon({
+      home: root,
+      resources: { entry, node: process.execPath, packaged: false },
+      path: "",
+      version: "0.0.0",
+      env: {},
+      onOutput: (line) => output.push(line),
+      prioritize: daemonLaunchPolicy(systemLaunchPort()),
+    });
+    const exit = new Promise<unknown[]>((resolve) => child.onExit((...args) => resolve(args)));
+    try {
+      await vi.waitFor(() => expect(output).toContain("priority 46"), { timeout: 10_000 });
+    } finally {
+      child.kill("SIGTERM");
+    }
+    // taskpolicy replaced itself with the daemon, so the signal reaches the daemon itself.
+    expect(await exit).toEqual([null, "SIGTERM"]);
+  },
+);

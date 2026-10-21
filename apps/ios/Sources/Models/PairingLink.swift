@@ -63,7 +63,7 @@ struct Grants: Sendable, Equatable {
     var canOperate: Bool { scopes.contains("operate") || scopes.contains("admin") }
     var summary: String {
         if scopes.isEmpty { return "Chosen by your computer" }
-        if scopes.contains("admin") { return "Administrator" }
-        return canOperate ? "View and act" : "View only"
+        let access = scopes.contains("admin") ? "Administrator" : canOperate ? "View and act" : "View only"
+        return ([access] + (scopes.contains("projects") ? ["Projects"] : []) + (scopes.contains("accounts") ? ["Accounts"] : [])).joined(separator: " · ")
     }
 }
