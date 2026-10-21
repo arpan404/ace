@@ -99,11 +99,16 @@ test("a subagent group reads working while its child still runs after the parent
     () => rows("thread.block").find((row) => row.kind === "subagents"),
     "a subagent group",
   );
-  const agents = group.agents as { entries: { state: string; agentId: string }[]; status: string };
+  const agents = group.agents as {
+    entries: { state: string; agentId: string }[];
+    status: string;
+    counts: { text: string; token: string }[];
+  };
   expect(agents.entries).toHaveLength(1);
   expect(agents.entries[0]?.state).toBe("working");
   expect(agents.entries[0]?.agentId).not.toBe("");
   expect(agents.status).toBe("1 working");
+  expect(agents.counts).toEqual([{ text: "1 working", token: "working" }]);
 });
 
 test("while the agent works a send queues by default and steers when the person asks", async () => {
@@ -131,6 +136,32 @@ test("while the agent works a send queues by default and steers when the person 
   );
   await until(() => commands("thread.send").length === 2, "both sends on the wire");
   expect(commands("thread.send").map((payload) => payload.delivery)).toEqual(["queue", "steer"]);
+});
+
+test("while the main agent only waits on its subagents a message goes in now", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "wait", workspaceId: "ace", title: "Wait", provider: "codex" });
+  fake.apply("wait", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Review it."),
+    facts.tool("root", "spawn", {
+      kind: "agent.spawn",
+      title: "Review PID reuse",
+      detail: { kind: "agent.spawn", description: "Review PID reuse", childAgent: "reviewer" },
+    }),
+    facts.subagent("codex", "reviewer", "Reviewer", "spawn"),
+    facts.turn("reviewer", "spawn"),
+    facts.endTurn("root"),
+  ]);
+  const thread = open(connect(fake), "wait");
+  await until(
+    () => (latest("thread.controls")?.row as { delivery?: string })?.delivery === "steer",
+    "a send that goes in now",
+  );
+  thread.handle({ type: "send", text: "Also check the docs", opposite: false, requestId: "now-1" });
+  await until(() => commands("thread.send").length === 1, "the send on the wire");
+  expect(commands("thread.send")[0]?.delivery).toBe("steer");
 });
 
 test("Stop interrupts the whole tree of the running turn", async () => {

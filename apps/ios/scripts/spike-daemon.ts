@@ -7,6 +7,7 @@ import { oversizedScenario, approvalRetryScenario } from "./review-scenarios.ts"
 import { manyActions, snapshotFrames } from "./many-actions.ts";
 import { LostReceipt } from "./lost-receipt.ts";
 import { threadScenarios } from "./thread-scenarios.ts";
+import { waitingScenario } from "./waiting-scenario.ts";
 import { RequestScenario, requestScenarios, seedRequest } from "./request-scenarios.ts";
 import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
@@ -137,6 +138,7 @@ daemon.command({
 });
 
 threadScenarios(daemon, details);
+waitingScenario(daemon, details);
 seedArchive(daemon, Date.now(), Number(process.env.ACE_IOS_SPIKE_NAP_MS ?? 90_000));
 seedProjects(daemon);
 seedNativeMedia(daemon);
