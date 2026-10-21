@@ -3,7 +3,6 @@ import type { ForgePrRef, ForgeRepository } from "@ace/protocol";
 import { PullRequestOpener } from "@/components/pull-request-link.tsx";
 import { PrDetail } from "@/features/forge/index.ts";
 import { Screen } from "@/features/shell/index.ts";
-import { useSidebarInline } from "@/lib/breakpoints.ts";
 import { useForgeBrowse } from "./browse-context.tsx";
 
 /** `github.com/acme/ace`: a repository in an address, for a PR outside the project's own. */
@@ -31,7 +30,6 @@ export function PullRequestPage(props: {
 }) {
   const browse = useForgeBrowse();
   const navigate = useNavigate();
-  const wide = useSidebarInline();
   const open = (pr: ForgePrRef) =>
     void navigate({
       to: "/pulls/$project/$number",
@@ -55,7 +53,6 @@ export function PullRequestPage(props: {
               search: (current) => ({ repo: current.repo }),
             })
           }
-          {...(wide ? {} : { onBack: () => void navigate({ to: "/pulls" }) })}
         />
       </PullRequestOpener>
     </Screen>

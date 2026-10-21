@@ -1,23 +1,16 @@
-import {
-  ArrowLeftIcon,
-  ArrowSquareOutIcon,
-  ChatsCircleIcon,
-  CopyIcon,
-} from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, ChatsCircleIcon, CopyIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { ForgeIssueDetail } from "@ace/protocol";
 import { Icon } from "@/components/icon.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { openExternal } from "@/boot/open-external.ts";
 import { PrAvatar, PrTime } from "@/features/forge/index.ts";
 import { Screen } from "@/features/shell/index.ts";
-import { useSidebarInline } from "@/lib/breakpoints.ts";
 import { useForgeBrowse } from "./browse-context.tsx";
 import { IssueActionsStrip } from "./issue-actions-strip.tsx";
 import { IssueComposer } from "./issue-composer.tsx";
@@ -81,18 +74,11 @@ function Threads(props: { project: string; issue: ForgeIssueDetail }) {
   );
 }
 
-function IssueBody(props: {
-  project: string;
-  issue: ForgeIssueDetail;
-  onBack?: (() => void) | undefined;
-}) {
+function IssueBody(props: { project: string; issue: ForgeIssueDetail }) {
   const { issue } = props;
   const writes = useIssueWrites(props.project, issue.ref.repository);
   return (
     <div className="mx-auto w-full max-w-(--column) px-4 pt-6 pb-16 sm:px-8 sm:pt-10">
-      {props.onBack && (
-        <IconButton icon={ArrowLeftIcon} label="Back to issues" onClick={props.onBack} />
-      )}
       <h2 className="text-2xl font-semibold tracking-title text-foreground">
         {issue.title}{" "}
         <span className="font-normal text-subtle-foreground">#{issue.ref.number}</span>
@@ -128,12 +114,9 @@ function IssueBody(props: {
 /** One issue as a page: its description, conversation and the actions GitHub allows. */
 export function IssuePage(props: { project: string; number: number }) {
   const browse = useForgeBrowse();
-  const navigate = useNavigate();
-  const wide = useSidebarInline();
   const toast = useToast();
   const query = useIssueDetail(props.project, props.number);
   const issue = query.data;
-  const onBack = wide ? undefined : () => void navigate({ to: "/issues" });
   return (
     <Screen
       title="Issues"
@@ -167,7 +150,7 @@ export function IssuePage(props: { project: string; number: number }) {
     >
       <div className="h-full overflow-y-auto">
         {issue ? (
-          <IssueBody project={props.project} issue={issue} onBack={onBack} />
+          <IssueBody project={props.project} issue={issue} />
         ) : query.isError ? (
           <EmptyState
             title={`Couldn't open issue #${props.number}`}
