@@ -22,7 +22,7 @@ import UIKit
         "subtleForeground": .init(light: 0x69696F, dark: 0x8B8B93),
         "separator": .init(light: 0xE9E9EC, dark: 0x26262A),
         "fill": .init(light: 0xF2F2F4, dark: 0x1F1F23),
-        "accent": .init(light: 0x3065CC, dark: 0x7AA2F7),
+        "accent": .init(light: 0x1F1F22, dark: 0xECECEE),
         "onAccent": .init(light: 0xFFFFFF, dark: 0x0A0A0B),
     ]
     /// Editable colours resolve through the injected model so saves and resets
@@ -63,7 +63,7 @@ import UIKit
         }
         static let glass = adaptive(0xFFFFFF, 0x1C1C1F)
         static var accent: Color {
-            let pair = NativePaletteBridge.pair(for: "accent", light: 0x3065CC, dark: 0x7AA2F7)
+            let pair = NativePaletteBridge.pair(for: "accent", light: 0x1F1F22, dark: 0xECECEE)
             return adaptive(pair.light, pair.dark)
         }
         static var onAccent: Color {
@@ -151,13 +151,13 @@ import UIKit
     }
     struct TypeStyle: Sendable { let size: CGFloat; let lineHeight: CGFloat; let weight: CGFloat; let tracking: CGFloat }
     enum Typography {
-        static let caption = TypeStyle(size: 12, lineHeight: 16, weight: 400, tracking: 0)
-        static let label = TypeStyle(size: 12.5, lineHeight: 17, weight: 600, tracking: 0)
-        static let body = TypeStyle(size: 15.5, lineHeight: 22.5, weight: 400, tracking: -0.15)
-        static let rowTitle = TypeStyle(size: 16, lineHeight: 22, weight: 600, tracking: -0.16)
-        static let title = TypeStyle(size: 17, lineHeight: 23, weight: 600, tracking: -0.17)
-        static let wordmark = TypeStyle(size: 22, lineHeight: 28, weight: 700, tracking: -0.44)
-        static let code = TypeStyle(size: 12.5, lineHeight: 19, weight: 400, tracking: 0)
+        static let caption = TypeStyle(size: 13, lineHeight: 17, weight: 400, tracking: 0)
+        static let label = TypeStyle(size: 14, lineHeight: 19, weight: 500, tracking: 0)
+        static let body = TypeStyle(size: 16, lineHeight: 23, weight: 400, tracking: -0.16)
+        static let rowTitle = TypeStyle(size: 17, lineHeight: 22, weight: 500, tracking: -0.17)
+        static let title = TypeStyle(size: 18, lineHeight: 23, weight: 700, tracking: -0.18)
+        static let wordmark = TypeStyle(size: 25, lineHeight: 30, weight: 700, tracking: -0.5)
+        static let code = TypeStyle(size: 13, lineHeight: 19, weight: 400, tracking: 0)
     }
     static func fontWeight(_ value: CGFloat) -> Font.Weight {
         switch value {
