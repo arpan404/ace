@@ -1,5 +1,10 @@
 import { ForgeLifecycleState } from "./forge-lifecycle.ts";
-import { ForgeIssueOperations, ForgeIssueResults, ForgeIssueRow } from "./forge-issues.ts";
+import {
+  ForgeIssueOperations,
+  ForgeIssueResults,
+  ForgeIssueRow,
+  ForgeSearchLogin,
+} from "./forge-issues.ts";
 import { ForgeMergeState } from "./forge-merge-state.ts";
 import { ForgeStackMembership, ForgeStackWorkspace } from "./forge-stacks.ts";
 import { ForgeReviewState } from "./forge-review.ts";
@@ -31,16 +36,9 @@ export const ForgePrSearch = z.object({
   /** `failure`: only PRs whose head commit's checks failed. */
   ci: z.enum(["any", "failure"]).default("any"),
   search: z.string().max(256).default(""),
-  author: z
-    .string()
-    .regex(/^[\w-]*$/)
-    .max(100)
-    .default(""),
-  reviewer: z
-    .string()
-    .regex(/^[\w-]*$/)
-    .max(100)
-    .default(""),
+  author: ForgeSearchLogin,
+  /** Review requested from this login. */
+  reviewer: ForgeSearchLogin,
   sort: z.enum(["created", "updated", "comments"]).default("updated"),
   order: z.enum(["asc", "desc"]).default("desc"),
   page: z.number().int().min(1).max(40).default(1),

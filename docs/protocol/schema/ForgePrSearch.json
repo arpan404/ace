@@ -3,10 +3,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "author": {
-      "default": "",
-      "maxLength": 100,
-      "pattern": "^[\\w-]*$",
-      "type": "string"
+      "$ref": "https://ace.local/protocol/v1/ForgeSearchLogin.json"
     },
     "ci": {
       "default": "any",
@@ -31,10 +28,7 @@
       "type": "integer"
     },
     "reviewer": {
-      "default": "",
-      "maxLength": 100,
-      "pattern": "^[\\w-]*$",
-      "type": "string"
+      "$ref": "https://ace.local/protocol/v1/ForgeSearchLogin.json"
     },
     "search": {
       "default": "",

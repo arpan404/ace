@@ -3,11 +3,13 @@ import { ForgeRepository } from "./forge.ts";
 import { CommandId, ThreadId, WorkspaceId } from "./ids.ts";
 
 const text = z.string().max(65_536);
-const login = z
+/** A search filter's login, or `@me`, which GitHub resolves to the account `gh` signed in as. */
+export const ForgeSearchLogin = z
   .string()
-  .regex(/^[\w-]*$/)
+  .regex(/^(@me|[\w-]*)$/)
   .max(100)
   .default("");
+const login = ForgeSearchLogin;
 export const ForgeIssueRef = z.object({
   repository: ForgeRepository,
   number: z.number().int().positive(),

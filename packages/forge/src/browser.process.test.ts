@@ -153,6 +153,49 @@ test("repository search keeps literal words scoped and returns counts, draft row
   }
 });
 
+test("a search for your own PRs or reviews asked of you leaves GitHub to resolve @me", async () => {
+  for (const [filter, qualifier] of [
+    [{ author: "@me" }, "author:@me"],
+    [{ reviewer: "@me" }, "review-requested:@me"],
+  ] as const) {
+    const params = new URLSearchParams({
+      q: `repo:octo/ace is:pr is:open draft:false ${qualifier}`,
+      sort: "updated",
+      order: "desc",
+      per_page: "25",
+      page: "1",
+    });
+    const f = await fakeGh({
+      [`search/issues?${params}`]: [
+        { body: { total_count: 1, incomplete_results: false, items: [row] } },
+      ],
+      graphql: [
+        {
+          body: {
+            data: {
+              ...counts.data,
+              repository: {
+                p0: {
+                  comments: { totalCount: 0 },
+                  reviews: { totalCount: 0 },
+                  statusCheckRollup: null,
+                },
+              },
+            },
+          },
+        },
+      ],
+    });
+    try {
+      const result = await f.forge.listPrs(ForgePrSearch.parse(filter), signal());
+      expect(result.items.map((item) => item.ref.number)).toEqual([7]);
+    } finally {
+      await f.cleanup();
+    }
+  }
+  expect(ForgePrSearch.safeParse({ author: "@you" }).success).toBe(false);
+});
+
 test("an active search finds open PRs drafts included, and a failing-checks search asks GitHub for failures", async () => {
   const query = ForgePrSearch.parse({ state: "active", ci: "failure" });
   const params = new URLSearchParams({
