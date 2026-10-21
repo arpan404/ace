@@ -100,14 +100,20 @@ import XCTest
     func testMachineSettingsAndUsageLoadThroughTheSharedSdk() {
         let app = launch()
         XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 30)); app.openBrowseDestination("library.usage")
-        XCTAssertTrue(app.staticTexts["Input tokens"].firstMatch.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["Tokens"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["62% left"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.descendants(matching: .any)["service.problem"].exists)
+        app.buttons["Tokens"].tap()
+        XCTAssertTrue(app.staticTexts["Input tokens"].firstMatch.waitForExistence(timeout: 20))
+        app.buttons["Limits"].tap()
+        XCTAssertTrue(app.staticTexts["62% left"].waitForExistence(timeout: 20))
         capture("usage")
         app.navigationBars.buttons["BackButton"].firstMatch.tap()
         app.openBrowseDestination("settings.machines")
         app.buttons["machines.row.ios-spike-host"].tap()
-        for _ in 0..<6 where !app.buttons["Threads"].isHittable { app.swipeUp() }
-        app.buttons["Threads"].tap()
+        // The tab bar keeps its own Threads tab: scope the row to the pushed list.
+        for _ in 0..<6 where !app.collectionViews.buttons["Threads"].isHittable { app.swipeUp() }
+        app.collectionViews.buttons["Threads"].tap()
         XCTAssertTrue(app.switches["setting.threads.forkOnSwitch"].waitForExistence(timeout: 15))
         capture("machine-settings")
     }

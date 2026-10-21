@@ -4,7 +4,7 @@ import { createContext, memo, useContext, useRef, type ReactNode } from "react";
 import { codeFileReference, fileTextSpans } from "@ace/ui-core/file-references";
 import { ThreadReference, ThreadReferenceScope } from "../thread-reference.tsx";
 import { MarkdownImage } from "@/components/attachment-markdown.tsx";
-import { codeSpanClass } from "@/components/inline-markdown.tsx";
+import { CodeText, codeSpanClass } from "@/components/inline-markdown.tsx";
 import { FileReferenceLink } from "@/components/file-reference.tsx";
 import { PullRequestLink, pullRequestAt } from "@/components/pull-request-link.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -71,7 +71,12 @@ function CodeSpan(props: { text: string }): ReactNode {
   const scoped = useContext(ThreadReferenceScope) !== undefined;
   const writing = useContext(Writing);
   const reference = scoped && !writing ? codeFileReference(props.text) : undefined;
-  if (!reference) return <code className={codeSpanClass}>{props.text}</code>;
+  if (!reference)
+    return (
+      <code className={codeSpanClass}>
+        <CodeText text={props.text} />
+      </code>
+    );
   return <FileReferenceLink text={props.text} reference={reference} code />;
 }
 

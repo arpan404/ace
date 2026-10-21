@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  CheckIcon,
   EyeIcon,
   GitMergeIcon,
   LinkIcon,
@@ -33,9 +32,6 @@ const icons: Record<PrPrimary["kind"], Icon | undefined> = {
   merge: GitMergeIcon,
   none: undefined,
 };
-
-/** Labels fold away below this panel width; the icon and its tooltip stay. */
-const label = "@max-[32rem]/pr:sr-only";
 
 function StateBadge(props: { primary: PrPrimary; text: string }) {
   const merged = props.primary.kind === "state" && props.primary.state === "merged";
@@ -92,7 +88,7 @@ export function PrPrimaryButton(props: {
   if (primary.kind === "auto-merge-armed")
     return (
       <span className="inline-flex items-center gap-1">
-        <StateBadge primary={primary} text={text} />
+        <span className="text-xs text-muted-foreground">{text}</span>
         {props.onDisable && (
           <Button
             size="xs"
@@ -112,7 +108,6 @@ export function PrPrimaryButton(props: {
     primary.kind === "merge" ||
     primary.kind === "auto-merge" ||
     primary.kind === "auto-merge-ready";
-  const Glyph = confirming ? CheckIcon : (icons[primary.kind] ?? GitMergeIcon);
   const shown = props.working
     ? primary.kind === "merge"
       ? "Merging…"
@@ -125,10 +120,13 @@ export function PrPrimaryButton(props: {
   const button = (
     <Button
       size="xs"
+      // Words, not chrome: merging is the one filled action; auto-merge is a text action.
       variant={
-        primary.kind === "resolve" || primary.kind === "link" || primary.kind === "blocked"
-          ? "secondary"
-          : "primary"
+        primary.kind === "auto-merge" || primary.kind === "auto-merge-ready"
+          ? "ghost"
+          : primary.kind === "resolve" || primary.kind === "link" || primary.kind === "blocked"
+            ? "secondary"
+            : "primary"
       }
       tone={primary.kind === "resolve" ? "danger" : "default"}
       disabled={props.blocked !== undefined || props.working}
@@ -140,8 +138,7 @@ export function PrPrimaryButton(props: {
         props.onRun();
       }}
     >
-      <Glyph aria-hidden size={14} />
-      <span className={label}>{shown}</span>
+      {shown}
     </Button>
   );
   // One wrapper whether or not it's blocked, so the button keeps its identity as state changes.

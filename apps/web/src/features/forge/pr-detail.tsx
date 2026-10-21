@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrActivity } from "./pr-activity.tsx";
 import { PrHeader } from "./pr-header.tsx";
+import { PrPageHeader } from "./pr-page-header.tsx";
 import { PrSummary } from "./pr-summary.tsx";
 import { PrComposer } from "./pr-composer.tsx";
 import { PrChecksPill } from "./pr-presentation.tsx";
@@ -204,6 +205,18 @@ function PrDetailLoaded(props: {
         ?.click();
   };
   const editable = !!actions.lifecycle.snapshot?.editableFields.length;
+  const menu = (
+    <PrOverflowMenu
+      actions={actions}
+      extensions={props.extensions}
+      hostThreadId={props.hostThreadId}
+      refreshing={props.refreshing}
+      onRefresh={refresh}
+      onEdit={() => setDialog("edit")}
+      onRevert={() => setDialog("revert")}
+      onRequestReview={() => setDialog("review")}
+    />
+  );
   const canRequestReview = detail.status.state === "open";
   return (
     // Shortcuts work anywhere in the panel; `contents` keeps the layout the article's.
@@ -216,28 +229,29 @@ function PrDetailLoaded(props: {
         onRefresh={refresh}
         header={
           <div className={readable}>
-            <PrHeader
-              actions={actions}
-              extensions={props.extensions}
-              condensed={condensed[props.tab]}
-              behindOpen={behindOpen}
-              onBehindOpen={setBehindOpen}
-              gates={<PrGatesRow actions={actions} onSelect={onGate} />}
-              onBack={props.onBack}
-              onOpen={props.onOpen}
-              menu={
-                <PrOverflowMenu
-                  actions={actions}
-                  extensions={props.extensions}
-                  hostThreadId={props.hostThreadId}
-                  refreshing={props.refreshing}
-                  onRefresh={refresh}
-                  onEdit={() => setDialog("edit")}
-                  onRevert={() => setDialog("revert")}
-                  onRequestReview={() => setDialog("review")}
-                />
-              }
-            />
+            {props.page ? (
+              <PrPageHeader
+                actions={actions}
+                extensions={props.extensions}
+                behindOpen={behindOpen}
+                onBehindOpen={setBehindOpen}
+                gates={<PrGatesRow actions={actions} onSelect={onGate} />}
+                onBack={props.onBack}
+                menu={menu}
+              />
+            ) : (
+              <PrHeader
+                actions={actions}
+                extensions={props.extensions}
+                condensed={condensed[props.tab]}
+                behindOpen={behindOpen}
+                onBehindOpen={setBehindOpen}
+                gates={<PrGatesRow actions={actions} onSelect={onGate} />}
+                onBack={props.onBack}
+                onOpen={props.onOpen}
+                menu={menu}
+              />
+            )}
             {props.refreshFailed && (
               <p role="status" className="flex items-center gap-2 px-4 pb-1 text-xs">
                 <span className="min-w-0 truncate text-muted-foreground">

@@ -133,7 +133,7 @@ function filterSections(
 
 /**
  * A project's pull requests across the main column, grouped as yours, waiting on your review and
- * the rest; the chosen one opens beside the list. Every filter lives in the address.
+ * the rest; a row opens its pull request as a page. Every filter lives in the address.
  */
 export function PullRequestsPage(props: {
   search: PullsSearch;

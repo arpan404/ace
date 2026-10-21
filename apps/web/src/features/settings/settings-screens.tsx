@@ -8,8 +8,7 @@ const AdvancedSettings = lazy(() =>
 import { AppearanceSettings } from "./appearance-page.tsx";
 import { KeyboardShortcuts } from "./keyboard-page.tsx";
 import { NotificationSettings } from "./notifications-page.tsx";
-import { usePhone } from "@/lib/breakpoints.ts";
-import { Screen } from "@/features/shell/index.ts";
+import { ViewListPage } from "@/features/shell/index.ts";
 const RemoteDevices = lazy(() =>
   import("./remote-page.tsx").then((module) => ({ default: module.RemoteDevices })),
 );
@@ -19,7 +18,6 @@ import { Skeleton, ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { RediscoverButton } from "./rediscover-button.tsx";
 import { SettingsBody } from "./settings-body.tsx";
 import { useSettingsMachine } from "./machine-scope.tsx";
-import { SettingsPageLinks } from "./settings-nav.tsx";
 
 /* One screen per Settings page: its title, lede and actions around the page body. */
 
@@ -176,19 +174,11 @@ export function ComputerUseSettingsScreen() {
 }
 
 /**
- * `/settings`: on a phone, the list of pages (the sidebar is a sheet there, so this is the way
- * in); wider, Overview.
+ * `/settings`: on a narrow window, where the sidebar is a sheet, the page list is the page (and
+ * leaves the sheet to the threads); wider, Overview.
  */
 export function SettingsIndexScreen() {
-  const phone = usePhone();
-  if (!phone) return <Navigate to="/settings/overview" replace />;
-  return (
-    <Screen title="Settings">
-      <nav aria-label="Settings" className="h-full overflow-auto px-2 pt-4 pb-20">
-        <SettingsPageLinks />
-      </nav>
-    </Screen>
-  );
+  return <ViewListPage title="Settings" fallback={<Navigate to="/settings/overview" replace />} />;
 }
 
 const Prompts = lazy(() =>

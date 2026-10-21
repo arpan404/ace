@@ -324,3 +324,20 @@ test("Search in the sheet opens the launcher in the sheet's place", async () => 
   expect(await screen.findByRole("dialog", { name: "Command palette" })).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
 });
+
+test("on a phone Settings lists its pages once: on the page, with the sheet left to the threads", async () => {
+  windowWidth(390);
+  await openThread();
+  await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
+  const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
+  await userEvent.click(within(sheet).getByRole("link", { name: "Settings" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
+  const page = within(screen.getByRole("main"));
+  expect(await page.findByRole("link", { name: "Appearance" })).toBeTruthy();
+  expect(screen.getAllByRole("link", { name: "Appearance" })).toHaveLength(1);
+
+  await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
+  const again = await screen.findByRole("dialog", { name: "Sidebar" });
+  expect(within(again).getByRole("complementary", { name: "Threads" })).toBeTruthy();
+  expect(within(again).queryByRole("link", { name: "Appearance" })).toBeNull();
+});

@@ -208,6 +208,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
     execPath: process.execPath,
     env: process.env,
     timers,
+    random: Math.random,
     report: (status) => emit(contents(), "updates.status", status),
     drain: (deadlineMs, waiting) => runtime.drainForUpdate(deadlineMs, waiting),
     // Quit's own question and shutdown are skipped: the drain already let agents finish.

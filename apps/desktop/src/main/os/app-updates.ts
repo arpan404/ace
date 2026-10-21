@@ -20,6 +20,8 @@ export interface AppUpdatesOptions {
   execPath: string;
   env: NodeJS.ProcessEnv;
   timers: { set(delayMs: number, callback: () => void): () => void };
+  /** A number in [0, 1): offsets each background check so installs don't ask in step. */
+  random(): number;
   report(status: UpdateStatus): void;
   drain(deadlineMs: number, waiting: (count: number) => void): Promise<boolean>;
   prepareQuit(): Promise<void>;
@@ -83,7 +85,7 @@ export function appUpdates(options: AppUpdatesOptions): AppUpdates {
     download: () => controller.download(),
     install: () => controller.install(),
     start() {
-      if (enabled) scheduleChecks(controller, options.timers);
+      if (enabled) scheduleChecks(controller, options.timers, options.random);
     },
   };
 }

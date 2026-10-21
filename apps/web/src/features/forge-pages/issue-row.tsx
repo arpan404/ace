@@ -3,7 +3,8 @@ import type { ForgeIssueRow } from "@ace/protocol";
 import { useToast } from "@/components/ui/toast.tsx";
 import { openExternal } from "@/boot/open-external.ts";
 import type { LinkedThread } from "./linked-threads.ts";
-import { Avatars, IssueStateGlyph, LabelPill } from "./marks.tsx";
+import { LabelPill } from "@/components/forge-marks.tsx";
+import { Avatars, IssueStateGlyph } from "./marks.tsx";
 import { Age, Author, Comments, RowActions, rowClass, Thread } from "./row-parts.tsx";
 
 /** One issue: glyph, number, title and labels, its comments and assignees; then author and age. */

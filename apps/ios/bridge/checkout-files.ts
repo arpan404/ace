@@ -1,4 +1,4 @@
-import type { ClientCore } from "@ace/client";
+import { readFile, type ClientCore } from "@ace/client";
 import { downloadFile } from "@ace/client/files";
 import { GitStatusFile, ThreadId, WorkspaceFileChange, type FileOperation } from "@ace/protocol";
 import {
@@ -257,23 +257,22 @@ export class CheckoutFiles {
   }
 
   async #read(scope: Scope, path: string, signal: AbortSignal) {
-    const info = await this.#stat(scope, path, signal);
-    if (info.version === null) return { kind: "missing", path };
-    if (info.folder) throw new CheckoutError("folder", "That's a folder; pick a file inside it.");
-    const version = info.version;
-    const editable = "threadId" in scope;
-    const large = (size: number) => ({ kind: "large", path, size, version, editable: false });
-    if (info.size !== undefined && info.size > checkoutViewLimit) return large(info.size);
-    const chunks = downloadFile(
+    if (!isCheckoutPath(path)) throw fromCode("OUTSIDE_WORKSPACE");
+    // One round trip for most files: details and the first part together, any rest in parallel.
+    const read = await readFile(
       this.#owner,
-      { ...scope, op: "download", path, offset: 0 },
+      { ...scope, path, maxSize: checkoutViewLimit },
       { signal, timeoutMs: 30_000 },
-    );
-    const read = await gather(chunks, checkoutViewLimit).catch((error: unknown) => {
+    ).catch((error: unknown) => {
       throw checkoutError(error);
     });
-    // The file grew past the limit since the stat.
-    if ("over" in read) return large(read.over);
+    if (read.kind === "missing") return { kind: "missing", path };
+    if (read.kind === "folder")
+      throw new CheckoutError("folder", "That's a folder; pick a file inside it.");
+    const { version } = read;
+    const editable = "threadId" in scope;
+    if (read.kind === "large")
+      return { kind: "large", path, size: read.size, version, editable: false };
     const bytes = read.bytes;
     const size = bytes.length;
     const image = imageType(path);

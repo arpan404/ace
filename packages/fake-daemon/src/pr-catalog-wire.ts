@@ -6,6 +6,7 @@ import type {
 } from "@ace/protocol";
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
 import { catalogGroupCounts, catalogPrList } from "./forge-list-wire.ts";
+import { colors } from "./forge-list-rows.ts";
 
 /**
  * Whole pull requests the fake app can open in its PR panel: detail, merge state, lifecycle,
@@ -15,7 +16,14 @@ import { catalogGroupCounts, catalogPrList } from "./forge-list-wire.ts";
 export class FakePrCatalog {
   private fixtures: PullRequestFixture[] = [];
   seed(fixtures: readonly PullRequestFixture[]): void {
-    this.fixtures = [...fixtures];
+    // As GitHub answers: each label with its colour.
+    this.fixtures = fixtures.map((fixture) => ({
+      ...fixture,
+      detail: {
+        ...fixture.detail,
+        labelColors: fixture.detail.labelColors ?? colors(fixture.detail.labels),
+      },
+    }));
   }
   private find(op: { repository?: unknown; number?: unknown }) {
     return this.fixtures.find(

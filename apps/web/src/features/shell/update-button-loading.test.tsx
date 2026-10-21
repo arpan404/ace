@@ -50,15 +50,15 @@ function desktop(initial: unknown = status()) {
 }
 
 test("the update button stays visible while its card loads", async () => {
-  const app = desktop();
-  await screen.findByRole("button", { name: "Check for updates" });
+  const app = desktop(offer({ notes: [] }));
+  await screen.findByRole("button", { name: "Update 1.1.0 ready to download" });
   app.report(offer());
   expect(screen.getByRole("button", { name: "Update 1.1.0 ready to download" })).toBeTruthy();
 });
 
 test("a focused button keeps focus when release notes arrive", async () => {
-  const app = desktop();
-  const button = await screen.findByRole("button", { name: "Check for updates" });
+  const app = desktop(offer({ notes: [] }));
+  const button = await screen.findByRole("button", { name: "Update 1.1.0 ready to download" });
   act(() => {
     button.focus();
   });
