@@ -109,6 +109,11 @@ export const ProjectDefaults = z
      * `browser.profileScope`. Applies to browsers opened afterwards.
      */
     browserProfileScope: BrowserProfileScope.optional(),
+    /**
+     * The command Verify runs against pull requests (`bun run check`). Without it, the
+     * project's `check` script, run with its package manager, if it has one.
+     */
+    checkCommand: z.string().min(1).max(1024).optional(),
   })
   .refine((value) => value.model === undefined || value.provider !== undefined, {
     message: "A default model needs its provider",
