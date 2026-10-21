@@ -78,12 +78,17 @@ struct UsageView: View {
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("usage.view")
-            if tab == .tokens {
-                tokens
-            } else {
-                limitsView
+            .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
+            Group {
+                if tab == .tokens {
+                    tokens
+                } else {
+                    limitsView
+                }
             }
+            .insetRowBackground()
         }
+        .insetGroupedList()
         .navigationTitle("Usage").navigationBarTitleDisplayMode(.inline)
         .task(id: tab) {
             if tab == .limits { await readLimits() } else { await readTokens() }
@@ -96,18 +101,19 @@ struct UsageView: View {
     @ViewBuilder private var tokens: some View {
         Picker("Period", selection: $days) { Text("7 days").tag(7); Text("30 days").tag(30); Text("90 days").tag(90) }
             .pickerStyle(.segmented)
-        if loading { ProgressView("Reading usage…") }
+            .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
+        if loading { HStack { Spacer(); ProgressView().accessibilityLabel("Reading usage"); Spacer() }.listRowBackground(Color.clear) }
         ServiceProblem(message: problem)
         if let result {
-            if result.rows.isEmpty { Text("No recorded usage in this period.") }
+            if result.rows.isEmpty { ContentUnavailableView("No usage in this period", systemImage: "chart.bar").listRowBackground(Color.clear) }
             ForEach(Array(result.rows.enumerated()), id: \.offset) { _, row in
-                Section(row.dimensions["provider"]?.flatMap { $0 }?.capitalized ?? "Usage") {
+                Section {
                     LabeledContent("Input tokens", value: row.totals.inputTokens.formatted())
                     LabeledContent("Output tokens", value: row.totals.outputTokens.formatted())
                     LabeledContent("Cached input", value: row.totals.cachedInputTokens.formatted())
                     LabeledContent("Reported cost", value: row.totals.providerReportedUsd.formatted(.currency(code: "USD")))
                     LabeledContent("Estimated cost", value: row.totals.estimatedUsd.formatted(.currency(code: "USD")))
-                }
+                } header: { InsetHeader(row.dimensions["provider"]?.flatMap { $0 }?.capitalized ?? "Usage") }
             }
             if result.truncated || result.omittedEvents > 0 { Text("Some records are outside the retained window.") }
             Text("Dates use \(result.timezone). CLI token counts and estimated cost may differ from billing.")
@@ -115,11 +121,14 @@ struct UsageView: View {
         }
     }
     @ViewBuilder private var limitsView: some View {
-        if limitsLoading, limits == nil { ProgressView("Reading limits…") }
+        if limitsLoading, limits == nil {
+            HStack { Spacer(); ProgressView().accessibilityLabel("Reading limits"); Spacer() }.listRowBackground(Color.clear)
+        }
         ServiceProblem(message: limitsProblem)
         if let limits {
             if limits.providers.isEmpty, limits.quiet.isEmpty {
-                Text("No accounts yet. Add an account to see its limits.")
+                ContentUnavailableView("No accounts yet", systemImage: "chart.bar", description: Text("Add an account to see its limits."))
+                    .listRowBackground(Color.clear)
             }
             ForEach(limits.providers, id: \.key) { provider in
                 Section {
@@ -127,10 +136,9 @@ struct UsageView: View {
                         LimitAccountRow(account: account)
                     }
                 } header: {
-                    Label {
-                        Text(provider.providerLabel)
-                    } icon: {
-                        ProviderMark(provider: provider.provider, size: 18)
+                    HStack(spacing: AceTheme.Spacing.sm) {
+                        ProviderMark(provider: provider.provider, size: 16)
+                        InsetHeader(provider.providerLabel)
                     }
                 }
             }

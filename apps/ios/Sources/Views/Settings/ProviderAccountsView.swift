@@ -30,28 +30,32 @@ struct ProviderAccountsView: View {
     @State private var signingIn: LoginProgress?
     var body: some View {
         List {
-            ForEach(accounts) { account in
+            Group {
+                ForEach(accounts) { account in
+                    Section {
+                        LabeledContent(account.label, value: account.isDefault == true ? "Default" : account.status.replacingOccurrences(of: "_", with: " ").capitalized)
+                        if let identity = account.signedInAs { Text(identity).foregroundStyle(AceTheme.Colours.mutedForeground) }
+                        if model.canOperate {
+                            NavigationLink("Sign in") { ProviderSignInView(model: model, provider: provider, name: account.label, instance: account.id) }
+                            if account.isDefault != true { Button("Use by default") { perform("setDefault", account: account) } }
+                            Button("Rename") { label = account.label; renaming = account }
+                            Button("Remove account", role: .destructive) { removing = account }
+                        }
+                    }
+                }
                 Section {
-                    LabeledContent(account.label, value: account.isDefault == true ? "Default" : account.status.replacingOccurrences(of: "_", with: " ").capitalized)
-                    if let identity = account.signedInAs { Text(identity).foregroundStyle(AceTheme.Colours.mutedForeground) }
                     if model.canOperate {
-                        NavigationLink("Sign in") { ProviderSignInView(model: model, provider: provider, name: account.label, instance: account.id) }
-                        if account.isDefault != true { Button("Use by default") { perform("setDefault", account: account) } }
-                        Button("Rename") { label = account.label; renaming = account }
-                        Button("Remove account", role: .destructive) { removing = account }
+                        Button("Add account", systemImage: "person.badge.plus") {
+                            Task { await request(["type": "provider.accounts.add", "provider": provider, "method": "login"]) }
+                        }
                     }
                 }
+                ServiceProblem(message: problem)
+                if problem != nil { Button("Retry") { Task { await read() } } }
             }
-            Section {
-                if model.canOperate {
-                    Button("Add account", systemImage: "person.badge.plus") {
-                        Task { await request(["type": "provider.accounts.add", "provider": provider, "method": "login"]) }
-                    }
-                }
-            }
-            ServiceProblem(message: problem)
-            if problem != nil { Button("Retry") { Task { await read() } } }
+            .insetRowBackground()
         }
+        .insetGroupedList()
         .disabled(busy)
         .navigationTitle("\(name) accounts").navigationBarTitleDisplayMode(.inline)
         .task { await read() }.refreshable { await read() }

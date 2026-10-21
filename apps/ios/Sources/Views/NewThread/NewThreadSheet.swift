@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Where the New thread sheet can go: pickers push, choosing pops back to the start.
-enum NewThreadRoute: Hashable { case projects, addProject, mention, instructions }
+/// Where the New thread sheet pushes; choosing a mention pops back to the start.
+enum NewThreadRoute: Hashable { case mention, instructions }
 
 /// New thread (issue #560): "What should we build in <project>?", then, above the keyboard, the
 /// worktree and base chips and the first message with its files and model. The bridge judges
@@ -18,6 +18,7 @@ struct NewThreadSheet: View {
     @State private var failure: String?
     @State private var browsing = false
     @State private var choosingModel = false
+    @State private var choosingProject = false
     @State private var attachProblem: String?
     @State private var profiles: [TaskProfile] = []
     private var draft: NewThreadDraft { drafts.draft }
@@ -85,6 +86,11 @@ struct NewThreadSheet: View {
         .onChange(of: choiceKey) { _, _ in client?.composeChoice(draft) }
         .onDisappear { client?.composeAction(["kind": "close"]) }
         .sheet(isPresented: $browsing) { projectFiles }
+        .sheet(isPresented: $choosingProject) {
+            if let client {
+                ProjectPickerSheet(client: client, selected: draft.projectId) { id in drafts.edit { $0.projectId = id; $0.base = nil } }
+            }
+        }
         .sheet(isPresented: $choosingModel) {
             if let client {
                 NewThreadModelSheet(compose: client.compose, drafts: drafts) { client.composeAction(["kind": "agents"]) }
@@ -92,23 +98,24 @@ struct NewThreadSheet: View {
         }
     }
 
-    /// "What should we build in ace-next?", the project underlined and tappable; the machine
-    /// beneath when there's more than one.
+    /// "What should we build in ace-next? ⌄": the question opens the project picker; the
+    /// machine beneath when there's more than one.
     private var hero: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
-            NavigationLink(value: NewThreadRoute.projects) {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+            Button { choosingProject = true } label: {
                 Group {
                     if let name = project?.name {
-                        Text("What should we build in ") + Text(name).underline(color: AceTheme.Colours.decoration) + Text("?")
+                        Text("What should we build in \(name)?") + NewThreadStyle.disclosure
                     } else {
-                        Text("What should we build?\n") + Text("Choose a project").foregroundStyle(AceTheme.Colours.mutedForeground)
-                            .underline(color: AceTheme.Colours.decoration)
+                        Text("What should we build?\n")
+                            + Text("Choose a project").foregroundStyle(AceTheme.Colours.mutedForeground) + NewThreadStyle.disclosure
                     }
                 }
                 .aceFont(NewThreadStyle.hero, relativeTo: .title)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(project.map { "Project, \($0.name)" } ?? "Choose a project")
@@ -123,15 +130,18 @@ struct NewThreadSheet: View {
                         }
                     }
                 } label: {
-                    Text("on \(machineId.map(inbox.name) ?? "")").aceFont(AceTheme.Typography.body, relativeTo: .body)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    (machineLine + Text(" \(Image(systemName: "chevron.down"))").font(.caption.weight(.semibold)))
+                        .aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
                 .accessibilityLabel("Machine").accessibilityValue(machineId.map(inbox.name) ?? "")
                 .accessibilityIdentifier("newThread.machine")
+            } else if machineId != nil {
+                machineLine.aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.mutedForeground)
             }
         }
         .padding(.horizontal, AceTheme.Spacing.xxl).padding(.top, AceTheme.Spacing.xxl)
     }
+    private var machineLine: Text { Text("on \(machineId.map(inbox.name) ?? "")") }
 
     /// Above the keyboard: what holds Send back, the worktree chips, then the first message.
     private var bottom: some View {
@@ -184,17 +194,6 @@ struct NewThreadSheet: View {
     @ViewBuilder private func destination(_ route: NewThreadRoute) -> some View {
         if let client {
             switch route {
-            case .projects:
-                ProjectPickerView(compose: client.compose, selected: draft.projectId, canAdd: client.canOperate,
-                                  reload: { client.composeAction(["kind": "projects"]) }, addProject: { path.append(.addProject) }) { id in
-                    drafts.edit { $0.projectId = id; $0.base = nil }
-                    path = []
-                }
-            case .addProject:
-                AddProjectView(client: client) { id in
-                    drafts.edit { $0.projectId = id; $0.base = nil }
-                    path = []
-                }
             case .mention:
                 MentionSearchView(compose: client.compose, workspaceId: draft.projectId ?? "", search: { query in
                     client.composeAction(["kind": "mentions", "workspaceId": draft.projectId ?? "", "query": query])

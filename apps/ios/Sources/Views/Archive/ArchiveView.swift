@@ -27,7 +27,10 @@ struct ArchiveView: View {
                 }
                 .accessibilityIdentifier("archive.machine")
             }
-            if let client { ArchiveRows(client: client) { open(machineId, $0) }.listRowBackground(Color.clear) }
+            if let client {
+                ArchiveRows(client: client) { open(machineId, $0) }
+                    .listRowBackground(Color.clear).listSectionSeparator(.hidden, edges: .top)
+            }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)

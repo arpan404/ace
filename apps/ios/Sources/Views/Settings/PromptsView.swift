@@ -24,18 +24,25 @@ struct PromptsView: View {
     @State private var adding = false
     var body: some View {
         List {
-            ServiceProblem(message: problem)
-            ForEach(files) { file in
-                NavigationLink { PromptEditor(model: model, file: file) } label: {
-                    VStack(alignment: .leading) {
-                        Text(file.title.isEmpty ? file.name : file.title)
-                        Text(file.description).lineLimit(2).foregroundStyle(AceTheme.Colours.mutedForeground)
+            ServiceProblem(message: problem).listRowBackground(Color.clear)
+            if !files.isEmpty {
+                Section {
+                    ForEach(files) { file in
+                        NavigationLink { PromptEditor(model: model, file: file) } label: {
+                            InsetRow(systemImage: nil, title: file.title.isEmpty ? file.name : file.title,
+                                     subtitle: file.description.isEmpty ? nil : file.description) { EmptyView() }
+                        }
                     }
                 }
+                .insetRowBackground()
             }
-            if files.isEmpty && problem == nil { Text("Save reusable instructions as prompts.") }
-            NavigationLink("New prompt") { PromptEditor(model: model, file: nil) }.disabled(!model.canOperate)
+            Section {
+                NavigationLink { PromptEditor(model: model, file: nil) } label: { InsetRow("New prompt", systemImage: "plus") }
+                    .disabled(!model.canOperate)
+            }
+            .insetRowBackground()
         }
+        .insetGroupedList()
         .navigationTitle("Prompts").navigationBarTitleDisplayMode(.inline)
         .task { await read() }.refreshable { await read() }
     }
@@ -59,12 +66,17 @@ private struct PromptEditor: View {
     @State private var saved = false
     var body: some View {
         Form {
-            if file == nil { TextField("filename.md", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled() }
-            TextEditor(text: $text).frame(minHeight: AceTheme.Dimensions.touchTarget * 5).accessibilityLabel("Prompt instructions")
-            ServiceProblem(message: problem)
-            Button(saved ? "Saved" : "Save prompt") { Task { await save() } }
-                .disabled(!loaded || busy || !model.canOperate || name.isEmpty)
+            Group {
+                if file == nil { TextField("filename.md", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                TextEditor(text: $text).frame(minHeight: AceTheme.Dimensions.touchTarget * 5).scrollContentBackground(.hidden)
+                    .accessibilityLabel("Prompt instructions")
+                ServiceProblem(message: problem)
+                Button(saved ? "Saved" : "Save prompt") { Task { await save() } }
+                    .disabled(!loaded || busy || !model.canOperate || name.isEmpty)
+            }
+            .insetRowBackground()
         }
+        .insetGroupedList()
         .navigationTitle(file?.title ?? "New prompt").navigationBarTitleDisplayMode(.inline)
         .task { await read() }
         .onChange(of: text) { saved = false }
