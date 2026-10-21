@@ -1,6 +1,6 @@
 import { issueFromUrl } from "@ace/forge/pr-reference";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { readForge } from "./source.ts";
+import { readForge } from "@/lib/forge-read.ts";
 export function useIssueSource(workspaceId: string | undefined, url: string | undefined) {
   let issue;
   try {

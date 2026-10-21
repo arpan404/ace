@@ -37,13 +37,10 @@ struct NewThreadDraftStore: Sendable {
         return NewThreadDraftStore(url: base.appendingPathComponent("ace", isDirectory: true).appendingPathComponent("new-thread-draft.json"))
     }
     func load() -> NewThreadDraft {
-        guard let data = try? Data(contentsOf: url), let draft = try? JSONDecoder().decode(NewThreadDraft.self, from: data) else { return NewThreadDraft() }
-        return draft
+        DraftFile<NewThreadDraft>(url: url).load() ?? NewThreadDraft()
     }
     func save(_ draft: NewThreadDraft) {
-        guard let data = try? JSONEncoder().encode(draft) else { return }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        try? DraftFile<NewThreadDraft>(url: url).save(draft)
     }
 }
 

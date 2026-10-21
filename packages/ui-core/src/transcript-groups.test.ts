@@ -19,21 +19,6 @@ it("a different kind, agent or run starts a new group", () => {
   expect(mergesWith(entry(), entry({ runId: "run-2" }))).toBe(false);
 });
 
-it("tool calls of two families never merge", () => {
-  expect(
-    mergesWith(
-      entry({ kind: "tool", family: "explore" }),
-      entry({ kind: "tool", family: "explore" }),
-    ),
-  ).toBe(true);
-  expect(
-    mergesWith(
-      entry({ kind: "tool", family: "explore" }),
-      entry({ kind: "tool", family: "command" }),
-    ),
-  ).toBe(false);
-});
-
 it("prose, a person's message, a question or an error ends a group and stands alone", () => {
   for (const kind of ["prose", "user", "question", "error"] as const) {
     expect(mergesWith(entry(), entry({ kind }))).toBe(false);

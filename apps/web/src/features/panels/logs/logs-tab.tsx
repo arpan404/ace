@@ -3,6 +3,7 @@ import { arrayEqual, useThread } from "@ace/client-react";
 import type { Item } from "@ace/protocol";
 import {
   ArrowLineDownIcon,
+  CheckIcon,
   CopyIcon,
   DownloadSimpleIcon,
   MagnifyingGlassIcon,
@@ -14,6 +15,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuTrigger, MenuContent, MenuItem } from "@/components/ui/menu.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { useCopy } from "@/components/use-copy.ts";
 import { LongRows } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useProjectName } from "@/lib/projects.ts";
@@ -120,6 +122,9 @@ function ThreadLogView(props: TabViewProps & { agentId: string | undefined }) {
   const actions = useWorkspaceActions(threadId);
   const services = usePanelServices();
   const toast = useToast();
+  const lineCopy = useCopy(() =>
+    toast.error({ title: "Couldn't copy", description: "Allow clipboard access." }),
+  );
   const clearedByThread = useLocal(services.logCleared, (value) => value);
   const cleared = clearedByThread.get(threadId);
   const filter = readFilter(tab.data);
@@ -176,15 +181,10 @@ function ThreadLogView(props: TabViewProps & { agentId: string | undefined }) {
           {scoped.length === 1 ? "line" : "lines"}
         </span>
         <ToolbarButton
-          icon={CopyIcon}
-          label="Copy lines"
+          icon={lineCopy.copied ? CheckIcon : CopyIcon}
+          label={lineCopy.copied ? "Copied" : "Copy lines"}
           disabled={!shown.length}
-          onClick={() =>
-            void navigator.clipboard?.writeText(text()).then(
-              () => toast.add({ title: `Copied ${shown.length} lines` }),
-              () => toast.error({ title: "Couldn't copy", description: "Allow clipboard access." }),
-            )
-          }
+          onClick={() => lineCopy.copy(text())}
         />
         <ToolbarButton
           icon={DownloadSimpleIcon}

@@ -33,7 +33,7 @@ export class ResourceReader<T extends { id: number }, U> {
   readonly #identity: (item: U) => string;
   readonly #projected = new WeakMap<Page, U[]>();
   readonly versions = new CollectionVersions<U>();
-  #pages: Page[] = [];
+  #pages: readonly Page[] = [];
   #last: Resource<U> | undefined;
   constructor(
     schema: z.ZodType<T[]>,
@@ -52,7 +52,10 @@ export class ResourceReader<T extends { id: number }, U> {
     signal: AbortSignal,
     budget: ReadBudget,
   ): Promise<Resource<U>> {
-    const pages = await api.pages(path, signal, budget);
+    return this.project(await api.pages(path, signal, budget));
+  }
+  /** The connection these pages hold, reusing every unchanged page's projection. */
+  project(pages: readonly Page[]): Resource<U> {
     if (
       this.#last &&
       pages.length === this.#pages.length &&

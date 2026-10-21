@@ -15,7 +15,9 @@ test("the thread an agent started shows where it was started as a card whose Ope
   await app.open(`/t/${startedConversationIds.source}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const card = await within(feed).findByRole("region", { name: "New thread: Separate Codex chat" });
-  expect(card.textContent).toContain("Codex · Personal · GPT-5.5");
+  // An agent row: the thread's title, "New thread · project", its status where it started.
+  expect(card.textContent).toMatch(/Separate Codex chatNew thread · .+/);
+  expect(card.querySelector("[data-tone]")).not.toBeNull();
   // The agent relays the summary; the card, not the reply, carries the link.
   expect(within(feed).queryByText(startedConversationIds.started)).toBeNull();
   await userEvent.click(within(card).getByRole("link", { name: "Open Separate Codex chat" }));

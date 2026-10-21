@@ -1,11 +1,7 @@
 import { useState } from "react";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react";
-import type { ForgeIssueList, ForgePrList } from "@ace/protocol";
-import {
-  useFailingPullRequests,
-  useOpenIssues,
-  useOpenPullRequests,
-} from "@/features/forge/index.ts";
+import type { ForgeIssueRow, ForgePrRow } from "@ace/protocol";
+import { useOpenIssues, useOpenPullRequests, useOpenWork } from "@/features/forge/index.ts";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useDebouncedValue } from "@/lib/debounced.ts";
@@ -34,16 +30,15 @@ export function StartFrom(props: {
   source: StartSource;
   onPick(source: StartSource): void;
 }) {
-  const prs = useOpenPullRequests(props.project);
-  const issues = useOpenIssues(props.project);
+  const work = useOpenWork(props.project).data;
   const [picked, setPicked] = useState<Kind>(props.source.issue ? "issues" : "pullRequests");
   const [text, setText] = useState("");
   const search = useDebouncedValue(text.trim(), searchSettleMs);
   const lists: { kind: Kind; label: string; total: number }[] = [];
-  if (prs.data?.items.length)
-    lists.push({ kind: "pullRequests", label: "Pull requests", total: prs.data.total });
-  if (issues.data?.items.length)
-    lists.push({ kind: "issues", label: "Issues", total: issues.data.total });
+  if (work?.pullRequests.items.length)
+    lists.push({ kind: "pullRequests", label: "Pull requests", total: work.pullRequests.total });
+  if (work?.issues.items.length)
+    lists.push({ kind: "issues", label: "Issues", total: work.issues.total });
   const first = lists[0];
   if (!first) return null;
   const active = lists.find((list) => list.kind === picked) ?? first;
@@ -82,22 +77,23 @@ export function StartFrom(props: {
           )}
         </div>
         <TabsPanel value="pullRequests">
-          {prs.data && active.kind === "pullRequests" && (
+          {work && active.kind === "pullRequests" && (
             <PullRequests
               project={props.project}
               search={search}
-              all={prs.data}
+              all={work.pullRequests.items}
+              failing={work.failingPullRequests.items}
               chosen={chosen}
               onPick={(url) => props.onPick({ pullRequest: url })}
             />
           )}
         </TabsPanel>
         <TabsPanel value="issues">
-          {issues.data && active.kind === "issues" && (
+          {work && active.kind === "issues" && (
             <Issues
               project={props.project}
               search={search}
-              all={issues.data}
+              all={work.issues.items}
               chosen={chosen}
               onPick={(url) => props.onPick({ issue: url })}
             />
@@ -112,7 +108,7 @@ interface ListProps<T> {
   project: string;
   /** What the person searched for; empty shows `all`. */
   search: string;
-  all: T;
+  all: readonly T[];
   chosen: string | undefined;
   onPick(url: string): void;
 }
@@ -120,18 +116,21 @@ interface ListProps<T> {
 /** While a search is on its way, the rows it replaces stay, dimmed. */
 const searching = "opacity-60 transition-opacity duration-(--motion-fast)";
 
-function PullRequests(props: ListProps<ForgePrList>) {
+function PullRequests(props: ListProps<ForgePrRow> & { failing: readonly ForgePrRow[] }) {
   const found = useOpenPullRequests(props.project, props.search, props.search !== "");
-  // Failing PRs lead the unsearched list even when older than its first page.
-  const failing = useFailingPullRequests(props.project).data?.items ?? [];
   // A failed search shows no rows rather than the unsearched list it would pass for.
-  const list = !props.search ? props.all : found.isError ? undefined : (found.data ?? props.all);
+  const list = !props.search
+    ? props.all
+    : found.isError
+      ? undefined
+      : (found.data?.items ?? props.all);
   const busy = !!props.search && found.isFetching;
   return (
     <div aria-busy={busy} className={cn(busy && searching)}>
       <StartRows
         key={props.search}
-        rows={list ? pullRequestRows(list.items, props.search ? [] : failing) : []}
+        // Failing PRs lead the unsearched list even when older than its first page.
+        rows={list ? pullRequestRows(list, props.search ? [] : props.failing) : []}
         chosen={props.chosen}
         none={found.isError ? "Couldn't search pull requests." : "No open pull requests match."}
         onPick={props.onPick}
@@ -140,16 +139,20 @@ function PullRequests(props: ListProps<ForgePrList>) {
   );
 }
 
-function Issues(props: ListProps<ForgeIssueList>) {
+function Issues(props: ListProps<ForgeIssueRow>) {
   const found = useOpenIssues(props.project, props.search, props.search !== "");
   // A failed search shows no rows rather than the unsearched list it would pass for.
-  const list = !props.search ? props.all : found.isError ? undefined : (found.data ?? props.all);
+  const list = !props.search
+    ? props.all
+    : found.isError
+      ? undefined
+      : (found.data?.items ?? props.all);
   const busy = !!props.search && found.isFetching;
   return (
     <div aria-busy={busy} className={cn(busy && searching)}>
       <StartRows
         key={props.search}
-        rows={list ? issueRows(list.items) : []}
+        rows={list ? issueRows(list) : []}
         chosen={props.chosen}
         none={found.isError ? "Couldn't search issues." : "No open issues match."}
         onPick={props.onPick}

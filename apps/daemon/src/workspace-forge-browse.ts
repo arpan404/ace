@@ -92,6 +92,8 @@ export class WorkspaceForgeBrowse {
         resource: "prActivity",
         ...(await backend.prActivity(operation.number, operation.page, signal)),
       };
+    if (operation.op === "forge.open-work")
+      return { resource: "openWork", value: await backend.openWork(signal) };
     if (operation.op === "forge.pr.list")
       return { resource: "prList", value: await backend.listPrs(operation.query, signal) };
     if (operation.op === "forge.pr.commits")

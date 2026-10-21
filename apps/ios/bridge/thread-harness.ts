@@ -100,7 +100,7 @@ export function connect(daemon: FakeDaemon): ClientCore {
 
 export function open(owner: ClientCore, threadId: string, chunks?: ChunkReader): ThreadSession {
   lease = owner.thread(threadId);
-  stop = followThread(lease.store, threadId, 1, pump, 200);
+  stop = followThread(lease.store, threadId, 1, pump);
   session = new ThreadSession(owner, lease.store, threadId, 1, pump, chunks);
   return session;
 }

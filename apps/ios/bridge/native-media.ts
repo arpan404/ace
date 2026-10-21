@@ -4,6 +4,8 @@ import { resolveHtmlMode, visualizationWindow, type HtmlTheme } from "@ace/html"
 import { ItemId, ThreadId } from "@ace/protocol";
 import { z } from "zod";
 
+import { readNativeItem } from "./native-item.ts";
+
 export const NativeMediaRequest = z.object({
   type: z.literal("native.media"),
   threadId: ThreadId,
@@ -17,7 +19,7 @@ export async function readNativeMedia(
   request: z.infer<typeof NativeMediaRequest>,
   signal: AbortSignal,
 ) {
-  const item = owner.cachedThread(request.threadId)?.item(request.itemId);
+  const item = await readNativeItem(owner, request.threadId, request.itemId, signal);
   if (!item || (item.type !== "html" && item.type !== "image"))
     throw new Error("Media unavailable");
   const attachment = item.type === "html" ? item.visualization.document : item.image.attachment;

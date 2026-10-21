@@ -1,6 +1,8 @@
 import type { ForgePrDetail, ForgeRepository } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { readForge } from "./source.ts";
+import { keptForgeMs } from "@/lib/query-persistence.ts";
+import { readForge } from "@/lib/forge-read.ts";
+import { prContentStaleMs } from "@/lib/forge-pr-detail.ts";
 
 /** All provider-exposed PR commits, at most ten 25-commit pages. */
 export function usePrCommits(props: {
@@ -12,6 +14,8 @@ export function usePrCommits(props: {
   return useDaemonQuery({
     queryKey: ["forge", props.workspaceId, ref, "workspace-commits", props.detail.status.headSha],
     retry: false,
+    gcTime: keptForgeMs,
+    staleTime: prContentStaleMs,
     read: async (client, signal) => {
       const commits: import("@ace/protocol").ForgeCommit[] = [];
       let page: number | undefined = 1;

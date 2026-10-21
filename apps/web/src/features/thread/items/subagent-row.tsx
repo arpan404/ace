@@ -1,81 +1,28 @@
-import type { ProviderKind } from "@ace/protocol";
+import type { Agent } from "@ace/protocol";
 import {
   describeActivity,
+  effortLabel,
   formatElapsed,
+  modelLabel,
+  optionEffort,
   subagentLabels,
   subagentTerminal,
-  type SubagentState,
 } from "@ace/ui-core";
-import { RobotIcon } from "@phosphor-icons/react";
-import { useAgent, useItem } from "@ace/client-react";
-import type { CSSProperties } from "react";
-import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
+import { useAgent, useItem, useSidebarThread } from "@ace/client-react";
+import { buttonVariants } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { SubagentLink } from "@/lib/subagent-link.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useTicker } from "../lib/clock.ts";
 import type { SubagentEntry } from "../lib/subagent-group.ts";
-import { RowParts, pressableRowClass } from "./transcript-row.tsx";
+import {
+  AgentRowContents,
+  agentRowStyles,
+  type AgentDetailKind,
+  type AgentRowParts,
+} from "./agent-row.tsx";
 
-/** Each state's status tone (`data-tone`): its dot's hue and its words' AA hue. */
-export const subagentTones: Record<SubagentState, string> = {
-  working: "working",
-  human: "needs-you",
-  waiting: "waiting",
-  unresponsive: "unresponsive",
-  failed: "failed",
-  cancelled: "idle",
-  done: "done",
-};
-
-/** The status dot's cut-out: the avatar's corner is masked away, never ringed. */
-const dotCut: CSSProperties = {
-  maskImage:
-    "radial-gradient(circle at calc(100% - 4px) calc(100% - 4px), transparent 5.5px, #000 6px)",
-};
-
-/**
- * A provider mark in a round avatar: 24px in a row, 20px in a stack. With a state, an 8px status
- * dot sits on its corner, cut out of the avatar rather than ringed.
- */
-export function SubagentAvatar(props: {
-  provider?: ProviderKind | undefined;
-  model?: string | undefined;
-  state?: SubagentState | undefined;
-  size?: 20 | 24;
-  style?: CSSProperties | undefined;
-  className?: string | undefined;
-}) {
-  const small = props.size === 20;
-  return (
-    <span aria-hidden className={cn("relative flex shrink-0", props.className)}>
-      <span
-        className={cn(
-          "flex items-center justify-center rounded-full bg-fill text-muted-foreground",
-          small ? "size-5" : "size-6",
-        )}
-        style={props.state ? { ...props.style, ...dotCut } : props.style}
-      >
-        {props.provider ? (
-          <ProviderIcon
-            provider={props.provider}
-            model={props.model}
-            size={small ? 12 : 14}
-            decorative
-          />
-        ) : (
-          <RobotIcon size={small ? 12 : 14} />
-        )}
-      </span>
-      {props.state && (
-        <span
-          data-tone={subagentTones[props.state]}
-          className="absolute right-0 bottom-0 size-2 rounded-full bg-(--tone)"
-        />
-      )}
-    </span>
-  );
-}
+export { subagentTones } from "./agent-row.tsx";
 
 /** Only this label subscribes to the shared, visibility-aware injected UI clock. */
 export function SubagentElapsed(props: {
@@ -91,38 +38,66 @@ export function SubagentElapsed(props: {
   return <span aria-label="Elapsed time">{formatElapsed(elapsed)}</span>;
 }
 
-/** A live subagent's latest update, its row's second line. */
-function SubagentActivity(props: { threadId: string; entry: SubagentEntry; fresh: boolean }) {
-  const agent = useAgent(props.threadId, props.entry.agentId ?? "");
+const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** What a live subagent is doing now, from its status and the step it runs. */
+function activityOf(agent: Agent | undefined, toolTitle: string | undefined): string | undefined {
   const status = agent?.status;
-  const itemId = status && status.state === "working" && status.itemId ? status.itemId : "";
-  const tool = useItem(props.threadId, itemId);
-  if (!agent || !status || !props.fresh) return null;
-  if (status.state === "blocked" && status.on === "human") return null;
-  if (
-    status.state === "idle" ||
-    status.state === "interrupted" ||
-    status.state === "failed" ||
-    status.state === "unresponsive"
-  )
-    return null;
-  return describeActivity(status, tool?.type === "tool_call" ? tool.call.title : undefined);
+  if (!status || (status.state !== "working" && status.state !== "starting")) return undefined;
+  return sentence(describeActivity(status, toolTitle));
+}
+
+/** Its second line: what it does now, what it waits on, why it failed, or what it found. */
+function useDetail(
+  threadId: string,
+  entry: SubagentEntry,
+  fresh: boolean,
+): { detail?: string | undefined; kind?: AgentDetailKind | undefined } {
+  const agent = useAgent(threadId, entry.agentId ?? "");
+  const status = agent?.status;
+  const toolId = status?.state === "working" && status.itemId ? status.itemId : "";
+  const tool = useItem(threadId, toolId);
+  if (entry.state === "human") return { detail: "Waiting for you", kind: "human" };
+  if (entry.state === "failed") {
+    const error = status?.state === "failed" ? status.error : undefined;
+    return { detail: error?.title ?? error?.message ?? entry.result, kind: "failed" };
+  }
+  if (subagentTerminal(entry.state) || !entry.agentId)
+    return { detail: entry.result, kind: entry.result ? "result" : undefined };
+  if (!fresh) return {};
+  const activity = activityOf(agent, tool?.type === "tool_call" ? tool.call.title : undefined);
+  return activity ? { detail: activity, kind: "live" } : {};
+}
+
+/** "Opus 4.7 · High" for a subagent; "Delegated · GPT-5.5 · High" for a thread ace delegated. */
+function useMeta(entry: SubagentEntry): string | undefined {
+  const thread = useSidebarThread(entry.childThreadId ?? "");
+  const model = entry.model ?? thread?.execution?.model;
+  const effort = optionEffort(thread?.execution?.options);
+  const parts = [
+    entry.childThreadId ? "Delegated" : undefined,
+    model ? modelLabel(model) : undefined,
+    effort ? effortLabel(effort) : undefined,
+  ].filter((part): part is string => !!part);
+  return parts.length ? parts.join(" · ") : undefined;
 }
 
 /**
- * One subagent as a row: its avatar with a status dot, its name and status word, what it is
- * doing now (or, once settled, the first line of what it found), and how long it ran. The whole
- * row opens the subagent.
+ * One subagent (or thread ace delegated) as a row: its provider's mark, its name and model, its
+ * status word and how long it ran, and what it does now or found. The whole row opens it; one
+ * that needs the person also offers Review, which opens it where its request waits.
  */
 export function SubagentRow(props: {
   threadId: string;
   entry: SubagentEntry;
   fresh: boolean;
-  /** Its box, when it sits in the group's card rather than flush in the transcript. */
-  className?: string | undefined;
+  /** It sits in a group's list, under the group's hairline, rather than flush in the transcript. */
+  listed?: boolean | undefined;
 }) {
   const { entry } = props;
   const workspace = useWorkspaceActions(props.threadId);
+  const { detail, kind } = useDetail(props.threadId, entry, props.fresh);
+  const meta = useMeta(entry);
   const status = subagentLabels[entry.state];
   const label = entry.machine
     ? `${entry.title} on ${entry.machine}, ${status}`
@@ -130,57 +105,39 @@ export function SubagentRow(props: {
       ? `Open ${entry.title}'s thread, ${status}`
       : `Open ${entry.title}, ${status}`;
   const terminal = subagentTerminal(entry.state);
-  const stale = !props.fresh && !terminal;
-  const parts = (
-    <RowParts
-      lead={<SubagentAvatar provider={entry.provider} model={entry.model} state={entry.state} />}
-      tone="strong"
-      title={
-        <span className="flex min-w-0 items-baseline gap-2">
-          <span className="min-w-0 truncate">{entry.title}</span>
-          {entry.machine && (
-            <span className="shrink-0 truncate font-normal text-muted-foreground">
-              on {entry.machine}
-            </span>
-          )}
-          <span className="shrink-0 font-normal text-muted-foreground">
-            {stale ? `Last seen: ${status}` : status}
-          </span>
-        </span>
-      }
-      subtitle={
-        // A delegated thread reports no activity here: its result stays in view if it has one.
-        terminal || !entry.agentId ? (
-          entry.result
-        ) : (
-          <SubagentActivity threadId={props.threadId} entry={entry} fresh={props.fresh} />
-        )
-      }
-      meta={
-        <SubagentElapsed
-          startedAt={entry.startedAt}
-          endedAt={entry.endedAt}
-          running={!terminal}
-          fresh={props.fresh}
-        />
-      }
-    />
-  );
-  const classes = props.className ?? pressableRowClass;
+  const parts: AgentRowParts = {
+    mark: { provider: entry.provider, model: entry.model },
+    name: entry.title,
+    meta,
+    machine: entry.machine,
+    state: entry.state,
+    stale: !props.fresh && !terminal,
+    elapsed: (
+      <SubagentElapsed
+        startedAt={entry.startedAt}
+        endedAt={entry.endedAt}
+        running={!terminal}
+        fresh={props.fresh}
+      />
+    ),
+    detail,
+    detailKind: kind,
+  };
+  const classes = cn(agentRowStyles.box, props.listed && agentRowStyles.listed);
+  const target =
+    !entry.machine && (entry.agentId || entry.childThreadId)
+      ? {
+          threadId: props.threadId,
+          agentId: entry.agentId ?? "",
+          childThreadId: entry.childThreadId,
+        }
+      : undefined;
   return (
-    <li data-subagent-state={entry.state}>
+    <li data-subagent-state={entry.state} className="relative">
       {/* A child on another machine has no thread here: it opens the Summary instead. */}
-      {!entry.machine && (entry.agentId || entry.childThreadId) ? (
-        <SubagentLink
-          subagent={{
-            threadId: props.threadId,
-            agentId: entry.agentId ?? "",
-            childThreadId: entry.childThreadId,
-          }}
-          aria-label={label}
-          className={classes}
-        >
-          {parts}
+      {target ? (
+        <SubagentLink subagent={target} aria-label={label} className={classes}>
+          <AgentRowContents {...parts} />
         </SubagentLink>
       ) : (
         // Its agent hasn't been seen yet: the spawn call is all there is, in the Work tree.
@@ -190,8 +147,20 @@ export function SubagentRow(props: {
           className={classes}
           onClick={() => workspace.open({ kind: "work" })}
         >
-          {parts}
+          <AgentRowContents {...parts} />
         </button>
+      )}
+      {kind === "human" && target && (
+        <SubagentLink
+          subagent={target}
+          aria-label={`Review what ${entry.title} needs`}
+          className={cn(
+            buttonVariants({ variant: "secondary", size: "sm" }),
+            "absolute right-0 bottom-1 h-5 px-2 text-xs",
+          )}
+        >
+          Review
+        </SubagentLink>
       )}
     </li>
   );

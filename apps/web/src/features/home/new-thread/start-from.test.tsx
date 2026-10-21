@@ -9,7 +9,8 @@ import {
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { harness } from "@/test/harness.tsx";
+import { createMemoryHistory } from "@tanstack/react-router";
+import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "ace" } as const;
 const workspaceId = WorkspaceId.parse("ace");
@@ -76,8 +77,8 @@ function withManyPullRequests() {
   return app;
 }
 
-function withOpenWork() {
-  const app = harness();
+function withOpenWork(options: Parameters<typeof harness>[0] = {}) {
+  const app = harness(options);
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   const lists = { total: 2, incomplete: false, truncated: false };
   app.daemon.workspace.setForgeRead(
@@ -290,4 +291,32 @@ test("a failing PR older than the first page leads the list, and drafts are list
         .map((row) => row.textContent),
     ).toEqual([expect.stringMatching(/^#150Sketch the new sidebarDraft/)]),
   );
+});
+
+test("the open work is loaded before New thread opens, in one request, so it shows without asking again", async () => {
+  const storage = memoryKeyValue();
+  storage.setItem("ace.home.newThread", JSON.stringify({ project: "ace" }));
+  const history = createMemoryHistory({ initialEntries: ["/"] });
+  const app = withOpenWork({ storage, history });
+  const openWork = { op: "forge.open-work", workspaceId } as const;
+  await app.open("/");
+  await waitFor(() => expect(app.daemon.workspace.forgeReadCount(openWork)).toBe(1), {
+    timeout: 5_000,
+  });
+  history.push("/new?project=ace");
+  const work = await screen.findByRole("region", { name: "Open work" });
+  expect(
+    within(work)
+      .getAllByRole("button")
+      .map((row) => row.textContent),
+  ).toEqual([
+    expect.stringMatching(/^#9Fix reconnect loop/),
+    expect.stringMatching(/^#12Tidy the settings page/),
+  ]);
+  expect(app.daemon.workspace.forgeReadCount(openWork)).toBe(1);
+  const lists = [
+    { op: "forge.pr.list", workspaceId, query: ForgePrSearch.parse({ state: "active" }) },
+    { op: "forge.issue.list", workspaceId, query: ForgeIssueSearch.parse({}) },
+  ] as const;
+  expect(lists.map((list) => app.daemon.workspace.forgeReadCount(list))).toEqual([0, 0]);
 });

@@ -9,7 +9,7 @@ import XCTest
 
     func testSettingsHoldPerMachineNotificationsLicencesAndDiagnostics() throws {
         let app = launch()
-        app.buttons["inbox.settings"].tap()
+        app.openBrowseDestination("inbox.settings")
         XCTAssertTrue(app.buttons["settings.notifications"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["settings.diagnostics"].exists)
         screenshot("settings")
@@ -26,7 +26,7 @@ import XCTest
 
     func testArchivePagesOlderThreadsAndOpensOneReadOnly() throws {
         let app = launch()
-        app.buttons["inbox.settings"].tap()
+        app.openBrowseDestination("inbox.settings")
         XCTAssertTrue(app.buttons["settings.archive"].waitForExistence(timeout: 10))
         app.buttons["settings.archive"].tap()
         // Most recently archived first, twenty to a page.
@@ -63,7 +63,7 @@ import XCTest
         continueAfterFailure = true // Audit every screen, then report them all.
         let app = launch()
         try audit(app, "inbox")
-        app.buttons["inbox.compose"].tap()
+        app.buttons["inbox.startTask"].tap()
         XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
         try audit(app, "new-thread")
         app.buttons["newThread.project"].tap()
@@ -71,7 +71,7 @@ import XCTest
         try audit(app, "projects")
         app.buttons["BackButton"].firstMatch.tap()
         app.buttons["Close"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["inbox.library"].waitForExistence(timeout: 10))
         open("ios-plan", in: app)
         XCTAssertTrue(app.buttons["plan.approve"].waitForExistence(timeout: 25))
         try audit(app, "plan-card")
@@ -110,7 +110,7 @@ import XCTest
         continueAfterFailure = true
         let app = launch()
         openTree(app)
-        app.buttons["thread.agents"].tap()
+        app.openAgents()
         XCTAssertTrue(app.buttons["agents.stopAll"].waitForExistence(timeout: 15))
         let explorer = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'agents.row.' AND label CONTAINS 'Explorer'")).firstMatch
         if reveal(explorer, in: app, up: 8, down: 0) {
@@ -138,7 +138,7 @@ import XCTest
         if cancel.waitForExistence(timeout: 3) { cancel.tap() }
         app.buttons["Done"].firstMatch.tap()
         back(app)
-        app.buttons["inbox.machines"].tap()
+        app.openBrowseDestination("inbox.machines")
         let machine = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'machines.row.'")).firstMatch
         XCTAssertTrue(machine.waitForExistence(timeout: 10))
         machine.tap()
@@ -147,7 +147,7 @@ import XCTest
         try auditBelow(app, "machine-detail")
         app.buttons["BackButton"].firstMatch.tap()
         app.buttons["Done"].firstMatch.tap()
-        app.buttons["inbox.settings"].tap()
+        app.openBrowseDestination("inbox.settings")
         XCTAssertTrue(app.buttons["settings.notifications"].waitForExistence(timeout: 10))
         app.buttons["settings.notifications"].tap()
         let perMachine = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'notifications.machine.'")).firstMatch
@@ -170,7 +170,7 @@ import XCTest
     // MARK: Audited screens
 
     private func auditAgents(_ app: XCUIApplication) throws {
-        app.buttons["thread.agents"].tap()
+        app.openAgents()
         XCTAssertTrue(app.buttons["agents.stopAll"].waitForExistence(timeout: 15))
         // Audit the full-height sheet: at the half detent rows run under the screen edge. At
         // accessibility sizes it opens full height, and this drag on its bar changes nothing.
@@ -194,7 +194,7 @@ import XCTest
         app.buttons["Done"].firstMatch.tap()
     }
     private func auditMachines(_ app: XCUIApplication) throws {
-        app.buttons["inbox.machines"].tap()
+        app.openBrowseDestination("inbox.machines")
         XCTAssertTrue(app.navigationBars["Machines"].waitForExistence(timeout: 10))
         app.navigationBars["Machines"].swipeUp()
         try audit(app, "machines")
@@ -202,7 +202,7 @@ import XCTest
         app.buttons["Done"].firstMatch.tap()
     }
     private func auditSettings(_ app: XCUIApplication) throws {
-        app.buttons["inbox.settings"].tap()
+        app.openBrowseDestination("inbox.settings")
         XCTAssertTrue(app.buttons["settings.notifications"].waitForExistence(timeout: 10))
         try audit(app, "settings")
         try auditBelow(app, "settings")
@@ -229,7 +229,7 @@ import XCTest
         }
         app.launch()
         // At accessibility text sizes the first rows can already fill the screen.
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
+        XCTAssertTrue(app.buttons["inbox.library"].waitForExistence(timeout: 25))
         return app
     }
     /// Every audit issue is listed in an attachment. Missing descriptions and small hit areas fail
@@ -256,7 +256,7 @@ import XCTest
     }
     private func openTree(_ app: XCUIApplication) {
         open("ios-tree", in: app)
-        XCTAssertTrue(app.buttons["thread.agents"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["thread.work"].waitForExistence(timeout: 15))
     }
     /// Swipes until `element` can be tapped: `up` swipes towards later content, then `down`
     /// towards earlier. At accessibility text sizes a row can sit screens away, or exist under a
@@ -279,7 +279,7 @@ import XCTest
     private func back(_ app: XCUIApplication) {
         let button = app.buttons["BackButton"].firstMatch
         if button.waitForExistence(timeout: 5) { button.tap() }
-        _ = app.buttons["inbox.settings"].waitForExistence(timeout: 10)
+        _ = app.buttons["inbox.library"].waitForExistence(timeout: 10)
     }
     private func audit(_ app: XCUIApplication, _ name: String) throws {
         screenshot("audit-\(name)")

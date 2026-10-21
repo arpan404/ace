@@ -192,10 +192,8 @@ function useAutomationControls(automation: Automation | undefined) {
     },
     runNow() {
       if (!automation) return;
-      runNow(automation.id).then(
-        () => toast.add({ title: `Started · ${automation.title}` }),
-        failed,
-      );
+      // The run shows up under Recent runs; only a failure needs saying.
+      runNow(automation.id).catch(failed);
     },
     duplicate() {
       if (!automation) return;

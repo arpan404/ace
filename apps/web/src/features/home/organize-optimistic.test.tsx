@@ -246,9 +246,8 @@ test("a delivered create never returns as a starting row after deleting its thre
   await waitFor(() => expect(card(/^Temporary thread for deletion/)).toBeTruthy());
   await waitFor(() => expect(screen.queryByRole("list", { name: "Starting threads" })).toBeNull());
   await choose(/^Temporary thread for deletion/, "Delete thread");
-  await screen.findByText("Deleted · Temporary thread for deletion");
+  await waitFor(() => expect(card(/^Temporary thread for deletion/)).toBeNull());
   await waitFor(() => expect(screen.queryByRole("list", { name: "Starting threads" })).toBeNull());
-  expect(card(/^Temporary thread for deletion/)).toBeNull();
   expect(await screen.findByRole("heading", { level: 1, name: "New thread" })).toBeTruthy();
 });
 

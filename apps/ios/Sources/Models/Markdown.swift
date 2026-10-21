@@ -9,6 +9,7 @@ enum MarkdownBlock: Equatable, Sendable {
     case code(language: String, text: String)
     case list(ordered: Bool, start: Int, items: [String])
     case quote(String)
+    case table(headers: [String], rows: [[String]])
     case rule
 }
 
@@ -19,11 +20,13 @@ enum Markdown {
         var quote: [String] = []
         var list: (ordered: Bool, start: Int, items: [String])?
         var fence: (marker: String, language: String, lines: [String])?
+        var table: (headers: [String], rows: [[String]])?
 
         func flush() {
             if !paragraph.isEmpty { blocks.append(.paragraph(paragraph.joined(separator: "\n"))); paragraph = [] }
             if !quote.isEmpty { blocks.append(.quote(quote.joined(separator: "\n"))); quote = [] }
             if let open = list { blocks.append(.list(ordered: open.ordered, start: open.start, items: open.items)); list = nil }
+            if let open = table { blocks.append(.table(headers: open.headers, rows: open.rows)); table = nil }
         }
 
         for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
@@ -39,6 +42,22 @@ enum Markdown {
                     open.lines.append(line)
                     fence = open
                 }
+                continue
+            }
+            if let open = table {
+                if let cells = tableCells(line) {
+                    table?.rows.append(Array((cells + Array(repeating: "", count: open.headers.count)).prefix(open.headers.count)))
+                    continue
+                }
+                flush()
+            }
+            if let separators = tableCells(trimmed), separators.count > 1,
+               separators.allSatisfy({ cell in
+                   let marks = cell.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+                   return marks.count >= 3 && marks.allSatisfy { $0 == "-" }
+               }), let last = paragraph.last, let headers = tableCells(last), headers.count == separators.count {
+                paragraph.removeLast(); flush()
+                table = (headers, [])
                 continue
             }
             if let marker = fenceMarker(trimmed) {
@@ -80,6 +99,23 @@ enum Markdown {
             if run.count >= 3 { return String(run) }
         }
         return nil
+    }
+    /// Escaped pipes and pipes inside inline code belong to the cell, not its boundary.
+    private static func tableCells(_ line: String) -> [String]? {
+        var cells: [String] = [], cell = "", escaped = false, code = false, divided = false
+        for character in line.trimmingCharacters(in: .whitespaces) {
+            if escaped { cell.append(character); escaped = false; continue }
+            if character == "\\" { escaped = true; continue }
+            if character == "`" { code.toggle() }
+            if character == "|", !code { cells.append(cell.trimmingCharacters(in: .whitespaces)); cell = ""; divided = true }
+            else { cell.append(character) }
+        }
+        if escaped { cell.append("\\") }
+        guard divided else { return nil }
+        cells.append(cell.trimmingCharacters(in: .whitespaces))
+        if cells.first == "" { cells.removeFirst() }
+        if cells.last == "" { cells.removeLast() }
+        return cells.isEmpty ? nil : cells
     }
     private static func heading(_ line: String) -> MarkdownBlock? {
         let hashes = line.prefix { $0 == "#" }.count

@@ -61,6 +61,7 @@ struct ComposeFolder: Codable, Sendable, Identifiable, Equatable {
     var id: String { path }
 }
 struct ComposeOutcome: Sendable, Equatable { let ok: Bool; let id: String?; let message: String }
+struct ComposeClone: Decodable, Sendable { let id: String; let label: String; let percent: Double? }
 
 /// `compose.*` patches from `bridge/new-thread.ts` and `bridge/compose-search.ts`.
 enum ComposePatch: Decodable, Sendable {
@@ -71,6 +72,7 @@ enum ComposePatch: Decodable, Sendable {
     case folders(query: String, state: String, [ComposeFolder])
     case started(id: String, ComposeOutcome)
     case added(id: String, ComposeOutcome)
+    case clone(ComposeClone)
     case access(ComposeAccess)
     case attachments(workspaceId: String, [AttachmentFile], blocked: String?)
 
@@ -82,6 +84,7 @@ enum ComposePatch: Decodable, Sendable {
         let box = try decoder.container(keyedBy: Keys.self)
         func state() throws -> String { try box.decode(String.self, forKey: .state) }
         switch try box.decode(String.self, forKey: .type) {
+        case "compose.clone": self = .clone(try ComposeClone(from: decoder))
         case "compose.projects": self = .projects(state: try state(), try box.decode([ComposeProject].self, forKey: .projects))
         case "compose.agents":
             self = .agents(state: try state(), try box.decode([ComposeAgent].self, forKey: .providers),
@@ -128,11 +131,13 @@ enum ComposePatch: Decodable, Sendable {
     var added: [String: ComposeOutcome] = [:]
     /// The chosen agent's access modes and the one the thread would run at.
     var access: ComposeAccess?
+    var clone: ComposeClone?
     /// The first message's files, in the chosen project's draft scope, and why they can't go yet.
     var attachments: (workspaceId: String, files: [AttachmentFile], blocked: String?)?
 
     func apply(_ patch: ComposePatch) {
         switch patch {
+        case .clone(let progress): clone = progress
         case .projects(let state, let rows): projectsState = state; projects = rows
         case .agents(let state, let rows, let choice): agentsState = state; agents = rows; start = choice
         case .branches(let workspaceId, let state, let bases, let start, let noWorktree):
@@ -147,6 +152,6 @@ enum ComposePatch: Decodable, Sendable {
     }
     func reset() {
         projectsState = "idle"; projects = []; agentsState = "idle"; agents = []; start = nil
-        branches = nil; mentions = nil; folders = nil; started = [:]; added = [:]; access = nil; attachments = nil
+        branches = nil; mentions = nil; folders = nil; started = [:]; added = [:]; access = nil; attachments = nil; clone = nil
     }
 }

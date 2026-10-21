@@ -67,6 +67,8 @@ export interface ForgeBrowser {
     query: import("@ace/protocol/forge-browser").ForgePrSearch,
     signal: AbortSignal,
   ): Promise<import("@ace/protocol/forge-browser").ForgePrList>;
+  /** New thread's open PRs, failing PRs and open issues, in one request. */
+  openWork(signal: AbortSignal): Promise<import("@ace/protocol/forge-browser").ForgeOpenWork>;
   prDetail(
     number: number,
     signal: AbortSignal,

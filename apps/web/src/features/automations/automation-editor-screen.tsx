@@ -3,7 +3,6 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
 import { Page, PageTitle, Screen } from "@/features/shell/index.ts";
 import { useProjectChoices } from "@/lib/projects.ts";
 import { AutomationEditor } from "./automation-form.tsx";
@@ -16,7 +15,6 @@ export function NewAutomationScreen() {
   const { ids: workspaces, name: workspaceName } = useProjectChoices();
   const { save } = useAutomationActions();
   const navigate = useNavigate();
-  const toast = useToast();
   return (
     <Screen title="Automations">
       <Page>
@@ -38,7 +36,6 @@ export function NewAutomationScreen() {
             });
             await save(automation);
             committed();
-            toast.add({ title: `Created · ${automation.title}` });
             await navigate({
               to: "/automations/$automationId",
               params: { automationId: automation.id },
@@ -56,7 +53,6 @@ export function EditAutomationScreen(props: { id: string }) {
   const { ids: workspaces, name: workspaceName } = useProjectChoices();
   const { save } = useAutomationActions();
   const navigate = useNavigate();
-  const toast = useToast();
   const previous = entry?.automation;
   if (!previous)
     return (
@@ -115,7 +111,6 @@ export function EditAutomationScreen(props: { id: string }) {
             });
             await save(automation);
             committed();
-            toast.add({ title: `Saved · ${automation.title}` });
             await navigate(back);
           }}
         />

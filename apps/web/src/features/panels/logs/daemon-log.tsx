@@ -1,10 +1,11 @@
 import { Link } from "@tanstack/react-router";
 import type { DiagnosticsHealth } from "@ace/protocol";
-import { ArrowClockwiseIcon, CopyIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, CheckIcon, CopyIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { useCopy } from "@/components/use-copy.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import type { TabViewProps } from "@/lib/workspace/index.ts";
 import { ToolbarButton } from "../terminal/toolbar.tsx";
@@ -83,11 +84,9 @@ export function DaemonLog(props: TabViewProps) {
  */
 function LogFolder(props: { directory: string | undefined }) {
   const toast = useToast();
-  const copy = (path: string) =>
-    navigator.clipboard.writeText(path).then(
-      () => toast.add({ title: "Copied the log folder's path" }),
-      () => toast.error({ title: "Couldn't copy", description: path }),
-    );
+  const { copied, copy } = useCopy(() =>
+    toast.error({ title: "Couldn't copy", description: props.directory }),
+  );
   return (
     <div className="mt-4 flex max-w-[640px] flex-wrap items-center gap-x-3 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
       <span>App logs are available in the support bundle.</span>
@@ -96,10 +95,10 @@ function LogFolder(props: { directory: string | undefined }) {
           size="sm"
           variant="ghost"
           title={props.directory}
-          onClick={() => props.directory && void copy(props.directory)}
+          onClick={() => props.directory && copy(props.directory)}
         >
-          <CopyIcon aria-hidden size={14} />
-          Copy log folder path
+          {copied ? <CheckIcon aria-hidden size={14} /> : <CopyIcon aria-hidden size={14} />}
+          {copied ? "Copied" : "Copy log folder path"}
         </Button>
       )}
       <Link to="/settings/advanced" className="underline underline-offset-4">

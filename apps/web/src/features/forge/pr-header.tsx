@@ -166,7 +166,9 @@ export function PrHeader(props: {
   const repository = status.ref.repository;
   const checkout = `gh pr checkout ${status.ref.number} --repo ${repository.host}/${repository.owner}/${repository.name}`;
   const toast = useToast();
-  const { copied, copy } = useCopy();
+  const { copied, copy } = useCopy(() =>
+    toast.error({ title: "Couldn't copy the checkout command" }),
+  );
   const openUrl = (url: string) =>
     void openExternal(url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
   const working = actions.writes.pending || actions.mergeState.pending || actions.lifecycle.pending;

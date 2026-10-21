@@ -2,11 +2,10 @@ import { useClient, useThreadMeta } from "@ace/client-react";
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import type { BackgroundTask } from "@ace/protocol";
 import { pluralCount, readStoppedTurn } from "@ace/ui-core";
-import { StopIcon, TerminalIcon } from "@phosphor-icons/react";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { StopIcon } from "@phosphor-icons/react";
+import { useCallback, useMemo, useState } from "react";
 import { useWatched, type Watched } from "@/lib/use-watched.ts";
 import { Icon } from "@/components/icon.tsx";
-import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useBackgroundShells } from "@/features/panels/index.ts";
 
@@ -50,35 +49,6 @@ export function ConfirmStopStrip(props: { subagents: number }) {
           </span>
         )}
       </span>
-    </div>
-  );
-}
-
-/**
- * "Stopped · 1 background command still running · Stop it": a Stop ends the agents, not the
- * commands they left running, so the strip says so and ends those too in one press.
- */
-export function StoppedStrip(props: {
-  commands: readonly BackgroundTask[];
-  indicators: ReactNode;
-}) {
-  const { stoppable, sending, stopAll } = useStopCommands(props.commands);
-  const count = props.commands.length;
-  return (
-    <div role="status" className="flex h-7 min-w-0 items-center gap-1.5 px-1 text-xs">
-      <Icon icon={TerminalIcon} size={12} className="shrink-0 text-muted-foreground" />
-      <span className="min-w-0 truncate">
-        <span className="text-foreground">Stopped</span>
-        <span className="text-muted-foreground">
-          {` · ${pluralCount(count, "background command", "background commands")} still running`}
-        </span>
-      </span>
-      {stoppable.length > 0 && (
-        <Button size="xs" variant="ghost" disabled={sending} onClick={stopAll}>
-          {count === 1 ? "Stop it" : "Stop them"}
-        </Button>
-      )}
-      {props.indicators}
     </div>
   );
 }

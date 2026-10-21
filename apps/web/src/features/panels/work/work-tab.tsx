@@ -147,7 +147,7 @@ export default function WorkTab(props: TabViewProps) {
       <ListSkeleton label="summary" shape="row" rows={4} className="px-1.5 py-1.5" />
     );
   const tasks = facts.tasks
-    .filter((task) => task.status === "running" || task.status === "unknown")
+    .filter((task) => (task.status === "running" || task.status === "unknown") && !task.internal)
     .map((task) => task.id);
   const queued = queuedInputLine({
     retained: page?.total ?? 0,

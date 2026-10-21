@@ -257,6 +257,19 @@ test("an offshift call reads as the record it changed", () => {
   expect(
     words({ action: "evidence", evidence: { criterionId: "restore", result: "fail" } }),
   ).toMatchObject({ past: "Recorded a failing check", target: "restore" });
+  expect(
+    words({ action: "evidence", evidence: [{ criterionId: "restore", result: "pass" }] }),
+  ).toMatchObject({ past: "Recorded a passing check", target: "restore" });
+  expect(
+    words({
+      action: "evidence",
+      evidence: [
+        { criterionId: "restore", result: "pass" },
+        { criterionId: "undo", result: "fail" },
+        { criterionId: "redo", result: "pass" },
+      ],
+    })?.past,
+  ).toBe("Recorded 3 checks, 1 failing");
   expect(words({ action: "revise", criterion: { id: "restore" } })).toMatchObject({
     past: "Revised a criterion",
     target: "restore",

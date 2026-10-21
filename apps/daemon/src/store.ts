@@ -18,6 +18,8 @@ import { purgeTranscript } from "./storage/transcript.ts";
 import { SearchReplay } from "./search-replay.ts";
 import { migrateSidebarRevisions } from "./sidebar-revisions.ts";
 import { seedSentMessages } from "./draft-migration.ts";
+import { mapRecordedPermissionModes } from "./permission-mode-migration.ts";
+import { indexEngineRecords } from "./engine-record-indexes.ts";
 import { timeOrderedIds } from "./time-ordered-id.ts";
 import { NativeImageStore } from "./native-image-store.ts";
 import { ToolResultStore } from "./tool-result-store.ts";
@@ -199,6 +201,8 @@ export class Store {
       migrateProjects(this.db);
       this.workspaceReservations = new WorkspaceReservations(this.db, (sql) => this.statement(sql));
       this.atomic(migrateThreadClient);
+      this.atomic(mapRecordedPermissionModes);
+      this.atomic(indexEngineRecords);
       this.usageReplay = new UsageReplay(this.db);
       this.db.exec(
         `CREATE INDEX IF NOT EXISTS threads_update_blockers ON threads(id) WHERE json_extract(status, '$.state') NOT IN ('done', 'new', 'failed')`,

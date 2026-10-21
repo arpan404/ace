@@ -7,7 +7,7 @@ import XCTest
 
     func testAgentsSheetShowsTheTreeAndAsksBeforeStoppingIt() throws {
         let app = launchIntoTree()
-        app.buttons["thread.agents"].tap()
+        app.openAgents()
         XCTAssertTrue(app.buttons["agents.stopAll"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Reviewer")).firstMatch.waitForExistence(timeout: 15))
         screenshot("agents-medium")
@@ -63,7 +63,7 @@ import XCTest
         app.launch()
         XCTAssertTrue(app.buttons["thread.ios-tree"].waitForExistence(timeout: 25))
         app.buttons["thread.ios-tree"].tap()
-        XCTAssertTrue(app.buttons["thread.agents"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["thread.work"].waitForExistence(timeout: 15))
         return app
     }
     private func screenshot(_ name: String) {

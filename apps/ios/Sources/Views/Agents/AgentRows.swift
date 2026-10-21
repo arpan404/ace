@@ -45,7 +45,15 @@ struct TaskRowView: View {
             HStack(spacing: AceTheme.Spacing.sm) {
                 Image(systemName: task.kind == "shell" ? "terminal" : "gearshape.2").foregroundStyle(AceTheme.Colours.mutedForeground)
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                    Text(task.title).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote).lineLimit(stacked ? 4 : 2)
+                    // Only a shell's title is its command; anything else is words, never code.
+                    Group {
+                        if task.kind == "shell" {
+                            Text(task.title).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
+                        } else {
+                            Text(task.title).aceFont(AceTheme.Typography.label, relativeTo: .footnote)
+                        }
+                    }
+                    .lineLimit(stacked ? 4 : 2)
                     Text(task.status.label.capitalized).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                         .foregroundStyle(StateStyle.text(task.status.token))
                 }

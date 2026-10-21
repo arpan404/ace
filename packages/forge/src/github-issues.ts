@@ -33,7 +33,7 @@ function decode<T>(schema: z.ZodType<T>, value: unknown): T {
   if (!result.success) throw new ForgeError("invalid_data");
   return result.data;
 }
-function searchQuery(repo: ForgeRepository, query: ForgeIssueSearch) {
+export function issueSearchQuery(repo: ForgeRepository, query: ForgeIssueSearch) {
   return [
     `repo:${repo.owner}/${repo.name}`,
     "is:issue",
@@ -83,7 +83,7 @@ export class GitHubIssues {
   async list(input: ForgeIssueSearch, signal: AbortSignal): Promise<ForgeIssueList> {
     const query = ForgeIssueSearch.parse(input);
     const params = new URLSearchParams({
-      q: searchQuery(this.#repo, query),
+      q: issueSearchQuery(this.#repo, query),
       sort: query.sort,
       order: query.order,
       per_page: "25",
@@ -99,7 +99,7 @@ export class GitHubIssues {
     );
     const fields = ["open", "closed"].map(
       (state) =>
-        `${state}: search(type:ISSUE,query:${JSON.stringify(searchQuery(this.#repo, ForgeIssueSearch.parse({ ...query, state })))},first:1) { issueCount }`,
+        `${state}: search(type:ISSUE,query:${JSON.stringify(issueSearchQuery(this.#repo, ForgeIssueSearch.parse({ ...query, state })))},first:1) { issueCount }`,
     );
     const counts = decode(
       z.object({ data: z.object({ open: count, closed: count }) }),

@@ -4,7 +4,7 @@ import { ThreadId, type CommandPayload, type ForgePrDetail } from "@ace/protocol
 import { actionErrorText, type MergeMethod } from "@ace/ui-core";
 import { runCommand } from "@/lib/daemon-command.ts";
 import { useToast } from "@/components/ui/toast.tsx";
-import { failureCode } from "./source.ts";
+import { failureCode } from "@/lib/forge-read.ts";
 
 const titles: Partial<Record<CommandPayload["type"], string>> = {
   "forge.pr.merge": "Couldn't merge this pull request",

@@ -25,8 +25,6 @@ export function useFixWithAgent(props: {
   const { detail } = props;
   const linked = detail.relatedThreads.filter((thread) => !thread.archived);
   const target = linked.find((thread) => thread.id === props.hostThreadId) ?? linked[0];
-  const added = () =>
-    toast.add({ title: "Added to your message", description: "Read it over, then send it." });
   return {
     /** The task the request goes to, if one is linked. */
     target,
@@ -45,15 +43,14 @@ export function useFixWithAgent(props: {
       // The panel's own task: a panel in full view hides its composer, so step out of it.
       const here = target.id === props.hostThreadId;
       if (here) workspace.setExpanded(false);
-      if (insertTextInComposer(target.id, request)) return void added();
+      // The request showing in the composer is the confirmation.
+      if (insertTextInComposer(target.id, request)) return;
       if (!here) void navigate({ to: "/t/$threadId", params: { threadId: target.id } });
       // The task's composer mounts once its page shows; hand the request over then.
       const started = performance.now();
       const timer = setInterval(() => {
-        if (insertTextInComposer(target.id, request)) {
-          clearInterval(timer);
-          added();
-        } else if (performance.now() - started > mountWaitMs) {
+        if (insertTextInComposer(target.id, request)) clearInterval(timer);
+        else if (performance.now() - started > mountWaitMs) {
           clearInterval(timer);
           toast.error({
             title: "Couldn't add the request",

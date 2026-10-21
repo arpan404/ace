@@ -15,8 +15,10 @@ interface Ports {
 
 /**
  * The steering lane: a person's Steer reaches the model now. Where the provider steers natively
- * mid-tool it goes straight in. Where its steer waits for the running command, the lane
- * interrupts the turn first and delivers the message once that turn ends. The message stays an
+ * mid-tool it goes straight in. Where the provider can move the running tools to the background
+ * (Claude), it goes straight in and the lane backgrounds them. Where its steer waits for the
+ * running command, the lane interrupts the turn first and delivers the message once that turn
+ * ends. The message stays an
  * unclaimed intent until then, so a restart in between keeps it, once, for recovery.
  */
 export class SteerLane {
@@ -33,10 +35,34 @@ export class SteerLane {
     // The person's steer goes first: a daemon result waiting on a command never holds it.
     const person = repo.pending.personSteer(actor.id);
     const route = person && this.route(person);
-    if (person && route === "native") return this.deliver(actor, person);
+    if (person && route === "native") return this.steerNow(actor, person);
     if (route === "yield") return this.yieldTurn(actor);
     const next = repo.pending.steerMessage(actor.id);
     if (next && next.id !== person?.id && this.isSteer(next)) return this.deliver(actor, next);
+  }
+  /**
+   * Delivers the person's steer, then moves the root's running foreground tools to the
+   * background where the provider can, so its steer stops waiting for them. Nothing is stopped:
+   * each tool keeps running as a background task. If the provider can't, the steer lands when
+   * the tool returns, as the provider's own steering does.
+   */
+  private async steerNow(actor: ThreadActor, intent: IntentHeader): Promise<void> {
+    const { repo } = this.ports;
+    const session = actor.session;
+    const joinsTurn = rootRun(repo.requireState(actor.id)) !== undefined;
+    await this.ports.deliver(actor, intent);
+    if (
+      joinsTurn &&
+      session?.backgroundTools &&
+      actor.session === session &&
+      repo.pending.commandStatus(intent.commandId) === "done"
+    )
+      try {
+        await session.backgroundTools();
+      } catch (error) {
+        this.ports.report(error);
+      }
+    this.ports.wake(actor.id);
   }
   private async deliver(actor: ThreadActor, intent: IntentHeader): Promise<void> {
     await this.ports.deliver(actor, intent);
