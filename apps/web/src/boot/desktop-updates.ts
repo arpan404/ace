@@ -141,30 +141,6 @@ export function openRelease(url: string, scope: object = globalThis): void {
   void openExternal(url, scope).catch(() => {});
 }
 
-type Toasts = ReturnType<typeof useToast>;
-
-/** Says how a check the person asked for came out: failed, up to date, or what's newer. */
-export function announceCheck(toast: Toasts, status: UpdateStatus): void {
-  const kind = "desktop-update";
-  if (status.state === "error")
-    toast.error({
-      kind,
-      title: "Couldn't check for updates",
-      description: status.error?.message ?? "Check your connection and try again.",
-    });
-  else if (status.state === "disabled")
-    toast.add({ kind, title: "Automatic updates are not available in this build." });
-  else if (status.state === "current")
-    toast.add({ kind, title: `ace is up to date (${status.currentVersion})`, timeout: 5000 });
-  else if (status.version)
-    toast.add({
-      kind,
-      title: `ace ${status.version} is available`,
-      description: "The update button beside Settings has what's new.",
-      timeout: 6000,
-    });
-}
-
 /**
  * The page's side of the app's update: the menu's Check for Updates… answers with a toast,
  * a finished download says how to install it, and a Restart that found agents still at work
@@ -200,7 +176,23 @@ export function useDesktopUpdates(scope: object = globalThis): void {
     const stopChecked = bridge.onChecked?.((value) => {
       const status = parseUpdateStatus(value);
       if (!status) return;
-      announceCheck(toast, status);
+      if (status.state === "error")
+        toast.error({
+          kind,
+          title: "Couldn't check for updates",
+          description: status.error?.message ?? "Check your connection and try again.",
+        });
+      else if (status.state === "disabled")
+        toast.add({ kind, title: "Automatic updates are not available in this build." });
+      else if (status.state === "current")
+        toast.add({ kind, title: `ace is up to date (${status.currentVersion})`, timeout: 5000 });
+      else if (status.version)
+        toast.add({
+          kind,
+          title: `ace ${status.version} is available`,
+          description: "The update button beside Settings has what's new.",
+          timeout: 6000,
+        });
     });
     return () => {
       stopStatus();

@@ -1,40 +1,23 @@
-import {
-  ArrowClockwiseIcon,
-  ArrowsClockwiseIcon,
-  CheckIcon,
-  DownloadSimpleIcon,
-} from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, CheckIcon, DownloadSimpleIcon } from "@phosphor-icons/react";
 import { Suspense, useEffect, useRef, useState } from "react";
-import {
-  announceCheck,
-  openRelease,
-  useDesktopUpdate,
-  type UpdateStatus,
-} from "@/boot/desktop-updates.ts";
+import { openRelease, useDesktopUpdate, type UpdateStatus } from "@/boot/desktop-updates.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { whenIdle } from "@/lib/idle.ts";
-import { showsReleaseNotes, updateAction, updateLabel } from "./update-status.ts";
+import { hasUpdate, showsReleaseNotes, updateAction, updateLabel } from "./update-status.ts";
 
 const ring = 2 * Math.PI * 13;
-/** How long a check that found nothing shows its check mark. */
-const upToDateMs = 2500;
 
 /** The confirm dialog and release-notes card load after the first paint. */
 const UpdateOverlays = deferredComponent(() =>
   import("./update-overlays.tsx").then((module) => module.UpdateOverlays),
 );
 
-/**
- * The state's glyph: a refresh to check (a check mark just after one found nothing), a
- * download (with a dot, or its progress), a restart.
- */
-function UpdateGlyph(props: { status: UpdateStatus; upToDate: boolean }) {
+/** The update's glyph: a download (with a dot, or its progress), a restart, a spinner. */
+function UpdateGlyph(props: { status: UpdateStatus }) {
   const { status } = props;
-  if (props.upToDate && status.state === "current") return <CheckIcon aria-hidden size={16} />;
   if (status.state === "installing") return <Spinner className="text-foreground" />;
   if (status.state === "downloading") {
     const percent = Math.max(0, Math.min(100, status.percent ?? 0));
@@ -69,63 +52,40 @@ function UpdateGlyph(props: { status: UpdateStatus; upToDate: boolean }) {
         />
       </span>
     );
-  if (status.state === "downloaded")
-    return (
-      <span className="relative grid size-4 place-items-center">
-        <ArrowClockwiseIcon aria-hidden size={16} />
-        <span className="absolute -right-1 -bottom-1 grid size-2.5 place-items-center rounded-full bg-foreground text-background ring-2 ring-sidebar">
-          <CheckIcon aria-hidden size={7} weight="bold" />
-        </span>
-      </span>
-    );
   return (
-    <ArrowsClockwiseIcon
-      aria-hidden
-      size={16}
-      className={status.state === "checking" ? "motion-safe:animate-spin" : undefined}
-    />
+    <span className="relative grid size-4 place-items-center">
+      <ArrowClockwiseIcon aria-hidden size={16} />
+      <span className="absolute -right-1 -bottom-1 grid size-2.5 place-items-center rounded-full bg-foreground text-background ring-2 ring-sidebar">
+        <CheckIcon aria-hidden size={7} weight="bold" />
+      </span>
+    </span>
   );
 }
 
 /**
- * The app's update, beside the Settings gear (desktop only). It checks for updates when
- * clicked, and says so when there is none; a found update downloads on the next click, with
- * its progress on the icon, and a downloaded one restarts the app after asking. Hovering an
- * update in hand shows what changed.
+ * The app's update, beside the Settings gear (desktop only), shown only while there is one:
+ * background checks find it. A click downloads it, with its progress on the icon, and a
+ * downloaded one restarts the app after asking. Hovering it shows what changed.
  */
 export function UpdateButton(props: { scope?: object }) {
   const update = useDesktopUpdate(props.scope);
-  const toast = useToast();
   const [confirming, setConfirming] = useState(false);
   const [triggerFocused, setTriggerFocused] = useState(false);
   const [hoverIntent, setHoverIntent] = useState(false);
   const [overlaysArmed, setOverlaysArmed] = useState(false);
-  const [upToDate, setUpToDate] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const status = update.status;
-  const live = status !== undefined && status.state !== "disabled";
+  const live = status !== undefined && hasUpdate(status);
   // Warm the closed layers while idle (desktop only) so opening them never waits on the network.
   useEffect(() => {
     if (!live) return;
     return whenIdle(() => void UpdateOverlays.preload().catch(() => {}));
   }, [live]);
-  useEffect(() => {
-    if (!upToDate) return;
-    const timer = setTimeout(() => setUpToDate(false), upToDateMs);
-    return () => clearTimeout(timer);
-  }, [upToDate]);
-  if (!status || status.state === "disabled") return null;
+  if (!status || !live) return null;
   const label = updateLabel(status);
   const action = updateAction(status);
   const act = () => {
-    if (action === "check")
-      void update.check().then((result) => {
-        // A found update shows on this button itself; anything else is said in a toast.
-        if (!result || result.state === "available") return;
-        announceCheck(toast, result);
-        if (result.state === "current") setUpToDate(true);
-      });
-    else if (action === "download") update.download();
+    if (action === "download") update.download();
     else if (action === "open-release" && status.releaseUrl)
       openRelease(status.releaseUrl, props.scope);
     else if (action === "install") {
@@ -149,7 +109,7 @@ export function UpdateButton(props: { scope?: object }) {
         "relative grid size-8 place-items-center rounded-md text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground aria-disabled:cursor-default",
       )}
     >
-      <UpdateGlyph status={status} upToDate={upToDate} />
+      <UpdateGlyph status={status} />
     </button>
   );
   // The eager trigger stays on screen until the layers take over; afterwards they stay
