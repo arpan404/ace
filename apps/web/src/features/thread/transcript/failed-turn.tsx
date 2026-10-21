@@ -28,6 +28,8 @@ export function FailedTurn(props: {
   errorId: string | undefined;
   error: Failure | undefined;
   latest: boolean;
+  /** The thread's composer strip already says a usage or rate limit: no row for it here. */
+  limitInStrip?: boolean | undefined;
 }) {
   const { error, latest } = props;
   const thread = useThreadMeta(props.threadId);
@@ -80,12 +82,12 @@ export function FailedTurn(props: {
       setSending(false);
     }
   };
-  // A usage or rate limit is a pause, not a failure: the composer's strip says it while it holds.
-  if (isLimitError(view)) return null;
+  if (props.limitInStrip && isLimitError(view)) return null;
   const fixable = latest && view.action !== undefined && fixes.has(view.action);
   // Nothing said why: "Turn failed" alone. A fix names the failure itself ("Not signed in").
   const known = reported !== undefined || error !== undefined;
-  const heading = fixable || !known ? undefined : "Turn failed";
+  // A limit names itself ("Usage limit reached · Resets 8:30pm"), never "Turn failed".
+  const heading = fixable || !known || isLimitError(view) ? undefined : "Turn failed";
   // Under "Turn failed" the failure's own words follow the model, even when they were its title.
   const said = heading ? (view.message ?? view.title) : view.message;
   const failed = known

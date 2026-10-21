@@ -295,7 +295,7 @@ test("a usage-limit pause keeps its work collapsible, and the limit is said only
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const summary = await within(feed).findByRole("button", { name: /^Worked/ });
   expect(within(feed).queryByText(/usage limit/i)).toBeNull();
-  expect(await screen.findByRole("region", { name: "Usage limit reached" })).toBeTruthy();
+  expect(await screen.findByRole("region", { name: "Codex is out of usage" })).toBeTruthy();
   await userEvent.click(summary);
   expect(await screen.findByRole("list", { name: "Steps" })).toBeTruthy();
   expect(screen.queryByRole("status", { name: "Working" })).toBeNull();

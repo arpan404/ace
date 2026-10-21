@@ -7,7 +7,7 @@ import { useShownPlans } from "@/lib/use-plans.ts";
 import { failedHead, withoutMessage } from "./failed-head.ts";
 import { withoutAgentPending, withoutAgentResults } from "./queued-agent-result.ts";
 import { holdsTurn, stoppedHold } from "@ace/ui-core";
-import { HeldTurnStrip, useHeldTurn } from "./held-turn-strip.tsx";
+import { HeldTurnStrip, useContinueOnSwitch, useHeldTurn } from "./held-turn-strip.tsx";
 import { useHeldQueue } from "./queue-notice.tsx";
 import { QueueStrip } from "./queue-strip.tsx";
 import { queuedCount } from "./queued.tsx";
@@ -32,8 +32,8 @@ const noRequests: readonly string[] = [];
 /**
  * The one strip above the thread's composer (`stripSlot` decides what it shows): a Stop waiting
  * for its second Esc, the agent's open requests, the person's messages on their way (or that
- * didn't go: the transcript only ever shows the daemon's items), a usage or rate limit in its
- * status hue (with Continue), trouble with the connection,
+ * didn't go: the transcript only ever shows the daemon's items), a usage or rate limit (with
+ * Switch and Continue), trouble with the connection,
  * background commands a stopped turn left running, the queue, what the main agent waits on
  * (with its Stop), the goal the agent is pursuing, or the main agent's task list, with the
  * others as indicators inside it. Loads after the thread has painted, unless the thread opens on a request.
@@ -78,6 +78,7 @@ export function ComposerStrip(props: {
       ? undefined
       : allHeld;
   const heldTurn = useHeldTurn(props.threadId, allHeld);
+  useContinueOnSwitch(props.threadId, heldTurn, noAgents);
   const pending = withoutAgentPending(
     useQueuedPending(props.threadId, noAgents.page, noAgents.retained).filter(
       (message) => message.id !== failed?.id,
@@ -160,7 +161,7 @@ export function ComposerStrip(props: {
     />
   );
   return (
-    <StripSurface slot={slot.shown} tone={slot.shown === "held" ? "waiting" : undefined}>
+    <StripSurface slot={slot.shown}>
       {slot.shown === "confirm-stop" ? (
         <ConfirmStopStrip subagents={props.confirmStop?.subagents ?? 0} />
       ) : slot.shown === "held" && heldTurn ? (
@@ -168,7 +169,7 @@ export function ComposerStrip(props: {
           turn={heldTurn}
           queue={noAgents}
           indicators={indicators}
-          onChooseModel={props.onChooseModel}
+          onSwitch={props.onChooseModel}
         />
       ) : slot.shown === "stopped" ? (
         <StoppedStrip threadId={props.threadId} commands={stopped} indicators={indicators} />

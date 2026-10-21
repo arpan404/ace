@@ -48,15 +48,3 @@
     height: 2rem;
   }
 }
-
-/*
- * A usage or rate limit tints the strip in its status hue over the same
- * glass, so the hold reads at a glance without a row in the transcript.
- */
-[data-composer-strip][data-tone] > [data-edge="bottom"] {
-  background-image: linear-gradient(
-    color-mix(in oklab, var(--tone) 14%, transparent),
-    color-mix(in oklab, var(--tone) 14%, transparent)
-  );
-  border-color: color-mix(in oklab, var(--tone) 35%, var(--input));
-}

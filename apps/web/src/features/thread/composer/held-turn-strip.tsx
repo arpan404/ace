@@ -1,14 +1,8 @@
 import type { ThreadReader } from "@ace/client";
 import { useThread, useThreadMeta } from "@ace/client-react";
 import type { AgentError } from "@ace/protocol";
-import { describeProviderError, heldTurn, type HeldTurn, type QueueAction } from "@ace/ui-core";
-import { DotsThreeIcon, HourglassMediumIcon } from "@phosphor-icons/react";
-import { useCallback, type ReactNode } from "react";
-import { ResumeIcon } from "@/components/ace-icons.tsx";
-import { Icon } from "@/components/icon.tsx";
-import { Button } from "@/components/ui/button.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
+import { describeProviderError, heldTurn, providerNames, type HeldTurn } from "@ace/ui-core";
+import { useCallback, useEffect, useEffectEvent, useRef, type ReactNode } from "react";
 import { useNow } from "@/lib/time.ts";
 import type { HeldQueue } from "./queue-notice.tsx";
 import { useActiveRootRun } from "./stop-state.ts";
@@ -46,61 +40,74 @@ export function useHeldTurn(threadId: string, held: HeldQueue | undefined): Held
           provider,
         })
       : undefined;
-  return heldTurn(held?.notice, view, now);
+  const who = provider ? providerNames[provider] : "The provider";
+  return heldTurn(held?.notice, view, who, now);
 }
 
 /**
- * A limit as the composer's colored top strip, on one line: "Usage limit reached · Resets in
- * 1h 28m", then Continue (it sends "Continue where you left off." as the person's message).
- * Resume at reset, snooze and another account wait behind the menu.
+ * While a limit holds the thread, a switch to another account, model or provider carries the
+ * work on at once: the new agent starts from the handoff without waiting for another Continue.
+ * Only a switch made after the hold showed counts, and a refused one never does.
+ */
+export function useContinueOnSwitch(
+  threadId: string,
+  turn: HeldTurn | undefined,
+  queue: QueueControls,
+): void {
+  const change = useThreadMeta(threadId)?.switch;
+  const seen = useRef(change?.at);
+  const carryOn = useEffectEvent(() => {
+    if (turn) queue.act(turn.carryOn);
+  });
+  useEffect(() => {
+    if (change?.at === seen.current) return;
+    seen.current = change?.at;
+    if (change && change.state !== "failed") carryOn();
+  }, [change]);
+}
+
+/**
+ * The limit as the composer's top strip, one sentence and two words to act on: "Codex is out
+ * of usage until 1:14 AM · Switch account or provider · Continue". Continue sends "Continue
+ * where you left off." as the person's message.
  */
 export function HeldTurnStrip(props: {
   turn: HeldTurn;
   queue: QueueControls;
   indicators: ReactNode;
-  onChooseModel(): void;
+  onSwitch(): void;
 }) {
   const { turn } = props;
-  const [primary, ...rest] = turn.actions;
-  const act = (action: QueueAction) =>
-    action.id === "choose_model" ? props.onChooseModel() : props.queue.act(action);
   return (
     <section
-      aria-label={turn.title}
-      className="flex h-9 min-w-0 items-center gap-2 pr-1 pl-2 text-xs"
+      aria-label={turn.lead}
+      className="flex h-9 min-w-0 items-center gap-1 pr-1 pl-2.5 text-xs"
     >
-      <Icon icon={HourglassMediumIcon} size={14} className="shrink-0 text-(--tone-text)" />
-      <p className="min-w-0 flex-1 truncate">
-        <span className="font-medium text-(--tone-text)">{turn.title}</span>
-        {turn.detail && <span className="text-muted-foreground"> · {turn.detail}</span>}
+      <p className="min-w-0 flex-1 truncate text-muted-foreground">
+        {turn.lead}
+        {turn.until && (
+          <>
+            {" until "}
+            <span className="font-medium text-foreground tabular-nums">{turn.until}</span>
+          </>
+        )}
       </p>
       {props.indicators}
-      {rest.length > 0 && (
-        <Menu>
-          <MenuTrigger render={<IconButton icon={DotsThreeIcon} label="More" size="sm" />} />
-          <MenuContent side="top" align="end">
-            {rest.map((action) => (
-              <MenuItem key={action.id} disabled={props.queue.acting} onClick={() => act(action)}>
-                {action.label}
-              </MenuItem>
-            ))}
-          </MenuContent>
-        </Menu>
-      )}
-      {primary && (
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={props.queue.acting}
-          onClick={() => act(primary)}
-          className="shrink-0 font-medium text-foreground"
-        >
-          {primary.id === "resume_now" || primary.id === "continue" ? (
-            <Icon icon={ResumeIcon} size={12} />
-          ) : null}
-          {primary.label}
-        </Button>
-      )}
+      <button
+        type="button"
+        onClick={props.onSwitch}
+        className="h-7 shrink-0 rounded-md px-2 font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-ring"
+      >
+        Switch account or provider
+      </button>
+      <button
+        type="button"
+        disabled={props.queue.acting}
+        onClick={() => props.queue.act(turn.carryOn)}
+        className="h-7 shrink-0 rounded-md px-2 font-semibold text-foreground transition-colors duration-(--motion-fast) hover:bg-accent focus-ring disabled:opacity-50"
+      >
+        Continue
+      </button>
     </section>
   );
 }
