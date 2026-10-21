@@ -62,7 +62,11 @@ test("eight quiet workspaces share one sleeping recovery timer and emit no catal
       edited.resolve();
     });
     await writeFile(join(home, "7/.ace/prompts/review.md"), "Changed review");
-    while (!notified) {
+    // Bounded: each pass drives one recovery tick, and the loop also ends when
+    // the subscriber fires. Exhaustion falls through to `edited.promise`,
+    // which fails the test on timeout instead of spinning forever.
+    for (let guard = 0; guard < 32; guard++) {
+      if (notified) break;
       const tick = pending;
       if (!tick) {
         await edited.promise;
