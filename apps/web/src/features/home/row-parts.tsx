@@ -14,7 +14,13 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useThreadBrowsing } from "@/lib/browsing.ts";
 import { useThreadComputerUse } from "@/lib/computer-using.ts";
-import { ClockIcon, CursorClickIcon, GlobeSimpleIcon } from "@phosphor-icons/react";
+import {
+  ClockIcon,
+  CursorClickIcon,
+  GlobeSimpleIcon,
+  TreeStructureIcon,
+} from "@phosphor-icons/react";
+import { openExternal } from "@/boot/open-external.ts";
 
 /*
  * Shared row pieces render the card facts. RowTime reads the shared clock for elapsed time;
@@ -93,26 +99,42 @@ export function ComputerUseMark(props: { threadId: string }) {
 export function PullRequest(props: { card: ThreadCard }) {
   const { pr, prState } = props.card;
   if (pr === undefined) return null;
-  return (
-    <Tip
-      label={
-        props.card.prs
-          ?.map(
-            (linked) =>
-              `#${linked.number} · ${linked.state}${linked.title ? ` · ${linked.title}` : ""}`,
-          )
-          .join("\n") ?? `#${pr} · ${prState ?? "linked"}`
-      }
-    >
-      <span
-        role="img"
-        aria-label={`${prState ?? "Linked"} pull request #${pr}${props.card.prs && props.card.prs.length > 1 ? `, ${props.card.prs.length - 1} more linked` : ""}`}
-        className={cn("inline-flex items-center gap-0.5", prState && pullRequestTone(prState))}
-      >
-        <PullRequestGlyph state={prState} size={12} />#{pr}
-        {(props.card.prs?.length ?? 0) > 1 && <span>+{(props.card.prs?.length ?? 1) - 1}</span>}
+  const url = props.card.prs?.[0]?.url;
+  const more = (props.card.prs?.length ?? 0) - 1;
+  const label = `${prState ?? "Linked"} pull request #${pr}${more > 0 ? `, ${more} more linked` : ""}`;
+  const content = (
+    <>
+      <PullRequestGlyph state={prState} size={12} />#{pr}
+      {more > 0 && <span>+{more}</span>}
+    </>
+  );
+  const tone = cn("inline-flex items-center gap-0.5", prState && pullRequestTone(prState));
+  if (!url)
+    return (
+      <span role="img" aria-label={label} className={tone}>
+        {content}
       </span>
-    </Tip>
+    );
+  // The row is itself a link, so the badge opens the pull request without nesting an anchor;
+  // the row stays the one focus stop.
+  const open = (event: { preventDefault(): void; stopPropagation(): void }) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void openExternal(url).catch(() => {});
+  };
+  return (
+    <span
+      role="button"
+      tabIndex={-1}
+      aria-label={`Open ${label}`}
+      onClick={open}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") open(event);
+      }}
+      className={cn(tone, "cursor-pointer underline-offset-2 hover:underline")}
+    >
+      {content}
+    </span>
   );
 }
 
@@ -229,7 +251,12 @@ export function RowContext(props: { card: ThreadCard }) {
           </Tip>
         )}
         <span role="img" aria-label={card.providerLabel} className="flex items-center gap-1">
-          {card.subagents > 0 && <span className="tabular-nums">{card.subagents}</span>}
+          {card.subagents > 0 && (
+            <span className="inline-flex items-center gap-0.5 tabular-nums">
+              <TreeStructureIcon aria-hidden size={12} />
+              {card.subagents}
+            </span>
+          )}
           {/* A black-and-white mark (OpenAI, OpenCode) takes the row's muted ink beside the
               machine glyph; coloured marks keep their own colours. */}
           <ProviderAccountIcon

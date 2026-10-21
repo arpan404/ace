@@ -4,11 +4,11 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
-test("the hover card shows the model on its own line below the provider", async () => {
+test("the hover card names the model without the provider's name", async () => {
   const app = harness();
   app.daemon.createThread({
     id: "hover-model-own-line",
-    title: "Model on its own line",
+    title: "Model beside the account",
     workspaceId: "ace",
     provider: "claude",
     execution: { provider: "claude", model: "claude-opus-4-1", options: {} },
@@ -21,26 +21,14 @@ test("the hover card shows the model on its own line below the provider", async 
   await app.open("/new");
   const row = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
     "link",
-    { name: /^Model on its own line/ },
+    { name: /^Model beside the account/ },
   );
   await userEvent.hover(row);
-  const tip = await screen.findByLabelText(/^Details for Model on its own line/);
-  const model = within(tip).getByText("Opus 4.1", { exact: true });
-  expect(model.getAttribute("aria-label")).toBe("Model: Opus 4.1");
+  const tip = await screen.findByLabelText(/^Details for Model beside the account/);
+  const model = within(tip).getByLabelText("Model: Opus 4.1");
   expect(model.getAttribute("data-model")).toBe("claude-opus-4-1");
-
-  const provider = within(tip).getByText("Claude Code", { exact: true });
-  const providerRow = provider.closest("div");
-  const modelRow = model.closest("div");
-  expect(providerRow).toBeTruthy();
-  expect(modelRow).toBeTruthy();
-  expect(providerRow).not.toBe(modelRow);
-  // The model is not cut into the provider line: the provider row reads alone.
-  expect(providerRow?.textContent).not.toContain("Opus 4.1");
-  // The model row follows the provider row, so it renders below it.
-  expect(providerRow?.compareDocumentPosition(modelRow as Node)).toBe(
-    Node.DOCUMENT_POSITION_FOLLOWING,
-  );
+  // The provider's icon already says who runs it; its name is not repeated.
+  expect(tip.textContent).not.toContain("Claude Code");
 });
 
 test("the hover card shows no model line when the model is unknown", async () => {
