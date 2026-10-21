@@ -45,9 +45,9 @@ import XCTest
     /// that, so only the phone's clock can end it.
     func testASnoozeEndsOnThePhoneWhileTheMachineIsOffline() throws {
         let app = launch()
-        let settled = app.buttons["inbox.settled"].firstMatch
-        for _ in 0..<6 where !settled.exists { app.swipeUp() }
-        settled.tap()
+        let snoozed = app.buttons["inbox.snoozed"].firstMatch
+        for _ in 0..<6 where !snoozed.isHittable { app.swipeUp() }
+        snoozed.tap()
         let nap = app.buttons["thread.ios-nap"]
         for _ in 0..<6 where !nap.exists { app.swipeUp() }
         XCTAssertTrue(nap.waitForExistence(timeout: 10))
@@ -63,7 +63,7 @@ import XCTest
         continueAfterFailure = true // Audit every screen, then report them all.
         let app = launch()
         try audit(app, "inbox")
-        app.buttons["inbox.startTask"].tap()
+        app.newThreadButton.tap()
         XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
         try audit(app, "new-thread")
         app.buttons["newThread.project"].tap()
@@ -71,7 +71,7 @@ import XCTest
         try audit(app, "projects")
         app.buttons["BackButton"].firstMatch.tap()
         app.buttons["Close"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["inbox.library"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 10))
         open("ios-plan", in: app)
         XCTAssertTrue(app.buttons["plan.approve"].waitForExistence(timeout: 25))
         try audit(app, "plan-card")
@@ -229,7 +229,7 @@ import XCTest
         }
         app.launch()
         // At accessibility text sizes the first rows can already fill the screen.
-        XCTAssertTrue(app.buttons["inbox.library"].waitForExistence(timeout: 25))
+        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
         return app
     }
     /// Every audit issue is listed in an attachment. Missing descriptions and small hit areas fail
@@ -279,7 +279,7 @@ import XCTest
     private func back(_ app: XCUIApplication) {
         let button = app.buttons["BackButton"].firstMatch
         if button.waitForExistence(timeout: 5) { button.tap() }
-        _ = app.buttons["inbox.library"].waitForExistence(timeout: 10)
+        _ = app.buttons["inbox.settings"].waitForExistence(timeout: 10)
     }
     private func audit(_ app: XCUIApplication, _ name: String) throws {
         screenshot("audit-\(name)")

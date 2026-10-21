@@ -7,8 +7,8 @@ import XCTest
 
     func testStartingAThreadWithAMentionOpensIt() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.startTask"].waitForExistence(timeout: 25))
-        app.buttons["inbox.startTask"].tap()
+        XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
+        app.newThreadButton.tap()
         XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
         screenshot("newthread-sheet")
         app.buttons["newThread.project"].tap()
@@ -55,8 +55,8 @@ import XCTest
 
     func testAProfileCreatedFromTheDraftIsOfferedOnReturnAndSuppliesItsInstructions() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.startTask"].waitForExistence(timeout: 25))
-        app.buttons["inbox.startTask"].tap()
+        XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
+        app.newThreadButton.tap()
         XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
         app.buttons["newThread.options"].tap()
         let manage = app.buttons["newThread.profiles"]
@@ -90,8 +90,8 @@ import XCTest
 
     func testTheFirstMessageOffersSpeedAccessAndFilesAndLongModelListsCollapse() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.startTask"].waitForExistence(timeout: 25))
-        app.buttons["inbox.startTask"].tap()
+        XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
+        app.newThreadButton.tap()
         XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
         app.buttons["newThread.project"].tap()
         XCTAssertTrue(app.buttons["project.ace"].waitForExistence(timeout: 15))
@@ -137,8 +137,8 @@ import XCTest
 
     func testAddingAFolderFromTheComputerSelectsItAsTheProject() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.startTask"].waitForExistence(timeout: 25))
-        app.buttons["inbox.startTask"].tap()
+        XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
+        app.newThreadButton.tap()
         app.buttons["newThread.project"].tap()
         XCTAssertTrue(app.buttons["projects.add"].waitForExistence(timeout: 15))
         app.buttons["projects.add"].tap()
@@ -156,10 +156,9 @@ import XCTest
 
     func testFilesListsAFolderWithinItsCapAndPreviewsTheStartOfALargeFile() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.startTask"].waitForExistence(timeout: 25))
-        for _ in 0..<8 where !app.buttons["inbox.settled"].isHittable { app.swipeUp() }
-        if !app.buttons["thread.ios-done"].exists { app.buttons["inbox.settled"].tap() }
-        for _ in 0..<6 where !app.buttons["thread.ios-done"].isHittable { app.swipeUp() }
+        XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
+        // Done rows stay in the list until they are settled.
+        for _ in 0..<10 where !app.buttons["thread.ios-done"].isHittable { app.swipeUp() }
         XCTAssertTrue(app.buttons["thread.ios-done"].waitForExistence(timeout: 25))
         app.buttons["thread.ios-done"].tap()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 15))
@@ -188,8 +187,8 @@ import XCTest
 
     func testNewThreadBrowsesAndPreviewsTheProjectsFolderBeforeAThreadExists() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.startTask"].waitForExistence(timeout: 25))
-        app.buttons["inbox.startTask"].tap()
+        XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
+        app.newThreadButton.tap()
         XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
         app.buttons["newThread.project"].tap()
         XCTAssertTrue(app.buttons["project.ace"].waitForExistence(timeout: 15))
