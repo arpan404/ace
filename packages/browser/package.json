@@ -14,6 +14,7 @@
     "./picture-channel": "./src/picture-channel.ts",
     "./live-view": "./src/live-view.ts",
     "./history": "./src/page-history.ts",
+    "./linux-sandbox": "./src/linux-sandbox.ts",
     "./testing": "./src/backend-test-support.ts",
     "./conformance": "./src/conformance/index.ts"
   },

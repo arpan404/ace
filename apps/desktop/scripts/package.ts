@@ -5,7 +5,8 @@ import { cp, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build, Platform, type Configuration } from "electron-builder";
 import { assertLinuxRuntimeFloor } from "@ace/release/glibc";
-import { chromiumAppArmorProfile } from "../src/packaging/apparmor.ts";
+// The canonical ace-chromium profile (PR #1221); the deb installs exactly what `ace doctor` prints.
+import { chromiumAppArmorProfile } from "@ace/browser/linux-sandbox";
 import { desktop, dist, electronVersion, installedElectronDist, targetArch } from "./common.ts";
 import { verifyNatives } from "./verify-natives.ts";
 
