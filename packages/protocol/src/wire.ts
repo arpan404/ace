@@ -30,6 +30,7 @@ import {
   ProvidersChanged,
 } from "./provider-login.ts";
 import { ActivityReadsChanged, ActivityReadsRequest, ActivityReadsResult } from "./activity.ts";
+import { VerifyChanged, VerifyRequest, VerifyResult } from "./pr-verify.ts";
 import { ProvidersRequest, ProvidersResult } from "./provider-status.ts";
 import {
   ProjectsRequest,
@@ -211,6 +212,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   PreviewRequest,
   ...AutomationRequest.options,
   ...ActivityReadsRequest.options,
+  VerifyRequest,
   QueueGet,
   PiControlRequest,
 
@@ -301,6 +303,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   AutomationResponse,
   ActivityReadsResult,
   ActivityReadsChanged,
+  VerifyResult,
+  VerifyChanged,
   QueueResult,
   PiControlResult,
 

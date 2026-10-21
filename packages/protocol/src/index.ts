@@ -32,6 +32,7 @@ export * from "./context.ts";
 export * from "./search.ts";
 export * from "./automations.ts";
 export * from "./activity.ts";
+export * from "./pr-verify.ts";
 export * from "./models.ts";
 export * from "./orchestration.ts";
 export * from "./orchestration-execution.ts";

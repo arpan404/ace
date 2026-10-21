@@ -120,7 +120,10 @@ export function PrReviewWorkspace(props: {
     <Context value={value}>
       {props.header}
       {(message || query.error || uncertain.length > 0) && (
-        <div className="shrink-0 space-y-1 px-4 pb-1 text-xs" aria-label="GitHub review status">
+        <div
+          className="shrink-0 space-y-1 px-[var(--forge-gutter,1rem)] pb-1 text-xs"
+          aria-label="GitHub review status"
+        >
           {query.error && (
             <p role="status" className="text-muted-foreground">
               {readFailureText(query.error)}

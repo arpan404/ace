@@ -30,6 +30,9 @@
       "maxLength": 65536,
       "type": "string"
     },
+    "behind": {
+      "type": "boolean"
+    },
     "ci": {
       "enum": [
         "none",
@@ -59,6 +62,10 @@
     },
     "headBranch": {
       "maxLength": 65536,
+      "type": "string"
+    },
+    "headSha": {
+      "pattern": "^[a-fA-F0-9]{40,64}$",
       "type": "string"
     },
     "labelColors": {

@@ -8,7 +8,7 @@ import type {
   GitConflictStep,
   GitConflicts,
 } from "@ace/protocol";
-import { prRemote, type PrRemotes } from "./pr-worktree-resolution.ts";
+import { checkoutPrRemote, type PrRemotes } from "./pr-worktree-resolution.ts";
 
 export type PrConflictGit = Pick<
   GitService,
@@ -73,17 +73,14 @@ export async function runPrConflictStep(
   if (!held) return { ok: false, error: "git_pr_head_unavailable" };
   const { git, cwd } = context;
   if (step.action === "start") {
-    const info = await git.repositoryInfo(cwd);
-    const remote = context.remote
-      ? context.remote(info.remotes, held.ref.repository)
-      : prRemote(
-          info.remotes,
-          held.ref.repository,
-          (await context.hostAliases?.(
-            info.remotes.flatMap((entry) => entry.fetchUrls),
-            context.signal,
-          )) ?? {},
-        );
+    const remote = await checkoutPrRemote({
+      git,
+      cwd,
+      repository: held.ref.repository,
+      signal: context.signal,
+      remote: context.remote,
+      hostAliases: context.hostAliases,
+    });
     await git.fetchBranch({
       repo: cwd,
       remote,

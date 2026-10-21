@@ -156,6 +156,19 @@ describe("GitHub CLI boundary", () => {
       author: "ghost",
     });
   });
+  it("a merge GitHub refuses with 405 (base modified, not mergeable) is a definite refusal", async () => {
+    const fixtures = standard();
+    fixtures["repos/octo/ace/pulls/7/merge"] = [
+      {
+        status: 405,
+        body: { message: "Base branch was modified. Review and try the merge again." },
+      },
+    ];
+    const { forge } = await setup(fixtures);
+    await expect(forge.merge(7, sha, "squash", signal())).rejects.toMatchObject({
+      kind: "conflict",
+    });
+  });
   it("creates templated PRs, replies, requests reviews and merges with a head guard", async () => {
     const fixtures = standard();
     fixtures["repos/octo/ace/pulls"] = [{ body: pr }];

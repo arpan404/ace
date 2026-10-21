@@ -13,6 +13,11 @@ export interface ProjectsApi {
 
 export const ProjectsContext = createContext<ProjectsApi | null>(null);
 
+/** The project dialogs where a `ProjectsHost` is mounted above; null elsewhere. */
+export function useProjectDialogsIfHosted(): ProjectsApi | null {
+  return useContext(ProjectsContext);
+}
+
 /** The project dialogs, from anywhere under the app shell (`ProjectsHost`). */
 export function useProjectDialogs(): ProjectsApi {
   const api = useContext(ProjectsContext);

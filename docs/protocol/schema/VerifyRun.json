@@ -1,0 +1,273 @@
+{
+  "$id": "https://ace.local/protocol/v1/VerifyRun.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "base": {
+      "properties": {
+        "branch": {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "sha": {
+          "pattern": "^[a-fA-F0-9]{40,64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "branch",
+        "sha"
+      ],
+      "type": "object"
+    },
+    "command": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "createdAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "endedAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "exitCode": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "failure": {
+      "properties": {
+        "code": {
+          "enum": [
+            "no_command",
+            "fetch_failed",
+            "head_moved",
+            "conflict",
+            "setup_failed",
+            "check_failed",
+            "base_moved",
+            "merge_refused",
+            "merge_uncertain",
+            "unavailable",
+            "internal"
+          ],
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 512,
+          "type": "string"
+        },
+        "pr": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "with": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
+    "merged": {
+      "items": {
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991,
+        "type": "integer"
+      },
+      "maxItems": 10,
+      "type": "array"
+    },
+    "revision": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "startedAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "state": {
+      "enum": [
+        "queued",
+        "running",
+        "passed",
+        "failed",
+        "merging",
+        "merged",
+        "stopped",
+        "cancelled",
+        "interrupted"
+      ],
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "properties": {
+          "endedAt": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "fetch",
+              "combine",
+              "setup",
+              "check",
+              "merge"
+            ],
+            "type": "string"
+          },
+          "pr": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "startedAt": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "running",
+              "done",
+              "failed",
+              "skipped"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "state"
+        ],
+        "type": "object"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "target": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "check",
+              "type": "string"
+            },
+            "pr": {
+              "properties": {
+                "headSha": {
+                  "pattern": "^[a-fA-F0-9]{40,64}$",
+                  "type": "string"
+                },
+                "pr": {
+                  "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
+                },
+                "title": {
+                  "maxLength": 512,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "pr",
+                "headSha"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "pr"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "merge",
+              "type": "string"
+            },
+            "method": {
+              "enum": [
+                "merge",
+                "squash",
+                "rebase"
+              ],
+              "type": "string"
+            },
+            "prs": {
+              "items": {
+                "properties": {
+                  "headSha": {
+                    "pattern": "^[a-fA-F0-9]{40,64}$",
+                    "type": "string"
+                  },
+                  "pr": {
+                    "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
+                  },
+                  "title": {
+                    "maxLength": 512,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "pr",
+                  "headSha"
+                ],
+                "type": "object"
+              },
+              "maxItems": 10,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "prs",
+            "method"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "id",
+    "workspaceId",
+    "target",
+    "state",
+    "command",
+    "steps",
+    "createdAt",
+    "merged",
+    "revision"
+  ],
+  "type": "object"
+}
