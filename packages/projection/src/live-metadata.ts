@@ -6,6 +6,7 @@ import {
   type BackgroundTask,
 } from "@ace/protocol";
 import { isTestCommand } from "./step-purpose.ts";
+import { listedBackgroundWork, shellCommandOf, standsForSubagent } from "./task-presentation.ts";
 /** Retained provider identifiers stay on agents; sidebar hints must fit the wire budget. */
 export function boundedLiveModel(model: string | undefined): string | undefined {
   const parsed = ThreadRunMetadata.shape.model.safeParse(model);
@@ -23,6 +24,16 @@ function runningAgent(agent: Agent | undefined): number {
       agent.status.state === "working" ||
       (agent.status.state === "blocked" && agent.status.on === "subagents"),
   );
+}
+
+type TaskFacts = Pick<BackgroundTask, "status" | "kind" | "internal" | "childAgentId">;
+/** A running task shown as background work of its own. */
+function listedRunning(task: TaskFacts | undefined): number {
+  return Number(task?.status === "running" && listedBackgroundWork(task));
+}
+/** A running task that stands for a subagent with no agent of its own yet. */
+function subagentRunning(task: TaskFacts | undefined): number {
+  return Number(task?.status === "running" && standsForSubagent(task));
 }
 
 /** A delegated child thread this agent summarises, while its tree waits on the person. */
@@ -167,22 +178,25 @@ export function liveMetadata(
     payload.type === "background_task.started" ||
     payload.type === "background_task.updated"
   ) {
-    const running =
+    const next: TaskFacts =
       payload.type === "background_task.started"
-        ? payload.task.status === "running"
-        : payload.status === "running";
+        ? payload.task
+        : { kind: "other", ...previousTask, status: payload.status };
+    // Bookkeeping holds the thread without being counted; a stand-in subagent counts as one.
     live.backgroundTaskCount = Math.max(
       0,
-      (live.backgroundTaskCount ?? 0) +
-        Number(running) -
-        Number(previousTask?.status === "running"),
+      (live.backgroundTaskCount ?? 0) + listedRunning(next) - listedRunning(previousTask),
     );
+    const subagents = subagentRunning(next) - subagentRunning(previousTask);
+    if (subagents)
+      live.runningSubagentCount = Math.max(0, (live.runningSubagentCount ?? 0) + subagents);
     const id = payload.type === "background_task.started" ? payload.task.id : payload.taskId;
     const task = payload.type === "background_task.started" ? payload.task : previousTask;
+    // Only a shell is named, by its command.
     put(
       live,
       "watching",
-      running && task && !task.ambient
+      next.status === "running" && task && !task.ambient && shellCommandOf(task, undefined)
         ? withEntry(live.watching, { id, title: task.title.slice(0, titleLength) })
         : withoutEntry(live.watching, id),
     );

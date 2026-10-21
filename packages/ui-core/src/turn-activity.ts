@@ -1,5 +1,10 @@
 import type { ThreadReader } from "@ace/client";
-import { isTestCommand } from "@ace/projection";
+import {
+  isInternalTask,
+  isTestCommand,
+  shellCommandOf,
+  standsForSubagent,
+} from "@ace/projection";
 import type { AgentStatus, Interaction, Item, ThreadStatus } from "@ace/protocol";
 import { turnTreeOf } from "./turn-tree.ts";
 import { agentName } from "./agents.ts";
@@ -68,8 +73,10 @@ export interface TurnActivity {
 
 /**
  * What a root that does nothing itself waits on. On subagents, `turnOver` says its own turn has
- * ended while they carry on, rather than it waiting on them inside the turn. `title` names a
- * single background command; `taskIds` are the background tasks waited on, which its Stop ends.
+ * ended while they carry on, rather than it waiting on them inside the turn. `title` is the
+ * command of a single background shell, shown as code; anything else is only counted, and
+ * `shells` says whether every task is a shell ("commands") or not ("tasks"). `taskIds` are the
+ * background tasks waited on, which its Stop ends.
  */
 export type TurnWait =
   | { kind: "subagents"; count: number; turnOver: boolean }
@@ -77,6 +84,7 @@ export type TurnWait =
       kind: "background";
       count: number;
       title: string | undefined;
+      shells: boolean;
       taskIds: readonly string[];
     };
 
@@ -260,7 +268,7 @@ export function readTurnActivity(
         turnOver: !(status?.state === "blocked" && status.on === "subagents"),
       }
     : !working && !needsYou && status?.state === "blocked" && status.on === "background_task"
-      ? backgroundWait(reader, status.refs)
+      ? backgroundWait(reader, status.refs, watch)
       : undefined;
   const shown = stopped
     ? undefined
@@ -297,23 +305,49 @@ export function readTurnActivity(
   return { activity: shown, watch: [...new Set(watch)] };
 }
 
-/** The background commands a finished turn waits on: how many, and the name of a single one. */
-function backgroundWait(reader: ActivityReader, refs: readonly string[]): TurnWait | undefined {
-  const titles: string[] = [];
+/** The background work a finished turn waits on: how many, and the command of a single shell. */
+function backgroundWait(
+  reader: ActivityReader,
+  refs: readonly string[],
+  watch: string[],
+): TurnWait | undefined {
+  const { taskIds, title, shells } = backgroundRefs(reader, refs, watch);
+  if (!taskIds.length) return undefined;
+  return { kind: "background", count: taskIds.length, title, shells, taskIds };
+}
+
+/**
+ * What a root blocked on background work waits on, as surfaces show it: the tasks of its own
+ * (ambient helpers and ace's bookkeeping left out), the command of a single shell, and the
+ * subagents among its refs, a task standing for a subagent included.
+ */
+function backgroundRefs(
+  reader: ActivityReader,
+  refs: readonly string[],
+  watch: string[],
+): { taskIds: string[]; title: string | undefined; shells: boolean; subagents: number } {
   const taskIds: string[] = [];
+  let shells = true;
+  let subagents = 0;
+  let command: string | undefined;
   for (const id of refs) {
     const task = reader.task(id);
-    if (!task || task.ambient) continue;
-    titles.push(task.title);
+    if (!task) {
+      if (reader.agent(id)) subagents++;
+      continue;
+    }
+    watch.push(`task:${id}`);
+    if (standsForSubagent(task)) {
+      if (task.status === "running") subagents++;
+      continue;
+    }
+    if (task.ambient || isInternalTask(task)) continue;
+    if (task.toolCallId) watch.push(`item:${task.toolCallId}`);
     taskIds.push(task.id);
+    shells &&= task.kind === "shell";
+    command = shellCommandOf(task, task.toolCallId ? reader.item(task.toolCallId) : undefined);
   }
-  if (!titles.length) return undefined;
-  return {
-    kind: "background",
-    count: titles.length,
-    title: titles.length === 1 ? titles[0] : undefined,
-    taskIds,
-  };
+  return { taskIds, title: taskIds.length === 1 ? command : undefined, shells, subagents };
 }
 
 /**
@@ -416,18 +450,11 @@ function readActivity(
           : line(waitingOnSubagentsLabel(0), "working");
       if (status.on === "background_task") {
         // Its refs are background tasks and subagents that outlived the turn.
-        const titles: string[] = [];
-        let agents = 0;
-        for (const id of status.refs) {
-          const task = reader.task(id);
-          if (task) {
-            watch.push(`task:${id}`);
-            if (!task.ambient) titles.push(task.title);
-          } else if (reader.agent(id)) agents++;
-        }
-        if (!titles.length && agents) return factLine({ kind: "subagents", count: agents }, "held");
+        const wait = backgroundRefs(reader, status.refs, watch);
+        if (!wait.taskIds.length && wait.subagents)
+          return factLine({ kind: "subagents", count: wait.subagents }, "held");
         return factLine(
-          { kind: "watching", count: Math.max(1, titles.length), title: titles[0] },
+          { kind: "watching", count: wait.taskIds.length, title: wait.title },
           "held",
         );
       }
@@ -511,6 +538,7 @@ function sameWait(a: TurnWait | undefined, b: TurnWait | undefined): boolean {
   return (
     b.kind === "background" &&
     a.title === b.title &&
+    a.shells === b.shells &&
     a.taskIds.length === b.taskIds.length &&
     a.taskIds.every((id, index) => id === b.taskIds[index])
   );
