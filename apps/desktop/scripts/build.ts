@@ -70,6 +70,10 @@ await writeFile(
       description: manifest.description,
       license: manifest.license,
       author: "ace",
+      // The deb's Homepage field; electron-builder requires one for Linux packages.
+      homepage: "https://github.com/arpan404/ace",
+      // Linux window class / Wayland app_id: matches the installed ace-desktop.desktop entry.
+      desktopName: "ace-desktop.desktop",
       main: mainEntry,
     },
     null,

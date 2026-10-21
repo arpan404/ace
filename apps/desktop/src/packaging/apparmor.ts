@@ -1,28 +1,28 @@
 /**
  * The AppArmor profile that lets ace's headless Chromium use its sandbox on Ubuntu 23.10+,
  * where unprivileged user namespaces are restricted (ADR 0091). It grants exactly that
- * (`userns`) to the Chrome binary ace downloads under the data home, and confines nothing
- * else. The deb installs it beside electron-builder's profile for the Electron binary.
+ * (`userns`) to the Chrome for Testing binary ace downloads under the default data home, and
+ * confines nothing else. The deb installs it beside electron-builder's profile for Electron.
  *
- * Reconcile with packages/browser: the browser package is adding the canonical profile text
- * (the one-time sandbox fix it reports). When that export lands, return it from here instead
- * of this copy, so the profile is defined once.
+ * Reconcile with packages/browser: the browser work adds the canonical text as
+ * `chromiumAppArmorProfile()` in `@ace/browser` (linux-sandbox.ts), with this same name and
+ * attachment, for `ace doctor` to print. When that export is on main, re-export it from here
+ * and delete this copy, so the profile is defined once.
  */
 export const chromiumAppArmorProfileName = "ace-chromium";
 
-/** The Chrome binaries ace downloads: `~/.ace/chromium/<build>/.../chrome`. */
-export const chromiumAppArmorAttachment = "@{HOME}/.ace/chromium/**/chrome";
+/** ace's pinned Chrome for Testing under every user's default `ACE_HOME` (`~/.ace`). */
+export const chromiumAppArmorAttachment = "@{HOME}/.ace/chromium/*/chrome-linux{64,-arm64}/chrome";
 
 export function chromiumAppArmorProfile(): string {
   return [
-    "# ace: lets ace's downloaded Chromium create its sandbox (unprivileged user namespaces).",
+    "# ace's Chrome: lets its sandbox create user namespaces on Ubuntu 23.10+.",
     "abi <abi/4.0>,",
     "include <tunables/global>",
     "",
     `profile ${chromiumAppArmorProfileName} ${chromiumAppArmorAttachment} flags=(unconfined) {`,
     "  userns,",
     "",
-    "  # Site-specific additions and overrides. See local/README for details.",
     `  include if exists <local/${chromiumAppArmorProfileName}>`,
     "}",
     "",

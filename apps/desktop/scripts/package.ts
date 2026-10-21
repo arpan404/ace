@@ -72,8 +72,12 @@ const config: Configuration = {
   asarUnpack: ["**/*.node", "**/spawn-helper", "**/rg", "**/rg.exe"],
   extraResources: [
     { from: join(dist, "bin"), to: "bin" },
-    // The tray's template images (appPaths().trayIcon); the app icons come from build/.
-    { from: join(desktop, "resources"), to: "icons", filter: ["trayTemplate*.png"] },
+    // The tray images: macOS template and the Linux colour icon; app icons come from build/.
+    {
+      from: join(desktop, "resources"),
+      to: "icons",
+      filter: ["trayTemplate*.png", "trayColor*.png"],
+    },
     // The daemon's own Node runtime (none on Windows, which runs no local daemon yet).
     ...(existsSync(join(dist, "runtime")) ? [{ from: join(dist, "runtime"), to: "runtime" }] : []),
     ...(process.platform === "darwin"
@@ -159,6 +163,7 @@ const config: Configuration = {
   linux: {
     // `ace` is the daemon CLI (`~/.ace/bin/ace`); the GUI must never install /usr/bin/ace.
     executableName: "ace-desktop",
+    syncDesktopName: true,
     target: [
       { target: "AppImage", arch: [arch] },
       { target: "deb", arch: [arch] },
@@ -172,6 +177,9 @@ const config: Configuration = {
     icon: join(desktop, "build/icon.png"),
     mimeTypes: ["x-scheme-handler/ace", "inode/directory"],
   },
+  // The static type2 AppImage runtime (FUSE 3). The legacy default links an unversioned
+  // libz.so on arm64, which a stock Ubuntu (no zlib1g-dev) does not have.
+  toolsets: { appimage: "1.0.3" },
   deb: {
     packageName: "ace-desktop",
     // Ours, not electron-builder's: they also install and remove ace's Chromium profile.
