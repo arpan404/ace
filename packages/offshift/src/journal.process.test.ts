@@ -193,7 +193,7 @@ test("lost-response retries survive restart and cannot overwrite newer edits or 
   expect(f.get().run.phase).toBe("implement");
 });
 
-const check = (kind: "automated" | "ui", revision: string, criterionId = "restore") => ({
+const evidenceFor = (kind: "automated" | "ui", revision: string, criterionId = "restore") => ({
   criterionId,
   kind,
   result: "pass" as const,
@@ -211,30 +211,39 @@ test("stale verification and unrelated criteria are rejected without consuming t
     runId: "feature",
     requestId: "check",
     version: 0,
-    evidence: [check("automated", "old-revision")],
+    evidence: [evidenceFor("automated", "old-revision")],
   } satisfies OffshiftRequest;
   expect(() => f.call(request)).toThrow("Source changed");
   expect(() =>
-    f.call({ ...request, evidence: [check("automated", f.context.revision, "other")] }),
+    f.call({ ...request, evidence: [evidenceFor("automated", f.context.revision, "other")] }),
   ).toThrow("does not match");
   expect(
-    f.call({ ...request, evidence: [check("automated", f.context.revision)] }).pending,
+    f.call({ ...request, evidence: [evidenceFor("automated", f.context.revision)] }).pending,
   ).toEqual([{ criterionId: "restore", kind: "ui" }]);
 });
 
 test("a list of checks is one write: all land at one version, or none when one is wrong", () => {
   const f = fixture();
   f.call(f.start);
-  const batch = (evidence: ReturnType<typeof check>[]) =>
+  const batch = (evidence: ReturnType<typeof evidenceFor>[]) =>
     f.call({ action: "evidence", runId: "feature", version: 0, evidence });
   expect(() =>
-    batch([check("automated", f.context.revision), check("ui", f.context.revision, "other")]),
+    batch([
+      evidenceFor("automated", f.context.revision),
+      evidenceFor("ui", f.context.revision, "other"),
+    ]),
   ).toThrow("nothing was recorded");
   expect(() =>
-    batch([check("automated", f.context.revision), check("automated", f.context.revision)]),
+    batch([
+      evidenceFor("automated", f.context.revision),
+      evidenceFor("automated", f.context.revision),
+    ]),
   ).toThrow("appears twice");
   expect(f.get()).toMatchObject({ run: { version: 0, evidence: [] } });
-  const recorded = batch([check("automated", f.context.revision), check("ui", f.context.revision)]);
+  const recorded = batch([
+    evidenceFor("automated", f.context.revision),
+    evidenceFor("ui", f.context.revision),
+  ]);
   expect(recorded.run.version).toBe(1);
   expect(recorded.pending).toEqual([]);
 });
