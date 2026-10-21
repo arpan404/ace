@@ -16,39 +16,53 @@ struct SkillsLibraryView: View {
     @State private var review: PluginReviewRequest?
     var body: some View {
         List {
-            NavigationLink { SkillDiscoveryView(model: model) } label: { Label("Available CLI skills", systemImage: "sparkle.magnifyingglass") }
-                .accessibilityIdentifier("skills.discovery")
-            if model.canOperate { Button("Install plugin", systemImage: "plus") { installing = true } }
-            ForEach(reviews) { pending in
-                Button("Review \(pending.name)") { review = PluginReviewRequest(operation: ["type": "plugins.readReview", "id": pending.id]) }
-            }
-            ForEach(installs.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { plugin in
-                Section(plugin.name) {
-                    Text("Version \(plugin.version)").foregroundStyle(AceTheme.Colours.mutedForeground)
+            Group {
+                Section {
+                    NavigationLink { SkillDiscoveryView(model: model) } label: { InsetRow("Available CLI skills", systemImage: "sparkle.magnifyingglass") }
+                        .accessibilityIdentifier("skills.discovery")
                     if model.canOperate {
-                        let policy = policies.first { $0.name == plugin.name }
-                        Toggle("Enabled", isOn: Binding(get: { policy?.enabled ?? true }, set: { enabled in
-                            mutate(["type": "plugins.availability", "name": plugin.name, "enabled": enabled, "providers": policy?.providers ?? ProviderLabels.ids], expecting: "plugins.availability")
-                        }))
-                        Button("Check for update") { review = PluginReviewRequest(operation: ["type": "plugins.update", "name": plugin.name]) }
-                        Button("Remove plugin", role: .destructive) { removing = plugin }
+                        Button { installing = true } label: { InsetRow("Install plugin", systemImage: "plus") }.buttonStyle(.plain)
                     }
-                    ForEach(components.filter { $0.plugin == plugin.name }) { component in
-                        NavigationLink { SkillSourceView(model: model, component: component) } label: {
-                            VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                                LabeledContent(component.title ?? component.name, value: component.kind.capitalized)
-                                Text(component.description).lineLimit(3).foregroundStyle(AceTheme.Colours.mutedForeground)
-                            }
+                    ForEach(reviews) { pending in
+                        Button { review = PluginReviewRequest(operation: ["type": "plugins.readReview", "id": pending.id]) } label: {
+                            InsetRow("Review \(pending.name)", systemImage: "checkmark.shield")
                         }
+                        .buttonStyle(.plain)
                     }
                 }
+                ForEach(installs.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { plugin in
+                    Section {
+                        Text("Version \(plugin.version)").foregroundStyle(AceTheme.Colours.mutedForeground)
+                        if model.canOperate {
+                            let policy = policies.first { $0.name == plugin.name }
+                            Toggle("Enabled", isOn: Binding(get: { policy?.enabled ?? true }, set: { enabled in
+                                mutate(["type": "plugins.availability", "name": plugin.name, "enabled": enabled, "providers": policy?.providers ?? ProviderLabels.ids], expecting: "plugins.availability")
+                            }))
+                            Button("Check for update") { review = PluginReviewRequest(operation: ["type": "plugins.update", "name": plugin.name]) }
+                            Button("Remove plugin", role: .destructive) { removing = plugin }
+                        }
+                        ForEach(components.filter { $0.plugin == plugin.name }) { component in
+                            NavigationLink { SkillSourceView(model: model, component: component) } label: {
+                                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                                    LabeledContent(component.title ?? component.name, value: component.kind.capitalized)
+                                    Text(component.description).lineLimit(3).foregroundStyle(AceTheme.Colours.mutedForeground)
+                                }
+                            }
+                        }
+                    } header: { InsetHeader(plugin.name) }
+                }
+                if next != nil { Button("Show more skills") { Task { await read(more: true) } }.disabled(loading) }
+                ServiceProblem(message: problem)
+                if problem != nil { Button("Retry") { Task { await read() } } }
             }
-            if next != nil { Button("Show more skills") { Task { await read(more: true) } }.disabled(loading) }
-            if loading { ProgressView("Reading skills…") }
-            ServiceProblem(message: problem)
-            if problem != nil { Button("Retry") { Task { await read() } } }
-            if loaded && installs.isEmpty && problem == nil { ContentUnavailableView("No plugins installed", systemImage: "book", description: Text("Install a plugin from its Git repository to add skills, commands and agents.")) }
+            .insetRowBackground()
+            Group {
+                if loading { HStack { Spacer(); ProgressView().accessibilityLabel("Reading skills"); Spacer() } }
+                if loaded && installs.isEmpty && problem == nil { ContentUnavailableView("No plugins installed", systemImage: "book", description: Text("Install a plugin from its Git repository to add skills, commands and agents.")) }
+            }
+            .listRowBackground(Color.clear)
         }
+        .insetGroupedList()
         .searchable(text: $query, prompt: "Search plugins")
         .navigationTitle("Skills and plugins").navigationBarTitleDisplayMode(.inline)
         .task(id: model.connection) { if model.connection == "ready" { await read() } }.refreshable { await read() }

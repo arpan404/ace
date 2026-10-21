@@ -78,9 +78,9 @@ import XCTest
         app.textViews["Profile instructions"].tap()
         app.textViews["Profile instructions"].typeText(instructions)
         app.buttons["Save profile"].tap()
-        // Back from Profiles to the same draft: the picker reads the new profile at once.
+        // Back from Task profiles to the same draft: the picker reads the new profile at once.
         XCTAssertTrue(app.staticTexts[name].waitForExistence(timeout: 5))
-        app.navigationBars["Profiles"].buttons.firstMatch.tap()
+        app.navigationBars["Task profiles"].buttons.firstMatch.tap()
         let picker = element(app, "newThread.profile")
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
         for _ in 0..<8 where !picker.isHittable { app.swipeUp() }
