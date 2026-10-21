@@ -72,3 +72,34 @@ export function clampPip(
   );
   return { right, bottom, width };
 }
+
+/** Space between stacked floating windows. */
+const stackGap = 8;
+
+/**
+ * Where the `slot`th floating window starts when several float at once: stacked upward from
+ * `base` (the first one's place), in columns leftward once a column reaches the top, each kept
+ * inside the app window (`clampPip`). Windows the person moved keep their own place instead.
+ */
+export function stackPip(
+  base: PipGeometry,
+  slot: number,
+  window: { width: number; height: number },
+  aspect: number,
+): PipGeometry {
+  const first = clampPip(base, window, aspect);
+  const height = Math.round(first.width * aspect) + pipLimits.header;
+  const room = window.height - first.bottom - pipLimits.margin + stackGap;
+  const perColumn = Math.max(1, Math.floor(room / (height + stackGap)));
+  const column = Math.floor(slot / perColumn);
+  const row = slot % perColumn;
+  return clampPip(
+    {
+      width: first.width,
+      right: first.right + column * (first.width + stackGap),
+      bottom: first.bottom + row * (height + stackGap),
+    },
+    window,
+    aspect,
+  );
+}
