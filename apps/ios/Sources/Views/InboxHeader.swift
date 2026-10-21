@@ -68,8 +68,8 @@ struct InboxTitle: View {
     }
 }
 
-/// "All machines ⌄" and "All projects ⌄" under the header, each a native menu with checkmarks.
-/// The machine chip shows only while more than one machine is paired.
+/// "All machines ⌄" and "All projects ⌄" at the head of the list, each a native menu with
+/// checkmarks. The machine chip shows only while more than one machine is paired.
 struct InboxFilters: View {
     let inbox: MachineInbox
     @Binding var machine: String
@@ -104,32 +104,24 @@ struct InboxFilters: View {
                 .accessibilityIdentifier("inbox.projects")
             Spacer(minLength: AceTheme.Spacing.none)
         }
-        .padding(.horizontal, 18)
-        .padding(.bottom, AceTheme.Spacing.xs)
+        // The list's first row: no hairline, and taps reach each menu rather than the row.
+        .listRowInsets(EdgeInsets(top: AceTheme.Spacing.xxs, leading: 18, bottom: AceTheme.Spacing.sm, trailing: 18))
+        .listRowSeparator(.hidden)
+        .listRowBackground(AceTheme.Colours.background)
+        .buttonStyle(.borderless)
     }
 
+    private static let chipType = AceTheme.TypeStyle(size: 15, lineHeight: 20, weight: 500, tracking: 0)
     private func chip(_ title: String) -> some View {
         HStack(spacing: 6) {
             Text(title).lineLimit(1)
             Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
         }
-        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+        .aceFont(Self.chipType, relativeTo: .subheadline)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
         .padding(.horizontal, 14)
         .frame(minHeight: 36)
         .aceGlass(in: Capsule(), interactive: true)
         .contentShape(Capsule())
-    }
-}
-
-extension View {
-    /// Pins `bar` under the navigation bar. On iOS 26 it joins the bar's scroll-edge effect, so
-    /// rows pass under it; iOS 18 gives it the page colour.
-    @ViewBuilder func inboxTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
-        if #available(iOS 26, *) {
-            safeAreaBar(edge: .top, spacing: AceTheme.Spacing.none, content: bar)
-        } else {
-            safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) { bar().background(AceTheme.Colours.background) }
-        }
     }
 }

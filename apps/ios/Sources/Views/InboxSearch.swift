@@ -27,11 +27,12 @@ import SwiftUI
 
 /// What the inbox's search finds: threads whose title, project or branch match, from the rows
 /// already on the phone, then messages from each machine's conversation search.
-struct InboxSearchList: View {
+struct InboxSearchList<Filters: View>: View {
     @Bindable var inbox: MachineInbox
     let query: String
     let includes: (InboxKey) -> Bool
     let open: (InboxKey) -> Void
+    @ViewBuilder let filters: () -> Filters
     @State private var messages = InboxMessageSearch()
 
     private var threads: [(key: InboxKey, row: ThreadRow)] {
@@ -46,6 +47,7 @@ struct InboxSearchList: View {
     var body: some View {
         let threads = threads
         List {
+            filters()
             if !threads.isEmpty {
                 Section {
                     ForEach(threads, id: \.key) { match in
@@ -77,9 +79,11 @@ struct InboxSearchList: View {
             if messages.loading {
                 ProgressView().frame(maxWidth: .infinity).accessibilityLabel("Searching conversations")
                     .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
-            } else if threads.isEmpty && messages.settled && inbox.sessions.allSatisfy({ messages.hits($0.hostId).isEmpty }) {
+            }
+        }
+        .overlay {
+            if !messages.loading && threads.isEmpty && messages.settled && inbox.sessions.allSatisfy({ messages.hits($0.hostId).isEmpty }) {
                 ContentUnavailableView.search(text: query)
-                    .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
             }
         }
         .listStyle(.plain)
