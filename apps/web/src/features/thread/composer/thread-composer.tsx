@@ -45,7 +45,7 @@ import {
 import { DeferredComposerStrip } from "./deferred-cards.ts";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { finishQueueEdit, queueEditSession, saveQueueEdit } from "./queue-edit.ts";
-import { lastSentText } from "./last-sent.ts";
+import { sentText } from "./last-sent.ts";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useStopFence, useStopping } from "./stop-state.ts";
 import { useNavigate } from "@tanstack/react-router";
@@ -361,7 +361,7 @@ export function ThreadComposer({
         followUp={followUp}
         canSteer={canSteer}
         onSubmit={submit}
-        recall={() => (transcript ? lastSentText(transcript) : undefined)}
+        recall={(older) => (transcript ? sentText(transcript, older) : undefined)}
         onStop={canStop ? stop : undefined}
         onStopKey={stopKey}
         stopping={stopping}
