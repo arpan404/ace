@@ -46,3 +46,42 @@ boundary.
   tree is not contained the way a Job Object would contain it.
 - Byte-stream `ownedCwd` reaping is skipped on Windows (no `lsof` or `/proc`);
   the tree stop is the only reaper there.
+
+## Follow-ups (2026-10-21)
+
+- **Interactive login works on Windows.** `spawnInteractive` no longer throws
+  on `win32`. The Windows branch spawns non-detached with the console kept
+  visible (`windowsHide: false`), routes `.cmd`/`.bat` entrypoints through
+  the same `cmd.exe` wrapper, and stops the tree with `taskkill /T`,
+  escalating to `/T /F`. Platform and killer stay injectable, so every
+  branch is covered without a Windows host
+  (`process-interactive-windows.process.test.ts`). No ConPTY gap remains:
+  interactive ownership never allocated a PTY on POSIX either; it inherits
+  the terminal.
+- **Job Object containment without native code.** A per-process
+  kill-on-close job is created through `koffi` (`windows-job.ts`), which is
+  already a dependency and already calls `kernel32.dll` elsewhere. No
+  compiler, driver or shipped binary is involved. The job handle is held for
+  the ownership lifetime and closed on release, so a hard-killed daemon
+  still contains its trees: the kernel kills job members when the last
+  handle closes. Assignment races the child's first milliseconds — a
+  grandchild spawned before the assign escapes the job — and a denied join
+  (nested-job conflict, access rights) falls back silently to the taskkill
+  tree stop, which remains the graceful-stop and spawn-failure path. The
+  PowerShell `Add-Type` alternative was rejected: runtime-compiled C#
+  breaks under Constrained Language Mode and cannot be verified without a
+  Windows host.
+- **Exit destroy is explicit per owner.** `registerGroup` takes an optional
+  synchronous destroy; the `exit` safety net and the journal-failure path
+  call it instead of assuming process-group signals. The default preserves
+  the existing `killGroup` routing (which already ends Windows trees), so
+  the injected-platform branches and their tests use the same tree stop the
+  real platform would. A retained Windows stop now releases ownership on
+  completion, matching the POSIX path.
+- **Still POSIX-only.** Process-group signals, the `ProcessInventory`
+  restart reaper (kernel identity, liveness and kill are all POSIX) and
+  `ownedCwd` directory reaping have no Windows equivalent. A daemon that
+  exits gracefully stops its trees; a daemon killed hard relies on the jobs.
+  No Windows host was reachable for live verification (macOS implementer,
+  no provisioned infra); the manual checklist is
+  `docs/verification/windows-launch-checklist.md`.

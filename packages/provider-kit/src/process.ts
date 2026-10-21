@@ -12,6 +12,7 @@ import { outputGate, OutputLimitError } from "./output-budget.ts";
 import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
 import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./windows-tree.ts";
 import { toWindowsCommand } from "./windows-command.ts";
+import { createKillOnCloseJob, type WindowsJob, type WindowsJobFactory } from "./windows-job.ts";
 export {
   stopOwnedGroups,
   observeProcessGroups,
@@ -62,6 +63,8 @@ export type SpawnOptions = {
   platform?: NodeJS.Platform;
   /** Whole-tree stop used on Windows instead of process-group signals. */
   windowsKillTree?: WindowsKillTree;
+  /** Kernel containment for the Windows tree; an unavailable job keeps the tree stop. */
+  windowsJobFactory?: WindowsJobFactory;
   /** Opt in to dropping oversized stdout lines. Stderr and total budgets still kill. */
   onStdoutLineDropped?: (line: DroppedOutputLine) => void;
   onOutputLimit?: (error: Error) => void;
@@ -119,6 +122,9 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
   });
   const controller = new AbortController();
   const pid = child.pid;
+  const factory = options.windowsJobFactory ?? createKillOnCloseJob;
+  const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
+  if (pid !== undefined) job?.assign(pid);
   let outputBytes = 0;
   let outputLimited = false;
   const admit = (bytes: number) => {
@@ -174,6 +180,7 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     if (pid !== undefined && (options.killGroupOnExit !== false || failed)) {
       destroy(pid);
       unregisterGroup(pid);
+      job?.dispose();
     }
     controller.abort();
   };
@@ -187,7 +194,10 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
       release();
       closed = true;
       if (timer) clearTimeout(timer);
-      if (pid !== undefined && (options.killGroupOnExit !== false || failed)) unregisterGroup(pid);
+      if (pid !== undefined && (options.killGroupOnExit !== false || failed)) {
+        unregisterGroup(pid);
+        job?.dispose();
+      }
       resolve({
         code,
         signal,
@@ -216,7 +226,14 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
         if (!retainedStop) {
           stopped = true;
           killAt = performance.now() + graceMs;
-          const stopping = stopRetained(pid, graceMs);
+          // A retained Windows tree has no group owner to release it; the stop
+          // completion releases ownership and its job handle, like the POSIX path.
+          const stopping = windows
+            ? stopRetained(pid, graceMs).finally(() => {
+                unregisterGroup(pid);
+                job?.dispose();
+              })
+            : stopRetained(pid, graceMs);
           retainedStop = stopping.then(() => exited);
           void stopping.finally(() => clearTimeout(retainedKill));
         } else if (shortens(graceMs)) {
@@ -239,15 +256,24 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     },
   };
   if (pid !== undefined)
-    registerGroup(pid, (graceMs) => handle.stop({ graceMs }), {
-      name: options.name,
-      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    });
+    registerGroup(
+      pid,
+      (graceMs) => handle.stop({ graceMs }),
+      {
+        name: options.name,
+        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+      },
+      () => destroy(pid),
+    );
   try {
     if (pid !== undefined) options.lease?.spawned(pid);
   } catch (error) {
     // A journal failure cannot leave an unowned process running.
-    if (pid !== undefined) destroy(pid);
+    if (pid !== undefined) {
+      destroy(pid);
+      unregisterGroup(pid);
+      job?.dispose();
+    }
     throw error;
   }
   return handle;

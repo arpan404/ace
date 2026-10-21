@@ -4,9 +4,26 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { spawnRawSupervised, spawnSupervised } from "./process.ts";
+import { observeProcessGroups, spawnRawSupervised, spawnSupervised } from "./process.ts";
 import { spawnBytes } from "./process-bytes.ts";
 import { stopRetainedWindowsTree } from "./windows-tree.ts";
+
+function fakeJob() {
+  const assigned: number[] = [];
+  let disposed = false;
+  return {
+    assigned,
+    isDisposed: () => disposed,
+    factory: () => ({
+      assign: (pid: number) => {
+        assigned.push(pid);
+      },
+      dispose: () => {
+        disposed = true;
+      },
+    }),
+  };
+}
 
 const directories: string[] = [];
 const spawned: ChildProcess[] = [];
@@ -188,5 +205,94 @@ describe("Windows process supervision", () => {
     await stopRetainedWindowsTree(child.pid, 50, tree.kill);
     expect(tree.calls.map((call) => call.force)).toEqual([false, true]);
     await once(child, "exit");
+  });
+
+  it("joins the Windows job and releases it when the leader exits", async () => {
+    const tree = killTree(false);
+    const job = fakeJob();
+    const proc = spawnSupervised({
+      command: process.execPath,
+      args: ["-e", "console.log('final')"],
+      env: {},
+      name: "test-child",
+      platform: "win32",
+      windowsKillTree: tree.kill,
+      windowsJobFactory: job.factory,
+    });
+    const lines: string[] = [];
+    proc.stdout.on("line", (line) => lines.push(line));
+    expect(await proc.exited).toEqual({ code: 0, signal: null, reason: "exit" });
+    expect(lines).toEqual(["final"]);
+    expect(job.assigned).toEqual(proc.pid === undefined ? [] : [proc.pid]);
+    expect(job.isDisposed()).toBe(true);
+  });
+
+  it("stops the tree when the job cannot be joined", async () => {
+    const tree = killTree(true);
+    const proc = spawnSupervised({
+      command: process.execPath,
+      args: ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 50);"],
+      env: {},
+      name: "test-child",
+      platform: "win32",
+      windowsKillTree: tree.kill,
+      windowsJobFactory: () => undefined,
+    });
+    if (proc.pid === undefined) throw new Error("Test child failed to spawn");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await proc.stop({ graceMs: 50 })).toMatchObject({ reason: "stopped" });
+    expect(tree.calls.some((call) => call.force)).toBe(true);
+  });
+
+  it("retained Windows stops release ownership when the tree is gone", async () => {
+    const tree = killTree(true);
+    const added: number[] = [];
+    const removed: number[] = [];
+    const stopObserving = observeProcessGroups({
+      add: (pid) => {
+        added.push(pid);
+      },
+      remove: (pid) => {
+        removed.push(pid);
+      },
+    });
+    try {
+      const job = fakeJob();
+      const root = await mkdtemp(join(tmpdir(), "ace-windows-retained-"));
+      directories.push(root);
+      const ready = join(root, "ready");
+      const proc = spawnSupervised({
+        command: process.execPath,
+        args: [
+          "-e",
+          "require('node:fs').writeFileSync(process.env.READY, 'ready');" +
+            "process.on('SIGTERM', () => {}); setInterval(() => {}, 50);",
+        ],
+        env: { READY: ready },
+        name: "test-child",
+        platform: "win32",
+        windowsKillTree: tree.kill,
+        windowsJobFactory: job.factory,
+        killGroupOnExit: false,
+      });
+      if (proc.pid === undefined) throw new Error("Test child failed to spawn");
+      const deadline = Date.now() + 10_000;
+      while (true) {
+        try {
+          await readFile(ready, "utf8");
+          break;
+        } catch {
+          // The child has not installed its SIGTERM handler yet.
+        }
+        if (Date.now() > deadline) throw new Error("Test child never became ready");
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(added).toContain(proc.pid);
+      expect(await proc.stop({ graceMs: 50 })).toMatchObject({ reason: "stopped" });
+      expect(removed).toContain(proc.pid);
+      expect(job.isDisposed()).toBe(true);
+    } finally {
+      stopObserving();
+    }
   });
 });

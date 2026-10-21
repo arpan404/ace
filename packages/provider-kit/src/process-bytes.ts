@@ -3,6 +3,7 @@ import type { Readable } from "node:stream";
 import { terminateDirectoryProcesses } from "./directory-processes.ts";
 import { killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
 import { killWindowsTree, type WindowsKillTree } from "./windows-tree.ts";
+import { createKillOnCloseJob, type WindowsJob, type WindowsJobFactory } from "./windows-job.ts";
 import { toWindowsCommand } from "./windows-command.ts";
 
 export { terminateDirectoryProcesses } from "./directory-processes.ts";
@@ -25,6 +26,8 @@ export interface ByteProcessOptions {
   platform?: NodeJS.Platform;
   /** Whole-tree stop used on Windows instead of process-group signals. */
   windowsKillTree?: WindowsKillTree;
+  /** Kernel containment for the Windows tree; an unavailable job keeps the tree stop. */
+  windowsJobFactory?: WindowsJobFactory;
 }
 /** Byte streams for binary CLI output; owns descendants and drains no unbounded line buffers. */
 export function spawnBytes(options: ByteProcessOptions): ByteProcess {
@@ -46,6 +49,9 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
     stdio: ["ignore", "pipe", "pipe"],
   });
   const pid = child.pid;
+  const factory = options.windowsJobFactory ?? createKillOnCloseJob;
+  const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
+  if (pid !== undefined) job?.assign(pid);
   let cleanup: Promise<void> | undefined;
   let closed = false;
   let cancelDrain: (() => void) | undefined;
@@ -97,7 +103,10 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
       void (cleanup ?? Promise.resolve())
         .then(() => resolve(code), reject)
         .finally(() => {
-          if (pid !== undefined) unregisterGroup(pid);
+          if (pid !== undefined) {
+            unregisterGroup(pid);
+            job?.dispose();
+          }
         });
     });
   });
@@ -109,6 +118,6 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
     }
     await exited.catch(() => {});
   };
-  if (pid !== undefined) registerGroup(pid, stop);
+  if (pid !== undefined) registerGroup(pid, stop, undefined, () => destroy(pid));
   return { stdout: child.stdout, stderr: child.stderr, exited, stop };
 }
