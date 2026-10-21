@@ -6,6 +6,7 @@ import { Transform } from "node:stream";
 import { createGunzip } from "node:zlib";
 import type { ZipFile, Entry } from "yauzl";
 import { contained } from "./plans.ts";
+import { createArchiveLinks, type ArchiveLink, type SymlinkFn } from "./archive-links.ts";
 // Bounds a hostile archive, yet fits real agents: Antigravity's ACP server alone unpacks to
 // 281 MB, and Cortex Code ships 12,752 entries.
 const maximum = 1024 * 1024 * 1024;
@@ -30,11 +31,17 @@ class ExpansionBudget {
     });
   }
 }
-export async function extractTar(path: string, root: string, signal: AbortSignal): Promise<void> {
+export async function extractTar(
+  path: string,
+  root: string,
+  signal: AbortSignal,
+  symlink?: SymlinkFn,
+): Promise<void> {
   const { default: tar } = await import("tar-stream");
   const budget = new ExpansionBudget();
   const archive = tar.extract();
   const active = new Set<Promise<void>>();
+  const links: ArchiveLink[] = [];
   archive.on("entry", (header, stream, next) => {
     const task = (async () => {
       signal.throwIfAborted();
@@ -56,6 +63,10 @@ export async function extractTar(path: string, root: string, signal: AbortSignal
           createWriteStream(destination, { flags: "wx", mode: fileMode(header.mode) }),
           { signal },
         );
+      } else if (header.type === "symlink") {
+        if (!header.linkname) throw new Error("Archive link is missing its target");
+        links.push({ linkPath: destination, target: header.linkname, normalizeBackslash: false });
+        stream.resume();
       } else throw new Error("Archive links and special files are unsupported");
       next();
     })().catch((error) =>
@@ -75,8 +86,15 @@ export async function extractTar(path: string, root: string, signal: AbortSignal
   } finally {
     await Promise.allSettled(active);
   }
+  signal.throwIfAborted();
+  await createArchiveLinks(root, links, symlink);
 }
-export async function extractZip(path: string, root: string, signal: AbortSignal): Promise<void> {
+export async function extractZip(
+  path: string,
+  root: string,
+  signal: AbortSignal,
+  symlink?: SymlinkFn,
+): Promise<void> {
   const { default: yauzl } = await import("yauzl");
   const zip = await new Promise<ZipFile>((resolve, reject) =>
     yauzl.open(
@@ -90,6 +108,7 @@ export async function extractZip(path: string, root: string, signal: AbortSignal
   );
   const budget = new ExpansionBudget();
   const active = new Set<Promise<void>>();
+  const links: ArchiveLink[] = [];
   const lifetime = new AbortController();
   const extractionSignal = AbortSignal.any([signal, lifetime.signal]);
   try {
@@ -113,6 +132,36 @@ export async function extractZip(path: string, root: string, signal: AbortSignal
           budget.entry(entry.uncompressedSize);
           const unixMode = entry.externalFileAttributes >>> 16;
           const type = unixMode & 0o170000;
+          if (type === 0o120000) {
+            if (entry.generalPurposeBitFlag & 1) throw new Error("Encrypted ZIP unsupported");
+            const destination = contained(root, entry.fileName.replace(/\/$/, ""));
+            const stream = await new Promise<import("node:stream").Readable>(
+              (resolveStream, rejectStream) =>
+                zip.openReadStream(entry, (error, value) =>
+                  error || !value
+                    ? rejectStream(error ?? new Error("ZIP stream unavailable"))
+                    : resolveStream(value),
+                ),
+            );
+            const chunks: Buffer[] = [];
+            let size = 0;
+            for await (const chunk of stream) {
+              extractionSignal.throwIfAborted();
+              if (typeof chunk !== "string" && !Buffer.isBuffer(chunk))
+                throw new Error("Archive link target unreadable");
+              const part = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+              size += part.length;
+              if (size > 65536) throw new Error("Archive link target too large");
+              chunks.push(part);
+            }
+            links.push({
+              linkPath: destination,
+              target: Buffer.concat(chunks).toString("utf8"),
+              normalizeBackslash: true,
+            });
+            zip.readEntry();
+            return;
+          }
           if (type && type !== 0o100000 && type !== 0o040000)
             throw new Error("ZIP links and special files unsupported");
           if (entry.generalPurposeBitFlag & 1) throw new Error("Encrypted ZIP unsupported");
@@ -149,4 +198,6 @@ export async function extractZip(path: string, root: string, signal: AbortSignal
     zip.close();
     await Promise.allSettled(active);
   }
+  signal.throwIfAborted();
+  await createArchiveLinks(root, links, symlink);
 }
