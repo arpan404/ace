@@ -327,11 +327,15 @@ export class WorkspaceForge {
     return { ok: true };
   }
   /**
-   * A merge from the project's Pull requests page, linked to a thread or not. It goes through
+   * A merge, or auto-merge on or off, from the project's Pull requests page, linked to a thread or not. It goes through
    * the same journal and fence as a thread's merge; every thread linked to the PR sees the result.
    */
   async hostedMerge(
-    command: Command & { payload: import("@ace/protocol").ForgeHostedMergeCommand },
+    command: Command & {
+      payload:
+        | import("@ace/protocol").ForgeHostedMergeCommand
+        | import("@ace/protocol").ForgeHostedMergeStateCommand;
+    },
     cwd: string,
     allowed: () => boolean,
   ): Promise<Omit<CommandResult, "commandId">> {

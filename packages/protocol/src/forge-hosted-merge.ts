@@ -15,3 +15,18 @@ export const ForgeHostedMergeCommand = z.object({
   method: z.enum(["merge", "squash", "rebase"]),
 });
 export type ForgeHostedMergeCommand = z.infer<typeof ForgeHostedMergeCommand>;
+
+/**
+ * Turn auto-merge on or off for a pull request of a project's repository, linked to a thread or
+ * not. Like `forge.hosted.merge` it is pinned to the head the person saw and shares the PR's
+ * merge journal and fence with the thread's `forge.pr.auto-merge` and merge-state changes.
+ */
+export const ForgeHostedMergeStateCommand = z.object({
+  type: z.literal("forge.hosted.merge-state"),
+  workspaceId: WorkspaceId,
+  pr: ForgePrRef,
+  headSha: z.string().regex(/^[a-fA-F0-9]{40,64}$/),
+  action: z.enum(["enable", "disable"]),
+  method: z.enum(["merge", "squash", "rebase"]),
+});
+export type ForgeHostedMergeStateCommand = z.infer<typeof ForgeHostedMergeStateCommand>;
