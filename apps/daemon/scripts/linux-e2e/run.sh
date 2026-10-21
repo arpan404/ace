@@ -6,7 +6,7 @@
 # Usage, from anywhere inside a Linux checkout after `bun install`:
 #   apps/daemon/scripts/linux-e2e/run.sh [x11|wayland|headless|all] [extra vitest args]
 # Needs: cargo, Xvfb, openbox, at-spi2-core, dbus, gnome-calculator, gnome-text-editor, xterm,
-# xdpyinfo; for wayland gnome-shell, pipewire, wireplumber, xdg-desktop-portal-gnome; sudo for
+# xdpyinfo, ffmpeg (decodes the live view); for wayland gnome-shell, pipewire, wireplumber, xdg-desktop-portal-gnome; sudo for
 # the AppArmor profile when the kernel restricts user namespaces (it is removed afterwards).
 # Environment: ACE_E2E_DISPLAY (X display number, default 51), ACE_E2E_APPARMOR_PROFILE
 # (default ace-chromium-e2e), ACE_E2E_CHROME_HOME (where the pinned Chrome is kept, default
@@ -14,11 +14,11 @@
 set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
 self="$root/apps/daemon/scripts/linux-e2e/run.sh"
-suite=apps/daemon/src/linux-desktop.e2e.process.test.ts
+suites=(apps/daemon/src/linux-desktop.e2e.process.test.ts apps/daemon/src/linux-live-view.e2e.process.test.ts)
 
 run_suite() {
   cd "$root"
-  ACE_LINUX_DESKTOP_E2E="$1" bun run test --project process "$suite" "${@:2}"
+  ACE_LINUX_DESKTOP_E2E="$1" bun run test --project process "${suites[@]}" "${@:2}"
 }
 
 wait_for() { # <seconds> <command...>
