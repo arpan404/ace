@@ -234,13 +234,13 @@ export class BrowserService {
     let retiring = false;
     let backendLost = false;
     const loss = new DesktopLoss(this.navigationClock, this.options.desktopReadoptionGraceMs);
-    const retry = new RecoveryRetry(this.navigationClock);
+    const selfRecovery = new RecoveryRetry(this.navigationClock);
     let opening: BackendOpen | undefined;
     const release = async () => {
       if (released) return;
       released = true;
       loss.finish();
-      retry.stop();
+      selfRecovery.stop();
       if (session && this.sessions.get(options.threadId) === session)
         this.sessions.delete(options.threadId);
       scope.abort();
@@ -302,7 +302,7 @@ export class BrowserService {
             },
           });
           loss.finish();
-          retry.recovered();
+          selfRecovery.recovered();
           return;
         }
         const url = owned.state.url;
@@ -321,7 +321,7 @@ export class BrowserService {
           loss.finish();
           backend = native;
           backendLost = false;
-          retry.recovered();
+          selfRecovery.recovered();
         } catch (error) {
           await replacement.close().catch(() => {});
           throw error;
@@ -348,7 +348,7 @@ export class BrowserService {
      * a desktop nothing is tried; its next registration resumes the page.
      */
     const retryResume = () =>
-      retry.schedule(() => {
+      selfRecovery.schedule(() => {
         const owned = session;
         if (signal.aborted || !owned || owned.state.closed || owned.state.status !== "paused")
           return;
