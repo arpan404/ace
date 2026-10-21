@@ -45,8 +45,8 @@ test("source control follows the machine picked in Settings, and reconnecting re
     ),
   );
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
-  await userEvent.click(screen.getByRole("button", { name: /^Machine: / }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Build server" }));
+  await userEvent.click(screen.getByRole("button", { name: /^Environment: / }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: /Build server$/ }));
   await screen.findByText(/gh auth switch --hostname git.example.com --user octo/);
   expect(screen.getByRole("textbox", { name: "GitHub host" })).toHaveProperty(
     "value",

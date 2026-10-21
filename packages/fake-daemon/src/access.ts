@@ -2,7 +2,7 @@ import {
   Device,
   PairingRedemption,
   PairingRequest,
-  type DeviceScope,
+  PendingPairing,
   type RemoteAccessStatus,
 } from "@ace/protocol";
 import { settingsFixture } from "./scenarios/settings.ts";
@@ -27,9 +27,8 @@ export class FakeAccess {
   remoteStatus: () => RemoteAccessStatus;
   private clock: () => number;
   private pairings = 0;
-  private pending: { code: string; expiresAt: number } | undefined;
-  /** The scopes of the latest pairing code, which `completePairing` grants. */
-  private offered: DeviceScope[] = ["read", "operate"];
+  /** Open links by code; the latest is the one `completePairing` redeems. */
+  private pending = new Map<string, PendingPairing>();
   /** The administrator token these routes accept (a daemon token is 64 hex characters). */
   readonly token = "ace0".repeat(16);
   constructor(
@@ -58,42 +57,95 @@ export class FakeAccess {
     }
     return `${letters.slice(0, 4).join("")}-${letters.slice(4).join("")}`;
   }
-  private pair(scopes: DeviceScope[]) {
-    this.offered = scopes;
+  /** A single-use link, as the daemon issues one: the code and fingerprint ride in the fragment. */
+  pair(input: unknown): { id: string; url: string; code: string; expiresAt: number } {
+    const request = PairingRequest.parse(input);
+    const scopes = [...new Set(request.scopes)];
     const code = this.code();
-    this.pending = { code, expiresAt: this.clock() + pairingLifetimeMs };
+    const id = `pairing-${this.pairings}`;
+    const expiresAt = this.clock() + (request.ttlMs ?? pairingLifetimeMs);
+    this.pending.set(
+      code,
+      PendingPairing.parse({
+        id,
+        scopes,
+        expiresAt,
+        label: request.label,
+        deviceTtlMs: request.deviceTtlMs ?? undefined,
+      }),
+    );
     const fragment = new URLSearchParams({
       fingerprint: "5f1c9a7e",
       code,
       scopes: scopes.join(","),
     });
     return {
+      id,
+      code,
       url: `https://studio-mac.tailnet.ts.net:7417/pair#${fragment.toString()}`,
-      expiresAt: this.clock() + pairingLifetimeMs,
+      expiresAt,
     };
   }
-  /** A device scans the latest code (dev and tests): it appears in `GET /v1/devices`. */
-  completePairing(name: string): Device {
-    this.pending = undefined;
+  /** Links not yet used or expired, without their codes. */
+  pendingPairings(): PendingPairing[] {
+    const at = this.clock();
+    return [...this.pending.values()].filter((entry) => entry.expiresAt > at);
+  }
+  /** False when no open link has that id. */
+  cancelPairing(id: string): boolean {
+    for (const [code, entry] of this.pending)
+      if (entry.id === id) {
+        this.pending.delete(code);
+        return true;
+      }
+    return false;
+  }
+  private redeem(code: string, name: string): Device | undefined {
+    const entry = this.pending.get(code);
+    this.pending.delete(code);
+    return entry && entry.expiresAt > this.clock() ? this.admit(entry, name) : undefined;
+  }
+  private admit(
+    entry: Pick<PendingPairing, "scopes" | "label" | "deviceTtlMs">,
+    name: string,
+  ): Device {
     const at = this.clock();
     const device = Device.parse({
       id: `device-${this.pairings}-${this.devices.length + 1}`,
-      name,
-      scopes: this.offered,
+      name: entry.label ?? name,
+      scopes: entry.scopes,
       createdAt: at,
       lastSeenAt: at,
       revokedAt: null,
+      expiresAt: entry.deviceTtlMs ? at + entry.deviceTtlMs : null,
     });
     this.devices = [...this.devices, device];
     return device;
   }
-  private revoke(id: string): boolean {
+  /** A device scans the latest code (dev and tests): it appears in `GET /v1/devices`. */
+  completePairing(name: string): Device {
+    const latest = [...this.pending].at(-1);
+    if (latest) this.pending.delete(latest[0]);
+    return this.admit(latest?.[1] ?? { scopes: ["read", "operate"] }, name);
+  }
+  revoke(id: string): boolean {
     const at = this.clock();
     if (!this.list().some((device) => device.id === id)) return false;
     this.devices = this.devices.map((device) =>
       device.id === id ? Device.parse({ ...device, revokedAt: at }) : device,
     );
     return true;
+  }
+  /** Revoke every paired device but `keep` and local credentials; returns how many. */
+  revokeOthers(keep: string | undefined): number {
+    const others = this.list().filter(
+      (device) =>
+        device.id !== keep &&
+        !device.scopes.includes("desktop") &&
+        !device.scopes.includes("user-browser"),
+    );
+    for (const device of others) this.revoke(device.id);
+    return others.length;
   }
   /** A `fetch` that answers the access routes on any origin. */
   readonly fetch = async (input: string, init: RequestInit = {}): Promise<Response> => {
@@ -105,14 +157,9 @@ export class FakeAccess {
         typeof init.body === "string" ? JSON.parse(init.body) : {},
       );
       if (!parsed.success) return reply(400, { error: "Invalid pairing" });
-      if (
-        !this.pending ||
-        parsed.data.code !== this.pending.code ||
-        this.pending.expiresAt <= this.clock()
-      )
-        return reply(401, { error: "Expired pairing" });
-      this.pending = undefined;
-      return reply(200, { device: this.completePairing(parsed.data.name), token: "b".repeat(64) });
+      const device = this.redeem(parsed.data.code, parsed.data.name);
+      if (!device) return reply(401, { error: "Expired pairing" });
+      return reply(200, { device, token: "b".repeat(64) });
     }
     if (headers.get("authorization") !== `Bearer ${this.token}`)
       return reply(401, { error: "Administrator token required" });
@@ -126,9 +173,9 @@ export class FakeAccess {
       if (!remote.enabled || !["lan", "tailscale"].includes(remote.transport))
         return reply(409, { error: "Remote access unavailable" });
       const body: unknown = typeof init.body === "string" ? JSON.parse(init.body) : {};
-      const request = PairingRequest.safeParse(body);
-      if (!request.success) return reply(400, { error: "Invalid scopes" });
-      return reply(200, this.pair([...new Set(request.data.scopes)]));
+      if (!PairingRequest.safeParse(body).success) return reply(400, { error: "Invalid scopes" });
+      const { id, url, expiresAt } = this.pair(body);
+      return reply(200, { id, url, expiresAt });
     }
     if (path.startsWith("/v1/devices/") && method === "DELETE")
       return this.revoke(decodeURIComponent(path.slice("/v1/devices/".length)))

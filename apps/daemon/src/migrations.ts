@@ -128,6 +128,8 @@ const migrations = [
   UPDATE item_heads SET agent_id = COALESCE(
     (SELECT json_extract(item, '$.agentId') FROM items WHERE items.id = item_heads.id), '');
   CREATE INDEX item_heads_thread_agent ON item_heads(thread_id, agent_id, created_seq);`,
+  // Paired devices may expire on their own; existing ones keep access until revoked (NULL).
+  `ALTER TABLE devices ADD COLUMN expires_at INTEGER;`,
 ];
 /**
  * Oldest schema an existing database is upgraded from. Each step after it must carry the

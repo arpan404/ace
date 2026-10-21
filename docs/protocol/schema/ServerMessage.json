@@ -51,6 +51,9 @@
       "$ref": "https://ace.local/protocol/v1/MachinesResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/FleetResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ProvidersResult.json"
     },
     {

@@ -64,6 +64,7 @@ import {
   MachinesRequest,
   MachinesResult,
 } from "./machines.ts";
+import { FleetRequest, FleetResult } from "./fleet.ts";
 import { PreviewRequest, PreviewResult, PreviewSuggestions } from "./preview-client.ts";
 import { AutomationRequest, AutomationResponse } from "./automations.ts";
 import {
@@ -202,6 +203,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ThreadReadStateRequest,
   HostIdentityRequest,
   MachinesRequest,
+  FleetRequest,
   ProvidersRequest,
   ...ProviderLoginRequest.options,
   ...ProviderInstallRequest.options,
@@ -286,6 +288,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ThreadReadStateResponse,
   HostIdentityResult,
   MachinesResult,
+  FleetResult,
   ProvidersResult,
   ProviderLoginResult,
   ProviderLoginEvent,

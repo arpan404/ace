@@ -7,6 +7,18 @@
       "minimum": 0,
       "type": "integer"
     },
+    "expiresAt": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "id": {
       "$ref": "https://ace.local/protocol/v1/DeviceId.json"
     },
