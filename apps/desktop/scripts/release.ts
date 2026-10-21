@@ -150,7 +150,9 @@ async function build(version: string): Promise<void> {
   const desktopFiles = desktopAssets(await readdir(output), version);
   const missing = missingUpdatePackages(desktopFiles);
   if (missing.length) throw new Error(`The build made no ${missing.join(", ")}`);
-  const daemonFiles = withDaemon ? daemonAssets(await readdir(daemonOutput), version) : [];
+  const daemonFiles = withDaemon
+    ? daemonAssets(await readdir(daemonOutput), version, daemonTargets)
+    : [];
   const target = staging(version);
   await rm(target, { recursive: true, force: true });
   await mkdir(target, { recursive: true });

@@ -70,12 +70,45 @@ it("standalone daemon archives of this version ride along with their signed mani
     "darwin-arm64",
     "node-v24.13.0-darwin-arm64.tar.gz",
   ];
-  expect(daemonAssets(output, "1.2.0")).toEqual([
+  expect(daemonAssets(output, "1.2.0", ["darwin-arm64"])).toEqual([
     "ace-1.2.0-darwin-arm64.tar.gz",
     "darwin-arm64.json",
     "darwin-arm64.sig",
   ]);
 });
+
+it("a macOS release excludes leftover Linux manifests and archives, even at the same version", () => {
+  const output = [
+    "darwin-arm64.json",
+    "darwin-arm64.sig",
+    "ace-1.2.0-darwin-arm64.tar.gz",
+    "linux-x64.json",
+    "linux-x64.sig",
+    "ace-1.1.0-linux-x64.tar.gz",
+    "linux-arm64.json",
+    "linux-arm64.sig",
+    "ace-1.2.0-linux-arm64.tar.gz",
+  ];
+  expect(daemonAssets(output, "1.2.0", ["darwin-arm64"])).toEqual([
+    "ace-1.2.0-darwin-arm64.tar.gz",
+    "darwin-arm64.json",
+    "darwin-arm64.sig",
+  ]);
+});
+
+it.each(["darwin-arm64.json", "darwin-arm64.sig", "ace-1.2.0-darwin-arm64.tar.gz"])(
+  "a release refuses a rebuilt daemon target missing %s",
+  (missing) => {
+    const output = ["darwin-arm64.json", "darwin-arm64.sig", "ace-1.2.0-darwin-arm64.tar.gz"];
+    expect(() =>
+      daemonAssets(
+        output.filter((name) => name !== missing),
+        "1.2.0",
+        ["darwin-arm64"],
+      ),
+    ).toThrow(missing);
+  },
+);
 
 it("publishing refuses staged files whose bytes changed since the build", () => {
   const release: StagedRelease = {

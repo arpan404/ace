@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ReleaseTarget } from "@ace/protocol";
 
 /**
  * What a desktop release publishes (ADR 0091), as pure decisions over file names and
@@ -30,12 +31,24 @@ export function desktopAssets(names: readonly string[], version: string): string
   return names.filter((name) => packages.test(name) || feed.test(name)).toSorted();
 }
 
-/** Daemon archives for standalone installs (ADR 0041): manifest, signature and archive. */
-export function daemonAssets(names: readonly string[], version: string): string[] {
-  const target = "(darwin|linux)-(arm64|x64)";
-  const manifest = new RegExp(`^${target}\\.(json|sig)$`);
-  const archive = new RegExp(`^ace-${version.replaceAll(".", "\\.")}-${target}\\.tar\\.gz$`);
-  return names.filter((name) => manifest.test(name) || archive.test(name)).toSorted();
+/**
+ * Complete standalone update sets for the targets rebuilt by this release. Other targets'
+ * versionless manifests may be left over in the shared output folder (ADR 0041).
+ */
+export function daemonAssets(
+  names: readonly string[],
+  version: string,
+  targets: readonly z.infer<typeof ReleaseTarget>[],
+): string[] {
+  const available = new Set(names);
+  const files = targets.flatMap((target) => [
+    `${target}.json`,
+    `${target}.sig`,
+    `ace-${version}-${target}.tar.gz`,
+  ]);
+  const missing = files.filter((name) => !available.has(name));
+  if (missing.length) throw new Error(`Missing daemon release files: ${missing.join(", ")}`);
+  return files.toSorted();
 }
 
 /** The macOS update feed needs the zip: Squirrel.Mac installs from it, never the dmg. */

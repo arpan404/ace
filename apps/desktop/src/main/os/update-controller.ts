@@ -97,6 +97,9 @@ export class UpdateController {
 
   /** Downloads the update on offer. */
   async download(): Promise<UpdateStatus> {
+    // A check also changes the engine's selected release. Let it settle before starting
+    // the download, so neither its offer nor its error can overwrite download progress.
+    if (this.checking) await this.checking;
     const offer = this.status;
     if (offer.state !== "available" || !offer.version || !offer.inPlace) return this.status;
     const version = offer.version;
@@ -124,6 +127,8 @@ export class UpdateController {
 
   /** Restart into the downloaded update once running agents finish. */
   async install(): Promise<UpdateStatus> {
+    // A pending check must finish before the drain can change the update's state.
+    if (this.checking) await this.checking;
     if (this.status.state === "downloading") this.installWhenReady = true;
     if (this.status.state !== "downloaded") return this.status;
     this.installWhenReady = false;

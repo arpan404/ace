@@ -17,6 +17,7 @@ function setup(options: { found?: string; canInstall?: boolean; drained?: boolea
   const effects: string[] = [];
   let found = options.found;
   let checkError: Error | undefined;
+  let checkGate: Promise<void> | undefined;
   let requests = 0;
   let downloads = 0;
   let progress: ((percent: number) => void) | undefined;
@@ -26,10 +27,11 @@ function setup(options: { found?: string; canInstall?: boolean; drained?: boolea
   let finishDrain: ((drained: boolean) => void) | undefined;
   const engine: UpdateEngine = {
     canInstall: options.canInstall ?? true,
-    check: () => {
+    check: async () => {
       requests += 1;
-      if (checkError) return Promise.reject(checkError);
-      return Promise.resolve(found ? { version: found, notes, olderReleases: 0 } : undefined);
+      if (checkGate) await checkGate;
+      if (checkError) throw checkError;
+      return found ? { version: found, notes, olderReleases: 0 } : undefined;
     },
     download: (report) => {
       downloads += 1;
@@ -83,6 +85,11 @@ function setup(options: { found?: string; canInstall?: boolean; drained?: boolea
     offline: (error: Error | undefined) => (checkError = error),
     feedRequests: () => requests,
     downloads: () => downloads,
+    holdCheck: () => {
+      const gate = Promise.withResolvers<void>();
+      checkGate = gate.promise;
+      return gate.resolve;
+    },
   };
 }
 
@@ -180,6 +187,65 @@ it("a downloaded update stays ready through later checks", async () => {
   await app.controller.check("background");
   expect(app.now()).toMatchObject({ state: "downloaded", version: "1.1.0" });
 });
+
+it.each(["same release", "newer release", "no update", "failure"] as const)(
+  "Download waits for a pending background check returning %s",
+  async (result) => {
+    const app = setup({ found: "1.1.0" });
+    await app.controller.check("background");
+    const releaseCheck = app.holdCheck();
+    const checking = app.controller.check("background");
+    const downloading = app.controller.download();
+    expect(app.downloads()).toBe(0);
+    if (result === "newer release") app.feed("1.2.0");
+    if (result === "no update") app.feed(undefined);
+    if (result === "failure") app.offline(new Error("offline"));
+    releaseCheck();
+    await checking;
+    await settle();
+    if (result === "no update") {
+      await downloading;
+      expect(app.now().state).toBe("current");
+      expect(app.downloads()).toBe(0);
+      return;
+    }
+    expect(app.now()).toMatchObject({
+      state: "downloading",
+      version: result === "newer release" ? "1.2.0" : "1.1.0",
+    });
+    app.progress(42);
+    await app.controller.download();
+    expect(app.now().percent).toBe(42);
+    expect(app.downloads()).toBe(1);
+    await app.finishDownload();
+    await downloading;
+    expect(app.now().state).toBe("downloaded");
+  },
+);
+
+it.each(["same release", "no update", "failure"] as const)(
+  "Restart waits for a pending background check returning %s before draining once",
+  async (result) => {
+    const app = setup({ found: "1.1.0" });
+    await downloaded(app);
+    const releaseCheck = app.holdCheck();
+    const checking = app.controller.check("background");
+    const installing = app.controller.install();
+    expect(app.effects).toEqual([]);
+    if (result === "no update") app.feed(undefined);
+    if (result === "failure") app.offline(new Error("offline"));
+    releaseCheck();
+    await checking;
+    await settle();
+    app.agentsStillWorking(2);
+    await app.controller.install();
+    expect(app.now()).toMatchObject({ state: "installing", waiting: 2 });
+    expect(app.effects).toEqual(["drain"]);
+    await app.finishDrain(true);
+    await installing;
+    expect(app.effects).toEqual(["drain", "stop daemon", "install"]);
+  },
+);
 
 it("Restart waits for running agents, then stops the daemon before installing", async () => {
   const app = setup({ found: "1.1.0" });
