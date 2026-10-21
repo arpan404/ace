@@ -1,8 +1,10 @@
 import { encodePicture, type PictureKind } from "./stream-picture.ts";
 import { PictureViewer, type CapturedPicture } from "./picture-viewer.ts";
 import type { VideoWindow } from "./video-fanout.ts";
+import type { LinkRateLimits } from "./link-rate.ts";
 
 export { PictureViewer, pictureKeyframeGapMs, type CapturedPicture } from "./picture-viewer.ts";
+export { LinkFollow, linkCapped, pictureLinkLimits } from "./link-follow.ts";
 
 /**
  * A screenshot is refused rather than queued while the transport holds more than this: control
@@ -38,6 +40,8 @@ export interface PictureChannelPorts {
 /** One source's live view on this connection. */
 export interface PictureView {
   push(picture: CapturedPicture): void;
+  /** Bits per second this viewer's link carries now, when the view follows it (`link`). */
+  rate(): number | undefined;
   close(): void;
 }
 
@@ -65,7 +69,10 @@ export class PictureChannel {
    * `keyframe` asks the capture for one; `guard` throws once the connection may no longer see
    * the source.
    */
-  open(sourceId: string, options: { keyframe(): void; guard(): void }): PictureView {
+  open(
+    sourceId: string,
+    options: { keyframe(): void; guard(): void; link?: LinkRateLimits },
+  ): PictureView {
     if (this.#closed) throw new Error("Picture channel closed");
     this.#viewers.get(sourceId)?.close();
     const viewer = new PictureViewer(this.#kind, sourceId, {
@@ -74,11 +81,13 @@ export class PictureChannel {
       after: this.#ports.after,
       keyframe: options.keyframe,
       ...(this.#ports.window ? { window: this.#ports.window } : {}),
+      ...(options.link ? { link: options.link } : {}),
       write: (pieces) => this.#writeLive(pieces, options.guard),
     });
     this.#viewers.set(sourceId, viewer);
     return {
       push: (picture) => viewer.push(picture),
+      rate: () => viewer.rate,
       close: () => {
         viewer.close();
         if (this.#viewers.get(sourceId) === viewer) this.#viewers.delete(sourceId);

@@ -33,6 +33,14 @@ final class VideoEncoder {
         self.sessionId = sessionId; self.version = version; self.publish = publish; self.completed = completed; self.dropped = dropped
     }
     func requestKeyframe() { lock.lock(); keyframe = true; lock.unlock() }
+    /// A new bit rate for the running session from its next frame: no new session and no
+    /// keyframe, so a live view can follow its link. A capped refine frame keeps its own rate.
+    func retune(bitrate: Int) {
+        self.bitrate = bitrate
+        if let session, appliedQP == nil {
+            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: bitrate as CFNumber)
+        }
+    }
     func configure(bitrate: Int, fps: Int) {
         self.bitrate = bitrate; self.fps = fps
         if let session {

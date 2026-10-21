@@ -1,4 +1,5 @@
 import { encodePicture, type PictureChunk, type PictureKind } from "./stream-picture.ts";
+import { LinkRate, type LinkRateLimits } from "./link-rate.ts";
 import { VideoFanout, type VideoWindow } from "./video-fanout.ts";
 
 /** Forced keyframes for one viewer at most this often (ADR 0088's per-encode gap). */
@@ -32,6 +33,8 @@ export interface PictureViewerPorts {
   now(): number;
   after(ms: number, run: () => void): () => void;
   window?: VideoWindow;
+  /** Follow this viewer's link (`link-rate.ts`) within these bounds; `rate` says where it is. */
+  link?: LinkRateLimits;
 }
 
 /**
@@ -47,6 +50,7 @@ export class PictureViewer {
   readonly #sourceId: string;
   readonly #ports: PictureViewerPorts;
   readonly #fanout: VideoFanout<Waiting>;
+  readonly #link: LinkRate | undefined;
   #stream: string | undefined;
   #codec: string | undefined;
   #lastKeyframe = -Infinity;
@@ -56,9 +60,12 @@ export class PictureViewer {
     this.#kind = kind;
     this.#sourceId = sourceId;
     this.#ports = ports;
+    this.#link = ports.link ? new LinkRate(ports.link) : undefined;
     this.#fanout = new VideoFanout<Waiting>({
       keyframe: () => this.#askKeyframe(),
       playing: () => {},
+      sent: (_id, sequence, bytes) => this.#link?.sent(sequence, bytes, this.#ports.now()),
+      dropped: () => this.#link?.dropped(this.#ports.now()),
       ...(ports.window ? { window: ports.window } : {}),
     });
   }
@@ -87,8 +94,13 @@ export class PictureViewer {
   /** The viewer showed pictures up to `sequence`; `keyframe`: its decoder needs a fresh start. */
   ack(streamId: string, sequence: number, keyframe = false): void {
     if (this.#closed || streamId !== this.#stream) return;
+    this.#link?.acknowledged(sequence, this.#ports.now());
     this.#fanout.acknowledge("viewer", sequence);
     if (keyframe) this.#fanout.keyframe("viewer");
+  }
+  /** Bits per second this viewer's link carries now, when it is followed (`link`). */
+  get rate(): number | undefined {
+    return this.#link?.rate;
   }
   /** The transport drained: retry what it refused. */
   flush(): void {

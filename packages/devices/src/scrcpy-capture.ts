@@ -34,6 +34,8 @@ type Link = {
   clipboard: ScrcpyClipboard;
   /** The server crashes on a video reset before its first frame, which is a keyframe anyway. */
   streaming: boolean;
+  /** When this server run started (runtime clock). */
+  startedAt: number;
 };
 
 function profileFor(
@@ -48,8 +50,23 @@ function profileFor(
     fps: settings.fps,
   };
 }
-const sameProfile = (a: ServerProfile, b: ServerProfile) =>
-  a.maxSize === b.maxSize && a.bitrate === b.bitrate && a.fps === b.fps;
+/**
+ * Whether a new profile is worth restarting the server, which costs a second or more without
+ * a picture. A new size or frame rate always is. A bit rate alone (a viewer's link moving) is
+ * only when it changes by half or more and the server has run for 10 s, so a link that wavers
+ * never keeps the view restarting.
+ */
+export function scrcpyRestartWorthIt(
+  current: ServerProfile,
+  wanted: ServerProfile,
+  runningMs: number,
+): boolean {
+  if (current.maxSize !== wanted.maxSize || current.fps !== wanted.fps) return true;
+  if (current.bitrate === wanted.bitrate) return false;
+  const ratio =
+    Math.max(current.bitrate, wanted.bitrate) / Math.min(current.bitrate, wanted.bitrate);
+  return ratio >= 1.5 && runningMs >= 10_000;
+}
 
 /**
  * Android view and control through the pinned scrcpy server. H.264 from the device's encoder is
@@ -184,6 +201,7 @@ export async function scrcpyCapture(options: {
     const current: Link = {
       connection,
       profile,
+      startedAt: runtime.now(),
       clipboard: new ScrcpyClipboard({
         send: (message) => send(message, current),
         after: runtime.after,
@@ -311,7 +329,10 @@ export async function scrcpyCapture(options: {
       const wanted = profileFor(next, transport, 0);
       const current = link;
       settings = next;
-      if (current && !sameProfile(current.profile, wanted)) {
+      if (
+        current &&
+        scrcpyRestartWorthIt(current.profile, wanted, runtime.now() - current.startedAt)
+      ) {
         const previousJpeg = jpeg;
         jpeg = undefined;
         await previousJpeg?.stop();

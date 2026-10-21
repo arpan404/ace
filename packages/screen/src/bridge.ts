@@ -7,7 +7,12 @@ import {
   type ScreenServerMessage,
 } from "@ace/protocol";
 import { streamKinds } from "@ace/browser/stream";
-import { PictureChannel, type PictureTransport } from "@ace/browser/picture-channel";
+import {
+  LinkFollow,
+  PictureChannel,
+  pictureLinkLimits,
+  type PictureTransport,
+} from "@ace/browser/picture-channel";
 import { framePicture } from "./frame-picture.ts";
 import type { ScreenManager } from "./manager.ts";
 import type { Simulators } from "./simulator.ts";
@@ -35,6 +40,19 @@ export function screenConnection(
   const subscriptions = new Map<string, () => void>();
   let closed = false;
   let pending = 0;
+  const later =
+    peer.after ??
+    ((ms: number, run: () => void) => {
+      const timer = setTimeout(run, ms);
+      return () => clearTimeout(timer);
+    });
+  /** Each watched session's stream request, kept within this viewer's link. */
+  const follows = new Map<string, LinkFollow>();
+  let cancelTick: (() => void) | undefined;
+  const tick = () => {
+    for (const follow of follows.values()) follow.tick();
+    cancelTick = follows.size && !closed ? later(1000, tick) : undefined;
+  };
   const pictures = new PictureChannel(streamKinds.screenFrame, {
     transport: peer.media,
     now: peer.now ?? (() => performance.now()),
@@ -165,15 +183,24 @@ export function screenConnection(
               guard: () => {
                 if (closed) throw new Error("Screen connection closed");
               },
+              link: pictureLinkLimits,
+            });
+            const follow = new LinkFollow({
+              rate: () => view.rate(),
+              apply: (settings) => manager.configureStream(sessionId, settings),
             });
             try {
               // Every frame, unhurried: the viewer's window paces the pictures, not the hub.
               const stop = manager.subscribeEvery(sessionId, (frame) => {
                 if (!closed) view.push(framePicture(frame));
               });
+              follows.set(sessionId, follow);
+              cancelTick ??= later(1000, tick);
               subscriptions.set(sessionId, () => {
                 stop();
                 view.close();
+                follow.close();
+                if (follows.get(sessionId) === follow) follows.delete(sessionId);
               });
             } catch (error) {
               view.close();
@@ -185,9 +212,14 @@ export function screenConnection(
             });
             break;
           }
-          case "stream.configure":
-            data = await manager.configureStream(operation.sessionId, operation.settings);
+          case "stream.configure": {
+            // The view's request, with its bit rate held to what its link carries.
+            const follow = follows.get(operation.sessionId);
+            data = follow
+              ? await follow.ask(operation.settings)
+              : await manager.configureStream(operation.sessionId, operation.settings);
             break;
+          }
           case "unsubscribe":
             subscriptions.get(operation.sessionId)?.();
             subscriptions.delete(operation.sessionId);
@@ -228,6 +260,8 @@ export function screenConnection(
     },
     close() {
       closed = true;
+      cancelTick?.();
+      cancelTick = undefined;
       pictures.close();
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
