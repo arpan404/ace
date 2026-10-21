@@ -38,6 +38,13 @@ const number = Number(args.get("number") ?? 1192);
 const runs = Number(args.get("runs") ?? 3);
 const ms = (start: number) => Math.round(performance.now() - start);
 
+const strip = (entry: { label: string; ms: number; error?: string; pages?: number }) => ({
+  label: entry.label,
+  ms: entry.ms,
+  ...(entry.error ? { error: entry.error.slice(0, 200) } : {}),
+  ...(entry.pages ? { pages: entry.pages } : {}),
+});
+
 type Call = { label: string; start: number; end: number };
 /** Longest chain of requests where each starts after the previous one ended. */
 function serialDepth(calls: readonly Call[]): number {
@@ -165,22 +172,17 @@ async function daemonRun() {
     ]);
     const timelineMs = ms(timelineStart);
     const codeStart = performance.now();
-    const code = await Promise.all([
-      timed("forge.pr.files p1", {
+    // The Code tab's first page, read again as the panel did before its reads were kept.
+    const code = [
+      await timed("forge.pr.files p1", {
         op: "forge.pr.files",
         ...base,
         page: 1,
         headSha: detail.status.headSha,
         baseSha: detail.baseSha,
       }),
-    ]);
+    ];
     const codeMs = ms(codeStart);
-    const strip = (entry: { label: string; ms: number; error?: string; pages?: number }) => ({
-      label: entry.label,
-      ms: entry.ms,
-      ...(entry.error ? { error: entry.error.slice(0, 200) } : {}),
-      ...(entry.pages ? { pages: entry.pages } : {}),
-    });
     console.log(
       JSON.stringify(
         {
@@ -252,10 +254,9 @@ async function forgeRun() {
     const known = detail;
     await measure("lifecycle.snapshot", () => forge.lifecycle.snapshot(number, signal));
     await measure("prMergeState", () => forge.prMergeState(number, signal));
-    await measure("reviews.host+viewed", async () => {
-      const host = await forge.reviews.host(number, signal);
-      await forge.reviews.viewed(number, host.pr.headRefOid, signal);
-    });
+    await measure("reviews.host+viewed", () =>
+      Promise.all([forge.reviews.host(number, signal), forge.reviews.viewedNow(number, signal)]),
+    );
     await measure("prStack", () => forge.prStack(number, signal));
     await measure("stackMemberships", () => forge.stackMemberships([number], signal));
     await measure("prFiles p1", () =>

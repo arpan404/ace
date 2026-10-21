@@ -75,9 +75,7 @@ test("checks guessed for a head that has since moved are never shown", async () 
   ];
   fixtures[`repos/octo/ace/commits/${nextSha}/statuses?per_page=100`] = [{ body: [] }];
   const gh = await setup(fixtures);
-  expect((await gh.forge.status(7, signal())).checks.map((entry) => entry.name)).toEqual([
-    "test",
-  ]);
+  expect((await gh.forge.status(7, signal())).checks.map((entry) => entry.name)).toEqual(["test"]);
   const moved = await gh.forge.status(7, signal());
   expect(moved.headSha).toBe(nextSha);
   expect(moved.checks.map((entry) => [entry.name, entry.status])).toEqual([["lint", "success"]]);

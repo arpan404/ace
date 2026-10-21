@@ -136,7 +136,7 @@ export class GitHubStatusReader {
     number: number,
     response: Page,
     pr: z.infer<typeof GitHubPr>,
-    resources: {
+    current: {
       checks: Resource<ForgeCheck>;
       statuses: Resource<ForgeCheck>;
       inline: Resource<ForgeComment>;
@@ -145,7 +145,7 @@ export class GitHubStatusReader {
       threads: Awaited<ReturnType<ReviewThreadReader["read"]>>;
     },
   ): ForgePrStatus {
-    const { checks, statuses, inline, issue, reviews, threads } = resources;
+    const { checks, statuses, inline, issue, reviews, threads } = current;
     const parts = [response, checks, statuses, inline, issue, reviews, threads];
     if (
       this.#last?.ref.number === number &&
