@@ -28,11 +28,9 @@ struct Grab {
 /// The part of a frame the producer marked valid (a window inside a monitor-sized buffer),
 /// clamped to the frame.
 pub fn crop(frame: Rgb, x: i32, y: i32, w: u32, h: u32) -> Rgb {
-    let left = (x.max(0) as u32).min(frame.width);
-    let top = (y.max(0) as u32).min(frame.height);
-    let width = w.min(frame.width - left);
-    let height = h.min(frame.height - top);
-    if width == 0 || height == 0 || (left, top, width, height) == (0, 0, frame.width, frame.height) {
+    let (left, top, width, height) =
+        crate::pipewire::visible_region(frame.width, frame.height, Some((x, y, w, h)));
+    if (left, top, width, height) == (0, 0, frame.width, frame.height) {
         return frame;
     }
     let mut pixels = Vec::with_capacity(width as usize * height as usize * 3);
