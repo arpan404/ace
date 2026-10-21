@@ -264,15 +264,16 @@ async function regularFile(root: string, name: string): Promise<string | undefin
   }
 }
 
+const unavailable = (reason: "binary" | "too_large" | "missing" | "unsupported") => ({
+  content: { kind: "unavailable" as const, reason },
+  bytes: 0,
+});
+
 async function workingText(
   root: string,
   name: string,
   budget: number,
 ): Promise<{ content: GitConflictFile["content"]; bytes: number }> {
-  const unavailable = (reason: "binary" | "too_large" | "missing" | "unsupported") => ({
-    content: { kind: "unavailable" as const, reason },
-    bytes: 0,
-  });
   const file = join(root, name);
   let stats;
   try {

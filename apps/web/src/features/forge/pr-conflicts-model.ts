@@ -39,6 +39,19 @@ export function resolveHunk(
     .join("");
 }
 
+/** Each hunk with where it starts in the file's text, which tells hunks apart. */
+export function conflictHunks(
+  segments: readonly GitConflictSegment[],
+): { hunk: GitConflictHunk; start: number }[] {
+  let offset = 0;
+  const hunks: { hunk: GitConflictHunk; start: number }[] = [];
+  for (const segment of segments) {
+    if (segment.kind === "conflict") hunks.push({ hunk: segment, start: offset });
+    offset += segment.kind === "text" ? segment.text.length : unresolved(segment).length;
+  }
+  return hunks;
+}
+
 /** What Edit starts from: both sides, ours first, so nothing is lost by default. */
 export function editDraft(hunk: GitConflictHunk): string {
   return hunk.ours + hunk.theirs;

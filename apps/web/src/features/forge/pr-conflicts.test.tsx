@@ -124,3 +124,13 @@ test("aborting the merge leaves nothing to resolve and offers the merge again", 
   expect(await dialog.findByRole("button", { name: "Merge main" })).toBeTruthy();
   expect(app.daemon.workspace.conflicts.read(host)).toMatchObject({ merging: false, files: [] });
 });
+
+test("Ask agent puts a request for that one file in the linked task's composer, unsent", async () => {
+  const { dialog } = await openConflicts();
+  const file = within(dialog.getByRole("region", { name: "src/retry.ts" }));
+  await userEvent.click(file.getByRole("button", { name: "Ask agent" }));
+  const message = await screen.findByRole("combobox", { name: /Message/i });
+  await waitFor(() =>
+    expect(message.textContent).toContain("Resolve the merge conflicts in `src/retry.ts`"),
+  );
+});

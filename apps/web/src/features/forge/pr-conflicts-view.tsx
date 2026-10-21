@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { GitConflictFile, GitConflictHunk, GitConflictSegment } from "@ace/protocol";
+import type { GitConflictFile, GitConflictHunk } from "@ace/protocol";
 import {
   Dialog,
   DialogContent,
@@ -12,7 +12,13 @@ import { Textarea } from "@/components/ui/input.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import type { PrActions } from "./pr-actions.ts";
 import { usePrConflicts, type PrConflicts } from "./pr-conflicts.ts";
-import { conflictRequest, editDraft, resolveHunk, type HunkChoice } from "./pr-conflicts-model.ts";
+import {
+  conflictHunks,
+  conflictRequest,
+  editDraft,
+  resolveHunk,
+  type HunkChoice,
+} from "./pr-conflicts-model.ts";
 import { useFixWithAgent } from "./pr-fix-with-agent.ts";
 
 interface Branches {
@@ -142,7 +148,9 @@ function ConflictsBody(props: {
             file={file}
             branches={branches}
             resolver={resolver}
-            onAsk={() =>
+            onAsk={() => {
+              // The request waits in the task's composer; closing shows it there.
+              props.onDone();
               agent.ask(
                 conflictRequest({
                   path: file.path,
@@ -150,8 +158,8 @@ function ConflictsBody(props: {
                   baseBranch: branches.base,
                   headBranch: branches.head,
                 }),
-              )
-            }
+              );
+            }}
           />
         ))}
         {conflicts.files.length === 0 && (
@@ -210,10 +218,7 @@ function ConflictFile(props: {
   const note = stageNote(file, props.branches);
   const content = file.content;
   const segments = content.kind === "text" ? content.segments : [];
-  const hunks = segments.filter(
-    (segment): segment is Extract<GitConflictSegment, { kind: "conflict" }> =>
-      segment.kind === "conflict",
-  );
+  const hunks = conflictHunks(segments);
   return (
     <section aria-label={file.path} className="rounded-card border border-border">
       <header className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
@@ -246,9 +251,9 @@ function ConflictFile(props: {
           No conflict markers left. Take a side to mark it resolved.
         </p>
       ) : (
-        hunks.map((hunk, index) => (
+        hunks.map(({ hunk, start }, index) => (
           <Hunk
-            key={index}
+            key={start}
             hunk={hunk}
             label={`Conflict ${index + 1} of ${hunks.length}`}
             branches={props.branches}
