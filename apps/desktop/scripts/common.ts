@@ -12,7 +12,10 @@ export const desktop = resolve(import.meta.dirname, "..");
 export const repo = resolve(desktop, "../..");
 export const dist = join(desktop, "dist");
 
-/** The release authority's public key, when building a signed release (ADR 0041). */
+/**
+ * The release authority's public key for the bundled daemon's `ace update` on standalone
+ * installs (ADR 0041). The app itself updates through electron-updater (ADR 0091).
+ */
 export function releasePublicKey(env: NodeJS.ProcessEnv): string {
   const path = env.ACE_RELEASE_PUBLIC_KEY_FILE;
   // Unsigned local builds keep the placeholder, so update checks fail closed.
@@ -62,7 +65,6 @@ export function electronBundles(outdir: string, env: NodeJS.ProcessEnv): BuildOp
         js: 'import { createRequire as __aceCreateRequire } from "node:module"; const require = __aceCreateRequire(import.meta.url);',
       },
       define: {
-        ACE_RELEASE_PUBLIC_KEY: JSON.stringify(releasePublicKey(env)),
         ACE_APP_VERSION: JSON.stringify(env.ACE_VERSION ?? appVersion()),
       },
     },

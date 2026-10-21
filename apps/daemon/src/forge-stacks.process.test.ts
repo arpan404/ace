@@ -14,6 +14,7 @@ import {
   stackUuid,
   repository,
   localStack,
+  threads,
   type Fixtures,
 } from "@ace/forge/testing";
 import type { CommandRequest } from "@ace/forge";
@@ -215,6 +216,10 @@ test("a dissolved native stack still exposes its pending recorded merge result",
   };
   const f = await fixture({
     graphql: [stackResponse(), stackResponse(), missing],
+    // Link-time status reads fire their own reviewThreads queries; route them
+    // to an isolated pool so the ordered stack pool below keeps its design
+    // alignment (command reads, then the post-restart read).
+    "graphql:reviewThreads": [{ body: threads() }, { body: threads() }],
     "stack-view": [{ code: 1 }],
     "repos/octo/ace/pulls/8/merge-async": [
       { body: { status: "pending", details: { uuid: stackUuid, message: "Requested" } } },
@@ -295,6 +300,10 @@ test("a pre-queue host snapshot cannot downgrade a concurrently accepted queue r
       { ...stackResponse(), barrier: "release-snapshot" },
       stackResponse(8, queued),
     ],
+    // Link-time status reads fire their own reviewThreads queries; route them
+    // to an isolated pool so the ordered stack pool keeps its design alignment
+    // (command reads, the held snapshot, then the queued refresh).
+    "graphql:reviewThreads": [{ body: threads() }, { body: threads() }],
     "stack-view": [{ code: 1 }],
     "repos/octo/ace/pulls/8/merge-async": [
       { body: { status: "pending", details: { uuid: stackUuid, message: "Requested" } } },
@@ -308,7 +317,18 @@ test("a pre-queue host snapshot cannot downgrade a concurrently accepted queue r
     await f.command("merge");
     oldRefresh = f.read();
     await vi.waitFor(async () =>
-      expect((await f.gh.requests()).filter((r) => r.path === "graphql")).toHaveLength(3),
+      // Count only stack reads: link-time reviewThreads queries share the
+      // "graphql" path but ride their isolated pool, so they must not move
+      // this gate. The stack read carries entries(first:100); the threads
+      // query does not.
+      expect(
+        (await f.gh.requests()).filter((r) => {
+          if (r.path !== "graphql") return false;
+          if (typeof r.body !== "object" || r.body === null) return false;
+          const query = Reflect.get(r.body, "query");
+          return typeof query === "string" && query.includes("entries(first:100)");
+        }),
+      ).toHaveLength(3),
     );
     expect(await f.read()).toMatchObject({
       result: { kind: "forge", data: { value: { operation: { state: "enqueued" } } } },
@@ -440,6 +460,10 @@ test.each([
             : queueFacts("OPEN", null);
     const f = await fixture({
       graphql: [stackResponse(), stackResponse(), missing],
+      // Link-time status reads fire their own reviewThreads queries; route them
+      // to an isolated pool so the command's stack reads keep their design
+      // alignment (pre-read, merge pre-read, then the dissolved refresh).
+      "graphql:reviewThreads": [{ body: threads() }, { body: threads() }],
       "stack-view": [{ code: 1 }],
       "repos/octo/ace/pulls/8/merge-async": [
         { body: { status: "enqueued", details: { uuid: stackUuid, message: "Accepted" } } },
@@ -494,6 +518,10 @@ test.each([
 test("a native HTTP 409 acknowledgement keeps its existing UUID across restart without resubmission", async () => {
   const f = await fixture({
     graphql: [stackResponse(), stackResponse(), stackResponse(8, queued)],
+    // Link-time status reads fire their own reviewThreads queries; route them
+    // to an isolated pool so the command's stack reads hit the entries the
+    // 409 adoption was designed against (open layers, then the queued layer).
+    "graphql:reviewThreads": [{ body: threads() }, { body: threads() }],
     "stack-view": [{ code: 1 }],
     "repos/octo/ace/pulls/8/merge-async": [
       {
