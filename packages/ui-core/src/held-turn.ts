@@ -14,6 +14,10 @@ export interface HeldTurn {
   lead: string;
   /** When it lifts, as a clock time ("1:14 AM", "tomorrow 1:14 AM"), when known. */
   until: string | undefined;
+  /** The person already chose to resume then: the turn carries on by itself at `until`. */
+  scheduled: boolean;
+  /** Resume by itself once the limit resets, offered while the reset is known and not chosen. */
+  atReset: QueueAction | undefined;
   /** What Continue does: resume the held turn now, or send the person's Continue message. */
   carryOn: QueueAction;
 }
@@ -40,6 +44,8 @@ export function heldTurn(
       kind: notice.kind as HeldTurn["kind"],
       lead: `${who} is out of usage`,
       until: at !== undefined && at > now ? describeWake(at, now, locale) : undefined,
+      scheduled: notice.kind === "resuming",
+      atReset: notice.actions.find((action) => action.id === "resume_at_reset"),
       carryOn: { id: "resume_now", label: "Continue" },
     };
   }
@@ -48,11 +54,22 @@ export function heldTurn(
     kind: "limit_failed",
     lead: failure.code === "rate_limit" ? `${who} is rate limited` : `${who} is out of usage`,
     until: undefined,
+    scheduled: false,
+    atReset: undefined,
     carryOn: { id: "continue", label: "Continue" },
   };
 }
 
+/**
+ * How the strip joins the lead to the time: "until 1:14 AM", or "· resumes at 1:14 AM" once the
+ * person chose to resume then ("· resumes tomorrow 1:14 AM" on another day).
+ */
+export function heldTurnLink(turn: HeldTurn): string {
+  if (!turn.scheduled) return " until ";
+  return /^\d/.test(turn.until ?? "") ? " · resumes at " : " · resumes ";
+}
+
 /** The strip's sentence: "Codex is out of usage until 1:14 AM". */
 export function heldTurnSentence(turn: HeldTurn): string {
-  return turn.until ? `${turn.lead} until ${turn.until}` : turn.lead;
+  return turn.until ? `${turn.lead}${heldTurnLink(turn)}${turn.until}` : turn.lead;
 }

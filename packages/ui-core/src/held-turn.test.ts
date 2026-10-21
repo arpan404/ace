@@ -11,12 +11,25 @@ test("a usage limit reads as one sentence with its reset time, and Continue resu
   const turn = heldTurn(notice, undefined, "Codex", now, "en-US");
   expect(turn && heldTurnSentence(turn)).toBe("Codex is out of usage until 11:59 PM");
   expect(turn?.carryOn).toEqual({ id: "resume_now", label: "Continue" });
+  expect(turn?.atReset).toEqual({ id: "resume_at_reset", label: "Resume at reset" });
+});
+
+test("once the person chose to resume at reset, the sentence says when it resumes", () => {
+  const notice = queueNotice(
+    { state: "limited", until: reset },
+    { paused: true, reason: "limit", resumeAt: reset },
+    now,
+  );
+  const turn = heldTurn(notice, undefined, "Codex", now, "en-US");
+  expect(turn && heldTurnSentence(turn)).toBe("Codex is out of usage · resumes at 11:59 PM");
+  expect(turn?.atReset).toBeUndefined();
 });
 
 test("a limit with no known reset says nothing it doesn't know", () => {
   const notice = queueNotice({ state: "limited" }, undefined, now);
   const turn = heldTurn(notice, undefined, "Claude", now);
   expect(turn && heldTurnSentence(turn)).toBe("Claude is out of usage");
+  expect(turn?.atReset).toBeUndefined();
 });
 
 test("a turn that ended on a rate limit with no hold continues with the person's message", () => {

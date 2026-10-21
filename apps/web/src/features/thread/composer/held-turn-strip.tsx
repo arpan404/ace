@@ -1,10 +1,14 @@
 import type { ThreadReader } from "@ace/client";
 import { useThread, useThreadMeta } from "@ace/client-react";
 import type { AgentError } from "@ace/protocol";
-import { describeProviderError, heldTurn, providerNames, type HeldTurn } from "@ace/ui-core";
+import {
+  describeProviderError,
+  heldTurn,
+  heldTurnLink,
+  providerNames,
+  type HeldTurn,
+} from "@ace/ui-core";
 import { useCallback, type ReactNode } from "react";
-import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
-import { threadAccountId } from "../lib/thread-account.ts";
 import { useNow } from "@/lib/time.ts";
 import type { HeldQueue } from "./queue-notice.tsx";
 import { useActiveRootRun } from "./stop-state.ts";
@@ -60,9 +64,9 @@ export function useLeavesLimit(threadId: string): boolean {
 }
 
 /**
- * The limit as the composer's top strip, one sentence and two words to act on: "Codex is out
- * of usage until 1:14 AM · Switch account or provider · Continue". Continue sends "Continue
- * where you left off." as the person's message.
+ * The limit as the composer's top strip: one sentence and the ways on, as words. "Codex is out
+ * of usage until 1:14 AM · Switch account or provider · Resume at reset · Continue". Continue
+ * sends "Continue where you left off." as the person's message.
  */
 export function HeldTurnStrip(props: {
   threadId: string;
@@ -72,26 +76,16 @@ export function HeldTurnStrip(props: {
   onSwitch(): void;
 }) {
   const { turn } = props;
-  const meta = useThreadMeta(props.threadId);
   return (
     <section
       aria-label={turn.lead}
-      className="flex h-9 min-w-0 items-center gap-2 pr-1 pl-2.5 text-xs"
+      className="flex h-9 min-w-0 items-center gap-1 pr-1 pl-2.5 text-xs"
     >
-      {meta?.provider && (
-        <ProviderAccountIcon
-          provider={meta.provider}
-          instance={threadAccountId(meta)}
-          size={14}
-          accountLabel={false}
-          tooltip={false}
-        />
-      )}
       <p className="min-w-0 flex-1 truncate text-muted-foreground">
         {turn.lead}
         {turn.until && (
           <>
-            {" until "}
+            {heldTurnLink(turn)}
             <span className="font-medium text-foreground tabular-nums">{turn.until}</span>
           </>
         )}
@@ -104,6 +98,16 @@ export function HeldTurnStrip(props: {
       >
         Switch account or provider
       </button>
+      {turn.atReset && (
+        <button
+          type="button"
+          disabled={props.queue.acting}
+          onClick={() => turn.atReset && props.queue.act(turn.atReset)}
+          className="h-7 shrink-0 rounded-md px-2 font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-ring disabled:opacity-50"
+        >
+          Resume at reset
+        </button>
+      )}
       <button
         type="button"
         disabled={props.queue.acting}

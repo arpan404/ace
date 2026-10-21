@@ -92,3 +92,19 @@ test("at its limit, the thread says when its account resets; after switching acc
   expect(await within(feed).findByText("Pick the CI split back up")).toBeTruthy();
   expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
 });
+
+test("Resume at reset schedules the turn, and the strip says when it resumes", async () => {
+  const app = harness();
+  report(app, "codex-team", { five_hour: [100, 87 * minute] });
+  app.play(accountLimit("thread-capped", "Split the CI matrix by package")).runThrough("limited");
+  await app.open("/t/thread-capped");
+  const notice = await screen.findByRole("region", { name: "Codex is out of usage" });
+  await userEvent.click(await within(notice).findByRole("button", { name: "Resume at reset" }));
+  await waitFor(() =>
+    expect(screen.getByRole("region", { name: "Codex is out of usage" }).textContent).toMatch(
+      /· resumes (at )?.*\d/,
+    ),
+  );
+  expect(screen.queryByRole("button", { name: "Resume at reset" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
+});
