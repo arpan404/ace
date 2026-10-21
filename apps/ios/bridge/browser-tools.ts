@@ -11,6 +11,7 @@ import {
   BrowsingHistory,
   describeBrowserFailure,
   parseAddress,
+  searchVisits,
   zoomIn,
   zoomOut,
 } from "@ace/ui-core";
@@ -48,7 +49,8 @@ export const BrowserToolAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("screenshot"), fullPage: z.boolean() }),
   /** The console sheet: open with a filter, Clear, or closed (`filter` absent). */
   z.object({ kind: z.literal("console"), filter: ConsoleFilter.optional(), clear: z.boolean() }),
-  z.object({ kind: z.literal("visits"), open: z.boolean() }),
+  /** The history sheet: open (searched for `query`) or closed. */
+  z.object({ kind: z.literal("visits"), open: z.boolean(), query: z.string().max(256).optional() }),
   z.object({ kind: z.literal("forget"), url: z.string().max(8192), at: z.number() }),
   z.object({
     kind: z.literal("dialog"),
@@ -97,6 +99,7 @@ export class BrowserTools {
   #navigation: Navigation | undefined;
   #history = new BrowsingHistory(undefined);
   #visits: string | undefined;
+  #query = "";
   #console: BrowserConsole;
   #chooser: BrowserChooser;
   #features: BrowserFeaturesClient;
@@ -187,6 +190,7 @@ export class BrowserTools {
         return;
       case "visits":
         this.#visits = action.open ? threadId : undefined;
+        this.#query = action.query ?? "";
         if (action.open) this.#putVisits(threadId);
         else this.#host.sink.clear("browser:visits");
         return;
@@ -381,15 +385,20 @@ export class BrowserTools {
   }
   #putVisits(threadId: string): void {
     const preview = this.#host.preview;
-    this.#host.sink.put("browser:visits", () => ({
-      type: "browser.visits",
-      threadId,
-      visits: this.#history.visits(threadId).map((visit) => ({
-        url: preview(visit.url, 2048),
-        title: preview(visit.title, 256),
-        at: visit.at,
-      })),
-    }));
+    const query = this.#query;
+    this.#host.sink.put("browser:visits", () => {
+      const all = this.#history.visits(threadId);
+      return {
+        type: "browser.visits",
+        threadId,
+        total: all.length,
+        visits: searchVisits(all, query).map((visit) => ({
+          url: visit.url,
+          title: preview(visit.title, 256),
+          at: visit.at,
+        })),
+      };
+    });
   }
   /** A person's command to the shown thread's browser; rejects with the daemon's reason. */
   async #execute(command: BrowserCommand, timeoutMs?: number): Promise<unknown> {

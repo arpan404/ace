@@ -39,46 +39,43 @@ struct BrowserPageInfo: Codable, Sendable, Equatable {
     var tooltip: Tooltip? = nil
 }
 
-/// The thread's browser as the live view shows it (`bridge/browser-live.ts`).
-struct BrowserViewInfo: Codable, Sendable, Equatable {
-    struct Tab: Codable, Sendable, Equatable, Identifiable { let id: String; let title: String; let url: String }
-    struct State: Codable, Sendable, Equatable {
-        let url: String
-        let closed: Bool
-        /// ready, paused or recovering.
-        let status: String
-        let reason: String?
-        let loading: Bool
-        let loadError: String?
-        let activeTabId: String?
-        let tabs: [Tab]
-        let moreTabs: Int
-    }
-    /// Bumped whenever the daemon starts this viewer's pictures again.
-    let generation: Int
-    /// Why the browser can't be watched yet (none open); retried while the view is shown.
-    let error: String?
-    let state: State?
-}
-
 enum BrowserPatch: Decodable, Sendable, Equatable {
     case view(threadId: String, BrowserViewInfo)
     case page(threadId: String, tabId: String?, BrowserPageInfo?)
     /// Whether the thread has a browser with a tab open, for its Browser entry.
     case available(threadId: String, epoch: Int, live: Bool)
+    /// Find in page's count ("2 of 5").
+    case find(BrowserFindResult)
+    case shot(BrowserShot)
+    case logs(BrowserLog)
+    /// The history sheet's visits matching its search, and how many there are in all.
+    case visits(threadId: String, [BrowserVisit], total: Int)
+    /// A command that failed, in one sentence.
+    case problem(BrowserProblem)
+    /// Files for a page's picker uploading, 0 to 1.
+    case upload(chooserId: String, progress: Double)
 
-    static let types: Set<String> = ["browser.view", "browser.page", "browser.available"]
-    private enum Keys: String, CodingKey { case type, threadId, tabId, page, epoch, live }
+    static let types: Set<String> = ["browser.view", "browser.page", "browser.available", "browser.find", "browser.shot",
+                                     "browser.logs", "browser.visits", "browser.problem", "browser.upload"]
+    private enum Keys: String, CodingKey { case type, threadId, tabId, page, epoch, live, visits, total, chooserId, progress }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
-        let threadId = try box.decode(String.self, forKey: .threadId)
+        let threadId = { try box.decode(String.self, forKey: .threadId) }
         switch try box.decode(String.self, forKey: .type) {
-        case "browser.view": self = .view(threadId: threadId, try BrowserViewInfo(from: decoder))
+        case "browser.view": self = .view(threadId: try threadId(), try BrowserViewInfo(from: decoder))
         case "browser.page":
-            self = .page(threadId: threadId, tabId: try box.decodeIfPresent(String.self, forKey: .tabId),
+            self = .page(threadId: try threadId(), tabId: try box.decodeIfPresent(String.self, forKey: .tabId),
                          try box.decodeIfPresent(BrowserPageInfo.self, forKey: .page))
         case "browser.available":
-            self = .available(threadId: threadId, epoch: try box.decode(Int.self, forKey: .epoch), live: try box.decode(Bool.self, forKey: .live))
+            self = .available(threadId: try threadId(), epoch: try box.decode(Int.self, forKey: .epoch), live: try box.decode(Bool.self, forKey: .live))
+        case "browser.find": self = .find(try BrowserFindResult(from: decoder))
+        case "browser.shot": self = .shot(try BrowserShot(from: decoder))
+        case "browser.logs": self = .logs(try BrowserLog(from: decoder))
+        case "browser.visits":
+            self = .visits(threadId: try threadId(), try box.decode([BrowserVisit].self, forKey: .visits), total: try box.decode(Int.self, forKey: .total))
+        case "browser.problem": self = .problem(try BrowserProblem(from: decoder))
+        case "browser.upload":
+            self = .upload(chooserId: try box.decode(String.self, forKey: .chooserId), progress: try box.decode(Double.self, forKey: .progress))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: box, debugDescription: "Unknown browser patch")
         }
     }

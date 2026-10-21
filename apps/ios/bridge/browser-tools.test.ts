@@ -229,6 +229,11 @@ describe("The phone's browser tools", () => {
       "https://shop.test/pay",
       "https://shop.test/cart",
     ]);
+    view.action({ kind: "visits", open: true, query: "PAY" });
+    await until(() => visits()?.length === 1, "searched");
+    expect(sink.read("browser:visits")?.total).toBe(2);
+    view.action({ kind: "visits", open: true });
+    await until(() => visits()?.length === 2, "search cleared");
     const newest = visits()?.[0];
     if (newest) view.action({ kind: "forget", url: newest.url, at: newest.at });
     await until(() => visits()?.length === 1, "forgotten");
