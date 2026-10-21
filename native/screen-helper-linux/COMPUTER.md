@@ -1,7 +1,7 @@
 # `--computer`: the Linux computer-use engine
 
 `ace-screen-helper-linux --computer` serves the agent tools `screen_apps`, `screen_state` and
-`screen_act` on Linux (ADR 0087, ADR 0091). It speaks the same wire as the macOS engine
+`screen_act` on Linux (ADR 0087, ADR 0093). It speaks the same wire as the macOS engine
 (`ace-screen-helper --computer`), so the daemon's `ComputerClient` (`packages/screen/src/computer/`)
 uses it unchanged. The code is in `src/computer/`; the live-view session mode (`--endpoint`) is
 separate and unchanged.

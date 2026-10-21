@@ -1,4 +1,4 @@
-//! `ace-screen-helper-linux --computer`: the agent computer-use engine (ADR 0087, ADR 0091).
+//! `ace-screen-helper-linux --computer`: the agent computer-use engine (ADR 0087, ADR 0093).
 //! Same JSON-lines wire as the macOS helper: `hello`, `apps`, `resolve`, `state`, `act`,
 //! `cancel`. Semantics come from AT-SPI; X11 adds screenshots and foreground-only raw input.
 pub mod cancel;
