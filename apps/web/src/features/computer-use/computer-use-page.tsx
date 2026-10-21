@@ -9,7 +9,7 @@ import { UseMyChromeSettings } from "./use-my-chrome.tsx";
 
 /**
  * Settings › Computer use: on or off, the apps agents can't use, every live session,
- * macOS's grants to Ace Screen Helper, how Android emulators open, Use my Chrome and the
+ * the screen helper's permissions, how Android emulators open, Use my Chrome and the
  * machine's device tools. The daemon decides; this page shows and asks.
  */
 export function ComputerUseSettings(props: {
@@ -22,7 +22,7 @@ export function ComputerUseSettings(props: {
 
 /**
  * Another machine's computer use. Its screen helper talks only to a window on that machine, so
- * switching it on and granting macOS access happen there; its block list, emulator window, Use
+ * switching it on and granting system access happen there; its block list, emulator window, Use
  * my Chrome and tools are its daemon's settings and stay editable from here.
  */
 function RemoteComputerUse(props: { name: string }) {
@@ -31,7 +31,7 @@ function RemoteComputerUse(props: { name: string }) {
       <SettingSection label="Access">
         <SettingRow
           title="Let agents use apps"
-          description={`Turned on in ace on ${props.name}, where macOS asks for access.`}
+          description={`Turned on in ace on ${props.name}, where the system asks for access.`}
         />
         <BlockedAppsRow />
       </SettingSection>
@@ -59,7 +59,7 @@ function LocalComputerUse() {
           <LiveSessions use={use} compact />
         </SettingSection>
       )}
-      <SettingSection label="macOS permissions">
+      <SettingSection label="Permissions">
         <Permissions use={use} />
       </SettingSection>
       <SettingSection label="Devices">

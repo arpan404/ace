@@ -4,6 +4,8 @@
  * every op it receives to FAKE_LOG.
  *   FAKE_CRASH_ONCE=<file>  exit on the first state request, then answer normally
  *   FAKE_HANG_ONCE=<file>   never answer the first act request (cancel is ignored)
+ *   FAKE_LOG_SESSION=1      log the DISPLAY it was started with, before any op
+ *   FAKE_LOG_ARGS=1         log the arguments it was started with, before any op
  * Apps with scripted trouble: Stuck (never answers state or act, ignores cancel), Frozen (its
  * outline comes back partial, not responding), Huge (its outline is enormous).
  */
@@ -31,6 +33,13 @@ const apps: Record<string, App> = {
   huge: { bundleId: "com.example.huge", name: "Huge" },
   ace: { bundleId: "dev.ace.app", name: "ace" },
   ghostty: { bundleId: "com.MitchellH.Ghostty", name: "Ghostty" },
+  // Linux identities: desktop-file ids, else the executable name.
+  "text editor": { bundleId: "org.gnome.TextEditor", name: "Text Editor" },
+  ptyxis: { bundleId: "org.gnome.Ptyxis", name: "Ptyxis" },
+  keepassxc: { bundleId: "org.keepassxc.KeePassXC", name: "KeePassXC" },
+  kitty: { bundleId: "kitty", name: "kitty" },
+  "polkit agent": { bundleId: "polkit-gnome-authentication-agent-1", name: "Polkit Agent" },
+  "ace-desktop": { bundleId: "ace-desktop", name: "ace" },
 };
 const find = (query: unknown) =>
   apps[String(query ?? "").toLowerCase()] ??
@@ -132,6 +141,18 @@ async function answer(request: Request): Promise<unknown> {
   switch (request.op) {
     case "hello":
       return { id: request.id, ok: true, result: { version: 2, capabilities: ["cancel"] } };
+    case "apps":
+      return {
+        id: request.id,
+        ok: true,
+        result: {
+          apps: Object.values(apps).map(({ bundleId, name }) => ({
+            bundleId,
+            name,
+            running: true,
+          })),
+        },
+      };
     case "resolve":
       return app ? { id: request.id, ok: true, result: { ...app, running: true } } : missing;
     case "state":
@@ -148,6 +169,8 @@ async function answer(request: Request): Promise<unknown> {
   }
 }
 
+if (env["FAKE_LOG_ARGS"]) log(`args ${process.argv.slice(2).join(" ")}`);
+if (env["FAKE_LOG_SESSION"]) log(`session DISPLAY=${env["DISPLAY"] ?? ""}`);
 let queue = Promise.resolve();
 createInterface({ input: process.stdin }).on("line", (line) => {
   const request = JSON.parse(line) as Request;
