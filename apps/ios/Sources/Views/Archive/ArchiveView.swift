@@ -58,6 +58,7 @@ private struct ArchiveRows: View {
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("archive.\(id)")
                     .accessibilityHint("Opens read-only")
+                    .listRowSeparator(.hidden)
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         if client.canOperate {
                             Button("Unarchive", systemImage: "tray.and.arrow.up") { Task { _ = await client.unarchive(id) } }
