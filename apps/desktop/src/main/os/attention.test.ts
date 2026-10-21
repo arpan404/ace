@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
+import type { BrowserWindow } from "electron";
 import { DesktopSettings } from "../../shared/contract.ts";
 
 const effects = vi.hoisted(() => ({
@@ -45,20 +46,41 @@ test("prevent sleep follows working agents and changing the preference applies i
   expect(effects.blockers.size).toBe(0);
 });
 
-test.skipIf(process.platform !== "darwin")(
-  "dock attention follows the preference when new work needs a person",
-  () => {
-    let settings = DesktopSettings.parse({ attention: false });
-    const attention = new Attention(
-      () => settings,
-      () => undefined,
-    );
-    attention.update({ needsYou: 1, working: 0 });
-    expect(effects.bounces).toEqual([]);
-    settings = { ...settings, attention: true };
-    attention.refresh();
-    expect(effects.bounces).toEqual([]);
-    attention.update({ needsYou: 2, working: 0 });
-    expect(effects.bounces).toEqual(["informational"]);
-  },
-);
+test("dock attention follows the preference when new work needs a person", () => {
+  let settings = DesktopSettings.parse({ attention: false });
+  const attention = new Attention(
+    () => settings,
+    () => undefined,
+    "darwin",
+  );
+  attention.update({ needsYou: 1, working: 0 });
+  expect(effects.bounces).toEqual([]);
+  settings = { ...settings, attention: true };
+  attention.refresh();
+  expect(effects.bounces).toEqual([]);
+  attention.update({ needsYou: 2, working: 0 });
+  expect(effects.bounces).toEqual(["informational"]);
+});
+
+test("on Linux an unfocused window is flagged urgent when new work needs a person", () => {
+  const flashes: boolean[] = [];
+  let focused = false;
+  const win = { isFocused: () => focused, flashFrame: (on: boolean) => flashes.push(on) };
+  let settings = DesktopSettings.parse({ attention: false });
+  const attention = new Attention(
+    () => settings,
+    // A stand-in window offering only what attention reads on these platforms.
+    () => win as unknown as BrowserWindow,
+    "linux",
+  );
+  attention.update({ needsYou: 1, working: 0 });
+  expect(flashes).toEqual([]);
+  settings = { ...settings, attention: true };
+  attention.update({ needsYou: 2, working: 0 });
+  expect(flashes).toEqual([true]);
+  attention.update({ needsYou: 1, working: 0 });
+  focused = true;
+  attention.update({ needsYou: 3, working: 0 });
+  expect(flashes).toEqual([true]);
+  expect(effects.bounces).toEqual([]);
+});
