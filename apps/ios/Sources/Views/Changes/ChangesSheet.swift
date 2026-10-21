@@ -7,6 +7,8 @@ import SwiftUI
 struct ChangesSheet: View {
     @Bindable var model: ClientModel
     let title: String
+    /// A file whose diff opens first (from Files); otherwise the first file's.
+    var initial: String?
     @Environment(\.dismiss) private var dismiss
     @State private var open: String?
     @State private var reviewed: Set<String> = []
@@ -15,9 +17,14 @@ struct ChangesSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none, pinnedViews: [.sectionHeaders]) {
-                    content
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none, pinnedViews: [.sectionHeaders]) {
+                        content
+                    }
+                }
+                .task(id: summary?.files.contains { $0.path == initial } == true) {
+                    if let initial, summary?.files.contains(where: { $0.path == initial }) == true { proxy.scrollTo(initial, anchor: .top) }
                 }
             }
             .background(AceTheme.Colours.background)
@@ -33,7 +40,10 @@ struct ChangesSheet: View {
             .changesActions(model: model, summary: summary, title: title, wrap: $wrap)
         }
         .tint(AceTheme.Colours.foreground)
-        .onAppear { model.sheet(["kind": "changes", "open": true]) }
+        .onAppear {
+            model.sheet(["kind": "changes", "open": true])
+            if let initial { show(initial) }
+        }
         .onDisappear { model.sheet(["kind": "changes", "open": false]) }
         .onChange(of: summary?.files.first?.path) { _, first in if open == nil, let first { show(first) } }
     }
@@ -56,6 +66,7 @@ struct ChangesSheet: View {
                         ChangedFileHeader(file: file, open: open == file.path, reviewed: reviewed.contains(file.path),
                                           toggle: { open == file.path ? show(nil) : show(file.path) },
                                           review: { if reviewed.contains(file.path) { reviewed.remove(file.path) } else { reviewed.insert(file.path) } })
+                            .id(file.path)
                     }
                 }
                 footer(summary)

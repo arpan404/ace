@@ -96,13 +96,14 @@ struct UserBubble: View {
 struct MessageRow: View {
     let row: TranscriptRow
     var openMessage: ((TranscriptRow) -> Void)? = nil
+    @Environment(\.fileLinks) private var fileLinks
     var body: some View {
         let user = row.role == "user"
         VStack(alignment: user ? .trailing : .leading, spacing: AceTheme.Spacing.xs) {
             if user {
                 UserBubble(text: row.text)
             } else if !row.text.isEmpty {
-                MarkdownView(text: row.text)
+                MarkdownView(text: row.text).fileLinks(fileLinks, itemId: row.id)
             }
             if let attachments = row.attachments, !attachments.isEmpty {
                 AttachmentChips(attachments: attachments, more: row.moreAttachments ?? 0)

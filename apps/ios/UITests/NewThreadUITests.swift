@@ -159,7 +159,7 @@ import XCTest
         screenshot("addproject-selected")
     }
 
-    func testFilesListsAFolderWithinItsCapAndPreviewsTheStartOfALargeFile() {
+    func testFilesOpensFoldersInPlaceAndMentionsAFileInTheComposer() {
         let app = launch()
         XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
         // Done rows stay in the list until they are settled.
@@ -173,15 +173,18 @@ import XCTest
         screenshot("files-root")
         app.buttons["file.fixtures/"].tap()
         app.buttons["file.fixtures/snapshots/"].tap()
-        XCTAssertTrue(element(app, "files.more").waitForExistence(timeout: 15) || scrollToMore(app))
-        screenshot("files-capped")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.buttons["file.logs/"].waitForExistence(timeout: 10))
-        app.buttons["file.logs/"].tap()
+        XCTAssertTrue(app.buttons["file.fixtures/snapshots/case-000.json"].waitForExistence(timeout: 10))
+        screenshot("files-open-folder")
+        // Closing a folder hides everything under it.
+        app.buttons["file.fixtures/"].tap()
+        XCTAssertFalse(app.buttons["file.fixtures/snapshots/case-000.json"].exists)
+        let logs = app.buttons["file.logs/"]
+        for _ in 0..<10 where !logs.isHittable { app.swipeUp() }
+        logs.tap()
         app.buttons["file.logs/relay.log"].tap()
         XCTAssertTrue(element(app, "preview.text").waitForExistence(timeout: 20))
         screenshot("files-preview")
+        app.buttons["file.menu"].tap()
         XCTAssertTrue(app.buttons["preview.mention"].waitForExistence(timeout: 5))
         app.buttons["preview.mention"].tap()
         let input = app.textViews["composer.input"]
@@ -210,10 +213,12 @@ import XCTest
         XCTAssertTrue(app.buttons["file.docs/runbook.md"].waitForExistence(timeout: 10))
         screenshot("newthread-files-folder")
         app.buttons["file.docs/runbook.md"].tap()
-        let text = element(app, "preview.text")
-        XCTAssertTrue(text.waitForExistence(timeout: 20))
-        XCTAssertTrue(text.label.contains("Relay runbook"))
+        XCTAssertTrue(element(app, "preview.markdown").waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Relay runbook"].exists)
+        // A project's own folder is read-only before the thread exists.
+        XCTAssertFalse(app.buttons["file.edit"].exists)
         screenshot("newthread-files-preview")
+        app.buttons["file.menu"].tap()
         XCTAssertTrue(app.buttons["preview.mention"].waitForExistence(timeout: 5))
         app.buttons["preview.mention"].tap()
         let message = element(app, "newThread.message")
@@ -222,10 +227,6 @@ import XCTest
         screenshot("newthread-files-mentioned")
     }
 
-    private func scrollToMore(_ app: XCUIApplication) -> Bool {
-        for _ in 0..<30 where !element(app, "files.more").exists { app.swipeUp(velocity: .fast) }
-        return element(app, "files.more").exists
-    }
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()

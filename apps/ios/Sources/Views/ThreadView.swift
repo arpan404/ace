@@ -101,10 +101,8 @@ struct ThreadView: View {
             .sheet(isPresented: $showSearch) {
                 NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; openThread(id) }) }
             }
-            .sheet(isPresented: $showFiles) {
-                ThreadFilesSheet(model: model, scope: .thread(thread.id), mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil)
-                    .presentationDetents([.large]).presentationDragIndicator(.visible)
-            }
+            .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle, showFiles: $showFiles,
+                                       mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil))
             .sheet(isPresented: $showModels) {
                 ModelPickerSheet(model: model, screen: screen)
             }
