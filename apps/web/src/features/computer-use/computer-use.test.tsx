@@ -127,6 +127,26 @@ test("an agent's app shows live in the background; taking over and handing back 
   );
 });
 
+test("where the browser decodes H.264, an app's live view asks for 60 fps video and draws it", async () => {
+  browser.restore();
+  browser = deviceBrowser("decodes");
+  const { app, world } = await openSettings();
+  const sessionId = await world.agentApp("com.apple.TextEdit");
+  await app.open("/settings/computer-use");
+  const card = await screen.findByRole("article", { name: "TextEdit" });
+  await userEvent.click(within(card).getByRole("button", { expanded: false }));
+
+  await waitFor(() =>
+    expect(app.daemon.screen.streamRequests.at(-1)).toMatchObject({
+      sessionId,
+      settings: { codec: "h264", fps: 60 },
+    }),
+  );
+  const live = within(card).getByRole("img", { name: "TextEdit live view" });
+  await waitFor(() => expect(browser.events).toContain("drew h264"));
+  expect(browser.draws(live)).toBeGreaterThan(0);
+});
+
 test("leaving the page closes the live view's decoded frames", async () => {
   const { app, world } = await openSettings();
   await world.agentApp("com.apple.TextEdit");

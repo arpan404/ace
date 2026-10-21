@@ -185,6 +185,9 @@ export function screenConnection(
             });
             break;
           }
+          case "stream.configure":
+            data = await manager.configureStream(operation.sessionId, operation.settings);
+            break;
           case "unsubscribe":
             subscriptions.get(operation.sessionId)?.();
             subscriptions.delete(operation.sessionId);

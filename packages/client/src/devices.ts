@@ -21,5 +21,6 @@ export {
   coalescedPointerMoves,
   deviceVideoSupported,
   deviceStreamProfile,
+  screenStreamProfile,
 } from "@ace/devices/stream-profile";
 export type { DeviceConnection } from "@ace/devices/stream-profile";

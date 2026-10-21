@@ -423,7 +423,7 @@ function processRequest(request: ScreenHelperRequest) {
           windowId: 1,
           bundleId: "dev.ace.test",
           title: v2
-            ? `capture:${capturing};actions:${actions};clicked:${clickedTarget};held:${Boolean(heldUI)};heldInput:${Boolean(held)};pointerHeld:${pointerHeld};pointerUps:${pointerUps};pid:${process.pid}`
+            ? `capture:${capturing};codec:${codec};actions:${actions};clicked:${clickedTarget};held:${Boolean(heldUI)};heldInput:${Boolean(held)};pointerHeld:${pointerHeld};pointerUps:${pointerUps};pid:${process.pid}`
             : process.env.MODEL_FRAME_WIDTH
               ? `Test;clicked:${clickedTarget}`
               : "Test",
