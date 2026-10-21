@@ -6,9 +6,26 @@ const path = z.string().max(4096);
 const id = z.string().min(1).max(128);
 export const FileVersion = z.string().min(1).max(256);
 const expected = FileVersion.nullable();
+/** The most one `read` returns: big enough for most source files, small enough to share a link. */
+export const FILE_READ_PART = 256 * 1024;
 export const FileOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("list"), path, limit: z.number().int().min(1).max(1000).default(1000) }),
   z.object({ op: z.literal("stat"), path }),
+  /**
+   * A file's details and up to `length` of its bytes from `offset`, in one reply, so a viewer
+   * shows a small file after one round trip. A bigger file is read as several parts at once,
+   * each sent with the first part's version as `validator`. No bytes come back when the file
+   * is larger than `maxSize`. With "gzip" in `encodings` the daemon may compress the bytes.
+   */
+  z.object({
+    op: z.literal("read"),
+    path,
+    offset: offset.default(0),
+    length: z.number().int().min(1).max(FILE_READ_PART).default(FILE_READ_PART),
+    validator: FileVersion.optional(),
+    maxSize: offset.optional(),
+    encodings: z.array(z.literal("gzip")).max(4).default([]),
+  }),
   z.object({
     op: z.literal("download"),
     path,
@@ -86,6 +103,24 @@ export const FileOperation = z.discriminatedUnion("op", [
   }),
 ]);
 export type FileOperation = z.infer<typeof FileOperation>;
+/**
+ * The `files.result` value of a `read`. `version` is null when nothing is at the path; a folder
+ * has `type` "directory" and no bytes. `data` is base64 of the part's bytes, gzip-compressed when
+ * `encoding` says so; it is absent when the file is larger than the request's `maxSize`.
+ */
+export const FileReadResult = z.object({
+  path,
+  version: FileVersion.nullable(),
+  type: z.enum(["file", "directory", "symlink", "other"]).optional(),
+  size: offset.optional(),
+  offset: offset.optional(),
+  encoding: z.enum(["identity", "gzip"]).optional(),
+  data: z
+    .string()
+    .max(Math.ceil(FILE_READ_PART / 3) * 4)
+    .optional(),
+});
+export type FileReadResult = z.infer<typeof FileReadResult>;
 export const FilesClientMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("files.abort"), sourceRequestId: id }),
   z.object({
@@ -110,7 +145,7 @@ export const FilesClientMessage = z.discriminatedUnion("type", [
     threadId: ThreadId.optional(),
     /**
      * A registered project's own folder instead of a thread's checkout, before any thread
-     * exists: read-only, and only `list`, `stat` and `download`. Never sent with `threadId`.
+     * exists: read-only, and only `list`, `stat`, `read` and `download`. Never sent with `threadId`.
      */
     workspaceId: WorkspaceId.optional(),
     scope: z.literal("support").optional(),

@@ -1378,8 +1378,8 @@ Example:
 ```json
 {
   "operation": {
-    "op": "artifact.output",
-    "streamId": "example"
+    "includeThreads": false,
+    "op": "artifact.support"
   },
   "requestId": "example",
   "type": "files.request"
@@ -1398,8 +1398,8 @@ Example:
 
 ```json
 {
-  "channel": 1,
-  "credits": 5,
+  "channel": 10,
+  "credits": 3,
   "type": "files.credit"
 }
 ```
@@ -1415,7 +1415,7 @@ Example:
 
 ```json
 {
-  "channel": 10,
+  "channel": 5,
   "type": "files.cancel"
 }
 ```
