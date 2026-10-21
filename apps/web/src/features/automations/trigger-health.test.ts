@@ -1,10 +1,5 @@
 import { expect, test } from "vitest";
-import {
-  canRetryTrigger,
-  scheduleState,
-  sidebarNeedsAttention,
-  triggerErrorCopy,
-} from "./trigger-health.ts";
+import { scheduleState, sidebarNeedsAttention, triggerErrorCopy } from "./trigger-health.ts";
 
 test("sidebar failures come from this automation's own last run, not the global inbox", () => {
   const base = { triggerError: undefined, lastPollError: undefined, enabled: true };
@@ -39,14 +34,28 @@ test("sidebar failures come from this automation's own last run, not the global 
 });
 
 test("a stored trigger error offers a safe retry with a fix in words", () => {
-  expect(canRetryTrigger({ triggerError: undefined })).toBe(false);
-  expect(canRetryTrigger({ triggerError: { message: "gh auth required: 401", at: 1000 } })).toBe(
-    true,
-  );
-  expect(triggerErrorCopy({ message: "gh auth required: 401", at: 1000 })).toMatch(
+  const github = {
+    kind: "github" as const,
+    repository: "owner/name",
+    event: "pr_changed" as const,
+    pollIntervalMs: 300_000,
+  };
+  expect(triggerErrorCopy(github, { message: "gh auth required: 401", at: 1000 })).toMatch(
     /Sign in to GitHub/i,
   );
-  expect(triggerErrorCopy({ message: "boom", at: 1000 })).not.toMatch(/boom/);
+  expect(triggerErrorCopy(github, { message: "boom", at: 1000 })).not.toMatch(/boom/);
+  expect(
+    triggerErrorCopy({ kind: "file", paths: ["src/**/*.ts"] }, { message: "boom", at: 1000 }),
+  ).toMatch(/project and file paths/i);
+  expect(
+    triggerErrorCopy(
+      {
+        kind: "schedule",
+        schedule: { kind: "rrule", expression: "FREQ=DAILY", timezone: "UTC", startAt: 0 },
+      },
+      { message: "boom", at: 1000 },
+    ),
+  ).toMatch(/schedule and time zone/i);
 });
 
 test("an exhausted COUNT schedule reads finished, not merely unscheduled", () => {

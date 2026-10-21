@@ -1,4 +1,4 @@
-import type { Automation, AutomationRun } from "@ace/protocol";
+import type { Automation } from "@ace/protocol";
 import {
   ArrowsClockwiseIcon,
   CalendarBlankIcon,
@@ -11,7 +11,6 @@ import {
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import { Link, useParams } from "@tanstack/react-router";
-import { useMemo } from "react";
 import { cn } from "@/lib/cn.ts";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Icon } from "@/components/icon.tsx";
@@ -21,7 +20,8 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { ViewSidebarError, useViewListKeys } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { describeTrigger } from "./schedule.ts";
-import { useAutomationRuns, useAutomations } from "./use-automations.ts";
+import { useAutomations } from "./use-automations.ts";
+import { sidebarNeedsAttention } from "./trigger-health.ts";
 import { useProjectName } from "@/lib/projects.ts";
 
 const triggerIcons: Record<Automation["trigger"]["kind"], PhosphorIcon> = {
@@ -42,24 +42,10 @@ function triggerIcon(trigger: Automation["trigger"]): PhosphorIcon {
   return weekly ? CalendarBlankIcon : ClockIcon;
 }
 
-/** Each automation's latest run that failed, by automation id (runs come newest first). */
-function useLastFailed(): ReadonlySet<string> {
-  const runs = useAutomationRuns().data;
-  return useMemo(() => {
-    const latest = new Map<string, AutomationRun>();
-    for (const run of runs ?? [])
-      if (!latest.has(run.automationId)) latest.set(run.automationId, run);
-    return new Set(
-      [...latest.values()].filter((run) => run.status === "failed").map((run) => run.automationId),
-    );
-  }, [runs]);
-}
-
 /** The trigger and project live in the row's tooltip; pauses and failures stay visible. */
 export function AutomationsSidebar() {
   const list = useAutomations();
   const automations = list.data;
-  const failed = useLastFailed();
   const selected = useParams({ strict: false }).automationId;
   const projectName = useProjectName();
   const keys = useViewListKeys<HTMLUListElement>();
@@ -86,7 +72,7 @@ export function AutomationsSidebar() {
         <ListSkeleton label="automations" shape="row" rows={4} />
       ) : !automations.length ? null : (
         <ul {...keys} aria-label="Automations" className="flex flex-col gap-px">
-          {automations.map(({ automation, lastPollError }) => (
+          {automations.map(({ automation, lastPollError, triggerError, lastRun }) => (
             <li key={automation.id}>
               <Tip
                 label={`${describeTrigger(automation.trigger)} · ${projectName(automation.workspace)}`}
@@ -108,7 +94,12 @@ export function AutomationsSidebar() {
                   </span>
                   <RowMarks
                     paused={!automation.enabled}
-                    failed={failed.has(automation.id) || lastPollError !== undefined}
+                    failed={sidebarNeedsAttention({
+                      triggerError,
+                      lastPollError,
+                      lastRun,
+                      enabled: automation.enabled,
+                    })}
                   />
                 </Link>
               </Tip>

@@ -16,11 +16,3 @@ export function customScheduleError(schedule: AutomationSchedule): string | unde
     return "Enter a valid RRULE, like FREQ=WEEKLY;BYDAY=MO.";
   }
 }
-
-/**
- * The read-back stays honest: a schedule that cannot compile has no preview,
- * and the form must show the error above instead of "No upcoming run".
- */
-export function canPreviewSchedule(schedule: AutomationSchedule): boolean {
-  return customScheduleError(schedule) === undefined;
-}

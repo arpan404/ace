@@ -1,4 +1,4 @@
-import type { AutomationRun } from "@ace/protocol";
+import type { AutomationRun, AutomationTrigger } from "@ace/protocol";
 import { compileSchedule } from "@ace/automations/recurrence";
 import type { AutomationSchedule } from "@ace/protocol";
 
@@ -22,12 +22,7 @@ export function sidebarNeedsAttention(health: TriggerHealth): boolean {
   return health.lastRun?.status === "failed";
 }
 
-/** A trigger that failed to initialize can be retried once its definition is fixed. */
-export function canRetryTrigger(health: Pick<TriggerHealth, "triggerError">): boolean {
-  return health.triggerError !== undefined;
-}
-
-function fixHint(message: string): string {
+function githubHint(message: string): string {
   if (/auth|login|credential|401|403/i.test(message))
     return "Sign in to GitHub on this machine, then check that you can access the repository.";
   if (/404|not found|repository/i.test(message))
@@ -37,9 +32,25 @@ function fixHint(message: string): string {
   return "Check your connection and GitHub access on this machine. ace will try again at the next check.";
 }
 
-/** Stored trigger diagnostics become a fix in words, without CLI output or codes. */
-export function triggerErrorCopy(triggerError: { message: string; at: number }): string {
-  return fixHint(triggerError.message);
+/**
+ * Stored trigger diagnostics become a fix in words, without CLI output or codes.
+ * Branched by what failed: GitHub keeps its hints, files name project and access,
+ * schedules name Edit and the time zone.
+ */
+export function triggerErrorCopy(
+  trigger: AutomationTrigger,
+  triggerError: { message: string; at: number },
+): string {
+  switch (trigger.kind) {
+    case "github":
+      return githubHint(triggerError.message);
+    case "file":
+      return "Check the project and file paths in Edit, and that ace can read them.";
+    case "schedule":
+      return "Check the schedule and time zone in Edit, then retry.";
+    case "manual":
+      return "Check the automation in Edit, then run it again.";
+  }
 }
 
 export type ScheduleState = "next" | "exhausted" | "not-placed" | "not-schedule";

@@ -7,6 +7,7 @@ import {
 } from "@ace/protocol";
 import { z } from "zod";
 import { presetToSchedule, scheduleToPreset, weekdays, type SchedulePreset } from "./schedule.ts";
+import { customScheduleError } from "./schedule-validate.ts";
 
 /** An IANA zone this browser can format in ("Europe/London"). */
 function isTimeZone(zone: string): boolean {
@@ -83,6 +84,20 @@ export const AutomationForm = z
           path: ["expression"],
           message: "An RRULE needs FREQ, like FREQ=WEEKLY;BYDAY=MO.",
         });
+      else if (isTimeZone(form.timezone)) {
+        const error = customScheduleError({
+          kind: form.syntax,
+          expression: form.expression.trim(),
+          timezone: form.timezone,
+          startAt: form.startAt ?? 0,
+        });
+        if (error)
+          ctx.addIssue({
+            code: "custom",
+            path: ["expression"],
+            message: error,
+          });
+      }
     }
     if (form.trigger === "github" && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(form.repository))
       ctx.addIssue({
