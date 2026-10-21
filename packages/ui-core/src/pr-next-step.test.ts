@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import type { VerifyRun } from "@ace/protocol";
+import { WorkspaceId, type VerifyRun } from "@ace/protocol";
 import { localCheckOf, prNextStep, type PrNextStepInput } from "./pr-next-step.ts";
 
 const open = (row: Partial<PrNextStepInput["row"]> = {}, rest: Partial<PrNextStepInput> = {}) =>
@@ -73,7 +73,7 @@ test("drafts, merged and closed PRs have no step to take", () => {
 const repository = { forge: "github" as const, host: "github.com", owner: "acme", name: "ace" };
 const run = (over: Partial<VerifyRun> & { headSha: string; createdAt: number }): VerifyRun => ({
   id: `run-${over.createdAt}`,
-  workspaceId: "w",
+  workspaceId: WorkspaceId.parse("w"),
   target: {
     kind: "check",
     pr: { pr: { repository, number: 7 }, headSha: over.headSha },
