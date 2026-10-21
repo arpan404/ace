@@ -26,6 +26,11 @@ export interface NativeViewPlacement {
    * so it keeps rendering (its screencast is drawn in its place) and its sound plays.
    */
   covered?: boolean | undefined;
+  /**
+   * Drawn as picture-in-picture: the person's mouse never reaches the page, and their click
+   * comes back as `onRestore` instead.
+   */
+  picture?: boolean | undefined;
 }
 
 export type BrowserAccelerator =
@@ -83,6 +88,8 @@ export interface DesktopBrowserViews {
   ): Promise<boolean>;
   /** The person picked an item in a native page's context menu that the app carries out. */
   onContext(listener: (threadId: string, action: BrowserContextAction) => void): () => void;
+  /** The person clicked a thread's page drawn as picture-in-picture: show it in the panel. */
+  onRestore(listener: (threadId: string) => void): () => void;
 }
 
 /**
@@ -122,6 +129,10 @@ export function desktopBrowserViews(scope: object = globalThis): DesktopBrowserV
   const onContext =
     typeof browser === "object" && browser !== null && "onContext" in browser
       ? browser.onContext
+      : undefined;
+  const onRestore =
+    typeof browser === "object" && browser !== null && "onRestore" in browser
+      ? browser.onRestore
       : undefined;
   return {
     focusApp: () => {
@@ -184,6 +195,21 @@ export function desktopBrowserViews(scope: object = globalThis): DesktopBrowserV
         (event: unknown) => {
           const picked = contextAction(event);
           if (picked) listener(picked.threadId, picked.action);
+        },
+      ]);
+      return () => {
+        if (typeof stop === "function") stop();
+      };
+    },
+    onRestore: (listener) => {
+      if (typeof onRestore !== "function") return () => {};
+      const stop: unknown = Reflect.apply(onRestore, browser, [
+        (event: unknown) => {
+          const threadId =
+            typeof event === "object" && event !== null
+              ? Reflect.get(event, "threadId")
+              : undefined;
+          if (typeof threadId === "string") listener(threadId);
         },
       ]);
       return () => {

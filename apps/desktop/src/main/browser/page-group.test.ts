@@ -45,6 +45,17 @@ it("under the app's menu only the shown tab stays watched; a background tab stay
   expect(pages.get("native-tab-1")).toMatchObject({ shown: true, covered: false });
 });
 
+it("in picture-in-picture the shown tab is a picture; back in the panel it is the page again", async () => {
+  const { tabs, pages, panel } = group();
+  await tabs.openTab();
+  await tabs.cdp("ace.tabs.open");
+  tabs.place({ ...panel, visible: true, picture: true });
+  expect(pages.get("native-tab-1")).toMatchObject({ shown: true, floating: true });
+  expect(pages.get("native-tab-2")).toMatchObject({ shown: false, floating: false });
+  tabs.place({ ...panel, visible: true });
+  expect(pages.get("native-tab-1")).toMatchObject({ shown: true, floating: false });
+});
+
 it("an agent drives a background tab by id while the person's tab stays put", async () => {
   const { tabs, pages, panel } = group();
   await tabs.openTab();
