@@ -9,7 +9,6 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from "./routes/__root"
-import { Route as ForgeRouteImport } from "./routes/_forge"
 import { Route as HomeRouteImport } from "./routes/_home"
 import { Route as AutomationsRouteImport } from "./routes/automations"
 import { Route as PairRouteImport } from "./routes/pair"
@@ -19,7 +18,9 @@ import { Route as SkillsRouteImport } from "./routes/skills"
 import { Route as UsageRouteImport } from "./routes/usage"
 import { Route as HomeIndexRouteImport } from "./routes/_home.index"
 import { Route as HomeArchivedRouteImport } from "./routes/_home.archived"
+import { Route as HomeIssuesRouteImport } from "./routes/_home.issues"
 import { Route as HomeNewRouteImport } from "./routes/_home.new"
+import { Route as HomePullsRouteImport } from "./routes/_home.pulls"
 import { Route as AutomationsIndexRouteImport } from "./routes/automations.index"
 import { Route as AutomationsNewRouteImport } from "./routes/automations.new"
 import { Route as SettingsIndexRouteImport } from "./routes/settings.index"
@@ -36,22 +37,14 @@ import { Route as SettingsSourceControlRouteImport } from "./routes/settings.sou
 import { Route as SettingsStorageRouteImport } from "./routes/settings.storage"
 import { Route as SkillsIndexRouteImport } from "./routes/skills.index"
 import { Route as SkillsSkillIdRouteImport } from "./routes/skills.$skillId"
-import { Route as ForgeIssuesIndexRouteImport } from "./routes/_forge.issues.index"
-import { Route as ForgePullsIndexRouteImport } from "./routes/_forge.pulls.index"
 import { Route as HomeTThreadIdRouteImport } from "./routes/_home.t.$threadId"
 import { Route as AutomationsAutomationIdIndexRouteImport } from "./routes/automations.$automationId.index"
 import { Route as AutomationsAutomationIdEditRouteImport } from "./routes/automations.$automationId.edit"
 import { Route as SettingsProvidersIndexRouteImport } from "./routes/settings.providers.index"
 import { Route as SettingsProvidersProviderRouteImport } from "./routes/settings.providers.$provider"
-import { Route as ForgeIssuesProjectNumberRouteImport } from "./routes/_forge.issues.$project.$number"
-import { Route as ForgePullsProjectNumberRouteImport } from "./routes/_forge.pulls.$project.$number"
 import { Route as HomeTThreadIdForkRouteImport } from "./routes/_home.t.$threadId_.fork"
 import { Route as HomeTThreadIdAgentsAgentIdRouteImport } from "./routes/_home.t.$threadId_.agents.$agentId"
 
-const ForgeRoute = ForgeRouteImport.update({
-  id: "/_forge",
-  getParentRoute: () => rootRouteImport,
-} as any)
 const HomeRoute = HomeRouteImport.update({
   id: "/_home",
   getParentRoute: () => rootRouteImport,
@@ -96,9 +89,19 @@ const HomeArchivedRoute = HomeArchivedRouteImport.update({
   path: "/archived",
   getParentRoute: () => HomeRoute,
 } as any)
+const HomeIssuesRoute = HomeIssuesRouteImport.update({
+  id: "/issues",
+  path: "/issues",
+  getParentRoute: () => HomeRoute,
+} as any)
 const HomeNewRoute = HomeNewRouteImport.update({
   id: "/new",
   path: "/new",
+  getParentRoute: () => HomeRoute,
+} as any)
+const HomePullsRoute = HomePullsRouteImport.update({
+  id: "/pulls",
+  path: "/pulls",
   getParentRoute: () => HomeRoute,
 } as any)
 const AutomationsIndexRoute = AutomationsIndexRouteImport.update({
@@ -181,16 +184,6 @@ const SkillsSkillIdRoute = SkillsSkillIdRouteImport.update({
   path: "/$skillId",
   getParentRoute: () => SkillsRoute,
 } as any)
-const ForgeIssuesIndexRoute = ForgeIssuesIndexRouteImport.update({
-  id: "/issues/",
-  path: "/issues/",
-  getParentRoute: () => ForgeRoute,
-} as any)
-const ForgePullsIndexRoute = ForgePullsIndexRouteImport.update({
-  id: "/pulls/",
-  path: "/pulls/",
-  getParentRoute: () => ForgeRoute,
-} as any)
 const HomeTThreadIdRoute = HomeTThreadIdRouteImport.update({
   id: "/t/$threadId",
   path: "/t/$threadId",
@@ -219,17 +212,6 @@ const SettingsProvidersProviderRoute =
     path: "/providers/$provider",
     getParentRoute: () => SettingsRoute,
   } as any)
-const ForgeIssuesProjectNumberRoute =
-  ForgeIssuesProjectNumberRouteImport.update({
-    id: "/issues/$project/$number",
-    path: "/issues/$project/$number",
-    getParentRoute: () => ForgeRoute,
-  } as any)
-const ForgePullsProjectNumberRoute = ForgePullsProjectNumberRouteImport.update({
-  id: "/pulls/$project/$number",
-  path: "/pulls/$project/$number",
-  getParentRoute: () => ForgeRoute,
-} as any)
 const HomeTThreadIdForkRoute = HomeTThreadIdForkRouteImport.update({
   id: "/t/$threadId_/fork",
   path: "/t/$threadId/fork",
@@ -251,7 +233,9 @@ export interface FileRoutesByFullPath {
   "/skills": typeof SkillsRouteWithChildren
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
+  "/issues": typeof HomeIssuesRoute
   "/new": typeof HomeNewRoute
+  "/pulls": typeof HomePullsRoute
   "/automations/new": typeof AutomationsNewRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
@@ -271,22 +255,19 @@ export interface FileRoutesByFullPath {
   "/t/$threadId": typeof HomeTThreadIdRoute
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
-  "/issues/": typeof ForgeIssuesIndexRoute
-  "/pulls/": typeof ForgePullsIndexRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
-  "/issues/$project/$number": typeof ForgeIssuesProjectNumberRoute
-  "/pulls/$project/$number": typeof ForgePullsProjectNumberRoute
   "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRoutesByTo {
-  "/": typeof HomeIndexRoute
   "/pair": typeof PairRoute
   "/setup": typeof SetupRoute
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
+  "/issues": typeof HomeIssuesRoute
   "/new": typeof HomeNewRoute
+  "/pulls": typeof HomePullsRoute
   "/automations/new": typeof AutomationsNewRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
@@ -300,24 +281,20 @@ export interface FileRoutesByTo {
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
+  "/": typeof HomeIndexRoute
   "/automations": typeof AutomationsIndexRoute
   "/settings": typeof SettingsIndexRoute
   "/skills": typeof SkillsIndexRoute
   "/t/$threadId": typeof HomeTThreadIdRoute
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
-  "/issues": typeof ForgeIssuesIndexRoute
-  "/pulls": typeof ForgePullsIndexRoute
   "/automations/$automationId": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers": typeof SettingsProvidersIndexRoute
-  "/issues/$project/$number": typeof ForgeIssuesProjectNumberRoute
-  "/pulls/$project/$number": typeof ForgePullsProjectNumberRoute
   "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  "/_forge": typeof ForgeRouteWithChildren
   "/_home": typeof HomeRouteWithChildren
   "/automations": typeof AutomationsRouteWithChildren
   "/pair": typeof PairRoute
@@ -326,7 +303,9 @@ export interface FileRoutesById {
   "/skills": typeof SkillsRouteWithChildren
   "/usage": typeof UsageRoute
   "/_home/archived": typeof HomeArchivedRoute
+  "/_home/issues": typeof HomeIssuesRoute
   "/_home/new": typeof HomeNewRoute
+  "/_home/pulls": typeof HomePullsRoute
   "/automations/new": typeof AutomationsNewRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
@@ -347,12 +326,8 @@ export interface FileRoutesById {
   "/_home/t/$threadId": typeof HomeTThreadIdRoute
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
-  "/_forge/issues/": typeof ForgeIssuesIndexRoute
-  "/_forge/pulls/": typeof ForgePullsIndexRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
-  "/_forge/issues/$project/$number": typeof ForgeIssuesProjectNumberRoute
-  "/_forge/pulls/$project/$number": typeof ForgePullsProjectNumberRoute
   "/_home/t/$threadId_/fork": typeof HomeTThreadIdForkRoute
   "/_home/t/$threadId_/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
@@ -367,7 +342,9 @@ export interface FileRouteTypes {
     | "/skills"
     | "/usage"
     | "/archived"
+    | "/issues"
     | "/new"
+    | "/pulls"
     | "/automations/new"
     | "/settings/advanced"
     | "/settings/appearance"
@@ -387,22 +364,19 @@ export interface FileRouteTypes {
     | "/t/$threadId"
     | "/automations/$automationId/edit"
     | "/settings/providers/$provider"
-    | "/issues/"
-    | "/pulls/"
     | "/automations/$automationId/"
     | "/settings/providers/"
-    | "/issues/$project/$number"
-    | "/pulls/$project/$number"
     | "/t/$threadId/fork"
     | "/t/$threadId/agents/$agentId"
   fileRoutesByTo: FileRoutesByTo
   to:
-    | "/"
     | "/pair"
     | "/setup"
     | "/usage"
     | "/archived"
+    | "/issues"
     | "/new"
+    | "/pulls"
     | "/automations/new"
     | "/settings/advanced"
     | "/settings/appearance"
@@ -416,23 +390,19 @@ export interface FileRouteTypes {
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
+    | "/"
     | "/automations"
     | "/settings"
     | "/skills"
     | "/t/$threadId"
     | "/automations/$automationId/edit"
     | "/settings/providers/$provider"
-    | "/issues"
-    | "/pulls"
     | "/automations/$automationId"
     | "/settings/providers"
-    | "/issues/$project/$number"
-    | "/pulls/$project/$number"
     | "/t/$threadId/fork"
     | "/t/$threadId/agents/$agentId"
   id:
     | "__root__"
-    | "/_forge"
     | "/_home"
     | "/automations"
     | "/pair"
@@ -441,7 +411,9 @@ export interface FileRouteTypes {
     | "/skills"
     | "/usage"
     | "/_home/archived"
+    | "/_home/issues"
     | "/_home/new"
+    | "/_home/pulls"
     | "/automations/new"
     | "/settings/advanced"
     | "/settings/appearance"
@@ -462,18 +434,13 @@ export interface FileRouteTypes {
     | "/_home/t/$threadId"
     | "/automations/$automationId/edit"
     | "/settings/providers/$provider"
-    | "/_forge/issues/"
-    | "/_forge/pulls/"
     | "/automations/$automationId/"
     | "/settings/providers/"
-    | "/_forge/issues/$project/$number"
-    | "/_forge/pulls/$project/$number"
     | "/_home/t/$threadId_/fork"
     | "/_home/t/$threadId_/agents/$agentId"
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  ForgeRoute: typeof ForgeRouteWithChildren
   HomeRoute: typeof HomeRouteWithChildren
   AutomationsRoute: typeof AutomationsRouteWithChildren
   PairRoute: typeof PairRoute
@@ -485,13 +452,6 @@ export interface RootRouteChildren {
 
 declare module "@tanstack/react-router" {
   interface FileRoutesByPath {
-    "/_forge": {
-      id: "/_forge"
-      path: ""
-      fullPath: "/"
-      preLoaderRoute: typeof ForgeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     "/_home": {
       id: "/_home"
       path: ""
@@ -555,11 +515,25 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof HomeArchivedRouteImport
       parentRoute: typeof HomeRoute
     }
+    "/_home/issues": {
+      id: "/_home/issues"
+      path: "/issues"
+      fullPath: "/issues"
+      preLoaderRoute: typeof HomeIssuesRouteImport
+      parentRoute: typeof HomeRoute
+    }
     "/_home/new": {
       id: "/_home/new"
       path: "/new"
       fullPath: "/new"
       preLoaderRoute: typeof HomeNewRouteImport
+      parentRoute: typeof HomeRoute
+    }
+    "/_home/pulls": {
+      id: "/_home/pulls"
+      path: "/pulls"
+      fullPath: "/pulls"
+      preLoaderRoute: typeof HomePullsRouteImport
       parentRoute: typeof HomeRoute
     }
     "/automations/": {
@@ -674,20 +648,6 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SkillsSkillIdRouteImport
       parentRoute: typeof SkillsRoute
     }
-    "/_forge/issues/": {
-      id: "/_forge/issues/"
-      path: "/issues"
-      fullPath: "/issues/"
-      preLoaderRoute: typeof ForgeIssuesIndexRouteImport
-      parentRoute: typeof ForgeRoute
-    }
-    "/_forge/pulls/": {
-      id: "/_forge/pulls/"
-      path: "/pulls"
-      fullPath: "/pulls/"
-      preLoaderRoute: typeof ForgePullsIndexRouteImport
-      parentRoute: typeof ForgeRoute
-    }
     "/_home/t/$threadId": {
       id: "/_home/t/$threadId"
       path: "/t/$threadId"
@@ -723,20 +683,6 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsProvidersProviderRouteImport
       parentRoute: typeof SettingsRoute
     }
-    "/_forge/issues/$project/$number": {
-      id: "/_forge/issues/$project/$number"
-      path: "/issues/$project/$number"
-      fullPath: "/issues/$project/$number"
-      preLoaderRoute: typeof ForgeIssuesProjectNumberRouteImport
-      parentRoute: typeof ForgeRoute
-    }
-    "/_forge/pulls/$project/$number": {
-      id: "/_forge/pulls/$project/$number"
-      path: "/pulls/$project/$number"
-      fullPath: "/pulls/$project/$number"
-      preLoaderRoute: typeof ForgePullsProjectNumberRouteImport
-      parentRoute: typeof ForgeRoute
-    }
     "/_home/t/$threadId_/fork": {
       id: "/_home/t/$threadId_/fork"
       path: "/t/$threadId/fork"
@@ -754,25 +700,11 @@ declare module "@tanstack/react-router" {
   }
 }
 
-interface ForgeRouteChildren {
-  ForgeIssuesIndexRoute: typeof ForgeIssuesIndexRoute
-  ForgePullsIndexRoute: typeof ForgePullsIndexRoute
-  ForgeIssuesProjectNumberRoute: typeof ForgeIssuesProjectNumberRoute
-  ForgePullsProjectNumberRoute: typeof ForgePullsProjectNumberRoute
-}
-
-const ForgeRouteChildren: ForgeRouteChildren = {
-  ForgeIssuesIndexRoute: ForgeIssuesIndexRoute,
-  ForgePullsIndexRoute: ForgePullsIndexRoute,
-  ForgeIssuesProjectNumberRoute: ForgeIssuesProjectNumberRoute,
-  ForgePullsProjectNumberRoute: ForgePullsProjectNumberRoute,
-}
-
-const ForgeRouteWithChildren = ForgeRoute._addFileChildren(ForgeRouteChildren)
-
 interface HomeRouteChildren {
   HomeArchivedRoute: typeof HomeArchivedRoute
+  HomeIssuesRoute: typeof HomeIssuesRoute
   HomeNewRoute: typeof HomeNewRoute
+  HomePullsRoute: typeof HomePullsRoute
   HomeIndexRoute: typeof HomeIndexRoute
   HomeTThreadIdRoute: typeof HomeTThreadIdRoute
   HomeTThreadIdForkRoute: typeof HomeTThreadIdForkRoute
@@ -781,7 +713,9 @@ interface HomeRouteChildren {
 
 const HomeRouteChildren: HomeRouteChildren = {
   HomeArchivedRoute: HomeArchivedRoute,
+  HomeIssuesRoute: HomeIssuesRoute,
   HomeNewRoute: HomeNewRoute,
+  HomePullsRoute: HomePullsRoute,
   HomeIndexRoute: HomeIndexRoute,
   HomeTThreadIdRoute: HomeTThreadIdRoute,
   HomeTThreadIdForkRoute: HomeTThreadIdForkRoute,
@@ -860,7 +794,6 @@ const SkillsRouteWithChildren =
   SkillsRoute._addFileChildren(SkillsRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
-  ForgeRoute: ForgeRouteWithChildren,
   HomeRoute: HomeRouteWithChildren,
   AutomationsRoute: AutomationsRouteWithChildren,
   PairRoute: PairRoute,

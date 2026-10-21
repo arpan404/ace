@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
 import type { ForgeRepository } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -19,9 +18,10 @@ export function NewIssueDialog(props: {
   repository: ForgeRepository;
   open: boolean;
   onOpenChange(open: boolean): void;
+  /** The issue GitHub created, to open it. */
+  onCreated(number: number): void;
 }) {
   const writes = useIssueWrites(props.project, props.repository);
-  const navigate = useNavigate();
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const create = async () => {
@@ -30,10 +30,7 @@ export function NewIssueDialog(props: {
     setTitle("");
     setBody("");
     props.onOpenChange(false);
-    void navigate({
-      to: "/issues/$project/$number",
-      params: { project: props.project, number: String(issue.number) },
-    });
+    props.onCreated(issue.number);
   };
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>

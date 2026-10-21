@@ -1,6 +1,5 @@
-/** The Pull requests view: a project's PRs and issues, each opened as a page of its own. */
-export { ForgeBrowseProvider } from "./browse-context.tsx";
-export { ForgeSidebar } from "./forge-sidebar.tsx";
-export { ForgeLanding } from "./forge-landing.tsx";
-export { PullRequestPage, repositoryFromParam } from "./pull-request-page.tsx";
-export { IssuePage } from "./issue-page.tsx";
+/** Pull requests and Issues: a project's list across the main column, the open one beside it. */
+export { PullRequestsPage } from "./pulls-page.tsx";
+export { IssuesPage } from "./issues-page.tsx";
+export type { PullsSearch } from "./pulls-model.ts";
+export type { IssuesSearch } from "./issues-model.ts";
