@@ -1,25 +1,25 @@
 # CLI triage verification
 
-Triage is CLI-only. The screenshots show the actual `ace triage` process in a
-PTY-backed browser terminal, using a temporary ACE_HOME. No provider session was
-launched. Native Terminal access was unavailable in this session.
+Triage is CLI-only. The screenshots show the real `ace triage` process in a PTY with
+a temporary ACE_HOME holding a few sample log lines, rendered with xterm.js. `claude`
+and `opencode` are local stubs that print a version; Codex and Cursor are absent. No
+provider session was launched.
 
-![Choosing a prompt template with arrow keys](terminal-wizard.jpg)
+![Choosing a template](terminal-wizard.jpg)
 
-![Reviewing the generated prompt](terminal-preview.jpg)
+![Reviewing the prompt, then choosing an installed CLI](terminal-preview.jpg)
 
-![Choosing an installed CLI after review](terminal-handoff.jpg)
+![Handing the prompt to the CLI](terminal-handoff.jpg)
 
-Arrow keys and Enter select a template or CLI. The description supports multiline
-editing; pressing Enter twice submits it, and Ctrl-C cancels. The prompt preview
-contains the task and description. Setup diagnostics appear only for the doctor
-template, as findings and a passed-check count.
+The preview colours section headings, errors and warnings, and its title counts the
+lines, errors and warnings attached. Uninstalled CLIs stay visible but disabled.
 
 Process tests use temporary homes and local stub executables. They cover literal
-prompt arguments, arrow-key selection, cancellation, terminal input and exit status,
-prompt generation without a daemon,
-folder repairs that preserve data, refusal of linked targets and admin-only app folder
-repairs. Triage has no app route, profile entry or diagnostics launch operation.
+prompt arguments for Cursor (`--` then the prompt) and OpenCode (`--prompt=`), the
+picker offering only installed CLIs, Ctrl-C reaching the agent while ace waits for its
+exit code, cancellation before anything is generated, real log lines grouped into the
+prompt with secrets redacted and the log file untouched, prompt generation without a
+daemon, folder repairs that preserve data, and refusal of linked targets.
 
 Database tests exercise real SQLite files. Doctor detects deleted-row free pages and
 reclaims over 2 MiB through the running daemon while preserving surviving row IDs and

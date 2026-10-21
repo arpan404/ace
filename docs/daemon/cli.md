@@ -282,18 +282,22 @@ and is never part of a cleanup plan. A run that hits its chunk limit returns
 
 ## Triage and doctor repairs
 
-Run `ace triage` in a terminal to select a prompt template, enter a multiline
-description (press Enter twice to continue), review it, then choose Claude
-Code, Codex or Cursor CLI. The selected provider opens interactively in the current
-folder with your prompt. Its installed CLI owns login, permissions and session history.
-Use the arrow keys and Enter to choose, or Ctrl-C to cancel. No daemon is needed.
-Prompt generation makes no model call. Setup checks are collected only for the
-`doctor` template; other templates use the description and runtime version.
+Run `ace triage` in a terminal to turn a problem or idea into a prompt a coding agent
+can act on. Pick a template, answer its question (press Enter twice to continue) and
+an optional follow-up, then review the prompt. Besides your answers it includes ace's
+warnings and errors from the last 24 hours, grouped with counts; whether the daemon is
+running; installed agent CLIs and versions; and where ace keeps its logs and data.
+Then open it in Claude Code, Codex, Cursor CLI or OpenCode, copy it to the clipboard,
+or print it. CLIs that aren't installed are shown but can't be picked. The chosen CLI
+opens interactively in the current folder and owns login, permissions and session
+history; Ctrl-C inside it interrupts the agent, not ace. No daemon is needed and
+prompt generation makes no model call. Setup checks run only for the `doctor` template.
 
 ```sh
 ace triage
 ace triage 'Thread switching freezes for four seconds' --kind performance
 ace triage 'Add project filtering' --kind feature --print
+ace triage 'Stop leaves threads working' --provider opencode
 printf '%s\n' 'The composer loses my draft' | ace triage - --json
 ace doctor
 ace doctor --fix
@@ -303,7 +307,7 @@ ace doctor --fix --json
 
 Templates are `bug` (default for noninteractive input), `feature`, `performance` and
 `doctor`. JSON, jq, print and piped invocations generate a prompt without starting a
-provider. Diagnostics include bounded, redacted machine checks; they exclude
+provider. Log samples are redacted for secrets, ids and emails; diagnostics exclude
 conversations and credential files. Run the command on the affected computer;
 `--remote` is refused.
 
