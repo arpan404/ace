@@ -7,6 +7,7 @@ import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs.tsx";
 import { toolbarEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { useDebouncedValue } from "@/lib/debounced.ts";
+import { useListScroll } from "./list-scroll.ts";
 
 /** GitHub's search allows 30 requests a minute: let typing settle before asking. */
 const settleMs = 300;
@@ -74,16 +75,23 @@ export function ListFrame(props: {
   onSearch(text: string): void;
   controls: ReactNode;
   actions?: ReactNode;
+  /** The list's address (filters, sort, search): where it was scrolled is kept per address. */
+  address: string;
+  /** Its rows are on screen, so a kept position can be restored. */
+  ready: boolean;
   children: ReactNode;
 }) {
   const navigate = useNavigate();
   const [condensed, setCondensed] = useState(false);
+  const { ref, onScroll } = useListScroll(props.kind, props.address, props.ready);
   const label = props.kind === "pulls" ? "Search pull requests" : "Search issues";
   return (
     <div
+      ref={ref}
       className="h-full overflow-y-auto"
       onScroll={(event) => {
         const top = event.currentTarget.scrollTop;
+        onScroll(top);
         setCondensed((was) => (was ? top > 0 : top > condenseAt));
       }}
     >

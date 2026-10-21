@@ -8,7 +8,7 @@ const text = (max: number) =>
 const choice = <T extends string>(values: readonly [T, ...T[]]) =>
   z.catch(z.optional(z.enum(values)), undefined);
 
-/** `/issues?state=closed&who=assigned&issue=240`: the filters, search and the open issue. */
+/** `/issues?state=closed&who=assigned`: the filters, sort and search, kept in the address. */
 const Search = z.object({
   project: text(512),
   who: choice(["all", "assigned", "created"]),
@@ -20,7 +20,6 @@ const Search = z.object({
     undefined,
   ),
   q: text(256),
-  issue: z.catch(z.optional(z.number().check(z.int(), z.positive())), undefined),
 });
 
 /** Issues beside the thread list, the way Home shows threads. */

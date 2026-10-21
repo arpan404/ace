@@ -99,32 +99,56 @@ test("a label from the Filters menu keeps only pull requests carrying it", async
   await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["229"]));
 });
 
-test("choosing a pull request opens it beside the list, and Escape closes it", async () => {
+test("a row opens its pull request as a page, and Back returns to the list as it was filtered", async () => {
   const app = withRepository();
   await app.open("/pulls?project=ace");
-  const nav = await screen.findByRole("navigation", { name: "Pull requests" });
-  await userEvent.click(
-    await within(nav).findByRole("link", { name: /Reconnect the client worker/ }),
-  );
+  await screen.findByRole("navigation", { name: "Pull requests" });
+  await userEvent.click(screen.getByRole("button", { name: "Reviewing" }));
+  await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["226", "229"]));
+  const nav = screen.getByRole("navigation", { name: "Pull requests" });
+  await userEvent.click(within(nav).getByRole("link", { name: /Reconnect the client worker/ }));
   expect(await screen.findByRole("article", { name: "Pull request #229" })).toBeTruthy();
-  expect(screen.getByRole("navigation", { name: "Pull requests" })).toBeTruthy();
-  await userEvent.click(document.body);
-  await userEvent.keyboard("{Escape}");
-  await waitFor(() =>
-    expect(screen.queryByRole("article", { name: "Pull request #229" })).toBeNull(),
+  // The page takes the main column: the list is gone until Back.
+  expect(screen.queryByRole("navigation", { name: "Pull requests" })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Back to pull requests" }));
+  await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["226", "229"]));
+  expect(screen.getByRole("button", { name: "Reviewing" }).getAttribute("aria-pressed")).toBe(
+    "true",
   );
 });
 
-test("an issue opened beside the list shows its conversation, and a comment posted joins it", async () => {
+test("Escape on a pull request's page goes back to the list", async () => {
   const app = withRepository();
-  await app.open("/issues?project=ace&issue=240");
-  const panel = await screen.findByRole("article", { name: "Issue #240" });
-  expect(await within(panel).findByText(/the list jumps back to the top/)).toBeTruthy();
-  expect(await within(panel).findByText("added the web label")).toBeTruthy();
-  const box = within(panel).getByRole("textbox", { name: "Comment" });
+  await app.open("/pulls?project=ace&state=merged");
+  const nav = await screen.findByRole("navigation", { name: "Pull requests" });
+  await userEvent.click(await within(nav).findByRole("link", { name: /Bump Codex/ }));
+  await screen.findByRole("article", { name: "Pull request #212" });
+  await userEvent.click(document.body);
+  await userEvent.keyboard("{Escape}");
+  await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["212"]));
+});
+
+test("a link straight to a pull request opens its page, and Back opens its project's list", async () => {
+  const app = withRepository();
+  await app.open("/pulls/ace/229?tab=timeline");
+  expect(await screen.findByRole("article", { name: "Pull request #229" })).toBeTruthy();
+  expect((await screen.findByRole("tab", { name: "Timeline" })).getAttribute("aria-selected")).toBe(
+    "true",
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Back to pull requests" }));
+  await waitFor(async () => expect(await numbers("Pull requests")).toContain("229"));
+});
+
+test("an issue's page shows its conversation, and a comment posted joins it", async () => {
+  const app = withRepository();
+  await app.open("/issues/ace/240");
+  const page = await screen.findByRole("article", { name: "Issue #240" });
+  expect(await within(page).findByText(/the list jumps back to the top/)).toBeTruthy();
+  expect(await within(page).findByText("added the web label")).toBeTruthy();
+  const box = within(page).getByRole("textbox", { name: "Comment" });
   await userEvent.type(box, "Fixed in #231.");
-  await userEvent.click(within(panel).getByRole("button", { name: "Comment" }));
-  expect(await within(panel).findByText("Fixed in #231.")).toBeTruthy();
+  await userEvent.click(within(page).getByRole("button", { name: "Comment" }));
+  expect(await within(page).findByText("Fixed in #231.")).toBeTruthy();
   await waitFor(() => expect((box as HTMLTextAreaElement).value).toBe(""));
 });
 
@@ -143,17 +167,19 @@ test("issues are grouped as assigned to you, opened by you, and the rest", async
   );
 });
 
-test("closing an issue takes it out of the open list", async () => {
+test("an issue closed on its page has left the open list when going back", async () => {
   const app = withRepository();
-  await app.open("/issues?project=ace&issue=240");
-  const panel = await screen.findByRole("article", { name: "Issue #240" });
-  await waitFor(async () => expect(await numbers("Issues")).toContain("240"));
-  await userEvent.click(await within(panel).findByRole("button", { name: "Close issue" }));
-  expect(await within(panel).findByRole("button", { name: "Reopen issue" })).toBeTruthy();
-  await waitFor(async () => expect(await numbers("Issues")).not.toContain("240"));
+  await app.open("/issues?project=ace");
+  const nav = await screen.findByRole("navigation", { name: "Issues" });
+  await userEvent.click(await within(nav).findByRole("link", { name: /Sidebar loses its scroll/ }));
+  const page = await screen.findByRole("article", { name: "Issue #240" });
+  await userEvent.click(await within(page).findByRole("button", { name: "Close issue" }));
+  expect(await within(page).findByRole("button", { name: "Reopen issue" })).toBeTruthy();
+  await userEvent.click(within(page).getByRole("button", { name: "Back to issues" }));
+  await waitFor(async () => expect(await numbers("Issues")).toEqual(["235", "238"]));
 });
 
-test("a new issue is created on GitHub and opens beside the list", async () => {
+test("a new issue is created on GitHub and opens as its own page", async () => {
   const app = withRepository();
   await app.open("/issues?project=ace");
   await userEvent.click(await screen.findByRole("button", { name: "New issue" }));
@@ -163,7 +189,8 @@ test("a new issue is created on GitHub and opens beside the list", async () => {
     "Keyboard focus lost",
   );
   await userEvent.click(within(dialog).getByRole("button", { name: /Create issue/ }));
-  const panel = await screen.findByRole("article", { name: "Issue #241" });
-  expect(await within(panel).findByRole("heading", { name: /Keyboard focus lost/ })).toBeTruthy();
+  const page = await screen.findByRole("article", { name: "Issue #241" });
+  expect(await within(page).findByRole("heading", { name: /Keyboard focus lost/ })).toBeTruthy();
+  await userEvent.click(within(page).getByRole("button", { name: "Back to issues" }));
   await waitFor(async () => expect(await numbers("Issues")).toContain("241"));
 });

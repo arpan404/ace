@@ -9,8 +9,8 @@ const choice = <T extends string>(values: readonly [T, ...T[]]) =>
   z.catch(z.optional(z.enum(values)), undefined);
 
 /**
- * `/pulls?state=merged&who=reviewing&labels=["bug"]&pr=231`: every filter, the sort, the search
- * and the pull request open beside the list, so a link or a reload shows the same list.
+ * `/pulls?state=merged&who=reviewing&labels=["bug"]`: every filter, the sort and the search, so a
+ * link, a reload or coming back from a pull request shows the same list.
  */
 const Search = z.object({
   project: text(512),
@@ -26,9 +26,6 @@ const Search = z.object({
     undefined,
   ),
   q: text(256),
-  pr: z.catch(z.optional(z.number().check(z.int(), z.positive())), undefined),
-  repo: text(512),
-  tab: choice(["summary", "timeline", "code"]),
 });
 
 /** Pull requests beside the thread list, the way Home shows threads. */

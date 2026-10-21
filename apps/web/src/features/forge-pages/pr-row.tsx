@@ -22,7 +22,8 @@ import {
 export function PrRow(props: {
   project: string;
   row: ForgePrRow;
-  selected: boolean;
+  /** The list's address, so the pull request's page can return to it as it was. */
+  back: string;
   thread: LinkedThread | undefined;
 }) {
   const { row } = props;
@@ -32,10 +33,9 @@ export function PrRow(props: {
   return (
     <li className="group/row relative border-b border-border last:border-b-0">
       <Link
-        from="/pulls"
-        to="/pulls"
-        search={(current) => ({ ...current, pr: row.ref.number, repo: undefined })}
-        aria-current={props.selected ? "true" : undefined}
+        to="/pulls/$project/$number"
+        params={{ project: props.project, number: String(row.ref.number) }}
+        search={{ back: props.back }}
         data-view-row=""
         className={rowClass}
       >

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "@tanstack/react-router";
 import {
   CheckCircleIcon,
   CircleDashedIcon,
@@ -18,12 +19,10 @@ import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { cn } from "@/lib/cn.ts";
-import { DetailSplit } from "./detail-split.tsx";
 import { FiltersMenu, type FilterSection } from "./filters-menu.tsx";
 import { useLinkedThreads, workKey } from "./linked-threads.ts";
 import { ListFrame } from "./list-frame.tsx";
 import { useGroupCounts, usePrPages } from "./lists.ts";
-import { PrPanel } from "./pr-panel.tsx";
 import { PrRow } from "./pr-row.tsx";
 import { useReadyPages } from "./ready-pages.ts";
 import { rankByReadiness } from "./ready-ranking.ts";
@@ -142,6 +141,7 @@ export function PullRequestsPage(props: {
 }) {
   const { search, onSearch } = props;
   const choice = useProjectChoice(search.project);
+  const listAddress = useLocation({ select: (location) => location.searchStr });
   const project = choice.project;
   const query = prQuery(search, 1);
   const listKey = JSON.stringify([project, query]);
@@ -170,10 +170,11 @@ export function PullRequestsPage(props: {
     { value: "closed" as const, label: counts ? `Closed ${counts.closed}` : "Closed" },
     { value: "all" as const, label: "All" },
   ];
-  const close = () => onSearch({ pr: undefined, repo: undefined, tab: undefined });
   const rows = (
     <ListFrame
       kind="pulls"
+      address={listAddress}
+      ready={list.rows.length > 0}
       search={search.q ?? ""}
       onSearch={(text) => onSearch({ q: text.trim() || undefined })}
       controls={
@@ -202,13 +203,7 @@ export function PullRequestsPage(props: {
               options={choice.projects.map((id) => ({ value: id, label: choice.name(id) }))}
               onValueChange={(next) => {
                 choice.remember(next);
-                onSearch({
-                  project: next,
-                  pr: undefined,
-                  repo: undefined,
-                  labels: undefined,
-                  author: undefined,
-                });
+                onSearch({ project: next, labels: undefined, author: undefined });
               }}
             />
           )}
@@ -281,8 +276,8 @@ export function PullRequestsPage(props: {
                   <PrRow
                     key={`${row.ref.repository.owner}/${row.ref.repository.name}#${row.ref.number}`}
                     project={project}
+                    back={listAddress}
                     row={row}
-                    selected={search.pr === row.ref.number}
                     thread={linked.get(workKey(row.ref.repository, row.ref.number))}
                   />
                 ))}
@@ -308,22 +303,7 @@ export function PullRequestsPage(props: {
   );
   return (
     <Screen title="Pull requests" crumb={project ? choice.name(project) : undefined}>
-      <DetailSplit
-        list={rows}
-        panelLabel={search.pr ? `Pull request #${search.pr}` : "Pull request"}
-        onClose={close}
-        panel={
-          project && search.pr ? (
-            <PrPanel
-              project={project}
-              number={search.pr}
-              repo={search.repo}
-              tab={search.tab ?? "summary"}
-              onSearch={onSearch}
-            />
-          ) : null
-        }
-      />
+      {rows}
     </Screen>
   );
 }

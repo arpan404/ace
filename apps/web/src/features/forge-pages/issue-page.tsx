@@ -1,4 +1,9 @@
-import { ArrowSquareOutIcon, ChatsCircleIcon, CopyIcon } from "@phosphor-icons/react";
+import {
+  ArrowLeftIcon,
+  ArrowSquareOutIcon,
+  ChatsCircleIcon,
+  CopyIcon,
+} from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { ForgeIssueDetail } from "@ace/protocol";
 import { Prose } from "@/components/markdown/prose.tsx";
@@ -9,12 +14,18 @@ import { SkeletonText } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { openExternal } from "@/boot/open-external.ts";
 import { PrTime } from "@/features/forge/index.ts";
+import { Screen } from "@/features/shell/index.ts";
+import { useBackToList } from "./back-to-list.ts";
 import { IssueActionsStrip } from "./issue-actions-strip.tsx";
 import { IssueComposer } from "./issue-composer.tsx";
 import { IssueTimeline } from "./issue-timeline.tsx";
 import { useIssueWrites } from "./issue-writes.ts";
 import { useIssueDetail } from "./lists.ts";
 import { Avatars, LabelPill, StateBadge } from "./marks.tsx";
+import { useProjectChoice } from "./project-choice.ts";
+
+/** A page's reading width, as a pull request's page has. */
+const readable = "mx-auto w-full max-w-[64rem] px-4 sm:px-8";
 
 /** The threads working on this issue, and a way to start one from it. */
 function Threads(props: { project: string; issue: ForgeIssueDetail }) {
@@ -45,16 +56,13 @@ function Threads(props: { project: string; issue: ForgeIssueDetail }) {
   );
 }
 
-function Header(props: {
-  issue: ForgeIssueDetail;
-  labelColors: Record<string, string> | undefined;
-}) {
+function Header(props: { issue: ForgeIssueDetail; onBack(): void }) {
   const { issue } = props;
   const toast = useToast();
-  const colors = issue.labelColors ?? props.labelColors;
   return (
     <>
       <div className="flex items-start gap-2">
+        <IconButton size="sm" icon={ArrowLeftIcon} label="Back to issues" onClick={props.onBack} />
         <h2 className="min-w-0 flex-1 text-xl font-semibold tracking-title text-foreground">
           {issue.title}{" "}
           <span className="font-normal text-subtle-foreground">#{issue.ref.number}</span>
@@ -78,16 +86,16 @@ function Header(props: {
           }
         />
       </div>
-      <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-ui text-muted-foreground">
+      <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 pl-8 text-ui text-muted-foreground">
         <StateBadge kind="issue" state={issue.state} />
         <span className="font-medium text-foreground/85">{issue.author}</span>
         <span>opened</span>
         <PrTime at={issue.createdAt} />
       </p>
       {(issue.labels.length > 0 || issue.assignees.length > 0 || issue.milestone) && (
-        <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 pl-8 text-xs text-muted-foreground">
           {issue.labels.map((label) => (
-            <LabelPill key={label} name={label} color={colors?.[label]} />
+            <LabelPill key={label} name={label} color={issue.labelColors?.[label]} />
           ))}
           {issue.assignees.length > 0 && (
             <span className="ml-1 inline-flex items-center gap-1.5">
@@ -102,16 +110,12 @@ function Header(props: {
   );
 }
 
-function IssueBody(props: {
-  project: string;
-  issue: ForgeIssueDetail;
-  labelColors: Record<string, string> | undefined;
-}) {
+function IssueBody(props: { project: string; issue: ForgeIssueDetail; onBack(): void }) {
   const { issue } = props;
   const writes = useIssueWrites(props.project, issue.ref.repository);
   return (
-    <div className="px-5 pt-5 pb-16">
-      <Header issue={issue} labelColors={props.labelColors} />
+    <div className={`${readable} pt-6 pb-16`}>
+      <Header issue={issue} onBack={props.onBack} />
       <Threads project={props.project} issue={issue} />
       <IssueActionsStrip project={props.project} issue={issue} writes={writes} />
       <div className="mt-6 border-t border-border pt-5">
@@ -127,34 +131,41 @@ function IssueBody(props: {
   );
 }
 
-/** The open issue beside the list: its description, conversation and the actions GitHub allows. */
-export function IssuePanel(props: {
+/**
+ * One issue as a page in the main column: its description, conversation and the actions GitHub
+ * allows, at a readable width. Back (or Escape) returns to the list as it was.
+ */
+export function IssuePage(props: {
   project: string;
   number: number;
-  /** The list row's label colours, for a detail read that came without them. */
-  labelColors?: Record<string, string> | undefined;
+  /** The list's own address, when opened from it. */
+  back: string | undefined;
 }) {
+  const choice = useProjectChoice(props.project);
+  const back = useBackToList("/issues", props.project, props.back);
   const query = useIssueDetail(props.project, props.number);
   const issue = query.data;
   return (
-    <article aria-label={`Issue #${props.number}`} className="absolute inset-0 overflow-y-auto">
-      {issue ? (
-        <IssueBody project={props.project} issue={issue} labelColors={props.labelColors} />
-      ) : query.isError ? (
-        <EmptyState
-          title={`Couldn't open issue #${props.number}`}
-          description={query.error.message}
-          action={
-            <Button size="sm" onClick={() => void query.refetch()}>
-              Try again
-            </Button>
-          }
-        />
-      ) : (
-        <div className="px-5 pt-5">
-          <SkeletonText lines={4} />
-        </div>
-      )}
-    </article>
+    <Screen title={`#${props.number}`} crumb={choice.name(props.project)}>
+      <article aria-label={`Issue #${props.number}`} className="h-full overflow-y-auto">
+        {issue ? (
+          <IssueBody project={props.project} issue={issue} onBack={back} />
+        ) : query.isError ? (
+          <EmptyState
+            title={`Couldn't open issue #${props.number}`}
+            description={query.error.message}
+            action={
+              <Button size="sm" onClick={() => void query.refetch()}>
+                Try again
+              </Button>
+            }
+          />
+        ) : (
+          <div className={`${readable} pt-6`}>
+            <SkeletonText lines={4} />
+          </div>
+        )}
+      </article>
+    </Screen>
   );
 }

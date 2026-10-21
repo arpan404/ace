@@ -10,7 +10,8 @@ import { Age, Author, Comments, RowActions, rowClass, Thread } from "./row-parts
 export function IssueRow(props: {
   project: string;
   row: ForgeIssueRow;
-  selected: boolean;
+  /** The list's address, so the issue's page can return to it as it was. */
+  back: string;
   thread: LinkedThread | undefined;
 }) {
   const { row } = props;
@@ -19,10 +20,9 @@ export function IssueRow(props: {
   return (
     <li className="group/row relative border-b border-border last:border-b-0">
       <Link
-        from="/issues"
-        to="/issues"
-        search={(current) => ({ ...current, issue: row.ref.number })}
-        aria-current={props.selected ? "true" : undefined}
+        to="/issues/$project/$number"
+        params={{ project: props.project, number: String(row.ref.number) }}
+        search={{ back: props.back }}
         data-view-row=""
         className={rowClass}
       >

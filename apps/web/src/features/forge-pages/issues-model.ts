@@ -10,8 +10,6 @@ export interface IssuesSearch {
   author?: string | undefined;
   labels?: string[] | undefined;
   q?: string | undefined;
-  /** The open issue, beside the list. */
-  issue?: number | undefined;
 }
 export type IssuesSort = "updated" | "created" | "comments";
 

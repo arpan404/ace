@@ -7,6 +7,7 @@ import type { ForgePrDetail, ForgePrStatus, ForgeRepository } from "@ace/protoco
 import { prPollInterval } from "@ace/ui-core";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { cn } from "@/lib/cn.ts";
 import { PrActivity } from "./pr-activity.tsx";
 import { PrHeader } from "./pr-header.tsx";
 import { PrSummary } from "./pr-summary.tsx";
@@ -41,6 +42,9 @@ export function prWorkspaceTab(tab: string): PrTab {
       : "summary";
 }
 
+/** A page's reading width: the header, summary and timeline; the Code tab takes all of it. */
+const pageWidth = "mx-auto w-full max-w-[64rem]";
+
 /** Scrolled this far into a tab, the header folds its title block away. */
 const condenseAt = 64;
 
@@ -65,6 +69,8 @@ function PrTabs(props: {
   context: Record<PrTab, ReactNode>;
   panels: Record<PrTab, ReactNode>;
   onScroll(tab: PrTab, top: number): void;
+  /** On a page of its own: the bar and the reading tabs keep a readable width; Code is full. */
+  readable?: string | undefined;
 }) {
   const order: PrTab[] = ["summary", "timeline", "code"];
   const names: Record<PrTab, string> = { summary: "Summary", timeline: "Timeline", code: "Code" };
@@ -74,15 +80,17 @@ function PrTabs(props: {
       onValueChange={(value) => typeof value === "string" && props.onTab(value)}
       className="flex min-h-0 flex-1 flex-col"
     >
-      <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-4 py-2">
-        <TabsList aria-label="Pull request detail" className="rounded-md bg-muted p-0.5">
-          {order.map((tab) => (
-            <TabsTab key={tab} value={tab} className="h-6 data-active:bg-panel">
-              {names[tab]}
-            </TabsTab>
-          ))}
-        </TabsList>
-        <div className="flex min-w-0 items-center gap-2">{props.context[props.tab]}</div>
+      <div className="shrink-0 border-t border-border px-4 py-2">
+        <div className={cn("flex items-center justify-between gap-2", props.readable)}>
+          <TabsList aria-label="Pull request detail" className="rounded-md bg-muted p-0.5">
+            {order.map((tab) => (
+              <TabsTab key={tab} value={tab} className="h-6 data-active:bg-panel">
+                {names[tab]}
+              </TabsTab>
+            ))}
+          </TabsList>
+          <div className="flex min-w-0 items-center gap-2">{props.context[props.tab]}</div>
+        </div>
       </div>
       {order.map((tab) => (
         <TabsPanel
@@ -91,7 +99,11 @@ function PrTabs(props: {
           className="overflow-auto border-t border-border"
           onScroll={(e: UIEvent<HTMLDivElement>) => props.onScroll(tab, e.currentTarget.scrollTop)}
         >
-          {props.panels[tab]}
+          {props.readable && tab !== "code" ? (
+            <div className={props.readable}>{props.panels[tab]}</div>
+          ) : (
+            props.panels[tab]
+          )}
         </TabsPanel>
       ))}
     </Tabs>
@@ -120,8 +132,10 @@ function PrDetailLoaded(props: {
   extensions?: PrWorkspaceExtensions | undefined;
   onBack?: (() => void) | undefined;
   onOpen(number: number): void;
+  page?: boolean | undefined;
 }) {
   const { context } = props;
+  const readable = props.page ? pageWidth : undefined;
   const { detail } = context;
   const [dialog, setDialog] = useState<PrDialog>();
   const actions = usePrActions({
@@ -201,7 +215,7 @@ function PrDetailLoaded(props: {
         disabled={context.disabled}
         onRefresh={refresh}
         header={
-          <>
+          <div className={readable}>
             <PrHeader
               actions={actions}
               extensions={props.extensions}
@@ -236,13 +250,14 @@ function PrDetailLoaded(props: {
             )}
             <PrWriteStatus actions={actions} refreshing={props.refreshing} />
             <PrSuggestionBatch />
-          </>
+          </div>
         }
       >
         <PrTabs
           tab={props.tab}
           onTab={props.onTab}
           onScroll={onScroll}
+          readable={readable}
           context={{
             summary: <SummaryContext detail={detail} />,
             timeline: (
@@ -330,6 +345,8 @@ export function PrDetail(props: {
   onBack?(): void;
   onOpen(number: number): void;
   extensions?: PrWorkspaceExtensions | undefined;
+  /** Shown as a page of its own rather than in a side panel. */
+  page?: boolean | undefined;
 }) {
   // Only a refresh someone asked for (or a write's reconciliation) holds writes; polls don't.
   const [refreshing, setRefreshing] = useState(false);
@@ -407,6 +424,7 @@ export function PrDetail(props: {
           extensions={props.extensions}
           onBack={props.onBack}
           onOpen={props.onOpen}
+          page={props.page}
         />
       ) : query.error ? (
         <PrFailure

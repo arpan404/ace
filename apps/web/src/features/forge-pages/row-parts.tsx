@@ -14,10 +14,10 @@ import { useNow } from "@/lib/time.ts";
 import { PrAvatar } from "@/features/forge/index.ts";
 import type { LinkedThread } from "./linked-threads.ts";
 
-/** A two-line list row: the whole row opens the item beside the list. */
+/** A two-line list row: the whole row opens the item's page. */
 export const rowClass = cn(
   "flex w-full min-w-0 gap-3 px-4 py-2.5 text-left transition-colors duration-(--motion-fast)",
-  "hover:bg-hover focus-ring-inset aria-[current=true]:bg-active",
+  "hover:bg-hover focus-ring-inset",
 );
 
 /** "feature/very-long-bran…name": a long name keeps its start and its end. */

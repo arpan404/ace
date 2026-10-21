@@ -12,12 +12,6 @@ export interface PullsSearch {
   author?: string | undefined;
   labels?: string[] | undefined;
   q?: string | undefined;
-  /** The open pull request, beside the list. */
-  pr?: number | undefined;
-  /** Its repository when it isn't the project's own: `github.com/acme/ace`. */
-  repo?: string | undefined;
-  /** The open pull request's tab. */
-  tab?: "summary" | "timeline" | "code" | undefined;
 }
 export type PullsSort = "ready" | "updated" | "largest" | "smallest";
 

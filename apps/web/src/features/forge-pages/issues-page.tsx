@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import { PencilSimpleIcon, RecordIcon, UserIcon, UsersIcon } from "@phosphor-icons/react";
 import type { ForgeIssueRow } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
@@ -9,9 +10,7 @@ import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { cn } from "@/lib/cn.ts";
-import { DetailSplit } from "./detail-split.tsx";
 import { FiltersMenu, type FilterSection } from "./filters-menu.tsx";
-import { IssuePanel } from "./issue-panel.tsx";
 import { IssueRow } from "./issue-row.tsx";
 import {
   groupIssues,
@@ -91,10 +90,13 @@ export function IssuesPage(props: {
   const [creating, setCreating] = useState(false);
   const groups = groupIssues(list.rows, list.first?.viewer);
   const counts = list.first?.counts;
-  const selected = list.rows.find((row) => row.ref.number === search.issue);
+  const navigate = useNavigate();
+  const listAddress = useLocation({ select: (location) => location.searchStr });
   const rows = (
     <ListFrame
       kind="issues"
+      address={listAddress}
+      ready={list.rows.length > 0}
       search={search.q ?? ""}
       onSearch={(text) => onSearch({ q: text.trim() || undefined })}
       actions={
@@ -133,7 +135,7 @@ export function IssuesPage(props: {
               options={choice.projects.map((id) => ({ value: id, label: choice.name(id) }))}
               onValueChange={(next) => {
                 choice.remember(next);
-                onSearch({ project: next, issue: undefined, labels: undefined, author: undefined });
+                onSearch({ project: next, labels: undefined, author: undefined });
               }}
             />
           )}
@@ -198,8 +200,8 @@ export function IssuesPage(props: {
                   <IssueRow
                     key={row.ref.number}
                     project={project}
+                    back={listAddress}
                     row={row}
-                    selected={search.issue === row.ref.number}
                     thread={linked.get(workKey(row.ref.repository, row.ref.number))}
                   />
                 ))}
@@ -223,28 +225,20 @@ export function IssuesPage(props: {
   );
   return (
     <Screen title="Issues" crumb={project ? choice.name(project) : undefined}>
-      <DetailSplit
-        list={rows}
-        panelLabel={search.issue ? `Issue #${search.issue}` : "Issue"}
-        onClose={() => onSearch({ issue: undefined })}
-        panel={
-          project && search.issue ? (
-            <IssuePanel
-              key={`${project}#${search.issue}`}
-              project={project}
-              number={search.issue}
-              labelColors={selected?.labelColors}
-            />
-          ) : null
-        }
-      />
+      {rows}
       {project && list.first && (
         <NewIssueDialog
           project={project}
           repository={list.first.repository}
           open={creating}
           onOpenChange={setCreating}
-          onCreated={(number) => onSearch({ issue: number, state: undefined })}
+          onCreated={(number) =>
+            void navigate({
+              to: "/issues/$project/$number",
+              params: { project, number: String(number) },
+              search: { back: listAddress },
+            })
+          }
         />
       )}
     </Screen>
