@@ -47,6 +47,15 @@ export function contained(root: string, path: string): string {
     throw new InstallPlanError("Artifact path escapes destination");
   return result;
 }
+/**
+ * A registry `cmd` as a "/"-joined path inside the artifact. Windows entries may write it with
+ * "\" (`bin\devin.exe`) or leave off ".exe" (`./opencode`), as Windows itself allows.
+ */
+function registryCommand(cmd: string, target: string): string {
+  if (!target.startsWith("windows-")) return safeRelative(cmd);
+  const path = safeRelative(cmd.replaceAll("\\", "/"));
+  return /\.[^/]+$/.test(path) ? path : `${path}.exe`;
+}
 export function buildInstallPlan(options: PlanOptions): InstallPlan {
   const { agent, runtime, manager } = options;
   let args: string[] = [];
@@ -67,7 +76,7 @@ export function buildInstallPlan(options: PlanOptions): InstallPlan {
       throw new InstallPlanError("Unsupported archive format");
     archive = distribution.archive;
     sha256 = distribution.sha256?.toLowerCase();
-    entrypoint = safeRelative(distribution.cmd);
+    entrypoint = registryCommand(distribution.cmd, options.target);
     launchArgs = [...distribution.args];
     env = { ...distribution.env };
     verification = sha256 ? "sha256" : "unsigned_https";

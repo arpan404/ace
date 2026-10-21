@@ -1,5 +1,5 @@
 import { ForgeLifecycleState } from "./forge-lifecycle.ts";
-import { ForgeIssueOperations, ForgeIssueResults } from "./forge-issues.ts";
+import { ForgeIssueOperations, ForgeIssueResults, ForgeIssueRow } from "./forge-issues.ts";
 import { ForgeMergeState } from "./forge-merge-state.ts";
 import { ForgeStackMembership, ForgeStackWorkspace } from "./forge-stacks.ts";
 import { ForgeReviewState } from "./forge-review.ts";
@@ -61,6 +61,27 @@ export const ForgePrList = z.object({
   truncated: z.boolean(),
 });
 export type ForgePrList = z.infer<typeof ForgePrList>;
+/**
+ * What New thread lists under its composer, read in one request: the first 25 open pull requests
+ * (drafts included) and open issues, newest activity first, the open pull requests whose checks
+ * failed however old, and how many of each there are.
+ */
+export const ForgeOpenWork = z.object({
+  repository: ForgeRepository,
+  pullRequests: z.object({
+    items: z.array(ForgePrRow).max(25),
+    total: z.number().int().nonnegative(),
+  }),
+  failingPullRequests: z.object({
+    items: z.array(ForgePrRow).max(25),
+    total: z.number().int().nonnegative(),
+  }),
+  issues: z.object({
+    items: z.array(ForgeIssueRow).max(25),
+    total: z.number().int().nonnegative(),
+  }),
+});
+export type ForgeOpenWork = z.infer<typeof ForgeOpenWork>;
 export const ForgeRelatedThread = z.object({ id: ThreadId, title: text, archived: z.boolean() });
 export const ForgePrDetail = z.object({
   status: ForgePrStatus,
@@ -162,6 +183,7 @@ export const ForgeBrowserOperations = [
     ...ForgePageInput.shape,
   }),
   z.object({ op: z.literal("forge.pr.list"), ...scope, query: ForgePrSearch }),
+  z.object({ op: z.literal("forge.open-work"), ...scope }),
   z.object({ op: z.literal("forge.pr.detail"), ...scope, number: z.number().int().positive() }),
   z.object({
     op: z.literal("forge.pr.commits"),
@@ -197,6 +219,7 @@ export const ForgeBrowserResult = z.discriminatedUnion("resource", [
     truncated: z.boolean(),
   }),
   z.object({ resource: z.literal("prList"), value: ForgePrList }),
+  z.object({ resource: z.literal("openWork"), value: ForgeOpenWork }),
   z.object({ resource: z.literal("prDetail"), value: ForgePrDetail }),
   z.object({
     resource: z.literal("prCommits"),

@@ -165,15 +165,15 @@ test("⌘K offers the picked threads' actions first, and asks before deleting th
   expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
 });
 
-test("threads deleted in bulk never come back: not after the toast, not after a reload", async () => {
+test("threads deleted in bulk never come back: not after a while, not after a reload", async () => {
   const app = await openWithIdle();
   await pick(/^Tidy the README/, "{Meta>}");
   await pick(/^Sketch the docs index/, "{Meta>}");
   await userEvent.click(within(bar()).getByRole("button", { name: "Delete 2 threads…" }));
   const dialog = await screen.findByRole("dialog", { name: "Delete 2 threads?" });
   await userEvent.click(within(dialog).getByRole("button", { name: "Delete 2 threads" }));
-  await screen.findByText("Deleted 2 threads");
-  // Past every toast's life: nothing waits on it to finish the delete or to undo it.
+  await waitFor(() => expect(onDaemon(app, "thread-readme")).toBe(false));
+  // Past every toast's life: nothing waits on one to finish the delete or to undo it.
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
   try {
     act(() => vi.advanceTimersByTime(toastLife + 500));
@@ -200,7 +200,6 @@ test("a bulk delete removes the idle thread and offers Stop and delete for the r
   await userEvent.click(within(bar()).getByRole("button", { name: "Delete 2 threads…" }));
   const dialog = await screen.findByRole("dialog", { name: "Delete 2 threads?" });
   await userEvent.click(within(dialog).getByRole("button", { name: "Delete 2 threads" }));
-  await screen.findByText("Deleted 1 thread");
   const running = await screen.findByRole("dialog", { name: "Delete thread?" });
   expect(running.textContent).toMatch(/running/);
   expect(onDaemon(app, "thread-readme")).toBe(false);

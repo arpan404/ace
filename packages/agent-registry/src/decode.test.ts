@@ -116,6 +116,36 @@ test("binary command escapes and unsupported platforms never form executable pla
   expect(() => buildInstallPlan(options)).toThrow("Unsafe");
   expect(() => buildInstallPlan({ ...options, target: "linux-x86_64" })).toThrow("unavailable");
 });
+const entrypoint = (target: string, cmd: string) => {
+  const [agent] = decode([
+    {
+      ...entry,
+      distribution: { binary: { [target]: { archive: "https://example.org/a.zip", cmd } } },
+    },
+  ]).agents;
+  if (!agent) throw new Error("Missing sample");
+  return buildInstallPlan({
+    agent,
+    acpAgentId: "official:sample",
+    source: "https://example.org/registry",
+    catalogDigest: digest("a"),
+    target,
+    root: "/tmp/artifacts",
+    runtime: "binary",
+  }).entrypoint;
+};
+test("Windows registry commands with backslashes or no .exe resolve to the file Windows would run", () => {
+  // Devin and Cursor write Windows commands with "\"; opencode's arm64 build leaves off ".exe".
+  expect(entrypoint("windows-x86_64", "bin\\devin.exe")).toBe("bin/devin.exe");
+  expect(entrypoint("windows-x86_64", "dist-package\\cursor-agent.cmd")).toBe(
+    "dist-package/cursor-agent.cmd",
+  );
+  expect(entrypoint("windows-aarch64", "./opencode")).toBe("opencode.exe");
+  // Other platforms keep the name as written: a Unix binary has no extension.
+  expect(entrypoint("linux-x86_64", "./opencode")).toBe("opencode");
+  expect(() => entrypoint("windows-x86_64", "..\\escape.exe")).toThrow("Unsafe");
+  expect(() => entrypoint("windows-x86_64", "C:\\agent.exe")).toThrow("Unsafe");
+});
 test("model selection uses the advertised config ID and rejects removed dependent choices", () => {
   const selectors = sessionSelectors(selectorSetup(["native-a", "native-b"]));
   expect(selectorRequest(selectors, "model", "native-b", "session")).toEqual({
@@ -201,4 +231,37 @@ test("a platform binary ace can't unpack is unavailable unless a package runtime
   expect(availability(binaryOnly, "darwin-aarch64")).toBe("unsupported_distribution");
   expect(availability(binaryOnly, "linux-x86_64")).toBe("unsupported_target");
   expect(availability(withNpm, "darwin-aarch64")).toBe("available");
+});
+const offered = (archive: string) => {
+  const [agent] = decode([
+    {
+      ...entry,
+      id: "only-binary",
+      distribution: {
+        binary: { "linux-x86_64": { archive, cmd: "./agent", sha256: digest(archive) } },
+      },
+    },
+  ]).agents;
+  if (!agent) throw new Error("Missing sample");
+  return availability(agent, "linux-x86_64");
+};
+test("only ZIP, gzip tar and raw executables are installable binaries", () => {
+  for (const archive of [
+    "https://example.org/agent.tar.gz",
+    "https://example.org/agent.tgz",
+    "https://example.org/agent.zip",
+    "https://example.org/agent-linux-amd64",
+    "https://example.org/agent-win-amd64.exe",
+    "https://example.org/agent-v1.2.3",
+  ])
+    expect(offered(archive)).toBe("available");
+  for (const archive of [
+    "https://example.org/agent.tar.xz",
+    "https://example.org/agent.tar.zst",
+    "https://example.org/agent.7z",
+    "https://example.org/agent.tar",
+    "https://example.org/agent.gz",
+    "https://example.org/agent.msix",
+  ])
+    expect(offered(archive)).toBe("unsupported_distribution");
 });

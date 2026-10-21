@@ -399,6 +399,7 @@ export class WorkspaceRuntime {
       op.op === "forge.pr.review-state" ||
       op.op === "forge.pr.activity" ||
       op.op === "forge.pr.list" ||
+      op.op === "forge.open-work" ||
       op.op === "forge.pr.detail" ||
       op.op === "forge.pr.commits" ||
       op.op === "forge.pr.files"

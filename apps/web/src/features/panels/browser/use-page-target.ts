@@ -62,11 +62,8 @@ export function usePageTarget(input: {
     const { data } = ImageData.parse(await tool(threadId, { action: "image_data", url }, tabId));
     return imageBlob(data);
   };
-  const copyText = (text: string, done: string) =>
-    void navigator.clipboard?.writeText(text).then(
-      () => toast.add({ title: done }),
-      () => toast.error({ title: "Couldn't copy" }),
-    );
+  const copyText = (text: string) =>
+    void navigator.clipboard?.writeText(text).catch(() => toast.error({ title: "Couldn't copy" }));
   return {
     target,
     locate(point: { x: number; y: number }) {
@@ -83,12 +80,10 @@ export function usePageTarget(input: {
         });
     },
     openLink: input.openTab,
-    copyLink: (url: string) => copyText(url, "Link copied"),
+    copyLink: (url: string) => copyText(url),
     copyImage(url: string) {
-      void copyImageToClipboard(image(url)).then(
-        () => toast.add({ title: "Image copied" }),
-        (error: unknown) =>
-          toast.error({ title: "Couldn't copy the image", description: reason(error) }),
+      void copyImageToClipboard(image(url)).catch((error: unknown) =>
+        toast.error({ title: "Couldn't copy the image", description: reason(error) }),
       );
     },
     /** Saves through this app's own download (a save dialog in the desktop app). */

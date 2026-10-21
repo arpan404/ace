@@ -46,8 +46,11 @@ export interface ComposerProps {
    * back if nothing new was typed meanwhile.
    */
   onSubmit(draft: Draft): Promise<boolean>;
-  /** The last message sent here, for ↑ in an empty composer while the agent is idle. */
-  recall?: (() => string | undefined) | undefined;
+  /**
+   * A message sent here, for ↑ and ↓ while the agent is idle: `older` 0 is the latest, 1 the one
+   * before it. Undefined past the oldest.
+   */
+  recall?: ((older: number) => string | undefined) | undefined;
   /** Observe preparation content without duplicating the composer storage format. */
   onDraftChange?: ((draft: ComposerDraft) => void) | undefined;
   /** A preparation owner fences writes when another editor has claimed its durable row. */

@@ -215,6 +215,22 @@
     {
       "properties": {
         "resource": {
+          "const": "openWork",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgeOpenWork.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
           "const": "prDetail",
           "type": "string"
         },

@@ -86,15 +86,13 @@ test.each([false, true])(
       await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
       release?.();
       await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add machine" })).toBeNull());
-      expect(screen.queryByText("Office computer added")).toBeNull();
       expect(local.getItem("ace.machines")).toBeNull();
       return;
     }
-    expect(await screen.findByText("Office computer added")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add machine" })).toBeNull());
     expect(
       await within(screen.getByRole("region", { name: "Machines" })).findByText("Office computer"),
     ).toBeTruthy();
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add machine" })).toBeNull());
     expect(local.getItem("ace.machines")).toContain("Office computer");
     expect([...local.data.values()].join("")).not.toContain("b".repeat(64));
     expect([...session.data.values()].join("")).toContain("b".repeat(64));

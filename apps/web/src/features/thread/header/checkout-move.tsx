@@ -15,8 +15,6 @@ import { failure } from "./use-git-flow.tsx";
 
 export interface Move {
   change: CheckoutChange;
-  /** The toast once it is done ("Switched to develop"). */
-  done: string;
   /** A branch switch in place: the branch the uncommitted changes come along to. */
   carriesTo?: string | undefined;
 }
@@ -35,18 +33,16 @@ export function useCheckoutMove(thread: ThreadRef): {
   const toast = useToast();
   const [dirty, setDirty] = useState<Move>();
   const move = (next: Move) =>
-    void sources.workspace.setCheckout(thread, next.change).then(
-      () => toast.add({ title: next.done }),
-      (error: unknown) => {
-        if (
-          error instanceof WorkspaceError &&
-          error.code === "git_dirty_worktree" &&
-          !next.change.allowUncommitted
-        )
-          return setDirty(next);
-        toast.error({ title: "Couldn't move the checkout", description: failure(error) });
-      },
-    );
+    // The branch row shows the move once it lands; only a refusal needs saying.
+    void sources.workspace.setCheckout(thread, next.change).catch((error: unknown) => {
+      if (
+        error instanceof WorkspaceError &&
+        error.code === "git_dirty_worktree" &&
+        !next.change.allowUncommitted
+      )
+        return setDirty(next);
+      toast.error({ title: "Couldn't move the checkout", description: failure(error) });
+    });
   const carriesTo = dirty?.carriesTo;
   return {
     move,
