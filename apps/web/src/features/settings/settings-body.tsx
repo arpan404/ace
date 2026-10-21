@@ -7,9 +7,9 @@ import { useSettingsMachine } from "./machine-scope.tsx";
 import { settingsPageOf } from "./settings-pages.ts";
 
 /**
- * One settings page, as the approved Appearance mockup lays it out (docs/design/2026-10-14):
- * the content starts beside the nav, padded 20/28, under a 20/600 page title; groups are
- * uppercase labels over rounded cards of 44px rows. The title row carries the page's controls
+ * One settings page, cardless like the rest of the app: a centred column, as the thread view
+ * and Usage centre theirs, under a 20/600 page title; groups are a section title over hairline
+ * rows. The title row carries the page's controls
  * at its right and, on a Machine page with more than one machine, the machine it edits as a
  * quiet menu ("This Mac ⌄"), as Usage picks its environment. Content rises in when the page
  * or the machine changes.
@@ -39,7 +39,7 @@ export function SettingsBody(props: {
     // its controls, with the view's name for assistive tech.
     <Screen title={<span className="sr-only">Settings</span>} actions={props.actions}>
       <div className="h-full overflow-auto">
-        <div className="@container w-full max-w-[860px] px-5 pt-5 pb-20 sm:px-7">
+        <div className="@container mx-auto w-full max-w-[860px] px-5 pt-5 pb-20 sm:px-7">
           {props.back && <div className="mb-1 text-ui">{props.back}</div>}
           {/* The title row is a band of its own: the first group starts a clear step below it. */}
           <div className="mb-7 flex min-h-8 flex-wrap items-center gap-x-3 gap-y-2">
