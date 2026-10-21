@@ -67,6 +67,17 @@ export function launchProblemDetail(problem: ChromeLaunchProblem): string | unde
   }
 }
 
+/**
+ * Chrome's log text with its `[pid:tid:time:LEVEL:path:line]` prefixes as `LEVEL file:line:`,
+ * which the daemon log's redaction reads as prose rather than a malformed record.
+ */
+export function chromeLogText(text: string): string {
+  return text.replaceAll(
+    /\[[\d:/.]*:([A-Z]+):([^\]\s]+)\]\s*/g,
+    (_match, level: string, path: string) => `${level} ${path.split("/").at(-1) ?? path}: `,
+  );
+}
+
 /** A failed start of ace's Chrome. Its message keeps Chrome's own words for the daemon log. */
 export class ChromeLaunchError extends Error {
   readonly problem: ChromeLaunchProblem;

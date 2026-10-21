@@ -10,7 +10,7 @@ import {
   smallSharedMemory,
   type LinuxMachine,
 } from "./launch-diagnosis.ts";
-import { classifyChromeLaunch, type ChromeLaunchProblem } from "./launch-failure.ts";
+import { chromeLogText, classifyChromeLaunch, type ChromeLaunchProblem } from "./launch-failure.ts";
 import {
   chromiumAppArmorInstall,
   chromiumAppArmorProfile,
@@ -159,10 +159,8 @@ function problemVerdict(
 }
 function stderrLine(stderr: string): string {
   const lines = stderr.trim().split("\n");
-  return (
-    lines.find((line) => /FATAL|ERROR|error while loading/.test(line)) ??
-    lines.at(-1) ??
-    ""
+  return chromeLogText(
+    lines.find((line) => /FATAL|ERROR|error while loading/.test(line)) ?? lines.at(-1) ?? "",
   ).slice(0, 600);
 }
 

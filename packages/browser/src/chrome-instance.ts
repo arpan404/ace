@@ -4,6 +4,7 @@ import { Readable, Writable } from "node:stream";
 import type { BrowserCdp } from "./backend.ts";
 import { CdpConnection, type CdpIntercept, type Schedule } from "./cdp-connection.ts";
 import { chromeArgs } from "./chrome-flags.ts";
+import { chromeLogText } from "./launch-failure.ts";
 import { ChromeTargets } from "./chrome-targets.ts";
 import type { ProcessSpawner } from "./io.ts";
 import { pipeTransport } from "./pipe-transport.ts";
@@ -227,9 +228,12 @@ export async function launchChrome(options: ChromeInstanceOptions): Promise<Chro
   };
 }
 
-/** The line that says why Chrome stopped, else its last lines. */
+/**
+ * The line that says why Chrome stopped, else its last lines. Chrome's `[pid:tid:time:LEVEL:file]`
+ * prefix becomes `LEVEL file:`, which the daemon log's redaction reads as prose, not a record.
+ */
 function stderrSummary(output: string): string {
   const lines = output.trim().split("\n");
   const cause = lines.find((line) => /FATAL|error while loading|Running as root/.test(line));
-  return (cause ?? lines.slice(-3).join(" ")).slice(0, 1024);
+  return chromeLogText(cause ?? lines.slice(-3).join(" ")).slice(0, 1024);
 }

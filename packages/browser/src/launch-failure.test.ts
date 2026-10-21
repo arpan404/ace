@@ -1,4 +1,6 @@
 import { PublicToolError } from "@ace/mcp-server/errors";
+import { createRedactor } from "@ace/redaction";
+import { chromeLogText } from "./launch-failure.ts";
 import { describe, expect, it } from "vitest";
 import { agentBrowserError } from "./agent-errors.ts";
 import { linuxLaunchDiagnosis, smallSharedMemory, type LinuxMachine } from "./launch-diagnosis.ts";
@@ -96,6 +98,15 @@ describe("Chrome start failures on Linux", () => {
   it("keeps an unrecognised failure as browser_unavailable", async () => {
     const seen = await agentSees("[1:1:ERROR:gpu] something else\n", machine({}));
     expect(seen.code).toBe("browser_unavailable");
+  });
+});
+
+describe("the daemon log", () => {
+  it("keeps Chrome's fatal line readable after redaction", () => {
+    const redact = createRedactor({ home: "/home/a", env: {} });
+    expect(redact(chromeLogText(noSandbox.split("\n")[0] ?? ""))).toMatch(
+      /^FATAL zygote_host_impl_linux\.cc:129: No usable sandbox! If you are running on Ubuntu 23\.10\+/,
+    );
   });
 });
 
