@@ -46,15 +46,17 @@ export function PrPageSkeleton(props: {
       <div className={props.readable}>
         <header className="px-[var(--forge-gutter,1rem)] pt-6">
           {props.onBack && (
-            <button
-              type="button"
-              aria-label="Back to pull requests"
-              onClick={props.onBack}
-              className="-ml-1 mb-2 inline-flex h-6 items-center gap-1 rounded-sm px-1 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit hover:text-foreground"
-            >
-              <ArrowLeftIcon aria-hidden size={14} />
-              Pull requests
-            </button>
+            <div className="mb-2 flex min-h-8 items-center">
+              <button
+                type="button"
+                aria-label="Back to pull requests"
+                onClick={props.onBack}
+                className="-ml-1 inline-flex h-6 items-center gap-1 rounded-sm px-1 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit hover:text-foreground"
+              >
+                <ArrowLeftIcon aria-hidden size={14} />
+                Pull requests
+              </button>
+            </div>
           )}
           {seed ? (
             <h2 className="min-w-0 text-xl font-semibold tracking-title text-foreground">

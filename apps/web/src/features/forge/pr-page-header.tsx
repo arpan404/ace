@@ -48,7 +48,8 @@ export function PrPageHeader(props: {
           <>
             {props.extensions?.headerActions?.(context)}
             <PrAgentChip detail={detail} compact={false} />
-            <PrPrimaryControl actions={actions} />
+            {/* A merged or closed PR's state is the badge under the title, not a button. */}
+            {actions.primary.kind !== "state" && <PrPrimaryControl actions={actions} />}
             <IconButton
               size="sm"
               icon={ArrowSquareOutIcon}

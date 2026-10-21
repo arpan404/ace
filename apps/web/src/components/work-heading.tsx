@@ -2,10 +2,10 @@ import type { ReactNode } from "react";
 import { ArrowLeftIcon } from "@phosphor-icons/react";
 
 /**
- * The top of a pull request's or issue's page: a quiet "← Pull requests" back to the list, the
- * title in large type with its number, the page's actions at the right, then the state badge and
- * who opened it. Everything starts on the page's gutter like the rest of the page. One layout
- * for both pages, so they read the same.
+ * The top of a pull request's or issue's page, one level per line: "← Pull requests" with the
+ * page's actions at the right, then the title in large type across the whole column, then the
+ * state badge and who opened it. Everything starts on the page's gutter like the rest of the
+ * page. One layout for both pages, so they read the same.
  */
 export function WorkHeading(props: {
   /** Back to the list, named by it: "Pull requests", "Issues". */
@@ -20,23 +20,25 @@ export function WorkHeading(props: {
 }) {
   return (
     <>
-      {props.back && (
-        <button
-          type="button"
-          aria-label={`Back to ${props.back.label.toLowerCase()}`}
-          onClick={props.back.onBack}
-          className="-ml-1 mb-2 inline-flex h-6 items-center gap-1 rounded-sm px-1 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit hover:text-foreground"
-        >
-          <ArrowLeftIcon aria-hidden size={14} />
-          {props.back.label}
-        </button>
+      {(props.back || props.actions) && (
+        <div className="mb-2 flex min-h-8 items-center gap-2">
+          {props.back && (
+            <button
+              type="button"
+              aria-label={`Back to ${props.back.label.toLowerCase()}`}
+              onClick={props.back.onBack}
+              className="-ml-1 inline-flex h-6 items-center gap-1 rounded-sm px-1 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit hover:text-foreground"
+            >
+              <ArrowLeftIcon aria-hidden size={14} />
+              {props.back.label}
+            </button>
+          )}
+          {props.actions && (
+            <div className="-mr-1 ml-auto flex shrink-0 items-center gap-1">{props.actions}</div>
+          )}
+        </div>
       )}
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">{props.title}</div>
-        {props.actions && (
-          <div className="-mr-1 flex shrink-0 items-center gap-1">{props.actions}</div>
-        )}
-      </div>
+      <div className="min-w-0">{props.title}</div>
       {(props.badge || props.byline) && (
         <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-ui text-muted-foreground">
           {props.badge}

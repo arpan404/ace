@@ -44,15 +44,17 @@ export function IssuePageSkeleton(props: {
   const { seed } = props;
   return (
     <LoadingRegion label={`issue #${props.number}`} className={`${props.readable} pt-6 pb-16`}>
-      <button
-        type="button"
-        aria-label="Back to issues"
-        onClick={props.onBack}
-        className="-ml-1 mb-2 inline-flex h-6 items-center gap-1 rounded-sm px-1 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit hover:text-foreground"
-      >
-        <ArrowLeftIcon aria-hidden size={14} />
-        Issues
-      </button>
+      <div className="mb-2 flex min-h-8 items-center">
+        <button
+          type="button"
+          aria-label="Back to issues"
+          onClick={props.onBack}
+          className="-ml-1 inline-flex h-6 items-center gap-1 rounded-sm px-1 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit hover:text-foreground"
+        >
+          <ArrowLeftIcon aria-hidden size={14} />
+          Issues
+        </button>
+      </div>
       {seed ? (
         <h2 className="min-w-0 text-xl font-semibold tracking-title text-foreground">
           {seed.title}{" "}
