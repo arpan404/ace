@@ -551,6 +551,9 @@
           "type": "object"
         },
         {
+          "$ref": "https://ace.local/protocol/v1/GitConflictsOperation.json"
+        },
+        {
           "properties": {
             "op": {
               "const": "git.draft.context",
