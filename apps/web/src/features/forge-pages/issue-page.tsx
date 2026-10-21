@@ -1,9 +1,4 @@
-import {
-  ArrowLeftIcon,
-  ArrowSquareOutIcon,
-  ChatsCircleIcon,
-  CopyIcon,
-} from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, ChatsCircleIcon, CopyIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { ForgeIssueDetail } from "@ace/protocol";
 import { Prose } from "@/components/markdown/prose.tsx";
@@ -64,14 +59,7 @@ function Header(props: { issue: ForgeIssueDetail; onBack(): void }) {
   return (
     <>
       <WorkHeading
-        back={
-          <IconButton
-            size="sm"
-            icon={ArrowLeftIcon}
-            label="Back to issues"
-            onClick={props.onBack}
-          />
-        }
+        back={{ label: "Issues", onBack: props.onBack }}
         title={<WorkTitle text={issue.title} number={issue.ref.number} />}
         actions={
           <>

@@ -1,15 +1,15 @@
 import type { ReactNode } from "react";
+import { ArrowLeftIcon } from "@phosphor-icons/react";
 
 /**
- * The top of a pull request's or issue's page: the title in large type with its number, the
- * page's actions at the right, then the state badge and who opened it. Title and byline start on
- * the page's gutter like everything below them; back hangs in the gutter to the title's left
- * (32px wide), and in a narrow column, where the gutter is too small, the header's back stands in.
- * One layout for both pages, so they read the same.
+ * The top of a pull request's or issue's page: a quiet "← Pull requests" back to the list, the
+ * title in large type with its number, the page's actions at the right, then the state badge and
+ * who opened it. Everything starts on the page's gutter like the rest of the page. One layout
+ * for both pages, so they read the same.
  */
 export function WorkHeading(props: {
-  /** Back to the list. */
-  back: ReactNode;
+  /** Back to the list, named by it: "Pull requests", "Issues". */
+  back?: { label: string; onBack(): void } | undefined;
   /** The title as text, or an editor in its place. */
   title: ReactNode;
   actions?: ReactNode;
@@ -20,8 +20,18 @@ export function WorkHeading(props: {
 }) {
   return (
     <>
-      <div className="relative flex items-start gap-2">
-        {props.back && <div className="absolute top-0.5 -left-8 max-sm:hidden">{props.back}</div>}
+      {props.back && (
+        <button
+          type="button"
+          aria-label={`Back to ${props.back.label.toLowerCase()}`}
+          onClick={props.back.onBack}
+          className="-ml-1 mb-2 inline-flex h-6 items-center gap-1 rounded-sm px-1 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit hover:text-foreground"
+        >
+          <ArrowLeftIcon aria-hidden size={14} />
+          {props.back.label}
+        </button>
+      )}
+      <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">{props.title}</div>
         {props.actions && (
           <div className="-mr-1 flex shrink-0 items-center gap-1">{props.actions}</div>

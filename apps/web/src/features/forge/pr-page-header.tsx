@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ArrowLeftIcon, ArrowSquareOutIcon, FileIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, FileIcon } from "@phosphor-icons/react";
 import { DiffStat } from "@/components/diff-stat.tsx";
 import { StateBadge } from "@/components/forge-marks.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -42,16 +42,7 @@ export function PrPageHeader(props: {
   return (
     <header className="shrink-0 px-[var(--forge-gutter,1rem)] pt-6">
       <WorkHeading
-        back={
-          props.onBack && (
-            <IconButton
-              icon={ArrowLeftIcon}
-              label="Back to pull requests"
-              onClick={props.onBack}
-              size="sm"
-            />
-          )
-        }
+        back={props.onBack && { label: "Pull requests", onBack: props.onBack }}
         title={<PrTitle actions={actions} condensed={false} page />}
         actions={
           <>
