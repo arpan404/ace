@@ -537,12 +537,23 @@ export async function startServer(options: ServerOptions): Promise<{
         stopTimer();
         stopRevocation();
         for (const cleanup of cleanups.values()) cleanup();
-        for (const server of servers)
-          for (const socket of server.clients) {
-            socket.close(1001, "Daemon shutdown");
-            socket.terminate();
-          }
+        const peers = servers.flatMap((server) =>
+          [...server.clients].map(
+            (socket) =>
+              new Promise<void>((closed) => {
+                if (socket.readyState === WebSocket.CLOSED) return closed();
+                // Let the peer receive the shutdown reason before forcing a stalled socket shut.
+                const stop = runtime.delay(() => socket.terminate(), 1000);
+                socket.once("close", () => {
+                  stop();
+                  closed();
+                });
+                socket.close(1001, "Daemon shutdown");
+              }),
+          ),
+        );
         void Promise.all([
+          stage("socket peers", Promise.all(peers)),
           stage("local listener", closeListener(local)),
           ...(remote ? [stage("remote listener", closeListener(remote))] : []),
           stage("preview", preview?.close()),
