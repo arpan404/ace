@@ -75,7 +75,7 @@ export function MarkdownEditor(props: {
   return (
     <div
       className={cn(
-        "flex min-w-0 flex-col rounded-md bg-(--field) shadow-[inset_0_0_0_1px_var(--border-strong)] transition-shadow duration-(--motion-fast)",
+        "flex min-w-0 flex-col rounded-md shadow-[inset_0_0_0_1px_var(--border-strong)] transition-shadow duration-(--motion-fast)",
         "has-[textarea:focus-visible]:shadow-[inset_0_0_0_1px_var(--focus,var(--ring))]",
         props.disabled && "opacity-60",
         props.className,
