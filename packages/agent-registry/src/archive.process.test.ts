@@ -2,9 +2,10 @@ import { expect, test } from "vitest";
 import { pack } from "tar-stream";
 import { crc32, gzipSync } from "node:zlib";
 import { readFile, access, mkdir, stat, truncate, writeFile, chmod } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { extractZip } from "./archives.ts";
+import { extractTar, extractZip } from "./archives.ts";
 import { join } from "node:path";
 import { registry, temporary, body, sample } from "./testing/support.ts";
 import { digest } from "./index.ts";
@@ -184,6 +185,41 @@ test("a bzip2 tar installs through the registry and its entrypoint reads back", 
     await work.close();
   }
 });
+
+test("a bzip2 tar that expands past the budget is refused with the budget error", async () => {
+  const work = await temporary();
+  try {
+    // 1 GiB of zeros: the entry header stays within budget, but the tar stream the bzip2
+    // layer expands past the shared 1 GiB expansion budget, so the .bz2 stays tiny.
+    const limit = 1024 * 1024 * 1024;
+    const payload = join(work.root, "payload.bin");
+    await writeFile(payload, "");
+    await truncate(payload, limit);
+    const source = join(work.root, "source.tar");
+    const archive = pack();
+    const packed = new Promise<void>((resolve, reject) => {
+      const sink = createWriteStream(source);
+      sink.once("finish", resolve);
+      sink.once("error", reject);
+      archive.once("error", reject);
+      archive.pipe(sink);
+    });
+    const entry = archive.entry({ name: "payload.bin", size: limit }, (error) => {
+      if (error) archive.destroy(error);
+      else archive.finalize();
+    });
+    createReadStream(payload).pipe(entry);
+    await packed;
+    await promisify(execFile)("/usr/bin/bzip2", ["-k", source]);
+    const root = join(work.root, "installed");
+    await mkdir(root);
+    await expect(
+      extractTar(`${source}.bz2`, root, new AbortController().signal, "bzip2"),
+    ).rejects.toThrow("Archive expansion budget exceeded");
+  } finally {
+    await work.close();
+  }
+}, 120_000);
 
 test("archive symlinks cannot redirect subsequent entries into an external directory", async () => {
   const work = await temporary();
