@@ -3,7 +3,6 @@ import { z } from "zod";
 import { ForgePrRef, type ForgeRepository, type ForgePrStatus } from "@ace/protocol/forge";
 import {
   ForgePrSearch,
-  ForgePageInput,
   ForgeActivityPageInput,
   ForgeFilePageInput,
   ForgePrFiles,
