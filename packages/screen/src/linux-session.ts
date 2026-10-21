@@ -2,7 +2,7 @@
  * The graphical session a Linux screen helper must reach. The systemd user service can start
  * before the person logs in, so its own environment may lack DISPLAY and WAYLAND_DISPLAY. Each
  * time a helper starts, a daemon without a display asks the user manager for the session's
- * variables, which the desktop session imports there once someone is logged in (ADR 0091).
+ * variables, which the desktop session imports there once someone is logged in (ADR 0093).
  */
 import { execFile } from "node:child_process";
 
