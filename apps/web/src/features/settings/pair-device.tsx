@@ -56,12 +56,7 @@ function AccessOption(props: {
       aria-checked={props.selected}
       aria-label={props.label}
       onClick={props.onSelect}
-      className={cn(
-        "flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors duration-(--motion-fast) focus-ring",
-        props.selected
-          ? "border-ring bg-ring/8"
-          : "border-border hover:border-border-strong hover:bg-hover",
-      )}
+      className="flex w-full items-start gap-3 py-2.5 text-left focus-ring-inset"
     >
       <span
         aria-hidden
@@ -152,7 +147,11 @@ function PairingFlow(props: { close(): void }) {
         />
       ) : (
         <>
-          <div role="radiogroup" aria-label="Access" className="flex flex-col gap-2">
+          <div
+            role="radiogroup"
+            aria-label="Access"
+            className="flex flex-col divide-y divide-border border-y border-border"
+          >
             {deviceAccessOptions.map((option) => (
               <AccessOption
                 key={option.value}
@@ -281,7 +280,7 @@ function PairingCode(props: {
             Change
           </Button>
         </p>
-        <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-card px-4 pt-5 pb-4">
+        <div className="flex flex-col items-center gap-3 py-3">
           <div className="relative">
             <QrCode
               value={pairing.url}

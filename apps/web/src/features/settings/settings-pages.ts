@@ -1,16 +1,16 @@
 import {
-  BrowserIcon,
-  FileTextIcon,
-  HardDriveIcon,
-  BellIcon,
-  CodeIcon,
-  GaugeIcon,
+  BellSimpleIcon,
+  ChatsCircleIcon,
+  DatabaseIcon,
+  DevicesIcon,
+  GearSixIcon,
+  GitBranchIcon,
+  GlobeSimpleIcon,
+  NotePencilIcon,
   KeyboardIcon,
-  LaptopIcon,
   PaletteIcon,
-  PlugIcon,
-  RobotIcon,
-  SlidersHorizontalIcon,
+  SquaresFourIcon,
+  TerminalWindowIcon,
   WrenchIcon,
 } from "@phosphor-icons/react";
 import { ComputerUseIcon } from "@/components/ace-icons.tsx";
@@ -53,20 +53,25 @@ export const settingsGroupTitles: Record<Exclude<SettingsGroup, "overview">, str
 };
 
 export const settingsPages: readonly SettingsPage[] = [
-  { to: "/settings/overview", title: "Overview", icon: GaugeIcon, group: "overview" },
-  { to: "/settings/general", title: "General", icon: SlidersHorizontalIcon, group: "device" },
+  { to: "/settings/overview", title: "Overview", icon: SquaresFourIcon, group: "overview" },
+  { to: "/settings/general", title: "General", icon: GearSixIcon, group: "device" },
   { to: "/settings/appearance", title: "Appearance", icon: PaletteIcon, group: "device" },
-  { to: "/settings/notifications", title: "Notifications", icon: BellIcon, group: "device" },
+  { to: "/settings/notifications", title: "Notifications", icon: BellSimpleIcon, group: "device" },
   { to: "/settings/keyboard", title: "Keyboard", icon: KeyboardIcon, group: "device" },
-  { to: "/settings/agents", title: "Agents", icon: RobotIcon, group: "machine" },
-  { to: "/settings/providers", title: "Providers", icon: PlugIcon, group: "machine" },
-  { to: "/settings/prompts", title: "Prompts", icon: FileTextIcon, group: "machine" },
-  { to: "/settings/source-control", title: "Source control", icon: CodeIcon, group: "machine" },
-  { to: "/settings/browser", title: "Browser", icon: BrowserIcon, group: "machine" },
+  { to: "/settings/agents", title: "Agents", icon: ChatsCircleIcon, group: "machine" },
+  { to: "/settings/providers", title: "Providers", icon: TerminalWindowIcon, group: "machine" },
+  { to: "/settings/prompts", title: "Prompts", icon: NotePencilIcon, group: "machine" },
+  {
+    to: "/settings/source-control",
+    title: "Source control",
+    icon: GitBranchIcon,
+    group: "machine",
+  },
+  { to: "/settings/browser", title: "Browser", icon: GlobeSimpleIcon, group: "machine" },
   { to: "/settings/computer-use", title: "Computer use", icon: ComputerUseIcon, group: "machine" },
-  { to: "/settings/storage", title: "Storage", icon: HardDriveIcon, group: "machine" },
+  { to: "/settings/storage", title: "Storage", icon: DatabaseIcon, group: "machine" },
   { to: "/settings/advanced", title: "Advanced", icon: WrenchIcon, group: "machine" },
-  { to: "/settings/remote", title: "Machines and devices", icon: LaptopIcon, group: "network" },
+  { to: "/settings/remote", title: "Machines and devices", icon: DevicesIcon, group: "network" },
 ];
 
 export function visibleSettingsPages(): readonly SettingsPage[] {

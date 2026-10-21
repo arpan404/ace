@@ -32,7 +32,9 @@ export function SettingsBody(props: {
   const { machine, machines } = useSettingsMachine();
   const picker = machinePage && machines.length > 1;
   return (
-    <Screen title="Settings" actions={props.actions}>
+    // The sidebar already says Settings and the page names itself below: the header keeps only
+    // its controls, with the view's name for assistive tech.
+    <Screen title={<span className="sr-only">Settings</span>} actions={props.actions}>
       <div className="h-full overflow-auto">
         <div className="@container w-full max-w-[860px] px-5 pt-5 pb-20 sm:px-7">
           {props.back && <div className="mb-1 text-ui">{props.back}</div>}

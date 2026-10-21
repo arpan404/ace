@@ -56,7 +56,7 @@ export function SettingRow(props: {
       data-flash={flashing || undefined}
       className={cn(
         "@container group/setting transition-colors duration-(--motion-slow)",
-        inCard ? "px-3.5" : "border-t first:border-t-0",
+        inCard ? "" : "border-t first:border-t-0",
         flashing && "bg-accent",
       )}
     >
@@ -66,9 +66,8 @@ export function SettingRow(props: {
           !props.inline && "@max-[440px]:flex-col @max-[440px]:items-stretch",
         )}
       >
-        {/* The label, with its description beside it in the quieter tier (wrapping under it
-            when the row is narrow), as the approved Appearance page lays rows out. */}
-        <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+        {/* The label, and under it its description in the quieter tier. */}
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           {compact && props.description ? (
             <Tip label={props.description}>
               <Title
@@ -76,7 +75,7 @@ export function SettingRow(props: {
                 id={titleId}
                 tabIndex={0}
                 aria-describedby={hintId}
-                className="rounded-sm text-ui font-medium focus-ring"
+                className="w-fit rounded-sm text-ui text-foreground focus-ring"
               >
                 {props.title}
               </Title>
@@ -86,7 +85,7 @@ export function SettingRow(props: {
               {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
               id={titleId}
               tabIndex={!props.htmlFor && compact && props.description ? 0 : undefined}
-              className="rounded-sm text-ui font-medium focus-ring"
+              className="w-fit rounded-sm text-ui text-foreground focus-ring"
             >
               {props.title}
             </Title>
@@ -100,7 +99,7 @@ export function SettingRow(props: {
             <span
               id={hintId}
               title={typeof props.description === "string" ? props.description : undefined}
-              className="text-xs text-subtle-foreground"
+              className="text-xs text-muted-foreground"
             >
               {props.description}
             </span>
@@ -174,12 +173,9 @@ export function SettingSection(props: {
 }) {
   const id = useId();
   return (
-    <section id={props.anchor} className="mb-4" aria-labelledby={id}>
-      <div className="mb-1.5 ml-0.5 flex min-h-5 items-center gap-2">
-        <h3
-          id={id}
-          className="text-2xs font-medium tracking-[0.04em] text-subtle-foreground uppercase"
-        >
+    <section id={props.anchor} className="mb-9" aria-labelledby={id}>
+      <div className="mb-1 flex min-h-7 items-center gap-2">
+        <h3 id={id} className="text-md font-medium text-foreground">
           {props.label}
         </h3>
         {props.actions && (
@@ -188,7 +184,7 @@ export function SettingSection(props: {
           </div>
         )}
       </div>
-      {props.note && <p className="mb-1.5 ml-0.5 text-xs text-muted-foreground">{props.note}</p>}
+      {props.note && <p className="mb-2 text-ui text-muted-foreground">{props.note}</p>}
       <SettingCard>{props.children}</SettingCard>
     </section>
   );
@@ -203,13 +199,7 @@ export function SettingSection(props: {
 export function SettingCard(props: { children: ReactNode; className?: string }) {
   return (
     <InCard value>
-      <div
-        className={cn(
-          "divide-y divide-border rounded-lg border border-border bg-card",
-          "[&>:not([data-setting-slot])]:mx-3.5",
-          props.className,
-        )}
-      >
+      <div className={cn("divide-y divide-border border-t border-border", props.className)}>
         {props.children}
       </div>
     </InCard>
@@ -218,13 +208,7 @@ export function SettingCard(props: { children: ReactNode; className?: string }) 
 
 /** Prose inside a card (a status line, what a group does), inset like a row's text. */
 export function SettingNote({ className, ...props }: ComponentProps<"p">) {
-  return (
-    <p
-      {...slot}
-      className={cn("px-3.5 py-3 text-ui text-muted-foreground", className)}
-      {...props}
-    />
-  );
+  return <p {...slot} className={cn("py-3 text-ui text-muted-foreground", className)} {...props} />;
 }
 
 /** A card's actions, one row tall, at the end of the row like a row's control. */
@@ -233,7 +217,7 @@ export function SettingFooter(props: { children: ReactNode; className?: string }
     <div
       {...slot}
       className={cn(
-        "flex min-h-(--setting-row-height) flex-wrap items-center justify-end gap-2 px-3.5 py-(--setting-row-y)",
+        "flex min-h-(--setting-row-height) flex-wrap items-center justify-end gap-2 py-(--setting-row-y)",
         props.className,
       )}
     >
@@ -260,7 +244,7 @@ export function SettingListItem({ className, id, ref, ...props }: ComponentProps
       id,
       "data-flash": flashing || undefined,
       className: cn(
-        "flex min-h-(--setting-row-height) items-center gap-2 px-3.5 py-(--setting-row-y) transition-colors duration-(--motion-slow)",
+        "flex min-h-(--setting-row-height) items-center gap-2 py-(--setting-row-y) transition-colors duration-(--motion-slow)",
         flashing && "bg-accent",
         className,
       ),
@@ -292,7 +276,7 @@ export function SettingAction({
       type,
       "data-flash": flashing || undefined,
       className: cn(
-        "flex min-h-(--setting-row-height) w-full items-center gap-2 px-3.5 text-left text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-fill hover:text-foreground disabled:opacity-50",
+        "flex min-h-(--setting-row-height) w-full items-center gap-2 text-left text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring-inset hover:text-foreground disabled:opacity-50",
         flashing && "bg-accent",
         className,
       ),
@@ -334,7 +318,7 @@ export function SettingDisclosure(props: {
         className={cn(
           "flex cursor-default list-none items-center gap-2 text-ui [&::-webkit-details-marker]:hidden",
           inCard
-            ? "min-h-(--setting-row-height) px-3.5 focus-ring-inset"
+            ? "min-h-(--setting-row-height) focus-ring-inset"
             : "h-8 w-fit rounded-md pr-2 text-muted-foreground focus-ring hover:text-foreground",
         )}
       >

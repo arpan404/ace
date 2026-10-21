@@ -1,10 +1,11 @@
 import { CaretRightIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingCard, SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { ProviderSetupRow } from "@/features/provider-setup/index.ts";
 import { machineStatus } from "@/lib/machine-status.ts";
@@ -87,30 +88,32 @@ function MachineSection(props: {
   const { machine } = props;
   const open = useOpenOnMachine();
   const status = machineStatus[machine.status];
+  const titleId = useId();
   return (
-    <SettingSection
-      label={machine.name}
-      actions={
-        <>
-          <span>
-            {[status.label, machine.client ? props.summary : undefined].filter(Boolean).join(" · ")}
-          </span>
-          {machine.status === "auth_failed" ? (
-            <Button size="sm" variant="ghost" onClick={() => open(machine, "/settings/remote")}>
-              Pair again
+    <section aria-labelledby={titleId} className="mb-9">
+      {/* A machine is the thing on this page, so its name is a title, not a small label. */}
+      <div className="mb-2 flex min-h-7 flex-wrap items-center gap-x-2.5 gap-y-1 px-0.5">
+        <h3 id={titleId} className="flex items-center gap-2 text-md font-medium">
+          <MachineMark icon={machine.icon} primary={machine.primary} />
+          {machine.name}
+        </h3>
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+          {[status.label, machine.client ? props.summary : undefined].filter(Boolean).join(" · ")}
+        </span>
+        {machine.status === "auth_failed" ? (
+          <Button size="sm" variant="ghost" onClick={() => open(machine, "/settings/remote")}>
+            Pair again
+          </Button>
+        ) : (
+          machine.client && (
+            <Button size="sm" variant="ghost" onClick={() => open(machine, "/settings/agents")}>
+              Edit settings
             </Button>
-          ) : (
-            machine.client && (
-              <Button size="sm" variant="ghost" onClick={() => open(machine, "/settings/agents")}>
-                Edit settings
-              </Button>
-            )
-          )}
-        </>
-      }
-    >
-      {props.children}
-    </SettingSection>
+          )
+        )}
+      </div>
+      <SettingCard>{props.children}</SettingCard>
+    </section>
   );
 }
 
@@ -133,7 +136,7 @@ function OnlineMachine(props: { machine: Machine }) {
   return (
     <MachineSection machine={props.machine} summary={summary}>
       {!entries && !query.isError ? (
-        <div className="flex min-h-(--setting-row-height) items-center px-3.5" data-setting-slot="">
+        <div className="flex min-h-(--setting-row-height) items-center" data-setting-slot="">
           <Skeleton className="h-4 w-48 rounded-md" />
         </div>
       ) : query.isError ? (
@@ -154,7 +157,7 @@ function ProviderLine(props: { machine: Machine; entry: ProviderEntry }) {
   const { install, row, view } = props.entry;
   const open = useOpenOnMachine();
   return (
-    <div role="group" aria-label={install.name} data-setting-slot="" className="px-3.5 py-1.5">
+    <div role="group" aria-label={install.name} data-setting-slot="" className="py-1.5">
       <ProviderSetupRow
         provider={install.kind}
         acpAgentId={install.registry?.agent?.acpAgentId ?? install.acpAgentId}

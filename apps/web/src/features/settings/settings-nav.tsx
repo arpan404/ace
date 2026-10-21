@@ -66,7 +66,15 @@ function PageList(props: { pages: readonly SettingsPage[]; current: string | und
               aria-current={active ? "page" : undefined}
               className={cn(rowClass, active && "bg-sidebar-accent font-medium text-foreground")}
             >
-              <Icon icon={page.icon} active={active} />
+              {/* Icons stay outlined: the row's fill and text say which page is open. */}
+              <Icon
+                icon={page.icon}
+                className={
+                  active
+                    ? "text-foreground"
+                    : "text-subtle-foreground group-hover:text-muted-foreground"
+                }
+              />
               {page.title}
             </Link>
           </li>
