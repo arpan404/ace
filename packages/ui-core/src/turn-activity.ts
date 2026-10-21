@@ -1,10 +1,5 @@
 import type { ThreadReader } from "@ace/client";
-import {
-  isInternalTask,
-  isTestCommand,
-  shellCommandOf,
-  standsForSubagent,
-} from "@ace/projection";
+import { isInternalTask, isTestCommand, shellCommandOf, standsForSubagent } from "@ace/projection";
 import type { AgentStatus, Interaction, Item, ThreadStatus } from "@ace/protocol";
 import { turnTreeOf } from "./turn-tree.ts";
 import { agentName } from "./agents.ts";
@@ -79,7 +74,13 @@ export interface TurnActivity {
  * background tasks waited on, which its Stop ends.
  */
 export type TurnWait =
-  | { kind: "subagents"; count: number; turnOver: boolean }
+  | {
+      kind: "subagents";
+      count: number;
+      turnOver: boolean;
+      /** Background commands still running beside them: "· 2 commands running". */
+      commands: number;
+    }
   | {
       kind: "background";
       count: number;
@@ -265,6 +266,7 @@ export function readTurnActivity(
     ? {
         kind: "subagents",
         count: subagents,
+        commands: backgroundCommands,
         turnOver: !(status?.state === "blocked" && status.on === "subagents"),
       }
     : !working && !needsYou && status?.state === "blocked" && status.on === "background_task"
@@ -344,7 +346,7 @@ function backgroundRefs(
     if (task.ambient || isInternalTask(task)) continue;
     if (task.toolCallId) watch.push(`item:${task.toolCallId}`);
     taskIds.push(task.id);
-    shells &&= task.kind === "shell";
+    shells &&= task.kind === "shell" || task.kind === "monitor";
     command = shellCommandOf(task, task.toolCallId ? reader.item(task.toolCallId) : undefined);
   }
   return { taskIds, title: taskIds.length === 1 ? command : undefined, shells, subagents };
@@ -534,7 +536,8 @@ export function sameActivity(a: TurnActivity | undefined, b: TurnActivity | unde
 function sameWait(a: TurnWait | undefined, b: TurnWait | undefined): boolean {
   if (a === b) return true;
   if (!a || !b || a.kind !== b.kind || a.count !== b.count) return false;
-  if (a.kind === "subagents") return b.kind === "subagents" && a.turnOver === b.turnOver;
+  if (a.kind === "subagents")
+    return b.kind === "subagents" && a.turnOver === b.turnOver && a.commands === b.commands;
   return (
     b.kind === "background" &&
     a.title === b.title &&

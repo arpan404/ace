@@ -1,9 +1,9 @@
 import type { Fact, Key } from "@ace/core";
 import type { ThreadId } from "@ace/protocol";
 import { InteractionResolution } from "@ace/protocol";
-import type { Frame, Translator } from "@ace/engine-api";
+import { adapterWarning, type Frame, type Translator } from "@ace/engine-api";
 import { NativeEvent, eventSession } from "./boundaries.ts";
-import { object, array, string, number, retryReason, raw, type Data } from "./data.ts";
+import { object, array, string, number, retryReason, type Data } from "./data.ts";
 import { NativeState } from "./native-state.ts";
 import { tool, text, projected, syntheticKind } from "./native-content.ts";
 import { interaction } from "./interactions.ts";
@@ -28,22 +28,18 @@ export class OpenCodeTranslator implements Translator {
     try {
       return this.frame(frame, data, now);
     } catch {
+      // The agent reads as disconnected, which already tells the person; the detail is ace's
+      // own and goes to the daemon's log with the frame it couldn't read.
       this.state.disconnected = true;
-      return [
-        { type: "agent.disconnected", agent: this.state.rootKey },
-        {
-          type: "item.upsert",
-          agent: this.state.rootKey,
-          item: "opencode:translation-error",
-          draft: {
-            type: "notice",
-            complete: true,
-            level: "error",
-            text: "OpenCode data could not be translated; execution remains uncertain",
-            raw: raw(string(data.type, frame.channel), frame.data),
-          },
+      this.diagnostics.push({
+        type: adapterWarning,
+        data: {
+          event: "translation-failed",
+          detail: "OpenCode data could not be translated; execution remains uncertain.",
+          frame: string(data.type, frame.channel),
         },
-      ];
+      });
+      return [{ type: "agent.disconnected", agent: this.state.rootKey }];
     }
   }
   private frame(frame: Frame, data: Data, now: number): Fact[] {
