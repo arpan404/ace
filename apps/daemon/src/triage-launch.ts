@@ -63,9 +63,11 @@ export async function runTriageHandoff(
   provider: TriageProvider,
   prompt: string,
   env: NodeJS.ProcessEnv,
+  cwd: string,
 ): Promise<number> {
   const launch = await triageLaunch(provider, prompt, env);
-  const child = spawn(launch.command, launch.args, { stdio: "inherit", env });
+  // Start in the triage folder so the agent doesn't edit whatever project the shell was in.
+  const child = spawn(launch.command, launch.args, { stdio: "inherit", env, cwd });
   const forward = (signal: NodeJS.Signals) => () => {
     child.kill(signal);
   };

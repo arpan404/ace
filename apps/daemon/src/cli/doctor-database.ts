@@ -42,9 +42,8 @@ export async function repairDoctorDatabase(
       );
       if (result.kind !== "compaction") throw new Error("Missing compaction result");
       const value = result.compaction;
-      const freed = Math.max(0, value.databaseBytesBefore - value.databaseBytes);
       const legacy = value.incrementalUnavailable && value.reclaimableDatabaseBytes >= 1024 * 1024;
-      const detail = `Reclaimed ${(freed / 1024 / 1024).toFixed(2)} MiB; ${(value.reclaimableDatabaseBytes / 1024 / 1024).toFixed(2)} MiB remains reusable.`;
+      const detail = `Databases: ${size(value.databaseBytesBefore)} → ${size(value.databaseBytes)}; ${size(value.reclaimableDatabaseBytes)} still reusable.`;
       return [
         {
           id: "sqlite.space",
@@ -69,4 +68,10 @@ export async function repairDoctorDatabase(
       },
     ];
   }
+}
+
+function size(bytes: number): string {
+  return bytes >= 1024 ** 3
+    ? `${(bytes / 1024 ** 3).toFixed(2)} GiB`
+    : `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
 }

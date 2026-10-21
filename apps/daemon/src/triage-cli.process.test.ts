@@ -24,24 +24,11 @@ async function setup() {
   await mkdir(home, { mode: 0o700 });
   return { root, home };
 }
-it("piped triage generates a feature prompt without starting a daemon or writing ace data", async () => {
-  const { home } = await setup();
-  const result = await invoke(
-    home,
-    ["triage", "-", "--kind", "feature", "--provider", "codex", "--json"],
-    "Add inbox filtering",
-    { PATH: "" },
-  );
-  expect(result.code).toBe(0);
-  const output = JSON.parse(result.stdout);
-  expect(output.prompt).toContain("Add inbox filtering");
-  expect(output.prompt).toContain("acceptance criteria");
-  expect(output.prompt).not.toContain("## ace doctor\n");
-  expect(output.prompt).not.toContain("Working agreement");
-  expect(output.provider).toBe("codex");
-  expect(await readdir(home)).toEqual([]);
-});
-it("a bug prompt carries this computer's recent ace errors, grouped, without the noise or the secrets", async () => {
+
+const parse = (stdout: string) =>
+  JSON.parse(stdout) as { folder: string; playbook: string; facts: string; launch: string };
+
+it("triage writes a playbook and this computer's facts without starting a daemon or touching ace data", async () => {
   const { home } = await setup();
   await mkdir(join(home, "logs"), { mode: 0o700 });
   const now = Date.now();
@@ -54,40 +41,44 @@ it("a bug prompt carries this computer's recent ace errors, grouped, without the
     entry(10_000, "info", "Thread opened", {}),
   ].join("\n");
   await writeFile(join(home, "logs", "ace.jsonl"), log + "\n");
-  const result = await invoke(
-    home,
-    ["triage", "-", "--kind", "bug", "--print"],
-    "Stop leaves the thread working",
-    { PATH: "", ACE_TEST_TOKEN: "sk-live-abcdef1234567890" },
-  );
+  const before = (await readdir(home)).toSorted();
+  const result = await invoke(home, ["triage", "--json"], "", {
+    PATH: "",
+    ACE_TEST_TOKEN: "sk-live-abcdef1234567890",
+  });
   expect(result.code).toBe(0);
-  expect(result.stdout).toContain("Stop leaves the thread working");
-  expect(result.stdout).toContain("2× error engine: Stop timed out");
-  expect(result.stdout).not.toContain("Old crash");
-  expect(result.stdout).not.toContain("Thread opened");
-  expect(result.stdout).not.toContain("sk-live-abcdef1234567890");
-  expect(result.stdout).toMatch(/Logs: \S*data\/logs\/ace\.jsonl/);
-  expect(result.stdout).toContain("Agent CLIs: none found");
+  const session = parse(result.stdout);
+  roots.push(session.folder);
+  const facts = await readFile(session.facts, "utf8");
+  expect(facts).toContain("2× error engine: Stop timed out");
+  expect(facts).not.toContain("Old crash");
+  expect(facts).not.toContain("Thread opened");
+  expect(facts).not.toContain("sk-live-abcdef1234567890");
+  expect(facts).toContain("ace daemon: stopped");
+  expect(facts).toContain("Agent CLIs: none found");
+  expect(facts).toMatch(/Never open: \S*daemon-token/);
+  expect(await readFile(session.playbook, "utf8")).toContain(session.facts);
+  expect(session.launch).toContain(session.playbook);
+  expect((await readdir(home)).toSorted()).toEqual(before);
   expect(await readFile(join(home, "logs", "ace.jsonl"), "utf8")).toBe(log + "\n");
 });
-it("triage still writes a prompt when ace's settings are invalid and its log can't be read, and says so", async () => {
+
+it("triage still writes its files when ace's settings are invalid and its log can't be read, and says so", async () => {
   const { home } = await setup();
   // A directory where the log file should be makes every read of it fail.
   await mkdir(join(home, "logs", "ace.jsonl"), { recursive: true, mode: 0o700 });
-  const result = await invoke(
-    home,
-    ["triage", "-", "--kind", "bug", "--print"],
-    "The app won't open after an update",
-    { PATH: "", ACE_PORT: "not-a-port" },
-  );
+  const result = await invoke(home, ["triage", "--print"], "", {
+    PATH: "",
+    ACE_PORT: "not-a-port",
+  });
   expect(result.code).toBe(0);
-  expect(result.stdout).toContain("The app won't open after an update");
+  expect(result.stdout).toContain("# ace triage playbook");
   expect(result.stdout).toContain("## Couldn't check");
-  expect(result.stdout).toContain("ACE_* environment settings are invalid");
+  expect(result.stdout).toContain("ACE_PORT");
   expect(result.stdout).toMatch(/Reading \S*logs\/ace\.jsonl failed/);
-  expect(result.stdout).toMatch(/Logs: \S*data\/logs\/ace\.jsonl/);
 });
-it("doctor fix restores private folder access, creates logs, preserves data and exports unresolved findings", async () => {
+
+it("doctor fix restores private folder access, creates logs and preserves data", async () => {
   const { home } = await setup();
   await writeFile(join(home, "precious-data"), "keep me");
   await chmod(home, 0o755);
@@ -105,7 +96,26 @@ it("doctor fix restores private folder access, creates logs, preserves data and 
   expect(
     output.checks.find((check: { id: string }) => check.id === "home.permissions").status,
   ).toBe("ok");
-  expect(output.prompt).toContain("## ace doctor\n");
+});
+
+it("doctor without --fix lists the repairs it would make and changes nothing", async () => {
+  const { home } = await setup();
+  await chmod(home, 0o755);
+  for (const args of [
+    ["doctor", "--dry-run", "--fix", "--json"],
+    ["doctor", "--json"],
+  ]) {
+    const output = JSON.parse((await invoke(home, args, "", { PATH: "" })).stdout);
+    expect(output.planned).toContainEqual(
+      expect.objectContaining({ id: "folders", recommended: true }),
+    );
+    expect(output.repairs).toEqual([]);
+  }
+  const text = await invoke(home, ["doctor"], "", { PATH: "" });
+  expect(text.stdout).toContain("Fix ace folder access (recommended)");
+  expect(text.stdout).toContain("pass --fix for the recommended ones");
+  expect((await stat(home)).mode & 0o777).toBe(0o755);
+  expect(await readdir(home)).toEqual([]);
 });
 it("doctor fix refuses linked log folders without changing their target", async () => {
   const { root, home } = await setup();

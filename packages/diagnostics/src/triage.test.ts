@@ -1,93 +1,82 @@
 import { expect, it } from "vitest";
-import { buildTriagePrompt, digestLogLines } from "@ace/diagnostics/triage";
+import {
+  buildTriageFacts,
+  digestLogLines,
+  triageLaunchLine,
+  triagePlaybook,
+  type TriageFacts,
+} from "@ace/diagnostics/triage";
 
 const now = 1_800_000_000_000;
 const line = (at: number, level: string, message: string, data?: unknown) =>
   JSON.stringify({ at, level, component: "ace", message, ...(data ? { data } : {}) });
-
-it("a performance handoff preserves the description and distinguishes measurements from provider latency", () => {
-  const prompt = buildTriagePrompt({
-    kind: "performance",
-    description: "Switching threads takes 4 seconds",
-    report: {
-      at: 123,
-      checks: [{ id: "git", status: "fail", message: "Git missing", fix: "Install Git" }],
-    },
-  });
-  expect(prompt).toContain("Switching threads takes 4 seconds");
-  expect(prompt).toContain("measure the slow path");
-  expect(prompt).toContain("provider or network latency");
-  expect(prompt).toContain("Git missing");
-  expect(prompt).toContain("Install Git");
-  expect(prompt).toContain("publishing anything");
+const facts = (overrides: Partial<TriageFacts> = {}): TriageFacts => ({
+  collectedAt: "2027-01-15T08:00:00.000Z",
+  cliVersion: "0.0.4",
+  os: "darwin arm64",
+  node: "v24.1.0",
+  launchedFrom: "/Applications/ace.app/Contents/Resources/daemon/cli.js",
+  daemon: "stopped",
+  clis: [{ label: "Claude Code", version: "2.1.0" }, { label: "OpenCode" }],
+  paths: {
+    data: "~/.ace",
+    log: "~/.ace/logs/ace.jsonl",
+    settings: "~/.ace/settings.json",
+    databases: ["~/.ace/events.sqlite"],
+    sourceCache: "/tmp/ace-triage-source",
+  },
+  secrets: ["~/.ace/daemon-token", "~/.ace/tls"],
+  logs: [],
+  problems: [],
+  now,
+  ...overrides,
 });
 
-it("a feature handoff asks for acceptance criteria and does not use the bug investigation workflow", () => {
-  const prompt = buildTriagePrompt({
-    kind: "feature",
-    description: "Add grouped notifications",
-    followUp: "Grouped by thread, newest first",
-  });
-  expect(prompt).toContain("acceptance criteria");
-  expect(prompt).toContain("Add grouped notifications");
-  expect(prompt).toContain("## Done when\nGrouped by thread, newest first");
-  expect(prompt).not.toContain("Reproduce");
-  expect(() => buildTriagePrompt({ kind: "bug", description: "  " })).toThrow();
-});
-
-it("a bug handoff tells the agent what is installed, whether the daemon runs and where the logs are", () => {
-  const prompt = buildTriagePrompt({
-    kind: "bug",
-    description: "Stop leaves the thread working",
-    followUp: "It should stop within a second",
-    context: {
-      daemon: "running",
-      clis: [{ label: "Claude Code", version: "2.1.0" }, { label: "OpenCode" }],
-      dataDir: "~/.ace",
-      logFile: "~/.ace/logs/ace.jsonl",
-      now,
+it("the facts file tells the agent what runs here, where everything is and what never to open", () => {
+  const text = buildTriageFacts(
+    facts({
       logs: [
         {
           level: "error",
           component: "engine",
           message: "Stop timed out",
           count: 3,
-          lastAt: now - 5 * 60_000,
+          lastAt: now - 300_000,
         },
       ],
-    },
-  });
-  expect(prompt).toContain("## Expected\nIt should stop within a second");
-  expect(prompt).toContain("3× error engine: Stop timed out (last 5m ago)");
-  expect(prompt).toContain("ace daemon: running");
-  expect(prompt).toContain("Agent CLIs: Claude Code 2.1.0, OpenCode");
-  expect(prompt).toContain("~/.ace/logs/ace.jsonl");
-  expect(prompt).toContain("never write to them");
+    }),
+  );
+  expect(text).toContain("ace CLI version: 0.0.4");
+  expect(text).toContain("ace daemon: stopped");
+  expect(text).toContain("Agent CLIs: Claude Code 2.1.0, OpenCode");
+  expect(text).toContain("~/.ace/logs/ace.jsonl");
+  expect(text).toContain("~/.ace/events.sqlite");
+  expect(text).toContain("Source cache (clone ace here): /tmp/ace-triage-source");
+  expect(text).toContain("Never open: ~/.ace/daemon-token, ~/.ace/tls");
+  expect(text).toContain("- 3× error engine: Stop timed out (last 5m ago)");
+  expect(text).not.toContain("Couldn't check");
 });
 
-it("a setup handoff needs no description, summarizes passed checks and omits raw diagnostic JSON", () => {
-  const prompt = buildTriagePrompt({
-    kind: "doctor",
-    description: "",
-    report: {
-      at: 123,
-      checks: [
-        { id: "node", status: "ok", message: "Node v24.0.0", fix: "" },
-        {
-          id: "sqlite.space",
-          status: "warn",
-          message: "12 MiB reusable",
-          fix: "Run ace doctor --fix",
-        },
-      ],
-    },
+it("a broken install's failed probes and doctor findings are listed, and a quiet log says so", () => {
+  const broken = facts({
+    clis: [],
+    problems: ["Reading ~/.ace/logs/ace.jsonl failed: EACCES"],
+    findings: [{ id: "sqlite", status: "fail", message: "Integrity check failed" }],
   });
-  expect(prompt).toContain("12 MiB reusable");
-  expect(prompt).toContain("Run ace doctor --fix");
-  expect(prompt).toContain("1 check passed");
-  expect(prompt).not.toContain("Node v24.0.0");
-  expect(prompt).not.toContain('"checks":');
-  expect(prompt).not.toContain("## Notes");
+  delete broken.daemon;
+  const text = buildTriageFacts(broken);
+  expect(text).toContain("ace daemon: unknown");
+  expect(text).toContain("Agent CLIs: none found");
+  expect(text).toContain("## Couldn't check\n\n- Reading ~/.ace/logs/ace.jsonl failed: EACCES");
+  expect(text).toContain("- FAIL sqlite: Integrity check failed");
+  expect(text).toContain("## Recent warnings and errors (last 24 hours)\n\nNone.");
+});
+
+it("the agent is launched with one line that points at a playbook which points at the facts", () => {
+  const launch = triageLaunchLine("/tmp/t/PLAYBOOK.md");
+  expect(launch).not.toContain("\n");
+  expect(launch).toContain("/tmp/t/PLAYBOOK.md");
+  expect(triagePlaybook("/tmp/t/FACTS.md")).toContain("/tmp/t/FACTS.md");
 });
 
 it("recent log warnings are grouped by message with errors first, skipping old, info and malformed lines", () => {

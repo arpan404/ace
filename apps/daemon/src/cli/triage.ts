@@ -1,155 +1,194 @@
-import { homedir } from "node:os";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import type { DiagnosticReport } from "@ace/protocol";
 import {
-  TriageKind,
   TriageProvider,
-  buildTriagePrompt,
+  buildTriageFacts,
+  triageLaunchLine,
+  triagePlaybook,
   triageProviders,
-  triageTemplate,
-  triageTemplates,
-  type TriageContext,
+  type TriageFacts,
 } from "@ace/diagnostics/triage";
-import { collectTriageContext, localDaemonState } from "../triage-context.ts";
+import { collectTriageFacts } from "../triage-context.ts";
 import { installedClis, runTriageHandoff, type InstalledCli } from "../triage-launch.ts";
 import type { Config } from "../config.ts";
 import { option, validateArgs, type Args } from "./args.ts";
-import { print, prompt as readPrompt } from "./io.ts";
+import { print } from "./io.ts";
 import { CliFailure } from "./output.ts";
 import type { TriageWizard } from "./triage-wizard.ts";
 
-export const triageHelp = `ace triage [DESCRIPTION|-] [--kind bug|feature|performance|doctor] [--provider claude|codex|cursor|opencode] [--print]
+export const triageHelp = `ace triage [--provider claude|codex|cursor|opencode] [--print] [--json]
 
-Builds a ready-to-run prompt for a coding agent: what you describe, plus recent ace
-warnings and errors, installed agent CLIs, the daemon's state and where ace keeps its
-logs and data. Review it, then open it in Claude Code, Codex, Cursor CLI or OpenCode,
-copy it, or print it.
---print, --json and --jq generate without launching. Pipe a description using -.
-The wizard runs locally without a daemon. Provider CLIs keep their own login and permission settings.
-ace doctor [--fix] [--provider claude|codex|cursor|opencode] [--print] [--json]
---fix repairs ace folders and reclaims database space through the running local daemon, reruns checks and offers a triage handoff for unresolved checks.
-Legacy databases and corrupt files are not rebuilt.`;
+Starts a coding agent that helps when ace is not working. ace writes a playbook and the
+facts about this computer (versions, daemon state, recent errors, where logs and data
+live) to a temporary folder, then opens your installed Claude Code, Codex, Cursor CLI
+or OpenCode there. The agent asks what went wrong, investigates, and asks before it
+changes anything or files an issue.
+--print writes the playbook and facts to stdout to paste into any agent. --json lists the files.
+Works without the app or the daemon. Provider CLIs keep their own login and permissions.
 
-type Gathered = { clis: InstalledCli[]; context: TriageContext; report?: DiagnosticReport };
+ace doctor [--fix] [--dry-run] [--provider claude|codex|cursor|opencode] [--json]
+
+Checks this computer's ace setup and lists the repairs it can make. In a terminal you
+choose which to run; --fix runs the recommended ones; --dry-run changes nothing.
+Reclaiming database space goes through the running local daemon. Legacy databases and
+corrupt files are never rebuilt.`;
+
+/** The two files the agent reads, in a folder that works even when ~/.ace is broken. */
+export type TriageSession = {
+  folder: string;
+  playbookPath: string;
+  factsPath: string;
+  facts: TriageFacts;
+  clis: InstalledCli[];
+};
 
 export async function triageCommand(
   args: Args,
   config: Config,
   problems: readonly string[] = [],
 ): Promise<void> {
-  validateArgs(args, ["kind", "provider", "print"], 1, 2);
+  validateArgs(args, ["provider", "print"], 1);
   if (args.flags.remote)
     throw new CliFailure(
       "refused",
       "Triage runs on this computer. Run ace triage on the affected host.",
     );
-  const kindValue = option(args, "kind");
-  const suppliedKind = kindValue === undefined ? undefined : TriageKind.parse(kindValue);
   const providerValue = option(args, "provider");
-  let provider = providerValue === undefined ? undefined : TriageProvider.parse(providerValue);
-  const wizard = interactive(args) ? await openWizard() : undefined;
-  let generated: string;
+  const provider = providerValue === undefined ? undefined : TriageProvider.parse(providerValue);
+  if (!interactive(args)) {
+    const session = await prepareTriage(config, { problems });
+    await printSession(args, session);
+    return;
+  }
+  await runTriage(args, config, { problems, ...(provider ? { provider } : {}) });
+}
+
+/** Interactive triage, also offered by `ace doctor` when findings remain. */
+export async function runTriage(
+  args: Args,
+  config: Config,
+  input: { problems?: readonly string[]; report?: DiagnosticReport; provider?: TriageProvider },
+): Promise<void> {
+  const wizard = await openWizard();
+  let chosen: TriageProvider | "print" | undefined;
+  let session: TriageSession;
   try {
-    const kind =
-      suppliedKind ??
-      (wizard
-        ? await wizard.choose(
-            "What do you need?",
-            triageTemplates.map(({ value, label, hint }) => ({ value, label, hint })),
-          )
-        : "bug");
-    const template = triageTemplate(kind);
-    // Look around while the person types; it's ready by the time they finish.
-    const gathering = gather(config, kind, problems);
-    gathering.catch(() => {});
-    let description: string;
-    let followUp = "";
-    if (wizard && args.words[1] === undefined) {
-      description = await wizard.ask(template.ask);
-      followUp = await wizard.askOptional(template.followUp);
-    } else
-      description =
-        kind === "doctor" && args.words[1] === undefined && process.stdin.isTTY
-          ? ""
-          : await readPrompt(args, 1);
-    // Usually done while the person typed; show a spinner only if it isn't.
-    const settled = await Promise.race([
-      gathering.then(() => true),
-      new Promise<false>((resolve) => setImmediate(() => resolve(false))),
-    ]);
-    const { clis, context, report } =
-      wizard && !settled
-        ? await wizard.progress(
-            kind === "doctor" ? "Running ace doctor" : "Reading recent logs",
-            kind === "doctor" ? "Doctor finished" : "Logs read",
-            () => gathering,
-          )
-        : await gathering;
-    for (;;) {
-      generated = buildTriagePrompt({
-        kind,
-        description,
-        followUp,
-        context,
-        ...(report ? { report } : {}),
-      });
-      if (!wizard) break;
-      wizard.preview(generated, summarize(generated, context, report));
-      const action = await wizard.choose("Send it", [
-        clis.length
-          ? {
-              value: "open",
-              label: "Open in an agent CLI",
-              hint: clis.map((c) => c.label).join(", "),
-            }
-          : {
-              value: "open",
-              label: "Open in an agent CLI",
-              hint: "none installed",
-              disabled: true,
-            },
-        { value: "copy", label: "Copy to clipboard", hint: "paste into any agent" },
-        { value: "edit", label: "Edit my answers" },
-        { value: "print", label: "Print and exit" },
-        { value: "cancel", label: "Cancel" },
-      ]);
-      if (action === "cancel") {
-        wizard.finish("Nothing was sent.");
-        return;
-      }
-      if (action === "edit") {
-        description = await wizard.ask({ ...template.ask, initialValue: description });
-        followUp = await wizard.askOptional({ ...template.followUp, initialValue: followUp });
-        continue;
-      }
-      if (action === "copy") {
-        const { copyToClipboard } = await import("./clipboard.ts");
-        if (await copyToClipboard(generated, process.env)) {
-          wizard.finish("Copied. Paste it into any agent.");
-          return;
-        }
-        wizard.warn("No clipboard tool found. Choose Print and exit instead.");
-        continue;
-      }
-      if (action === "open") provider ??= await chooseProvider(wizard, clis);
-      else provider = undefined;
-      wizard.finish(provider ? `Opening ${providerLabel(provider)}…` : "Prompt printed below.");
-      break;
-    }
+    session = await wizard.progress("Collecting facts about this computer", "Facts collected", () =>
+      prepareTriage(config, input),
+    );
+    wizard.summary(describe(session), "Triage");
+    chosen = input.provider ?? (await chooseAgent(wizard, session.clis));
+    wizard.finish(
+      chosen === "print"
+        ? "Paste the text below into any coding agent."
+        : `Starting ${providerLabel(chosen)}. It will ask what went wrong.`,
+    );
   } catch (error) {
     if (await cancelled(error)) return;
     throw error;
   } finally {
-    wizard?.close();
+    wizard.close();
   }
-  if (wizard && provider)
-    process.exitCode = await runTriageHandoff(provider, generated, process.env);
-  else
-    await print(
-      args,
-      args.flags.json || args.flags.jq
-        ? { prompt: generated, ...(provider ? { provider } : {}) }
-        : generated,
-    );
+  if (chosen === "print") {
+    await print({ ...args, flags: {} }, pasteText(session));
+    return;
+  }
+  process.exitCode = await runTriageHandoff(
+    chosen,
+    triageLaunchLine(session.playbookPath),
+    process.env,
+    session.folder,
+  );
+}
+
+async function chooseAgent(
+  wizard: TriageWizard,
+  clis: readonly InstalledCli[],
+): Promise<TriageProvider | "print"> {
+  if (!clis.length) {
+    wizard.warn("No agent CLI found. Install Claude Code, Codex, Cursor CLI or OpenCode.");
+    return "print";
+  }
+  return wizard.choose<TriageProvider | "print">(
+    "Which agent should investigate?",
+    [
+      ...triageProviders.map((entry) => {
+        const cli = clis.find((candidate) => candidate.value === entry.value);
+        return cli
+          ? { value: entry.value, label: entry.label, hint: cli.version ?? cli.path }
+          : { value: entry.value, label: entry.label, hint: "not installed", disabled: true };
+      }),
+      { value: "print", label: "Print it to paste elsewhere" },
+    ],
+    clis[0]?.value,
+  );
+}
+
+/** Collect facts and write the playbook and facts files. Each probe is best-effort. */
+export async function prepareTriage(
+  config: Config,
+  input: { problems?: readonly string[]; report?: DiagnosticReport },
+): Promise<TriageSession> {
+  const notes = [...(input.problems ?? [])];
+  const clis = await installedClis(process.env).catch((error: unknown) => {
+    notes.push(`Listing agent CLIs failed: ${error instanceof Error ? error.message : "failed"}`);
+    return [];
+  });
+  const folder = await mkdtemp(join(tmpdir(), "ace-triage-"));
+  const facts = await collectTriageFacts({
+    dataDir: config.dataDir,
+    sourceCache: join(tmpdir(), "ace-triage-source"),
+    env: process.env,
+    home: homedir(),
+    now: Date.now(),
+    cliVersion: version(),
+    launchedFrom: process.argv[1] ?? "unknown",
+    clis,
+    problems: notes,
+    ...(input.report ? { report: input.report } : {}),
+  });
+  const factsPath = join(folder, "FACTS.md");
+  const playbookPath = join(folder, "PLAYBOOK.md");
+  await writeFile(factsPath, buildTriageFacts(facts), { mode: 0o600 });
+  await writeFile(playbookPath, triagePlaybook(factsPath), { mode: 0o600 });
+  return { folder, playbookPath, factsPath, facts, clis };
+}
+
+async function printSession(args: Args, session: TriageSession): Promise<void> {
+  await print(
+    args,
+    args.flags.json || args.flags.jq
+      ? {
+          folder: session.folder,
+          playbook: session.playbookPath,
+          facts: session.factsPath,
+          launch: triageLaunchLine(session.playbookPath),
+          agents: session.clis.map((cli) => cli.value),
+        }
+      : pasteText(session),
+  );
+}
+
+/** Self-contained text for an agent that can't read local files. */
+function pasteText(session: TriageSession): string {
+  return `${triagePlaybook(session.factsPath)}\n---\n\n${buildTriageFacts(session.facts)}`;
+}
+
+function describe(session: TriageSession): string {
+  const { facts } = session;
+  const count = (level: "error" | "warn") =>
+    facts.logs.reduce((sum, entry) => sum + (entry.level === level ? entry.count : 0), 0);
+  const errors = count("error");
+  const warnings = count("warn");
+  return [
+    `ace daemon: ${facts.daemon ?? "unknown"}`,
+    `Last 24 hours: ${errors} ${errors === 1 ? "error" : "errors"}, ${warnings} ${warnings === 1 ? "warning" : "warnings"}`,
+    ...(facts.findings?.length ? [`Doctor findings: ${facts.findings.length}`] : []),
+    ...(facts.problems.length ? [`Couldn't check: ${facts.problems.length}`] : []),
+    `Files: ${session.folder}`,
+  ].join("\n");
 }
 
 function interactive(args: Args): boolean {
@@ -161,8 +200,9 @@ function interactive(args: Args): boolean {
     !args.flags.jq
   );
 }
+export { interactive as triageInteractive };
 
-/** The prompt library loads only for an interactive session, never for other commands. */
+/** The prompt library loads only for an interactive session. */
 async function openWizard(): Promise<TriageWizard> {
   const { triageWizard, paint } = await import("./triage-wizard.ts");
   return triageWizard(`${paint(["bold", "inverse"], " ace triage ")} ${paint("dim", version())}`);
@@ -174,143 +214,9 @@ async function cancelled(error: unknown): Promise<boolean> {
   return error instanceof TriageCancelled;
 }
 
-/**
- * Triage runs when ace is broken, so no single probe may sink it: each failure becomes
- * a line in the prompt's "Couldn't check" section instead.
- */
-async function gather(
-  config: Config,
-  kind: TriageKind,
-  problems: readonly string[],
-): Promise<Gathered> {
-  const notes = [...problems];
-  const attempt = async <T>(what: string, run: () => Promise<T>, fallback: T): Promise<T> => {
-    try {
-      return await run();
-    } catch (error) {
-      notes.push(`${what}: ${error instanceof Error ? error.message.slice(0, 200) : "failed"}`);
-      return fallback;
-    }
-  };
-  const [clis, report] = await Promise.all([
-    attempt("Listing agent CLIs failed", () => installedClis(process.env), []),
-    kind === "doctor"
-      ? attempt("ace doctor didn't finish", () => collectCliDoctorReport(config), undefined)
-      : undefined,
-  ]);
-  const context = await collectTriageContext({
-    dataDir: config.dataDir,
-    env: process.env,
-    home: homedir(),
-    now: Date.now(),
-    environment: environment(),
-    clis,
-    problems: notes,
-  });
-  return { clis, context, ...(report ? { report } : {}) };
-}
-
-/**
- * Doctor from the CLI. While ace's own daemon is running it holds the port, so the
- * "port in use" warning is expected and would only mislead the agent.
- */
-export async function collectCliDoctorReport(config: Config): Promise<DiagnosticReport> {
-  const { collectDoctorReport } = await import("../diagnostics-report.ts");
-  const [report, daemon] = await Promise.all([
-    collectDoctorReport(config, process.env, Date.now),
-    localDaemonState(config.dataDir),
-  ]);
-  return daemon === "running"
-    ? { ...report, checks: report.checks.filter((check) => check.id !== "port") }
-    : report;
-}
-
-function summarize(prompt: string, context: TriageContext, report?: DiagnosticReport): string {
-  const parts = [`${prompt.split("\n").length} lines`];
-  if (report) {
-    const open = report.checks.filter((check) => check.status !== "ok").length;
-    parts.push(open ? `${open} doctor ${open === 1 ? "finding" : "findings"}` : "doctor clean");
-  }
-  const count = (level: "error" | "warn") =>
-    context.logs?.reduce((sum, entry) => sum + (entry.level === level ? entry.count : 0), 0) ?? 0;
-  const errors = count("error");
-  const warnings = count("warn");
-  if (errors) parts.push(`${errors} ${errors === 1 ? "error" : "errors"}`);
-  if (warnings) parts.push(`${warnings} ${warnings === 1 ? "warning" : "warnings"}`);
-  if (!errors && !warnings) parts.push("logs clean");
-  return `Prompt · ${parts.join(" · ")}`;
-}
-
-async function chooseProvider(
-  wizard: TriageWizard,
-  clis: readonly InstalledCli[],
-): Promise<TriageProvider> {
-  const first = clis[0]?.value;
-  return wizard.choose(
-    "Open in",
-    triageProviders.map((entry) => {
-      const cli = clis.find((candidate) => candidate.value === entry.value);
-      return cli
-        ? {
-            value: entry.value,
-            label: entry.label,
-            hint: cli.version ?? cli.commands[0] ?? cli.value,
-          }
-        : { value: entry.value, label: entry.label, hint: "not installed", disabled: true };
-    }),
-    first,
-  );
-}
-
 function providerLabel(provider: TriageProvider): string {
   return triageProviders.find((entry) => entry.value === provider)?.label ?? provider;
 }
 function version(): string {
   return process.env.ACE_VERSION ?? "development";
-}
-export function environment(): string {
-  return `ace ${version()}; ${process.platform} ${process.arch}; Node ${process.version}`;
-}
-export function doctorPrompt(report: DiagnosticReport, context?: TriageContext): string {
-  return buildTriagePrompt({
-    kind: "doctor",
-    description:
-      "Help me resolve the remaining ace doctor findings. Ask which optional tools I need before treating them as failures.",
-    report,
-    context: context ?? { environment: environment() },
-  });
-}
-export async function offerDoctorHandoff(
-  args: Args,
-  report: DiagnosticReport,
-  config: Config,
-): Promise<void> {
-  if (!interactive(args)) return;
-  const supplied = option(args, "provider");
-  const { clis, context } = await gather(config, "bug", []);
-  const prompt = doctorPrompt(report, context);
-  if (supplied) {
-    process.exitCode = await runTriageHandoff(TriageProvider.parse(supplied), prompt, process.env);
-    return;
-  }
-  if (!clis.length) return;
-  const wizard = await openWizard();
-  let provider: TriageProvider | "skip";
-  try {
-    provider = await wizard.choose("Hand the remaining findings to an agent?", [
-      ...clis.map((cli) => ({
-        value: cli.value,
-        label: cli.label,
-        hint: cli.version ?? cli.commands[0] ?? cli.value,
-      })),
-      { value: "skip", label: "No, keep the report" },
-    ]);
-    wizard.finish(provider === "skip" ? "Report kept." : `Opening ${providerLabel(provider)}…`);
-  } catch (error) {
-    if (await cancelled(error)) return;
-    throw error;
-  } finally {
-    wizard.close();
-  }
-  if (provider !== "skip") process.exitCode = await runTriageHandoff(provider, prompt, process.env);
 }

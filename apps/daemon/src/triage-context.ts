@@ -1,12 +1,22 @@
-import { open, readFile } from "node:fs/promises";
+import { open, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { digestLogLines, type TriageContext } from "@ace/diagnostics/triage";
+import { digestLogLines, type TriageFacts } from "@ace/diagnostics/triage";
 import { createTextRedactor, isSecretKey } from "@ace/redaction";
+import type { DiagnosticReport } from "@ace/protocol";
 import type { InstalledCli } from "./triage-launch.ts";
 
 const TAIL_BYTES = 512 * 1024;
 const RunFile = z.object({ state: z.string(), pid: z.number().int().positive() }).loose();
+/** Credentials and identities inside the ace folder. The agent is told never to open them. */
+const SECRET_ENTRIES = [
+  "daemon-token",
+  "tls",
+  "account-homes",
+  "browser",
+  "chromium",
+  "mcp-enrollments",
+] as const;
 
 /** Read the end of the log without loading a file that may be gigabytes. */
 export async function readLogTail(file: string, bytes = TAIL_BYTES): Promise<string[]> {
@@ -52,28 +62,32 @@ function processAlive(pid: number): boolean {
   }
 }
 
-/** Everything the handoff prompt says about this computer, redacted before it leaves. */
-export async function collectTriageContext(input: {
+/**
+ * Everything the facts file says about this computer, redacted. Never throws for a bad
+ * read: each failure becomes a line under "Couldn't check".
+ */
+export async function collectTriageFacts(input: {
   dataDir: string;
+  sourceCache: string;
   env: NodeJS.ProcessEnv;
   home: string;
   now: number;
-  environment: string;
+  cliVersion: string;
+  launchedFrom: string;
   clis: readonly InstalledCli[];
-  /** Earlier failures; this function adds its own and never throws for a bad read. */
+  report?: DiagnosticReport;
   problems?: readonly string[];
-}): Promise<TriageContext> {
+}): Promise<TriageFacts> {
   const logFile = join(input.dataDir, "logs", "ace.jsonl");
   const problems = [...(input.problems ?? [])];
-  const [lines, daemon] = await Promise.all([
-    readLogTail(logFile).catch((error: unknown) => {
-      problems.push(`Reading ${logFile} failed: ${message(error)}`);
-      return [];
-    }),
-    localDaemonState(input.dataDir).catch((error: unknown) => {
-      problems.push(`Reading the daemon's run state failed: ${message(error)}`);
-      return undefined;
-    }),
+  const note = (what: string) => (error: unknown) => {
+    problems.push(`${what}: ${error instanceof Error ? error.message.slice(0, 200) : "failed"}`);
+    return undefined;
+  };
+  const [lines, daemon, entries] = await Promise.all([
+    readLogTail(logFile).catch(note(`Reading ${logFile} failed`)),
+    localDaemonState(input.dataDir).catch(note("Reading the daemon's run state failed")),
+    readdir(input.dataDir).catch(note(`Listing ${input.dataDir} failed`)),
   ]);
   // Scrub secrets, ids and emails, but keep paths usable: the agent runs on this computer.
   const scrub = createTextRedactor({
@@ -85,26 +99,39 @@ export async function collectTriageContext(input: {
     path === input.home || path.startsWith(`${input.home}/`)
       ? `~${path.slice(input.home.length)}`
       : path;
-  const logs = digestLogLines(lines, { now: input.now });
+  const logs = digestLogLines(lines ?? [], { now: input.now });
   for (const entry of logs) {
     entry.message = redact(entry.message);
     if (entry.sample) entry.sample = redact(entry.sample);
   }
+  const findings = input.report?.checks
+    .filter((check) => check.status !== "ok")
+    .map((check) => ({ id: check.id, status: check.status, message: redact(check.message) }));
   return {
-    environment: input.environment,
+    collectedAt: new Date(input.now).toISOString(),
+    cliVersion: input.cliVersion,
+    os: `${process.platform} ${process.arch}`,
+    node: process.version,
+    launchedFrom: tilde(input.launchedFrom),
     ...(daemon ? { daemon } : {}),
     clis: input.clis.map((cli) => ({
       label: cli.label,
       ...(cli.version ? { version: cli.version } : {}),
     })),
-    dataDir: tilde(input.dataDir),
-    logFile: tilde(logFile),
+    paths: {
+      data: tilde(input.dataDir),
+      log: tilde(logFile),
+      settings: tilde(join(input.dataDir, "settings.json")),
+      databases: (entries ?? [])
+        .filter((name) => name.endsWith(".sqlite"))
+        .toSorted()
+        .map((name) => tilde(join(input.dataDir, name))),
+      sourceCache: tilde(input.sourceCache),
+    },
+    secrets: SECRET_ENTRIES.map((name) => tilde(join(input.dataDir, name))),
     logs,
+    ...(findings?.length ? { findings } : {}),
+    problems: problems.map(redact),
     now: input.now,
-    ...(problems.length ? { problems: problems.map(redact) } : {}),
   };
-}
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message.slice(0, 200) : "failed";
 }
