@@ -179,6 +179,7 @@ export class EmbeddedViews implements ViewHost {
           log: this.options.log,
           forward: (accelerator) => this.forward(threadId, accelerator, page),
           contextAction: (action, url) => this.context({ threadId, action, url }),
+          restore: () => this.restore(threadId),
           forget: () => this.byContents.delete(view.webContents.id),
           confirmLeave: (parent) =>
             dialog.showMessageBoxSync(parent, {
@@ -325,6 +326,7 @@ export class EmbeddedViews implements ViewHost {
       bounds,
       visible: placement.visible,
       covered: placement.covered,
+      picture: placement.picture,
       device: placement.device,
     });
     this.apply(key);
@@ -436,6 +438,14 @@ export class EmbeddedViews implements ViewHost {
     emit(contents, "browser.context", action);
   }
 
+  /** The person clicked the thread's page in picture-in-picture: its renderer shows it again. */
+  private restore(threadId: string): void {
+    const host = this.placements.resolve(threadId).host;
+    const contents = host === undefined ? undefined : webContents.fromId(host);
+    if (!contents || contents.isDestroyed()) return;
+    emit(contents, "browser.restore", { threadId });
+  }
+
   /** Print or open developer tools for the thread's shown tab; false when it has no view here. */
   async pageAction(request: BrowserPageAction): Promise<boolean> {
     const group = this.pages.get(request.threadId);
@@ -483,6 +493,7 @@ export class EmbeddedViews implements ViewHost {
         bounds: placement.bounds,
         visible: placement.visible,
         covered: placement.covered === true,
+        picture: placement.picture === true,
         zoom: host?.zoom ?? 1,
         device: placement.device,
       },

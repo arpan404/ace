@@ -1,12 +1,11 @@
 import { ArrowsOutSimpleIcon, GlobeSimpleIcon, XIcon } from "@phosphor-icons/react";
 import { readJson, writeJson } from "@ace/ui-core";
 import * as z from "zod/mini";
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { desktopBrowserViews } from "@/boot/desktop-browser.ts";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useLayout } from "@/lib/layout.tsx";
-import { cn } from "@/lib/cn.ts";
 import type { BrowserView, PreviewSource } from "../sources.ts";
 import { useNativeView } from "./native-view.ts";
 import { CoverPicture, useCoverStill } from "./cover-picture.tsx";
@@ -22,8 +21,8 @@ const windowSize = () => ({ width: innerWidth, height: innerHeight });
 /**
  * The page in a small floating window inside the ace window, while the Browser is out of sight
  * and an agent browses or the page plays sound. Drag it by its bar, resize it from its top-left
- * corner; it remembers where it was. Its title (and, in a browser, the page) brings the Browser
- * back in the panel; × puts it away. In the desktop app the page's own native view moves into
+ * corner; it remembers where it was. A click on its title or its page brings the Browser back
+ * in the panel; only × puts it away. In the desktop app the page's own native view moves into
  * it, laid out at its panel size and scaled down, so it never reloads or reflows; elsewhere it
  * draws the live video.
  */
@@ -50,12 +49,25 @@ export function BrowserPip(props: {
 
   const body = useRef<HTMLDivElement>(null);
   const native = !!desktopBrowserViews() && props.view.backend === "embedded";
-  const placed = useNativeView(props.threadId, body, native, { device: size, padding: 0 });
+  const placed = useNativeView(props.threadId, body, native, {
+    device: size,
+    padding: 0,
+    picture: true,
+  });
+  const { source, threadId } = props;
+  // The native page takes no clicks here: the desktop reports a click on it instead, and that
+  // click brings the page back, as one on the drawn picture does.
+  const restore = useEffectEvent(() => props.onRestore());
+  useEffect(() => {
+    if (!native) return;
+    return desktopBrowserViews()?.onRestore((id) => {
+      if (id === threadId) restore();
+    });
+  }, [native, threadId]);
   // Drawn from the live video in a browser, and in the desktop app while the native view is
   // out of the way (a menu or toast over the window): first its still, then the live pictures.
   const frame = props.source.frame(props.threadId);
   const still = useCoverStill(placed.frozen, frame);
-  const { source, threadId } = props;
   // The daemon's video is drawn here whenever the native view isn't.
   const drawnNatively = native && placed.shown;
   useEffect(() => source.nativeShown?.(threadId, drawnNatively), [source, threadId, drawnNatively]);
@@ -144,8 +156,8 @@ export function BrowserPip(props: {
         ref={body}
         data-pip-page=""
         style={{ height }}
-        className={cn("relative bg-background", !native && "cursor-pointer")}
-        onClick={native ? undefined : props.onRestore}
+        className="relative cursor-pointer bg-background"
+        onClick={props.onRestore}
       >
         {frame && !placed.shown && (!native || placed.frozen) && (
           <FramePicture

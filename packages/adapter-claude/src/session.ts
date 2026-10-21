@@ -347,7 +347,8 @@ export async function openSession(
           session_id: sessionId,
           parent_tool_use_id: null,
           message: { role: "user", content: body },
-          // CLI 2.1.286+ joins the active turn and backgrounds tools for native steering.
+          // A `now` message joins the running turn, but the CLI holds it until the running
+          // foreground tool returns. The engine calls backgroundTools for a person's steer.
           priority: delivery === "steer" ? "now" : "next",
         };
         if (origin === "ace") message.isSynthetic = true;
@@ -360,6 +361,13 @@ export async function openSession(
         input.push(message);
         record("send", "sdk", payload);
       }
+    },
+    // The terminal's Ctrl+B: each blocking Bash or subagent call returns at once and keeps
+    // running as a background task, so the queued `now` message is taken right away. Throws
+    // when background tasks are disabled (CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).
+    async backgroundTools() {
+      ensureOpen();
+      return q.backgroundTasks();
     },
     async interrupt(target) {
       ensureOpen();

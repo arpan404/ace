@@ -26,5 +26,27 @@ test.each(["bytes", "frames", "parents"])(
     expect(h.state.status.state).not.toBe("done");
     h.send({ type: "process.exited", deliberate: false }, "lifecycle", "note");
     expect(h.state.status.state).toBe("failed");
+    expect(overflow(h)?.status).toBe("stopped");
   },
 );
+
+test("the transcript overflow placeholder ends once the turn ended and children went quiet", () => {
+  const h = harness();
+  h.init();
+  for (let i = 0; i < 300; i++)
+    h.send({
+      type: "assistant",
+      parent_tool_use_id: "spawn",
+      message: { id: `msg-${i}`, content: [{ type: "text", text: "small" }] },
+    });
+  h.result();
+  expect(overflow(h)?.status).toBe("running");
+  expect(h.state.status.state).not.toBe("done");
+  h.tick(h.deadline() ?? 0);
+  expect(overflow(h)?.status).toBe("stopped");
+  expect(h.state.status.state).toBe("done");
+});
+
+function overflow(h: ReturnType<typeof harness>) {
+  return Object.entries(h.state.tasks).find(([key]) => key.endsWith(":unbound:overflow"))?.[1];
+}
