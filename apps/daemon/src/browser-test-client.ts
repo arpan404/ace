@@ -2,6 +2,7 @@ import { once } from "node:events";
 import { WebSocket } from "ws";
 import { z } from "zod";
 import { BrowserServerMessage, ServerMessage } from "@ace/protocol";
+import { StreamAssembler, decodeStreamMessage, type StreamMessage } from "@ace/browser/stream";
 
 const Message = z.union([BrowserServerMessage, ServerMessage]);
 type Message = z.infer<typeof Message>;
@@ -17,7 +18,11 @@ export class BrowserClient {
   receiveCatalogPushes = false;
   constructor(url: string, options: import("ws").ClientOptions = {}) {
     this.socket = new WebSocket(url, options);
-    this.socket.on("message", (data) => {
+    this.socket.on("message", (data, isBinary) => {
+      if (isBinary) {
+        this.receiveStream(data);
+        return;
+      }
       const message = Message.parse(JSON.parse(data.toString()));
       if (message.type === "models.changed" && !this.receiveCatalogPushes) return;
       const index = this.waiters.findIndex((waiter) => waiter.predicate(message));
@@ -32,6 +37,29 @@ export class BrowserClient {
       for (const waiter of this.waiters.splice(0))
         waiter.reject(new Error("Browser socket closed"));
     });
+  }
+  /** Binary stream messages (video, audio, pictures) received so far, decoded. */
+  readonly streamed: StreamMessage[] = [];
+  private assembler = new StreamAssembler();
+  private streamWaiters: { predicate: (message: StreamMessage) => boolean; resolve(): void }[] = [];
+  private receiveStream(data: import("ws").RawData): void {
+    const pieces = Array.isArray(data) ? data : [data];
+    for (const piece of pieces) {
+      const envelope = this.assembler.push(new Uint8Array(piece));
+      const message = envelope && decodeStreamMessage(envelope);
+      if (!message) continue;
+      this.streamed.push(message);
+      this.streamWaiters = this.streamWaiters.filter((waiter) => {
+        if (!waiter.predicate(message)) return true;
+        waiter.resolve();
+        return false;
+      });
+    }
+  }
+  /** Resolves once a binary stream message matching `predicate` has arrived. */
+  untilStreamed(predicate: (message: StreamMessage) => boolean): Promise<void> {
+    if (this.streamed.some(predicate)) return Promise.resolve();
+    return new Promise((resolve) => this.streamWaiters.push({ predicate, resolve }));
   }
   next(predicate: (message: Message) => boolean): Promise<Message> {
     const index = this.messages.findIndex(predicate);
