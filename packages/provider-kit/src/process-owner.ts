@@ -3,7 +3,10 @@ import { setTimeout as delay } from "node:timers/promises";
 import { killWindowsTree } from "./windows-tree.ts";
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
-const owned = new Map<number, (graceMs: number) => Promise<unknown>>();
+const owned = new Map<
+  number,
+  { stop: (graceMs: number) => Promise<unknown>; destroy: () => void }
+>();
 let shutdownInstalled = false;
 const journals = new Set<ProcessJournal>();
 export function observeProcessGroups(journal: ProcessJournal): () => void {
@@ -47,21 +50,25 @@ export async function stopRetainedGroup(pid: number, graceMs: number): Promise<v
   unregisterGroup(pid);
 }
 function cleanup(): void {
-  for (const pid of owned.keys()) killGroup(pid, "SIGKILL");
+  // Negative-pid signals are invalid on Windows; each owner registers the
+  // synchronous destroy its platform actually uses to end the tree.
+  for (const entry of owned.values()) entry.destroy();
 }
 export function registerGroup(
   pid: number,
   stop: (graceMs: number) => Promise<unknown>,
   metadata: { name: string; cwd?: string } = { name: "ace-process" },
+  destroy?: () => void,
 ): void {
+  const end = destroy ?? (() => killGroup(pid, "SIGKILL"));
   try {
     for (const journal of journals) journal.add(pid, metadata);
   } catch (error) {
-    killGroup(pid, "SIGKILL");
+    end();
     throw error;
   }
   if (owned.size === 0) process.on("exit", cleanup);
-  owned.set(pid, stop);
+  owned.set(pid, { stop, destroy: end });
 }
 export function unregisterGroup(pid: number): void {
   owned.delete(pid);
@@ -85,7 +92,7 @@ export function installShutdownHandlers({
   const terminate = (signal: NodeJS.Signals) => {
     if (terminating) return;
     terminating = true;
-    void Promise.allSettled([...owned.values()].map((stop) => stop(graceMs))).then(() => {
+    void Promise.allSettled([...owned.values()].map((entry) => entry.stop(graceMs))).then(() => {
       dispose();
       // Incoming application handlers have run; restore default signal termination.
       process.removeAllListeners(signal);
@@ -100,7 +107,7 @@ export function installShutdownHandlers({
 }
 
 export async function stopOwnedGroups(graceMs = 500): Promise<void> {
-  const results = await Promise.allSettled([...owned.values()].map((stop) => stop(graceMs)));
+  const results = await Promise.allSettled([...owned.values()].map((entry) => entry.stop(graceMs)));
   if (results.some((result) => result.status === "rejected"))
     throw new Error("Some owned process groups could not be stopped");
 }
