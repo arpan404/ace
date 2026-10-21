@@ -199,6 +199,170 @@ test.each(["FORBIDDEN", "RATE_LIMITED", "GRAPHQL_VALIDATION_FAILED"])(
   },
 );
 
+test("a blocked merge names branch protection and ruleset requirements once each", async () => {
+  const f = await fakeGh({
+    graphql: [
+      read({
+        statusCheckRollup: { state: "PENDING" },
+        baseRef: {
+          branchProtectionRule: {
+            requiredApprovingReviewCount: 2,
+            requiresConversationResolution: true,
+            requiresCommitSignatures: true,
+            requiresLinearHistory: false,
+          },
+          rules: {
+            nodes: [
+              { type: "REQUIRED_SIGNATURES" },
+              { type: "REQUIRED_LINEAR_HISTORY" },
+              { type: "SOMETHING_GITHUB_ADDS_LATER" },
+            ],
+          },
+        },
+      }),
+    ],
+  });
+  try {
+    const rules = [
+      "2 approving reviews required.",
+      "Conversations must be resolved.",
+      "Signed commits required.",
+      "Linear history required.",
+    ];
+    expect(await f.forge.prMergeState(7, signal())).toMatchObject({
+      rules,
+      blockers: ["2 approving reviews required.", "Checks: PENDING.", ...rules.slice(1)],
+    });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a blocked merge with nothing else to explain it is never shown as mergeable", async () => {
+  const f = await fakeGh({ graphql: [read({ reviewDecision: "APPROVED" })] });
+  try {
+    expect(await f.forge.prMergeState(7, signal())).toMatchObject({
+      rules: ["GitHub's branch rules block this merge."],
+      blockers: ["GitHub's branch rules block this merge."],
+    });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("branch rules are not claimed for a merge GitHub doesn't block", async () => {
+  const f = await fakeGh({
+    graphql: [
+      read({
+        mergeStateStatus: "CLEAN",
+        reviewDecision: "APPROVED",
+        baseRef: { branchProtectionRule: { requiresCommitSignatures: true }, rules: null },
+      }),
+    ],
+  });
+  try {
+    expect(await f.forge.prMergeState(7, signal())).toMatchObject({ rules: [], blockers: [] });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+const deploy = (environment: unknown, state: string, url: string | null) => ({
+  environment,
+  state: "ACTIVE",
+  latestStatus: { state, environmentUrl: url },
+});
+test("deployments keep the latest per environment and GitHub's own state words", async () => {
+  const f = await fakeGh({
+    graphql: [
+      read({
+        commits: {
+          nodes: [
+            {
+              commit: {
+                deployments: {
+                  nodes: [
+                    deploy("staging", "FAILURE", "https://old.example"),
+                    deploy("production", "WAITING_ON_SOMETHING_NEW", ""),
+                    deploy(null, "SUCCESS", null),
+                    deploy("staging", "SUCCESS", "https://staging.example"),
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      }),
+    ],
+  });
+  try {
+    expect((await f.forge.prMergeState(7, signal())).deployments).toEqual([
+      { environment: "staging", state: "SUCCESS", url: "https://staging.example" },
+      { environment: "production", state: "WAITING_ON_SOMETHING_NEW", url: null },
+    ]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("rule and deployment fields GitHub returns in an unexpected shape don't fail the read", async () => {
+  const f = await fakeGh({
+    graphql: [
+      read({
+        mergeQueueEntry: { ...queue, estimatedTimeToMerge: "soon" },
+        baseRef: { branchProtectionRule: { requiresCommitSignatures: "yes" }, rules: 4 },
+        commits: { nodes: "none" },
+      }),
+    ],
+  });
+  try {
+    expect(await f.forge.prMergeState(7, signal())).toMatchObject({
+      queue: { position: 2, estimatedTimeToMerge: null },
+      blockers: ["Required reviews are outstanding.", "Merge queue: AWAITING_CHECKS, position 2."],
+      deployments: [],
+    });
+    expect(await f.requests()).toHaveLength(1);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a host that refuses the extended fields answers with the base fields from then on", async () => {
+  const f = await fakeGh({
+    graphql: [
+      {
+        body: { errors: [{ type: "GRAPHQL_VALIDATION_FAILED", message: "Field doesn't exist" }] },
+        code: 1,
+      },
+      read({ mergeQueueEntry: { ...queue, estimatedTimeToMerge: 150 } }),
+      read(),
+    ],
+  });
+  try {
+    expect(await f.forge.prMergeState(7, signal())).toMatchObject({
+      queue: { position: 2, estimatedTimeToMerge: 150 },
+      blockers: expect.arrayContaining(["Required reviews are outstanding."]),
+    });
+    expect(await f.forge.prMergeState(7, signal())).toMatchObject({ queue: null });
+    const queries = (await f.requests()).map((request) => JSON.stringify(request.body));
+    expect(queries.map((query) => query.includes("deployments"))).toEqual([true, false, false]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a refused read is reported without retrying a smaller query", async () => {
+  const f = await fakeGh({
+    graphql: [{ body: { errors: [{ type: "RATE_LIMITED", message: "Slow down." }] }, code: 1 }],
+  });
+  try {
+    await expect(f.forge.prMergeState(7, signal())).rejects.toMatchObject({ kind: "rate_limit" });
+    expect(await f.requests()).toHaveLength(1);
+  } finally {
+    await f.cleanup();
+  }
+});
+
 test("a nonzero GraphQL read reports the host's forbidden classification", async () => {
   const f = await fakeGh({
     graphql: [{ body: { errors: [{ type: "FORBIDDEN", message: "Access denied." }] }, code: 1 }],
