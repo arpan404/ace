@@ -27,6 +27,8 @@ export async function watch(
   let full = false;
   let metadataDirty = false;
   let dirty = new Set<string>();
+  /** Directories rescanned for entries that raced their new watch; never reported as changed. */
+  let revisit = new Set<string>();
   let tail: Promise<void> | undefined;
   let requested = false;
   let initializing = true;
@@ -52,6 +54,9 @@ export async function watch(
   async function scan(): Promise<void> {
     const changed = dirty;
     dirty = new Set();
+    const revisits = revisit;
+    revisit = new Set();
+    const targets = revisits.size ? new Set([...changed, ...revisits]) : changed;
     let complete = full || mode === "polling";
     const refreshMetadata = metadataDirty;
     metadataDirty = false;
@@ -67,8 +72,8 @@ export async function watch(
       complete ||= mode === "polling";
       const plan = complete
         ? { updates: await fullSnapshot(safe, ignore, lifetime.signal), removed: new Set<string>() }
-        : changed.size
-          ? await changedSnapshot(safe, ignore, previous, changed, lifetime.signal)
+        : targets.size
+          ? await changedSnapshot(safe, ignore, previous, targets, lifetime.signal)
           : { updates: new Map<string, Entry>(), removed: new Set<string>() };
       if (disposed) return;
       if (complete) {
@@ -81,7 +86,7 @@ export async function watch(
       if (mode === "polling") pollDelay = changes.length ? 1000 : Math.min(30_000, pollDelay * 2);
       else {
         pollDelay = 1000;
-        if (!dirty.size && !full && !metadataDirty) {
+        if (!dirty.size && !revisit.size && !full && !metadataDirty) {
           timer?.();
           timer = undefined;
         }
@@ -89,6 +94,7 @@ export async function watch(
     } catch (error) {
       if (disposed) return;
       for (const path of changed) dirty.add(path);
+      for (const path of revisits) revisit.add(path);
       full ||= complete;
       metadataDirty ||= refreshMetadata;
       pollDelay = Math.min(30_000, pollDelay * 2);
@@ -134,10 +140,10 @@ export async function watch(
   function follow(updates: Iterable<Entry>, removed: Iterable<string>): void {
     if (!directories || mode !== "native") return;
     for (const dir of directories.sync(updates, removed)) {
-      if (dirty.size < 100_000) dirty.add(dir);
+      if (revisit.size < 100_000) revisit.add(dir);
       else full = true;
     }
-    if (dirty.size || full) schedule();
+    if (revisit.size || full) schedule();
   }
   function notified(filename: string | null): void {
     if (filename !== null) {
@@ -200,7 +206,7 @@ export async function watch(
     previous = new VisibleTree(initial.values());
     initializing = false;
     follow(initial.values(), []);
-    if (dirty.size || full || metadataDirty) schedule();
+    if (dirty.size || revisit.size || full || metadataDirty) schedule();
   } catch (error) {
     disposed = true;
     native?.close();
@@ -228,6 +234,7 @@ export async function watch(
       timer?.();
       await tail;
       dirty.clear();
+      revisit.clear();
       previous = new VisibleTree([]);
     },
   };

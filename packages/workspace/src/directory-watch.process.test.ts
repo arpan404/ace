@@ -42,6 +42,9 @@ describe("per-directory watching on Linux", () => {
     const events = batches();
     const watcher = await service.watch({ onChange: events.onChange });
     try {
+      // Rescanning newly watched directories for racing entries reports nothing by itself.
+      await watcher.flush();
+      expect(events.history).toEqual([]);
       const watched = [...open.keys()];
       expect(watched).toContain(join(root, "src/app"));
       expect(watched.some((path) => path.includes("node_modules"))).toBe(false);
