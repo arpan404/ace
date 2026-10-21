@@ -44,7 +44,6 @@ test("removed pages are gone: their addresses show Not found and the palette nev
     "/more",
     "/more/search",
     "/pull-requests",
-    "/issues",
     "/accounts",
     "/activity",
   ]) {
@@ -58,7 +57,13 @@ test("removed pages are gone: their addresses show Not found and the palette nev
   const search = await screen.findByRole("combobox", { name: "Search commands" });
   await userEvent.type(search, "Usage");
   expect(await screen.findByRole("option", { name: /^Usage/ })).toBeTruthy();
-  for (const removed of ["Pull requests", "Issues", "Deck", "Offshifts", "Activity"]) {
+  // Pull requests and Issues are pages again, at /pulls and /issues.
+  for (const page of ["Pull requests", "Issues"]) {
+    await userEvent.clear(search);
+    await userEvent.type(search, page);
+    expect(await screen.findByRole("option", { name: new RegExp(`^${page}`) })).toBeTruthy();
+  }
+  for (const removed of ["Deck", "Offshifts", "Activity"]) {
     await userEvent.clear(search);
     await userEvent.type(search, removed);
     // The palette has answered once it offers to search the threads for the words.

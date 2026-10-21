@@ -11,7 +11,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { formatAge } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
-import { PrAvatar } from "@/features/forge/index.ts";
+import { PersonAvatar as PrAvatar } from "@/components/person-avatar.tsx";
 import type { LinkedThread } from "./linked-threads.ts";
 
 /** A two-line list row: the whole row opens the item's page. */

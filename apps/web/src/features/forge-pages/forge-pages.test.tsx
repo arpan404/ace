@@ -110,7 +110,7 @@ test("a row opens its pull request as a page, and Back returns to the list as it
   expect(await screen.findByRole("article", { name: "Pull request #229" })).toBeTruthy();
   // The page takes the main column: the list is gone until Back.
   expect(screen.queryByRole("navigation", { name: "Pull requests" })).toBeNull();
-  await userEvent.click(screen.getByRole("button", { name: "Back to pull requests" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Back to pull requests" }));
   await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["226", "229"]));
   expect(screen.getByRole("button", { name: "Reviewing" }).getAttribute("aria-pressed")).toBe(
     "true",
@@ -135,7 +135,7 @@ test("a link straight to a pull request opens its page, and Back opens its proje
   expect((await screen.findByRole("tab", { name: "Timeline" })).getAttribute("aria-selected")).toBe(
     "true",
   );
-  await userEvent.click(screen.getByRole("button", { name: "Back to pull requests" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Back to pull requests" }));
   await waitFor(async () => expect(await numbers("Pull requests")).toContain("229"));
 });
 

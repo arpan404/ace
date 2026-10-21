@@ -3,7 +3,7 @@ import type { ForgeBrowserResult } from "@ace/protocol";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
-import { PrAvatar, PrTime } from "@/features/forge/index.ts";
+import { PersonAvatar as PrAvatar, RelativeTime as PrTime } from "@/components/person-avatar.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "@/lib/forge-read.ts";
 import { issueEventText } from "./issue-events.ts";

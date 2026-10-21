@@ -1,9 +1,10 @@
-import { useCallback, useRef } from "react";
+import { lazy, Suspense, useCallback, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ForgePrRef, ForgeRepository } from "@ace/protocol";
 import { PullRequestOpener } from "@/components/pull-request-link.tsx";
-import { PrDetail } from "@/features/forge/index.ts";
+import { SkeletonText } from "@/components/ui/skeleton.tsx";
+import { loadPrDetail } from "@/features/forge/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { useBackToList } from "./back-to-list.ts";
 import { useProjectChoice } from "./project-choice.ts";
@@ -19,6 +20,9 @@ export function repositoryFromParam(value: string | undefined): ForgeRepository 
   const [host = "", owner = "", name = ""] = parts;
   return { forge: "github", host, owner, name };
 }
+
+/** The PR view arrives with its page, never with the app's first paint. */
+const PrDetail = lazy(() => loadPrDetail().then((module) => ({ default: module.PrDetail })));
 
 const tabs = ["summary", "timeline", "code"] as const;
 export type PullRequestTab = (typeof tabs)[number];
@@ -68,21 +72,29 @@ export function PullRequestPage(props: {
   return (
     <Screen title={`#${props.number}`} crumb={choice.name(project)}>
       <PullRequestOpener value={(pr: ForgePrRef) => open(pr.number, pr.repository)}>
-        <PrDetail
-          key={`${project}:${props.repo ?? ""}#${props.number}`}
-          workspaceId={project}
-          repository={repositoryFromParam(props.repo)}
-          number={props.number}
-          tab={props.tab ?? "summary"}
-          onTab={(tab) => {
-            const next = tabs.find((known) => known === tab) ?? "summary";
-            props.onTab(next === "summary" ? undefined : next);
-          }}
-          onState={onState}
-          onOpen={(number) => open(number)}
-          onBack={back}
-          page
-        />
+        <Suspense
+          fallback={
+            <div className="mx-auto w-full max-w-[64rem] px-4 pt-6">
+              <SkeletonText lines={4} />
+            </div>
+          }
+        >
+          <PrDetail
+            key={`${project}:${props.repo ?? ""}#${props.number}`}
+            workspaceId={project}
+            repository={repositoryFromParam(props.repo)}
+            number={props.number}
+            tab={props.tab ?? "summary"}
+            onTab={(tab) => {
+              const next = tabs.find((known) => known === tab) ?? "summary";
+              props.onTab(next === "summary" ? undefined : next);
+            }}
+            onState={onState}
+            onOpen={(number) => open(number)}
+            onBack={back}
+            page
+          />
+        </Suspense>
       </PullRequestOpener>
     </Screen>
   );

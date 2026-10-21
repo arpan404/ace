@@ -13,7 +13,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { openExternal } from "@/boot/open-external.ts";
-import { PrTime } from "@/features/forge/index.ts";
+import { RelativeTime as PrTime } from "@/components/person-avatar.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { useBackToList } from "./back-to-list.ts";
 import { IssueActionsStrip } from "./issue-actions-strip.tsx";

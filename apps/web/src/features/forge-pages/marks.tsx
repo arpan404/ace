@@ -11,7 +11,7 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import type { ForgeIssueRow, ForgePrRow } from "@ace/protocol";
-import { PrAvatar } from "@/features/forge/index.ts";
+import { PersonAvatar as PrAvatar } from "@/components/person-avatar.tsx";
 import { cn } from "@/lib/cn.ts";
 
 /*
