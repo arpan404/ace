@@ -33,6 +33,7 @@ import { cliShimCheck, cliShimLog, type CliShimResult } from "./os/cli-shim.ts";
 import { installCliShim } from "./os/cli-shim-install.ts";
 import { linuxAutostart, nodeAutostartFiles } from "./os/autostart.ts";
 import { backgroundArgument, startHidden } from "./os/login.ts";
+import { enableFeatures, linuxFeatures } from "./os/chromium-features.ts";
 import { settingsEffects } from "./os/settings-effects.ts";
 import { checkWithFeedback } from "./os/update-feedback.ts";
 import { appPaths } from "./paths.ts";
@@ -80,6 +81,8 @@ if (unsafe) {
   claimKeychainName(app, process.platform);
   // Blink's DNS hints never reach a session's network layer (visualization-isolation.ts).
   disableDnsPrefetching(app);
+  // Wayland: the quick-thread global shortcut goes through the GlobalShortcuts portal.
+  enableFeatures(app.commandLine, linuxFeatures(process.platform));
   registerAppScheme();
   if (!app.requestSingleInstanceLock()) app.quit();
   else
