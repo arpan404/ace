@@ -1,6 +1,7 @@
 import type { ChangeTap, ThreadSource } from "@ace/client";
 import {
   turnHeadLabel,
+  turnTreeOf,
   ledgerOf,
   startedThreadOf,
   subagentLabels,
@@ -183,13 +184,17 @@ export interface BlockScope {
 
 /**
  * Follow a thread's blocks (or, with a scope, one agent's own blocks, grouped the same way):
- * the tap to call with every change after the item tap, and the blocks it last built.
+ * the tap to call with every change after the item tap, and the blocks it last built. Call it
+ * before subscribing the tap: blocks are regrouped inside the change, so the store's shared turn
+ * tree and ledger must hear each change first, or a turn reads settled while its subagents work.
  */
 export function followBlocks(
   store: ThreadSource,
   put: Put,
   scope?: BlockScope,
 ): { tap: ChangeTap; block(key: string): Block | undefined } {
+  turnTreeOf(store);
+  ledgerOf(store);
   const read = createBlockReader(scope?.agentId);
   const type = scope ? "thread.laneBlock" : "thread.block";
   const prefix = scope ? `lane:${scope.agentId}:` : "";

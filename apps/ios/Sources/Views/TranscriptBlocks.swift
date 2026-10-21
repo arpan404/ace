@@ -24,7 +24,7 @@ struct BlockView: View {
         let row = block.row
         switch row.kind {
         case "work": WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps, openMessage: links.openMessage)
-        case "subagents": if let agents = row.agents { SubagentGroupView(agents: agents, items: row.items, thread: thread, open: open, openAll: links.openAgents) }
+        case "subagents": if let agents = row.agents { SubagentGroupView(agents: agents, blockId: block.id, items: row.items, thread: thread, open: open, openAll: links.openAgents) }
         // The live state floats above the composer; the transcript never narrates it.
         case "live": EmptyView()
         case "end": if let ending = row.ending { EndingLine(ending: ending) }
@@ -108,9 +108,10 @@ struct MessageRow: View {
             if let attachments = row.attachments, !attachments.isEmpty {
                 AttachmentChips(attachments: attachments, more: row.moreAttachments ?? 0)
             }
+            // Only part of a long message is on the phone: one quiet row opens all of it.
             if row.truncated, let openMessage {
-                Button("Read full message") { openMessage(row) }.aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                QuietLink(icon: "text.alignleft", title: "Read full message") { openMessage(row) }
+                    .fixedSize(horizontal: user, vertical: false)
                     .accessibilityIdentifier("message.full.\(row.id)")
             }
         }
