@@ -150,6 +150,7 @@ export * from "./worktree-creation.ts";
 export * from "./agent-orchestration.ts";
 
 export * from "./forge-browser.ts";
+export * from "./forge-file-content.ts";
 
 export * from "./forge-lifecycle.ts";
 export * from "./source-control.ts";

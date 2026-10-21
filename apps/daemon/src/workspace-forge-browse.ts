@@ -103,6 +103,8 @@ export class WorkspaceForgeBrowse {
       };
     if (operation.op === "forge.pr.files")
       return { resource: "prFiles", value: await backend.prFiles(operation, signal) };
+    if (operation.op === "forge.file.content")
+      return { resource: "fileContent", value: await backend.fileContent(operation, signal) };
     const ref = { repository, number: operation.number };
     const revision = this.ctx.owner.capture(ref);
     const { value, writeState } = await this.parts.actions.readDetail(

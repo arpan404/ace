@@ -17,6 +17,7 @@
     "./forge-stacks": "./src/forge-stacks.ts",
     "./forge-review": "./src/forge-review.ts",
     "./forge-browser": "./src/forge-browser.ts",
+    "./forge-file-content": "./src/forge-file-content.ts",
     "./queue": "./src/queue.ts",
     "./context-meter": "./src/context-meter.ts",
     "./accounts": "./src/accounts.ts",

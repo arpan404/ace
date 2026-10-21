@@ -193,7 +193,7 @@ test("full PR detail includes hosted branch identities, description, reviews and
   }
 });
 
-test("hosted file pages identify the base and head and visibly bound oversized or missing patches", async () => {
+test("hosted file pages identify the base and head and leave out, whole, patches that don't fit", async () => {
   const path = "repos/octo/ace/pulls/7/files?per_page=25&page=1";
   const f = await fakeGh({
     [`repos/octo/ace/compare/${nextSha}...${sha}`]: [
@@ -205,6 +205,7 @@ test("hosted file pages identify the base and head and visibly bound oversized o
         body: [
           { ...file, patch: "x".repeat(300_000) },
           { ...file, filename: "logo.png", patch: undefined },
+          { ...file, filename: "src/small.ts" },
         ],
         headers: {
           link: '<https://api.github.com/repos/octo/ace/pulls/7/files?per_page=25&page=2>; rel="next"',
@@ -222,13 +223,14 @@ test("hosted file pages identify the base and head and visibly bound oversized o
       baseSha: nextSha,
       headSha: sha,
       nextPage: 2,
-      truncated: true,
+      // Every listed file is there; only patches are withheld, and the page diffs those itself.
+      truncated: false,
       files: [
-        { path: "src/main.ts", truncated: true },
+        { path: "src/main.ts", patch: null, truncated: true },
         { path: "logo.png", patch: null, truncated: true },
+        { path: "src/small.ts", patch: file.patch, truncated: false },
       ],
     });
-    expect(result.files[0]?.patch?.length).toBe(262_144);
   } finally {
     await f.cleanup();
   }
@@ -367,7 +369,7 @@ test("commit pages expose per-commit statistics and preserve authors and next-pa
   }
 });
 
-test("the PR file provider cap stays visible on a terminal page with complete patches and no next link", async () => {
+test("GitHub's last listed page goes on to the tree listing only when the PR has more files", async () => {
   for (const changedFiles of [3000, 3001]) {
     const f = await fakeGh({
       "repos/octo/ace/pulls/7": [{ body: { ...richPr, changed_files: changedFiles } }],
@@ -381,8 +383,8 @@ test("the PR file provider cap stays visible on a terminal page with complete pa
         { number: 7, page: 120, headSha: sha, baseSha: nextSha },
         signal(),
       );
-      expect(result.truncated).toBe(changedFiles > 3000);
-      expect(result.nextPage).toBeUndefined();
+      expect(result.truncated).toBe(false);
+      expect(result.nextPage).toBe(changedFiles > 3000 ? 121 : undefined);
       expect(result.files[0]).toMatchObject({ patch: file.patch, truncated: false });
     } finally {
       await f.cleanup();

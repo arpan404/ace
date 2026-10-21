@@ -4,6 +4,7 @@ import { ForgePrRef, type ForgeRepository, type ForgePrStatus } from "@ace/proto
 import {
   ForgePrSearch,
   ForgePageInput,
+  ForgeFilePageInput,
   ForgePrFiles,
   type ForgePrList,
   type ForgePrDetail,
@@ -18,6 +19,7 @@ import {
 } from "./github-browser-schemas.ts";
 import { ForgeError } from "./errors.ts";
 import { TimelinePage, timelineActivity } from "./github-activity.ts";
+import { GitHubFileOverflow, listedPages } from "./github-file-overflow.ts";
 import type { GhApi } from "./http.ts";
 
 const stateQuery = {
@@ -88,10 +90,12 @@ export class GitHubBrowser {
   readonly #repository: ForgeRepository;
   readonly #root: string;
   readonly #mergeBases = new Map<string, string>();
+  readonly #overflow: GitHubFileOverflow;
   constructor(api: GhApi, repository: ForgeRepository) {
     this.#api = api;
     this.#repository = repository;
     this.#root = `repos/${repository.owner}/${repository.name}`;
+    this.#overflow = new GitHubFileOverflow(api, this.#root);
   }
   async activity(number: number, page: number, signal: AbortSignal) {
     ForgePrRef.parse({ repository: this.#repository, number });
@@ -323,7 +327,9 @@ export class GitHubBrowser {
     signal: AbortSignal,
   ): Promise<ForgePrFiles> {
     const parsed = ForgePrFiles.pick({ headSha: true, baseSha: true, commit: true }).parse(input);
-    ForgePageInput.parse(input);
+    ForgeFilePageInput.parse(input);
+    // A commit's files come only from GitHub's list.
+    if (parsed.commit && input.page > listedPages) throw new ForgeError("not_found");
     ForgePrRef.parse({ repository: this.#repository, number: input.number });
     // The merge base is named by two commits, so it is read beside the files, never after.
     const mergeBase = parsed.commit
@@ -344,6 +350,8 @@ export class GitHubBrowser {
     signal: AbortSignal,
     mergeBase: Promise<string> | undefined,
   ): Promise<ForgePrFiles> {
+    if (input.page > listedPages && mergeBase)
+      return this.#overflowFiles(input, parsed, mergeBase, signal);
     let path = `${this.#root}/pulls/${input.number}/files?per_page=25&page=${input.page}`;
     let baseSha = parsed.baseSha;
     let headSha = parsed.headSha;
@@ -372,9 +380,12 @@ export class GitHubBrowser {
       baseSha = parent.sha;
       records = commit.files;
     } else records = decode(z.array(FileRecord).max(25), response.body);
+    // A page carries at most 256 KB of patches. One that doesn't fit is left out whole (never
+    // cut short): the page diffs it from the file's content when it is wanted.
     let remaining = 262_144;
     const files = records.map((file) => {
-      const patch = file.patch === undefined ? null : file.patch.slice(0, remaining);
+      const fits = file.patch !== undefined && file.patch.length <= remaining;
+      const patch = fits ? (file.patch ?? null) : null;
       remaining -= patch?.length ?? 0;
       return {
         raw: Object.assign({}, file, { patch }),
@@ -384,7 +395,7 @@ export class GitHubBrowser {
         additions: file.additions,
         deletions: file.deletions,
         patch,
-        truncated: patch === null || patch.length < (file.patch?.length ?? 0),
+        truncated: patch === null,
       };
     });
     const next = this.#api.next(response, path);
@@ -400,11 +411,35 @@ export class GitHubBrowser {
       headSha,
       ...(parsed.commit ? { commit: parsed.commit } : {}),
       files,
-      ...(next && input.page < 120 ? { nextPage: input.page + 1 } : {}),
-      truncated:
-        (!parsed.commit && pr.changed_files > 3000) ||
-        Boolean(next && input.page === 120) ||
-        files.some((f) => f.truncated),
+      ...(next && input.page < listedPages
+        ? { nextPage: input.page + 1 }
+        : // Past GitHub's 3,000 the list goes on from the trees.
+          !parsed.commit && input.page === listedPages && pr.changed_files > 3000
+          ? { nextPage: listedPages + 1 }
+          : {}),
+      truncated: Boolean(next && input.page === listedPages),
+    };
+  }
+  async #overflowFiles(
+    input: { number: number; page: number },
+    parsed: { headSha: string; baseSha: string },
+    mergeBase: Promise<string>,
+    signal: AbortSignal,
+  ): Promise<ForgePrFiles> {
+    const base = await mergeBase;
+    const page = await this.#overflow.page(
+      { number: input.number, base, head: parsed.headSha, page: input.page },
+      signal,
+    );
+    // As for listed pages: a moved head or base never labels these as current.
+    await this.#head(input.number, parsed.headSha, parsed.baseSha, signal);
+    return {
+      ref: { repository: this.#repository, number: input.number },
+      baseSha: base,
+      headSha: parsed.headSha,
+      files: page.files,
+      ...(page.nextPage ? { nextPage: page.nextPage } : {}),
+      truncated: !page.complete,
     };
   }
 }

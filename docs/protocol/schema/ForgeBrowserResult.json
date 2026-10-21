@@ -102,6 +102,22 @@
     {
       "properties": {
         "resource": {
+          "const": "fileContent",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgeFileContent.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
           "const": "prMergeState",
           "type": "string"
         },

@@ -93,4 +93,9 @@ export interface ForgeBrowser {
     },
     signal: AbortSignal,
   ): Promise<import("@ace/protocol/forge-browser").ForgePrFiles>;
+  /** One side of a changed file at a commit, for a diff GitHub withheld. */
+  fileContent(
+    input: { sha: string; path: string; page: number },
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol/forge-file-content").ForgeFileContent>;
 }

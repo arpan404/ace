@@ -12,6 +12,7 @@ import type { StackPublisher } from "./stack-publish.ts";
 import { ForgeStackExpected } from "@ace/protocol/forge-stacks";
 import { GitHubReviews } from "./github-reviews.ts";
 import { GitHubBrowser } from "./github-browser.ts";
+import { GitHubFileContent } from "./github-file-content.ts";
 import { ForgePrSearch } from "@ace/protocol/forge-browser";
 import { ForgeListCaches } from "./list-cache.ts";
 import { githubOpenWork } from "./github-open-work.ts";
@@ -46,6 +47,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
   readonly #status = new GitHubStatusReader(this.revisions);
   readonly #root: string;
   readonly #browser: GitHubBrowser;
+  readonly #content: GitHubFileContent;
   readonly #issues: GitHubIssues;
   readonly #mergeState: GitHubMergeState;
   readonly #stacks: GitHubStacks;
@@ -81,6 +83,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
     this.#stacks = new GitHubStacks(this.#api, this.repository);
     this.#localStacks = new LocalStacks(options.runner, options.command, options.publishStack);
     this.#browser = new GitHubBrowser(this.#api, this.repository);
+    this.#content = new GitHubFileContent(this.#api, this.#root);
     this.lifecycle = new GitHubLifecycle(this.#api, this.repository);
     this.reviews = new GitHubReviews(this.#api, (number) => this.#ref(number));
     this.#issues = new GitHubIssues(this.#api, this.repository);
@@ -253,6 +256,9 @@ export class GitHubForge implements Forge, ForgeBrowser {
     signal: AbortSignal,
   ) {
     return this.#browser.files(input, signal);
+  }
+  fileContent(input: { sha: string; path: string; page: number }, signal: AbortSignal) {
+    return this.#content.read(input, signal);
   }
   async states(numbers: readonly number[], signal: AbortSignal) {
     return githubStates(this.#api, this.repository, numbers, signal);

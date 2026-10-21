@@ -23,6 +23,7 @@ import * as forgeIssues from "@ace/protocol/forge-issues";
 import * as forgeMergeState from "@ace/protocol/forge-merge-state";
 import * as forgeReview from "@ace/protocol/forge-review";
 import * as forgeBrowser from "@ace/protocol/forge-browser";
+import * as forgeFileContent from "@ace/protocol/forge-file-content";
 import * as forgeStacks from "@ace/protocol/forge-stacks";
 import * as forge from "@ace/protocol/forge";
 import {
@@ -55,6 +56,7 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./context-meter", contextMeter],
   ["./forge", forge],
   ["./forge-browser", forgeBrowser],
+  ["./forge-file-content", forgeFileContent],
   ["./forge-worktree", forgeWorktree],
   ["./forge-lifecycle", forgeLifecycle],
   ["./forge-issues", forgeIssues],

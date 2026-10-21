@@ -3,6 +3,7 @@ import { ForgeIssueOperations, ForgeIssueResults, ForgeIssueRow } from "./forge-
 import { ForgeMergeState } from "./forge-merge-state.ts";
 import { ForgeStackMembership, ForgeStackWorkspace } from "./forge-stacks.ts";
 import { ForgeReviewState } from "./forge-review.ts";
+import { ForgeFileContentOperations, ForgeFileContentResults } from "./forge-file-content.ts";
 import { z } from "zod";
 import { ForgePrRef, ForgePrStatus, ForgeRepository } from "./forge.ts";
 import { WorkspaceId, ThreadId } from "./ids.ts";
@@ -10,6 +11,13 @@ import { WorkspaceId, ThreadId } from "./ids.ts";
 const text = z.string().max(65_536);
 const sha = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
 export const ForgePageInput = z.object({ page: z.number().int().min(1).max(120).default(1) });
+/**
+ * A page of a PR's changed files. GitHub lists the first 3,000 in 120 pages; later pages come
+ * from comparing the two trees, up to 100,000 files.
+ */
+export const ForgeFilePageInput = z.object({
+  page: z.number().int().min(1).max(4_000).default(1),
+});
 export const ForgePrSearch = z.object({
   /** `open` leaves drafts out; `active` is every open PR, drafts included. */
   state: z.enum(["open", "draft", "closed", "merged", "active"]).default("open"),
@@ -155,6 +163,7 @@ const scope = { workspaceId: WorkspaceId, repository: ForgeRepository.optional()
 export const ForgeBrowserOperations = [
   z.object({ op: z.literal("forge.pr.lifecycle"), ...scope, number: z.number().int().positive() }),
   ...ForgeIssueOperations,
+  ...ForgeFileContentOperations,
   z.object({
     op: z.literal("forge.pr.merge-state"),
     ...scope,
@@ -196,7 +205,7 @@ export const ForgeBrowserOperations = [
     op: z.literal("forge.pr.files"),
     ...scope,
     number: z.number().int().positive(),
-    ...ForgePageInput.shape,
+    ...ForgeFilePageInput.shape,
     headSha: sha,
     baseSha: sha,
     commit: sha.optional(),
@@ -205,6 +214,7 @@ export const ForgeBrowserOperations = [
 export const ForgeBrowserResult = z.discriminatedUnion("resource", [
   z.object({ resource: z.literal("prLifecycle"), value: ForgeLifecycleState }),
   ...ForgeIssueResults,
+  ...ForgeFileContentResults,
   z.object({ resource: z.literal("prMergeState"), value: ForgeMergeState }),
   z.object({ resource: z.literal("prStack"), value: ForgeStackWorkspace }),
   z.object({
