@@ -6,7 +6,8 @@ import { Transform } from "node:stream";
 import { createGunzip } from "node:zlib";
 import type { ZipFile, Entry } from "yauzl";
 import { contained } from "./plans.ts";
-// Bounds a hostile archive, yet fits real agents: Antigravity's ACP server alone unpacks to 281 MB.
+// Bounds a hostile archive, yet fits real agents: Antigravity's ACP server alone unpacks to
+// 281 MB, and Cortex Code ships 12,752 entries.
 const maximum = 1024 * 1024 * 1024;
 // Files stay private to the user. An entry the archive marks executable stays executable, since
 // agents ship helpers beside their entrypoint (Antigravity's server spawns `localharness_external`).
@@ -17,7 +18,7 @@ class ExpansionBudget {
   bytes = 0;
   entries = 0;
   entry(size: number): void {
-    if (!Number.isSafeInteger(size) || size < 0 || size > maximum || ++this.entries > 10000)
+    if (!Number.isSafeInteger(size) || size < 0 || size > maximum || ++this.entries > 50_000)
       throw new Error("Archive entry budget exceeded");
   }
   stream(): Transform {
@@ -80,7 +81,9 @@ export async function extractZip(path: string, root: string, signal: AbortSignal
   const zip = await new Promise<ZipFile>((resolve, reject) =>
     yauzl.open(
       path,
-      { lazyEntries: true, autoClose: false, validateEntrySizes: true, strictFileNames: true },
+      // Windows-built ZIPs (Junie's) name entries `junie\junie.exe`; yauzl turns "\" into "/"
+      // and still refuses absolute and ".." names, and `contained` checks every path again.
+      { lazyEntries: true, autoClose: false, validateEntrySizes: true, strictFileNames: false },
       (error, result) =>
         error || !result ? reject(error ?? new Error("Invalid ZIP")) : resolve(result),
     ),
