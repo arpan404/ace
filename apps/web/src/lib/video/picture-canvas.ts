@@ -1,14 +1,5 @@
 import type { PictureImage } from "./picture-renderer.ts";
 
-/** A JPEG's bytes as something a canvas draws, freed once drawn. */
-export async function jpegImage(bytes: Uint8Array): Promise<PictureImage> {
-  const bitmap = await createImageBitmap(new Blob([bytes.slice()], { type: "image/jpeg" }));
-  return {
-    draw: (target, width, height) => target.drawImage(bitmap, 0, 0, width, height),
-    close: () => bitmap.close(),
-  };
-}
-
 /**
  * Draws a picture upright on its canvas: `rotation` is the turn (degrees clockwise) that shows
  * it upright, so a landscape picture of a portrait screen turns. The canvas takes the upright

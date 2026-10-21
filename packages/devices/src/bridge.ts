@@ -7,7 +7,12 @@ import {
   type DeviceServerMessage,
 } from "@ace/protocol/devices";
 import { streamKinds } from "@ace/browser/stream";
-import { PictureChannel, type PictureTransport } from "@ace/browser/picture-channel";
+import {
+  LinkFollow,
+  PictureChannel,
+  pictureLinkLimits,
+  type PictureTransport,
+} from "@ace/browser/picture-channel";
 import { framePicture } from "@ace/screen";
 import { DevicesService, deviceFailure } from "./service.ts";
 import type { Actor } from "./lease.ts";
@@ -44,6 +49,19 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
   });
   let closed = false;
   let pending = 0;
+  /** Each watched device's stream request, kept within this viewer's link. */
+  const follows = new Map<string, LinkFollow>();
+  const later =
+    peer.after ??
+    ((ms: number, run: () => void) => {
+      const timer = setTimeout(run, ms);
+      return () => clearTimeout(timer);
+    });
+  let cancelTick: (() => void) | undefined;
+  const tick = () => {
+    for (const follow of follows.values()) follow.tick();
+    cancelTick = follows.size ? later(1000, tick) : undefined;
+  };
   const access = () => {
     if (closed || !peer.authorize()) throw new Error("Device access revoked");
   };
@@ -77,6 +95,10 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
   function close() {
     if (closed) return;
     closed = true;
+    cancelTick?.();
+    cancelTick = undefined;
+    for (const follow of follows.values()) follow.close();
+    follows.clear();
     pictures.close();
     unwatch();
     unwatchInventory();
@@ -133,6 +155,12 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
                 keyframe: () =>
                   void service.request({ op: "stream.keyframe", deviceId }, actor).catch(() => {}),
                 guard,
+                link: pictureLinkLimits,
+              });
+              const follow = new LinkFollow({
+                rate: () => view.rate(),
+                apply: (settings) =>
+                  service.request({ op: "stream.configure", deviceId, settings }, actor),
               });
               try {
                 // Every frame, unhurried: the viewer's window paces the pictures, not the hub.
@@ -143,9 +171,14 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
                   if (frame.header.codec !== "h264") return;
                   view.push(framePicture(frame));
                 });
+                follows.get(deviceId)?.close();
+                follows.set(deviceId, follow);
+                cancelTick ??= later(1000, tick);
                 slot.attach(() => {
                   stop();
                   view.close();
+                  follow.close();
+                  if (follows.get(deviceId) === follow) follows.delete(deviceId);
                 });
               } catch (error) {
                 view.close();
@@ -186,12 +219,17 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
               await service.settleInventory();
             } else inventoryView ??= service.holdInventoryView();
           }
+          const follow =
+            operation.op === "stream.configure" ? follows.get(operation.deviceId) : undefined;
           const data =
             operation.op === "inventory.watch"
               ? { watching: inventoryView !== undefined }
               : operation.op === "screenshot"
                 ? undefined
-                : await service.request(operation, requestActor);
+                : follow && operation.op === "stream.configure"
+                  ? // The view's request, with its bit rate held to what its link carries.
+                    await follow.ask(operation.settings)
+                  : await service.request(operation, requestActor);
           access();
           if ("deviceId" in operation) deviceAccess(operation.deviceId);
           if (operation.op === "screenshot") {

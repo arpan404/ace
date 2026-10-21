@@ -110,7 +110,6 @@ export const keymap = {
   preview: { keys: "ctrl+shift+p", label: "Preview" },
   devices: { keys: "ctrl+shift+m", label: "Devices" },
   logs: { keys: "ctrl+shift+l", label: "Logs" },
-  takeControl: { keys: "ctrl+shift+c", label: "Take or hand back control of a browser or device" },
   // A long thread (features/thread/long): its turns, moving between them, searching it.
   turns: { keys: "alt+mod+g", label: "Turns of this thread" },
   previousTurn: { keys: "shift+alt+mod+arrowup", label: "Previous turn" },

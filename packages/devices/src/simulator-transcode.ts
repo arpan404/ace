@@ -1,0 +1,102 @@
+import { FrameDecoder, type Frame } from "@ace/screen";
+import type { DeviceRuntime } from "./runtime.ts";
+import { DeviceError } from "./sdk.ts";
+
+/** Below this bit rate a viewer can't carry serve-sim's fixed 6 Mbit/s: transcode for it. */
+export const simulatorTranscodeBelow = 5_000_000;
+/** And at or above this, serve-sim's own stream passes through again (hysteresis). */
+export const simulatorPassThroughFrom = 5_500_000;
+
+/**
+ * Whether a Simulator live view needs its picture re-encoded: its link can't carry serve-sim's
+ * fixed 6 Mbit/s, or its panel is smaller than the Simulator's native picture (an iPad on a
+ * phone). `transcoding` is the current state, so the rate has some room before it flips back.
+ */
+export function simulatorNeedsTranscode(input: {
+  transcoding: boolean;
+  bitrate: number;
+  box: { maxWidth: number; maxHeight: number };
+  native: { width: number; height: number } | undefined;
+}): boolean {
+  const larger =
+    input.native !== undefined &&
+    (input.native.width > input.box.maxWidth || input.native.height > input.box.maxHeight);
+  if (larger) return true;
+  return input.transcoding
+    ? input.bitrate < simulatorPassThroughFrom
+    : input.bitrate < simulatorTranscodeBelow;
+}
+
+/**
+ * serve-sim's H.264 re-encoded by the screen helper's `--transcode` mode (a process of its own,
+ * hardware decode and encode) at the viewer's size and bit rate. Units go in as serve-sim sends
+ * them; frame packets come out in the capture's framing.
+ */
+export interface SimulatorTranscode {
+  push(payload: Buffer, keyframe: boolean, seq: number, ts: number): void;
+  settings(settings: { bitrate: number; maxWidth: number; maxHeight: number }): void;
+  keyframe(): void;
+  stop(): Promise<void>;
+}
+
+const packet = (header: object, payload: Buffer = Buffer.alloc(0)) => {
+  const json = Buffer.from(JSON.stringify({ ...header, bytes: payload.length }));
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(json.length);
+  return Buffer.concat([length, json, payload]);
+};
+
+export function startSimulatorTranscode(options: {
+  helper: string;
+  runtime: Pick<DeviceRuntime, "spawn">;
+  env: NodeJS.ProcessEnv;
+  frame(frame: Frame): void;
+  failed(error: unknown): void;
+}): SimulatorTranscode {
+  let stopped = false;
+  const child = options.runtime.spawn({
+    command: options.helper,
+    args: ["--transcode"],
+    env: options.env,
+    name: "simulator-transcode",
+  });
+  child.stderr.resume();
+  child.stdin.on("error", () => {});
+  const decoder = new FrameDecoder((frame) => {
+    if (!stopped && frame.header.codec === "h264") options.frame(frame);
+  });
+  child.stdout.on("data", (chunk: Buffer) => {
+    try {
+      decoder.push(chunk);
+    } catch (error) {
+      if (!stopped) options.failed(error);
+    }
+  });
+  void child.exited.then(() => {
+    if (!stopped)
+      options.failed(
+        new DeviceError(
+          "command_failed",
+          "The Simulator's transcoder stopped",
+          "Start the device view again.",
+        ),
+      );
+  });
+  const write = (bytes: Buffer) => {
+    // A transcoder that can't keep up drops input: the newest picture matters, not every one.
+    if (!stopped && child.stdin.writable && child.stdin.writableLength < 8 * 1024 * 1024)
+      child.stdin.write(bytes);
+  };
+  return {
+    push: (payload, keyframe, seq, ts) =>
+      write(packet({ op: "frame", keyframe, seq, ts }, payload)),
+    settings: (settings) => write(packet({ op: "settings", ...settings })),
+    keyframe: () => write(packet({ op: "keyframe" })),
+    async stop() {
+      if (stopped) return;
+      stopped = true;
+      child.stdin.end();
+      await child.stop({ graceMs: 1000 }).catch(() => {});
+    },
+  };
+}

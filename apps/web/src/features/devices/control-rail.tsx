@@ -24,9 +24,6 @@ export const railKeys = {
   record: "mod+alt+r",
 } as const;
 
-/** Why the device's keys and buttons do nothing while it's live: someone else drives it. */
-export const takeControlReason = "Take control to use the device";
-
 /** How long a recording has run, ticking each second while it does. */
 function useRecordingTime(recording: boolean): string | undefined {
   const [elapsed, setElapsed] = useState(0);
@@ -46,14 +43,13 @@ function useRecordingTime(recording: boolean): string | undefined {
 
 /**
  * The floating rail on the stage's right edge: Home, Back (Android), Rotate, Software keyboard
- * (brings back the device's on-screen keyboard; toggles it on iOS) and Type text while you
- * drive, then Screenshot and Record (with its running time). Each has a tooltip and a key.
+ * (brings back the device's on-screen keyboard; toggles it on iOS) and Type text while it is
+ * live, then Screenshot and Record (with its running time). Each has a tooltip and a key.
  */
 export function ControlRail(props: {
   /** The device's tab: the rail's keys only work while focus is inside it. */
   scope: RefObject<HTMLElement | null>;
   android: boolean;
-  controlled: boolean;
   live: boolean;
   pending: boolean;
   recording: boolean;
@@ -64,10 +60,9 @@ export function ControlRail(props: {
   onRecord(): void;
 }) {
   const time = useRecordingTime(props.recording);
-  const reason = takeControlReason;
   const when = (event: KeyboardEvent) =>
     !isEditable(event.target) && props.scope.current?.contains(document.activeElement) === true;
-  const drive = props.controlled && props.live;
+  const drive = props.live;
   useHotkey(railKeys.home, () => props.onKey("home"), { enabled: drive, when });
   useHotkey(railKeys.back, () => props.onKey("back"), { enabled: drive && props.android, when });
   useHotkey(railKeys.rotate, () => props.onKey("rotate"), { enabled: drive, when });
@@ -88,7 +83,6 @@ export function ControlRail(props: {
         keys={railKeys.home}
         resolve={false}
         disabled={!drive}
-        reason={props.live ? reason : undefined}
         onClick={() => props.onKey("home")}
       />
       {props.android && (
@@ -98,7 +92,6 @@ export function ControlRail(props: {
           keys={railKeys.back}
           resolve={false}
           disabled={!drive}
-          reason={props.live ? reason : undefined}
           onClick={() => props.onKey("back")}
         />
       )}
@@ -108,7 +101,6 @@ export function ControlRail(props: {
         keys={railKeys.rotate}
         resolve={false}
         disabled={!drive}
-        reason={props.live ? reason : undefined}
         onClick={() => props.onKey("rotate")}
       />
       <IconButton
@@ -117,7 +109,6 @@ export function ControlRail(props: {
         keys={railKeys.softwareKeyboard}
         resolve={false}
         disabled={!drive}
-        reason={props.live ? reason : undefined}
         onClick={() => props.onKey("keyboard")}
       />
       <IconButton
@@ -127,7 +118,6 @@ export function ControlRail(props: {
         resolve={false}
         pressed={props.keyboardOpen}
         disabled={!drive}
-        reason={props.live ? reason : undefined}
         onClick={props.onKeyboard}
       />
       <span aria-hidden className={railDivider} />

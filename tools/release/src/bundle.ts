@@ -38,7 +38,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|session|api-key|builtins|install)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|session|api-key|builtins|install|device-tools)\.ts$/,
             },
             async (args) => {
               let contents = await readFile(args.path, "utf8");
@@ -117,6 +117,8 @@ export async function bundleDaemon(
                   '"./process-guardian-entry.ts"',
                   '"./browser-process-guardian.mjs"',
                 );
+              if (args.path.endsWith("/devices/src/device-tools.ts"))
+                contents = contents.replace('"./tools-entry.ts"', '"./device-tools-process.mjs"');
               if (args.path.endsWith("/browser/src/recording.ts"))
                 contents = contents.replace(
                   '"./encoder-process.ts"',
@@ -203,6 +205,7 @@ export async function bundleDaemon(
     ["packages/provider-kit/src/discovery/pi-credentials-worker.ts", "pi-credentials-worker.mjs"],
     ["packages/history-import/src/worker.ts", "history-import-worker.mjs"],
     ["packages/browser/src/encoder-process.ts", "browser-encoder-process.mjs"],
+    ["packages/devices/src/tools-entry.ts", "device-tools-process.mjs"],
     ["packages/browser/src/process-guardian-entry.ts", "browser-process-guardian.mjs"],
     ["packages/notify/src/worker-entry.ts", "notification-worker.mjs"],
     ["packages/models/src/storage-worker.ts", "model-storage-worker.mjs"],
