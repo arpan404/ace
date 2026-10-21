@@ -8,11 +8,11 @@ import { extractZip } from "./archives.ts";
 import { join } from "node:path";
 import { registry, temporary, body, sample } from "./testing/support.ts";
 import { digest } from "./index.ts";
-async function tar(
+async function packTar(
   name: string,
   type: "file" | "symlink" = "file",
   following: readonly { name: string; content: string }[] = [],
-): Promise<Uint8Array> {
+): Promise<Buffer> {
   const archive = pack();
   const chunks: Buffer[] = [];
   const done = new Promise<void>((resolve, reject) => {
@@ -30,7 +30,14 @@ async function tar(
   for (const entry of following) archive.entry({ name: entry.name, type: "file" }, entry.content);
   archive.finalize();
   await done;
-  return gzipSync(Buffer.concat(chunks));
+  return Buffer.concat(chunks);
+}
+async function tar(
+  name: string,
+  type: "file" | "symlink" = "file",
+  following: readonly { name: string; content: string }[] = [],
+): Promise<Uint8Array> {
+  return gzipSync(await packTar(name, type, following));
 }
 test.each(["traversal", "absolute"])(
   "archive path %s is rejected without publishing or writing outside its private root",
@@ -126,6 +133,55 @@ test("regular tar entries install while symlink artifacts cannot become a launch
       await service.close();
       await work.close();
     }
+  }
+});
+
+test("a bzip2 tar installs through the registry and its entrypoint reads back", async () => {
+  const work = await temporary();
+  try {
+    const source = join(work.root, "source.tar");
+    await writeFile(source, await packTar("agent"));
+    await promisify(execFile)("/usr/bin/bzip2", ["-k", source]);
+    const bytes = await readFile(`${source}.bz2`);
+    const entry = sample();
+    entry.distribution.binary = {
+      "linux-x86_64": {
+        archive: "https://example.org/agent.tar.bz2",
+        cmd: "agent",
+        args: [],
+        env: {},
+        sha256: digest(bytes),
+      },
+    };
+    const service = await registry(
+      work.root,
+      async () => new Response(body([entry])),
+      async () => new Response(Buffer.from(bytes)),
+    );
+    try {
+      await service.catalog.refresh();
+      const preview = await service.handle({
+        type: "registry.install-plan",
+        requestId: "plan",
+        acpAgentId: "official:sample",
+        runtime: "binary",
+      });
+      if (!preview.result.ok || !("plan" in preview.result)) throw new Error("No plan");
+      const reply = await service.handle({
+        type: "registry.install-intent",
+        requestId: "install",
+        intentId: "intent",
+        digest: preview.result.plan.digest,
+      });
+      if (!reply.result.ok || !("installation" in reply.result)) throw new Error("No installation");
+      expect(
+        await readFile((await service.resolve(reply.result.installation)).command, "utf8"),
+      ).toBe("synthetic executable");
+    } finally {
+      await service.close();
+    }
+  } finally {
+    await work.close();
   }
 });
 
