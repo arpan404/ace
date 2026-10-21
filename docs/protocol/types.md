@@ -29,7 +29,7 @@ Example:
 
 ```json
 {
-  "mode": "auto-review",
+  "mode": "ask",
   "native": "example"
 }
 ```
@@ -72,8 +72,7 @@ Example:
 
 ```json
 {
-  "estimatedLoad": 3,
-  "instanceId": "example",
+  "estimatedLoad": 7,
   "role": "example"
 }
 ```
@@ -87,7 +86,7 @@ Type: ["browser","api_key","unknown"]. See JSON Schema for constraints.
 Example:
 
 ```json
-"api_key"
+"browser"
 ```
 
 ## AccountAvailability
@@ -99,7 +98,7 @@ Type: ["available","near_limit","exhausted","logged_out","unknown"]. See JSON Sc
 Example:
 
 ```json
-"exhausted"
+"unknown"
 ```
 
 ## AccountBadgeColor
@@ -111,7 +110,7 @@ Type: ["neutral","blue","green","amber","rose","violet"]. See JSON Schema for co
 Example:
 
 ```json
-"blue"
+"neutral"
 ```
 
 ## AccountBadgeIcon
@@ -123,7 +122,7 @@ Type: ["briefcase","house","flask","rocket","moon","wrench","code","star","heart
 Example:
 
 ```json
-"code"
+"flask"
 ```
 
 ## AccountBadgeInput
@@ -137,7 +136,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"W"
+"AB"
 ```
 
 ## AccountDirectory
@@ -163,7 +162,7 @@ Type: ["CODEX_HOME","CLAUDE_CONFIG_DIR","XDG_DATA_HOME","XDG_CONFIG_HOME","XDG_S
 Example:
 
 ```json
-"XDG_CACHE_HOME"
+"XDG_DATA_HOME"
 ```
 
 ## AccountId
@@ -175,7 +174,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"nJpK8JhgjJm963gRiYVc78ox9zDv6Xc8jqmvq7eO5jtTj44"
+"5O5jtTj445"
 ```
 
 ## AccountInstanceId
@@ -199,7 +198,7 @@ Type: ["login","api_key"]. See JSON Schema for constraints.
 Example:
 
 ```json
-"api_key"
+"login"
 ```
 
 ## AccountManagementRequest
@@ -220,8 +219,8 @@ Example:
 
 ```json
 {
-  "label": "v",
-  "provider": "claude",
+  "label": "h",
+  "provider": "pi",
   "requestId": "example",
   "type": "accounts.add"
 }
@@ -245,9 +244,8 @@ Example:
 ```json
 {
   "instanceId": "example",
-  "label": "{",
+  "label": "+",
   "requestId": "example",
-  "shortLabel": "W",
   "type": "accounts.rename"
 }
 ```

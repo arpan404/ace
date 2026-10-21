@@ -8,12 +8,11 @@ import {
   ForgePrFiles,
   type ForgePrList,
   type ForgePrDetail,
-  type ForgeCommit,
 } from "@ace/protocol/forge-browser";
 import { BrowserPr, SearchPage, FileRecord, CommitFiles } from "./github-browser-schemas.ts";
 import { ForgeError } from "./errors.ts";
 import { TimelinePage, timelineActivity } from "./github-activity.ts";
-import { prHasCommit, readCommitPage } from "./github-commits.ts";
+import { prHasCommit, readCommitPage, type CommitPage } from "./github-commits.ts";
 import type { GhApi } from "./http.ts";
 
 const stateQuery = {
@@ -240,16 +239,15 @@ export class GitHubBrowser {
     before: string | undefined,
     headSha: string,
     signal: AbortSignal,
-  ): Promise<{ commits: ForgeCommit[]; before?: string; total: number; truncated: boolean }> {
+  ): Promise<CommitPage & { truncated: boolean }> {
     ForgePrRef.parse({ repository: this.#repository, number });
-    const page = await readCommitPage(this.#api, this.#repository, { number, before }, signal);
-    if (page.headSha.toLowerCase() !== headSha.toLowerCase()) throw new ForgeError("conflict");
-    return {
-      commits: page.commits,
-      ...(page.before ? { before: page.before } : {}),
-      total: page.total,
-      truncated: false,
-    };
+    const page = await readCommitPage(
+      this.#api,
+      this.#repository,
+      { number, before, headSha },
+      signal,
+    );
+    return { ...page, truncated: false };
   }
   /** Where two commits' histories meet: fixed for the pair, so a pair is asked for once. */
   async #mergeBase(base: string, head: string, signal: AbortSignal): Promise<string> {
@@ -307,7 +305,8 @@ export class GitHubBrowser {
     let headSha = parsed.headSha;
     if (parsed.commit) {
       // A URL cannot select an unrelated repository commit as a PR commit.
-      if (!(await prHasCommit(this.#api, this.#repository, input.number, parsed.commit, signal)))
+      const member = { number: input.number, headSha: parsed.headSha, sha: parsed.commit };
+      if (!(await prHasCommit(this.#api, this.#repository, member, signal)))
         throw new ForgeError("not_found");
       path = `${this.#root}/commits/${parsed.commit}?per_page=25&page=${input.page}`;
       headSha = parsed.commit;

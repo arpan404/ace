@@ -236,6 +236,11 @@ export const ForgeBrowserResult = z.discriminatedUnion("resource", [
     commits: z.array(ForgeCommit).max(100),
     /** Pass as `before` to read the next older page; absent on the oldest page. */
     before: cursor.optional(),
+    /**
+     * Pages older than every page `before` leads to, newest first, each read on its own (as
+     * `before`), so side by side. Only the newest page names them.
+     */
+    alongside: z.array(cursor).max(1_000).optional(),
     /** How many commits the pull request has. */
     total: z.number().int().nonnegative().optional(),
     truncated: z.boolean(),

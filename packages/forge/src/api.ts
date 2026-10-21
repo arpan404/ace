@@ -82,6 +82,7 @@ export interface ForgeBrowser {
   ): Promise<{
     commits: import("@ace/protocol/forge-browser").ForgeCommit[];
     before?: string | undefined;
+    alongside?: string[] | undefined;
     total?: number | undefined;
     truncated: boolean;
   }>;

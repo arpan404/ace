@@ -71,6 +71,7 @@ const commitPage = (
       repository: {
         pullRequest: {
           headRefOid: options.head ?? sha,
+          baseRefOid: nextSha,
           commits: {
             totalCount: options.total ?? nodes.length,
             pageInfo: {
@@ -370,7 +371,9 @@ test("a push during a commit-list read cannot label the new commits with the pre
 });
 
 test("a PR with more than 250 commits lists every one, newest page first, with statistics and authors", async () => {
+  // GitHub lists the newest 250 of these 260; the comparison of base and head has them all.
   const shas = Array.from({ length: 260 }, (_, n) => n.toString(16).padStart(40, "0"));
+  const compared = `repos/octo/ace/compare/${nextSha}...${sha}?per_page=100&page=1`;
   const f = await fakeGh({
     [commitsQuery]: [
       commitPage(
@@ -382,14 +385,39 @@ test("a PR with more than 250 commits lists every one, newest page first, with s
         { before: "c60", total: 260 },
       ),
       commitPage(
-        shas.slice(0, 60).map((oid) => commitNode(oid)),
+        shas.slice(10, 60).map((oid) => commitNode(oid)),
         { total: 260 },
       ),
+    ],
+    [compared]: [
+      {
+        body: {
+          total_commits: 260,
+          commits: shas.slice(0, 100).map((oid) => ({ ...commit, sha: oid })),
+          files: [file],
+        },
+      },
+    ],
+    "graphql:object(oid:": [
+      {
+        body: {
+          data: {
+            repository: Object.fromEntries(
+              shas.slice(0, 10).map((oid, i) => [`c${i}`, { oid, additions: i, deletions: 1 }]),
+            ),
+          },
+        },
+      },
     ],
   });
   try {
     const newest = await f.forge.prCommits(7, undefined, sha, signal());
-    expect(newest).toMatchObject({ before: "c160", total: 260, truncated: false });
+    expect(newest).toMatchObject({
+      before: "c160",
+      alongside: [`compare:1:10:${nextSha}`],
+      total: 260,
+      truncated: false,
+    });
     expect(newest.commits.at(-1)).toMatchObject({
       sha: shas[259],
       author: "contributor",
@@ -399,15 +427,40 @@ test("a PR with more than 250 commits lists every one, newest page first, with s
       date: "2026-10-01",
     });
     const middle = await f.forge.prCommits(7, newest.before, sha, signal());
-    const oldest = await f.forge.prCommits(7, middle.before, sha, signal());
-    expect(oldest.before).toBeUndefined();
-    const listed = [...oldest.commits, ...middle.commits, ...newest.commits].map((c) => c.sha);
-    expect(listed).toEqual(shas);
-    // Each older page is asked for by the cursor the newer one named.
+    const listed = await f.forge.prCommits(7, middle.before, sha, signal());
+    expect(listed.before).toBeUndefined();
+    const older = await f.forge.prCommits(7, newest.alongside?.[0], sha, signal());
+    expect(older.commits[3]).toMatchObject({
+      sha: shas[3],
+      author: "contributor",
+      additions: 3,
+      deletions: 1,
+    });
+    const all = [older, listed, middle, newest].flatMap((page) => page.commits);
+    expect(all.map((c) => c.sha)).toEqual(shas);
+    // Each listed page is asked for by the cursor the newer one named.
     const cursors = (await f.requests())
       .filter((request) => request.path === "graphql")
-      .map((request) => (request.body as { variables: { before: unknown } }).variables.before);
+      .flatMap((request) => {
+        const variables = (request.body as { variables?: { before: unknown } }).variables;
+        return variables ? [variables.before] : [];
+      });
     expect(cursors).toEqual([null, "c160", "c60"]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("older commits read after a push to the base or head are refused, not mixed in", async () => {
+  const compared = `repos/octo/ace/compare/${nextSha}...${sha}?per_page=100&page=1`;
+  const f = await fakeGh({
+    // Two more commits landed since the newest page counted 260.
+    [compared]: [{ body: { total_commits: 262, commits: [{ ...commit, sha }] } }],
+  });
+  try {
+    await expect(
+      f.forge.prCommits(7, `compare:1:10:${nextSha}`, sha, signal()),
+    ).rejects.toMatchObject({ kind: "conflict" });
   } finally {
     await f.cleanup();
   }
