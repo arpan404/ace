@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useClient } from "@ace/client-react";
-import type { ForgePrDetail } from "@ace/protocol";
-import { actionErrorText, autoMergeBlocker, type MergeMethod } from "@ace/ui-core";
+import { WorkspaceId, type CommandPayload, type ForgePrDetail } from "@ace/protocol";
+import { actionErrorText, autoMergeBlocker, noAutoMerge, type MergeMethod } from "@ace/ui-core";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { runCommand } from "@/lib/daemon-command.ts";
 import { useToast } from "@/components/ui/toast.tsx";
-import { readForge, writeFailure } from "@/lib/forge-read.ts";
+import { failureCode, readForge, writeFailure } from "@/lib/forge-read.ts";
 import { useFreshSinceReconnect } from "./query-state.tsx";
 
 export type MergeStateAction = "enable" | "disable" | "dequeue";
@@ -26,6 +26,8 @@ export function usePrMergeState(props: {
   detail: ForgePrDetail;
   /** The task the PR is linked to; GitHub writes go through that link. */
   threadId: string | undefined;
+  /** Outside a thread (the Pull requests page), auto-merge goes through the PR's project. */
+  projectWrites?: boolean | undefined;
   writeDisabled: boolean;
   onRefresh(): void;
 }) {
@@ -63,26 +65,40 @@ export function usePrMergeState(props: {
   const state = query.isError ? undefined : query.data;
   const fresh = useFreshSinceReconnect(query.dataUpdatedAt);
   /** Why no merge-state write can run now, or undefined when one can. */
-  const blocked = !props.threadId
-    ? "Link this pull request to a task first"
-    : props.writeDisabled || !fresh || pending
-      ? "Wait for GitHub to refresh"
-      : query.isError || !state
-        ? "Merge state is unavailable: refresh GitHub"
-        : uncertain || state.writeState !== undefined
-          ? "Refresh GitHub to confirm the previous change first"
-          : undefined;
+  const blocked =
+    !props.threadId && !props.projectWrites
+      ? "Link this pull request to a task first"
+      : props.writeDisabled || !fresh || pending
+        ? "Wait for GitHub to refresh"
+        : query.isError || !state
+          ? "Merge state is unavailable: refresh GitHub"
+          : uncertain || state.writeState !== undefined
+            ? "Refresh GitHub to confirm the previous change first"
+            : undefined;
   const run = async (action: MergeStateAction, method: MergeMethod) => {
-    if (blocked || !state || !props.threadId) return;
+    if (blocked || !state) return;
+    const payload: CommandPayload | undefined = props.threadId
+      ? {
+          type: "forge.pr.merge-state.change",
+          link: { threadId: props.threadId, pr: ref },
+          headSha: state.headSha,
+          action,
+          method,
+        }
+      : action === "dequeue"
+        ? undefined
+        : {
+            type: "forge.hosted.merge-state",
+            workspaceId: WorkspaceId.parse(props.workspaceId),
+            pr: ref,
+            headSha: state.headSha,
+            action,
+            method,
+          };
+    if (!payload) return;
     setPending(true);
     try {
-      const result = await runCommand(client, {
-        type: "forge.pr.merge-state.change",
-        link: { threadId: props.threadId, pr: ref },
-        headSha: state.headSha,
-        action,
-        method,
-      });
+      const result = await runCommand(client, payload);
       if (result.code)
         toast.error({
           title: `Couldn't ${actionLabels[action]}`,
@@ -91,7 +107,14 @@ export function usePrMergeState(props: {
     } catch (error) {
       const failure = writeFailure(error);
       setUncertain(failure.uncertain);
-      toast.error({ title: `Couldn't ${actionLabels[action]}`, description: failure.text });
+      toast.error({
+        title: `Couldn't ${actionLabels[action]}`,
+        // GitHub refuses auto-merge where the repository doesn't allow it: say that plainly.
+        description:
+          action === "enable" && failureCode(error) === "forge_forbidden"
+            ? noAutoMerge
+            : failure.text,
+      });
     } finally {
       await query.refetch();
       props.onRefresh();

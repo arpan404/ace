@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useClient, useConnectionState } from "@ace/client-react";
-import { ThreadId, type CommandPayload, type ForgePrDetail } from "@ace/protocol";
+import { ThreadId, WorkspaceId, type CommandPayload, type ForgePrDetail } from "@ace/protocol";
 import { actionErrorText, type MergeMethod } from "@ace/ui-core";
 import { runCommand } from "@/lib/daemon-command.ts";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -8,18 +8,22 @@ import { failureCode } from "@/lib/forge-read.ts";
 
 const titles: Partial<Record<CommandPayload["type"], string>> = {
   "forge.pr.merge": "Couldn't merge this pull request",
+  "forge.hosted.merge": "Couldn't merge this pull request",
   "forge.pr.link": "Couldn't link the task",
   "forge.pr.unlink": "Couldn't unlink the task",
 };
 
 /**
- * Writes that act through a task linked to the PR: merge, link and unlink. A merge holds every
+ * Writes that act through a task linked to the PR: merge, link and unlink; with no task, a merge
+ * goes through the PR's project. A merge holds every
  * later write until a successful read shows what GitHub did; the daemon's `writeState` keeps
  * that hold across reloads. Review requests go through the PR's hosted review writes instead.
  */
 export function usePrLinkWrites(props: {
   detail: ForgePrDetail;
   threadId: string | undefined;
+  /** The project, for a merge with no linked task. */
+  workspaceId: string;
   writeReady: boolean;
   onRefresh(): Promise<boolean>;
 }) {
@@ -31,7 +35,7 @@ export function usePrLinkWrites(props: {
   const ref = props.detail.status.ref;
   const fenced = reconciling || props.detail.writeState !== undefined;
   const run = async (payload: CommandPayload) => {
-    const remote = payload.type === "forge.pr.merge";
+    const remote = payload.type === "forge.pr.merge" || payload.type === "forge.hosted.merge";
     if (!ready || pending || !props.writeReady || (remote && fenced)) return;
     setPending(true);
     if (remote) setReconciling(true);
@@ -61,7 +65,14 @@ export function usePrLinkWrites(props: {
     pending,
     fenced,
     merge(method: MergeMethod) {
-      if (!props.threadId) return Promise.resolve();
+      if (!props.threadId)
+        return run({
+          type: "forge.hosted.merge",
+          workspaceId: WorkspaceId.parse(props.workspaceId),
+          pr: ref,
+          method,
+          headSha: props.detail.status.headSha,
+        });
       return run({
         type: "forge.pr.merge",
         link: link(props.threadId),

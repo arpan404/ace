@@ -354,6 +354,29 @@
         },
         {
           "properties": {
+            "grouping": {
+              "$ref": "https://ace.local/protocol/v1/ForgeGroupCounting.json"
+            },
+            "op": {
+              "const": "forge.group-counts",
+              "type": "string"
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId",
+            "grouping"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "number": {
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991,

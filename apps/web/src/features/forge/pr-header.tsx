@@ -221,6 +221,13 @@ export function PrHeader(props: {
             blocked={actions.primaryBlocked}
             working={working}
             onRun={() => void actions.runPrimary()}
+            onDisable={() => void actions.mergeState.run("disable", actions.method)}
+            disableBlocked={
+              actions.mergeState.blocked ??
+              (actions.mergeState.state?.canDisable
+                ? undefined
+                : "GitHub doesn't let this account turn auto-merge off")
+            }
           />
           {props.menu}
         </div>

@@ -1,0 +1,54 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeGroupCounting.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "by": {
+          "const": "readiness",
+          "type": "string"
+        },
+        "query": {
+          "$ref": "https://ace.local/protocol/v1/ForgePrSearch.json"
+        }
+      },
+      "required": [
+        "by",
+        "query"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "by": {
+          "const": "pr-people",
+          "type": "string"
+        },
+        "query": {
+          "$ref": "https://ace.local/protocol/v1/ForgePrSearch.json"
+        }
+      },
+      "required": [
+        "by",
+        "query"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "by": {
+          "const": "issue-people",
+          "type": "string"
+        },
+        "query": {
+          "$ref": "https://ace.local/protocol/v1/ForgeIssueSearch.json"
+        }
+      },
+      "required": [
+        "by",
+        "query"
+      ],
+      "type": "object"
+    }
+  ]
+}

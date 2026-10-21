@@ -53,6 +53,10 @@
     "unavailableReason": {
       "maxLength": 256,
       "type": "string"
+    },
+    "viewer": {
+      "maxLength": 65536,
+      "type": "string"
     }
   },
   "required": [

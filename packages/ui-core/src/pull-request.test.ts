@@ -166,10 +166,11 @@ test("reviewers are GitHub usernames, with or without @, separated by commas or 
 });
 
 test("GitHub denial and queue membership block auto-merge independently of CI", () => {
-  expect(
-    prOverview(status({ ci: "pending", mergeState: mergeState({ canEnable: false }) }), "main")
-      .autoMergeBlocked,
-  ).toMatch(/does not permit/);
+  for (const ci of ["pending", "success"] as const)
+    expect(
+      prOverview(status({ ci, mergeState: mergeState({ canEnable: false }) }), "main")
+        .autoMergeBlocked,
+    ).toBe("This repository doesn't allow auto-merge for this account.");
   expect(
     prOverview(
       status({

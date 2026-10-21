@@ -1,4 +1,5 @@
-import { prIndicatorFields, prIndicators } from "./github-browser-enrichment.ts";
+import { prIndicatorFields, prIndicators, viewerLogin } from "./github-browser-enrichment.ts";
+import { avatars, labelColors, logins } from "./github-row-facts.ts";
 import { z } from "zod";
 import { ForgePrRef, type ForgeRepository, type ForgePrStatus } from "@ace/protocol/forge";
 import {
@@ -22,6 +23,7 @@ const stateQuery = {
   closed: "is:closed is:unmerged",
   merged: "is:merged",
   active: "is:open",
+  all: "",
 };
 /** The states a list counts: each PR falls in exactly one. */
 const countedStates = ["open", "draft", "closed", "merged"] as const;
@@ -30,7 +32,7 @@ export function prSearchQuery(repository: ForgeRepository, query: ForgePrSearch)
   return [
     `repo:${repository.owner}/${repository.name}`,
     "is:pr",
-    stateQuery[query.state],
+    ...(stateQuery[query.state] ? [stateQuery[query.state]] : []),
     ...query.search
       .trim()
       .split(/\s+/)
@@ -38,8 +40,11 @@ export function prSearchQuery(repository: ForgeRepository, query: ForgePrSearch)
       .map((word) => JSON.stringify(word)),
     ...(query.author ? [`author:${query.author}`] : []),
     ...(query.reviewer ? [`review-requested:${query.reviewer}`] : []),
+    ...(query.assignee ? [`assignee:${query.assignee}`] : []),
+    ...query.labels.map((label) => `label:${JSON.stringify(label)}`),
+    ...(query.review === "any" ? [] : [`review:${query.review}`]),
     // GitHub's combined status of the head commit, check runs included.
-    ...(query.ci === "failure" ? ["status:failure"] : []),
+    ...(query.ci === "any" ? [] : [`status:${query.ci}`]),
   ].join(" ");
 }
 const Counts = z.object({
@@ -135,15 +140,17 @@ export class GitHubBrowser {
       return `${state}: search(type: ISSUE, query: ${JSON.stringify(prSearchQuery(this.#repository, selected))}, first: 1) { issueCount }`;
     });
     const response = await this.#api.request("graphql", signal, {
-      query: `query { ${fields.join(" ")} ${prIndicatorFields(
+      query: `query { viewer { login } ${fields.join(" ")} ${prIndicatorFields(
         this.#repository,
         page.items.map((item) => item.number),
       )} }`,
     });
     const counts = decode(Counts, response.body).data;
     const indicators = prIndicators(response.body);
+    const viewer = viewerLogin(response.body);
     return {
       repository: this.#repository,
+      ...(viewer ? { viewer } : {}),
       items: page.items.map((item, index) =>
         Object.assign({}, indicators[`p${index}`], {
           raw: { search: item, indicators: indicators[`p${index}`]?.raw },
@@ -154,6 +161,13 @@ export class GitHubBrowser {
           authorAvatarUrl: item.user?.avatar_url,
           commentCount: indicators[`p${index}`]?.commentCount ?? item.comments,
           labels: item.labels.map((l) => l.name),
+          labelColors: labelColors(item.labels),
+          assignees: logins(item.assignees),
+          avatars: {
+            ...avatars([...(item.user ? [item.user] : []), ...(item.assignees ?? [])]),
+            ...indicators[`p${index}`]?.avatars,
+          },
+          ...(item.created_at ? { createdAt: item.created_at } : {}),
           updatedAt: item.updated_at,
           state: item.pull_request.merged_at
             ? "merged"

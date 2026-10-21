@@ -93,12 +93,15 @@ export function prPollInterval(status: ForgePrStatus | null | undefined): number
 }
 export const prPollMs = 15_000;
 
+/** What a repository that refuses auto-merge, or an account that can't enable it, is told. */
+export const noAutoMerge = "This repository doesn't allow auto-merge for this account.";
+
 /** Only the host's capability establishes whether auto-merge can be enabled. */
 export function autoMergeBlocker(state: ForgeMergeState | undefined): string | undefined {
   if (!state) return "Refresh GitHub merge state before enabling auto-merge";
   if (state.autoMerge) return "Auto-merge is already enabled";
   if (state.queue) return "Already in the merge queue";
-  if (!state.canEnable) return "GitHub does not permit enabling auto-merge";
+  if (!state.canEnable) return noAutoMerge;
   return undefined;
 }
 

@@ -251,6 +251,31 @@
     },
     {
       "properties": {
+        "counts": {
+          "additionalProperties": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "propertyNames": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "resource": {
+          "const": "groupCounts",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource",
+        "counts"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "resource": {
           "const": "prDetail",
           "type": "string"

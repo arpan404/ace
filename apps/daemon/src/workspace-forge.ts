@@ -326,6 +326,32 @@ export class WorkspaceForge {
     await this.checks.execute(p, backend, this.lifetime.signal, allowed);
     return { ok: true };
   }
+  /**
+   * A merge, or auto-merge on or off, from the project's Pull requests page, linked to a thread or not. It goes through
+   * the same journal and fence as a thread's merge; every thread linked to the PR sees the result.
+   */
+  async hostedMerge(
+    command: Command & {
+      payload:
+        | import("@ace/protocol").ForgeHostedMergeCommand
+        | import("@ace/protocol").ForgeHostedMergeStateCommand;
+    },
+    cwd: string,
+    allowed: () => boolean,
+  ): Promise<Omit<CommandResult, "commandId">> {
+    const p = command.payload;
+    this.lifetime.signal.throwIfAborted();
+    if (!allowed()) return commandNotDispatched(command, "forbidden");
+    let backend: GitHubForge;
+    try {
+      backend = await this.backends.backend(cwd, p.pr.repository);
+    } catch (error) {
+      return commandNotDispatched(command, actionErrorCode(error));
+    }
+    return this.actions.execute(p, backend, this.lifetime.signal, allowed, (status) =>
+      this.browser.publishStatus(status),
+    );
+  }
 
   async hostedLifecycle(
     command: import("@ace/protocol").Command & {

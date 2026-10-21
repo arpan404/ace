@@ -21,6 +21,7 @@ import { FakePrCatalog } from "./pr-catalog-wire.ts";
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
 import { fakeOpenWork } from "./open-work-wire.ts";
 import { emptyIssueList, FakeIssueWire } from "./issue-wire.ts";
+import { catalogIssueList } from "./forge-list-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import { FakeGitStates } from "./git-states.ts";
 import { FakeConflicts } from "./conflict-wire.ts";
@@ -74,7 +75,13 @@ export class FakeWorkspaceWire {
     this.pullRequests.seed(fixtures);
   }
   private seededRead(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
-    return this.issues.read(op) ?? this.forgeReads.get(JSON.stringify(op)) ?? emptyIssueList(op);
+    return (
+      this.issues.read(op) ??
+      this.forgeReads.get(JSON.stringify(op)) ??
+      (op.op === "forge.issue.list" ? catalogIssueList(op, this.forgeReads) : undefined) ??
+      this.pullRequests.groupCounts(op, this.forgeReads) ??
+      emptyIssueList(op)
+    );
   }
   setForgeRead(operation: ForgeBrowserOperation, result: ForgeBrowserResult): void {
     this.forgeReads.set(JSON.stringify(operation), ForgeBrowserResult.parse(result));
@@ -304,6 +311,8 @@ export class FakeWorkspaceWire {
       this.checkReruns.push(payload.action);
       return { ok: true };
     }
+    const merged = this.pullRequests.merge(payload) ?? this.pullRequests.mergeState(payload);
+    if (merged) return merged;
     const project = this.projects.command(payload);
     if (project) return project;
     const forge = this.forge.command(payload);

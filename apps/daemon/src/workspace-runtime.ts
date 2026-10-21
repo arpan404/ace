@@ -401,6 +401,7 @@ export class WorkspaceRuntime {
       op.op === "forge.pr.activity" ||
       op.op === "forge.pr.list" ||
       op.op === "forge.open-work" ||
+      op.op === "forge.group-counts" ||
       op.op === "forge.pr.detail" ||
       op.op === "forge.pr.commits" ||
       op.op === "forge.pr.files" ||
@@ -600,6 +601,11 @@ export class WorkspaceRuntime {
         const cwd = this.store.getWorkspacePath(p.workspaceId);
         if (!cwd) return { ok: false, error: "workspace_not_found" };
         return this.forge.hostedReview({ ...command, payload: p }, cwd, allowed);
+      }
+      if (p.type === "forge.hosted.merge" || p.type === "forge.hosted.merge-state") {
+        const cwd = this.store.getWorkspacePath(p.workspaceId);
+        if (!cwd) return commandNotDispatched(command, "workspace_not_found");
+        return this.forge.hostedMerge({ ...command, payload: p }, cwd, allowed);
       }
       if (p.type === "forge.hosted.checks") {
         const cwd = this.store.getWorkspacePath(p.workspaceId);
