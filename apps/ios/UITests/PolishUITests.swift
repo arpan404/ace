@@ -71,7 +71,7 @@ import XCTest
         try audit(app, "projects")
         app.buttons["BackButton"].firstMatch.tap()
         app.buttons["Close"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["inbox.library"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 10))
         open("ios-plan", in: app)
         XCTAssertTrue(app.buttons["plan.approve"].waitForExistence(timeout: 25))
         try audit(app, "plan-card")
@@ -120,7 +120,7 @@ import XCTest
             // The thread behind the sheet has its own back button; use the sheet's.
             app.navigationBars["Explorer"].buttons["BackButton"].tap()
         }
-        app.buttons["Done"].firstMatch.tap()
+        app.closeSheet()
         app.buttons["thread.menu"].tap()
         app.buttons["thread.changes"].tap()
         let file = app.buttons["changes.file.packages/provider-kit/src/process-owner.ts"]
@@ -128,15 +128,14 @@ import XCTest
         file.tap()
         XCTAssertTrue(app.descendants(matching: .any)["diff.view"].waitForExistence(timeout: 10))
         try audit(app, "diff")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(reveal(app.buttons["changes.step"], in: app, up: 8, down: 0))
+        XCTAssertTrue(app.buttons["changes.step"].waitForExistence(timeout: 10))
         app.buttons["changes.step"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["changes.text"].waitForExistence(timeout: 10))
         try audit(app, "commit-editor")
         // At the default size the audit can close the half-height editor itself.
         let cancel = app.buttons["Cancel"].firstMatch
         if cancel.waitForExistence(timeout: 3) { cancel.tap() }
-        app.buttons["Done"].firstMatch.tap()
+        app.closeSheet()
         back(app)
         app.openBrowseDestination("inbox.machines")
         let machine = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'machines.row.'")).firstMatch
@@ -146,7 +145,8 @@ import XCTest
         try audit(app, "machine-detail")
         try auditBelow(app, "machine-detail")
         app.buttons["BackButton"].firstMatch.tap()
-        app.buttons["Done"].firstMatch.tap()
+        app.buttons["BackButton"].firstMatch.tap()
+        app.closeSheet()
         app.openBrowseDestination("inbox.settings")
         XCTAssertTrue(app.buttons["settings.notifications"].waitForExistence(timeout: 10))
         app.buttons["settings.notifications"].tap()
@@ -180,7 +180,7 @@ import XCTest
         let stopTask = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'agents.task.stop.'")).firstMatch
         XCTAssertTrue(reveal(stopTask, in: app, up: 10, down: 0))
         try audit(app, "agents-tasks")
-        app.buttons["Done"].firstMatch.tap()
+        app.closeSheet()
     }
     private func auditChanges(_ app: XCUIApplication) throws {
         app.buttons["thread.menu"].tap()
@@ -188,10 +188,9 @@ import XCTest
         XCTAssertTrue(app.descendants(matching: .any)["changes.totals"].waitForExistence(timeout: 15))
         try audit(app, "changes")
         try auditBelow(app, "changes")
-        // At accessibility sizes the next step ends the list rather than floating over it.
-        XCTAssertTrue(reveal(app.buttons["changes.step"], in: app, up: 8, down: 0))
-        try audit(app, "changes-step")
-        app.buttons["Done"].firstMatch.tap()
+        // The next step sits in the sheet's toolbar.
+        XCTAssertTrue(app.buttons["changes.step"].exists)
+        app.closeSheet()
     }
     private func auditMachines(_ app: XCUIApplication) throws {
         app.openBrowseDestination("inbox.machines")
@@ -199,7 +198,7 @@ import XCTest
         app.navigationBars["Machines"].swipeUp()
         try audit(app, "machines")
         try auditBelow(app, "machines")
-        app.buttons["Done"].firstMatch.tap()
+        app.closeSheet()
     }
     private func auditSettings(_ app: XCUIApplication) throws {
         app.openBrowseDestination("inbox.settings")
@@ -229,7 +228,7 @@ import XCTest
         }
         app.launch()
         // At accessibility text sizes the first rows can already fill the screen.
-        XCTAssertTrue(app.buttons["inbox.library"].waitForExistence(timeout: 25))
+        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
         return app
     }
     /// Every audit issue is listed in an attachment. Missing descriptions and small hit areas fail
@@ -279,7 +278,7 @@ import XCTest
     private func back(_ app: XCUIApplication) {
         let button = app.buttons["BackButton"].firstMatch
         if button.waitForExistence(timeout: 5) { button.tap() }
-        _ = app.buttons["inbox.library"].waitForExistence(timeout: 10)
+        _ = app.buttons["inbox.settings"].waitForExistence(timeout: 10)
     }
     private func audit(_ app: XCUIApplication, _ name: String) throws {
         screenshot("audit-\(name)")

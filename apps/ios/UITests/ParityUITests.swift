@@ -98,15 +98,14 @@ import XCTest
 
     func testMachineSettingsAndUsageLoadThroughTheSharedSdk() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.library"].waitForExistence(timeout: 30)); app.openBrowseDestination("inbox.settings")
-        let machine = app.buttons["settings.machine.ios-spike-host"]
-        if !machine.isHittable { app.swipeUp() }
-        XCTAssertTrue(machine.waitForExistence(timeout: 15)); machine.tap()
-        app.buttons["Usage"].tap()
+        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 30)); app.openBrowseDestination("library.usage")
         XCTAssertTrue(app.staticTexts["Input tokens"].firstMatch.waitForExistence(timeout: 20))
         XCTAssertFalse(app.descendants(matching: .any)["service.problem"].exists)
         capture("usage")
         app.navigationBars.buttons["BackButton"].firstMatch.tap()
+        app.openBrowseDestination("settings.machines")
+        app.buttons["machines.row.ios-spike-host"].tap()
+        for _ in 0..<6 where !app.buttons["Threads"].isHittable { app.swipeUp() }
         app.buttons["Threads"].tap()
         XCTAssertTrue(app.switches["setting.threads.forkOnSwitch"].waitForExistence(timeout: 15))
         capture("machine-settings")

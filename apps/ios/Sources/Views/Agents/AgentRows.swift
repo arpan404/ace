@@ -63,7 +63,7 @@ struct TaskRowView: View {
                     }
                     .foregroundStyle(AceTheme.Colours.foreground)
                     .lineLimit(stacked ? 4 : 2)
-                    StateLabel(status: task.status)
+                    StateLabel(status: StatusDisplay(label: task.status.label.capitalized, token: task.status.token))
                 }
             }
             if !stacked { Spacer(minLength: AceTheme.Spacing.none) }

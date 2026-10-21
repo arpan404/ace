@@ -48,7 +48,7 @@ import XCTest
     }
     func testBrowseShowsProjectsAndMachineTools() {
         let app = launch()
-        app.buttons["inbox.library"].tap()
+        app.openSettings()
         XCTAssertTrue(app.buttons["library.projects"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["Automations"].exists)
         XCTAssertTrue(app.buttons["Usage"].exists)
@@ -122,7 +122,7 @@ import XCTest
         app.buttons["composer.model"].tap()
         XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 15))
         capture("thread-model-picker", app)
-        app.buttons["Done"].tap()
+        app.closeSheet()
         let latest = app.buttons["transcript.latest"]
         // The first downward gesture can dismiss the keyboard. Continue into older messages.
         for _ in 0..<3 where !latest.exists { app.scrollViews["transcript"].swipeDown() }
@@ -179,7 +179,7 @@ import XCTest
     }
     func testMachineToolsLoadWithoutStartingAgentsOrDevices() {
         let app = launch()
-        app.buttons["inbox.library"].tap()
+        app.openSettings()
         let destinations = ["Skills and plugins", "Automations", "Usage", "Simulators and devices"]
         for title in destinations {
             let destination = app.buttons[title]
@@ -209,7 +209,7 @@ import XCTest
     }
     func testSourceControlAndCliSkillDiscoveryLoadFromTheSelectedMachine() {
         let app = launch()
-        app.buttons["inbox.library"].tap()
+        app.openSettings()
         let source = app.buttons["Source control"]
         if !source.isHittable { app.swipeUp() }
         XCTAssertTrue(source.waitForExistence(timeout: 10)); source.tap()
@@ -228,7 +228,7 @@ import XCTest
     }
     func testComputerUseShowsMacPermissionsWithoutStartingCapture() {
         let app = launch()
-        app.buttons["inbox.library"].tap()
+        app.openSettings()
         let computer = app.buttons["library.computer"]
         if !computer.isHittable { app.swipeUp() }
         XCTAssertTrue(computer.waitForExistence(timeout: 10)); computer.tap()
@@ -246,7 +246,7 @@ import XCTest
     }
     func testProjectCreationAndCloneReadHostDefaultsWithoutCreatingAnything() {
         let app = launch()
-        app.buttons["inbox.library"].tap()
+        app.openSettings()
         app.buttons["library.projects"].tap()
         let add = app.buttons["Add project"]
         if !add.isHittable { app.swipeUp() }
@@ -281,7 +281,7 @@ import XCTest
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launch()
-        if !app.buttons["inbox.library"].waitForExistence(timeout: 45) {
+        if !app.buttons["inbox.settings"].waitForExistence(timeout: 45) {
             capture("launch-needs-attention", app)
             XCTFail("Unlock ace on the connected iPhone and check its paired-machine connection")
         }

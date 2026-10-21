@@ -30,7 +30,6 @@ import XCTest
         app.buttons["changes.file.packages/provider-kit/src/process-owner.ts"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["diff.view"].waitForExistence(timeout: 10))
         screenshot("changes-diff")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
         app.buttons["changes.file.apps/daemon/src/cli/kill-all.fixtures.ts"].tap()
         let truncated = app.descendants(matching: .any)["diff.truncated"]
         for _ in 0..<40 where !truncated.exists { app.swipeUp(velocity: .fast) }

@@ -134,7 +134,7 @@ struct ProviderRow: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             line {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                    Text(provider.name).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                    Label { Text(provider.name) } icon: { ProviderMark(provider: provider.provider, size: 18) }.aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
                     Text([provider.summary, provider.version].compactMap { $0 }.joined(separator: " · "))
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                         .fixedSize(horizontal: false, vertical: true)

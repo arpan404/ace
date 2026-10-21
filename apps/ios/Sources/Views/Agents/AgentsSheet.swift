@@ -18,7 +18,10 @@ struct AgentsSheet: View {
         NavigationStack {
             List {
                 if let sheet {
-                    ForEach(sheet.rows) { row in agentRow(row).listRowBackground(Color.clear) }
+                    Section {
+                        ForEach(sheet.rows) { row in agentRow(row).listRowBackground(Color.clear) }
+                    }
+                    .listSectionSeparator(.hidden, edges: .top)
                     if sheet.hidden.agents > 0 {
                         Text(hiddenText(sheet.hidden)).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                             .foregroundStyle(AceTheme.Colours.mutedForeground).accessibilityIdentifier("agents.hidden")

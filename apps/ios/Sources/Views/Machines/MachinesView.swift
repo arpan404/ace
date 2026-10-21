@@ -76,9 +76,7 @@ struct MachineRow: View {
                     .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
             }
         }
-        .frame(minHeight: 68)
         .accessibilityElement(children: .combine)
-        .accessibilityValue(facts.connection.label)
     }
 }
 

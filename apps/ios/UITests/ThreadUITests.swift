@@ -32,7 +32,7 @@ import XCTest
         XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10))
         sleep(2)
         screenshot("thread-models")
-        app.buttons["Done"].tap()
+        app.closeSheet()
         let input = app.textViews["composer.input"]
         XCTAssertTrue(input.waitForExistence(timeout: 10))
         input.tap()
