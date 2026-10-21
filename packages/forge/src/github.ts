@@ -11,6 +11,7 @@ import { LocalStacks } from "./local-stacks.ts";
 import type { StackPublisher } from "./stack-publish.ts";
 import { ForgeStackExpected } from "@ace/protocol/forge-stacks";
 import { GitHubReviews } from "./github-reviews.ts";
+import { GitHubChecks } from "./github-checks.ts";
 import { GitHubBrowser } from "./github-browser.ts";
 import { ForgePrSearch } from "@ace/protocol/forge-browser";
 import { ForgeListCaches } from "./list-cache.ts";
@@ -41,6 +42,8 @@ export class GitHubForge implements Forge, ForgeBrowser {
   readonly repository: ForgeRepository;
   readonly lifecycle: GitHubLifecycle;
   readonly reviews: GitHubReviews;
+  /** Check runs opened in the PR panel, and their re-runs. */
+  readonly checks: GitHubChecks;
   readonly #api: GhApi;
   readonly revisions = new StatusRevisions();
   readonly #status = new GitHubStatusReader(this.revisions);
@@ -83,6 +86,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
     this.#browser = new GitHubBrowser(this.#api, this.repository);
     this.lifecycle = new GitHubLifecycle(this.#api, this.repository);
     this.reviews = new GitHubReviews(this.#api, (number) => this.#ref(number));
+    this.checks = new GitHubChecks(this.#api, this.repository);
     this.#issues = new GitHubIssues(this.#api, this.repository);
   }
   listIssues(query: ForgeIssueSearch, signal: AbortSignal) {

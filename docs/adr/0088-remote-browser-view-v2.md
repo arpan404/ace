@@ -222,10 +222,14 @@ Added with #1055. The page's sound rides the video's tab capture and the same st
 ### Muted by default, everywhere
 
 Every view starts muted, on every device, and a view that stops showing the page goes back to
-muted. One speaker button in the browser tab's toolbar turns the sound on for that device only.
-The click is what opens the client's audio output (`AudioContext`), because phone browsers only
-start sound inside a user gesture. The button is offered while the page shows as video on a
-client with WebCodecs `AudioDecoder` and Web Audio; a JPEG view has no sound.
+muted. As in a browser, a speaker at the end of the address bar appears only while the page plays
+sound or its tab is muted. While the page plays and this device has its sound off, the speaker
+shows crossed out and a click turns the sound on for that device only; unmuting a muted tab from
+it does the same. Once the person hears it, a click mutes the tab. The tab's right-click menu
+has Mute tab and Unmute tab. The click is what opens the client's audio output
+(`AudioContext`), because phone browsers only start sound inside a user gesture. Sound is offered
+while the page shows as video on a client with WebCodecs `AudioDecoder` and Web Audio; a JPEG
+view has no sound.
 
 The viewer's choice travels in its pane report: `BrowserCaptureViewport.audio` in
 `browser.subscribe` and `browser.capture`. It is not a tab property and not the person's tab
@@ -286,7 +290,7 @@ and without a viewer.
 - Sound comes only with video: JPEG viewers, ephemeral contexts and "Use my Chrome" have none.
   The desktop's embedded backend sends video without sound: its views play through the desktop
   itself, and capturing their sound would take it off the desktop's speakers (below).
-- Clients without WebCodecs `AudioDecoder` for Opus (older Safari) get no speaker button.
+- Clients without WebCodecs `AudioDecoder` for Opus (older Safari) get no sound here.
 - The jitter buffer is fixed at 60 ms over the quickest arrival; a link with larger jitter
   restarts the schedule more often rather than buffering more.
 
@@ -432,7 +436,7 @@ app. There is no JPEG-only backend left on the desktop.
 - **No sound.** The capture takes the picture only. Capturing a view's sound diverts it from the
   desktop's speakers: with a tone playing, macOS's speaker assertion for the page ended as the
   capture with audio started and stayed without it. The person at the desktop hears the page;
-  remote viewers of desktop views get no speaker button until a capture can duplicate the sound
+  remote viewers of desktop views get no sound until a capture can duplicate the sound
   instead.
 
 Measured with `apps/desktop/e2e/browser-video.e2e.ts` (Electron 44, Apple M-series, the page
@@ -456,7 +460,7 @@ Amended 2026-10-20. Remote viewers of a tab in the person's own Chrome (ADR 0084
   its last capture ends; an agent working the person's tab with nobody watching starts nothing.
   A crashed encoder ends its captures and the next capture starts another. The `user` backend
   reaches it through an injected `videoEncoder` port, never through ace's Chrome backend.
-- **No sound.** The person's browser plays its own; viewers get no speaker button.
+- **No sound.** The person's browser plays its own; viewers get no sound here.
 
 - **Pictures too large to relay.** The native host drops a message over the daemon socket's
   1 MiB, and Chrome stops screencasting while frames go unacknowledged: after a few dropped

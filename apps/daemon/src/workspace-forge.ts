@@ -6,6 +6,7 @@ import type { Command } from "@ace/protocol";
 import { ForgeResourceOwner } from "./forge-resource-owner.ts";
 import { WorkspaceForgeLifecycle } from "./workspace-forge-lifecycle.ts";
 import { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
+import { WorkspaceForgeChecks } from "./workspace-forge-checks.ts";
 import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import { ForgeError, repositoryKey, type GitHubForge, type CommandRunner } from "@ace/forge";
 import {
@@ -38,6 +39,7 @@ export class WorkspaceForge {
   private issueLinks: WorkspaceIssueLinks;
   private issueActions: IssueActions;
   private reviews: WorkspaceForgeReviews;
+  private checks = new WorkspaceForgeChecks();
   private now: () => number;
   private projection: WorkspacePrLinks;
   private links: WorkspacePrLinks["links"];
@@ -312,6 +314,16 @@ export class WorkspaceForge {
       this.lifetime.signal,
       allowed,
     );
+    return { ok: true };
+  }
+  async hostedChecks(
+    command: Command & { payload: import("@ace/protocol").ForgeHostedChecksCommand },
+    cwd: string,
+    allowed: () => boolean,
+  ) {
+    const p = command.payload;
+    const backend = await this.backends.backend(cwd, p.pr.repository);
+    await this.checks.execute(p, backend, this.lifetime.signal, allowed);
     return { ok: true };
   }
 

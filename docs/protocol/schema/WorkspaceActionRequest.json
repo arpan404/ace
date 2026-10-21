@@ -420,6 +420,36 @@
         },
         {
           "properties": {
+            "checkRunId": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "jobId": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "op": {
+              "const": "forge.pr.check",
+              "type": "string"
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId",
+            "checkRunId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "after": {
               "maxLength": 128,
               "minLength": 1,

@@ -18,6 +18,7 @@ import { DiffStat } from "@/components/diff-stat.tsx";
 import { PullRequestLink, pullRequestAt } from "@/components/pull-request-link.tsx";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import { PrOwnComment } from "./pr-review-forms.tsx";
+import { PrReactions } from "./pr-reactions.tsx";
 import {
   eventText,
   type PrLifecycleState,
@@ -115,6 +116,9 @@ function CommentBody(props: { comment: ForgeComment; expansion: TimelineExpansio
         text={comment.body}
         expansion={props.expansion}
       />
+      {comment.kind !== "review" && (
+        <PrReactions subject={{ kind: comment.kind, commentId: comment.id }} />
+      )}
       <PrOwnComment comment={comment} />
     </>
   );

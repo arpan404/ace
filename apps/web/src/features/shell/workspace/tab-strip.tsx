@@ -45,7 +45,11 @@ export function TabStrip(props: {
   const edges = useOverflow(scroller, state.tabs.length);
   useSidewaysWheel(scroller);
   const entering = useEntering(state.tabs.map((tab) => tab.key));
-  useRevealShown(scroller, shown);
+  useRevealShown(
+    scroller,
+    shown,
+    state.tabs.findIndex((tab) => tab.key === shown),
+  );
   useLayoutEffect(() => {
     const key = focusNext.current;
     if (!key) return;
@@ -99,8 +103,9 @@ export function TabStrip(props: {
     if (!event.dataTransfer.types.includes(tabDragType)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
-    const target = key ?? state.tabs.at(-1)?.key;
-    if (target && (drop?.key !== target || drop.side !== side)) setDrop({ key: target, side });
+    // Between tabs or past either end, the slot nearest the pointer.
+    const slot = key ? { key, side } : dropSlot(scroller.current, event.clientX);
+    if (slot && (drop?.key !== slot.key || drop.side !== slot.side)) setDrop(slot);
   };
   const onDrop = (event: DragEvent<HTMLElement>) => {
     const key = event.dataTransfer.getData(tabDragType);
@@ -127,6 +132,13 @@ export function TabStrip(props: {
         aria-label={props.label}
         style={{
           maskImage: `linear-gradient(to right, ${edges.left ? "transparent, black 24px" : "black, black 0px"}, ${edges.right ? "black calc(100% - 24px), transparent" : "black 100%, black"})`,
+        }}
+        onDragOverCapture={(event) => {
+          // Held near either edge, the strip scrolls to the tabs beyond it.
+          if (!event.dataTransfer.types.includes(tabDragType)) return;
+          const box = event.currentTarget.getBoundingClientRect();
+          const step = edgeScrollStep(event.clientX, box.left, box.right);
+          if (step !== 0) event.currentTarget.scrollLeft += step;
         }}
         onDragOver={(event) => onDragOver(event)}
         onDragLeave={(event) => {
@@ -219,6 +231,44 @@ function tabButton(strip: HTMLElement | null, key: string): HTMLButtonElement | 
   );
 }
 
+/**
+ * Where a tab dropped at `x` lands: before the first tab whose middle is past it, else after the
+ * last. Covers the strip's padding and the gaps between tabs, so a drop at the far left goes
+ * first rather than last.
+ */
+function dropSlot(
+  strip: HTMLElement | null,
+  x: number,
+): { key: string; side: DropSide } | undefined {
+  const boxes = [...(strip?.querySelectorAll<HTMLElement>(":scope > [data-tab-key]") ?? [])];
+  for (const box of boxes) {
+    const rect = box.getBoundingClientRect();
+    const key = box.dataset.tabKey;
+    if (key && x < rect.left + rect.width / 2) return { key, side: "before" };
+  }
+  const last = boxes.at(-1)?.dataset.tabKey;
+  return last ? { key: last, side: "after" } : undefined;
+}
+
+/** How near an edge a held tab starts the strip scrolling, and its fastest step per dragover. */
+const scrollEdge = 32;
+const scrollStepMax = 14;
+
+/**
+ * How far one dragover scrolls the strip (pure): nothing in the middle, more the nearer the
+ * pointer is to an edge, negative toward the left. Dragover repeats while the pointer is still,
+ * so holding a tab at the edge keeps scrolling.
+ */
+function edgeScrollStep(x: number, left: number, right: number): number {
+  const fromLeft = x - left;
+  const fromRight = right - x;
+  if (fromLeft < scrollEdge)
+    return -Math.ceil(((scrollEdge - Math.max(0, fromLeft)) / scrollEdge) * scrollStepMax);
+  if (fromRight < scrollEdge)
+    return Math.ceil(((scrollEdge - Math.max(0, fromRight)) / scrollEdge) * scrollStepMax);
+  return 0;
+}
+
 /** True once the tabs are wider than their strip, so the All tabs menu appears. */
 function useOverflow(scroller: React.RefObject<HTMLDivElement | null>, count: number) {
   const [edges, setEdges] = useState({ overflowing: false, left: false, right: false });
@@ -255,17 +305,26 @@ function useOverflow(scroller: React.RefObject<HTMLDivElement | null>, count: nu
 
 /** A wheel's lines, in pixels. */
 const wheelLine = 16;
+/** Wheel events closer together than this belong to one trackpad gesture. */
+const swipeGapMs = 300;
 
 /**
  * A vertical wheel over an overflowing strip scrolls it sideways: a mouse has no other way to
  * reach the tabs past its edge. At either end, and on a strip that fits, the wheel goes on to
- * the page. Not passive, so a wheel it uses doesn't also scroll the panel.
+ * the page. A trackpad's sideways swipe is left alone, vertical drift included. Not passive, so
+ * a wheel it uses doesn't also scroll the panel.
  */
 function useSidewaysWheel(scroller: React.RefObject<HTMLDivElement | null>) {
   useLayoutEffect(() => {
     const element = scroller.current;
     if (!element) return;
+    /** When the last wheel event with sideways movement arrived (event time). */
+    let sidewaysAt = Number.NEGATIVE_INFINITY;
     const onWheel = (event: WheelEvent) => {
+      if (event.deltaX !== 0) sidewaysAt = event.timeStamp;
+      // A trackpad swipe drifts up and down as it goes sideways; the rest of that gesture
+      // stays the browser's own scroll, or the drift would push the strip back and forth.
+      if (event.timeStamp - sidewaysAt < swipeGapMs) return;
       if (event.ctrlKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
       const room = element.scrollWidth - element.clientWidth;
       if (room <= 1) return;

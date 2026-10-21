@@ -8,6 +8,8 @@ export type CommandRequest = {
   input?: string;
   signal: AbortSignal;
   mode: "json" | "tail";
+  /** In tail mode, how many of the newest bytes are kept (16 KiB by default). */
+  tailBytes?: number;
   /** Passed only to the actual write, never to identity probes. */
   dispatch?: { prepare?(): void; record(): void };
 };
@@ -88,7 +90,7 @@ export function createCommandRunner(options: {
       stop();
     }, timeoutMs);
     const chunks: Buffer[] = [];
-    const tail = new LogTail();
+    const tail = new LogTail(request.tailBytes);
     let bytes = 0;
     child.stdout.on("data", (chunk: Buffer) => {
       if (failure) return;

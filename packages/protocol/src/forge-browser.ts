@@ -3,6 +3,7 @@ import { ForgeIssueOperations, ForgeIssueResults, ForgeIssueRow } from "./forge-
 import { ForgeMergeState } from "./forge-merge-state.ts";
 import { ForgeStackMembership, ForgeStackWorkspace } from "./forge-stacks.ts";
 import { ForgeReviewState } from "./forge-review.ts";
+import { ForgeCheckOperations, ForgeCheckResults } from "./forge-checks.ts";
 import { z } from "zod";
 import { ForgePrRef, ForgePrStatus, ForgeRepository } from "./forge.ts";
 import { WorkspaceId, ThreadId } from "./ids.ts";
@@ -208,6 +209,7 @@ export const ForgeBrowserOperations = [
     baseSha: sha,
     commit: sha.optional(),
   }),
+  ...ForgeCheckOperations,
 ] as const;
 export const ForgeBrowserResult = z.discriminatedUnion("resource", [
   z.object({ resource: z.literal("prLifecycle"), value: ForgeLifecycleState }),
@@ -246,6 +248,7 @@ export const ForgeBrowserResult = z.discriminatedUnion("resource", [
     truncated: z.boolean(),
   }),
   z.object({ resource: z.literal("prFiles"), value: ForgePrFiles }),
+  ...ForgeCheckResults,
 ]);
 export type ForgeBrowserResult = z.infer<typeof ForgeBrowserResult>;
 export type ForgeBrowserOperation = z.infer<(typeof ForgeBrowserOperations)[number]>;
