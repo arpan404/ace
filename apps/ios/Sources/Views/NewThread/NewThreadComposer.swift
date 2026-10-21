@@ -3,6 +3,10 @@ import SwiftUI
 @MainActor enum NewThreadStyle {
     static let hero = AceTheme.TypeStyle(size: 28, lineHeight: 34, weight: 500, tracking: -0.56)
     static let chip = AceTheme.TypeStyle(size: 14.5, lineHeight: 19, weight: 500, tracking: 0)
+    /// The quiet ⌄ after the hero question that says it opens a picker.
+    static var disclosure: Text {
+        Text(" \(Image(systemName: "chevron.down"))").font(.title3.weight(.semibold)).foregroundStyle(AceTheme.Colours.mutedForeground)
+    }
 }
 
 /// "⑂ New worktree ⌄" and "From main ⌄": where the thread works, as chips over the composer.
