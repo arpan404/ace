@@ -66,8 +66,8 @@ test("issue groups count assigned to you, then opened by you, then the rest", as
         signal(),
       ),
     ).toEqual({ assigned: 3, created: 2, others: 7 });
-    const sent = (await gh.requests()).filter((request) => request.path === "graphql");
-    expect(searches(sent[0]?.body)).toEqual([
+    const sent = (await gh.requests()).find((request) => request.path === "graphql");
+    expect(searches(sent?.body)).toEqual([
       "repo:octo/ace is:issue is:closed",
       "repo:octo/ace is:issue is:closed assignee:@me",
       "repo:octo/ace is:issue is:closed author:@me -assignee:@me",
