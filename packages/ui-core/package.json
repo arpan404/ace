@@ -15,6 +15,7 @@
     "./computer-use": "./src/computer-use.ts",
     "./interaction-measurement": "./src/interaction-measurement.ts",
     "./editor-url": "./src/editor-url.ts",
+    "./editor-commands": "./src/editor-commands.ts",
     "./file-references": "./src/file-references.ts",
     "./transcript-blocks": "./src/transcript-blocks.ts",
     "./transcript-block-reader": "./src/transcript-block-reader.ts",

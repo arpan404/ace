@@ -109,6 +109,7 @@
         "@ace/service": "workspace:*",
         "@ace/settings": "workspace:*",
         "@ace/terminal": "workspace:*",
+        "@ace/ui-core": "workspace:*",
         "@ace/usage": "workspace:*",
         "@ace/workspace": "workspace:*",
         "marked": "^18.0.14",
