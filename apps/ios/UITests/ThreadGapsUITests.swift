@@ -42,6 +42,7 @@ import XCTest
         worked.tap()
         XCTAssertTrue(app.staticTexts["Ran"].waitForExistence(timeout: 15))
         screenshot("worked-full-steps")
+        app.buttons["subagents.rollup"].firstMatch.tap()
         let review = app.buttons["subagent.Review PID-reuse safety"]
         XCTAssertTrue(review.waitForExistence(timeout: 10))
         review.tap()

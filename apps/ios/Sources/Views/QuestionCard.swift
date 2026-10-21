@@ -146,7 +146,7 @@ private struct ChoiceRow<Content: View>: View {
         .aceFont(AceTheme.Typography.body, relativeTo: .body)
         .padding(.horizontal, AceTheme.Spacing.md + AceTheme.Spacing.xxs).padding(.vertical, AceTheme.Spacing.md)
         .frame(minHeight: AceTheme.Dimensions.touchTarget)
-        .background(AceTheme.Colours.background, in: RoundedRectangle(cornerRadius: AceTheme.Radii.card, style: .continuous))
+        .requestInset(cornerRadius: AceTheme.Radii.card)
         .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.card, style: .continuous)
             .strokeBorder(chosen ? AceTheme.Colours.foreground : .clear, lineWidth: AceTheme.Dimensions.border * 1.5))
         .contentShape(Rectangle())

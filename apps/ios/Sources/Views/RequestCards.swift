@@ -16,6 +16,20 @@ struct RequestCardFrame: ViewModifier {
     }
 }
 
+/// The inset surface inside a request card (a command, a plan, a choice): the page colour in
+/// dark, where the card is lighter than the page, and the faint grey in light, where both are white.
+private struct RequestInset: ViewModifier {
+    @Environment(\.colorScheme) private var colourScheme
+    let cornerRadius: CGFloat
+    func body(content: Content) -> some View {
+        content.background(colourScheme == .dark ? AceTheme.Colours.background : AceTheme.Colours.secondaryBackground,
+                           in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+}
+extension View {
+    func requestInset(cornerRadius: CGFloat) -> some View { modifier(RequestInset(cornerRadius: cornerRadius)) }
+}
+
 /// The request's bold title and one muted line under it.
 struct RequestHeader: View {
     let title: String
@@ -88,7 +102,7 @@ struct PlanReviewCard: View {
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: planHeight)
-            .padding(AceTheme.Spacing.md).background(AceTheme.Colours.background, in: RoundedRectangle(cornerRadius: AceTheme.Radii.code))
+            .padding(AceTheme.Spacing.md).requestInset(cornerRadius: AceTheme.Radii.code)
             .accessibilityIdentifier("plan.body")
             if revising {
                 TextField("What should change?", text: $feedback, axis: .vertical)

@@ -24,7 +24,7 @@ struct ApprovalCard: View {
                 .scrollBounceBehavior(.basedOnSize)
                 .frame(maxHeight: AceTheme.Dimensions.touchTarget * 3)
                 .fixedSize(horizontal: false, vertical: true)
-                .background(AceTheme.Colours.background, in: RoundedRectangle(cornerRadius: AceTheme.Radii.code))
+                .requestInset(cornerRadius: AceTheme.Radii.code)
             }
             if approval.truncated { Text("Some details are shortened for display").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
             Group {
