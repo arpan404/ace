@@ -82,27 +82,19 @@ export class GitHubStatusReader {
     // Only the commit checks depend on the head. Everything else starts at once, and so do the
     // checks of the head this PR had at its last read: a head rarely moves between two reads, so
     // a status usually costs one round trip instead of two. A wrong guess is dropped unseen.
-    const lifetime = new AbortController();
-    const guess = new AbortController();
-    const stop = () => {
-      lifetime.abort();
-      guess.abort();
-    };
-    signal.addEventListener("abort", stop, { once: true });
-    const commitPages = (sha: string, scope: AbortSignal) =>
+    const commitPages = (sha: string) =>
       [
-        api.pages(`${root}/commits/${sha}/check-runs?per_page=100&filter=latest`, scope, budget),
-        api.pages(`${root}/commits/${sha}/statuses?per_page=100`, scope, budget),
+        api.pages(`${root}/commits/${sha}/check-runs?per_page=100&filter=latest`, signal, budget),
+        api.pages(`${root}/commits/${sha}/statuses?per_page=100`, signal, budget),
       ] as const;
     const known = this.#heads.get(number);
-    const guessed = known === undefined ? undefined : commitPages(known, guess.signal);
-    const prRead = api.request(`${root}/pulls/${number}`, lifetime.signal);
-    const scope = lifetime.signal;
+    const guessed = known === undefined ? undefined : commitPages(known);
+    const prRead = api.request(`${root}/pulls/${number}`, signal);
     const reads = [
-      this.#inline.read(api, `${root}/pulls/${number}/comments?per_page=100`, scope, budget),
-      this.#issue.read(api, `${root}/issues/${number}/comments?per_page=100`, scope, budget),
-      this.#reviews.read(api, `${root}/pulls/${number}/reviews?per_page=100`, scope, budget),
-      this.#threads.read(api, repository, number, scope, budget),
+      this.#inline.read(api, `${root}/pulls/${number}/comments?per_page=100`, signal, budget),
+      this.#issue.read(api, `${root}/issues/${number}/comments?per_page=100`, signal, budget),
+      this.#reviews.read(api, `${root}/pulls/${number}/reviews?per_page=100`, signal, budget),
+      this.#threads.read(api, repository, number, signal, budget),
     ] as const;
     // Handled here: any of them may fail while the PR itself is still being read.
     void Promise.allSettled([...reads, ...(guessed ?? [])]);
@@ -113,11 +105,7 @@ export class GitHubStatusReader {
       const pr = this.#pr.read(response);
       if (pr.number !== number) throw new ForgeError("invalid_data");
       this.#remember(number, pr.head.sha);
-      if (guessed && known === pr.head.sha) commits = guessed;
-      else {
-        guess.abort();
-        commits = commitPages(pr.head.sha, scope);
-      }
+      commits = guessed && known === pr.head.sha ? guessed : commitPages(pr.head.sha);
       await Promise.allSettled([...reads, ...commits]);
       const [inline, issue, reviews, threads] = await Promise.all(reads);
       const [checkPages, statusPages] = await Promise.all(commits);
@@ -131,9 +119,7 @@ export class GitHubStatusReader {
       });
     } finally {
       // Every read settles before the call returns, so no gh process outlives a failed status.
-      stop();
       await Promise.allSettled([prRead, ...reads, ...(guessed ?? []), ...(commits ?? [])]);
-      signal.removeEventListener("abort", stop);
     }
   }
   /** At most this many PRs keep their last head, for guessing the next read's checks. */

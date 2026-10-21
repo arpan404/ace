@@ -128,13 +128,19 @@ export async function fakeGh(
       await writeFile(join(dir, barrier), "released");
     },
     async waitForRequest(path: string) {
+      await this.waitForRequests((requests) => requests.some((request) => request.path === path));
+    },
+    /** Resolves once the requests made so far satisfy `done`. */
+    async waitForRequests(done: (requests: { path: string; body?: unknown }[]) => boolean) {
       const ready = Promise.withResolvers<void>();
       const present = async () => {
         try {
           const value = z
-            .object({ requests: z.array(z.object({ path: z.string() })) })
+            .object({
+              requests: z.array(z.object({ path: z.string(), body: z.unknown().optional() })),
+            })
             .parse(JSON.parse(await readFile(state, "utf8")));
-          return value.requests.some((request) => request.path === path);
+          return done(value.requests);
         } catch {
           return false;
         }
