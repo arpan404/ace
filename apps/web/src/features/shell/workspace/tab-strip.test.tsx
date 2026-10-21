@@ -251,3 +251,48 @@ test("a vertical wheel over an overflowing strip scrolls its tabs sideways", asy
   expect(fireEvent.wheel(strip, { deltaY: 120 })).toBe(true);
   expect(strip.scrollLeft).toBe(300);
 });
+
+test("a scrolled strip stays where it was scrolled while the pointer moves over its tabs", async () => {
+  // Like a browser, scrollBy moves the strip.
+  Object.defineProperty(HTMLElement.prototype, "scrollBy", {
+    configurable: true,
+    value(this: HTMLElement, options: ScrollToOptions) {
+      this.scrollLeft += options.left ?? 0;
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.getAttribute("role") === "tablist"
+        ? 900
+        : (this.textContent?.length ?? 0) * charWidth;
+    },
+  });
+  const definition = defineWorkspace({
+    label: "Side panel",
+    launcher: "file",
+    initial: [
+      { kind: "file", id: "a", title: "notes.md" },
+      { kind: "file", id: "b", title: "todo.md" },
+    ],
+    kinds: () => Promise.resolve({ default: [changes, file] }),
+  });
+  await definition.load();
+  render(
+    <LayoutProvider>
+      <Strip definition={definition} />
+    </LayoutProvider>,
+  );
+  const strip = screen.getByRole("tablist", { name: "Tabs" });
+  strip.scrollLeft = 0;
+  fireEvent.wheel(strip, { deltaY: 120 });
+  act(() => {
+    fireEvent.scroll(strip);
+  });
+  expect(strip.scrollLeft).toBe(120);
+  // A hover fade on a tab ends while the strip is scrolled away from the showing tab.
+  act(() => {
+    fireEvent.transitionEnd(tabBox("todo.md"));
+  });
+  expect(strip.scrollLeft).toBe(120);
+});

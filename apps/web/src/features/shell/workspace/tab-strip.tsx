@@ -45,7 +45,11 @@ export function TabStrip(props: {
   const edges = useOverflow(scroller, state.tabs.length);
   useSidewaysWheel(scroller);
   const entering = useEntering(state.tabs.map((tab) => tab.key));
-  useRevealShown(scroller, shown);
+  useRevealShown(
+    scroller,
+    shown,
+    state.tabs.findIndex((tab) => tab.key === shown),
+  );
   useLayoutEffect(() => {
     const key = focusNext.current;
     if (!key) return;
