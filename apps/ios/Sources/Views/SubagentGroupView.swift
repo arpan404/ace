@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// Subagents launched together, rolled up into one row of their own: overlapping provider marks,
-/// "3 subagents", the bridge's status line ("2 working · 1 done") and, while any branch is still
-/// live, a timer from their launch. Tapping it lists each agent by the state of its whole branch
-/// (a finished agent with a working child reads Working); each opens its own transcript.
+/// A launch's subagents in the transcript, as plain rows on the page. One subagent is just its
+/// row: its provider's mark, its name, its status word. Several fold into one row led by their
+/// providers' marks: "2 subagents", each status count in its tone ("2 working"), how long they
+/// have run, opening to their rows under a hairline rail. The counts carry the state, so the
+/// group never reads done while any branch works or waits. Words and states are the bridge's.
 struct SubagentGroupView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let agents: BlockRow.Agents
@@ -14,97 +15,103 @@ struct SubagentGroupView: View {
     var openAll: (() -> Void)? = nil
     @State private var expanded = false
     private var live: Bool { agents.entries.contains { ["working", "waiting", "needsYou", "unresponsive"].contains($0.token) } }
-    /// The most pressing branch colours the status dot.
-    private var token: String {
-        for key in ["needsYou", "failed", "unresponsive", "working", "waiting"] where agents.entries.contains(where: { $0.token == key }) { return key }
-        return agents.entries.first?.token ?? "done"
-    }
     private var launched: Double? { items.compactMap { thread.items[$0]?.row.createdAt }.min() }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { expanded.toggle() } } label: { rollup }
-                .buttonStyle(.plain)
-                .accessibilityValue(expanded ? "Expanded" : "Collapsed")
-                .accessibilityIdentifier("subagents.rollup")
-            if expanded {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                    ForEach(agents.entries) { entry in entryRow(entry) }
-                    if let openAll {
-                        Button(action: openAll) {
-                            Text("All agents").aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+        if agents.entries.count == 1, let only = agents.entries.first {
+            SubagentRow(entry: only, open: open)
+        } else {
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { expanded.toggle() } } label: { rollup }
+                    .buttonStyle(TranscriptRowButtonStyle())
+                    .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+                    .accessibilityIdentifier("subagents.rollup")
+                if expanded {
+                    VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                        ForEach(agents.entries) { entry in SubagentRow(entry: entry, open: open) }
+                        if let openAll {
+                            Button("All agents", action: openAll)
+                                .buttonStyle(TranscriptRowButtonStyle())
+                                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
                                 .foregroundStyle(AceTheme.Colours.mutedForeground)
-                                .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget, alignment: .leading)
-                                .contentShape(Rectangle())
-                        }.buttonStyle(.plain).accessibilityIdentifier("subagents.all")
+                                .accessibilityIdentifier("subagents.all")
+                        }
+                    }
+                    .padding(.leading, AceTheme.Spacing.lg)
+                    .overlay(alignment: .leading) {
+                        Rectangle().fill(AceTheme.Colours.separator).frame(width: AceTheme.Dimensions.border)
+                            .padding(.leading, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
                     }
                 }
-                .padding(.horizontal, AceTheme.Spacing.md + AceTheme.Spacing.xxs)
-                .overlay(alignment: .top) { Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border) }
             }
         }
-        .background(AceTheme.Colours.secondaryBackground, in: RoundedRectangle(cornerRadius: AceTheme.Radii.group))
     }
 
     private var rollup: some View {
         HStack(spacing: AceTheme.Spacing.md) {
-            HStack(spacing: -AceTheme.Spacing.sm) {
-                ForEach(agents.entries.prefix(3)) { entry in
-                    ProviderMark(provider: entry.provider)
-                        .frame(width: AceTheme.Spacing.xxxl - AceTheme.Spacing.xxs, height: AceTheme.Spacing.xxxl - AceTheme.Spacing.xxs)
-                        .background(AceTheme.Colours.fill, in: Circle())
-                        .overlay(Circle().stroke(AceTheme.Colours.secondaryBackground, lineWidth: AceTheme.Spacing.xxs))
-                }
+            HStack(spacing: -AceTheme.Spacing.xs) {
+                ForEach(agents.entries.prefix(3)) { entry in ProviderMark(provider: entry.provider) }
             }
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(agents.entries.count == 1 ? "1 subagent" : "\(agents.entries.count) subagents")
-                    .aceFont(AceTheme.Typography.body, relativeTo: .body).fontWeight(.semibold)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
-                    Circle().fill(StateStyle.marker(token)).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
-                    Text(agents.status).lineLimit(1)
-                }
-                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
+            .accessibilityHidden(true)
+            (Text(agents.entries.count == 1 ? "1 subagent" : "\(agents.entries.count) subagents").fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
+             + counts)
+                .lineLimit(1)
             Spacer(minLength: AceTheme.Spacing.sm)
             if live, let launched {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    let seconds = max(1, Int(context.date.timeIntervalSince1970 - launched / 1000))
-                    Text(Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .narrow)))
-                        .monospacedDigit()
+                    Text(Elapsed.words(since: launched, now: context.date)).monospacedDigit()
                 }
-                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                .foregroundStyle(AceTheme.Colours.subtleForeground)
             }
-            Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
+            Image(systemName: "chevron.right").font(.caption.weight(.semibold))
                 .rotationEffect(.degrees(expanded ? 90 : 0))
                 .foregroundStyle(AceTheme.Colours.subtleForeground)
         }
-        .padding(.horizontal, AceTheme.Spacing.md + AceTheme.Spacing.xxs).padding(.vertical, AceTheme.Spacing.md)
-        .contentShape(Rectangle())
+        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
     }
+    /// "  2 working · 1 done", each count in its own tone; the bridge's line when it sends no parts.
+    private var counts: Text {
+        let parts = agents.counts ?? [BlockRow.Agents.Count(text: agents.status, token: "")]
+        return parts.enumerated().reduce(Text("  ")) { line, part in
+            let separator = part.offset > 0 ? Text(" · ").foregroundStyle(AceTheme.Colours.subtleForeground) : Text(verbatim: "")
+            return line + separator + Text(part.element.text).foregroundStyle(StateStyle.text(part.element.token))
+        }
+        .font(.footnote)
+    }
+}
 
-    private func entryRow(_ entry: BlockRow.Agents.Entry) -> some View {
+/// One subagent: its provider's mark, its name, and its status word in the status colour at the
+/// right. It opens the agent's own transcript (or its delegated thread).
+private struct SubagentRow: View {
+    let entry: BlockRow.Agents.Entry
+    let open: (BlockRow.Agents.Entry) -> Void
+    var body: some View {
         Button { open(entry) } label: {
-            HStack(spacing: AceTheme.Spacing.sm) {
+            HStack(spacing: AceTheme.Spacing.md) {
                 ProviderMark(provider: entry.provider)
                 Text(entry.title).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
                 Spacer(minLength: AceTheme.Spacing.sm)
-                if let symbol = StatusSymbol.name(entry.token) {
-                    Image(systemName: symbol).font(.footnote.weight(.semibold)).foregroundStyle(StateStyle.marker(entry.token))
-                }
-                Text(entry.label).foregroundStyle(StateStyle.text(entry.token))
-                if !entry.threadId.isEmpty || !entry.agentId.isEmpty {
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
-                }
+                Text(entry.label).foregroundStyle(StateStyle.text(entry.token)).lineLimit(1)
             }
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
+            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TranscriptRowButtonStyle())
         .disabled(entry.threadId.isEmpty && entry.agentId.isEmpty)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("subagent.\(entry.title)")
+    }
+}
+
+/// A transcript row you can press: no box at rest, the soft `--active` fill at radius 8 while
+/// pressed, a full-width touch target.
+struct TranscriptRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm, alignment: .leading)
+            .padding(.horizontal, AceTheme.Spacing.sm)
+            .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: RoundedRectangle(cornerRadius: AceTheme.Radii.small, style: .continuous))
+            .padding(.horizontal, -AceTheme.Spacing.sm)
+            .contentShape(Rectangle())
     }
 }

@@ -25,7 +25,8 @@ struct ThreadView: View {
     @State private var showTerminal = false
     @State private var showBrowser = false
     @State private var showSearch = false
-    @State private var showQueue = false
+    /// The strip item the person switched to, while it's present.
+    @State private var stripPick: StripKind?
     @State private var height: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
@@ -43,8 +44,12 @@ struct ThreadView: View {
     /// An archived thread opens read-only (from the archive browser) until it's unarchived.
     private var archived: Bool { (model.inbox[thread.id] ?? metadata)?.archivedAt != nil }
     private var queued: Int { screen.queue?.messages.count ?? 0 }
-    /// The live state floats above the composer unless a request has the person's attention.
-    private var capsuleShown: Bool { thread.approvals.isEmpty && (screen.activity != nil || queued > 0) }
+    /// The composer's one strip: a request (a question takes the composer's place instead), the
+    /// queue, or what the main agent waits on.
+    private var slot: StripSlot {
+        let request = thread.approvals.first.map { $0.kind != "question" } ?? false
+        return StripSlot.pick(request: request, queue: queued > 0, waiting: screen.activity?.wait != nil, picked: stripPick)
+    }
     private var subtitle: String {
         guard let metadata else { return "" }
         let place = metadata.branch.isEmpty ? metadata.machine : metadata.branch
@@ -55,16 +60,7 @@ struct ThreadView: View {
         ConversationFeed(model: model, thread: thread, acceptedSend: acceptedSend,
                          links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: screen, epoch: thread.epoch),
                                                 openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { fullMessage = $0 },
-                                                openAgents: { showAgents = true }))
-            .overlay(alignment: .bottom) {
-                if capsuleShown {
-                    LiveCapsule(activity: screen.activity, queued: queued, stopping: screen.stopping) { showQueue.toggle() }
-                        .padding(.horizontal, AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xl)
-                        .padding(.bottom, AceTheme.Spacing.md)
-                        .transition(.opacity)
-                }
-            }
-            .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: capsuleShown)
+                                                openAgents: { showAgents = true }, live: true))
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { bottomBar }
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
@@ -72,12 +68,12 @@ struct ThreadView: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
             }
             .toolbar {
-                ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: metadata?.status.label ?? "",
-                              openChanges: { showChanges = true }, openAgents: { showAgents = true },
+                ThreadToolbar(title: metadata?.title ?? "Thread", project: metadata?.project ?? "", status: metadata?.status,
+                              openAgents: { showAgents = true },
                               menu: ThreadMenu(model: model, thread: thread, archived: archived, activityRow: activityRow,
                                                open: open, problem: { activityProblem = $0 }, leave: { dismiss() }))
             }
-            .threadTitle(metadata?.title ?? "Thread", subtitle: subtitle)
+            .navigationTitle(metadata?.title ?? "Thread")
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
                 if typeSize.isAccessibilitySize, let status = metadata?.status {
@@ -117,12 +113,12 @@ struct ThreadView: View {
             // A browser opened mid-turn leaves the state unchanged: follow it, bounded, while this
             // thread is on screen, working and the app is active. Leaving cancels the follow.
             .task(id: browserFollow) { if browserFollow != nil { await model.followBrowser() } }
-            .onChange(of: queued) { _, count in if count == 0 { showQueue = false } }
             .navigationDestination(isPresented: $showBrowser) {
                 let help = thread.approvals.first { $0.kind == "browser_help" }
                 BrowserScreen(model: model, help: help) { answer in if let help { model.resolve(help, answer: answer) } }
             }
             .environment(\.openBrowser, { showBrowser = true })
+            .environment(\.stopBackground, model.canOperate ? { id in Task { _ = await model.stopTask(id) } } : nil)
             #if DEBUG
             .overlay(alignment: .topLeading) {
                 if SpikeConfiguration.enabled && ProcessInfo.processInfo.arguments.contains("--spike-metrics") {
@@ -135,32 +131,40 @@ struct ThreadView: View {
             #endif
     }
 
-    /// Above the composer: the oldest open request (a question takes the composer's place), the
-    /// queued messages when the capsule opened them, then the composer.
+    /// The composer with its one strip tucked under its top edge (the oldest open request, the
+    /// queue, or what the main agent waits on). A question takes the composer's place. Nothing
+    /// renders below the composer.
     @ViewBuilder private var bottomBar: some View {
         let request = thread.approvals.first
+        let slot = slot
         VStack(spacing: AceTheme.Spacing.none) {
-            if let request, request.kind != "question" { requestCard(request) }
-            if showQueue, let queue = screen.queue, !queue.messages.isEmpty {
-                QueueStrip(queue: queue, canAct: model.canOperate,
-                           canSteer: screen.controls?.delivery == "steer" || screen.controls?.alternate == "steer") { message, change in
-                    await model.editQueued(message, change: change)
+            Group {
+                switch slot.shown {
+                case .request: if let request { StripSurface(maxHeight: height * 0.6) { requestCard(request) } }
+                case .queue:
+                    if let queue = screen.queue {
+                        StripSurface(dense: true, maxHeight: height * 0.5) {
+                            QueueStrip(queue: queue, canAct: model.canOperate,
+                                       canSteer: screen.controls?.delivery == "steer" || screen.controls?.alternate == "steer") { message, change in
+                                await model.editQueued(message, change: change)
+                            } indicators: { indicators(slot) }
+                        }
+                    }
+                case .waiting: if let wait = screen.activity?.wait { StripSurface(dense: true) { waitStrip(wait, slot: slot) } }
+                case nil: EmptyView()
                 }
-                .transition(.opacity)
             }
+            .transition(.opacity)
             if archived {
                 ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
-                    .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
-                    .floatingGlass()
-                    .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.sm)
+                    .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.lg)))
             } else if let request, request.kind == "question" {
                 QuestionCard(interaction: request, submission: model.approvalSubmissions[request.id], canAct: model.canOperate, maxHeight: height * 0.6) {
                     model.answer(request, answers: $0, dismissed: $1)
                 }
                 .id(request.id)
+                .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.lg, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.md, trailing: AceTheme.Spacing.lg)))
             } else if model.canOperate {
-                ComposerAccessories(model: model, screen: screen)
-                ServiceProblem(message: attachProblem)
                 ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: placeholder,
                              send: { text, alternate in
                                  let saved = await model.sendMessage(text, alternate: alternate)
@@ -168,19 +172,31 @@ struct ThreadView: View {
                                  return saved
                              }, stop: { model.stopTree() },
                              inputBegan: { model.metrics?.inputBegan() }, mention: mention,
-                             files: screen.attachments.count) {
+                             files: screen.attachments.count, stopInStrip: slot.shown == .waiting) {
+                    ComposerAccessories(model: model, screen: screen, problem: attachProblem)
+                } leading: {
                     AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
                 } trailing: {
                     ComposerModelButton(screen: screen, open: { showModels = true })
                 }
             } else {
                 ViewOnlyNote.thread
-                    .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
-                    .floatingGlass()
-                    .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.sm)
+                    .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.md, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.md, trailing: AceTheme.Spacing.lg)))
             }
         }
-        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: showQueue)
+        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: slot)
+        .onChange(of: thread.approvals.first?.id) { _, id in if id != nil { stripPick = nil } }
+    }
+    private func indicators(_ slot: StripSlot) -> some View {
+        StripIndicators(kinds: slot.others, queued: queued) { stripPick = $0 }
+    }
+    private func waitStrip(_ wait: ActivityRow.Wait, slot: StripSlot) -> some View {
+        let tree = wait.stop == "tree"
+        return WaitStrip(wait: wait, since: screen.activity?.since,
+                         canStop: model.canOperate && (tree ? screen.controls?.canStop == true : !wait.taskIds.isEmpty),
+                         stopping: tree && screen.stopping) {
+            if tree { model.stopTree() } else { for id in wait.taskIds { Task { _ = await model.stopTask(id) } } }
+        } indicators: { indicators(slot) }
     }
     @ViewBuilder private func requestCard(_ request: ApprovalRow) -> some View {
         let submission = model.approvalSubmissions[request.id]
@@ -196,14 +212,12 @@ struct ThreadView: View {
             ApprovalCard(approval: request, submission: submission, canAct: model.canOperate) { model.approve(request, option: $0) }.id(request.id)
         }
     }
-    private var placeholder: String {
-        if !thread.approvals.isEmpty { return "Reply instead" }
-        guard screen.controls?.busy == true else { return "Message" }
-        if screen.controls?.alternate != nil { return "Steer or queue a message" }
-        return screen.controls?.delivery == "steer" ? "Steer the agent" : "Queue a message"
-    }
+    /// The composer always reads the same; how a message goes while the agent works is the send
+    /// button's to say.
+    private let placeholder = "Ask anything"
     private func open(_ destination: ThreadDestination) {
         switch destination {
+        case .changes: showChanges = true
         case .search: showSearch = true
         case .files: showFiles = true
         case .terminal: showTerminal = true

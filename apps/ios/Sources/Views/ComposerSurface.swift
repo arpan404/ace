@@ -10,7 +10,7 @@ struct ComposerSurface<Content: View>: View {
     }
 }
 
-/// The composer's round send button: ink with an arrow to send, a pale-red square to stop the
+/// The composer's round send button: ink with an arrow to send, an ink square to stop the
 /// tree while it works, grey while there is nothing to send.
 struct ComposerActionButton: View {
     var stopping = false
@@ -24,7 +24,7 @@ struct ComposerActionButton: View {
                 if saving { ProgressView().tint(AceTheme.Colours.onAccent) }
                 else if stopping {
                     RoundedRectangle(cornerRadius: AceTheme.Radii.badge)
-                        .frame(width: AceTheme.Spacing.md, height: AceTheme.Spacing.md)
+                        .frame(width: AceTheme.Spacing.sm + AceTheme.Spacing.xxs, height: AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
                 } else {
                     Image(systemName: "arrow.up").font(.body.weight(.semibold))
                 }
@@ -37,12 +37,12 @@ struct ComposerActionButton: View {
         }
         .buttonStyle(.plain).disabled(disabled).accessibilityLabel(label)
     }
+    /// Stop is ink like Send (red is for destructive confirmations only); a Stop already on its
+    /// way and an empty message are grey.
     private var foreground: Color {
-        if stopping { return AceTheme.StatusText.failed }
-        return disabled && !saving ? AceTheme.Colours.decoration : AceTheme.Colours.onAccent
+        disabled && !saving ? AceTheme.Colours.decoration : AceTheme.Colours.onAccent
     }
     private var background: Color {
-        if stopping { return AceTheme.Colours.diffDelete }
-        return disabled && !saving ? AceTheme.Colours.fill : AceTheme.Colours.accent
+        disabled && !saving ? AceTheme.Colours.fill : AceTheme.Colours.accent
     }
 }

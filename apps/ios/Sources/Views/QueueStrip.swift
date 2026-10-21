@@ -3,22 +3,26 @@ import SwiftUI
 /// Follow-ups waiting in the daemon's queue, above the composer. Each can get new words, go now as
 /// a steer (where the provider steers), move up or down, or be removed; the daemon's next queue
 /// revision moves it.
-struct QueueStrip: View {
+struct QueueStrip<Indicators: View>: View {
     let queue: QueueRow
     let canAct: Bool
     let canSteer: Bool
     let edit: (QueueRow.Message, [String: Any]) async -> Bool
+    /// The strip's other items, at the end of its first line.
+    @ViewBuilder var indicators: () -> Indicators
     @State private var editing: QueueRow.Message?
     @State private var words = ""
     @State private var busy: String?
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             HStack(spacing: AceTheme.Spacing.xs) {
-                Image(systemName: "text.line.last.and.arrowtriangle.forward").foregroundStyle(AceTheme.Colours.decoration)
                 Text(queue.label).foregroundStyle(AceTheme.Colours.foreground)
                 if !queue.when.isEmpty { Text("· \(queue.when)").foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1) }
+                Spacer(minLength: AceTheme.Spacing.none)
+                indicators()
             }
-            .aceFont(AceTheme.Typography.label, relativeTo: .footnote)
+            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+            .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
             ForEach(queue.messages) { message in
                 HStack(spacing: AceTheme.Spacing.sm) {
                     Text(message.text.isEmpty ? "Attachment" : message.text).lineLimit(2)
@@ -52,9 +56,6 @@ struct QueueStrip: View {
                 Text("+\(queue.more) more").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground).monospacedDigit()
             }
         }
-        .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
-        .floatingGlass()
-        .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.sm)
         .accessibilityIdentifier("queue.strip")
         .alert("Edit queued message", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
             TextField("Message", text: $words, axis: .vertical)

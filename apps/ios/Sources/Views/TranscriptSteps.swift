@@ -73,8 +73,8 @@ struct StepRow: View {
     }
 }
 
-/// A turn's work. While it runs, its grouped steps show in place (the capsule above the composer
-/// carries the timer); once it settles it folds to "Worked for 3m 12s ›" over a hairline.
+/// A turn's work. While it runs, its grouped steps show in place under the live "Working for"
+/// line; once it settles it folds to "Worked for 3m 12s ›" over a hairline.
 struct WorkBlockView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let row: BlockRow
@@ -85,7 +85,7 @@ struct WorkBlockView: View {
     @State private var expanded = false
     var body: some View {
         if row.work?.ongoing == true, let groups = row.groups {
-            WorkProgressView(groups: groups, thread: thread, openMessage: openMessage)
+            WorkProgressView(groups: groups, thread: thread, background: row.background ?? [], openMessage: openMessage)
         } else {
             settled
         }
@@ -121,7 +121,7 @@ struct WorkBlockView: View {
                     if let ordinal = row.ordinal, let steps {
                         DaemonSteps(ordinal: ordinal, blockId: blockId, links: steps)
                     } else if let groups = row.groups, !groups.isEmpty {
-                        WorkProgressView(groups: groups, thread: thread, openMessage: openMessage)
+                        WorkProgressView(groups: groups, thread: thread, background: row.background ?? [], openMessage: openMessage)
                     } else {
                         ForEach(row.items, id: \.self) { id in
                             if let item = thread.items[id] { WorkStep(item: item) }

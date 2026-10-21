@@ -183,6 +183,7 @@ import XCTest
         app.closeSheet()
     }
     private func auditChanges(_ app: XCUIApplication) throws {
+        app.buttons["thread.menu"].tap()
         app.buttons["thread.changes"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["changes.totals"].waitForExistence(timeout: 15))
         try audit(app, "changes")
