@@ -83,6 +83,7 @@ export function HeldTurnStrip(props: {
           provider={meta.provider}
           instance={threadAccountId(meta)}
           size={14}
+          accountLabel={false}
           tooltip={false}
         />
       )}
