@@ -29,7 +29,7 @@ test("a bare filename in an answer opens its one checkout file in Files at the l
     if (line !== null) revealed.push(line);
   };
   const feed = await answer("The reconnect lives in `socket.ts:3`.");
-  const link = await within(feed).findByRole("button", { name: "socket.ts:3" });
+  const link = await within(feed).findByRole("link", { name: "socket.ts:3" });
   link.focus();
   await userEvent.keyboard("{Enter}");
 
@@ -48,14 +48,14 @@ test("a path in running text links too, while unknown and shared names stay plai
     "Changed apps/web/src/relay/outbox.ts and `missing.ts`; `resume.ts` exists twice.",
   );
   expect(
-    await within(feed).findByRole("button", { name: "apps/web/src/relay/outbox.ts" }),
+    await within(feed).findByRole("link", { name: "apps/web/src/relay/outbox.ts" }),
   ).toBeTruthy();
   // An unknown file is plain code, never a link.
   await waitFor(() => expect(within(feed).getByText("missing.ts").tagName).toBe("CODE"));
-  expect(within(feed).queryByRole("button", { name: "missing.ts" })).toBeNull();
+  expect(within(feed).queryByRole("link", { name: "missing.ts" })).toBeNull();
 
   // A name two files share opens the Files tree filtered to it instead of guessing one.
-  await userEvent.click(await within(feed).findByRole("button", { name: "resume.ts" }));
+  await userEvent.click(await within(feed).findByRole("link", { name: "resume.ts" }));
   const side = await screen.findByRole("region", { name: "Thread panel" });
   expect(await within(side).findByRole("tab", { name: "Files", selected: true })).toBeTruthy();
   const find = await within(side).findByRole<HTMLInputElement>("searchbox", {

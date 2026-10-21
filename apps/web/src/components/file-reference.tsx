@@ -10,7 +10,7 @@ import {
 } from "@ace/ui-core/file-references";
 import { useQuery } from "@tanstack/react-query";
 import { useContext, type ReactNode } from "react";
-import { codeSpanClass } from "@/components/inline-markdown.tsx";
+import { CodeText, codeSpanClass } from "@/components/inline-markdown.tsx";
 import { cn } from "@/lib/cn.ts";
 import {
   fileTabId,
@@ -78,7 +78,13 @@ function objectData(data: unknown): Record<string, unknown> {
 }
 
 function Plain(props: { text: string; code: boolean }): ReactNode {
-  return props.code ? <code className={codeSpanClass}>{props.text}</code> : props.text;
+  return props.code ? (
+    <code className={codeSpanClass}>
+      <CodeText text={props.text} />
+    </code>
+  ) : (
+    props.text
+  );
 }
 
 /** `text` as written; a link into the thread's checkout when `reference` resolves there. */
@@ -142,10 +148,18 @@ function ScopedLink(props: {
     resolution.kind === "file"
       ? `Open ${resolution.path}${props.reference.line ? ` at line ${props.reference.line}` : ""}`
       : `Find ${props.text} in Files (${resolution.paths.length} matches)`;
+  // An inline element, not a <button>: browsers lay buttons out as centered inline blocks, so a
+  // long path would leave its sentence and wrap inside its own box.
   return (
-    <button
-      type="button"
+    <span
+      role="link"
+      tabIndex={0}
       onClick={open}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        open();
+      }}
       title={label}
       data-file-link={resolution.kind}
       className={cn(
@@ -154,10 +168,12 @@ function ScopedLink(props: {
       )}
     >
       {props.code ? (
-        <code className={cn(codeSpanClass, "text-link")}>{props.text}</code>
+        <code className={cn(codeSpanClass, "text-link")}>
+          <CodeText text={props.text} />
+        </code>
       ) : (
         props.text
       )}
-    </button>
+    </span>
   );
 }
