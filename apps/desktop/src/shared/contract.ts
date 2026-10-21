@@ -78,6 +78,8 @@ export const OpenInEditor = z.object({
   line: z.number().int().min(1).optional(),
   column: z.number().int().min(1).optional(),
   editor: EditorId.optional(),
+  /** The editor launcher the daemon found; run on Linux when it is one on this computer. */
+  command: AbsolutePath.optional(),
 });
 export type OpenInEditor = z.infer<typeof OpenInEditor>;
 export const RevealPath = z.object({ path: AbsolutePath });

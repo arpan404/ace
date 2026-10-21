@@ -1,4 +1,5 @@
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -131,7 +132,8 @@ const googlePage =
 
 /** An installed agent whose sign-in opens a page the way real CLIs do, then waits for it. */
 async function opener(options: {
-  opens: "open" | "xdg-open" | "BROWSER";
+  /** An opener name, `$BROWSER`, or a command and the arguments before the page. */
+  opens: "open" | "xdg-open" | "BROWSER" | readonly string[];
   page: string;
   methods?: unknown[];
 }) {
@@ -141,7 +143,9 @@ async function opener(options: {
   const run =
     options.opens === "BROWSER"
       ? "spawn(process.env.BROWSER, [page], { stdio: 'ignore' })"
-      : `spawn(${JSON.stringify(options.opens)}, [page], { stdio: 'ignore' })`;
+      : typeof options.opens === "string"
+        ? `spawn(${JSON.stringify(options.opens)}, [page], { stdio: 'ignore' })`
+        : `spawn(${JSON.stringify(options.opens[0])}, [...${JSON.stringify(options.opens.slice(1))}, page], { stdio: 'ignore' })`;
   await writeFile(
     command,
     `#!${process.execPath}
@@ -203,6 +207,61 @@ test.each(["open", "xdg-open", "BROWSER"] as const)(
     }
   },
 );
+
+test.each([
+  [["gio", "open"]],
+  [["sensible-browser"]],
+  [["x-www-browser"]],
+  [["www-browser"]],
+  [["wslview"]],
+] as const)(
+  "a sign-in page the agent opens on Linux with %j reaches the person's client",
+  async (opens) => {
+    const f = await opener({ opens, page: googlePage });
+    const updates: LoginUpdate[] = [];
+    try {
+      expect(
+        await f.driver.run(new AbortController().signal, (update) => updates.push(update)),
+      ).toEqual({ success: true });
+      expect(updates).toContainEqual({ state: "awaiting_browser", url: googlePage });
+      expect(f.openedHere).toEqual([]);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test("gio commands other than open still reach the real gio during sign-in", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-gio-"));
+  try {
+    const bin = join(home, "bin");
+    await mkdir(bin);
+    const record = join(home, "real-gio");
+    await writeFile(
+      join(bin, "gio"),
+      `#!/bin/sh\nprintf '%s\\n' "$*" > ${JSON.stringify(record)}\n`,
+      {
+        mode: 0o700,
+      },
+    );
+    const pages = await signInPages(
+      { PATH: `${bin}:/usr/bin:/bin` },
+      { platform: "linux", root: home },
+    );
+    try {
+      const run = spawnSync("gio", ["info", "https://example.com/not-a-page-open"], {
+        env: pages.env,
+      });
+      expect(run.status).toBe(0);
+      expect(await readFile(record, "utf8")).toBe("info https://example.com/not-a-page-open\n");
+      expect(await pages.take()).toEqual([]);
+    } finally {
+      await pages.close();
+    }
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
 
 test("Cursor's CLI agent signs in with its own method and its page reaches the person's client", async () => {
   // cursor-agent 2026.10.01's ACP method and login page, opened through `open` on PATH.

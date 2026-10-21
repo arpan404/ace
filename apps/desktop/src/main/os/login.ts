@@ -7,8 +7,7 @@ export const backgroundArgument = "--background";
  *
  * - Windows passes the login item's `--background` argument.
  * - macOS ignores login-item arguments; Electron reports `wasOpenedAtLogin` instead.
- * - Linux has no launch at login yet (it would need an XDG autostart entry), so only an
- *   explicit `--background` starts hidden there.
+ * - Linux's XDG autostart entry (`autostart.ts`) passes `--background` too.
  *
  * Without background mode there would be no tray to reach the app, so it always opens.
  */

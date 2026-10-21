@@ -168,13 +168,30 @@ test("a configured browser can enable and disable push from Notifications settin
   }
 });
 
+test("the attention switch names the dock on a Mac and the window elsewhere", async () => {
+  desktop();
+  const app = harness();
+  document.documentElement.dataset.platform = "linux";
+  try {
+    await app.open("/settings/general");
+    await screen.findByRole("switch", { name: "Flash window for attention" });
+    expect(screen.queryByRole("switch", { name: "Bounce dock icon for attention" })).toBeNull();
+    cleanup();
+    document.documentElement.dataset.platform = "darwin";
+    await app.open("/settings/general");
+    await screen.findByRole("switch", { name: "Bounce dock icon for attention" });
+  } finally {
+    delete document.documentElement.dataset.platform;
+  }
+});
+
 test("desktop work preferences round-trip through the app bridge", async () => {
   const machine = desktop();
   const app = harness();
   await app.open("/settings/general");
   await userEvent.click(await screen.findByRole("switch", { name: "Keep running in background" }));
   await userEvent.click(screen.getByRole("switch", { name: "Prevent sleep while agents work" }));
-  await userEvent.click(screen.getByRole("switch", { name: "Bounce dock icon for attention" }));
+  await userEvent.click(screen.getByRole("switch", { name: "Flash window for attention" }));
   await userEvent.click(screen.getByRole("button", { name: "Quick-thread global shortcut" }));
   await userEvent.keyboard("{Meta>}{Shift>}n{/Shift}{/Meta}");
   await waitFor(() =>

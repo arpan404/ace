@@ -136,6 +136,27 @@ test("discovery finds conventional sibling homes and ignores files and unrelated
     join(root, ".local/share"),
   );
 });
+test("discovery finds OpenCode's default home under a relocated XDG data home", async () => {
+  const root = await temp();
+  const data = join(root, "xdg-data");
+  await mkdir(join(data, "opencode"), { recursive: true });
+  // The conventional location is empty; XDG_DATA_HOME names where OpenCode really keeps it.
+  const found = await discoverHomes(root, {
+    XDG_DATA_HOME: data,
+    XDG_CONFIG_HOME: join(root, "xdg-config"),
+  });
+  const opencode = found.find((a) => a.id === "opencode-default");
+  expect(opencode?.homeDir).toBe(join(data, "opencode"));
+  expect(opencode?.env.XDG_DATA_HOME).toBe(data);
+  expect(opencode?.env.XDG_CONFIG_HOME).toBe(join(root, "xdg-config"));
+  expect(opencode?.env.XDG_STATE_HOME).toBe(join(root, ".local", "state"));
+  // A relative XDG_DATA_HOME is invalid by the spec and falls back to ~/.local/share.
+  expect(
+    (await discoverHomes(root, { XDG_DATA_HOME: "xdg-data" })).some(
+      (a) => a.id === "opencode-default",
+    ),
+  ).toBe(false);
+});
 test("registry refuses credential fields, duplicate homes and retargeting an existing identity", async () => {
   const root = await temp();
   const registry = await openRegistry(join(root, "registry.sqlite"));

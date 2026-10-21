@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { shell } from "electron";
 import type { OpenInEditor } from "../../shared/contract.ts";
+import { launchEditorCommand } from "./editor-command.ts";
 import { defaultOpenAction, type PathKind } from "./open-policy.ts";
 import { isPackageFolder } from "./package-folder.ts";
 
@@ -26,6 +27,7 @@ function editorUrl(request: OpenInEditor): string | undefined {
 
 export async function openInEditor(request: OpenInEditor): Promise<boolean> {
   if (!existsSync(request.path)) return false;
+  if (await launchEditorCommand(request, process.platform)) return true;
   const url = editorUrl(request);
   if (url) {
     await shell.openExternal(url);

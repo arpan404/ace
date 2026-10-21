@@ -3,6 +3,7 @@ import { findExecutable } from "@ace/provider-kit/discovery";
 import { probeOutput } from "@ace/provider-kit/process";
 import { z } from "zod";
 import type { DeviceFailure } from "@ace/protocol/devices";
+import { androidSdkRoots } from "./sdk-roots.ts";
 
 export type DeviceErrorCode = DeviceFailure["code"];
 export class DeviceError extends Error {
@@ -33,17 +34,7 @@ export type SDKOptions = {
 export async function resolveAndroidSDK(
   options: SDKOptions,
 ): Promise<{ adb: string; emulator: string }> {
-  const roots = [
-    ...new Set(
-      [
-        options.env["ANDROID_HOME"],
-        options.env["ANDROID_SDK_ROOT"],
-        join(options.home, "Library/Android/sdk"),
-        join(options.home, "Android/Sdk"),
-      ].filter((root): root is string => Boolean(root) && isAbsolute(root ?? "")),
-    ),
-  ];
-  for (const root of roots) {
+  for (const root of androidSdkRoots(options.env, options.home)) {
     const [adb, emulator] = await Promise.all([
       findExecutable(join(root, "platform-tools/adb"), options.env),
       findExecutable(join(root, "emulator/emulator"), options.env),

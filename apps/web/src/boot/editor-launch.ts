@@ -10,6 +10,8 @@ export interface LaunchTarget {
   editorName: string;
   path: string;
   line?: number | undefined;
+  /** The editor launcher the daemon found; the desktop app runs it where URL schemes fail. */
+  command?: string | undefined;
 }
 
 /** The desktop bridge's editor ids (apps/desktop `EditorId`). */
@@ -62,6 +64,7 @@ export async function launchEditor(target: LaunchTarget, scope: object = globalT
       path: target.path,
       ...(editor ? { editor } : {}),
       ...(target.line ? { line: target.line } : {}),
+      ...(target.command?.startsWith("/") ? { command: target.command } : {}),
     });
     if (opened === false) throw new Error(`${target.path} isn't on this computer.`);
     return;

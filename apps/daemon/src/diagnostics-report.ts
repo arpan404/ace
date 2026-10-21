@@ -1,4 +1,10 @@
-import { createDoctorChecks, createSystemProbes, runDoctor } from "@ace/diagnostics";
+import {
+  createDoctorChecks,
+  createSystemProbes,
+  linuxHost,
+  linuxHostChecks,
+  runDoctor,
+} from "@ace/diagnostics";
 import { createRedactor } from "@ace/redaction";
 import { DiagnosticReport } from "@ace/protocol";
 import { homedir } from "node:os";
@@ -21,6 +27,7 @@ export async function collectDoctorReport(
           env,
         }),
       ),
+      ...(process.platform === "linux" ? linuxHostChecks(linuxHost(env)) : []),
       ...remoteDoctorChecks(config, env),
     ],
     { now },

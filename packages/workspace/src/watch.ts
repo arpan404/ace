@@ -1,6 +1,6 @@
 import type { CancelTimer } from "./runtime.ts";
-import { type FSWatcher } from "node:fs";
-import { sep } from "node:path";
+import { isAbsolute, relative, sep } from "node:path";
+import { DirectoryWatches } from "./directory-watches.ts";
 import { WatchMetadata } from "./watch-metadata.ts";
 import type { SafeRoot } from "./safety.ts";
 import { internal, validRelativePath } from "./safety.ts";
@@ -17,7 +17,8 @@ export async function watch(
 ): Promise<WorkspaceWatcher> {
   let disposed = false;
   const lifetime = new AbortController();
-  let native: FSWatcher | undefined;
+  let native: { close(): void } | undefined;
+  let directories: DirectoryWatches | undefined;
   let timer: CancelTimer | undefined;
   let interval: CancelTimer | undefined;
   let pollDelay = 1000;
@@ -26,6 +27,8 @@ export async function watch(
   let full = false;
   let metadataDirty = false;
   let dirty = new Set<string>();
+  /** Directories rescanned for entries that raced their new watch; never reported as changed. */
+  let revisit = new Set<string>();
   let tail: Promise<void> | undefined;
   let requested = false;
   let initializing = true;
@@ -40,11 +43,20 @@ export async function watch(
       schedule();
     },
     polling,
+    // Without a recursive watch, Git metadata inside the workspace needs its own.
+    (path) => safe.runtime.platform !== "linux" && inside(path),
   );
+  function inside(path: string): boolean {
+    const local = relative(safe.root, path);
+    return local !== ".." && !local.startsWith(".." + sep) && !isAbsolute(local);
+  }
   const warning = options.onWarning ?? ((message: string) => console.warn(message));
   async function scan(): Promise<void> {
     const changed = dirty;
     dirty = new Set();
+    const revisits = revisit;
+    revisit = new Set();
+    const targets = revisits.size ? new Set([...changed, ...revisits]) : changed;
     let complete = full || mode === "polling";
     const refreshMetadata = metadataDirty;
     metadataDirty = false;
@@ -60,8 +72,8 @@ export async function watch(
       complete ||= mode === "polling";
       const plan = complete
         ? { updates: await fullSnapshot(safe, ignore, lifetime.signal), removed: new Set<string>() }
-        : changed.size
-          ? await changedSnapshot(safe, ignore, previous, changed, lifetime.signal)
+        : targets.size
+          ? await changedSnapshot(safe, ignore, previous, targets, lifetime.signal)
           : { updates: new Map<string, Entry>(), removed: new Set<string>() };
       if (disposed) return;
       if (complete) {
@@ -69,11 +81,12 @@ export async function watch(
           if (!plan.updates.has(before.path)) plan.removed.add(before.path);
       }
       const changes = previous.apply(plan.updates, plan.removed, changed);
+      follow(plan.updates.values(), plan.removed);
       if (changes.length) options.onChange(changes);
       if (mode === "polling") pollDelay = changes.length ? 1000 : Math.min(30_000, pollDelay * 2);
       else {
         pollDelay = 1000;
-        if (!dirty.size && !full && !metadataDirty) {
+        if (!dirty.size && !revisit.size && !full && !metadataDirty) {
           timer?.();
           timer = undefined;
         }
@@ -81,6 +94,7 @@ export async function watch(
     } catch (error) {
       if (disposed) return;
       for (const path of changed) dirty.add(path);
+      for (const path of revisits) revisit.add(path);
       full ||= complete;
       metadataDirty ||= refreshMetadata;
       pollDelay = Math.min(30_000, pollDelay * 2);
@@ -122,12 +136,45 @@ export async function watch(
       armPoll();
     }, pollDelay);
   }
+  /** Watches directories the scan revealed and rescans them for entries that raced the watch. */
+  function follow(updates: Iterable<Entry>, removed: Iterable<string>): void {
+    if (!directories || mode !== "native") return;
+    for (const dir of directories.sync(updates, removed)) {
+      if (revisit.size < 100_000) revisit.add(dir);
+      else full = true;
+    }
+    if (revisit.size || full) schedule();
+  }
+  function notified(filename: string | null): void {
+    if (filename !== null) {
+      const path = filename.split(sep).join("/");
+      if (!validRelativePath(path)) return;
+      const kind = metadata.notification(path);
+      if (kind === "head") {
+        metadataDirty = true;
+        schedule();
+        return;
+      }
+      if (kind === "visibility") {
+        full = true;
+        metadataDirty = true;
+      } else if (internal(path)) return;
+      if (!path || path.split("/").at(-1) === ".gitignore") full = true;
+      if (dirty.size < 100_000) dirty.add(path);
+      else full = true;
+    } else {
+      full = true;
+      metadataDirty = true;
+    }
+    schedule();
+  }
   function polling(reason: string): void {
     if (disposed || mode === "polling") return;
     mode = "polling";
     native?.close();
     metadata.close();
     native = undefined;
+    directories = undefined;
     warning(
       `Workspace recursive watch unavailable; falling back to polling with backoff: ${reason}`,
     );
@@ -138,39 +185,31 @@ export async function watch(
     if (forcePolling) polling("polling explicitly requested");
     else {
       try {
-        native = safe.runtime.watch(root, { recursive: true }, (_event, filename) => {
-          if (filename !== null) {
-            const path = filename.toString().split(sep).join("/");
-            if (!validRelativePath(path)) return;
-            const kind = metadata.notification(path);
-            if (kind === "head") {
-              metadataDirty = true;
-              schedule();
-              return;
-            }
-            if (kind === "visibility") {
-              full = true;
-              metadataDirty = true;
-            } else if (internal(path)) return;
-            if (!path || path.split("/").at(-1) === ".gitignore") full = true;
-            if (dirty.size < 100_000) dirty.add(path);
-            else full = true;
-          } else {
-            full = true;
-            metadataDirty = true;
-          }
-          schedule();
-        });
-        native.on("error", (error) => polling(error.message));
+        if (safe.runtime.platform === "linux") {
+          directories = new DirectoryWatches(root, safe.runtime, notified, polling);
+          native = directories;
+          directories.start();
+        } else {
+          const recursive = safe.runtime.watch(root, { recursive: true }, (_event, filename) =>
+            notified(filename === null ? null : filename.toString()),
+          );
+          native = recursive;
+          recursive.on("error", (error) => polling(error.message));
+        }
         await metadata.refresh();
       } catch (error) {
         polling(String(error));
       }
     }
     // Subscribe first, then scan, retaining notifications that race initialization.
-    previous = new VisibleTree((await fullSnapshot(safe, ignore, lifetime.signal)).values());
+    const initial = await fullSnapshot(safe, ignore, lifetime.signal);
+    previous = new VisibleTree(initial.values());
+    // Per-directory watches start after the inventory read their folders: one rescan of them
+    // catches entries that raced it, before the subscription is handed out.
+    follow(initial.values(), []);
+    if (revisit.size) await scan();
     initializing = false;
-    if (dirty.size || full || metadataDirty) schedule();
+    if (dirty.size || revisit.size || full || metadataDirty) schedule();
   } catch (error) {
     disposed = true;
     native?.close();
@@ -198,6 +237,7 @@ export async function watch(
       timer?.();
       await tail;
       dirty.clear();
+      revisit.clear();
       previous = new VisibleTree([]);
     },
   };
