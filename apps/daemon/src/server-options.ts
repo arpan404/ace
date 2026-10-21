@@ -38,6 +38,8 @@ export interface ServerOptions {
   agentControl?: import("./services/types.ts").Services["agentControl"];
   /** Agent calls from other paired machines (ADR 0078). */
   machineCalls?: import("./machines/target.ts").MachineTarget;
+  /** This machine's links to other machines (`fleet.request`). */
+  fleet?: import("./machines/fleet-links.ts").FleetLinks;
   providerInstalls?: import("./provider-install/sessions.ts").ProviderInstalls;
   notificationPublicKey?: string;
   providerLogin?: import("@ace/accounts").ProviderLoginSessions;

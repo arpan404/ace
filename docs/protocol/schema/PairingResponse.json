@@ -7,6 +7,11 @@
       "minimum": 0,
       "type": "integer"
     },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
     "url": {
       "format": "ace-whatwg-url",
       "type": "string",

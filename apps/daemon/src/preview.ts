@@ -1,6 +1,6 @@
 import type { createPreviewGateway, GatewayOptions } from "@ace/preview";
 import type { Store } from "./store.ts";
-import { allows } from "./devices.ts";
+import { activeDevice, allows } from "./devices.ts";
 
 export type DaemonPreviewOptions = Omit<GatewayOptions, "authority" | "now">;
 export type DaemonPreview = Awaited<ReturnType<typeof createPreviewGateway>>;
@@ -37,7 +37,7 @@ export async function createDaemonPreview(
       async isPaired(id) {
         if (id === hostPreviewIdentity) return true;
         const device = store.devices.get(id);
-        return device !== undefined && device.revokedAt === null && allows(device, "operate");
+        return activeDevice(device, now()) && allows(device, "operate");
       },
     },
   });

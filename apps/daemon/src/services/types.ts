@@ -57,6 +57,8 @@ export interface Services {
   };
   /** Agent calls from other paired machines, answered here (ADR 0078). */
   machineCalls?: import("../machines/target.ts").MachineTarget;
+  /** This machine's links to the person's other machines, made from Settings. */
+  fleet?: import("../machines/fleet-links.ts").FleetLinks;
   /** Agents here using other paired machines (ADR 0078). */
   machines?: {
     caller: import("../machines/caller.ts").MachineCaller;

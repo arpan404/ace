@@ -30,24 +30,19 @@ Example:
 
 ```json
 {
-  "access": "read-only",
-  "concurrency": 3,
-  "enabled": false,
+  "concurrency": 8,
+  "enabled": true,
   "id": "example",
-  "jitterMs": 8,
-  "missedRun": "skip",
+  "jitterMs": 5,
+  "missedRun": "run_once",
   "prompt": "example",
-  "provider": "opencode",
+  "provider": "claude",
   "title": "example",
   "trigger": {
-    "event": "ci_failed",
-    "kind": "github",
-    "pollIntervalMs": 60005,
-    "pullRequest": 6,
-    "repository": "6XM1/W"
+    "kind": "manual"
   },
   "workspace": "example",
-  "worktree": false
+  "worktree": true
 }
 ```
 
@@ -82,7 +77,7 @@ Example:
 
 ```json
 {
-  "before": 8,
+  "before": null,
   "runs": []
 }
 ```
@@ -100,7 +95,7 @@ Example:
 
 ```json
 {
-  "at": 1,
+  "at": 0,
   "message": "example"
 }
 ```
@@ -122,20 +117,22 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 8,
-    "enabled": true,
+    "concurrency": 7,
+    "enabled": false,
     "id": "example",
-    "jitterMs": 3,
+    "jitterMs": 8,
     "missedRun": "skip",
-    "model": "example",
     "prompt": "example",
-    "provider": "acp",
+    "provider": "antigravity",
     "title": "example",
     "trigger": {
-      "kind": "manual"
+      "event": "review_comment",
+      "kind": "github",
+      "pollIntervalMs": 60008,
+      "repository": "G.fMMMXTvQW/dfsdOx98mh"
     },
     "workspace": "example",
-    "worktree": true
+    "worktree": false
   },
   "requestId": "example",
   "type": "automation.put"
@@ -210,8 +207,7 @@ Example:
 
 ```json
 {
-  "automationId": "example",
-  "limit": 1,
+  "limit": 10,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -236,14 +232,9 @@ Example:
 
 ```json
 {
-  "automations": [],
-  "error": "example",
-  "inbox": {
-    "before": null,
-    "runs": []
-  },
   "ok": true,
   "requestId": "example",
+  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -271,9 +262,11 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
+  "finishedAt": 3,
   "id": "example",
-  "startedAt": 3,
-  "status": "running",
+  "startedAt": 5,
+  "status": "succeeded",
+  "threadId": "example",
   "title": "example",
   "trigger": "file"
 }
@@ -355,11 +348,10 @@ Example:
 
 ```json
 {
-  "event": "ci_failed",
+  "event": "issue_labelled",
   "kind": "github",
-  "pollIntervalMs": 60003,
-  "pullRequest": 1,
-  "repository": "WoUeL1-.q/ZjKyZOhRu"
+  "pollIntervalMs": 60009,
+  "repository": "8.dx.wsC6/7Yg2m0mZcS"
 }
 ```
 
