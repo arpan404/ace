@@ -14,7 +14,18 @@ import type { GhApi } from "./http.ts";
 
 /** One counted group: the searches whose counts add up to it, or what is left of the total. */
 export type CountGroup =
-  | { id: string; queries: string[]; /** Counted beside the total, not within it. */ apart?: true }
+  | {
+      id: string;
+      queries: string[];
+      /** Counted beside the total, not within it. */
+      apart?: true;
+      /**
+       * GitHub's search counts a pull request with no checks at all as `status:pending`. The
+       * first search's pull requests (up to 100) are read for their checks, and those with none
+       * move to this group instead.
+       */
+      untested?: string;
+    }
   | { id: string; rest: true };
 export interface CountPlan {
   total: string;
@@ -40,14 +51,9 @@ export function readinessPlan(open: string, drafts: string): CountPlan {
         ],
       },
       { id: "review", queries: [`${open} review:required -status:failure`] },
-      { id: "checks", queries: [`${open} status:pending ${noBlockers}`] },
-      {
-        id: "ready",
-        queries: [
-          `${open} status:success ${noBlockers}`,
-          `${open} -status:success -status:failure -status:pending ${noBlockers}`,
-        ],
-      },
+      // Search can't tell running checks from none: those with none are ready, as the rows say.
+      { id: "checks", queries: [`${open} status:pending ${noBlockers}`], untested: "ready" },
+      { id: "ready", queries: [`${open} status:success ${noBlockers}`] },
       { id: "other", rest: true },
       { id: "drafts", queries: [drafts], apart: true },
     ],
@@ -79,19 +85,33 @@ export function issuePeoplePlan(search: string): CountPlan {
 }
 
 const Counts = z.looseObject({
-  data: z.record(z.string(), z.looseObject({ issueCount: z.number().int().nonnegative() })),
+  data: z.record(
+    z.string(),
+    z.looseObject({
+      issueCount: z.number().int().nonnegative(),
+      nodes: z
+        .array(z.looseObject({ statusCheckRollup: z.unknown().optional() }).nullable())
+        .optional()
+        .catch(undefined),
+    }),
+  ),
 });
 
 /** Every search of `plan` as one aliased GraphQL document: one request for all the counts. */
 export function countDocument(plan: CountPlan): string {
-  const searches = [
-    plan.total,
-    ...plan.groups.flatMap((group) => ("queries" in group ? group.queries : [])),
+  const searches: { query: string; checks: boolean }[] = [
+    { query: plan.total, checks: false },
+    ...plan.groups.flatMap((group) =>
+      "queries" in group
+        ? group.queries.map((query, index) => ({ query, checks: index === 0 && !!group.untested }))
+        : [],
+    ),
   ];
   return `query { ${searches
-    .map(
-      (search, index) =>
-        `c${index}: search(type: ISSUE, query: ${JSON.stringify(search)}, first: 1) { issueCount }`,
+    .map(({ query, checks }, index) =>
+      checks
+        ? `c${index}: search(type: ISSUE, query: ${JSON.stringify(query)}, first: 100) { issueCount nodes { ... on PullRequest { statusCheckRollup { state } } } }`
+        : `c${index}: search(type: ISSUE, query: ${JSON.stringify(query)}, first: 1) { issueCount }`,
     )
     .join(" ")} }`;
 }
@@ -100,19 +120,33 @@ export function countDocument(plan: CountPlan): string {
 export function readCounts(plan: CountPlan, body: unknown): Record<string, number> {
   const parsed = Counts.safeParse(body);
   if (!parsed.success) throw new ForgeError("invalid_data");
-  const count = (index: number) => {
+  const answer = (index: number) => {
     const value = parsed.data.data[`c${index}`];
     if (!value) throw new ForgeError("invalid_data");
-    return value.issueCount;
+    return value;
   };
+  const count = (index: number) => answer(index).issueCount;
   const counts: Record<string, number> = {};
+  const moved: [from: string, to: string, count: number][] = [];
   let next = 1;
   let counted = 0;
   for (const group of plan.groups) {
     if (!("queries" in group)) continue;
+    if (group.untested) {
+      const nodes = answer(next).nodes ?? [];
+      moved.push([
+        group.id,
+        group.untested,
+        nodes.filter((node) => node?.statusCheckRollup === null).length,
+      ]);
+    }
     const sum = group.queries.reduce((total) => total + count(next++), 0);
     counts[group.id] = sum;
     if (!group.apart) counted += sum;
+  }
+  for (const [from, to, number] of moved) {
+    counts[from] = (counts[from] ?? 0) - number;
+    counts[to] = (counts[to] ?? 0) + number;
   }
   const total = count(0);
   for (const group of plan.groups)
