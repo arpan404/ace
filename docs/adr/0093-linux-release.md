@@ -1,4 +1,4 @@
-# 0091: Linux release, browser use and computer use
+# 0093: Linux release, browser use and computer use
 
 Date: 2026-10-20. Status: accepted, in progress.
 
@@ -26,8 +26,10 @@ Ship linux-x64 and linux-arm64, glibc only. Natives are built inside a Debian 11
 container so one artifact runs on Ubuntu 20.04+, Debian 11+, Fedora, Arch and their
 derivatives (Omarchy included). Musl is out of scope.
 
-- Daemon archive (ADR 0041), now including the Linux screen helper, installed to
-  `ACE_HOME/helpers/screen-linux/<arch>/` and used by the daemon without the desktop app.
+- Daemon archive (ADR 0041), now including the Linux screen helper at
+  `helpers/ace-screen-helper-linux` beside the daemon bundle. The daemon uses
+  `ACE_SCREEN_HELPER` when set (the desktop app sets it to its bundled copy), else that
+  bundled path, so computer use works without the desktop app.
 - Desktop app: AppImage, deb and tar.gz. The GUI executable is `ace-desktop` so it never
   collides with the `ace` CLI. The deb installs an AppArmor profile so Electron's and ace's
   Chromium sandbox work on Ubuntu 23.10+ without disabling the kernel restriction.
@@ -48,10 +50,10 @@ session is available.
 
 ### Browser use
 
-ace's Chrome stays the headless engine. Linux x64 uses the pinned Chrome for Testing build.
-Linux arm64, which Chrome for Testing does not publish, uses a checksum-pinned Chromium from
-a fixed upstream build of the same major version; a person may point `ACE_CHROMIUM_PATH` (or
-the matching setting) at any Chromium on every platform.
+ace's Chrome stays the headless engine, pinned to Chrome for Testing on both Linux x64 and
+arm64 (Chrome for Testing publishes linux-arm64 for the pinned version). A person may point
+`ACE_CHROMIUM_PATH` at any Chromium on every platform; ace never picks a personal install
+silently (ADR 0055).
 
 Launch failures are reported with their cause: missing shared libraries (with the install
 command for the detected distro), a blocked sandbox (with the one-time fix), running as root,
@@ -83,6 +85,8 @@ and registers the same three tools as on macOS.
   delivered with XTest on X11 or the RemoteDesktop portal on Wayland, only while the target
   window is active. Otherwise the step fails with a message telling the agent to add an
   `activate` step. Typing into a field uses AT-SPI text insertion and needs no focus.
+  The `cmd` modifier means Control on Linux, so shortcuts keep their intent across
+  platforms.
 - **Screenshots.** X11 captures the target window (Composite when available, so covered
   windows still capture), scaled to the engine's 1568 px / 1.15 MP limit with id marks.
   Wayland uses the ScreenCast portal with a persisted restore token; until the person has
