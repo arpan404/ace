@@ -31,6 +31,7 @@ import { claimKeychainName } from "./keychain.ts";
 import { applicationMenu } from "./menu.ts";
 import { cliShimCheck, cliShimLog, type CliShimResult } from "./os/cli-shim.ts";
 import { installCliShim } from "./os/cli-shim-install.ts";
+import { linuxAutostart, nodeAutostartFiles } from "./os/autostart.ts";
 import { backgroundArgument, startHidden } from "./os/login.ts";
 import { settingsEffects } from "./os/settings-effects.ts";
 import { checkWithFeedback } from "./os/update-feedback.ts";
@@ -262,13 +263,23 @@ function main(target: DaemonTarget, crashDumps: string): void {
 
   const applyToOs = settingsEffects({
     // Login items belong to the installed app; development builds never register one.
-    ...(app.isPackaged && process.platform !== "linux"
+    ...(app.isPackaged
       ? {
-          loginItem: {
-            enabled: () => app.getLoginItemSettings().openAtLogin,
-            setEnabled: (openAtLogin: boolean) =>
-              app.setLoginItemSettings({ openAtLogin, args: [backgroundArgument] }),
-          },
+          loginItem:
+            process.platform === "linux"
+              ? linuxAutostart({
+                  env: process.env,
+                  home: homedir(),
+                  execPath: process.execPath,
+                  appId: "dev.ace.app",
+                  files: nodeAutostartFiles,
+                  warn: (message) => log("warn", message),
+                })
+              : {
+                  enabled: () => app.getLoginItemSettings().openAtLogin,
+                  setEnabled: (openAtLogin: boolean) =>
+                    app.setLoginItemSettings({ openAtLogin, args: [backgroundArgument] }),
+                },
         }
       : {}),
     shortcuts: {
