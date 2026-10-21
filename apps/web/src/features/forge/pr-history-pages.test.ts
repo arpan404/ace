@@ -131,6 +131,44 @@ test("a PR with hundreds of commits lists them all, oldest first, with the newes
   expect(progress.every((p) => !p.complete)).toBe(true);
 });
 
+test("older commit pages the newest page names are read side by side with the listed ones", async () => {
+  // Listed pages 4 and 3 follow one from the other; pages 2, 1 and 0 stand on their own.
+  let inFlight = 0;
+  let mostInFlight = 0;
+  const read = async (before: string | undefined) => {
+    inFlight++;
+    mostInFlight = Math.max(mostInFlight, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    inFlight--;
+    const index = before === undefined ? 4 : Number(before);
+    return {
+      commits: Array.from({ length: 100 }, (_, n) => commit(index * 100 + n)),
+      ...(index === 4 ? { before: "3", alongside: ["2", "1", "0"] } : {}),
+      truncated: false,
+    };
+  };
+  const history = await readCommitHistory(read, () => {});
+  expect(history.commits.map((c) => c.message)).toEqual(
+    Array.from({ length: 500 }, (_, n) => `Commit ${n}`),
+  );
+  expect(history).toMatchObject({ truncated: false, complete: true });
+  expect(mostInFlight).toBe(4);
+});
+
+/** A newest page naming two older pages, the first of which fails. */
+async function failingOlderPage(before: string | undefined) {
+  if (before === "1") throw new Error("rate limited");
+  return {
+    commits: [commit(before === undefined ? 2 : Number(before))],
+    ...(before === undefined ? { alongside: ["1", "0"] } : {}),
+    truncated: false,
+  };
+}
+
+test("a failed older commit page fails the list", async () => {
+  await expect(readCommitHistory(failingOlderPage, () => {})).rejects.toThrow("rate limited");
+});
+
 test("a commit list longer than ace reads keeps the newest commits and says so", async () => {
   const source = commitPages(commitPageLimit + 3);
   const history = await readCommitHistory(source.read, () => {});

@@ -2,9 +2,9 @@ import type { ForgeActivity, ForgeCommit } from "@ace/protocol";
 
 /** Timeline pages read at most: the first and the newest, 100 events each. */
 export const activityPageLimit = 100;
-/** Commit pages read at most, 100 commits each, newest first. */
+/** Commit pages read at most each way (one after another, side by side), 100 commits each. */
 export const commitPageLimit = 100;
-/** Timeline pages read at once, so a long history loads in a few round trips. */
+/** Pages read at once, so a long history loads in a few round trips. */
 const parallelReads = 4;
 
 /** What has been read of a history; `complete` once every page it will read has arrived. */
@@ -16,7 +16,12 @@ type ActivityPage = {
   lastPage?: number | undefined;
   truncated: boolean;
 };
-type CommitPage = { commits: ForgeCommit[]; before?: string | undefined; truncated: boolean };
+type CommitPage = {
+  commits: ForgeCommit[];
+  before?: string | undefined;
+  alongside?: string[] | undefined;
+  truncated: boolean;
+};
 
 /**
  * Every timeline page. The first names the last, so the newest pages are read next, a few at
@@ -57,58 +62,93 @@ export async function readActivityHistory(
   skipped = oldest > 2;
   const newestFirst = Array.from({ length: Math.max(0, last - oldest + 1) }, (_, i) => last - i);
   if (newestFirst.length) onProgress(history(false));
-  await inParallel(newestFirst, parallelReads, async (number) => {
-    pages.set(number, await read(number));
-    onProgress(history(false));
-  });
+  await together(
+    pool(newestFirst, parallelReads, async (number) => {
+      pages.set(number, await read(number));
+      onProgress(history(false));
+    }),
+  );
   return history(true);
 }
 
 /**
- * Every commit page, newest first, each found from the cursor of the one before it. The list
- * stays oldest first. `onProgress` sees the newest pages as they arrive.
+ * Every commit page, newest first. Each listed page names the next older one, so those are
+ * read one after another; the newest page may also name older pages that stand on their own,
+ * read side by side with them. The list stays oldest first. `onProgress` sees the pages as
+ * they arrive, the newest first.
  */
 export async function readCommitHistory(
   read: (before: string | undefined) => Promise<CommitPage>,
   onProgress: (history: CommitHistory) => void,
 ): Promise<CommitHistory> {
-  const pages: CommitPage[] = [];
-  const history = (complete: boolean): CommitHistory => ({
-    commits: pages.toReversed().flatMap((page) => page.commits),
-    truncated: pages.some((page) => page.truncated) || pages.at(-1)?.before !== undefined,
-    complete,
-  });
-  let before: string | undefined;
-  do {
-    if (pages.length) onProgress(history(false));
-    const page = await read(before);
-    pages.push(page);
-    before = page.before;
-  } while (before !== undefined && pages.length < commitPageLimit);
+  const newest = await read(undefined);
+  const listed: CommitPage[] = [newest];
+  const named = newest.alongside ?? [];
+  const older = named.slice(0, commitPageLimit);
+  const olderPages = new Map<number, CommitPage>();
+  let cut = older.length < named.length;
+  const history = (complete: boolean): CommitHistory => {
+    const pages = [
+      ...older.flatMap((_, i) => olderPages.get(i) ?? []).toReversed(),
+      ...listed.toReversed(),
+    ];
+    return {
+      commits: pages.flatMap((page) => page.commits),
+      truncated: cut || pages.some((page) => page.truncated),
+      complete,
+    };
+  };
+  if (newest.before === undefined && !older.length) return history(true);
+  onProgress(history(false));
+  const walk = async (stopped: () => boolean) => {
+    for (let before = newest.before; before !== undefined && !stopped();) {
+      if (listed.length >= commitPageLimit) {
+        cut = true;
+        return;
+      }
+      const page = await read(before);
+      listed.push(page);
+      onProgress(history(false));
+      before = page.before;
+    }
+  };
+  const indexes = older.map((_, i) => i);
+  await together([
+    walk,
+    ...pool(indexes, parallelReads - 1, async (i) => {
+      const cursor = older[i];
+      if (cursor === undefined) return;
+      olderPages.set(i, await read(cursor));
+      onProgress(history(false));
+    }),
+  ]);
   return history(true);
 }
 
-/** Runs `run` on each item, at most `limit` at once; after a failure no new item starts. */
-async function inParallel<T>(
-  items: readonly T[],
-  limit: number,
-  run: (item: T) => Promise<void>,
-): Promise<void> {
-  const queue = [...items];
+type Worker = (stopped: () => boolean) => Promise<void>;
+
+/** Runs `workers` side by side; once one fails, none starts another read, and it throws. */
+async function together(workers: readonly Worker[]): Promise<void> {
   let failed = false;
-  const worker = async () => {
-    for (let item = queue.shift(); item !== undefined && !failed; item = queue.shift()) {
+  const settled = await Promise.allSettled(
+    workers.map(async (work) => {
       try {
-        await run(item);
+        await work(() => failed);
       } catch (error) {
         failed = true;
         throw error;
       }
-    }
-  };
-  const settled = await Promise.allSettled(
-    Array.from({ length: Math.min(limit, items.length) }, worker),
+    }),
   );
   const rejected = settled.find((result) => result.status === "rejected");
   if (rejected) throw rejected.reason;
+}
+
+/** `limit` workers taking `items` from one queue. */
+function pool<T>(items: readonly T[], limit: number, run: (item: T) => Promise<void>): Worker[] {
+  const queue = [...items];
+  return Array.from({ length: Math.min(limit, items.length) }, () => async (stopped) => {
+    for (let item = queue.shift(); item !== undefined && !stopped(); item = queue.shift())
+      await run(item);
+  });
 }
