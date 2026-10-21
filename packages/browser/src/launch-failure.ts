@@ -51,8 +51,12 @@ export function launchProblemDetail(problem: ChromeLaunchProblem): string | unde
     case "missing_libraries": {
       const install = problem.install ? `Run: ${problem.install}` : "Install them";
       const names = problem.libraries.join(", ");
-      const text = `Missing ${names}. ${install}`;
-      return text.length <= 256 ? text : `${install}`.slice(0, 256);
+      // Never a cut command: one that does not fit is left to ace doctor.
+      const full = `Missing ${names}. ${install}`;
+      if (full.length <= 256) return full;
+      if (problem.install && install.length <= 256) return install;
+      const count = problem.libraries.length;
+      return `Missing ${count} system ${count === 1 ? "library" : "libraries"} Chrome needs (${names.slice(0, 80)}${names.length > 80 ? ", ..." : ""}). Run ace doctor on this machine for the install command.`;
     }
     case "sandbox_blocked":
       return problem.cause === "apparmor"

@@ -60,6 +60,40 @@ describe("Chrome start failures on Linux", () => {
     expect(await detail(tumbleweed)).toMatch(/sudo zypper install -y mozilla-nss libasound2$/);
   });
 
+  it("never hands the agent a cut-off install command for a bare machine", async () => {
+    const bare = [
+      "libglib-2.0.so.0",
+      "libnss3.so",
+      "libatk-1.0.so.0",
+      "libatk-bridge-2.0.so.0",
+      "libdbus-1.so.3",
+      "libcups.so.2",
+      "libexpat.so.1",
+      "libxcb.so.1",
+      "libxkbcommon.so.0",
+      "libasound.so.2",
+      "libgbm.so.1",
+      "libX11.so.6",
+      "libXext.so.6",
+      "libcairo.so.2",
+      "libpango-1.0.so.0",
+      "libXcomposite.so.1",
+      "libXdamage.so.1",
+      "libXfixes.so.3",
+      "libXrandr.so.2",
+      "libatspi.so.0",
+      "libnspr4.so",
+    ];
+    const host: LinuxMachine = {
+      ...machine({ "/etc/os-release": ubuntu }),
+      ldd: async () => bare.map((name) => `\t${name} => not found`).join("\n"),
+    };
+    const seen = await agentSees(loaderError, host);
+    expect(seen.code).toBe("browser_missing_libraries");
+    expect(seen.detail).toMatch(/^Missing 21 system libraries Chrome needs \(libnss3\.so, /);
+    expect(seen.detail).toMatch(/Run ace doctor on this machine for the install command\.$/);
+  });
+
   it("still names the libraries on a distribution it has no command for", async () => {
     const seen = await agentSees(loaderError, machine({ "/etc/os-release": "ID=gentoo\n" }));
     expect(seen.code).toBe("browser_missing_libraries");
