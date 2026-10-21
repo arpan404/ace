@@ -103,7 +103,7 @@ test("selecting two ready pull requests and pressing Start sends one merge run w
       ],
     ]),
   );
-  expect(await strip().findByText("Fetching main and #233 and #224")).toBeTruthy();
+  expect(await strip().findByText("Fetching main, #233 and #224")).toBeTruthy();
   expect(strip().getByRole("button", { name: "Stop" })).toBeTruthy();
 });
 

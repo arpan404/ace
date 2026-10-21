@@ -75,21 +75,19 @@ export function PrChecks(props: {
           </Button>
         </p>
       )}
-      {showLocal && (
-        <ul aria-label="Local check">
-          <LocalCheckRow
-            workspaceId={workspaceId}
-            detail={props.context.detail}
-            run={local.run}
-            command={local.command}
-            onSetCommand={
-              dialogs ? () => dialogs.open({ kind: "edit", projectId: workspaceId }) : undefined
-            }
-          />
-        </ul>
-      )}
-      {status.checks.length ? (
+      {(showLocal || status.checks.length > 0) && (
         <ul>
+          {showLocal && (
+            <LocalCheckRow
+              workspaceId={workspaceId}
+              detail={props.context.detail}
+              run={local.run}
+              command={local.command}
+              onSetCommand={
+                dialogs ? () => dialogs.open({ kind: "edit", projectId: workspaceId }) : undefined
+              }
+            />
+          )}
           {status.checks.map((check) => {
             const look = checkLook[check.status];
             const Glyph = look.icon;
@@ -128,8 +126,9 @@ export function PrChecks(props: {
             );
           })}
         </ul>
-      ) : (
-        !stale && <p className="text-ui text-muted-foreground">No checks reported.</p>
+      )}
+      {!status.checks.length && !stale && (
+        <p className="text-ui text-muted-foreground">No checks reported.</p>
       )}
     </PrSection>
   );

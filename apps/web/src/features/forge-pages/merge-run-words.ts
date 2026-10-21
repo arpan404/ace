@@ -21,12 +21,14 @@ export interface RunWords {
   actions: StripAction[];
 }
 
-/** "#1219", "#1219 and #1221", "#1219, #1221 and #1197". */
-export function numbers(prs: readonly number[]): string {
-  const marks = prs.map((pr) => `#${pr}`);
-  if (marks.length < 2) return marks.join("");
-  return `${marks.slice(0, -1).join(", ")} and ${marks.at(-1)}`;
+/** "a", "a and b", "a, b and c". */
+function listed(words: readonly string[]): string {
+  if (words.length < 2) return words.join("");
+  return `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
 }
+
+/** "#1219", "#1219 and #1221", "#1219, #1221 and #1197". */
+export const numbers = (prs: readonly number[]) => listed(prs.map((pr) => `#${pr}`));
 
 export const pullRequests = (count: number) => `${count} pull request${count === 1 ? "" : "s"}`;
 
@@ -44,7 +46,7 @@ function progress(run: VerifyRun, prs: readonly number[], base: string): string 
   const together = prs.length > 1 ? `${numbers(prs)} together` : numbers(prs);
   switch (step?.kind) {
     case "fetch":
-      return `Fetching ${base} and ${numbers(prs)}`;
+      return `Fetching ${listed([base, ...prs.map((pr) => `#${pr}`)])}`;
     case "combine":
       return `Combining #${step.pr} onto ${base}`;
     case "setup":
