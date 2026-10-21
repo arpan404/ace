@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { androidSdkRoots } from "@ace/devices/sdk-roots";
 import { findExecutable } from "@ace/provider-kit/discovery";
 import { probeOutput } from "@ace/provider-kit/process";
 import type { Toolchain } from "@ace/protocol";
@@ -59,9 +60,15 @@ export async function detectToolchains(
       ...(version ? { version } : {}),
     });
   }
-  const sdk = env.ANDROID_HOME ?? env.ANDROID_SDK_ROOT;
-  const adb = sdk ? join(sdk, "platform-tools", platform === "win32" ? "adb.exe" : "adb") : "adb";
-  const adbVersion = sdk && !existsSync(adb) ? undefined : await exec(adb, ["version"]);
+  // The SDK folders emulator control searches, so both agree; else adb on PATH.
+  const adbName = platform === "win32" ? "adb.exe" : "adb";
+  const roots = androidSdkRoots(env, env.HOME ?? env.USERPROFILE);
+  const installed = roots
+    .map((root) => join(root, "platform-tools", adbName))
+    .find((path) => existsSync(path));
+  const configured = Boolean(env.ANDROID_HOME ?? env.ANDROID_SDK_ROOT);
+  const adb = installed ?? (configured ? undefined : "adb");
+  const adbVersion = adb ? await exec(adb, ["version"]) : undefined;
   const platformTools = adbToolsVersion(adbVersion);
   result.push({
     id: "android",

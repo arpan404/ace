@@ -557,6 +557,7 @@
     "packages/diagnostics": {
       "name": "@ace/diagnostics",
       "dependencies": {
+        "@ace/devices": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@ace/redaction": "workspace:*",

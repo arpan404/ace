@@ -31,6 +31,23 @@ it("toolchain hints reflect the supplied Git and Android SDK installations", asy
   }
 });
 
+it("an Android Studio SDK in ~/Android/Sdk is found without ANDROID_HOME, as emulators find it", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-toolchains-home-"));
+  try {
+    const tools = join(home, "Android", "Sdk", "platform-tools");
+    await mkdir(tools, { recursive: true });
+    await writeFile(join(tools, "adb"), "#!/bin/sh\necho 'Version 36.0.0-13206524'\n");
+    await chmod(join(tools, "adb"), 0o700);
+    const found = await detectToolchains({ PATH: "", HOME: home }, "linux");
+    expect(found.find((tool) => tool.id === "android")).toMatchObject({
+      available: true,
+      version: "36.0.0",
+    });
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 it("a Mac without Simulator tools receives an Xcode setup hint", async () => {
   const tools = await detectToolchains({ PATH: "" }, "darwin", async (command) =>
     command.endsWith("git") ? "git version 2.50" : undefined,
