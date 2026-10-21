@@ -30,7 +30,12 @@ class ExpansionBudget {
     });
   }
 }
-export async function extractTar(path: string, root: string, signal: AbortSignal): Promise<void> {
+export async function extractTar(
+  path: string,
+  root: string,
+  signal: AbortSignal,
+  compression: "gzip" | "bzip2",
+): Promise<void> {
   const { default: tar } = await import("tar-stream");
   const budget = new ExpansionBudget();
   const archive = tar.extract();
@@ -65,13 +70,11 @@ export async function extractTar(path: string, root: string, signal: AbortSignal
     void task.then(() => active.delete(task));
   });
   try {
-    await pipeline(
-      createReadStream(path),
-      createGunzip(),
-      new ExpansionBudget().stream(),
-      archive,
-      { signal },
-    );
+    const decompress =
+      compression === "gzip" ? createGunzip() : (await import("unbzip2-stream")).default();
+    await pipeline(createReadStream(path), decompress, new ExpansionBudget().stream(), archive, {
+      signal,
+    });
   } finally {
     await Promise.allSettled(active);
   }
