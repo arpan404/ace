@@ -44,8 +44,14 @@ it("an async watcher failure reaches the service without stopping healthy work",
   await h.watches.get("/steady")?.({ key: "steady-1", variables: { subject: "src/ok.ts" } });
   expect(h.inputs.map((input) => input.automationId)).toEqual(["steady"]);
   await h.finish(0);
-  // A failed retry keeps the persisted error; only success clears it.
+  // Fault-isolated health survives restart until an explicit successful retry.
   fail = true;
+  h.restart();
+  expect(
+    list(h, "after-restart").schedules?.find((entry) => entry.id === "flaky")?.triggerError
+      ?.message,
+  ).toBe("watcher unavailable");
+  // A failed retry keeps the persisted error; only success clears it.
   expect(
     h.service.handle({ type: "automation.retry", requestId: "retry-still-broken", id: "flaky" }),
   ).toMatchObject({ ok: false });

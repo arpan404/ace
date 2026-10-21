@@ -287,6 +287,20 @@ export class AutomationStore {
     ).get(automationId);
     return row ? AutomationRun.parse(JSON.parse(String(row.body))) : undefined;
   }
+  /** One indexed lookup per live automation, without scanning run history. */
+  latestRuns(): Map<string, AutomationRun> {
+    const runs = new Map<string, AutomationRun>();
+    for (const row of this.sql(
+      `SELECT j.id AS aid,
+        (SELECT r.body FROM automation_runs r
+          WHERE r.automation_id=j.id ORDER BY r.seq DESC LIMIT 1) AS runBody
+        FROM automation_jobs j ORDER BY j.id LIMIT 1001`,
+    ).iterate()) {
+      if (row.runBody === null || row.runBody === undefined) continue;
+      runs.set(String(row.aid), AutomationRun.parse(JSON.parse(String(row.runBody))));
+    }
+    return runs;
+  }
   running(id: string): boolean {
     return (
       this.sql(

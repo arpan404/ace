@@ -677,19 +677,22 @@ export class AutomationService {
               variables: request.variables,
             }),
           };
-        case "automation.list":
+        case "automation.list": {
+          const jobs = this.store.list();
+          const runs = this.store.latestRuns();
           return {
             ...base,
-            automations: this.list(),
-            schedules: this.store.list().map((job) => ({
+            automations: jobs.map((job) => job.automation),
+            schedules: jobs.map((job) => ({
               id: job.automation.id,
               nextRunAt: this.live ? job.due : null,
               revision: job.revision,
               lastPollError: job.lastPollError,
               triggerError: job.triggerError,
-              lastRun: this.store.latestRun(job.automation.id),
+              lastRun: runs.get(job.automation.id),
             })),
           };
+        }
         case "automation.inbox":
           return {
             ...base,
