@@ -301,52 +301,17 @@ function makeGroup(facts: readonly StepFact[]): StepGroup {
   };
 }
 
-/**
- * A step's family for grouping: exploration (reads, listings, searches), edits, commands, the web
- * (browsing, fetches, web searches), computer use, the plan, subagents, other tools. Thoughts have
- * none: they ride along with the family around them.
- */
-export type StepFamily =
-  | "explore"
-  | "edit"
-  | "command"
-  | "web"
-  | "computer"
-  | "plan"
-  | "agents"
-  | "background"
-  | "question"
-  | "tool";
-
-const families: Record<Exclude<StepKind, "think">, StepFamily> = {
-  read: "explore",
-  list: "explore",
-  search: "explore",
-  edit: "edit",
-  command: "command",
-  browser: "web",
-  fetch: "web",
-  websearch: "web",
-  computer: "computer",
-  plan: "plan",
-  spawn: "agents",
-  background: "background",
-  agent: "agents",
-  question: "question",
-  tool: "tool",
-};
-
-export function stepFamily(kind: StepKind): StepFamily | undefined {
-  return kind === "think" ? undefined : families[kind];
-}
+/** Steps that reach other agents: launching one, or sending one a message. */
+const reachesAgents = (kind: StepKind) => kind === "spawn" || kind === "agent";
 
 /**
- * Whether `fact` joins the group holding `facts`: consecutive steps of one family by one agent
- * merge ("Explored 3 files", "Edited 2 files", "Ran 4 commands"); a step of another family
- * starts a new group. What the agent says, an image it showed or an error stands alone and ends
- * the group. A thought joins whatever group it falls in, but a thought standing as a row of its
- * own shows its words, so a step after it starts a new group rather than folding them away:
- * appending to a log never hides what was already in view.
+ * Whether `fact` joins the group holding `facts`: consecutive tool steps by one agent merge into
+ * one row, whatever they did ("Ran 3 commands, read 2 files and searched once"). Steps that
+ * reach other agents (a launch, a message to one) group only with each other: they never fold
+ * into the tools around them. What the agent says, an image it showed or an error stands alone
+ * and ends the group. A thought joins whatever group it falls in, but a thought standing as a row
+ * of its own shows its words, so a step after it starts a new group rather than folding them
+ * away: appending to a log never hides what was already in view.
  */
 function joins(facts: readonly StepFact[], fact: StepFact): boolean {
   const last = facts.at(-1);
@@ -357,11 +322,10 @@ function joins(facts: readonly StepFact[], fact: StepFact): boolean {
   // A question reads as its own row, with its answer: only another question joins it.
   if ((last.kind === "question") !== (fact.kind === "question")) return false;
   if (facts.length === 1 && last.kind === "think") return false;
-  const joining = stepFamily(fact.kind);
-  if (!joining) return true;
-  // The group's family is its first step's that has one; usually its first step.
+  if (fact.kind === "think") return true;
+  // The group's first step that isn't a thought says whether it is about other agents.
   const lead = facts.find((step) => step.kind !== "think");
-  return !lead || stepFamily(lead.kind) === joining;
+  return !lead || reachesAgents(lead.kind) === reachesAgents(fact.kind);
 }
 
 export interface GroupedSteps {

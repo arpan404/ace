@@ -40,6 +40,8 @@ const shell = (id: string, command: string, status?: "succeeded" | "failed" | "r
 const edit = (id: string, path: string) =>
   call(id, { kind: "file.edit", changes: [{ path, kind: "update", diff: "@@ -1 +1 @@\n-a\n+b" }] });
 const ask = (id: string) => call(id, { kind: "ask_user" });
+const spawn = (id: string) => call(id, { kind: "agent.spawn", description: id });
+const tell = (id: string) => call(id, { kind: "agent.message", message: id });
 const prose = (id: string) =>
   Item.parse({
     id,
@@ -85,41 +87,50 @@ it("a mixed summary names at most two kinds, changes first, and counts the rest"
   expect(summary).toBe("Edited 2 files, ran 1 command and 3 other steps");
 });
 
-it("consecutive steps of one family merge; a step of another family starts a new group", () => {
+it("consecutive tool steps merge into one row, whatever each one did", () => {
+  const { groups } = groupSteps(
+    facts([
+      shell("install", "bun install"),
+      shell("peek", "sed -n 1,40p src/a.ts"),
+      shell("test", "bun run test"),
+      shell("find", "rg -n seq src"),
+      edit("e1", "a.ts"),
+      shell("lint", "bun run lint"),
+    ]),
+  );
+  expect(groups.map((group) => group.ids)).toEqual([
+    ["install", "peek", "test", "find", "e1", "lint"],
+  ]);
+  expect(groups[0]?.single).toBe(false);
+});
+
+it("launching or messaging other agents never folds into the tools around it", () => {
   const { groups } = groupSteps(
     facts([
       read("a"),
-      search("q"),
-      edit("e1", "a.ts"),
-      edit("e2", "b.ts"),
+      spawn("reviewer"),
+      spawn("tester"),
+      tell("ping"),
       shell("test", "bun run test"),
-      shell("lint", "bun run lint"),
       read("b"),
     ]),
   );
-  expect(groups.map((group) => [group.ids, group.single])).toEqual([
-    [["a", "q"], false],
-    [["e1", "e2"], false],
-    [["test", "lint"], false],
-    [["b"], true],
-  ]);
-  expect(groups.map((group) => group.sentence)).toEqual([
-    "Explored 1 file and 1 search",
-    "Edited 2 files",
-    "Ran 2 commands",
-    "",
+  expect(groups.map((group) => group.ids)).toEqual([
+    ["a"],
+    ["reviewer", "tester", "ping"],
+    ["test", "b"],
   ]);
 });
 
-it("a thought between steps of one family stays in their group", () => {
+it("a thought between steps stays in their group", () => {
   const { groups } = groupSteps(
-    facts([read("a"), thought("why", "Check the caller too."), read("b"), edit("e", "a.ts")]),
+    facts([read("a"), thought("why", "Check the caller too."), read("b"), spawn("helper")]),
   );
-  expect(groups.map((group) => group.ids)).toEqual([["a", "why", "b"], ["e"]]);
+  expect(groups.map((group) => group.ids)).toEqual([["a", "why", "b"], ["helper"]]);
   expect(groups[0]?.sentence).toBe("Read 2 files and thought once");
 });
 
-it("an error ends the group before it, even between steps of one family", () => {
+it("an error ends the group before it, even between steps that would merge", () => {
   const notice = Item.parse({
     id: "err",
     agentId: "root",
@@ -240,7 +251,7 @@ it("a thought in view on its own stays its own row when steps follow it", () => 
   const steps = [thought("plan", "Read the router first."), read("a"), shell("b", "bun test")];
   const alone = groupSteps(facts(steps.slice(0, 1)));
   const grown = groupSteps(facts(steps), alone);
-  expect(grown.groups.map((group) => group.ids)).toEqual([["plan"], ["a"], ["b"]]);
+  expect(grown.groups.map((group) => group.ids)).toEqual([["plan"], ["a", "b"]]);
   // The thought's row is the same object: appending steps did not rebuild it.
   expect(grown.groups[0]).toBe(alone.groups[0]);
 });
@@ -271,9 +282,9 @@ it("a shell search with no matches never fails its group", () => {
       shell("test", "bun run test", "failed"),
     ]),
   );
-  expect(groups.map((group) => group.failed)).toEqual([0, 1]);
-  expect(groups[0]?.summary).toBe("Explored 2 searches");
-  expect(groups[1]?.ids).toEqual(["test"]);
+  // One row; only the command that failed counts against it.
+  expect(groups.map((group) => group.ids)).toEqual([["miss-1", "miss-2", "test"]]);
+  expect(groups.map((group) => group.failed)).toEqual([1]);
 });
 
 it("only shell searches failing reads as a quiet group", () => {
