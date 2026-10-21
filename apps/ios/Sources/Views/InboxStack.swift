@@ -7,8 +7,8 @@ struct InboxHeaderActions {
 }
 
 /// One tab's navigation stack: the compact wordmark (or a connection problem) and the glass
-/// Settings and Search buttons in the bar, the filter chips under it, the list, and the thread
-/// it opens. Search is the system's own: the list turns into results while there is a query.
+/// Settings and Search buttons in the bar, the list led by its filter chips, and the thread it
+/// opens. Search is the system's own: the list turns into results while there is a query.
 struct InboxStack<Destination: View>: View {
     @Bindable var inbox: MachineInbox
     @Binding var path: [String]
@@ -36,13 +36,14 @@ struct InboxStack<Destination: View>: View {
         NavigationStack(path: $path) {
             Group {
                 if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    InboxList(inbox: inbox, includes: includes, pulls: pulls, shelves: $shelves, actions: actions)
+                    InboxList(inbox: inbox, includes: includes, pulls: pulls, shelves: $shelves, actions: actions,
+                              filtered: !machine.isEmpty || !project.isEmpty) { filters }
                         .refreshable { await refresh() }
                 } else {
-                    InboxSearchList(inbox: inbox, query: query, includes: includes, open: actions.open)
+                    InboxSearchList(inbox: inbox, query: query, includes: includes, open: actions.open) { filters }
                 }
             }
-            .inboxTopBar { InboxFilters(inbox: inbox, machine: $machine, project: $project) }
+            .modifier(InboxScrollEdge())
             .modifier(InboxSearchField(query: $query, searching: $searching))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
@@ -65,6 +66,10 @@ struct InboxStack<Destination: View>: View {
             Button { searching = true } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Search").accessibilityIdentifier("inbox.search")
         }
+    }
+    /// The chips lead the list and scroll away with it, so rows never pass under them.
+    private var filters: some View {
+        InboxFilters(inbox: inbox, machine: $machine, project: $project)
     }
     private var title: some View {
         InboxTitle(problem: InboxConnectionProblem.of(inbox), openMachines: header.machines)
@@ -101,5 +106,13 @@ private struct InboxSearchField: ViewModifier {
         .onChange(of: searching) { _, now in
             if now { shown = true } else { query = ""; shown = false }
         }
+    }
+}
+
+/// On iOS 26 the bar ends in a hard edge over the list, so rows never show through the
+/// wordmark and buttons.
+private struct InboxScrollEdge: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) { content.scrollEdgeEffectStyle(.hard, for: .top) } else { content }
     }
 }
