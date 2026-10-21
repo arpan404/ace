@@ -126,6 +126,26 @@ test("Cursor's shared login is never read for an account it isn't", async () => 
   expect(io.sent).toEqual([]);
 });
 
+test.each([
+  ["a relocated XDG config home", "xdg", (dir: string) => ({ XDG_CONFIG_HOME: join(dir, "xdg") })],
+  ["the default ~/.config", ".config", () => ({})],
+  ["~/.config when XDG_CONFIG_HOME is relative", ".config", () => ({ XDG_CONFIG_HOME: "xdg" })],
+] as const)("Cursor on Linux reads its login from %s", async (_name, folder, env) => {
+  const dir = await temp();
+  const baseEnv = env(dir);
+  await write(join(dir, folder), "cursor/auth.json", { accessToken: secret });
+  const io = ports(() => Response.json(cursorUsage), {
+    run: async () => cursorAbout("me@x.dev"),
+  });
+  const result = await read(
+    usageDeclaration({ provider: "cursor" }),
+    account(dir, { signedInAs: "me@x.dev", soleAccount: false, baseEnv }),
+    io.ports,
+  );
+  expect(result).toMatchObject({ ok: true, reading: { planType: "Pro" } });
+  expect(header(io.sent[0]!, "authorization")).toBe(`Bearer ${secret}`);
+});
+
 /** Gemini CLI's `loadCodeAssist` and `retrieveUserQuota` answers, shaped as its bundle reads them. */
 const geminiLoad = {
   currentTier: { id: "standard-tier", name: "Gemini Code Assist" },
