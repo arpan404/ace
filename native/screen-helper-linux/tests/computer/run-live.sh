@@ -11,7 +11,10 @@ if [ -z "${ACE_LIVE_SESSION:-}" ]; then
 fi
 Xvfb ":$display" -screen 0 1600x1000x24 -nolisten tcp >/dev/null 2>&1 &
 xvfb=$!
-trap 'kill $xvfb 2>/dev/null' EXIT
+# Fresh app state each run: no restored drafts or remembered windows.
+state=$(mktemp -d)
+export XDG_DATA_HOME="$state/data" XDG_CONFIG_HOME="$state/config" XDG_STATE_HOME="$state/state" XDG_CACHE_HOME="$state/cache"
+trap 'kill $xvfb 2>/dev/null; rm -rf "$state"' EXIT
 export DISPLAY=":$display"
 for _ in $(seq 50); do xdpyinfo >/dev/null 2>&1 && break; sleep 0.1; done
 dbus-update-activation-environment DISPLAY >/dev/null 2>&1 || true

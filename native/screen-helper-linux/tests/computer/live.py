@@ -94,6 +94,8 @@ def editor(helper):
     check("select_text and a background Backspace edit the text", "error" not in act, act)
     act = helper.result("act", app="org.gnome.TextEditor", actions=[{"type": "set_value", "id": area["id"], "value": "replaced"}])
     check("set_value replaces the text", "replaced" in text_of(act.get("state", {})), act)
+    # Another window in front, as when the person is working elsewhere.
+    subprocess.run(["xdotool", "search", "--onlyvisible", "--limit", "1", "--class", "mousepad", "windowactivate", "--sync"], check=False, timeout=10)
     raw = helper.result("act", app="org.gnome.TextEditor", actions=[{"type": "click", "x": 50, "y": 50}])
     background = raw.get("error", {})
     check("a raw click in the background is refused with a way forward",
@@ -158,11 +160,41 @@ def cancel(helper):
     check("cancelling an unknown request says so", unknown["result"]["cancelled"] is False, unknown)
 
 
+def hung(helper):
+    pid = helper.result("state", app="calculator", outline=False)["app"]["pid"]
+    os.kill(pid, 19)  # SIGSTOP: the app stops answering accessibility calls
+    try:
+        started = time.time()
+        reply = helper.call("state", app="calculator", timeout=30)
+        took = time.time() - started
+        state = reply.get("result", {})
+        check("a hung app yields a not-responding observation in bounded time",
+              reply["ok"] and state.get("notResponding") is True and took < 15, (round(took, 1), reply))
+        check("the helper still answers after a hung app", helper.call("hello")["ok"])
+    finally:
+        os.kill(pid, 18)  # SIGCONT
+    time.sleep(1)
+    again = helper.call("state", app="calculator")
+    check("the app is read normally once it answers again", again["ok"] and not again["result"].get("notResponding"), again)
+
+
+def terminate():
+    helper = Helper(BINARY)
+    helper.result("hello")
+    helper.process.terminate()
+    try:
+        code = helper.process.wait(5)
+    except subprocess.TimeoutExpired:
+        code = None
+    check("SIGTERM ends the helper promptly", code is not None and code != 0, code)
+
+
 def main():
     start_apps()
+    terminate()
     helper = Helper(BINARY)
     try:
-        for part in (wire, apps, editor, calculator, mousepad, cancel):
+        for part in (wire, apps, editor, calculator, mousepad, cancel, hung):
             try:
                 part(helper)
             except Exception as error:  # a broken part must not hide the others
