@@ -16,6 +16,8 @@ export type ViewerFrame = {
   sequence: number;
   width: number;
   height: number;
+  /** Picture pixels per point of the target: a point for input is a pixel over this. */
+  scale: number;
   codec: string;
   key: boolean;
   bytes: Buffer;
@@ -28,8 +30,12 @@ export class LiveViewer {
   #arrived: () => void = () => {};
   #requests = 0;
   #foreign = 0;
+  readonly #heartbeat: ReturnType<typeof setInterval>;
   private constructor(socket: WebSocket) {
     this.#socket = socket;
+    // The daemon closes a socket quiet for a minute; clients ping, so a long wait stays open.
+    this.#heartbeat = setInterval(() => socket.send(JSON.stringify({ type: "ping" })), 20_000);
+    socket.on("close", () => clearInterval(this.#heartbeat));
     const assembler = new StreamAssembler();
     socket.on("message", (data, binary) => {
       if (!binary) {
@@ -48,6 +54,7 @@ export class LiveViewer {
         sequence: frame.sequence,
         width: frame.width,
         height: frame.height,
+        scale: frame.scale,
         codec: frame.codec,
         key: frame.key,
         bytes: Buffer.from(frame.bytes),
@@ -105,17 +112,20 @@ export class LiveViewer {
 
   /**
    * Every picture of `sessionId` so far, once there are at least `count` (and `keyframes` of
-   * them keyframes); rejects after `timeoutMs` saying how many came.
+   * them keyframes) and, with `afterMs`, that long has passed: a change made before the call
+   * has been captured by then. Rejects after `timeoutMs` saying how many came.
    */
   async frames(
     sessionId: string,
-    want: { count: number; keyframes?: number },
+    want: { count: number; keyframes?: number; afterMs?: number },
     timeoutMs = 30_000,
   ): Promise<ViewerFrame[]> {
     const mine = () => this.#frames.filter((frame) => frame.sessionId === sessionId);
+    const from = Date.now();
     const enough = () =>
       mine().length >= want.count &&
-      mine().filter((frame) => frame.key).length >= (want.keyframes ?? 0);
+      mine().filter((frame) => frame.key).length >= (want.keyframes ?? 0) &&
+      Date.now() - from >= (want.afterMs ?? 0);
     const deadline = Date.now() + timeoutMs;
     while (!enough()) {
       const left = deadline - Date.now();
@@ -135,6 +145,7 @@ export class LiveViewer {
   }
 
   async close(): Promise<void> {
+    clearInterval(this.#heartbeat);
     if (this.#socket.readyState === WebSocket.CLOSED) return;
     const closed = once(this.#socket, "close");
     this.#socket.close();

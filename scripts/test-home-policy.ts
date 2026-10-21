@@ -106,6 +106,8 @@ function linuxDesktopSession(ambient: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const kept: NodeJS.ProcessEnv = { ACE_LINUX_DESKTOP_E2E: session };
   for (const key of [
     "ACE_SCREEN_HELPER",
+    // Where the suite keeps what a viewer received, for a person to look at.
+    "ACE_E2E_ARTIFACTS",
     "XDG_RUNTIME_DIR",
     "XDG_DATA_DIRS",
     "XDG_SESSION_TYPE",

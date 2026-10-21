@@ -14,11 +14,18 @@
 set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
 self="$root/apps/daemon/scripts/linux-e2e/run.sh"
-suites=(apps/daemon/src/linux-desktop.e2e.process.test.ts apps/daemon/src/linux-live-view.e2e.process.test.ts)
+# ACE_E2E_SUITES (space separated test files) runs only those.
+read -r -a suites <<<"${ACE_E2E_SUITES:-apps/daemon/src/linux-desktop.e2e.process.test.ts apps/daemon/src/linux-live-view.e2e.process.test.ts}"
 
+# One file at a time, in this order: they share the desktop, and a live view brings its window
+# to the front, which the desktop suite expects in the background.
 run_suite() {
   cd "$root"
-  ACE_LINUX_DESKTOP_E2E="$1" bun run test --project process "${suites[@]}" "${@:2}"
+  local status=0 suite
+  for suite in "${suites[@]}"; do
+    ACE_LINUX_DESKTOP_E2E="$1" bun run test --project process "$suite" "${@:2}" || status=1
+  done
+  return $status
 }
 
 wait_for() { # <seconds> <command...>
