@@ -242,7 +242,15 @@ export async function runDoctor(
         const timeout = new Promise<Verdict>((resolve) => {
           cancel = schedule(() => {
             controller.abort();
-            resolve(verdict("fail", "Check timed out", check.fix));
+            // Not finishing in time says nothing about health; a slow check on a big
+            // database must not read as corruption.
+            resolve(
+              verdict(
+                "warn",
+                `Didn't finish within ${Math.round(timeoutMs / 1000)} s`,
+                `Run ace doctor again. If it never finishes: ${check.fix}`,
+              ),
+            );
           }, timeoutMs);
         });
         const result = await Promise.race([

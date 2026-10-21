@@ -51,13 +51,17 @@ it("reclaiming space waits for ace to run instead of writing an offline database
   expect(recommendedRepairs(plan)).toEqual([]);
 });
 
-it("a database that fails its integrity check is never offered for compaction", () => {
-  const plan = planDoctorRepairs(
-    report([
-      ["sqlite", "fail"],
-      ["sqlite.space", "warn"],
-    ]),
-    "running",
-  );
-  expect(plan).toEqual([]);
+it("a database whose integrity isn't confirmed is never compacted, and doctor says why", () => {
+  for (const status of ["fail", "warn"] as const) {
+    const plan = planDoctorRepairs(
+      report([
+        ["sqlite", status, "Didn't finish within 5 s"],
+        ["sqlite.space", "warn"],
+      ]),
+      "running",
+    );
+    expect(plan).toHaveLength(1);
+    expect(plan[0]?.blocked).toContain("integrity check");
+    expect(recommendedRepairs(plan)).toEqual([]);
+  }
 });

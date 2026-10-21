@@ -1,25 +1,31 @@
 # CLI triage verification
 
-Triage is CLI-only. The screenshots show the real `ace triage` process in a PTY with
-a temporary ACE_HOME holding a few sample log lines, rendered with xterm.js. `claude`
-and `opencode` are local stubs that print a version; Codex and Cursor are absent. No
-provider session was launched.
+Triage and doctor are CLI-only. The screenshots show the real `ace triage` and
+`ace doctor` processes in a PTY with a temporary ACE_HOME, rendered with xterm.js.
+`claude` and `opencode` are local stubs that print a version; no provider session was
+launched.
 
-![Choosing a template](terminal-wizard.jpg)
+![Triage collects facts, then asks which installed agent should investigate](terminal-wizard.jpg)
 
-![Reviewing the prompt, then choosing an installed CLI](terminal-preview.jpg)
+![The agent starts in the triage folder](terminal-handoff.jpg)
 
-![Handing the prompt to the CLI](terminal-handoff.jpg)
+![Doctor lists problems, then offers repairs with the recommended ones selected](doctor-repairs.jpg)
 
-The preview colours section headings, errors and warnings, and its title counts the
-lines, errors and warnings attached. Uninstalled CLIs stay visible but disabled.
+Unit tests cover the facts file (versions, paths, never-open files, grouped recent
+errors, failed probes, doctor findings), the one-line launch, the log digest, and the
+repair plan: no repairs when healthy, folder and space repairs recommended while ace
+runs, space reclaim blocked when it doesn't, and no compaction for a database that
+fails its integrity check.
 
-Process tests use temporary homes and local stub executables. They cover literal
-prompt arguments for Cursor (`--` then the prompt) and OpenCode (`--prompt=`), the
-picker offering only installed CLIs, Ctrl-C reaching the agent while ace waits for its
-exit code, cancellation before anything is generated, real log lines grouped into the
-prompt with secrets redacted and the log file untouched, prompt generation without a
-daemon, folder repairs that preserve data, and refusal of linked targets.
+Process tests use temporary homes and local stub executables. They cover the agent
+starting in the triage folder with one line naming the playbook, which names the facts
+file; Cursor getting `--` then the line and OpenCode getting `--prompt=`; the picker
+offering only installed agents; Ctrl-C reaching the agent while ace waits for its exit
+code; Ctrl-C at the picker launching nothing; real log lines grouped into the facts
+with secrets redacted and the ace folder untouched; triage still writing its files
+with invalid settings and an unreadable log; doctor listing repairs without changing
+anything unless asked; folder repairs that preserve data; and refusal of linked
+targets.
 
 Database tests exercise real SQLite files. Doctor detects deleted-row free pages and
 reclaims over 2 MiB through the running daemon while preserving surviving row IDs and

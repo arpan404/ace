@@ -127,7 +127,7 @@ it.each(["claude", "codex", "opencode", "cursor"] as const)(
     }
   },
 );
-it("a hung probe times out and aborts without gating the other checks", async () => {
+it("a hung probe is reported as unfinished, not failed, and aborts without gating the other checks", async () => {
   const begun = deferred<void>(),
     other = deferred<void>();
   const timeouts: (() => void)[] = [];
@@ -164,8 +164,9 @@ it("a hung probe times out and aborts without gating the other checks", async ()
   timeouts[0]?.();
   const value = await pending;
   expect(signal?.aborted).toBe(true);
-  expect(value.checks.map((check) => check.status)).toEqual(["fail", "ok"]);
-  expect(value.checks[0]?.message).toBe("Check timed out");
+  expect(value.checks.map((check) => check.status)).toEqual(["warn", "ok"]);
+  expect(value.checks[0]?.message).toBe("Didn't finish within 5 s");
+  expect(value.checks[0]?.fix).toContain("Repair probe");
 });
 it("a failing probe cannot leak its exception or stop other checks", async () => {
   const value = await report({

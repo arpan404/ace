@@ -32,6 +32,15 @@ export function planDoctorRepairs(
     });
   const space = open.filter((check) => SPACE_CHECKS.has(check.id) && check.status === "warn");
   const healthy = report.checks.some((check) => check.id === "sqlite" && check.status === "ok");
+  if (space.length && !healthy)
+    plan.push({
+      id: "database",
+      title: "Reclaim database space",
+      detail: "Space is only reclaimed from a database that passes its integrity check.",
+      recommended: false,
+      blocked:
+        "The integrity check didn't pass or didn't finish, so the database is left as it is.",
+    });
   if (space.length && healthy)
     plan.push({
       id: "database",
