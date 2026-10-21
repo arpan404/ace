@@ -1,4 +1,9 @@
-import type { ForgeBrowserResult, WorkspaceActionRequest } from "@ace/protocol";
+import type {
+  CommandPayload,
+  CommandResult,
+  ForgeBrowserResult,
+  WorkspaceActionRequest,
+} from "@ace/protocol";
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
 import { catalogPrList } from "./forge-list-wire.ts";
 
@@ -19,6 +24,34 @@ export class FakePrCatalog {
         (op.repository === undefined ||
           JSON.stringify(op.repository) === JSON.stringify(fixture.detail.status.ref.repository)),
     );
+  }
+  /**
+   * `forge.hosted.merge` on a catalog PR, as GitHub answers it: the head must be the one the
+   * person saw, and a closed, conflicting or failing PR is refused. A merge marks it merged in
+   * every read, the list included.
+   */
+  merge(payload: CommandPayload): Omit<CommandResult, "commandId"> | undefined {
+    if (payload.type !== "forge.hosted.merge") return undefined;
+    const fixture = this.find(payload.pr);
+    if (!fixture) return { ok: false, error: "forge_not_found" };
+    const { status } = fixture.detail;
+    if (status.headSha !== payload.headSha || status.state !== "open")
+      return { ok: false, error: "forge_conflict" };
+    if (status.mergeability === "conflicting" || status.ci === "failure")
+      return { ok: false, error: "forge_write_refused" };
+    const merged: PullRequestFixture = {
+      ...fixture,
+      detail: { ...fixture.detail, status: { ...status, state: "merged" } },
+      ...(fixture.mergeState
+        ? { mergeState: { ...fixture.mergeState, state: "MERGED", mergeState: "UNKNOWN" } }
+        : {}),
+      lifecycle: {
+        ...fixture.lifecycle,
+        snapshot: { ...fixture.lifecycle.snapshot, state: "merged", actions: ["revert"] },
+      },
+    };
+    this.fixtures = this.fixtures.map((entry) => (entry === fixture ? merged : entry));
+    return { ok: true, pr: payload.pr, prStatus: merged.detail.status };
   }
   read(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
     if (op.op === "forge.pr.list") return catalogPrList(op, this.fixtures);

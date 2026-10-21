@@ -46,9 +46,12 @@ export function usePrActions(props: {
     writeDisabled: context.disabled,
     onRefresh,
   });
+  // Outside a thread (the Pull requests page) a PR merges through its project, linked or not.
+  const projectMerge = threadId === undefined && props.hostThreadId === undefined;
   const writes = usePrLinkWrites({
     detail,
     threadId,
+    workspaceId,
     writeReady: !context.disabled,
     onRefresh: context.refresh,
   });
@@ -69,11 +72,14 @@ export function usePrActions(props: {
     status,
     mergeState: mergeState.state,
     method,
-    linked: threadId !== undefined,
+    linked: threadId !== undefined || projectMerge,
+    // Auto-merge is still a thread's write.
+    autoMerge: threadId !== undefined,
     blockers,
   });
   const host = props.hostThreadId;
-  const linkReason = threadId ? undefined : "Link this pull request to a task first";
+  const linkReason =
+    threadId || projectMerge ? undefined : "Link this pull request to a task first";
   const fenceReason = writes.fenced
     ? "Refresh GitHub to confirm the previous change first"
     : context.disabled || writes.pending

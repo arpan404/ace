@@ -310,6 +310,8 @@ export class FakeWorkspaceWire {
       this.checkReruns.push(payload.action);
       return { ok: true };
     }
+    const merged = this.pullRequests.merge(payload);
+    if (merged) return merged;
     const project = this.projects.command(payload);
     if (project) return project;
     const forge = this.forge.command(payload);

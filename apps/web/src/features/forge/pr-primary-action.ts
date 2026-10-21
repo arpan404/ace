@@ -24,11 +24,14 @@ export function prPrimaryAction(input: {
   method: MergeMethod;
   /** Whether a task is linked: merge writes go through one. */
   linked?: boolean;
+  /** Whether auto-merge can be offered; without it a merge waits for its gates to clear. */
+  autoMerge?: boolean;
   /** Gates that stop a merge, in words ("Checks: 1 failing · 5 ok"). */
   blockers?: readonly string[];
 }): PrPrimary {
   const { status, mergeState, method } = input;
   const blockers = input.blockers ?? [];
+  const canAuto = input.autoMerge !== false && !!mergeState?.canEnable;
   if (status.state === "merged" || status.state === "closed")
     return { kind: "state", state: status.state };
   if (status.state === "unknown") return { kind: "none" };
@@ -41,11 +44,10 @@ export function prPrimaryAction(input: {
   if (input.linked === false) return { kind: "link" };
   // A failing check or requested changes stop the merge; GitHub can still merge once they clear.
   if (blockers.length)
-    return mergeState?.canEnable
+    return canAuto
       ? { kind: "auto-merge-ready", method }
       : { kind: "blocked", blockers: [...blockers] };
-  if (ciLine(status).tone === "pending" && mergeState?.canEnable)
-    return { kind: "auto-merge", method };
+  if (ciLine(status).tone === "pending" && canAuto) return { kind: "auto-merge", method };
   return { kind: "merge", method };
 }
 

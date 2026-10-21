@@ -1,3 +1,5 @@
+import { useCallback, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { ForgePrRef, ForgeRepository } from "@ace/protocol";
 import { PullRequestOpener } from "@/components/pull-request-link.tsx";
 import { PrDetail } from "@/features/forge/index.ts";
@@ -30,6 +32,18 @@ export function PrPanel(props: {
   onSearch(patch: Partial<PullsSearch>): void;
 }) {
   const repository = repositoryFromParam(props.repo);
+  const cache = useQueryClient();
+  const seen = useRef<string | undefined>(undefined);
+  const project = props.project;
+  // A PR that merged, closed or reopened here moves between the list's states: read it again.
+  const onState = useCallback(
+    (state: string) => {
+      if (seen.current !== undefined && seen.current !== state)
+        void cache.invalidateQueries({ queryKey: ["forge", project, "browse"] });
+      seen.current = state;
+    },
+    [cache, project],
+  );
   const open = (pr: ForgePrRef) =>
     props.onSearch({ pr: pr.number, repo: repositoryParam(pr.repository), tab: undefined });
   return (
@@ -40,6 +54,7 @@ export function PrPanel(props: {
         repository={repository}
         number={props.number}
         tab={props.tab}
+        onState={onState}
         onTab={(tab) => {
           const next = asTab(tab);
           props.onSearch({ tab: next === "summary" ? undefined : next });
