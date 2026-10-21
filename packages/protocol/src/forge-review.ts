@@ -105,7 +105,7 @@ export const ForgeReviewAction = z.discriminatedUnion("kind", [
     kind: z.literal("suggestions.apply"),
     headSha: sha,
     commentIds: z.array(z.number().int().positive()).min(1).max(100),
-    message: z.string().trim().min(1).max(4096),
+    message: z.string().max(4096).regex(/\S/),
   }),
 ]);
 export type ForgeReviewAction = z.infer<typeof ForgeReviewAction>;
