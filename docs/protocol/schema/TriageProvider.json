@@ -4,7 +4,8 @@
   "enum": [
     "claude",
     "codex",
-    "cursor"
+    "cursor",
+    "opencode"
   ],
   "type": "string"
 }

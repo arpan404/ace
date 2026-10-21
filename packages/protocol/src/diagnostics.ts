@@ -73,7 +73,7 @@ export const DiagnosticReport = z.object({
   checks: z.array(DiagnosticCheck).max(64),
 });
 export type DiagnosticReport = z.infer<typeof DiagnosticReport>;
-export const TriageProvider = z.enum(["claude", "codex", "cursor"]);
+export const TriageProvider = z.enum(["claude", "codex", "cursor", "opencode"]);
 export type TriageProvider = z.infer<typeof TriageProvider>;
 export const TriageKind = z.enum(["bug", "feature", "performance", "doctor"]);
 export type TriageKind = z.infer<typeof TriageKind>;

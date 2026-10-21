@@ -30288,7 +30288,7 @@ Example:
 
 [JSON Schema](schema/TriageProvider.json), input validation.
 
-Type: ["claude","codex","cursor"]. See JSON Schema for constraints.
+Type: ["claude","codex","cursor","opencode"]. See JSON Schema for constraints.
 
 Example:
 

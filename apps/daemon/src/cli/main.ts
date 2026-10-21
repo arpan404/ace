@@ -35,8 +35,8 @@ ace task wait ID... [--any|--all]
 ace start|status|token|pair [SCOPES]|devices list|revoke ID
 ace service install|uninstall|start|stop|status
 ace accounts add|list|status|discover
-ace triage [DESCRIPTION|-] [--kind bug|feature|performance|doctor] [--provider claude|codex|cursor] [--print]
-ace doctor [--fix] [--provider claude|codex|cursor] [--print]
+ace triage [DESCRIPTION|-] [--kind bug|feature|performance|doctor] [--provider claude|codex|cursor|opencode] [--print]
+ace doctor [--fix] [--provider claude|codex|cursor|opencode] [--print]
 ace support-bundle PATH
 ace stop|kill-all [--thread ID|--provider PROVIDER|--project ID]
 ace mcp enroll --scope read|operate --ttl DURATION [--project ID]

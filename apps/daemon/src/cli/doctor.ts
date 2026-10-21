@@ -1,11 +1,12 @@
 import { formatDoctor } from "@ace/diagnostics";
 import { TriageProvider } from "@ace/protocol";
-import { collectDoctorReport, fixDoctorReport } from "../diagnostics-report.ts";
+import { fixDoctorReport } from "../diagnostics-report.ts";
 import type { Config } from "../config.ts";
 import { option, validateArgs, type Args } from "./args.ts";
 import { print } from "./io.ts";
 import { CliFailure } from "./output.ts";
-import { doctorPrompt, offerDoctorHandoff } from "./triage.ts";
+import { localDaemonState } from "../triage-context.ts";
+import { collectCliDoctorReport, doctorPrompt, offerDoctorHandoff } from "./triage.ts";
 import { repairDoctorDatabase } from "./doctor-database.ts";
 export async function doctorCommand(args: Args, config: Config): Promise<void> {
   validateArgs(args, ["fix", "provider", "print"], 1);
@@ -22,8 +23,13 @@ export async function doctorCommand(args: Args, config: Config): Promise<void> {
     ? await fixDoctorReport(config, process.env, Date.now, {
         repairDatabase: (report) => repairDoctorDatabase(config.dataDir, args, report),
       })
-    : { report: await collectDoctorReport(config, process.env, Date.now), repairs: [] };
-  const { report, repairs } = result;
+    : { report: await collectCliDoctorReport(config), repairs: [] };
+  const { repairs } = result;
+  // ace's own running daemon holds the port; that warning is expected, not a finding.
+  const report =
+    args.flags.fix && (await localDaemonState(config.dataDir)) === "running"
+      ? { ...result.report, checks: result.report.checks.filter((check) => check.id !== "port") }
+      : result.report;
   const remaining = report.checks.some((check) => check.status !== "ok");
   process.exitCode =
     report.checks.some((check) => check.status === "fail") ||
@@ -53,6 +59,6 @@ export async function doctorCommand(args: Args, config: Config): Promise<void> {
     if (args.flags.print && prompt) await print(args, prompt);
   }
   const diagnosticExit = process.exitCode;
-  if (args.flags.fix && remaining) await offerDoctorHandoff(args, report);
+  if (args.flags.fix && remaining) await offerDoctorHandoff(args, report, config);
   if (diagnosticExit) process.exitCode = diagnosticExit;
 }

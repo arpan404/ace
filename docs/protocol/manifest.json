@@ -3465,8 +3465,8 @@
       "sha256": "c6fad1b1c1d2d5ec62425a1efed79b26f8928e2812ad168078c11aa0cdd58d3a"
     },
     "schema/TriageProvider.json": {
-      "bytes": 203,
-      "sha256": "97a963f1f63023300951e5b244d0fca1fea881cc21520c8f9c7ff86d8ffc202e"
+      "bytes": 219,
+      "sha256": "6e34dff3ea8f6d75d7351591c78e80f608fe03d20287b5a41ac5a2d8fd4049c0"
     },
     "schema/TriggerVariables.json": {
       "bytes": 405,
@@ -4013,10 +4013,10 @@
       "sha256": "3c00a18ea5c34e708a57c9d0f5d0cdba097745d6b5fc80bd543053d4c1079efc"
     },
     "types.md": {
-      "bytes": 855517,
-      "sha256": "0641891f7e9eb7e922a704eeb20eaa815781becc59f6f3db4b27bf0ef91142b8"
+      "bytes": 855528,
+      "sha256": "e02631198aaf52fd887c201494e87848968654a74599f46c2a70368b6867272c"
     }
   },
-  "input": "c7c8e3525b84d9784f458de3683ba11725b6636488d02e7a33f5eaee71fc7224",
+  "input": "436ca7649886766e06987d8450830b6bc4695641ac6d2e689907c7790ec4b77e",
   "version": 1
 }
