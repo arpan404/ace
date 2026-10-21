@@ -3,6 +3,10 @@ import type { QueuedMessage, ThreadStatus } from "@ace/protocol";
 import { Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useClaimConnectionNotice } from "@/features/shell/index.ts";
+import {
+  ThreadAutomationStrip,
+  useThreadAutomationLine,
+} from "@/features/thread-automation/index.ts";
 import { useShownPlans } from "@/lib/use-plans.ts";
 import { failedHead, withoutMessage } from "./failed-head.ts";
 import { withoutAgentPending, withoutAgentResults } from "./queued-agent-result.ts";
@@ -137,13 +141,20 @@ export function ComposerStrip(props: {
   // Once that request closes the ask is spent: a later card never takes focus for it.
   if (asked && !own.includes(asked.id)) setAsked(undefined);
   const slot = stripSlot(facts, pick);
+  // Lowest of all, and never an indicator: the thread's automations, while the slot is free.
+  const automation = useThreadAutomationLine(props.threadId);
   const waitingShown = slot.shown === "waiting";
   const reportWaiting = useEffectEvent((shown: boolean) => props.onWaitingShown?.(shown));
   useEffect(() => {
     reportWaiting(waitingShown);
     return () => reportWaiting(false);
   }, [waitingShown]);
-  if (!slot.shown) return null;
+  if (!slot.shown)
+    return automation ? (
+      <StripSurface slot="automation">
+        <ThreadAutomationStrip line={automation} />
+      </StripSurface>
+    ) : null;
   const counts: StripCounts = {
     requests: requests.length,
     sending: { count: sending.length, failed: sending.filter((row) => row.failed).length },
