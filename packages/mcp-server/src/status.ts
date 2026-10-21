@@ -26,8 +26,14 @@ export type StatusReader = (caller: McpAttribution) => {
  * by naming the situation and the tool; the detail lives in the guides (`guide`, and native
  * skills where ace ships them). Tool names are bare: providers add the `ace` namespace.
  */
-export function aceGuidance(groups?: readonly string[]): string {
+export function aceGuidance(groups?: readonly string[], tools?: readonly string[]): string {
   const has = (...names: string[]) => !groups || names.some((name) => groups.includes(name));
+  // The background engine's tool where the daemon runs it (macOS, Linux); else the older
+  // session tools' (Windows, or no engine helper).
+  const nativeApps =
+    tools && !tools.includes("screen_state") && tools.includes("screen_open_app")
+      ? "screen_open_app"
+      : "screen_state";
   return [
     "ace is the app running this session. Your shell, file and web tools work as usual; ace's tools do what only ace can. Use them when:",
     "- you start work in an existing project: context first;",
@@ -42,7 +48,7 @@ export function aceGuidance(groups?: readonly string[]): string {
     has("thread_control")
       ? "- the person wants a separate thread in any project: thread_start; to settle a finished one, this one too: thread_control settle;"
       : "",
-    has("screen", "devices") ? "- the person names a native app or simulator: screen_state;" : "",
+    has("screen", "devices") ? `- the person names a native app or simulator: ${nativeApps};` : "",
     "Not sure which ace tool fits? tools_find with what you want to do.",
     `Each family's how-to and other tools: guide with topic ${guideTopics.join(", ")}; offshift loads Offshift, to own a coding outcome end to end.`,
     "If an ace tool says its group is off, tell the person. Agents never answer approvals.",
