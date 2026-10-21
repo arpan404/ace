@@ -81,7 +81,9 @@ test.each(["manual", "stopped", "stopped-after-resend"] as const)(
     if (hold !== "stopped-after-resend") expect(resend().ok).toBe(true);
     await h.engine.flush();
     expect(h.engine.queue(id)).toMatchObject({ paused: true, reason, pendingCount: 1 });
-    expect(sends(replacement).map((command) => command.input)).toEqual([text("continue")]);
+    expect(sends(replacement).map((command) => command.input)).toEqual([
+      text("Continue where you left off."),
+    ]);
     expect(
       dispatch(
         h.store,
@@ -92,8 +94,8 @@ test.each(["manual", "stopped", "stopped-after-resend"] as const)(
     ).toBe(true);
     await h.engine.flush();
     expect(sends(replacement).map((command) => command.input)).toEqual([
-      text("continue"),
-      text("continue"),
+      text("Continue where you left off."),
+      text("Continue where you left off."),
     ]);
     expect(h.engine.queue(id)).toMatchObject({ paused: false, pendingCount: 0 });
   },
@@ -158,7 +160,9 @@ test.each([false, true])(
       paused: true,
       reason: "uncertain",
       pendingCount: 1,
-      messages: [{ id: "recovery-command", input: text("continue"), state: "uncertain" }],
+      messages: [
+        { id: "recovery-command", input: text("Continue where you left off."), state: "uncertain" },
+      ],
     });
     const copy = await crashCopy(h);
     expect(
@@ -219,7 +223,7 @@ test.each([false, true])(
     ).toBe(true);
     await h.engine.flush();
     expect(sends(replacement).map((command) => command.input)).toEqual([
-      text("continue"),
+      text("Continue where you left off."),
       text("next"),
     ]);
   },

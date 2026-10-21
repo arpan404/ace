@@ -51,7 +51,7 @@ test("a snooze, a restart, an uncertain delivery and a manual pause each explain
   ).toBe("snoozed");
   expect(
     ids(queueNotice(undefined, { paused: true, reason: "restart", resumeAt: null }, now)),
-  ).toEqual(["resume"]);
+  ).toEqual(["continue"]);
   expect(
     ids(queueNotice(undefined, { paused: true, reason: "uncertain", resumeAt: null }, now)),
   ).toEqual([]);

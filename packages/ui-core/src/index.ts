@@ -204,3 +204,6 @@ export {
   type JumpSnapshot,
   type LiveTail,
 } from "./jump-controller.ts";
+export * from "./person-message.ts";
+export * from "./held-turn.ts";
+export { continueMessage } from "@ace/core";

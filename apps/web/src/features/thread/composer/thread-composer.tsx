@@ -6,6 +6,7 @@ import {
   useThreadStore,
 } from "@ace/client-react";
 import { useComposerActions } from "./composer-actions.ts";
+import { useLeavesLimit } from "./held-turn-strip.tsx";
 import type { ThreadStatus } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
 import {
@@ -108,7 +109,9 @@ export function ThreadComposer({
   // capabilities are unknown) a follow-up queues (SY-14).
   const canSteer = meta?.capabilities?.steer === true;
   const followUp = canSteer ? setting : "queue";
-  const busy = isBusy(props.status);
+  // Picking an account with room while a limit holds: the message goes straight out there.
+  const leavesLimit = useLeavesLimit(props.thread.id);
+  const busy = isBusy(props.status) && !(props.status?.state === "limited" && leavesLimit);
   // The root only waits on its subagents: the model itself isn't busy, so a message goes in now.
   const wait = useTurnActivity(props.thread.id)?.waitingOn;
   const subagentWait = wait?.kind === "subagents" ? wait : undefined;
@@ -400,7 +403,8 @@ export function ThreadComposer({
           <Suspense fallback={<ControlsPending />}>
             <DeferredModelControl.Component
               thread={props.thread}
-              busy={busy}
+              // A limit holds no turn to wait for: a switch made now takes effect now.
+              busy={busy && props.status?.state !== "limited"}
               next={next}
               continued={continued}
               pickerRequest={pickerRequest}
