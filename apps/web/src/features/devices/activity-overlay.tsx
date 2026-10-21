@@ -2,8 +2,7 @@ import { useAgent } from "@ace/client-react";
 import type { DeviceActivity } from "@ace/protocol";
 import { useEffect, useRef, useState } from "react";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
-import { activityCaption, screenFraction } from "./agent-activity.ts";
-import type { Size } from "./device-frame-geometry.ts";
+import { activityCaption, screenFraction, type Size } from "@ace/ui-core/devices";
 
 /** How long a caption stays before it fades. */
 const captionMs = 2000;

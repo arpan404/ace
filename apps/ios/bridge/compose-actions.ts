@@ -3,12 +3,10 @@ import { z } from "zod";
 import type { PatchSink, Preview } from "./agents.ts";
 import { ComposeSearch } from "./compose-search.ts";
 import { ChoiceAction, CreateAction, NewThread } from "./new-thread.ts";
-import { ProjectFiles } from "./project-files.ts";
 import { AttachmentTray, Picked, nativeChunks, type ChunkReader } from "./thread-attachments.ts";
 
 /*
- * The `compose` (New thread, Add project) and `files` (the Files sheet: a thread's checkout, or
- * from New thread a project's own folder) actions Swift sends, parsed once and routed to their
+ * The `compose` (New thread, Add project) actions Swift sends, parsed once and routed to their
  * sessions. `false` means the action couldn't be read. New thread's first-message files live
  * here, in the chosen project's draft scope.
  */
@@ -38,19 +36,9 @@ const ComposeAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("attach"), workspaceId: id, file: Picked }),
   z.object({ kind: z.literal("detach"), localId: z.string().min(1).max(64) }),
 ]);
-const FilesAction = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("open"), threadId: id }),
-  z.object({ kind: z.literal("openProject"), workspaceId: id }),
-  z.object({ kind: z.literal("folder"), path: z.string().max(4096) }),
-  z.object({ kind: z.literal("search"), query: z.string().max(128) }),
-  z.object({ kind: z.literal("preview"), path: z.string().min(1).max(4096) }),
-  z.object({ kind: z.literal("close") }),
-]);
-
 export class ComposeActions {
   readonly newThread: NewThread;
   readonly search: ComposeSearch;
-  readonly checkout: ProjectFiles;
   readonly #owner: ClientCore;
   readonly #sink: PatchSink;
   readonly #chunks: ChunkReader;
@@ -72,9 +60,6 @@ export class ComposeActions {
         this.#tray?.workspaceId === workspaceId ? this.#tray.tray : undefined,
       adopt: (draftId) => this.search.adopt(draftId),
     });
-    this.checkout = new ProjectFiles(owner, sink, preview, (workspaceId, query, limit) =>
-      this.search.complete(workspaceId, query, limit),
-    );
   }
   compose(raw: unknown): boolean {
     const parsed = ComposeAction.safeParse(raw);
@@ -124,33 +109,6 @@ export class ComposeActions {
     }
     return true;
   }
-  files(raw: unknown): boolean {
-    const parsed = FilesAction.safeParse(raw);
-    if (!parsed.success) return false;
-    const action = parsed.data;
-    switch (action.kind) {
-      case "open":
-        void this.checkout.open(action.threadId);
-        break;
-      case "openProject":
-        void this.checkout.openProject(action.workspaceId);
-        break;
-      case "folder":
-        this.checkout.folder(action.path);
-        break;
-      case "search":
-        void this.checkout.search(action.query);
-        break;
-      case "preview":
-        void this.checkout.preview(action.path);
-        break;
-      case "close":
-        this.checkout.close();
-        break;
-    }
-    return true;
-  }
-
   /** The project's tray; files picked for another project went with that project's scope. */
   #trayFor(workspaceId: string): AttachmentTray {
     if (this.#tray?.workspaceId === workspaceId) return this.#tray.tray;

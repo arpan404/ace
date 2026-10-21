@@ -14,7 +14,6 @@ private final class TranscriptScrollIntent {
 struct ConversationFeed: View {
     let model: ClientModel
     let thread: ThreadModel
-    let metadata: ThreadRow?
     let acceptedSend: Int
     let links: TranscriptLinks
     @State private var reading = TranscriptReading()
@@ -50,14 +49,16 @@ struct ConversationFeed: View {
                 } else { ConversationSkeleton().padding(AceTheme.Spacing.xl) }
                 if reading.thread == nil || reading.joined {
                     ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id < $1.id }) { row in
-                        PendingSendRow(row: row, canRetry: model.canOperate) { await model.retrySend(row) }.padding(.horizontal, AceTheme.Spacing.xl)
+                        PendingSendRow(row: row, canRetry: model.canOperate) { await model.retrySend(row) }
+                            .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
                     }
-                    if ready { ThreadTailChips(metadata: metadata, changes: { links.openChanges?() }).padding(.horizontal, AceTheme.Spacing.xl) }
                 }
                 TranscriptTail(thread: thread, following: following && reading.thread == nil) { position.scrollTo(edge: .bottom) }
             }
             .scrollTargetLayout()
-            .padding(.vertical, AceTheme.Spacing.lg)
+            .padding(.top, AceTheme.Spacing.sm)
+            // Room for the live capsule and jump control floating above the composer.
+            .padding(.bottom, AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xl)
         }
         .coordinateSpace(name: "transcript.viewport")
         .scrollPosition($position, anchor: .top)
@@ -86,11 +87,9 @@ struct ConversationFeed: View {
         } action: { old, new in
             intent.metrics = new
             if intent.active {
-                if new.y < old.y - 1 {
-                    intent.direction = -1
-                    following = false
-                    if thread.loaded, thread.screen.hasOlder, reading.thread == nil { reading.read("hold", model: model, live: thread) }
-                }
+                // Scrolling up only stops following: the live list stays in place until the
+                // person nears its top, where the older page opens the reading window.
+                if new.y < old.y - 1 { intent.direction = -1; following = false }
                 else if new.y > old.y + 1 { intent.direction = 1 }
                 pageIfNeeded()
             }
@@ -114,23 +113,22 @@ struct ConversationFeed: View {
             if thread.loaded { position.scrollTo(edge: .bottom); initialScroll = true }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-            if following && reading.thread == nil { position.scrollTo(edge: .bottom) }
+            // A transcript shorter than the space left stays put; scrolling it to the bottom
+            // while the insets animate would leave it above the view.
+            let overflows = intent.metrics.top + intent.metrics.bottom > AceTheme.Dimensions.border
+            if following && reading.thread == nil && overflows { position.scrollTo(edge: .bottom) }
         }
         .onDisappear { reading.cancel() }
         .overlay(alignment: .bottomTrailing) {
             if !following || reading.thread != nil {
-                Button {
+                GlassIconButton(systemImage: "arrow.down", label: "Jump to latest", size: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs) {
                     reading.live(model: model, thread: thread)
                     following = true
                     position.scrollTo(edge: .bottom)
-                } label: {
-                    Image(systemName: "arrow.down")
-                        .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
-                        .background(AceTheme.Colours.secondaryBackground, in: Circle())
-                        .overlay(Circle().stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
                 }
-                .buttonStyle(.plain).accessibilityLabel("Jump to latest").accessibilityIdentifier("transcript.latest")
-                .padding(AceTheme.Spacing.lg)
+                .accessibilityIdentifier("transcript.latest")
+                .padding(.trailing, AceTheme.Spacing.xl).padding(.bottom, AceTheme.Spacing.md)
+                .transition(.opacity)
             }
         }
     }

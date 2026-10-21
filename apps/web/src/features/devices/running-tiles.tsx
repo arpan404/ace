@@ -5,10 +5,16 @@ import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { cardEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
-import { bodyTurn, deviceButtons } from "./device-buttons.ts";
-import { deviceKind } from "./device-catalog.ts";
+import {
+  bodyTurn,
+  deviceButtons,
+  deviceKind,
+  defaultScreens,
+  frameGeometry,
+  framePoints,
+  type Size,
+} from "@ace/ui-core/devices";
 import { DeviceFrame } from "./device-frame.tsx";
-import { defaultScreens, frameGeometry, framePoints, type Size } from "./device-frame-geometry.ts";
 import { DeviceScreen } from "./device-screen.tsx";
 import type { DeviceSession } from "./device-session.ts";
 import { ControllerLabel, type Controller } from "./controller-label.tsx";

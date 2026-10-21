@@ -4,14 +4,13 @@ struct ThreadView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var model: ClientModel
     @Bindable var thread: ThreadModel
     /// Push another thread (a delegated child or a conversation this one started).
     let openThread: (String) -> Void
     @State private var acceptedSend = 0
     @State private var attachProblem: String?
-    @State private var showWork = false
-    @State private var showDetails = false
     @State private var showModels = false
     @State private var lane: BlockRow.Agents.Entry?
     @State private var showFiles = false
@@ -19,11 +18,15 @@ struct ThreadView: View {
     @State private var fullMessage: TranscriptRow?
     @State private var showTools = false
     @State private var showComputer = false
+    @State private var devicesRoute: DevicesRoute?
     @State private var activityProblem: String?
+    @State private var showAgents = false
     @State private var showChanges = false
     @State private var showTerminal = false
     @State private var showBrowser = false
     @State private var showSearch = false
+    @State private var showQueue = false
+    @State private var height: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
     private var metadata: ThreadRow? { thread.metadata ?? thread.placeholder?.metadata ?? model.inbox[thread.id] }
@@ -39,70 +42,43 @@ struct ThreadView: View {
     private var screen: ThreadScreenModel { thread.screen }
     /// An archived thread opens read-only (from the archive browser) until it's unarchived.
     private var archived: Bool { (model.inbox[thread.id] ?? metadata)?.archivedAt != nil }
+    private var queued: Int { screen.queue?.messages.count ?? 0 }
+    /// The live state floats above the composer unless a request has the person's attention.
+    private var capsuleShown: Bool { thread.approvals.isEmpty && (screen.activity != nil || queued > 0) }
+    private var subtitle: String {
+        guard let metadata else { return "" }
+        let place = metadata.branch.isEmpty ? metadata.machine : metadata.branch
+        return [metadata.project, place].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
     var body: some View {
-        ConversationFeed(model: model, thread: thread, metadata: metadata, acceptedSend: acceptedSend,
-                         links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: screen, epoch: thread.epoch), openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { fullMessage = $0 }))
-            .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
-                VStack(spacing: AceTheme.Spacing.none) {
-                    // One card at a time above the composer: the oldest open request.
-                    if let request = thread.approvals.first {
-                        let submission = model.approvalSubmissions[request.id]
-                        switch request.kind {
-                        case "question":
-                            QuestionCard(interaction: request, submission: submission, canAct: model.canOperate) { model.answer(request, answers: $0, dismissed: $1) }
-                                .id(request.id)
-                        case "plan_review":
-                            PlanReviewCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
-                        case "elicitation":
-                            FormRequestCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
-                        case "browser_help":
-                            BrowserHelpCard(interaction: request, submission: submission, canAct: model.canOperate,
-                                            openBrowser: { showBrowser = true }) { model.resolve(request, answer: $0) }.id(request.id)
-                        default:
-                            ApprovalCard(approval: request, submission: submission, canAct: model.canOperate) { model.approve(request, option: $0) }
-                        }
-                    }
-                    if let queue = screen.queue, !queue.messages.isEmpty {
-                        QueueStrip(queue: queue, canAct: model.canOperate,
-                                   canSteer: screen.controls?.delivery == "steer" || screen.controls?.alternate == "steer") { message, change in
-                            await model.editQueued(message, change: change)
-                        }
-                    }
-                    if archived {
-                        ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
-                            .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
-                            .floatingGlass()
-                            .padding(.horizontal, AceTheme.Dimensions.composerInset).padding(.bottom, AceTheme.Spacing.sm)
-                    } else if model.canOperate {
-                        ComposerAccessories(model: model, screen: screen)
-                        ServiceProblem(message: attachProblem)
-                        ComposerView(controls: screen.controls, stopping: screen.stopping,
-                                     placeholder: thread.approvals.isEmpty ? "Ask a follow-up" : "Reply instead…",
-                                     send: { text, alternate in
-                                         let saved = await model.sendMessage(text, alternate: alternate)
-                                         if saved { acceptedSend += 1 }
-                                         return saved
-                                     }, stop: { model.stopTree() },
-                                     inputBegan: { model.metrics?.inputBegan() }, mention: mention,
-                                     files: screen.attachments.count) {
-                            AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
-                        } trailing: {
-                            ComposerModelButton(screen: screen, open: { showModels = true })
-                        }
-                    } else {
-                        ViewOnlyNote.thread
-                            .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.md)
-                            .background(AceTheme.Colours.background)
-                            .overlay(alignment: .top) {
-                                Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
-                            }
-                    }
+        ConversationFeed(model: model, thread: thread, acceptedSend: acceptedSend,
+                         links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: screen, epoch: thread.epoch),
+                                                openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { fullMessage = $0 },
+                                                openAgents: { showAgents = true }))
+            .overlay(alignment: .bottom) {
+                if capsuleShown {
+                    LiveCapsule(activity: screen.activity, queued: queued, stopping: screen.stopping) { showQueue.toggle() }
+                        .padding(.horizontal, AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xl)
+                        .padding(.bottom, AceTheme.Spacing.md)
+                        .transition(.opacity)
                 }
-                .background(AceTheme.Colours.background.ignoresSafeArea(edges: .bottom))
             }
-            .toolbar { chatToolbar }
-            .toolbarBackground(AceTheme.Colours.background, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
+            .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: capsuleShown)
+            .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { bottomBar }
+            // The height under the bar, steady while the keyboard or a card changes the insets.
+            .background {
+                Color.clear.ignoresSafeArea()
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+            }
+            .toolbar {
+                ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: metadata?.status.label ?? "",
+                              openChanges: { showChanges = true }, openAgents: { showAgents = true },
+                              menu: ThreadMenu(model: model, thread: thread, archived: archived, activityRow: activityRow,
+                                               open: open, problem: { activityProblem = $0 }, leave: { dismiss() }))
+            }
+            .threadTitle(metadata?.title ?? "Thread", subtitle: subtitle)
+            .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
                 if typeSize.isAccessibilitySize, let status = metadata?.status {
                     StateLabel(status: status)
@@ -111,13 +87,15 @@ struct ThreadView: View {
                         .background(AceTheme.Colours.background)
                 }
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .threadSheets(model: model, thread: thread, openThread: openThread, work: $showWork, changes: $showChanges, terminal: $showTerminal)
-            .sheet(isPresented: $showDetails) { details }
+            .threadSheets(model: model, thread: thread, openThread: openThread, agents: $showAgents, changes: $showChanges, terminal: $showTerminal)
             .alert("Live Activity", isPresented: Binding(get: { activityProblem != nil }, set: { if !$0 { activityProblem = nil } })) {
                 Button("OK") { activityProblem = nil }
             } message: { Text(activityProblem ?? "") }
-            .sheet(isPresented: $showComputer) { NavigationStack { RemoteScreenView(model: model, threadId: thread.id) } }
+            .environment(\.openStep) { opens in
+                if opens == "computer" { showComputer = true } else if opens.hasPrefix("device:") { devicesRoute = .device(String(opens.dropFirst(7))) }
+            }
+            .navigationDestination(item: $devicesRoute) { route in DevicesRouteView(model: model, threadId: thread.id, route: route) }
+            .navigationDestination(isPresented: $showComputer) { RemoteScreenView(model: model, threadId: thread.id) }
             .sheet(isPresented: $showTools) {
                 NavigationStack { ThreadToolsView(model: model, thread: thread, openThread: openThread) }.presentationDetents([.large]).presentationDragIndicator(.visible)
             }
@@ -128,14 +106,10 @@ struct ThreadView: View {
             .sheet(isPresented: $showSearch) {
                 NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; openThread(id) }) }
             }
-            .sheet(isPresented: $showFiles) {
-                ThreadFilesSheet(model: model, scope: .thread(thread.id), mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil)
-                    .presentationDetents([.large]).presentationDragIndicator(.visible)
-            }
+            .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle, showFiles: $showFiles,
+                                       mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil))
             .sheet(isPresented: $showModels) {
-                ModelPickerSheet(screen: screen, load: { model.requestModels() }, choose: { await model.switchModel($0) }, tuning: {
-                    if let tune = screen.tune, !tune.efforts.isEmpty || !tune.speeds.isEmpty { TuneChip(tune: tune, model: model) }
-                })
+                ModelPickerSheet(model: model, screen: screen)
             }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
             // The agent may open its browser after the thread was opened: ask again as it works.
@@ -143,10 +117,12 @@ struct ThreadView: View {
             // A browser opened mid-turn leaves the state unchanged: follow it, bounded, while this
             // thread is on screen, working and the app is active. Leaving cancels the follow.
             .task(id: browserFollow) { if browserFollow != nil { await model.followBrowser() } }
-            .fullScreenCover(isPresented: $showBrowser) {
+            .onChange(of: queued) { _, count in if count == 0 { showQueue = false } }
+            .navigationDestination(isPresented: $showBrowser) {
                 let help = thread.approvals.first { $0.kind == "browser_help" }
-                BrowserLiveView(model: model, help: help) { answer in if let help { model.resolve(help, answer: answer) } }
+                BrowserScreen(model: model, help: help) { answer in if let help { model.resolve(help, answer: answer) } }
             }
+            .environment(\.openBrowser, { showBrowser = true })
             #if DEBUG
             .overlay(alignment: .topLeading) {
                 if SpikeConfiguration.enabled && ProcessInfo.processInfo.arguments.contains("--spike-metrics") {
@@ -158,124 +134,88 @@ struct ThreadView: View {
             }
             #endif
     }
+
+    /// Above the composer: the oldest open request (a question takes the composer's place), the
+    /// queued messages when the capsule opened them, then the composer.
+    @ViewBuilder private var bottomBar: some View {
+        let request = thread.approvals.first
+        VStack(spacing: AceTheme.Spacing.none) {
+            if let request, request.kind != "question" { requestCard(request) }
+            if showQueue, let queue = screen.queue, !queue.messages.isEmpty {
+                QueueStrip(queue: queue, canAct: model.canOperate,
+                           canSteer: screen.controls?.delivery == "steer" || screen.controls?.alternate == "steer") { message, change in
+                    await model.editQueued(message, change: change)
+                }
+                .transition(.opacity)
+            }
+            if archived {
+                ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
+                    .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
+                    .floatingGlass()
+                    .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.sm)
+            } else if let request, request.kind == "question" {
+                QuestionCard(interaction: request, submission: model.approvalSubmissions[request.id], canAct: model.canOperate, maxHeight: height * 0.6) {
+                    model.answer(request, answers: $0, dismissed: $1)
+                }
+                .id(request.id)
+            } else if model.canOperate {
+                ComposerAccessories(model: model, screen: screen)
+                ServiceProblem(message: attachProblem)
+                ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: placeholder,
+                             send: { text, alternate in
+                                 let saved = await model.sendMessage(text, alternate: alternate)
+                                 if saved { acceptedSend += 1 }
+                                 return saved
+                             }, stop: { model.stopTree() },
+                             inputBegan: { model.metrics?.inputBegan() }, mention: mention,
+                             files: screen.attachments.count) {
+                    AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
+                } trailing: {
+                    ComposerModelButton(screen: screen, open: { showModels = true })
+                }
+            } else {
+                ViewOnlyNote.thread
+                    .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
+                    .floatingGlass()
+                    .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.sm)
+            }
+        }
+        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: showQueue)
+    }
+    @ViewBuilder private func requestCard(_ request: ApprovalRow) -> some View {
+        let submission = model.approvalSubmissions[request.id]
+        switch request.kind {
+        case "plan_review":
+            PlanReviewCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
+        case "elicitation":
+            FormRequestCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
+        case "browser_help":
+            BrowserHelpCard(interaction: request, submission: submission, canAct: model.canOperate,
+                            openBrowser: { showBrowser = true }) { model.resolve(request, answer: $0) }.id(request.id)
+        default:
+            ApprovalCard(approval: request, submission: submission, canAct: model.canOperate) { model.approve(request, option: $0) }.id(request.id)
+        }
+    }
+    private var placeholder: String {
+        if !thread.approvals.isEmpty { return "Reply instead" }
+        guard screen.controls?.busy == true else { return "Message" }
+        if screen.controls?.alternate != nil { return "Steer or queue a message" }
+        return screen.controls?.delivery == "steer" ? "Steer the agent" : "Queue a message"
+    }
+    private func open(_ destination: ThreadDestination) {
+        switch destination {
+        case .search: showSearch = true
+        case .files: showFiles = true
+        case .terminal: showTerminal = true
+        case .browser: showBrowser = true
+        case .devices: devicesRoute = .list
+        case .computer: showComputer = true
+        case .tools: showTools = true
+        }
+    }
     /// Restarts the browser follow on a new visit, a new turn or a return to the foreground.
     private var browserFollow: Int? {
         guard scenePhase == .active, screen.controls?.busy == true, !model.threadHasBrowser else { return nil }
         return thread.epoch
-    }
-    /// The browser's compact title; canonical state and workspace details are in Work.
-    @ToolbarContentBuilder private var chatToolbar: some ToolbarContent {
-        ToolbarItem(placement: .principal) { header }
-        if #available(iOS 26, *) {
-            ToolbarItem(placement: .topBarTrailing) { menu }.sharedBackgroundVisibility(.hidden)
-            ToolbarItem(placement: .topBarTrailing) { workButton }.sharedBackgroundVisibility(.hidden)
-            ToolbarItem(placement: .topBarTrailing) { panel }.sharedBackgroundVisibility(.hidden)
-        } else {
-            ToolbarItem(placement: .topBarTrailing) { menu }
-            ToolbarItem(placement: .topBarTrailing) { workButton }
-            ToolbarItem(placement: .topBarTrailing) { panel }
-        }
-    }
-    private var workButton: some View {
-        Button { showWork = true } label: { Image(systemName: "laptopcomputer").imageScale(.small) }
-            .accessibilityLabel("Work").accessibilityIdentifier("thread.work")
-    }
-    private var header: some View {
-        Text(metadata?.title ?? "Thread").aceFont(AceTheme.Typography.rowTitle, relativeTo: .headline).lineLimit(1)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityValue(metadata?.status.label ?? "")
-            .accessibilityIdentifier("thread.header")
-    }
-    private var panel: some View {
-        Menu {
-            Button("Files", systemImage: "folder") { showFiles = true }
-            Button("Terminal", systemImage: "terminal") { showTerminal = true }
-            if model.threadHasBrowser { Button("Browser", systemImage: "safari") { showBrowser = true } }
-            Button("Computer use", systemImage: "macwindow") { showComputer = true }
-            Button("Skills and tools", systemImage: "wrench.and.screwdriver") { showTools = true }
-        } label: { Image(systemName: "sidebar.right").imageScale(.small) }
-        .accessibilityLabel("Right panel").accessibilityIdentifier("thread.panel")
-    }
-    private var menu: some View {
-        Menu {
-            Button("Search conversation", systemImage: "magnifyingglass") { showSearch = true }
-            Button("Changes", systemImage: "plusminus") { showChanges = true }.accessibilityIdentifier("thread.changes")
-            Button("Terminal", systemImage: "terminal") { showTerminal = true }.accessibilityIdentifier("thread.terminal")
-            Button("Files", systemImage: "folder") { showFiles = true }.accessibilityIdentifier("thread.files")
-            Button("Thread tools", systemImage: "wrench.and.screwdriver") { showTools = true }.accessibilityIdentifier("thread.tools")
-            Divider()
-            if let activityRow, let hostId = model.hostId {
-                Button("Show on Lock Screen", systemImage: "widget.small") {
-                    do { try model.liveActivity.start(row: activityRow, hostId: hostId, online: model.connection == "ready") }
-                    catch { activityProblem = error.localizedDescription }
-                }
-            }
-            if model.canOperate, screen.controls?.canStop == true {
-                Button("Stop all agents", systemImage: "stop.circle", role: .destructive) { model.stopTree() }.disabled(screen.stopping)
-            }
-            if model.canOperate, !model.inboxLayout.snooze.isEmpty {
-                Menu("Snooze", systemImage: "moon.zzz") {
-                    ForEach(model.inboxLayout.snooze) { option in
-                        Button(option.label) { Task { if await model.snooze(thread.id, preset: option.id) { dismiss() } } }
-                    }
-                }
-            }
-            if model.canOperate, !archived { Button("Archive", systemImage: "archivebox") { Task { if await model.archive(thread.id) { dismiss() } } } }
-            if model.threadHasBrowser {
-                Button("Browser", systemImage: "safari") { showBrowser = true }.accessibilityIdentifier("thread.browser")
-            }
-            Divider()
-            Button("Connection details", systemImage: "network") { showDetails = true }
-        } label: { Image(systemName: "ellipsis").imageScale(.small) }
-        .accessibilityLabel("Thread options")
-        .accessibilityIdentifier("thread.menu")
-    }
-    private var details: some View {
-        NavigationStack {
-            Form {
-                LabeledContent("Title", value: metadata?.title ?? "Thread")
-                LabeledContent("Project", value: metadata?.project ?? "")
-                LabeledContent("Branch", value: metadata?.branch ?? "")
-                LabeledContent("Agent", value: metadata?.provider.capitalized ?? "")
-                LabeledContent("Connection", value: model.connection)
-                LabeledContent("Items", value: thread.items.count.formatted())
-                LabeledContent("Machine", value: metadata?.machine ?? "")
-                if let status = metadata?.status { StateLabel(status: status) }
-            }
-            .navigationTitle("Thread").navigationBarTitleDisplayMode(.inline)
-        }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
-    }
-}
-
-/// A message saved on the phone that hasn't reached the transcript yet, from the SDK's state.
-struct PendingSendRow: View {
-    let row: PendingRow
-    let canRetry: Bool
-    let retry: () async -> Bool
-    @State private var retrying = false
-    var body: some View {
-        VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
-            Text(row.text).aceFont(AceTheme.Typography.body, relativeTo: .body).padding(AceTheme.Spacing.md)
-                .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.bubble))
-            HStack(spacing: AceTheme.Spacing.sm) {
-                Text(row.label ?? status).foregroundStyle(row.token.map(StateStyle.text) ?? (row.state == "failed" ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground))
-                if row.state == "failed", canRetry {
-                    Button {
-                        retrying = true
-                        Task { _ = await retry(); retrying = false }
-                    } label: { Label("Send again", systemImage: "arrow.clockwise") }
-                        .disabled(retrying)
-                        .accessibilityIdentifier("pending.retry")
-                }
-            }.aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-        }.frame(maxWidth: .infinity, alignment: .trailing)
-    }
-    private var status: String {
-        switch row.state {
-        case "failed": "Send needs attention"
-        case "accepted": "Accepted"
-        case "saving": "Saving on your phone…"
-        default: "Sends on reconnect"
-        }
     }
 }

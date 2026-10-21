@@ -289,15 +289,25 @@ device-owned draft scope (`draft.create`, `draft.mention.complete`). Add project
 computer's folders (`fs.recentFolders`, `fs.search`) and registers one with `workspace.add`; a
 computer that refuses this phone's project requests gets "add it on your computer" instead.
 
-A thread's menu opens Files (`bridge/project-files.ts`, `Views/Files`): the daemon's listing of
-the thread's checkout (at most 1,000 paths) shown one folder at a time, 200 rows each with the
-rest counted, search through `mention.complete`, and a read-only SF Mono preview of at most
-128 KiB, 2,000 lines and 96,000 UTF-16 units, past which it says to view the rest on the
-computer. New thread's Browse files opens the same sheet on the chosen project's own folder
-before any thread exists: `files.request` with a `workspaceId` lists, stats and downloads
-read-only inside the registered project root, under the device's read grant (`list`, `stat`
-and `download` only). View-only machines browse but start nothing. `scripts/project-scenario.ts`
-seeds host folders, a 240-file folder and a large log in `ios-done`.
+A thread's menu pushes Files (`bridge/checkout-files.ts`, `Views/Files`), at parity with the
+web's Files tool. Each screen asks one `native.files` service request at a time. The tree is
+the daemon's listing (at most 1,000 paths) in the web's order, folders opened in place, with
+`git.status` letters (M, A, D, R, U from `changeLetters`); folders holding a change start open.
+The system search field is quick open through `mention.complete`. A file reads like the web's
+viewer: up to 2 MB (`checkoutViewLimit`), coloured by the shared grammar highlighter
+(`@ace/ui-core/source-highlight`, sent as compact runs for the first 256 KiB of text) with
+change bars from `git.diff` (`lineMarks`), in a TextKit 2 view with a fixed line-number gutter
+and the system find navigator. Markdown renders with its source a tap away; images draw;
+binary and larger files offer Share. Text up to 1 MB edits and saves with `write` over the
+version opened; a newer version is only replaced on Replace. Create, rename, move and delete
+(to Recently deleted, with Undo and a restore list) use the web's checks and the shared error
+sentences (`checkoutError`). An answer's local links route through `checkoutLinkPath`: a
+checkout file opens at its line; a file elsewhere is fetched with `link.download` for that
+message and shown in Quick Look. New thread's Browse files opens the same screens on the chosen
+project's own folder before any thread exists: `files.request` with a `workspaceId` lists,
+stats and downloads read-only inside the registered project root. View-only machines browse
+but change nothing. `scripts/files-scenario.ts` seeds `ios-files`; `UITests/FilesUITests`
+covers it.
 
 ## Pairing with a real daemon
 

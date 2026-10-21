@@ -1,4 +1,5 @@
 import type { BrowserPageState, BrowserScreenshotSet, BrowserScreenshotSize } from "@ace/protocol";
+import type { BrowserLogEntry } from "@ace/ui-core";
 import type { AnnotationDriver } from "@/features/annotations/index.ts";
 
 /*
@@ -153,20 +154,7 @@ export interface BrowserExtensionView {
  * network entry is a response (`status`) or a failure; `bytes` and `durationMs` arrive once the
  * request finishes. `at` is when the daemon recorded it, in milliseconds.
  */
-export interface BrowserLogEntry {
-  kind: "console" | "network";
-  /** The console level (`log`, `warning`, `error`, `pageerror`…) or `response` / `failed`. */
-  type: string;
-  text: string;
-  at: number;
-  tabId?: string | undefined;
-  requestId?: string | undefined;
-  url?: string | undefined;
-  status?: number | undefined;
-  method?: string | undefined;
-  bytes?: number | undefined;
-  durationMs?: number | undefined;
-}
+export type { BrowserLogEntry };
 /** A device the page can pretend to be (BrowserCommand `emulate`). */
 export interface Emulation {
   width: number;

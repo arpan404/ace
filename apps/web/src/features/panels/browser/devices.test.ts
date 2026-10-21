@@ -9,7 +9,7 @@ import {
   sizeForEmulation,
 } from "./devices.ts";
 import { pageKey } from "./page-keys.ts";
-import { zoomForKey, zoomIn, zoomOut } from "./zoom.ts";
+import { zoomForKey, zoomIn, zoomOut } from "@ace/ui-core";
 
 const press = (key: string, code: string, extra: Partial<Parameters<typeof pageKey>[0]> = {}) =>
   pageKey({ key, code, metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, ...extra });

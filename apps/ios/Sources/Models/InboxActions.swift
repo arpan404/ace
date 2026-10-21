@@ -5,6 +5,9 @@ import Foundation
 extension ClientModel {
     func archive(_ threadId: String) async -> Bool { await inboxCommand(["kind": "archive", "threadId": threadId]) }
     func unarchive(_ threadId: String) async -> Bool { await inboxCommand(["kind": "unarchive", "threadId": threadId]) }
+    /// Moves the thread to Settled; the daemon refuses while its tree still runs.
+    func settle(_ threadId: String) async -> Bool { await inboxCommand(["kind": "settle", "threadId": threadId]) }
+    func unsettle(_ threadId: String) async -> Bool { await inboxCommand(["kind": "unsettle", "threadId": threadId]) }
     /// `preset` is a shared snooze preset id from `inboxLayout.snooze`; the bridge resolves the time.
     func snooze(_ threadId: String, preset: String) async -> Bool {
         await inboxCommand(["kind": "snooze", "threadId": threadId, "preset": preset])

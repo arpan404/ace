@@ -4,13 +4,14 @@ import SwiftUI
 /// that runs as its own ace thread keeps its transcript there.
 struct AgentTranscriptView: View {
     let row: AgentSheet.Row
+    let provider: String
     @Bindable var thread: ThreadModel
     private var rows: [TranscriptRow] {
         thread.order.compactMap { thread.items[$0]?.row }.filter { $0.agentId == row.id }
     }
     var body: some View {
         List {
-            Section { AgentRowView(row: row) }
+            Section { AgentRowView(row: row, provider: provider) }
             if row.childThreadId != nil {
                 Text("This agent runs as its own thread. Open it from the inbox to read its transcript.")
                     .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)

@@ -14,7 +14,7 @@ import {
   type DeviceSize,
 } from "./devices.ts";
 import { reason } from "./use-browser-features.ts";
-import { zoomForKey } from "./zoom.ts";
+import { zoomForKey } from "@ace/ui-core";
 
 /** A device size settles this long after the last change (a drag) before the page takes it. */
 const settleMs = 120;
