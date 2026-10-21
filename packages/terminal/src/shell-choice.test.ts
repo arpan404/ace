@@ -30,8 +30,9 @@ test("an account that may not log in falls back to bash, then sh", () => {
 });
 
 test("the terminal launcher finds sleep by absolute path, including NixOS's system profile", () => {
-  const nixos = ["/run/current-system/sw/bin/sleep"];
-  expect(resolveSleep((path) => nixos.includes(path))).toBe("/run/current-system/sw/bin/sleep");
+  expect(resolveSleep((path) => path === "/run/current-system/sw/bin/sleep")).toBe(
+    "/run/current-system/sw/bin/sleep",
+  );
   expect(resolveSleep((path) => path === "/usr/bin/sleep")).toBe("/usr/bin/sleep");
   expect(resolveSleep((path) => path === "/bin/sleep" || path === "/usr/bin/sleep")).toBe(
     "/bin/sleep",
