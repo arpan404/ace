@@ -14,7 +14,19 @@ const stateLabels = {
   fatal: "Disconnected",
 } as const;
 
-/** Which daemon this window uses and a way to point it elsewhere. Diagnostics live under Advanced. */
+/**
+ * Which computer this window talks to, and a way to point it elsewhere. It belongs to this
+ * device: another window may use another computer. Diagnostics live under Advanced.
+ */
+/** The address without its scheme or path: what the person typed when they connected. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
+}
+
 export function DaemonSettings() {
   const connection = useDaemonConnection();
   const state = useConnectionState();
@@ -25,7 +37,9 @@ export function DaemonSettings() {
       <SettingRow
         id="daemon.connection"
         title="Computer connection"
-        description={state === "ready" ? undefined : stateLabels[state]}
+        description={
+          fake ? "Demo data in this page" : `${stateLabels[state]} · ${hostOf(connection.url)}`
+        }
       >
         {!fake && (
           <>

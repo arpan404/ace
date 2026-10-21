@@ -1,4 +1,3 @@
-import { compareVersions } from "@ace/ui-core/acp-registry";
 import { CaretLeftIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { Suspense, useRef, useState } from "react";
@@ -10,7 +9,12 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { ProviderPreferences } from "./provider-configuration.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { ProviderSetupRow, type ProviderSetupActions } from "@/features/provider-setup/index.ts";
-import { isMissing, useProviderEntries, type ProviderEntry } from "./provider-entries.ts";
+import {
+  isMissing,
+  updateAvailable,
+  useProviderEntries,
+  type ProviderEntry,
+} from "./provider-entries.ts";
 import { SettingsBody } from "./settings-body.tsx";
 
 /** The models section loads with the page, apart from the overview. */
@@ -95,11 +99,7 @@ function ProviderPage(props: { entry: ProviderEntry }) {
   const missing = isMissing(props.entry);
   const upstreams = install.kind === "opencode" || install.kind === "pi";
   const version = row?.version ?? install.version;
-  const updateAvailable =
-    view?.state === "needs_update" ||
-    (row?.updateAvailable ??
-      (!!install.registry?.agent &&
-        compareVersions(install.registry.agent.version, install.registry.version) > 0));
+  const update = updateAvailable(props.entry);
   const setup = (
     <ProviderSetupRow
       ref={setupActions}
@@ -118,7 +118,7 @@ function ProviderPage(props: { entry: ProviderEntry }) {
       heading
       missing={missing}
       view={missing || install.kind === "acp" || install.kind === "antigravity" ? view : undefined}
-      updateAvailable={updateAvailable}
+      updateAvailable={update}
     />
   );
   return (
@@ -136,7 +136,7 @@ function ProviderPage(props: { entry: ProviderEntry }) {
       lede={
         <span className="text-sm">
           {version}
-          {updateAvailable && (
+          {update && (
             <span className="text-status-needs-you">
               {" "}
               ·{" "}

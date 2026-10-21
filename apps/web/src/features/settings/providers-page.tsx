@@ -1,7 +1,6 @@
 import { CaretRightIcon } from "@phosphor-icons/react";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { AccountBadge } from "@/components/ui/provider-account-icon.tsx";
-import { compareVersions } from "@ace/ui-core/acp-registry";
 import { Link } from "@tanstack/react-router";
 import { ProviderSetupRow } from "@/features/provider-setup/index.ts";
 import { SettingNote, SettingSection } from "@/components/setting-row.tsx";
@@ -9,7 +8,12 @@ import { Button } from "@/components/ui/button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { AddAcpAgent } from "./add-acp-agent.tsx";
-import { isMissing, useProviderEntries, type ProviderEntry } from "./provider-entries.ts";
+import {
+  isMissing,
+  updateAvailable,
+  useProviderEntries,
+  type ProviderEntry,
+} from "./provider-entries.ts";
 
 /**
  * Settings → Providers: every coding agent on this computer as one calm row (its mark, its name,
@@ -74,11 +78,7 @@ function ProviderRow(props: { entry: ProviderEntry }) {
         name={install.name}
         missing={isMissing(props.entry)}
         view={view}
-        updateAvailable={
-          row?.updateAvailable ??
-          (!!install.registry?.agent &&
-            compareVersions(install.registry.agent.version, install.registry.version) > 0)
-        }
+        updateAvailable={updateAvailable(props.entry)}
         secondary={
           !isMissing(props.entry) && (
             // Right-aligned on whichever line it lands, so the chevron keeps the row's edge.

@@ -23,7 +23,6 @@ import { SettingsPageLinks } from "./settings-nav.tsx";
 
 /* One screen per Settings page: its title, lede and actions around the page body. */
 
-// Provider preferences belong to General; keep them off every other settings route.
 const GeneralSettings = lazy(() =>
   import("./general-page.tsx").then((module) => ({ default: module.GeneralSettings })),
 );
@@ -31,17 +30,45 @@ const GeneralSettings = lazy(() =>
 export function GeneralSettingsScreen() {
   return (
     <SettingsBody page="General">
-      <Suspense fallback={<GeneralPlaceholder />}>
+      <Suspense fallback={null}>
         <GeneralSettings />
       </Suspense>
     </SettingsBody>
   );
 }
 
-function GeneralPlaceholder() {
+const AgentsSettings = lazy(() =>
+  import("./agents-page.tsx").then((module) => ({ default: module.AgentsSettings })),
+);
+
+export function AgentsSettingsScreen() {
   return (
-    <SettingSection label="Threads">
-      {(["providers.default", "threads.useWorktree", "threads.autoSettleAfter"] as const).map(
+    <SettingsBody page="Agents">
+      <Suspense fallback={<AgentsPlaceholder />}>
+        <AgentsSettings />
+      </Suspense>
+    </SettingsBody>
+  );
+}
+
+const OverviewSettings = lazy(() =>
+  import("./overview-page.tsx").then((module) => ({ default: module.OverviewSettings })),
+);
+
+export function OverviewSettingsScreen() {
+  return (
+    <SettingsBody page="Overview">
+      <Suspense fallback={<ListSkeleton label="machines" shape="row" rows={3} className="mt-7" />}>
+        <OverviewSettings />
+      </Suspense>
+    </SettingsBody>
+  );
+}
+
+function AgentsPlaceholder() {
+  return (
+    <SettingSection label="New threads">
+      {(["providers.default", "access.defaultMode", "threads.useWorktree"] as const).map(
         (entry) => (
           <SettingRow key={entry} {...settingRow(entry)}>
             <Skeleton className="h-7 w-28 rounded-md" />
@@ -155,11 +182,11 @@ export function ComputerUseSettingsScreen() {
 
 /**
  * `/settings`: on a phone, the list of pages (the sidebar is a sheet there, so this is the way
- * in); wider, General.
+ * in); wider, Overview.
  */
 export function SettingsIndexScreen() {
   const phone = usePhone();
-  if (!phone) return <Navigate to="/settings/general" replace />;
+  if (!phone) return <Navigate to="/settings/overview" replace />;
   return (
     <Screen title="Settings">
       <nav aria-label="Settings" className="h-full overflow-auto px-2 pt-4 pb-20">
