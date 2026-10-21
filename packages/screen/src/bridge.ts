@@ -14,6 +14,9 @@ import {
   type PictureTransport,
 } from "@ace/browser/picture-channel";
 import { framePicture } from "./frame-picture.ts";
+import type { Frame } from "./frames.ts";
+import { PicturesToVideo } from "./picture-video.ts";
+import type { VideoHost } from "@ace/browser";
 import type { ScreenManager } from "./manager.ts";
 import type { Simulators } from "./simulator.ts";
 
@@ -26,6 +29,11 @@ export type ScreenPeer = {
   /** Clock for keyframe pacing; defaults to the wall clock and timers. */
   now?(): number;
   after?(ms: number, run: () => void): () => void;
+  /**
+   * The browser service's encoder-only Chrome: video from a helper that only makes JPEG (Linux,
+   * Windows), so every platform's live view is video. Absent, such a view says it can't stream.
+   */
+  pictureEncoder?(): VideoHost | undefined;
 };
 /**
  * Attach only after the host transport authenticates a human device. A subscribed session's
@@ -178,8 +186,20 @@ export function screenConnection(
             subscriptions.delete(operation.sessionId);
             if (subscriptions.size >= 8) throw new Error("Screen subscription limit");
             const sessionId = operation.sessionId;
+            const now = peer.now ?? (() => performance.now());
+            // Video for a helper that makes only JPEG; the Mac's helper encodes its own.
+            const converter = new PicturesToVideo({
+              host: () => peer.pictureEncoder?.(),
+              sessionId,
+              now,
+              frame: (frame: Frame) => {
+                if (!closed) view.push(framePicture(frame));
+              },
+            });
             const view = pictures.open(sessionId, {
-              keyframe: () => void manager.requestKeyframe(sessionId).catch(() => {}),
+              keyframe: () => {
+                if (!converter.keyframe()) void manager.requestKeyframe(sessionId).catch(() => {});
+              },
               guard: () => {
                 if (closed) throw new Error("Screen connection closed");
               },
@@ -187,13 +207,23 @@ export function screenConnection(
             });
             const follow = new LinkFollow({
               rate: () => view.rate(),
-              apply: (settings) => manager.configureStream(sessionId, settings),
+              apply: async (settings) => {
+                const result = await manager.configureStream(sessionId, settings);
+                if (result.codec === "h264" || settings.codec !== "h264") {
+                  converter.stop();
+                  return result;
+                }
+                return converter.want(settings) ? { codec: "h264" as const } : result;
+              },
             });
             try {
               // Every frame, unhurried: the viewer's window paces the pictures, not the hub.
               const stop = manager.subscribeEvery(sessionId, (frame) => {
-                // Live views are video only: the stills agents read never reach a viewer.
-                if (!closed && frame.header.codec === "h264") view.push(framePicture(frame));
+                // Live views are video only: the stills agents read never reach a viewer, except
+                // encoded as video for one whose helper makes no video of its own.
+                if (closed) return;
+                if (frame.header.codec === "h264") view.push(framePicture(frame));
+                else converter.push(frame);
               });
               follows.set(sessionId, follow);
               cancelTick ??= later(1000, tick);
@@ -201,6 +231,7 @@ export function screenConnection(
                 stop();
                 view.close();
                 follow.close();
+                converter.close();
                 if (follows.get(sessionId) === follow) follows.delete(sessionId);
               });
             } catch (error) {
