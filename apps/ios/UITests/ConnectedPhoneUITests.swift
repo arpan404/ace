@@ -24,27 +24,22 @@ import XCTest
         }
         capture("send-during-incoming-rows", app)
     }
-    func testLiveToolsAndNarrationStayInsideWorkingUntilExpanded() {
+    func testLiveWorkShowsItsGroupsInPlaceAndAGroupOpensItsSteps() {
         let app = XCUIApplication()
         app.launchArguments = ["--chat-render-fixture", "--chat-work-fixture"]
         app.launch()
-        let work = app.buttons["work.toggle"].firstMatch
-        XCTAssertTrue(work.waitForExistence(timeout: 20))
-        XCTAssertEqual(work.value as? String, "Collapsed")
-        XCTAssertTrue(work.label.contains("Working"))
-        XCTAssertFalse(app.buttons["work.group.fixture-tools"].exists)
-        XCTAssertFalse(app.staticTexts["Checking the phone result."].exists)
-        XCTAssertFalse(app.staticTexts["Ran physical phone build"].exists)
-        capture("working-collapsed", app)
-        work.tap()
-        XCTAssertTrue(app.buttons["work.group.fixture-tools"].waitForExistence(timeout: 5))
+        let group = app.buttons["work.group.fixture-tools"]
+        XCTAssertTrue(group.waitForExistence(timeout: 20))
+        // A running turn has no fold of its own: the live capsule carries its timer.
+        XCTAssertFalse(app.buttons["work.toggle"].exists)
         XCTAssertTrue(app.staticTexts["Checking the phone result."].exists)
-        app.buttons["work.group.fixture-tools"].tap()
+        XCTAssertFalse(app.staticTexts["Ran physical phone build"].exists)
+        capture("working-in-place", app)
+        group.tap()
         XCTAssertTrue(app.staticTexts["Ran physical phone build"].waitForExistence(timeout: 5))
-        capture("working-expanded", app)
-        work.tap()
-        XCTAssertFalse(app.buttons["work.group.fixture-tools"].exists)
-        XCTAssertFalse(app.staticTexts["Checking the phone result."].exists)
+        capture("working-group-open", app)
+        group.tap()
+        XCTAssertFalse(app.staticTexts["Ran physical phone build"].exists)
     }
     func testBrowseShowsProjectsAndMachineTools() {
         let app = launch()
@@ -196,7 +191,7 @@ import XCTest
         let app = launch()
         let current = app.buttons["thread.01a15b0e-7eef-705b-a011-fde54ae8afd1"]
         XCTAssertTrue(current.waitForExistence(timeout: 30)); current.tap()
-        XCTAssertTrue(app.buttons["thread.work"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["thread.agents"].waitForExistence(timeout: 20))
         waitForConversation(app)
         let work = app.buttons["work.toggle"].firstMatch
         XCTAssertTrue(work.waitForExistence(timeout: 20))

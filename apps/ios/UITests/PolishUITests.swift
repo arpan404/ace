@@ -121,7 +121,6 @@ import XCTest
             app.navigationBars["Explorer"].buttons["BackButton"].tap()
         }
         app.buttons["Done"].firstMatch.tap()
-        app.buttons["thread.menu"].tap()
         app.buttons["thread.changes"].tap()
         let file = app.buttons["changes.file.packages/provider-kit/src/process-owner.ts"]
         XCTAssertTrue(file.waitForExistence(timeout: 15))
@@ -183,7 +182,6 @@ import XCTest
         app.buttons["Done"].firstMatch.tap()
     }
     private func auditChanges(_ app: XCUIApplication) throws {
-        app.buttons["thread.menu"].tap()
         app.buttons["thread.changes"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["changes.totals"].waitForExistence(timeout: 15))
         try audit(app, "changes")
@@ -256,7 +254,7 @@ import XCTest
     }
     private func openTree(_ app: XCUIApplication) {
         open("ios-tree", in: app)
-        XCTAssertTrue(app.buttons["thread.work"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["thread.agents"].waitForExistence(timeout: 15))
     }
     /// Swipes until `element` can be tapped: `up` swipes towards later content, then `down`
     /// towards earlier. At accessibility text sizes a row can sit screens away, or exist under a

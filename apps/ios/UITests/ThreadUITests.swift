@@ -15,6 +15,7 @@ import XCTest
         screenshot("thread-transcript")
         worked.tap()
         screenshot("thread-worked-expanded")
+        app.buttons["subagents.rollup"].firstMatch.tap()
         let review = app.buttons["subagent.Review PID-reuse safety"]
         XCTAssertTrue(review.waitForExistence(timeout: 10))
         review.tap()
@@ -38,7 +39,11 @@ import XCTest
         input.tap()
         input.typeText("Then update the docs")
         app.buttons["composer.send"].tap()
-        XCTAssertTrue(app.otherElements["queue.strip"].waitForExistence(timeout: 15) || app.staticTexts["Then update the docs"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["capsule.queue"].waitForExistence(timeout: 15) || app.staticTexts["Then update the docs"].waitForExistence(timeout: 5))
+        if app.buttons["capsule.queue"].exists {
+            app.buttons["capsule.queue"].tap()
+            XCTAssertTrue(app.otherElements["queue.strip"].waitForExistence(timeout: 5))
+        }
         screenshot("thread-queue")
         app.buttons["thread.menu"].tap()
         XCTAssertTrue(app.buttons["Stop all agents"].waitForExistence(timeout: 10))

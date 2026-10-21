@@ -22,7 +22,6 @@ import XCTest
 
     func testChangesSheetShowsFilesADiffAndTheNextStep() throws {
         let app = launchIntoTree()
-        app.buttons["thread.menu"].tap()
         app.buttons["thread.changes"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["changes.totals"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["changes.step"].waitForExistence(timeout: 10))
@@ -40,7 +39,6 @@ import XCTest
 
     func testCommitEditorFillsTheMessageFromTheDaemonsDraft() throws {
         let app = launchIntoTree()
-        app.buttons["thread.menu"].tap()
         app.buttons["thread.changes"].tap()
         XCTAssertTrue(app.buttons["changes.step"].waitForExistence(timeout: 15))
         app.buttons["changes.step"].tap()
@@ -63,7 +61,7 @@ import XCTest
         app.launch()
         XCTAssertTrue(app.buttons["thread.ios-tree"].waitForExistence(timeout: 25))
         app.buttons["thread.ios-tree"].tap()
-        XCTAssertTrue(app.buttons["thread.work"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["thread.agents"].waitForExistence(timeout: 15))
         return app
     }
     private func screenshot(_ name: String) {

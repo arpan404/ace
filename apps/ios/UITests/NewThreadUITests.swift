@@ -49,7 +49,7 @@ import XCTest
         XCTAssertTrue(app.buttons["newThread.start"].waitForExistence(timeout: 5))
         screenshot("newthread-ready")
         app.buttons["newThread.start"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["thread.header"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 30))
         screenshot("newthread-started")
     }
 
