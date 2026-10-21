@@ -71,11 +71,7 @@ test("a focused button keeps focus when release notes arrive", async () => {
       "Update 1.1.0 ready to download",
     );
   });
-  await userEvent.hover(
-    screen.getByRole("button", { name: "Update 1.1.0 ready to download" }),
-  );
+  await userEvent.hover(screen.getByRole("button", { name: "Update 1.1.0 ready to download" }));
   expect(await screen.findByText("What's changed")).toBeTruthy();
-  expect(document.activeElement?.getAttribute("aria-label")).toBe(
-    "Update 1.1.0 ready to download",
-  );
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("Update 1.1.0 ready to download");
 });
