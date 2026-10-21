@@ -6,6 +6,9 @@ struct NativeTextInput: UIViewRepresentable {
     @Binding var text: String
     let inputBegan: () -> Void
     var submit: (() -> Void)? = nil
+    var identifier = "composer.input"
+    /// Takes the keyboard as soon as it shows (New thread's first message).
+    var focusOnAppear = false
     @AppStorage("ace.keyboard.returnSends") private var returnSends = false
     func makeUIView(context: Context) -> ComposerTextView {
         let view = ComposerTextView()
@@ -17,7 +20,8 @@ struct NativeTextInput: UIViewRepresentable {
         view.textContainerInset = UIEdgeInsets(top: AceTheme.Spacing.md, left: AceTheme.Spacing.none, bottom: AceTheme.Spacing.md, right: AceTheme.Spacing.none)
         view.textContainer.lineFragmentPadding = AceTheme.Spacing.none
         view.isScrollEnabled = true
-        view.accessibilityIdentifier = "composer.input"
+        view.accessibilityIdentifier = identifier
+        if focusOnAppear { Task { @MainActor in view.becomeFirstResponder() } }
         view.accessibilityLabel = "Steer or follow up"
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return view

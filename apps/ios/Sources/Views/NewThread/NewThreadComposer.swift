@@ -72,7 +72,6 @@ struct NewThreadComposer: View {
     @Binding var attachProblem: String?
     let chooseModel: () -> Void
     let send: () -> Void
-    @FocusState private var focused: Bool
     private var draft: NewThreadDraft { drafts.draft }
 
     var body: some View {
@@ -85,13 +84,19 @@ struct NewThreadComposer: View {
                     .padding(.horizontal, AceTheme.Spacing.md)
                 }
             }
-            TextField("Describe a task", text: Binding(get: { draft.text }, set: { text in drafts.edit { $0.text = text } }), axis: .vertical)
-                .lineLimit(1...6)
-                .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                .focused($focused)
-                .padding(.horizontal, AceTheme.Spacing.lg).padding(.top, AceTheme.Spacing.sm)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
-                .accessibilityIdentifier("newThread.message")
+            // The thread composer's text view: it wraps and grows to five lines, then scrolls.
+            NativeTextInput(text: Binding(get: { draft.text }, set: { text in drafts.edit { $0.text = text } }), inputBegan: {},
+                            submit: { if blocker == nil && !sending { send() } }, identifier: "newThread.message", focusOnAppear: true)
+                .overlay(alignment: .topLeading) {
+                    if draft.text.isEmpty {
+                        Text("Describe a task").aceFont(AceTheme.Typography.body, relativeTo: .body)
+                            .foregroundStyle(AceTheme.Colours.subtleForeground)
+                            .padding(.top, AceTheme.Spacing.md)
+                            .allowsHitTesting(false).accessibilityHidden(true)
+                    }
+                }
+                .accessibilityLabel("Describe a task")
+                .padding(.horizontal, AceTheme.Spacing.lg)
             HStack(spacing: AceTheme.Spacing.xs) {
                 AttachMenu(stage: { staged in
                     guard let client, let project = draft.projectId else { drafts.staging.discard(staged.localId); return }
@@ -111,7 +116,6 @@ struct NewThreadComposer: View {
             }
             .padding(.horizontal, AceTheme.Spacing.sm)
         }
-        .onAppear { focused = true }
     }
     private var modelLabel: some View {
         HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
