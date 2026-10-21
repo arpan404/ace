@@ -1,7 +1,12 @@
+/// <reference path="./prism.d.ts" />
 // oxlint-disable import/no-unassigned-import -- Each grammar registers itself on Prism.
 // Imported only after the host disables Prism's automatic DOM/worker handlers.
 import Prism from "prismjs/components/prism-core.js";
 export { Prism };
+
+// Grammars register on the global `Prism`. A browser or worker core sets it itself; a bare
+// JavaScript engine (the iOS bridge) has neither `window` nor `self`, so it is set here.
+Object.assign(globalThis, { Prism });
 
 /*
  * Each grammar is its own chunk, loaded the first time a fence in its language is highlighted,
