@@ -167,7 +167,10 @@ jobs:
           test ! -e /usr/bin/ace
           sudo test -f /etc/apparmor.d/ace-desktop
           sudo test -f /etc/apparmor.d/ace-chromium
-          sudo aa-status | grep -E '^\s+(ace-desktop|ace-chromium)$'
+          loaded=$(sudo aa-status)
+          for profile in ace-desktop ace-chromium; do
+            printf '%s\n' "$loaded" | grep -qE "^\s+$profile\$" || { echo "AppArmor profile $profile is not loaded" >&2; exit 1; }
+          done
           sudo apt-get remove -y ace-desktop
           sudo test ! -e /etc/apparmor.d/ace-chromium
 
