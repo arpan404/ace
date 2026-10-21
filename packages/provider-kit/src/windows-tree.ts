@@ -34,7 +34,7 @@ export async function stopRetainedWindowsTree(
     try {
       process.kill(pid, 0);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+      if (error instanceof Error && "code" in error && error.code === "ESRCH") return;
       throw error;
     }
     if (performance.now() >= deadline) {
