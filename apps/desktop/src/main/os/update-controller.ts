@@ -228,20 +228,34 @@ export class UpdateController {
 export interface UpdateSchedule {
   firstMs: number;
   everyMs: number;
+  /** Each wait grows by a random part of up to this share of itself (0.5: up to half). */
+  spread: number;
 }
 
-/** Shortly after launch, then every half hour. */
-export const updateSchedule: UpdateSchedule = { firstMs: 15_000, everyMs: 30 * 60_000 };
+/**
+ * Shortly after launch, then every half hour, each wait stretched by up to half again so
+ * installs started together don't all ask the feed at the same moment.
+ */
+export const updateSchedule: UpdateSchedule = {
+  firstMs: 15_000,
+  everyMs: 30 * 60_000,
+  spread: 0.5,
+};
 
-/** Background checks on `schedule`; returns their cancel. */
+/** Background checks on `schedule`, `random` giving each wait's offset; returns their cancel. */
 export function scheduleChecks(
   controller: UpdateController,
   timers: { set(delayMs: number, callback: () => void): () => void },
+  random: () => number,
   schedule: UpdateSchedule = updateSchedule,
 ): () => void {
-  let cancel = timers.set(schedule.firstMs, function tick() {
+  const wait = (baseMs: number) => {
+    const share = Math.max(0, Math.min(1, random()));
+    return Math.round(baseMs * (1 + schedule.spread * share));
+  };
+  let cancel = timers.set(wait(schedule.firstMs), function tick() {
     void controller.check("background");
-    cancel = timers.set(schedule.everyMs, tick);
+    cancel = timers.set(wait(schedule.everyMs), tick);
   });
   return () => cancel();
 }
