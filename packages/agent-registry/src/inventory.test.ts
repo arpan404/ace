@@ -27,7 +27,7 @@ describe("Windows script bindings", () => {
     async (name) => {
       const root = await directory();
       const bin = await directory();
-      const node = await file(bin, "node");
+      const node = await file(bin, "node.exe");
       const script = await file(root, name);
       const bound = await bindLocal(
         {
@@ -106,7 +106,7 @@ describe("Windows script bindings", () => {
   it("revalidates the script behind a node launch while node upgrades keep approval", async () => {
     const root = await directory();
     const bin = await directory();
-    const node = join(bin, "node");
+    const node = join(bin, "node.exe");
     await writeFile(node, "node-v1");
     await chmod(node, 0o755);
     const script = join(root, "agent.js");
