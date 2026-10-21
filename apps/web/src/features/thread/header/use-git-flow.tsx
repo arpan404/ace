@@ -21,38 +21,23 @@ const PrFieldDialog = lazy(() =>
 /** What went wrong, in the daemon's words for its code, with commands set as code. */
 export const failure = (error: unknown) => <InlineMarkdown text={gitFailureText(error)} />;
 
-/** The toast that confirms a change, from what the daemon answered. */
-function confirmation(change: GitChange, result: GitResult): string {
-  const status = result.status;
-  const number = status?.ref.number ?? "";
-  switch (change.kind) {
-    case "commit":
-      return change.push ? "Committed and pushed" : "Committed";
-    case "push":
-      return change.force ? "Force pushed" : "Pushed";
-    case "create-pr": {
-      // The daemon links the branch's existing PR rather than opening a second one.
-      const done = result.existing
-        ? `Linked the branch's existing pull request #${number}`
-        : `${change.draft ? "Draft pull request" : "Pull request"} #${number} opened`;
-      return change.reviewers?.length
-        ? `${done} · asked ${change.reviewers.join(", ")} to review`
-        : done;
-    }
-    case "unlink-pr":
-      return change.all ? "All pull requests unlinked" : "Pull request unlinked";
-    case "link-pr":
-      return `Linked pull request #${number}`;
-    case "request-review":
-      return `Asked ${change.reviewers.join(", ")} to review`;
-    case "merge": {
-      const how = mergeMethods.find((each) => each.method === change.method)?.label ?? "Merge";
-      if (!change.auto) return `Merged #${number}`;
-      return status?.state === "merged"
-        ? `Merged #${number}`
-        : `Auto-merge on: #${number} will ${how.toLowerCase()} once checks pass`;
-    }
+/**
+ * What a change did that the Work card doesn't show by itself: the branch's existing PR linked
+ * instead of a new one opened, or auto-merge waiting on checks. Anything else shows in place.
+ */
+function unseenOutcome(change: GitChange, result: GitResult): string | undefined {
+  const number = result.status?.ref.number ?? "";
+  if (change.kind === "create-pr" && result.existing) {
+    const done = `Linked the branch's existing pull request #${number}`;
+    return change.reviewers?.length
+      ? `${done} · asked ${change.reviewers.join(", ")} to review`
+      : done;
   }
+  if (change.kind === "merge" && change.auto && result.status?.state !== "merged") {
+    const how = mergeMethods.find((each) => each.method === change.method)?.label ?? "Merge";
+    return `Auto-merge on: #${number} will ${how.toLowerCase()} once checks pass`;
+  }
+  return undefined;
 }
 
 const failed: Record<GitChange["kind"], string> = {
@@ -66,8 +51,8 @@ const failed: Record<GitChange["kind"], string> = {
 };
 
 /**
- * Commit, push, open or link a PR and act on it, with the forms and the toasts that confirm
- * them. The work card's branch row, its ⋯ menu and the PR popover all drive it, so they never
+ * Commit, push, open or link a PR and act on it, with the forms that ask for them; a toast
+ * only for a failure or an outcome the Work card doesn't show. The work card's branch row, its ⋯ menu and the PR popover all drive it, so they never
  * disagree about what is possible or why not.
  */
 export function useGitFlow(thread: ThreadRef): {
@@ -117,7 +102,10 @@ export function useGitFlow(thread: ThreadRef): {
         description: failure(answered.partial.error),
       });
     // A commit whose push failed stays in its form, which offers the push alone.
-    else if (!answered.partial) toast.add({ title: confirmation(next, answered) });
+    else if (!answered.partial) {
+      const unseen = unseenOutcome(next, answered);
+      if (unseen) toast.add({ title: unseen });
+    }
     return answered;
   };
   const run = (next: GitChange) => {

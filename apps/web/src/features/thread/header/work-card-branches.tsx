@@ -67,7 +67,6 @@ export function BranchItems(props: { thread: ThreadRef; move(move: Move): void }
       onClick={() =>
         props.move({
           change: { mode: checkout?.mode ?? "local", branch },
-          done: `Switched to ${branch}`,
           carriesTo: branch,
         })
       }

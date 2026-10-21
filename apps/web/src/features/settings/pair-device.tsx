@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input.tsx";
 import { QrCode } from "@/components/ui/qr-code.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { useCopy } from "@/components/use-copy.ts";
 import { useSeconds } from "@/lib/time.ts";
 import type { Pairing } from "./data/backend.ts";
 import { settingsQueries, useSettingsBackend, useRemoteStatus } from "./data/use-settings.ts";
@@ -220,14 +221,9 @@ function PairingCode(props: {
   const toast = useToast();
   const now = useSeconds(true);
   const expired = pairing.expiresAt <= now;
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(pairing.url);
-      toast.add({ title: "Pairing link copied" });
-    } catch {
-      toast.error({ title: "Couldn't copy. Select the link and copy it yourself." });
-    }
-  };
+  const { copied, copy } = useCopy(() =>
+    toast.error({ title: "Couldn't copy. Select the link and copy it yourself." }),
+  );
   return (
     <>
       <div className="flex w-full min-w-0 flex-col items-center gap-3 text-center">
@@ -255,8 +251,8 @@ function PairingCode(props: {
             className="min-w-0 flex-1 truncate font-mono text-xs"
           />
           {!expired && (
-            <Button size="sm" onClick={() => void copy()}>
-              Copy link
+            <Button size="sm" onClick={() => copy(pairing.url)}>
+              {copied ? "Copied" : "Copy link"}
             </Button>
           )}
         </div>

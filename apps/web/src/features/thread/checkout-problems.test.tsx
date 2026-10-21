@@ -107,7 +107,6 @@ test("Clear releases a failed move once the person confirms", async () => {
   await userEvent.click(within(failed).getByRole("button", { name: "Clear" }));
   const confirm = await screen.findByRole("dialog", { name: "Clear the failed move?" });
   await userEvent.click(within(confirm).getByRole("button", { name: "Clear move" }));
-  await screen.findByText("Move cleared");
   await waitFor(() => expect(details()?.workspaceChange).toBeUndefined());
   expect(details()?.mode).toBe("local");
 }, 60_000);

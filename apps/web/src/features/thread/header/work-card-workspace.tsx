@@ -115,9 +115,7 @@ function MachineRow(props: { thread: ThreadRef; move(move: Move): void; onClose(
           icon={glyph(FolderIcon)}
           disabled={!worktree || !!switchReason}
           reason={worktree ? switchReason : undefined}
-          onClick={() =>
-            props.move({ change: { mode: "local" }, done: "Moved to the local checkout" })
-          }
+          onClick={() => props.move({ change: { mode: "local" } })}
         >
           Local
           {!worktree && <span className="ml-auto text-xs text-subtle-foreground">current</span>}
@@ -128,7 +126,7 @@ function MachineRow(props: { thread: ThreadRef; move(move: Move): void; onClose(
           reason={worktree ? undefined : worktreeReason}
           // No branch: the main checkout's branch can't be checked out twice, so the daemon
           // makes the worktree a branch of its own from the current HEAD.
-          onClick={() => props.move({ change: { mode: "worktree" }, done: "Moved to a worktree" })}
+          onClick={() => props.move({ change: { mode: "worktree" } })}
         >
           Worktree
           {worktree && <span className="ml-auto text-xs text-subtle-foreground">current</span>}

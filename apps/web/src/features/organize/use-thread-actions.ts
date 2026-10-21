@@ -274,16 +274,12 @@ export function useThreadActions(): ThreadActions {
      * refused only because their agents or terminals are still running are offered together
      * as one Stop and delete, which stops that work on the daemon and then deletes.
      */
-    const removeAll = (
-      entries: readonly ThreadTarget[],
-      done: (count: number) => string,
-      force = false,
-    ) => {
+    const removeAll = (entries: readonly ThreadTarget[], force = false) => {
       void Promise.all(entries.map((entry) => deleteOne(entry, force))).then((outcomes) => {
         const refused = outcomes.filter((outcome) => outcome !== undefined);
         const removed = entries.length - refused.length;
+        // The rows leaving the list are the confirmation.
         if (removed) {
-          toast.add({ title: done(removed) });
           const activeDeleted = entries.find(
             (entry) =>
               router.state.location.pathname === `/t/${encodeURIComponent(entry.id)}` &&
@@ -310,7 +306,6 @@ export function useThreadActions(): ThreadActions {
           confirm: () =>
             removeAll(
               live.map((refusal) => refusal.entry),
-              done,
               true,
             ),
         });
@@ -368,7 +363,7 @@ export function useThreadActions(): ThreadActions {
           entries.map((entry) => ({ entry, action: archive(entry), undo: unarchive(entry) })),
           `Archived ${count(entries.length)}`,
         ),
-      removeMany: (entries) => removeAll(entries, (deleted) => `Deleted ${count(deleted)}`),
+      removeMany: (entries) => removeAll(entries),
       moveMany: (entries, to) => {
         const moving = entries.filter((entry) => entry.workspaceId !== to.id);
         if (!moving.length) return;
@@ -425,7 +420,7 @@ export function useThreadActions(): ThreadActions {
         });
       },
       restore: (entry) => void act(entry, restore(entry)),
-      deleteArchived: (entry) => removeAll([entry], () => `Deleted · ${entry.title}`),
+      deleteArchived: (entry) => removeAll([entry]),
       remove: (entry) => {
         const lease = client.threads();
         const status = lease.store.thread(entry.id)?.status;
@@ -436,7 +431,7 @@ export function useThreadActions(): ThreadActions {
           running: running
             ? `${status.state === "working" ? status.agents : 1} ${status.state === "working" && status.agents !== 1 ? "agents" : "agent"} running. Running work will stop before deletion.`
             : "",
-          confirm: () => removeAll([entry], () => `Deleted · ${entry.title}`, !!running),
+          confirm: () => removeAll([entry], !!running),
         });
       },
       newThreadOnMain: (entry) =>
@@ -446,10 +441,7 @@ export function useThreadActions(): ThreadActions {
         const link = new URL(`/t/${entry.id}`, location.href).href;
         const copied =
           navigator.clipboard?.writeText(link) ?? Promise.reject(new Error("no clipboard"));
-        void copied.then(
-          () => toast.add({ title: "Link copied" }),
-          () => toast.error({ title: "Couldn't copy the link" }),
-        );
+        void copied.catch(() => toast.error({ title: "Couldn't copy the link" }));
       },
     };
   }, [overlay, client, toast, navigate, router, confirmation, archiving]);
