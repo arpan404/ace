@@ -135,6 +135,45 @@
         },
         {
           "properties": {
+            "image": {
+              "$ref": "https://ace.local/protocol/v1/ForgeImageType.json"
+            },
+            "op": {
+              "const": "forge.file.content",
+              "type": "string"
+            },
+            "page": {
+              "default": 1,
+              "maximum": 16,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "path": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            },
+            "sha": {
+              "pattern": "^[a-fA-F0-9]{40,64}$",
+              "type": "string"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId",
+            "sha",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "number": {
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991,
@@ -398,7 +437,7 @@
             },
             "page": {
               "default": 1,
-              "maximum": 120,
+              "maximum": 4000,
               "minimum": 1,
               "type": "integer"
             },
@@ -578,6 +617,9 @@
             "threadId"
           ],
           "type": "object"
+        },
+        {
+          "$ref": "https://ace.local/protocol/v1/GitConflictsOperation.json"
         },
         {
           "properties": {

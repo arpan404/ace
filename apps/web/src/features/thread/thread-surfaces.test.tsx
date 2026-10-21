@@ -30,12 +30,13 @@ test("a disconnected thread pauses its live line and removes Stop until replay c
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
 });
 
-test("a usage-limited thread shows a pause and no Stop control", async () => {
+test("a usage-limited thread says so once, above the composer, with no Stop control", async () => {
   const app = harness();
   app.play(accountLimit("paused", "Finish the migration")).runUntilBlocked();
   await app.open("/t/paused");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  await within(feed).findByRole("note", { name: /Paused.*usage limit/ });
+  await screen.findByRole("region", { name: "Codex is out of usage" });
+  expect(within(feed).queryByText(/usage limit/i)).toBeNull();
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
   expect(screen.queryByRole("status", { name: "Working" })).toBeNull();
 });
@@ -82,10 +83,9 @@ test("the usage pause and queue show the account reset while the header stays st
   });
   app.play(accountLimit("account-pause", "Finish the migration")).runUntilBlocked();
   await app.open("/t/account-pause");
-  await screen.findByRole("note", { name: "Paused · Codex usage limit" });
   await waitFor(() =>
-    expect(screen.getByRole("region", { name: "Usage limit reached" }).textContent).toContain(
-      describeWake(reset, now),
+    expect(screen.getByRole("region", { name: "Codex is out of usage" }).textContent).toContain(
+      `until ${describeWake(reset, now)}`,
     ),
   );
   const header = within(screen.getByRole("banner"));

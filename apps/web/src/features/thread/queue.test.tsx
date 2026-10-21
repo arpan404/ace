@@ -2,6 +2,7 @@ import { facts as scenarioFacts, longHistory, replayCursor } from "@ace/fake-dae
 import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { describeWake } from "@ace/ui-core";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { resetQueueEdits } from "./composer/queue-edit.ts";
@@ -188,23 +189,21 @@ test("a usage limit holds the queue, says when it resets and resumes on request"
   ]);
   await app.open("/t/thread-router");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const notice = await screen.findByRole("region", { name: "Usage limit reached" });
-  expect(within(notice).getByText(/The account resets/)).toBeTruthy();
+  const notice = await screen.findByRole("region", { name: /is out of usage$/ });
+  expect(notice.textContent).toContain(`until ${describeWake(reset, Date.now())}`);
+  // The strip says it once: the transcript keeps no limit row.
+  expect(within(feed).queryByText(/limit reached/)).toBeNull();
 
-  // A message sent meanwhile waits on the daemon's queue.
+  // A message sent meanwhile waits on the daemon's queue, counted beside the hold.
   const message = await screen.findByRole("combobox", { name: "Message" });
   await userEvent.type(message, "Then add a metric{Enter}");
-  await waitFor(() => expect(pills()).toHaveLength(1));
-
-  await userEvent.click(within(notice).getByRole("button", { name: "Limit actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Snooze until reset" }));
-  const snoozed = await screen.findByRole("region", { name: "Snoozed until the limit resets" });
+  await screen.findByRole("button", { name: "Show 1 queued message" });
   expect(within(feed).queryByText("Then add a metric")).toBeNull();
 
-  await userEvent.click(within(snoozed).getByRole("button", { name: "Resume now" }));
+  await userEvent.click(within(notice).getByRole("button", { name: "Continue" }));
   expect(await within(feed).findByText("Then add a metric")).toBeTruthy();
   await waitFor(() =>
-    expect(screen.queryByRole("region", { name: /Snoozed|Usage limit/ })).toBeNull(),
+    expect(screen.queryByRole("region", { name: /is out of usage$/ })).toBeNull(),
   );
 });
 
@@ -222,7 +221,7 @@ test("a rate-limited thread shows the hold banner, not a working spinner", async
     { type: "retry", agent: "root", on: "rate_limit", until: Date.now() + 3_600_000 },
   ]);
   await app.open("/t/thread-router");
-  await screen.findByRole("region", { name: "Usage limit reached" });
+  await screen.findByRole("region", { name: /is out of usage$/ });
   // The banner says it once; the transcript doesn't add "Rate limited" or a moving spinner.
   expect(screen.queryByText(/Rate limited/)).toBeNull();
   expect(document.querySelector('[role="status"] [data-slot="spinner"]')).toBeNull();

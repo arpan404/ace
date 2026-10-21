@@ -36,15 +36,15 @@ async function expectAgentTabShown() {
   );
 }
 
-/** The thread, opened from Settings › Browser after turning on the panel opening by itself. */
+/** The thread, opened from Settings › General after turning on the panel opening by itself. */
 async function openWithRevealOn() {
-  const history = createMemoryHistory({ initialEntries: ["/settings/browser"] });
+  const history = createMemoryHistory({ initialEntries: ["/settings/general"] });
   browserVideo();
   const app = harness({ history });
   const scenario = coldStartReplay();
   app.play(scenario).step();
   seedPanels(app.daemon);
-  await app.open("/settings/browser");
+  await app.open("/settings/general");
   const setting = await screen.findByRole("switch", {
     name: "Open the browser panel when an agent opens a page",
   });

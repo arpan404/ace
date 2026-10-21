@@ -44,7 +44,7 @@ test("a new project prompt is created in the chosen project and available from t
   const app = await open();
   await userEvent.click(screen.getByRole("combobox", { name: "Prompt location" }));
   await userEvent.click(await screen.findByRole("option", { name: "ace" }));
-  await userEvent.click(screen.getByRole("button", { name: "+ New prompt" }));
+  await userEvent.click(screen.getByRole("button", { name: "New prompt" }));
   await userEvent.type(screen.getByRole("textbox", { name: "Prompt file name" }), "branch.md");
   await userEvent.clear(screen.getByRole("textbox", { name: "Prompt content" }));
   await userEvent.type(

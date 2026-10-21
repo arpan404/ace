@@ -15,6 +15,7 @@ import {
   type FileTreeRow,
 } from "@ace/ui-core";
 import {
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -32,10 +33,12 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { fileManagement } from "./file-management-source.ts";
 import { FileMenu, FileRowMenu } from "./file-menu.tsx";
 import type { FileOperationDialog } from "./file-operation.ts";
-import { useCheckoutSearch } from "./use-checkout.ts";
+import { useCheckoutSearch, usePrefetchFile } from "./use-checkout.ts";
 
 /** Past this many rows, only those near the viewport mount: each row carries two menus. */
 const virtualAbove = 200;
+/** How long the pointer rests on a file before it's read ahead: passing over rows reads nothing. */
+const prefetchDelay = 80;
 
 const rowClass =
   "flex h-8 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 group-hover/file:pr-8 group-focus-within/file:pr-8 text-left text-ui text-muted-foreground outline-none select-none transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)] aria-selected:bg-sidebar-accent aria-selected:text-foreground";
@@ -106,6 +109,17 @@ export function FileTree(props: {
     rowsHandle.current?.scrollToIndex(rows.findIndex((each) => each.node.path === path));
     requestAnimationFrame(() => find()?.focus());
   };
+  // A file the pointer rests on is read ahead, so clicking it shows it at once.
+  const prefetchFile = usePrefetchFile(props.threadId);
+  const hover = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const hoverStart = (row: FileTreeRow) => {
+    clearTimeout(hover.current);
+    if (row.node.kind === "folder" || row.node.path === props.current || !online) return;
+    const path = row.node.path;
+    hover.current = setTimeout(() => prefetchFile(path), prefetchDelay);
+  };
+  const hoverEnd = () => clearTimeout(hover.current);
+  useEffect(() => () => clearTimeout(hover.current), []);
   const activate = (row: FileTreeRow, keep: boolean) => {
     if (row.node.kind === "folder") {
       // A folder found by search narrows the search to it; one in the tree opens or closes.
@@ -327,6 +341,8 @@ export function FileTree(props: {
                     tabIndex={row.node.path === focusable ? 0 : -1}
                     title={row.node.path}
                     onFocus={() => setFocusKey(row.node.path)}
+                    onPointerEnter={() => hoverStart(row)}
+                    onPointerLeave={hoverEnd}
                     onClick={() => activate(row, false)}
                     onDoubleClick={() => !folder && props.onOpen(row.node.path, true)}
                     onKeyDown={(event) => onRowKey(event, row, index)}

@@ -141,7 +141,7 @@ export function RemoveAgentRow(props: { name: string }) {
 
 function DangerRow(props: { title: string; detail: string; children: ReactNode }) {
   return (
-    <section aria-label={props.title} className="mt-7 flex flex-wrap items-center gap-2 py-2">
+    <section aria-label={props.title} className="mt-10 flex flex-wrap items-center gap-2 py-2">
       <div className="min-w-0 flex-1">
         <p className="font-medium">{props.title}</p>
         <p className="text-sm text-muted-foreground">{props.detail}</p>

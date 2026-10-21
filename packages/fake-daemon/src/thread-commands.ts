@@ -27,6 +27,18 @@ export function inputText(
     : text;
 }
 
+/** Release the queue's hold, clear quota evidence, and let the queue drain. */
+export function releaseHold(host: ThreadHost): Fact[] {
+  host.queue.paused = false;
+  host.queue.reason = null;
+  host.queue.resumeAt = null;
+  host.queueDirty = true;
+  const root = host.state.rootKey;
+  return root !== undefined && host.state.agents[root]?.limited
+    ? [{ type: "limit.cleared", agent: root }]
+    : [];
+}
+
 export function busy(host: ThreadHost): boolean {
   return !["new", "done", "failed"].includes(
     deriveThreadStatus({ ...host.state, queueCount: host.state.queueSources.provider }).state,
@@ -145,6 +157,28 @@ export function sendFacts(
   if (root === undefined) return { ok: false, error: "no_agent" };
   if (splitSteerSelection(host, payload))
     return sendFacts(host, commandId, { ...payload, model: undefined, options: undefined });
+  // Like the daemon: after a switch away from a limited account, the person's message is the
+  // go-ahead. It goes at once on the new selection instead of waiting for the old account.
+  if (
+    host.queue.paused &&
+    (host.queue.reason === "limit" || host.queue.reason === "snooze") &&
+    host.view.thread.switch?.state === "queued"
+  ) {
+    // The turn the limit stopped ends there; the message starts the next one on the new selection.
+    const ended: Fact[] = host.state.agents[root]?.activeRun
+      ? [
+          {
+            type: "turn.ended",
+            agent: root,
+            outcome: "failed",
+            error: { kind: "quota", message: "Usage limit reached" },
+          },
+        ]
+      : [];
+    const cleared = releaseHold(host);
+    const outcome = sendFacts(host, commandId, payload);
+    return outcome.ok ? { ok: true, facts: [...ended, ...cleared, ...outcome.facts] } : outcome;
+  }
   const text = inputText(payload.input, payload.context);
   // Like the daemon: any new message, the person's or a parent agent's, is the go-ahead after a
   // Stop or a restart, so it never waits behind that hold.

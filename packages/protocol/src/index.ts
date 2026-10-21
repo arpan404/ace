@@ -66,6 +66,7 @@ export * from "./thread-client.ts";
 export * from "./plugins.ts";
 
 export * from "./workspace-actions.ts";
+export * from "./git-conflicts.ts";
 export * from "./worktree-base.ts";
 
 export * from "./forge.ts";
@@ -150,6 +151,7 @@ export * from "./worktree-creation.ts";
 export * from "./agent-orchestration.ts";
 
 export * from "./forge-browser.ts";
+export * from "./forge-file-content.ts";
 
 export * from "./forge-lifecycle.ts";
 export * from "./source-control.ts";

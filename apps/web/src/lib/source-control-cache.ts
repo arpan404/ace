@@ -1,5 +1,5 @@
 import type { ClientApi } from "@ace/client";
-import { WorkspaceId, type SourceControlReadiness } from "@ace/protocol";
+import { SourceControlPreferences, WorkspaceId, type SourceControlReadiness } from "@ace/protocol";
 import { useQueryClient, type Query, type QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { daemonErrorCode } from "./daemon-command.ts";
@@ -24,20 +24,31 @@ export async function refreshSourceControl(queries: QueryClient, client: ClientA
   await queries.resetQueries({ predicate });
 }
 
-/** Settings pushes and reconnects invalidate PR reads even if Settings is closed. */
+/** A preferences change drops account-dependent reads; other pushes and reconnects keep them. */
 export function useSourceControlCache(client: ClientApi): void {
   const queries = useQueryClient();
   useEffect(() => {
+    let last: string | undefined;
     const subscription = subscribeSettings(
       client,
       ["sourceControl.preferences"],
       {},
-      () => {
-        void refreshSourceControl(queries, client);
+      (entries) => {
+        const entry = entries.find((candidate) => candidate.key === "sourceControl.preferences");
+        if (!entry) return;
+        const parsed = SourceControlPreferences.safeParse(entry.value);
+        if (!parsed.success) return;
+        const current = JSON.stringify(parsed.data);
+        if (last === undefined) {
+          last = current;
+          return;
+        }
+        if (current !== last) {
+          last = current;
+          void refreshSourceControl(queries, client);
+        }
       },
-      () => {
-        void refreshSourceControl(queries, client);
-      },
+      () => {},
     );
     return () => subscription.stop();
   }, [client, queries]);

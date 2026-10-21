@@ -204,7 +204,7 @@ export function PrStack(props: {
         )}
       </div>
       {/* Background refreshes keep the rail in place; only a first read, error or offline shows. */}
-      {!(query.data && !query.isError && ready) && <QueryState query={query} />}
+      {!(query.data && !query.isError && ready) && <QueryState label="stack" query={query} />}
       {stack && <StackRail layers={stack.layers} current={ref.number} onOpen={props.onOpen} />}
       {operation && <OperationStatus operation={operation} />}
       {moved.length > 0 && <MovedLayers moved={moved} />}

@@ -57,5 +57,5 @@ test("compacting the database reports the freed bytes and refreshes usage", asyn
   await userEvent.click(screen.getByRole("button", { name: "Compact database" }));
   expect(await screen.findByText("Compacted from 10.0 MB to 6.0 MB.")).toBeTruthy();
   expect(await screen.findByText("6.0 MB")).toBeTruthy();
-  expect(screen.getByText("0 B of unused pages SQLite can reuse.")).toBeTruthy();
+  expect(screen.getByText("0 B can be reclaimed by compacting.")).toBeTruthy();
 });

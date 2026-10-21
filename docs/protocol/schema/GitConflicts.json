@@ -1,0 +1,41 @@
+{
+  "$id": "https://ace.local/protocol/v1/GitConflicts.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "dirty": {
+      "type": "boolean"
+    },
+    "files": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/GitConflictFile.json"
+      },
+      "maxItems": 200,
+      "type": "array"
+    },
+    "head": {
+      "anyOf": [
+        {
+          "pattern": "^[a-f0-9]{40,64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "merging": {
+      "type": "boolean"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "head",
+    "merging",
+    "dirty",
+    "files",
+    "truncated"
+  ],
+  "type": "object"
+}

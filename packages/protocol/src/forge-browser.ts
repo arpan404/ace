@@ -4,6 +4,7 @@ import { ForgeMergeState } from "./forge-merge-state.ts";
 import { ForgeStackMembership, ForgeStackWorkspace } from "./forge-stacks.ts";
 import { ForgeReviewState } from "./forge-review.ts";
 import { ForgeCheckOperations, ForgeCheckResults } from "./forge-checks.ts";
+import { ForgeFileContentOperations, ForgeFileContentResults } from "./forge-file-content.ts";
 import { z } from "zod";
 import { ForgePrRef, ForgePrStatus, ForgeRepository } from "./forge.ts";
 import { WorkspaceId, ThreadId } from "./ids.ts";
@@ -17,6 +18,13 @@ export const ForgeActivityPageInput = z.object({
 });
 /** A provider's opaque position in a newest-first list. */
 const cursor = z.string().min(1).max(256);
+/**
+ * A page of a PR's changed files. GitHub lists the first 3,000 in 120 pages; later pages come
+ * from comparing the two trees, up to 100,000 files.
+ */
+export const ForgeFilePageInput = z.object({
+  page: z.number().int().min(1).max(4_000).default(1),
+});
 export const ForgePrSearch = z.object({
   /** `open` leaves drafts out; `active` is every open PR, drafts included. */
   state: z.enum(["open", "draft", "closed", "merged", "active"]).default("open"),
@@ -90,6 +98,13 @@ export const ForgeOpenWork = z.object({
 });
 export type ForgeOpenWork = z.infer<typeof ForgeOpenWork>;
 export const ForgeRelatedThread = z.object({ id: ThreadId, title: text, archived: z.boolean() });
+export const ForgePrDetailFile = z.object({
+  path: text,
+  additions: z.number().int().nonnegative(),
+  deletions: z.number().int().nonnegative(),
+  status: text,
+});
+export type ForgePrDetailFile = z.infer<typeof ForgePrDetailFile>;
 export const ForgePrDetail = z.object({
   status: ForgePrStatus,
   writeState: z.enum(["pending", "uncertain"]).optional(),
@@ -110,6 +125,7 @@ export const ForgePrDetail = z.object({
   reviewDecision: z.string().max(100).nullable(),
   commits: z.number().int().nonnegative(),
   changedFiles: z.number().int().nonnegative(),
+  files: z.array(ForgePrDetailFile).max(100).optional(),
   relatedThreads: z.array(ForgeRelatedThread).max(100),
   relatedThreadsTruncated: z.boolean(),
 });
@@ -162,6 +178,7 @@ const scope = { workspaceId: WorkspaceId, repository: ForgeRepository.optional()
 export const ForgeBrowserOperations = [
   z.object({ op: z.literal("forge.pr.lifecycle"), ...scope, number: z.number().int().positive() }),
   ...ForgeIssueOperations,
+  ...ForgeFileContentOperations,
   z.object({
     op: z.literal("forge.pr.merge-state"),
     ...scope,
@@ -204,7 +221,7 @@ export const ForgeBrowserOperations = [
     op: z.literal("forge.pr.files"),
     ...scope,
     number: z.number().int().positive(),
-    ...ForgePageInput.shape,
+    ...ForgeFilePageInput.shape,
     headSha: sha,
     baseSha: sha,
     commit: sha.optional(),
@@ -214,6 +231,7 @@ export const ForgeBrowserOperations = [
 export const ForgeBrowserResult = z.discriminatedUnion("resource", [
   z.object({ resource: z.literal("prLifecycle"), value: ForgeLifecycleState }),
   ...ForgeIssueResults,
+  ...ForgeFileContentResults,
   z.object({ resource: z.literal("prMergeState"), value: ForgeMergeState }),
   z.object({ resource: z.literal("prStack"), value: ForgeStackWorkspace }),
   z.object({

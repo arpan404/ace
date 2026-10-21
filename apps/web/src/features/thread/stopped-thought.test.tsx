@@ -27,8 +27,9 @@ test("a stopped turn shows no thought still going, even when the stream reopens 
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   expect(await within(feed).findByText("Thinking…")).toBeTruthy();
   act(() => app.daemon.apply("stop", [facts.endTurn("root", "interrupted")]));
+  expect(await within(feed).findByRole("note", { name: "Interrupted by you" })).toBeTruthy();
   // The settled log opens to its steps, as in the report.
-  await userEvent.click(await within(feed).findByRole("button", { name: /^Stopped after/ }));
+  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
   expect(await within(feed).findByRole("button", { name: /^Thought/ })).toBeTruthy();
   expect(within(feed).queryByText("Thinking…")).toBeNull();
   // A late frame marks the stopped turn's thought open again: nothing streams into an ended turn.

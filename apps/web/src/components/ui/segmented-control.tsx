@@ -15,6 +15,7 @@ function SegmentedControl<T extends string>(props: {
   onValueChange(value: T): void;
   size?: "sm" | "default";
   className?: string;
+  disabled?: boolean | undefined;
 }) {
   const index = Math.max(
     0,
@@ -25,6 +26,7 @@ function SegmentedControl<T extends string>(props: {
     <ToggleGroup
       aria-label={props.label}
       value={[props.value]}
+      disabled={props.disabled ?? false}
       onValueChange={(next) => {
         const picked = props.options.find((option) => option.value === next[0]);
         if (picked) props.onValueChange(picked.value);
@@ -32,6 +34,7 @@ function SegmentedControl<T extends string>(props: {
       style={style}
       className={cn(
         "relative inline-grid auto-cols-fr grid-flow-col rounded-full bg-(--seg-bg) p-0.5",
+        props.disabled && "pointer-events-none opacity-50",
         props.className,
       )}
     >

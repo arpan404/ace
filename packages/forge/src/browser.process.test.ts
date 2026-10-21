@@ -229,7 +229,84 @@ test("full PR detail includes hosted branch identities, description, reviews and
   }
 });
 
-test("hosted file pages identify the base and head and visibly bound oversized or missing patches", async () => {
+test("PR detail returns the head and the file list from one GraphQL request", async () => {
+  const fixtures = standard();
+  fixtures["repos/octo/ace/pulls/7"] = [{ body: richPr }];
+  fixtures.graphql = [{ body: threads() }];
+  fixtures["graphql:reviewDecision headRefOid"] = [
+    {
+      body: {
+        data: {
+          repository: {
+            pullRequest: {
+              reviewDecision: "APPROVED",
+              headRefOid: sha,
+              files: {
+                nodes: [
+                  { path: "src/main.ts", additions: 3, deletions: 1, changeType: "MODIFIED" },
+                  { path: "new.ts", additions: 5, deletions: 0, changeType: "ADDED" },
+                  { path: "old.ts", additions: 0, deletions: 4, changeType: "DELETED" },
+                ],
+              },
+            },
+          },
+        },
+      },
+    },
+  ];
+  const f = await fakeGh(fixtures);
+  try {
+    expect(await f.forge.prDetail(7, signal())).toMatchObject({
+      status: { ref: { repository, number: 7 }, headSha: sha },
+      reviewDecision: "APPROVED",
+      files: [
+        { path: "src/main.ts", additions: 3, deletions: 1, status: "modified" },
+        { path: "new.ts", additions: 5, deletions: 0, status: "added" },
+        { path: "old.ts", additions: 0, deletions: 4, status: "removed" },
+      ],
+    });
+    const decision = (await f.requests()).filter(
+      (request) =>
+        request.path === "graphql" && JSON.stringify(request.body ?? "").includes("reviewDecision"),
+    );
+    expect(decision).toHaveLength(1);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("PR detail still loads when the file list is missing or malformed", async () => {
+  for (const files of [undefined, null, { nodes: [{ path: 7 }] }]) {
+    const fixtures = standard();
+    fixtures["repos/octo/ace/pulls/7"] = [{ body: richPr }];
+    fixtures.graphql = [{ body: threads() }];
+    fixtures["graphql:reviewDecision headRefOid"] = [
+      {
+        body: {
+          data: {
+            repository: {
+              pullRequest: {
+                reviewDecision: "APPROVED",
+                headRefOid: sha,
+                ...(files === undefined ? {} : { files }),
+              },
+            },
+          },
+        },
+      },
+    ];
+    const f = await fakeGh(fixtures);
+    try {
+      const read = await f.forge.prDetail(7, signal());
+      expect(read).toMatchObject({ status: { headSha: sha }, reviewDecision: "APPROVED" });
+      expect(read.files).toBeUndefined();
+    } finally {
+      await f.cleanup();
+    }
+  }
+});
+
+test("hosted file pages identify the base and head and leave out, whole, patches that don't fit", async () => {
   const path = "repos/octo/ace/pulls/7/files?per_page=25&page=1";
   const f = await fakeGh({
     [`repos/octo/ace/compare/${nextSha}...${sha}`]: [
@@ -241,6 +318,7 @@ test("hosted file pages identify the base and head and visibly bound oversized o
         body: [
           { ...file, patch: "x".repeat(300_000) },
           { ...file, filename: "logo.png", patch: undefined },
+          { ...file, filename: "src/small.ts" },
         ],
         headers: {
           link: '<https://api.github.com/repos/octo/ace/pulls/7/files?per_page=25&page=2>; rel="next"',
@@ -258,13 +336,14 @@ test("hosted file pages identify the base and head and visibly bound oversized o
       baseSha: nextSha,
       headSha: sha,
       nextPage: 2,
-      truncated: true,
+      // Every listed file is there; only patches are withheld, and the page diffs those itself.
+      truncated: false,
       files: [
-        { path: "src/main.ts", truncated: true },
+        { path: "src/main.ts", patch: null, truncated: true },
         { path: "logo.png", patch: null, truncated: true },
+        { path: "src/small.ts", patch: file.patch, truncated: false },
       ],
     });
-    expect(result.files[0]?.patch?.length).toBe(262_144);
   } finally {
     await f.cleanup();
   }
@@ -490,7 +569,7 @@ test("a commit older than the newest page still opens its own diff", async () =>
   }
 });
 
-test("the PR file provider cap stays visible on a terminal page with complete patches and no next link", async () => {
+test("GitHub's last listed page goes on to the tree listing only when the PR has more files", async () => {
   for (const changedFiles of [3000, 3001]) {
     const f = await fakeGh({
       "repos/octo/ace/pulls/7": [{ body: { ...richPr, changed_files: changedFiles } }],
@@ -504,8 +583,8 @@ test("the PR file provider cap stays visible on a terminal page with complete pa
         { number: 7, page: 120, headSha: sha, baseSha: nextSha },
         signal(),
       );
-      expect(result.truncated).toBe(changedFiles > 3000);
-      expect(result.nextPage).toBeUndefined();
+      expect(result.truncated).toBe(false);
+      expect(result.nextPage).toBe(changedFiles > 3000 ? 121 : undefined);
       expect(result.files[0]).toMatchObject({ patch: file.patch, truncated: false });
     } finally {
       await f.cleanup();
