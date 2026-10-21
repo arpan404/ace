@@ -5,7 +5,6 @@ import { useNavigate } from "@tanstack/react-router";
 import { SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { ProviderSetupRow } from "@/features/provider-setup/index.ts";
 import { machineStatus } from "@/lib/machine-status.ts";
