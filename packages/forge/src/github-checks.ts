@@ -141,10 +141,9 @@ export class GitHubChecks {
         startedAt: Number.isFinite(at) ? Math.floor(at / 1_000) : null,
       };
     });
-    const read =
-      logRead.status === "fulfilled" && logRead.value
-        ? readJobLog(logRead.value.text, logRead.value.truncated, facts)
-        : undefined;
+    const logText = logRead.status === "fulfilled" ? logRead.value : undefined;
+    // With no log, the steps still read; none has a line to start at.
+    const read = readJobLog(logText?.text ?? "", logText?.truncated ?? false, facts);
     const output = body.data.output;
     const value = ForgeCheckRun.parse({
       id: checkRunId,
@@ -162,12 +161,11 @@ export class GitHubChecks {
             runId: job.data.run_id,
             attempt: job.data.run_attempt ?? 1,
             jobId: job.data.id,
-            steps:
-              read?.steps ?? facts.map(({ startedAt: _, ...step }) => ({ ...step, line: null })),
+            steps: read.steps,
           }
         : null,
-      log: read?.log ?? null,
-      logUnavailable: job?.data !== undefined && read === undefined,
+      log: logText ? read.log : null,
+      logUnavailable: job?.data !== undefined && !logText,
       annotations: annotations.data.map((annotation) => ({
         path: annotation.path,
         startLine: lineNumber(annotation.start_line),

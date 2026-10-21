@@ -8,6 +8,7 @@ import type { ForgeCheckLog, ForgeCheckStep } from "@ace/protocol/forge-checks";
 const stamp = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z) ?/;
 const command = /^##\[(group|endgroup|error|warning|notice|debug|section|command)\]/;
 // Colour and cursor escapes the runner passes through from tools.
+// oxlint-disable-next-line no-control-regex -- the escape character is what this strips
 const escapes = /\u001b\[[0-?]*[ -/]*[@-~]/g;
 const maxErrors = 1_000;
 
