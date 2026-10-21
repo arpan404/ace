@@ -67,7 +67,7 @@ test("a tar like Harn's installs its harn-dap link beside harn", async () => {
     await writeFile(archive, bytes);
     const root = join(work.root, "installed");
     await mkdir(root);
-    await extractTar(archive, root, new AbortController().signal);
+    await extractTar(archive, root, new AbortController().signal, "gzip");
     expect(await readlink(join(root, "harn-dap"))).toBe("harn");
     expect(await readFile(join(root, "harn-dap"), "utf8")).toBe("#!/bin/sh\necho harn ran\n");
     const { stdout } = await promisify(execFile)(join(root, "harn-dap"));
@@ -88,7 +88,7 @@ test("a link chain escape is refused and nothing is written outside the root", a
     await writeFile(archive, bytes);
     const root = join(work.root, "installed");
     await mkdir(root);
-    await expect(extractTar(archive, root, new AbortController().signal)).rejects.toThrow();
+    await expect(extractTar(archive, root, new AbortController().signal, "gzip")).rejects.toThrow();
     await expect(access(join(work.root, "q"))).rejects.toThrow();
     await expect(access(join(root, "q"))).rejects.toThrow();
   } finally {
@@ -179,7 +179,7 @@ test("a mkdir through an earlier link cannot create a directory outside the root
     await writeFile(archive, bytes);
     const root = join(work.root, "installed");
     await mkdir(root);
-    await expect(extractTar(archive, root, new AbortController().signal)).rejects.toThrow();
+    await expect(extractTar(archive, root, new AbortController().signal, "gzip")).rejects.toThrow();
     await expect(access(join(work.root, "x"))).rejects.toThrow();
   } finally {
     await work.close();
@@ -197,7 +197,7 @@ test("a tar with an absolute venv interpreter link installs and keeps its target
     await writeFile(archive, bytes);
     const root = join(work.root, "installed");
     await mkdir(root);
-    await extractTar(archive, root, new AbortController().signal);
+    await extractTar(archive, root, new AbortController().signal, "gzip");
     expect(await readlink(join(root, "bin", "python3.12"))).toBe("/usr/bin/python3.12");
     expect(await readFile(join(root, "agent"), "utf8")).toBe("synthetic executable");
   } finally {
