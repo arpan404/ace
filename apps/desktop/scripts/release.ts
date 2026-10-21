@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { ReleaseVersion } from "@ace/protocol";
 import {
   changedFiles,
   checksumList,
+  combineStaged,
   daemonAssets,
+  daemonTargetsFor,
   desktopAssets,
   isPrerelease,
   missingUpdatePackages,
@@ -36,7 +39,7 @@ import {
  *
  *   bun run release:doctor
  *   bun run release:build 0.0.3 [--unsigned] [--with-daemon] [--allow-dirty]
- *   bun run release:publish 0.0.3 [--draft] [--notes-file notes.md]
+ *   bun run release:publish 0.0.3 [--draft] [--notes-file notes.md] [--include <staged dir>]
  *
  * `build` packages the app for this Mac's architecture (dmg, the zip Squirrel.Mac updates
  * from, blockmaps and `latest-mac.yml`), verifies its signature, notarization and staple, and
@@ -44,11 +47,16 @@ import {
  * the signed standalone daemon archives for both macOS architectures, so `ace update` on
  * standalone installs sees the release too. `publish` uploads exactly those staged files to a
  * draft release tagged at the built commit, then publishes it.
+ *
+ * On Linux (inside the Debian 11 build container, ADR 0093) `build` packages the AppImage,
+ * deb and tar.gz with `latest-linux*.yml` for this host's architecture, unsigned; the
+ * AppImage updates itself, the deb and tar.gz are offered the release page. `--with-daemon`
+ * there builds node-pty and the archive for this host's Linux target only.
  */
 const usage = `Usage:
   bun run release:doctor
   bun run release:build <version> [--unsigned] [--with-daemon] [--allow-dirty]
-  bun run release:publish <version> [--draft] [--notes-file <path>]`;
+  bun run release:publish <version> [--draft] [--notes-file <path>] [--include <staged dir>]...`;
 
 const [command, versionArgument, ...rest] = process.argv.slice(2);
 const flag = (name: string) => rest.includes(name);
@@ -56,12 +64,17 @@ const option = (name: string) => {
   const index = rest.indexOf(name);
   return index === -1 ? undefined : rest[index + 1];
 };
+/** Every value of a repeatable option (`--include a --include b`). */
+const options = (name: string) =>
+  rest.flatMap((value, index) => {
+    const next = rest[index + 1];
+    return value === name && next !== undefined ? [next] : [];
+  });
 const say = (line: string) => console.log(`[release] ${line}`);
 const run = (file: string, args: string[], env: NodeJS.ProcessEnv = process.env) =>
   execFileSync(file, args, { cwd: repo, stdio: "inherit", env });
 const staging = (version: string) => join(repo, "dist/releases", releaseTag(version));
 const daemonOutput = join(repo, "tools/release/dist");
-const daemonTargets = ["darwin-arm64", "darwin-x64"] as const;
 
 try {
   if (command === "doctor") doctor();
@@ -119,7 +132,8 @@ async function build(version: string): Promise<void> {
     if (notary.kind === "none" || notary.kind === "incomplete")
       throw new Error("No notarization credentials: run bun run release:doctor for what to set.");
     say(`signing as ${identity.name}, notarizing with ${notary.kind}`);
-  } else say("ad-hoc signed and not notarized (--unsigned)");
+  } else if (process.platform === "darwin") say("ad-hoc signed and not notarized (--unsigned)");
+  const daemonTargets = withDaemon ? daemonTargetsFor(process.platform, process.arch) : [];
   const publicKey = process.env.ACE_RELEASE_PUBLIC_KEY_FILE;
   const privateKey = process.env.ACE_RELEASE_PRIVATE_KEY_FILE;
   if (withDaemon && (!publicKey || !privateKey))
@@ -144,7 +158,19 @@ async function build(version: string): Promise<void> {
 
   if (withDaemon && publicKey && privateKey)
     for (const target of daemonTargets) {
-      run(process.execPath, [join(repo, "tools/release/src/build.ts"), version, target, publicKey]);
+      // Linux has no node-pty prebuilds: build it on this host and pass the pinned input.
+      const native =
+        target === "linux-arm64" || target === "linux-x64"
+          ? join(daemonOutput, "native", `${target}.json`)
+          : undefined;
+      if (native) run(process.execPath, [join(repo, "tools/release/src/native.ts"), target]);
+      run(process.execPath, [
+        join(repo, "tools/release/src/build.ts"),
+        version,
+        target,
+        publicKey,
+        ...(native ? [native] : []),
+      ]);
       run(process.execPath, [
         join(repo, "tools/release/src/sign.ts"),
         join(daemonOutput, `${target}.json`),
@@ -185,8 +211,10 @@ async function build(version: string): Promise<void> {
   await writeFile(join(target, "SHA256SUMS"), checksumList(release));
   for (const file of files) say(`${file.name}  ${(file.bytes / 1e6).toFixed(1)} MB`);
   say(`staged in ${target}`);
-  if (!signed)
+  if (!signed && process.platform === "darwin")
     say("unsigned: installed Macs see this update and download it from the release page");
+  if (process.platform === "linux")
+    say("Linux: the AppImage updates itself; deb and tar.gz installs are offered the release page");
   say(`next: bun run release:publish ${version}`);
 }
 
@@ -206,22 +234,37 @@ function verifyMac(output: string, signed: boolean): string {
 }
 
 async function publish(version: string): Promise<void> {
-  const folder = staging(version);
-  const manifest = join(folder, "release.json");
-  if (!existsSync(manifest))
-    throw new Error(`Nothing staged for ${version}: run bun run release:build ${version} first.`);
-  const release = StagedRelease.parse(JSON.parse(await readFile(manifest, "utf8")));
-  if (release.version !== version) throw new Error(`${manifest} is for ${release.version}`);
-  if (release.dirty)
-    throw new Error("This build had uncommitted changes; rebuild from a commit to publish it.");
-  const actual = new Map<string, string | undefined>();
-  for (const file of release.files) {
-    const path = join(folder, file.name);
-    actual.set(file.name, existsSync(path) ? await sha256(path) : undefined);
+  // This host's staged build plus any other host's (`--include`, e.g. the Linux packages
+  // built in the Debian 11 container), published together as one release.
+  const folders = [staging(version), ...options("--include").map((path) => resolve(path))];
+  const parts: StagedRelease[] = [];
+  const paths = new Map<string, string>();
+  for (const folder of folders) {
+    const manifest = join(folder, "release.json");
+    if (!existsSync(manifest))
+      throw new Error(
+        folder === folders[0]
+          ? `Nothing staged for ${version}: run bun run release:build ${version} first.`
+          : `No staged release in ${folder}`,
+      );
+    const part = StagedRelease.parse(JSON.parse(await readFile(manifest, "utf8")));
+    if (part.version !== version) throw new Error(`${manifest} is for ${part.version}`);
+    const actual = new Map<string, string | undefined>();
+    for (const file of part.files) {
+      const path = join(folder, file.name);
+      actual.set(file.name, existsSync(path) ? await sha256(path) : undefined);
+      paths.set(file.name, path);
+    }
+    const changed = changedFiles(part, actual);
+    if (changed.length)
+      throw new Error(`Staged files in ${folder} changed since the build: ${changed.join(", ")}`);
+    parts.push(part);
   }
-  const changed = changedFiles(release, actual);
-  if (changed.length)
-    throw new Error(`Staged files changed since the build: ${changed.join(", ")}`);
+  const release = combineStaged(parts);
+  if (release.dirty)
+    throw new Error("A build had uncommitted changes; rebuild from a commit to publish it.");
+  const checksums = join(await mkdtemp(join(tmpdir(), "ace-release-")), "SHA256SUMS");
+  await writeFile(checksums, checksumList(release));
   if (!githubReady()) throw new Error("Sign in to GitHub first: gh auth login");
   if (!pushed(release.commit))
     throw new Error(`Push ${release.commit.slice(0, 12)} to GitHub first: the tag points at it.`);
@@ -243,8 +286,8 @@ async function publish(version: string): Promise<void> {
     ...(notes ? ["--notes-file", notes] : ["--generate-notes"]),
     "--draft",
     ...(prerelease ? ["--prerelease"] : []),
-    ...release.files.map((file) => join(folder, file.name)),
-    join(folder, "SHA256SUMS"),
+    ...release.files.map((file) => paths.get(file.name) ?? file.name),
+    checksums,
   ]);
   if (!flag("--draft"))
     run("gh", [

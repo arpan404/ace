@@ -115,8 +115,13 @@ export function assertLoadedService(plan: ServicePlan, output: string): boolean 
           throw new Error("Invalid loaded service properties");
         rows.set(line.slice(0, at), line.slice(at + 1));
       }
-      if (rows.size !== properties.length || properties.some((key) => !rows.has(key)))
+      // systemd 259+ leaves empty Exec* properties out of `systemctl show`: absent is empty.
+      const known = new Set<string>(properties);
+      if ([...rows.keys()].some((key) => !known.has(key)))
+        throw new Error("Unrecognized loaded service properties");
+      if (!rows.has("LoadState") || !rows.has("ActiveState"))
         throw new Error("Missing loaded service properties");
+      for (const key of properties) if (!rows.has(key)) rows.set(key, "");
       if (rows.get("LoadState") === "not-found") {
         if (properties.slice(2).some((key) => rows.get(key) !== ""))
           throw new Error("Unrecognized missing unit");
