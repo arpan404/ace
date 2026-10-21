@@ -137,6 +137,7 @@ test("the sidebar shows a plain ace label and profile connection actions", async
   ).toEqual([
     "Automations",
     "Skills",
+    "Pull requests",
     "Usage",
     "Archived threads",
     expect.stringMatching(/^Keyboard shortcuts/),
