@@ -18,15 +18,15 @@ struct NewThreadHero: View {
             Section {
                 ForEach(projects.prefix(Self.shown)) { project in
                     Button { choose(project.id) } label: {
-                        if project.id == selected?.id { Label(project.name, systemImage: "checkmark") } else { Text(project.name) }
+                        if project.id == selected?.id { Label(project.name, ace: .check) } else { Text(project.name) }
                     }
                     .accessibilityIdentifier("project.\(project.id)")
                 }
             }
-            Button("All projects", systemImage: "magnifyingglass", action: allProjects)
+            Button("All projects", ace: .magnifyingGlass, action: allProjects)
                 .accessibilityIdentifier("newThread.allProjects")
             if canAdd {
-                Button("Add project", systemImage: "plus", action: addProject)
+                Button("Add project", ace: .plus, action: addProject)
                     .accessibilityIdentifier("projects.add")
             }
         } label: {

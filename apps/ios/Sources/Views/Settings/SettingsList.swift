@@ -116,13 +116,11 @@ struct SettingsValue: View {
 /// The glyph stays at the subtle tier, as on the web's settings list.
 struct SettingsLinkLabel: View {
     let title: String
-    let symbol: String
+    let icon: AceIcon.Name
     var value: String? = nil
     var body: some View {
         HStack(spacing: AceTheme.Spacing.md) {
-            Image(systemName: symbol).font(.system(size: 17, weight: .regular))
-                .foregroundStyle(AceTheme.Colours.subtleForeground)
-                .frame(width: AceTheme.Spacing.xxl).accessibilityHidden(true)
+            AceIcon(icon, size: 18).foregroundStyle(AceTheme.Colours.subtleForeground)
             Text(title).aceFont(SettingsStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
             Spacer(minLength: AceTheme.Spacing.sm)
             SettingsValue(text: value)

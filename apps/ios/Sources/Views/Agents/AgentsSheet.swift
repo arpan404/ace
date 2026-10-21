@@ -63,7 +63,7 @@ struct AgentsSheet: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                    Button { dismiss() } label: { AceIcon(.x, size: 18) }
                         .accessibilityLabel("Close").accessibilityIdentifier("agents.close")
                 }
                 if model.canOperate {
@@ -91,7 +91,7 @@ struct AgentsSheet: View {
                 Button { dismiss(); openThread(child) } label: {
                     HStack {
                         AgentRowView(row: row, provider: provider)
-                        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(AceTheme.Colours.decoration)
+                        AceIcon(.caretRight, size: 14).foregroundStyle(AceTheme.Colours.decoration)
                     }
                     .contentShape(Rectangle())
                 }
