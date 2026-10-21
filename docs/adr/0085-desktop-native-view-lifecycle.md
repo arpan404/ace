@@ -157,6 +157,12 @@ rounded edges (it showed past them), and it took the person's clicks for itself,
 on the floating page could not bring it back to the panel. Out of the panel the view keeps
 its panel size and renders parked while it is captured, so the page never reloads or reflows.
 
+Amended 2026-10-21: every thread can float at once, one window per thread, each streaming its
+own video. A thread floats once the person has looked at its Browser, while an agent browses
+there (the open thread also for its page's sound) and its Browser isn't on screen. The windows
+live in one app-wide host, so leaving a thread keeps its page floating; a new window starts
+where no open one is, the whole bar drags, and a click opens that thread with its Browser.
+
 ⌘L and ⌘F pressed in a native page no longer move the OS focus at once. The view keeps the
 keys typed next (for at most a second) while the app's page focuses its field; the field
 asks for the keyboard (`browser.focus-app`), and the main process focuses the app's page and
