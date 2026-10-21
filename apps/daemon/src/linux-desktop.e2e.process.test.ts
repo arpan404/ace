@@ -32,7 +32,10 @@ afterEach(async () => {
 async function agent(options: {
   browser: boolean;
 }): Promise<{ world: EvalWorld; agent: EvalAgent }> {
-  const world = await evalWorld({ browser: options.browser, screenHelper: helper });
+  const world = await evalWorld({
+    browser: options.browser,
+    ...(helper ? { screenHelper: helper } : {}),
+  });
   worlds.push(world);
   return { world, agent: (await world.agent({ prompt: "check the desktop" })).agent };
 }
@@ -40,9 +43,10 @@ async function agent(options: {
 /** The words a model reads: screenshot data (base64) left out, so digits in it never match. */
 const words = (result: CallResult) => result.text.replace(/[A-Za-z0-9+/=]{400,}/g, "<image>");
 
+const escaped = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 /** The id on the outline line for an element of `role` named exactly `name`. */
 function elementId(outline: string, role: string, name?: string): number {
-  const escaped = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pattern = new RegExp(
     `^\\s*(\\d+) ${escaped(role)}${name === undefined ? "\\b" : ` ${escaped(name)}(?:,|$)`}`,
     "m",
