@@ -2,6 +2,7 @@ import { seedForgeBrowse, workbench } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { WorkspaceId } from "@ace/protocol";
 import { harness } from "@/test/harness.tsx";
 
 function withRepository() {
@@ -42,4 +43,56 @@ test("a pull request with failing checks and requested changes can't merge and s
   expect((blocked as HTMLButtonElement).disabled).toBe(true);
   expect(within(panel).getByText(/1 failing/)).toBeTruthy();
   expect(within(panel).getByText("Changes requested")).toBeTruthy();
+});
+
+test("an unlinked pull request waiting on checks and review turns auto-merge on, then off", async () => {
+  const app = withRepository();
+  await app.open("/pulls?project=ace&pr=231");
+  const panel = await screen.findByRole("article", { name: "Pull request #231" });
+  await userEvent.click(
+    await within(panel).findByRole("button", { name: "Enable auto-merge · squash" }),
+  );
+  await userEvent.click(await within(panel).findByRole("button", { name: "Confirm auto-merge?" }));
+  expect(await within(panel).findByText("Auto-merge on · squash · by you")).toBeTruthy();
+  await userEvent.click(within(panel).getByRole("button", { name: "Disable" }));
+  expect(
+    await within(panel).findByRole("button", { name: "Enable auto-merge · squash" }),
+  ).toBeTruthy();
+});
+
+test("where the repository doesn't allow auto-merge, a PR waiting on checks can't merge and says why", async () => {
+  const app = withRepository();
+  app.daemon.workspace.setForgeRead(
+    {
+      op: "forge.pr.merge-state",
+      workspaceId: WorkspaceId.parse("ace"),
+      repository: { forge: "github", host: "github.com", owner: "acme", name: "ace" },
+      number: 231,
+    },
+    {
+      resource: "prMergeState",
+      value: {
+        headSha: (231).toString(16).padStart(40, "e"),
+        state: "OPEN",
+        mergeState: "BLOCKED",
+        reviewDecision: "REVIEW_REQUIRED",
+        checksState: "PENDING",
+        autoMerge: null,
+        queue: null,
+        canEnable: false,
+        canDisable: false,
+        canDequeue: false,
+        blockers: [],
+        raw: {},
+      },
+    },
+  );
+  await app.open("/pulls?project=ace&pr=231");
+  const panel = await screen.findByRole("article", { name: "Pull request #231" });
+  const merge = await within(panel).findByRole("button", { name: "Squash and merge" });
+  expect((merge as HTMLButtonElement).disabled).toBe(true);
+  await userEvent.hover(merge.parentElement ?? merge);
+  expect((await screen.findByRole("tooltip")).textContent).toContain(
+    "This repository doesn't allow auto-merge for this account.",
+  );
 });

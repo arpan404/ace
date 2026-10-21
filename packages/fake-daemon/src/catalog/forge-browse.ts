@@ -44,6 +44,8 @@ interface PrSketch {
   decision?: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED";
   assignees?: string[];
   conflicting?: boolean;
+  /** GitHub lets the signed-in account turn auto-merge on. */
+  autoMerge?: boolean;
   files: [string, number, number][];
 }
 
@@ -101,7 +103,9 @@ function sketched(now: number, pr: PrSketch): PullRequestFixture {
           mergeState: mergeState(headSha, {
             mergeState: pr.conflicting ? "DIRTY" : pr.ci === "failure" ? "UNSTABLE" : "BLOCKED",
             reviewDecision: pr.decision ?? null,
-            checksState: pr.ci === "failure" ? "FAILURE" : "SUCCESS",
+            checksState:
+              pr.ci === "failure" ? "FAILURE" : pr.ci === "pending" ? "PENDING" : "SUCCESS",
+            canEnable: pr.autoMerge ?? false,
           }),
         }
       : {}),
@@ -123,6 +127,7 @@ export function browsePullRequests(now: number): PullRequestFixture[] {
       assignees: ["you"],
       decision: "REVIEW_REQUIRED",
       ci: "pending",
+      autoMerge: true,
       updated: 12 * minute,
       labels: ["web", "enhancement"],
       branch: "feature/pulls-page",

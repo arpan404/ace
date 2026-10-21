@@ -1,5 +1,5 @@
 import type { ForgeMergeState, ForgePrStatus } from "@ace/protocol";
-import { ciLine, type MergeMethod } from "@ace/ui-core";
+import { ciLine, noAutoMerge, type MergeMethod } from "@ace/ui-core";
 
 /**
  * The one control the PR header shows, chosen from the PR's state. Pure: the header renders it,
@@ -9,7 +9,7 @@ export type PrPrimary =
   | { kind: "state"; state: "merged" | "closed" }
   | { kind: "resolve" }
   | { kind: "ready" }
-  | { kind: "auto-merge-armed"; method: string }
+  | { kind: "auto-merge-armed"; method: string; actor: string | null }
   | { kind: "queued"; position: number }
   | { kind: "auto-merge"; method: MergeMethod }
   | { kind: "auto-merge-ready"; method: MergeMethod }
@@ -38,7 +38,11 @@ export function prPrimaryAction(input: {
   if (status.mergeability === "conflicting") return { kind: "resolve" };
   if (status.state === "draft") return { kind: "ready" };
   if (mergeState?.autoMerge)
-    return { kind: "auto-merge-armed", method: mergeState.autoMerge.method.toLowerCase() };
+    return {
+      kind: "auto-merge-armed",
+      method: mergeState.autoMerge.method.toLowerCase(),
+      actor: mergeState.autoMerge.actor,
+    };
   if (mergeState?.queue) return { kind: "queued", position: mergeState.queue.position };
   // Merging goes through a linked task; with none, the button offers the link first.
   if (input.linked === false) return { kind: "link" };
@@ -46,7 +50,19 @@ export function prPrimaryAction(input: {
   if (blockers.length)
     return canAuto
       ? { kind: "auto-merge-ready", method }
-      : { kind: "blocked", blockers: [...blockers] };
+      : {
+          kind: "blocked",
+          blockers: [
+            ...blockers,
+            // Waiting on checks or reviews is what auto-merge is for; say why it isn't offered.
+            ...(input.autoMerge !== false &&
+            mergeState &&
+            !mergeState.canEnable &&
+            status.ci !== "failure"
+              ? [noAutoMerge]
+              : []),
+          ],
+        };
   if (ciLine(status).tone === "pending" && canAuto) return { kind: "auto-merge", method };
   return { kind: "merge", method };
 }
@@ -67,13 +83,13 @@ export function prPrimaryLabel(primary: PrPrimary): string {
     case "ready":
       return "Ready for review";
     case "auto-merge-armed":
-      return `Auto-merge (${primary.method})`;
+      return `Auto-merge on · ${primary.method}${primary.actor ? ` · by ${primary.actor}` : ""}`;
     case "queued":
       return `In merge queue · ${primary.position}`;
     case "auto-merge":
-      return `Auto-merge (${primary.method})`;
+      return `Enable auto-merge · ${primary.method}`;
     case "auto-merge-ready":
-      return "Auto-merge when ready";
+      return `Enable auto-merge · ${primary.method}`;
     case "link":
       return "Link to merge";
     case "blocked":

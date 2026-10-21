@@ -1,4 +1,4 @@
-import { mergeGate } from "@ace/ui-core";
+import { ciLine, mergeGate, noAutoMerge } from "@ace/ui-core";
 import { openExternal } from "@/boot/open-external.ts";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { usePrLifecycle } from "./pr-lifecycle.ts";
@@ -43,6 +43,7 @@ export function usePrActions(props: {
     workspaceId,
     detail,
     threadId,
+    projectWrites: threadId === undefined && props.hostThreadId === undefined,
     writeDisabled: context.disabled,
     onRefresh,
   });
@@ -73,8 +74,7 @@ export function usePrActions(props: {
     mergeState: mergeState.state,
     method,
     linked: threadId !== undefined || projectMerge,
-    // Auto-merge is still a thread's write.
-    autoMerge: threadId !== undefined,
+    autoMerge: threadId !== undefined || projectMerge,
     blockers,
   });
   const host = props.hostThreadId;
@@ -86,8 +86,16 @@ export function usePrActions(props: {
       ? "Wait for GitHub to refresh"
       : undefined;
   // The work card asks the same gate, so both say the same thing about this PR.
+  const gate = mergeGate(status, detail.baseBranch);
+  // Waiting on checks is what auto-merge is for: where GitHub won't arm it, say so instead.
+  const noAuto =
+    gate !== undefined &&
+    ciLine(status).tone === "pending" &&
+    mergeState.state !== undefined &&
+    !mergeState.state.canEnable &&
+    !mergeState.state.autoMerge;
   const mergeBlocked =
-    mergeGate(status, detail.baseBranch) ??
+    (noAuto ? `Checks are still running. ${noAutoMerge}` : gate) ??
     membership.mergeBlocker ??
     linkReason ??
     fenceReason ??

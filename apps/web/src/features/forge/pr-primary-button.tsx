@@ -75,6 +75,10 @@ export function PrPrimaryButton(props: {
   blocked: string | undefined;
   working: boolean;
   onRun(): void;
+  /** Turns auto-merge off while it is on; undefined when this view can't. */
+  onDisable?: (() => void) | undefined;
+  /** Why auto-merge can't be turned off now. */
+  disableBlocked?: string | undefined;
 }) {
   const [confirming, setConfirming] = useState(false);
   useEffect(() => {
@@ -85,7 +89,24 @@ export function PrPrimaryButton(props: {
   const { primary } = props;
   const text = prPrimaryLabel(primary);
   if (primary.kind === "none") return null;
-  if (primary.kind === "state" || primary.kind === "auto-merge-armed" || primary.kind === "queued")
+  if (primary.kind === "auto-merge-armed")
+    return (
+      <span className="inline-flex items-center gap-1">
+        <StateBadge primary={primary} text={text} />
+        {props.onDisable && (
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={props.disableBlocked !== undefined || props.working}
+            title={props.disableBlocked}
+            onClick={props.onDisable}
+          >
+            Disable
+          </Button>
+        )}
+      </span>
+    );
+  if (primary.kind === "state" || primary.kind === "queued")
     return <StateBadge primary={primary} text={text} />;
   const twoPress =
     primary.kind === "merge" ||

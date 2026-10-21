@@ -53,6 +53,36 @@ export class FakePrCatalog {
     this.fixtures = this.fixtures.map((entry) => (entry === fixture ? merged : entry));
     return { ok: true, pr: payload.pr, prStatus: merged.detail.status };
   }
+  /**
+   * `forge.hosted.merge-state` on a catalog PR: auto-merge on where GitHub allows it (as "you",
+   * the signed-in account) and off again, pinned to the head the person saw.
+   */
+  mergeState(payload: CommandPayload): Omit<CommandResult, "commandId"> | undefined {
+    if (payload.type !== "forge.hosted.merge-state") return undefined;
+    const fixture = this.find(payload.pr);
+    const state = fixture?.mergeState;
+    if (!fixture || !state) return { ok: false, error: "forge_not_found" };
+    if (state.headSha !== payload.headSha) return { ok: false, error: "forge_conflict" };
+    if (payload.action === "enable" ? !state.canEnable : !state.canDisable)
+      return { ok: false, error: "forge_forbidden" };
+    const next = {
+      ...state,
+      autoMerge:
+        payload.action === "enable"
+          ? {
+              method: payload.method.toUpperCase(),
+              actor: "you",
+              enabledAt: new Date(0).toISOString(),
+            }
+          : null,
+      canEnable: payload.action === "disable",
+      canDisable: payload.action === "enable",
+    };
+    this.fixtures = this.fixtures.map((entry) =>
+      entry === fixture ? { ...fixture, mergeState: next } : entry,
+    );
+    return { ok: true, pr: payload.pr, prStatus: { ...fixture.detail.status, mergeState: next } };
+  }
   read(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
     if (op.op === "forge.pr.list") return catalogPrList(op, this.fixtures);
     if (op.op === "forge.pr.stack-memberships") {
