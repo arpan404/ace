@@ -41,7 +41,7 @@ const lines = [
   "            return UIColor(red: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255, blue: CGFloat(value & 255) / 255, alpha: 1)",
   "        })",
   "    }",
-  "    /// Token defaults for the editable palette keys. CustomThemeView falls back to these.",
+  "    /// Token defaults for the editable palette keys, which a saved palette overrides.",
   "    /// Widget extensions never register a model and keep these shared defaults.",
   "    static let paletteDefaults: [String: NativePalette.Pair] = [",
   ...editableColours.map(

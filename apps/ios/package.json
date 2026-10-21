@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "bundle": "bun build bridge/main.ts --target browser --format iife --outfile Resources/client.js",
-    "generate": "bun run theme && bun run bundle && bun run bundle:tests && /opt/homebrew/bin/xcodegen generate",
+    "generate": "bun run theme && bun run marks && bun run bundle && bun run bundle:tests && /opt/homebrew/bin/xcodegen generate",
     "spike:daemon": "bun scripts/spike-daemon.ts",
     "e2e:pairing": "bun scripts/pairing-e2e.ts",
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "theme": "bun scripts/generate-theme.ts",
+    "marks": "bun scripts/generate-provider-marks.ts",
     "theme:check": "bun scripts/generate-theme.ts --check",
     "bundle:tests": "bun build bridge-tests/delivery.ts --target browser --format iife --outfile .build/bridge-tests.js"
   },

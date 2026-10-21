@@ -1,61 +1,46 @@
 import SwiftUI
 
-/// Archived threads, one machine at a time (the web's Archived screen): most recently archived
-/// first, 20 per page from the SDK's archive window. A thread opens read-only; Unarchive returns
-/// it to the inbox. The sheet follows the archive only while it shows that machine.
-struct ArchiveSheet: View {
+/// Settings › Archived: archived threads, one machine at a time (the web's Archived screen): most
+/// recently archived first, 20 per page from the SDK's archive window. A thread opens read-only
+/// in Settings' stack; Unarchive returns it to the inbox. Settings closes the window it follows
+/// once the archive and its threads are gone.
+struct ArchiveView: View {
     let inbox: MachineInbox
+    /// The machine whose archive window is open; Settings owns it so an open thread keeps it.
+    @Binding var following: String?
+    let open: (_ machine: String, _ id: String) -> Void
     @State private var machineId: String
-    @State private var path: [String] = []
-    @State private var following: String?
-    @Environment(\.dismiss) private var dismiss
 
-    init(inbox: MachineInbox, machineId: String) {
+    init(inbox: MachineInbox, following: Binding<String?>, open: @escaping (_ machine: String, _ id: String) -> Void) {
         self.inbox = inbox
-        _machineId = State(initialValue: machineId)
+        _following = following
+        self.open = open
+        _machineId = State(initialValue: following.wrappedValue ?? inbox.sessions.first?.hostId ?? "")
     }
     private var client: ClientModel? { inbox.client(machineId) }
 
     var body: some View {
-        NavigationStack(path: $path) {
-            List {
-                if inbox.sessions.count > 1 {
-                    Picker("Machine", selection: $machineId) {
-                        ForEach(inbox.sessions) { session in Text(inbox.name(session.hostId)).tag(session.hostId) }
-                    }
-                    .accessibilityIdentifier("archive.machine")
+        List {
+            if inbox.sessions.count > 1 {
+                Picker("Machine", selection: $machineId) {
+                    ForEach(inbox.sessions) { session in Text(inbox.name(session.hostId)).tag(session.hostId) }
                 }
-                if let client { ArchiveRows(client: client, open: open) }
+                .accessibilityIdentifier("archive.machine")
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(AceTheme.Colours.background)
-            .navigationTitle("Archived").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-            .navigationDestination(for: String.self) { id in
-                if let client, let thread = client.thread, thread.id == id {
-                    ThreadView(model: client, thread: thread) { child in client.open(child); path.append(child) }
-                }
-            }
-            .onChange(of: path) { old, new in
-                if !old.isEmpty && new.isEmpty { client?.back() }
-                else if new.count < old.count, let parent = new.last { client?.open(parent) }
-            }
+            if let client { ArchiveRows(client: client) { open(machineId, $0) } }
         }
-        .tint(AceTheme.Colours.foreground)
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(AceTheme.Colours.background)
+        .navigationTitle("Archived").navigationBarTitleDisplayMode(.inline)
         .task(id: machineId) { follow(machineId) }
-        .onDisappear { follow(nil) }
     }
     /// Only one machine's archive window is open at a time; the others stay on their home window.
-    private func follow(_ hostId: String?) {
+    private func follow(_ hostId: String) {
         guard following != hostId else { return }
         if let following { inbox.client(following)?.closeArchive() }
         following = hostId
-        if let hostId { inbox.client(hostId)?.openArchive() }
-    }
-    private func open(_ id: String) {
-        guard let client else { return }
-        client.open(id); path = [id]
+        inbox.client(hostId)?.openArchive()
     }
 }
 

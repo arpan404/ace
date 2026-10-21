@@ -5,7 +5,6 @@ struct RootView: View {
     @Bindable var machines: MachinesModel
     @Bindable var lock: AppLock
     @Environment(\.scenePhase) private var phase
-    @State private var adding = false
 
     var body: some View {
         ZStack {
@@ -36,13 +35,7 @@ struct RootView: View {
                 }
             }
         } else {
-            InboxView(inbox: machines.inbox, machines: machines, addMachine: { adding = true }, lock: lock)
-                .sheet(isPresented: $adding) {
-                    NavigationStack {
-                        PairingView(machines: machines) { adding = false }
-                            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { adding = false } } }
-                    }
-                }
+            InboxView(inbox: machines.inbox, machines: machines, lock: lock)
         }
     }
 }

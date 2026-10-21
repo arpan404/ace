@@ -7,21 +7,16 @@ struct InboxView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @Bindable var inbox: MachineInbox
-    /// Rename, remove and pairing for the Machines sheet; nil for the debug fixture.
+    /// Rename, remove and pairing for Settings › Machines; nil for the debug fixture.
     var machines: MachinesModel?
-    var addMachine: () -> Void = {}
-    /// Settings › App lock; nil where the app has no lock (the debug fixture).
+    /// Settings › Face ID; nil where the app has no lock (the debug fixture).
     var lock: AppLock?
     @State private var path: [String] = []
     /// The machine whose thread is open: the whole navigation stack routes to its runtime.
     @State private var openMachine: String?
     @State private var projectFilter = ""
     @State private var showingSearch = false
-    @State private var showingLibrary = false
-    @State private var libraryDestination: String?
-    @State private var showingMachines = false
     @State private var showingSettings = false
-    @State private var archiveMachine: String?
     @State private var showSettled = false
     @State private var snoozing: InboxKey?
     @State private var archived: (key: InboxKey, title: String)?
@@ -86,12 +81,6 @@ struct InboxView: View {
                         .listRowSeparator(.hidden).accessibilityIdentifier("inbox.more")
                 }
                 emptyState.listRowSeparator(.hidden)
-                if inbox.anyLoaded {
-                    Button("Archived threads") { archiveMachine = inbox.sessions.first?.hostId }
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .frame(minHeight: AceTheme.Dimensions.touchTarget)
-                        .listRowSeparator(.hidden).accessibilityIdentifier("inbox.archive")
-                }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -106,30 +95,7 @@ struct InboxView: View {
                 }
             }
             .sheet(isPresented: $showingSearch) { ConversationSearchSheet(inbox: inbox) }
-            .sheet(isPresented: $showingLibrary, onDismiss: {
-                switch libraryDestination {
-                case "settings": showingSettings = true
-                case "machines": showingMachines = true
-                case "archive": archiveMachine = inbox.sessions.first?.hostId
-                default: break
-                }
-                libraryDestination = nil
-            }) {
-                LibrarySheet(inbox: inbox, openSettings: { libraryDestination = "settings"; showingLibrary = false },
-                             openMachines: { libraryDestination = "machines"; showingLibrary = false },
-                             openArchive: { libraryDestination = "archive"; showingLibrary = false })
-            }
-            .sheet(isPresented: $showingMachines) {
-                MachinesSheet(inbox: inbox, machines: machines) { showingMachines = false; addMachine() }
-            }
-            .sheet(isPresented: $showingSettings) {
-                SettingsSheet(inbox: inbox, machines: machines, lock: lock,
-                              openMachines: { showingMachines = true },
-                              openArchive: { archiveMachine = inbox.sessions.first?.hostId })
-            }
-            .sheet(item: Binding(get: { archiveMachine.map(ArchiveTarget.init) }, set: { archiveMachine = $0?.id })) { target in
-                ArchiveSheet(inbox: inbox, machineId: target.id)
-            }
+            .sheet(isPresented: $showingSettings) { SettingsSheet(inbox: inbox, machines: machines, lock: lock) }
             .confirmationDialog("Snooze until", isPresented: Binding(get: { snoozing != nil }, set: { if !$0 { snoozing = nil } }), presenting: snoozing) { key in
                 ForEach(merged.snooze) { option in
                     Button(option.label) { Task { _ = await inbox.client(key.machineId)?.snooze(key.id, preset: option.id) } }
@@ -266,8 +232,8 @@ struct InboxView: View {
         // trailing icons keep the emphasis.
         wordmarkItem
         ToolbarItem(placement: .topBarTrailing) {
-            Button { showingLibrary = true } label: { Image(systemName: "sidebar.left") }
-                .accessibilityLabel("Browse ace").accessibilityIdentifier("inbox.library")
+            Button { showingSettings = true } label: { Image(systemName: "gearshape") }
+                .accessibilityLabel("Settings").accessibilityIdentifier("inbox.settings")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button { showingSearch = true } label: { Image(systemName: "magnifyingglass") }
@@ -312,6 +278,3 @@ struct InboxView: View {
         for _ in 0..<20 where waiting.contains(where: { $0.client.connection != "ready" }) { try? await Task.sleep(for: .milliseconds(100)) }
     }
 }
-
-/// The machine the archive sheet opens on.
-private struct ArchiveTarget: Identifiable { let id: String }
