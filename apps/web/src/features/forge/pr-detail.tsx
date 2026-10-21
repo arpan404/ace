@@ -35,7 +35,8 @@ import { usePrActions } from "./pr-actions.ts";
 import { PrOverflowMenu } from "./pr-overflow-menu.tsx";
 import { PrDialogs, type PrDialog } from "./pr-dialogs.tsx";
 import { PrWriteStatus } from "./pr-write-status.tsx";
-import { PrFailure, PrGhost } from "./pr-detail-states.tsx";
+import { PrFailure } from "./pr-detail-states.tsx";
+import { PrPageSkeleton, type PrSeed } from "./pr-page-skeleton.tsx";
 import { PrGatesRow } from "./pr-gates-row.tsx";
 import { prShortcut } from "./pr-shortcuts.ts";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -442,6 +443,8 @@ export function PrDetail(props: {
   number: number;
   /** The state the tab last saw, so the loading outline shows the number in its colour. */
   state?: ForgePrStatus["state"] | undefined;
+  /** What a list row already says about the PR, shown for real while it loads. */
+  seed?: PrSeed | undefined;
   tab: string;
   onTab(tab: string): void;
   onState?: ((state: ForgePrStatus["state"]) => void) | undefined;
@@ -542,7 +545,12 @@ export function PrDetail(props: {
           onRetry={() => void query.refetch()}
         />
       ) : (
-        <PrGhost repository={props.repository} number={props.number} state={props.state} />
+        <PrPageSkeleton
+          number={props.number}
+          seed={props.seed}
+          onBack={props.page ? props.onBack : undefined}
+          readable={props.page ? pageWidth : undefined}
+        />
       )}
     </article>
   );

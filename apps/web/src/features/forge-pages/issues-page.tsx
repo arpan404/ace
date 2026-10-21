@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { WordChoice } from "@/components/ui/word-choice.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { cn } from "@/lib/cn.ts";
@@ -20,6 +19,7 @@ import {
   type IssuesSort,
 } from "./issues-model.ts";
 import { useLinkedThreads, workKey } from "./linked-threads.ts";
+import { RowsSkeleton } from "./list-skeletons.tsx";
 import { ListFrame, ToolbarRule } from "./list-frame.tsx";
 import { useGroupCounts, useIssuePages } from "./lists.ts";
 import { useProjectChoice } from "./project-choice.ts";
@@ -184,7 +184,7 @@ export function IssuesPage(props: {
           }
         />
       ) : list.loading ? (
-        <ListSkeleton label="issues" shape="row" rows={8} className="px-(--forge-gutter)" />
+        <RowsSkeleton kind="issues" />
       ) : !list.rows.length ? (
         <EmptyState title="No issues match" />
       ) : (

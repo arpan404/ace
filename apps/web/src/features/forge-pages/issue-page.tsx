@@ -1,11 +1,11 @@
 import { ArrowSquareOutIcon, ChatsCircleIcon, CopyIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import type { ForgeIssueDetail } from "@ace/protocol";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { SkeletonText } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { openExternal } from "@/boot/open-external.ts";
 import { RelativeTime as PrTime } from "@/components/person-avatar.tsx";
@@ -14,8 +14,9 @@ import { useBackToList } from "./back-to-list.ts";
 import { IssueActionsStrip } from "./issue-actions-strip.tsx";
 import { IssueComposer } from "./issue-composer.tsx";
 import { IssueTimeline } from "./issue-timeline.tsx";
+import { IssuePageSkeleton } from "./issue-skeletons.tsx";
 import { useIssueWrites } from "./issue-writes.ts";
-import { useIssueDetail } from "./lists.ts";
+import { cachedRow, useIssueDetail } from "./lists.ts";
 import { LabelPill, StateBadge } from "@/components/forge-marks.tsx";
 import { WorkHeading, WorkTitle } from "@/components/work-heading.tsx";
 import { Avatars } from "./marks.tsx";
@@ -146,6 +147,7 @@ export function IssuePage(props: {
   const choice = useProjectChoice(props.project);
   const back = useBackToList("/issues", props.project, props.back);
   const query = useIssueDetail(props.project, props.number);
+  const cache = useQueryClient();
   const issue = query.data;
   return (
     <Screen title={`#${props.number}`} crumb={choice.name(props.project)}>
@@ -163,9 +165,12 @@ export function IssuePage(props: {
             }
           />
         ) : (
-          <div className={`${readable} pt-6`}>
-            <SkeletonText lines={4} />
-          </div>
+          <IssuePageSkeleton
+            number={props.number}
+            seed={cachedRow(cache, props.project, "issueList", props.number)}
+            onBack={back}
+            readable={readable}
+          />
         )}
       </article>
     </Screen>

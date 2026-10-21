@@ -17,12 +17,12 @@ import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { WordChoice } from "@/components/ui/word-choice.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { FiltersMenu, type FilterSection } from "./filters-menu.tsx";
 import { useLinkedThreads, workKey } from "./linked-threads.ts";
+import { RowsSkeleton } from "./list-skeletons.tsx";
 import { ListFrame, ToolbarRule } from "./list-frame.tsx";
 import { useGroupCounts, usePrPages } from "./lists.ts";
 import { PrRow } from "./pr-row.tsx";
@@ -299,7 +299,7 @@ export function PullRequestsPage(props: {
           }
         />
       ) : list.loading ? (
-        <ListSkeleton label="pull requests" shape="row" rows={8} className="px-(--forge-gutter)" />
+        <RowsSkeleton kind="pulls" />
       ) : !list.rows.length ? (
         <EmptyState title="No pull requests match" />
       ) : (
