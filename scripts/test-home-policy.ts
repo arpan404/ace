@@ -69,6 +69,7 @@ export function isolatedTestEnvironment(
     // This one lets the computer engine operate Calculator, and only Calculator.
     ...(ambient.ACE_COMPUTER_LIVE === "1" ? { ACE_COMPUTER_LIVE: "1" } : {}),
     ...(ambient.ACE_DEVICE_LIVE === "1" ? { ACE_DEVICE_LIVE: "1" } : {}),
+    ...linuxDesktopSession(ambient),
     // `bun run eval:mcp` names where the MCP eval harness writes its report.
     ...(ambient.ACE_EVAL_REPORT !== undefined ? { ACE_EVAL_REPORT: ambient.ACE_EVAL_REPORT } : {}),
     ...(ambient.ACE_EVAL_LABEL !== undefined ? { ACE_EVAL_LABEL: ambient.ACE_EVAL_LABEL } : {}),
@@ -91,6 +92,29 @@ export function isolatedTestEnvironment(
       : {}),
     PLAYWRIGHT_BROWSERS_PATH: ambient.PLAYWRIGHT_BROWSERS_PATH ?? playwrightCache(realHome),
   };
+}
+
+/**
+ * The Linux desktop end-to-end suite (`ACE_LINUX_DESKTOP_E2E`) drives a throwaway desktop the
+ * runner script started, never the person's own. Its helper must reach that session: the
+ * runtime directory holding the Wayland socket and PipeWire, the system data directories with
+ * the apps' desktop files, and the session type. Writable XDG homes stay isolated.
+ */
+function linuxDesktopSession(ambient: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const session = ambient.ACE_LINUX_DESKTOP_E2E;
+  if (!session) return {};
+  const kept: NodeJS.ProcessEnv = { ACE_LINUX_DESKTOP_E2E: session };
+  for (const key of [
+    "ACE_SCREEN_HELPER",
+    "XDG_RUNTIME_DIR",
+    "XDG_DATA_DIRS",
+    "XDG_SESSION_TYPE",
+    "XDG_CURRENT_DESKTOP",
+  ] as const) {
+    const value = ambient[key];
+    if (value !== undefined) kept[key] = value;
+  }
+  return kept;
 }
 
 /** Where Playwright installs its browsers for the real user (its documented default). */
