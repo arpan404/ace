@@ -7,29 +7,57 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { pageTitle, searchSettings } from "./settings-index.ts";
-import { visibleSettingsPages, type SettingsPath } from "./settings-pages.ts";
-
-/** The nav entry a page belongs to: itself, or the page it's a sub-page of. */
-function navPage(pathname: string): string {
-  if (pathname.startsWith("/settings/providers/")) return "/settings/providers";
-  return pathname;
-}
+import {
+  settingsGroupTitles,
+  settingsPageOf,
+  visibleSettingsPages,
+  type SettingsGroup,
+  type SettingsPage,
+  type SettingsPath,
+} from "./settings-pages.ts";
 
 const rowClass =
   "group flex h-8 items-center gap-2.5 rounded-md px-2.5 text-ui text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-ring-inset";
 
-/** Settings' pages as links; the current one is marked. Also the phone's Settings page. */
+const groupOrder: readonly SettingsGroup[] = ["overview", "device", "machine", "network"];
+
+/**
+ * Settings' pages as links, grouped by where their settings live; the current one is marked.
+ * Also the phone's Settings page.
+ */
 export function SettingsPageLinks(props: { pages?: readonly SettingsPath[] }) {
   const pathname = useLocation({ select: (location) => location.pathname });
-  const current = navPage(pathname);
-  const listKeys = useViewListKeys<HTMLUListElement>();
+  const current = settingsPageOf(pathname)?.to;
+  const listKeys = useViewListKeys<HTMLDivElement>();
   const pages = props.pages
     ? visibleSettingsPages().filter((page) => props.pages?.includes(page.to))
     : visibleSettingsPages();
   return (
-    <ul className="flex flex-col gap-px" {...listKeys}>
-      {pages.map((page) => {
-        const active = current === page.to;
+    <div className="flex flex-col gap-4" {...listKeys}>
+      {groupOrder.map((group) => {
+        const inGroup = pages.filter((page) => page.group === group);
+        if (!inGroup.length) return null;
+        const title = group === "overview" ? undefined : settingsGroupTitles[group];
+        return (
+          <section key={group} aria-label={title ?? "Overview"}>
+            {title && (
+              <h3 className="flex h-6 items-center px-2.5 text-2xs font-medium tracking-[0.04em] text-subtle-foreground uppercase">
+                {title}
+              </h3>
+            )}
+            <PageList pages={inGroup} current={current} />
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function PageList(props: { pages: readonly SettingsPage[]; current: string | undefined }) {
+  return (
+    <ul className="flex flex-col gap-px">
+      {props.pages.map((page) => {
+        const active = props.current === page.to;
         return (
           <li key={page.to}>
             <Link
@@ -38,7 +66,15 @@ export function SettingsPageLinks(props: { pages?: readonly SettingsPath[] }) {
               aria-current={active ? "page" : undefined}
               className={cn(rowClass, active && "bg-sidebar-accent font-medium text-foreground")}
             >
-              <Icon icon={page.icon} active={active} />
+              {/* Icons stay outlined: the row's fill and text say which page is open. */}
+              <Icon
+                icon={page.icon}
+                className={
+                  active
+                    ? "text-foreground"
+                    : "text-subtle-foreground group-hover:text-muted-foreground"
+                }
+              />
               {page.title}
             </Link>
           </li>
@@ -85,7 +121,9 @@ export function SettingsNav() {
       </nav>
       {found.length > 0 && (
         <section aria-label="Matching settings" className="mt-4">
-          <h3 className="px-2.5 pb-1.5 text-sm font-medium text-muted-foreground">Settings</h3>
+          <h3 className="flex h-6 items-center px-2.5 text-2xs font-medium tracking-[0.04em] text-subtle-foreground uppercase">
+            Settings
+          </h3>
           <ul className="flex flex-col gap-px">
             {found.map((entry) => (
               <li key={entry.id}>

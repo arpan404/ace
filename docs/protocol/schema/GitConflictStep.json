@@ -1,0 +1,108 @@
+{
+  "$id": "https://ace.local/protocol/v1/GitConflictStep.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "action": {
+          "const": "start",
+          "type": "string"
+        },
+        "expectedHead": {
+          "pattern": "^[a-f0-9]{40,64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "expectedHead"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "abort",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "write",
+          "type": "string"
+        },
+        "content": {
+          "maxLength": 131072,
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string",
+          "x-ace-constraint": "Repository-relative path without NUL bytes."
+        },
+        "revision": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "path",
+        "content",
+        "revision"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "take",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string",
+          "x-ace-constraint": "Repository-relative path without NUL bytes."
+        },
+        "side": {
+          "enum": [
+            "ours",
+            "theirs"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "path",
+        "side"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "commit",
+          "type": "string"
+        },
+        "expectedHead": {
+          "pattern": "^[a-f0-9]{40,64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "expectedHead"
+      ],
+      "type": "object"
+    }
+  ]
+}

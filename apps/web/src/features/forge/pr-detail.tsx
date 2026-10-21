@@ -19,6 +19,7 @@ import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { prDetailKey, prDetailStaleMs, readPrDetail } from "@/lib/forge-pr-detail.ts";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrReviewWorkspace, usePrReview } from "./pr-review-context.tsx";
+import { PrSuggestionBatch } from "./pr-suggestions.tsx";
 import { usePrActions } from "./pr-actions.ts";
 import { PrOverflowMenu } from "./pr-overflow-menu.tsx";
 import { PrDialogs, type PrDialog } from "./pr-dialogs.tsx";
@@ -122,12 +123,13 @@ function PrDetailLoaded(props: {
 }) {
   const { context } = props;
   const { detail } = context;
+  const [dialog, setDialog] = useState<PrDialog>();
   const actions = usePrActions({
     context,
     extensions: props.extensions,
     hostThreadId: props.hostThreadId,
+    openConflicts: () => setDialog("conflicts"),
   });
-  const [dialog, setDialog] = useState<PrDialog>();
   const [behindOpen, setBehindOpen] = useState(false);
   const [revealChecks, setRevealChecks] = useState(0);
   const [codeFocus, setCodeFocus] = useState<{ path: string; seq: number }>();
@@ -188,7 +190,7 @@ function PrDetailLoaded(props: {
         ?.click();
   };
   const editable = !!actions.lifecycle.snapshot?.editableFields.length;
-  const canRequestReview = detail.status.state === "open" && actions.threadId !== undefined;
+  const canRequestReview = detail.status.state === "open";
   return (
     // Shortcuts work anywhere in the panel; `contents` keeps the layout the article's.
     <div role="presentation" className="contents" onKeyDown={onKeyDown}>
@@ -233,6 +235,7 @@ function PrDetailLoaded(props: {
               </p>
             )}
             <PrWriteStatus actions={actions} refreshing={props.refreshing} />
+            <PrSuggestionBatch />
           </>
         }
       >
@@ -302,7 +305,12 @@ function PrDetailLoaded(props: {
           }}
         />
         <PrComposer context={context} extensions={props.extensions} />
-        <PrDialogs actions={actions} open={dialog} onClose={() => setDialog(undefined)} />
+        <PrDialogs
+          actions={actions}
+          hostThreadId={props.hostThreadId}
+          open={dialog}
+          onClose={() => setDialog(undefined)}
+        />
       </PrReviewWorkspace>
     </div>
   );

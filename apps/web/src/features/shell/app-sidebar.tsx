@@ -7,6 +7,7 @@ import { useProjectDirectory } from "@/lib/projects.ts";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { AccountMenu } from "./account-menu.tsx";
+import { UpdateButton } from "./update-button.tsx";
 import { useViewFrame } from "./sidebar-frame.tsx";
 import { activeView } from "./views.ts";
 
@@ -39,7 +40,8 @@ function useBackToApp(section: boolean) {
 /**
  * The one sidebar. At the top, the ace wordmark and Search (a dialog over any screen); back,
  * forward and the sidebar's toggle sit in the header. Then the thread list (or the selected
- * section's list) as its only scrolling part, and at the foot the profile with the Settings gear.
+ * section's list) as its only scrolling part, and at the foot the profile with the Settings gear
+ * (and, beside it, the app's update when there is one to act on).
  * Settings, Automations and Skills hide app navigation and the profile, with a full-width Back
  * to app at the foot in its place.
  */
@@ -109,6 +111,7 @@ export function AppSidebar(props: {
         className={cn("shrink-0 items-center gap-1 p-2", section ? "hidden" : "flex")}
       >
         <AccountMenu />
+        <UpdateButton />
         <Tip label="Settings" shortcut="settings">
           <Link to="/settings" aria-label="Settings" className={cn(quick, "size-8")}>
             <Icon icon={GearSixIcon} />

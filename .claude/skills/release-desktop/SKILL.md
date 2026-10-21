@@ -24,60 +24,43 @@ Run from the main checkout (`~/Code/ace-next`). Every check passes before anythi
 4. `security find-identity -v -p codesigning` lists `Developer ID Application: $CSC_NAME`.
 5. `xcrun notarytool history --key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER"` exits 0.
 6. `uname -m` is `arm64`. The build targets the host only, so this release is Apple silicon only.
+7. Node 24.13.0 for the build: download `node-v24.13.0-darwin-arm64.tar.gz` from nodejs.org into a new temp directory and check it against the `darwin-arm64` hash in `tools/release/src/node-runtime.ts`. The daemon archives refuse any other Node.
 
 ## 2. Build
 
 ```sh
 bun install --frozen-lockfile
-unset ACE_VERSION
 set -a; source ~/.ace-release/release.env; set +a
-bun run desktop:package
+export ACE_RELEASE_PRIVATE_KEY_FILE=~/.ace-release/ace-key.pem
+PATH=<node 24.13.0>/bin:$PATH bun run release:doctor
+PATH=<node 24.13.0>/bin:$PATH bun run release:build <version> --with-daemon
 ```
 
-`unset ACE_VERSION` matters: a shell started by ace inherits `ACE_VERSION` from the running app, and the packager prefers it over `package.json`, so the build gets the old version's name.
+`release:doctor` lists every check; stop on any ✗. `release:build` packages, signs and notarizes the app, verifies it (`codesign`, `spctl`, `stapler`), builds and signs the daemon manifests for both macOS architectures, and stages everything with checksums under `dist/releases/v<version>`. It passes the version to the packager itself, so an `ACE_VERSION` inherited from a running ace does not leak in.
 
-It takes 10–20 minutes (notarization is most of it); run it in the background and wait for it to exit. Done when it exits 0 and `apps/desktop/dist/release/` holds `ace-<version>-arm64.dmg` and `ace-<version>-arm64-mac.zip`.
+It takes 10–20 minutes (notarization is most of it); run it in the background and wait for it to exit. Done when it exits 0 and `dist/releases/v<version>/` holds `ace-<version>-arm64.dmg`, `ace-<version>-arm64-mac.zip`, their blockmaps, `latest-mac.yml`, `darwin-arm64.json`/`.sig`, `darwin-x64.json`/`.sig` and both daemon archives.
 
-Then build and sign the update manifest the app's update check reads. It needs Node 24.13.0 exactly: download `node-v24.13.0-darwin-arm64.tar.gz` from nodejs.org into a new temp directory, check it against the `darwin-arm64` hash in `tools/release/src/node-runtime.ts`, and put its `bin` first on `PATH` for these two commands only.
+## 3. Notes
 
-```sh
-bun run --filter @ace/release build <version> darwin-arm64 "$ACE_RELEASE_PUBLIC_KEY_FILE"
-bun run --filter @ace/release sign tools/release/dist/darwin-arm64.json ~/.ace-release/ace-key.pem tools/release/dist/darwin-arm64.sig
-```
-
-Done when `tools/release/dist/` holds `darwin-arm64.json`, `darwin-arm64.sig` and the archive named in the manifest's `archive` field.
-
-## 3. Verify
-
-Against `apps/desktop/dist/release/mac-arm64/ace.app`:
-
-- `codesign --verify --deep --strict --verbose=2` passes.
-- `spctl -a -vv` prints `accepted` and `source=Notarized Developer ID`.
-- `xcrun stapler validate` passes.
-
-Done when all three pass. A failure stops the run with the output shown to the owner.
+Write `dist/releases/v<version>/notes.md`. The app shows these notes when it offers the update, so write them for users, in Markdown: a platform and install line, then `## New`, `## Improved` and `## Fixed`, covering the user-facing changes since the previous tag (merged PR titles from `git log --merges <previous-tag>..HEAD`). Leave out internal changes such as version bumps.
 
 ## 4. Draft release
 
 ```sh
-gh release create v<version> -R arpan404/ace --draft \
-  --title "ace <version>" --notes "<notes>" \
-  apps/desktop/dist/release/ace-<version>-arm64.dmg \
-  apps/desktop/dist/release/ace-<version>-arm64-mac.zip \
-  tools/release/dist/darwin-arm64.json tools/release/dist/darwin-arm64.sig \
-  tools/release/dist/<archive from the manifest>
+bun run release:publish <version> --draft --notes-file dist/releases/v<version>/notes.md
 ```
 
-Notes are what users read when the app offers the update, so write them for users, in Markdown: a platform and install line, then `## New`, `## Improved` and `## Fixed` sections covering the user-facing changes since the previous release tag (`git log --oneline <previous-tag>..HEAD`, merged PR titles). Done when `gh release view v<version>` shows `draft: true` with all five assets.
+It refuses files that changed since the build or a commit GitHub doesn't have, and uploads to a draft tagged at the built commit. Done when `gh release view v<version> -R arpan404/ace` shows `draft: true` with every staged file.
 
 ## 5. Publish
 
-Only with `publish` in the arguments or the owner's go-ahead in this conversation: `gh release edit v<version> -R arpan404/ace --draft=false`. Done when `gh release view` shows it published.
+Only with `publish` in the arguments or the owner's go-ahead in this conversation: `gh release edit v<version> -R arpan404/ace --draft=false --latest`. Done when `gh release view` shows it published and `gh api repos/arpan404/ace/releases/latest -q .tag_name` is `v<version>`.
 
 ## Report
 
-The release URL, draft or published, the two asset names and sizes, and the three verification results.
+The release URL, draft or published, the asset names and sizes, and the verification results from the build.
 
 ## Known limits
 
-- Intel and Linux builds need matching machines; this skill ships Apple silicon only.
+- Intel and Linux desktop builds need matching machines; this skill ships the Apple silicon app only.
+- Apps from 0.0.2 and earlier can't update in place; they show "is available" with Download, which opens the release page.

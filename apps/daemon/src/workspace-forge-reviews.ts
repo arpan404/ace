@@ -73,9 +73,17 @@ export class WorkspaceForgeReviews {
     const reads = [
       backend.reviews.host(pr.number, signal),
       backend.reviews.viewedNow(pr.number, signal),
+      backend.reviews.reactions(pr.number, signal),
     ] as const;
     await Promise.allSettled(reads);
     const host = await reads[0];
+    // Reactions are decoration: a failed read hides them and never fails the review state.
+    let reactions: ForgeReviewState["reactions"] = null;
+    try {
+      reactions = await reads[2];
+    } catch (error) {
+      if (signal.aborted) throw error;
+    }
     let viewed: ForgeReviewState["viewed"] = null;
     try {
       const current = await reads[1];
@@ -116,6 +124,7 @@ export class WorkspaceForgeReviews {
         .filter((t) => (t.isResolved ? t.viewerCanUnresolve : t.viewerCanResolve))
         .map((t) => t.id),
       operations,
+      reactions,
     };
   }
   #assertAvailable(pr: ForgePrRef, action: ForgeReviewAction) {

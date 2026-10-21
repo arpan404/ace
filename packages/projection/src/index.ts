@@ -12,7 +12,7 @@ export {
   visibleHistoryOrder,
 } from "./history-visibility.ts";
 export { isProviderRetryNotice } from "./retry-notice.ts";
-export { threadAttention } from "./thread-attention.ts";
+export { queueWakesSnooze, threadAttention } from "./thread-attention.ts";
 export { startsTurn, startedRunTurn, runTurn } from "./turn-boundary.ts";
 export { siteOrigin, toolSurface, toolSurfaces } from "./tool-surface.ts";
 export { withoutPortableHandoff } from "./portable-input.ts";

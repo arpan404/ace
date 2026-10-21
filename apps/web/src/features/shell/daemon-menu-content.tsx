@@ -36,7 +36,7 @@ export function DaemonMenuItems() {
       </MenuItem>
       <MenuItem
         icon={<PlugsIcon aria-hidden />}
-        onClick={() => void navigate({ to: "/settings/advanced" })}
+        onClick={() => void navigate({ to: "/settings/general", hash: "daemon.connection" })}
       >
         Connection settings
       </MenuItem>

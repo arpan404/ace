@@ -13,20 +13,34 @@ async function goTo(page: string) {
   );
 }
 
+/** Press one segment of a segmented control. */
+async function press(control: string, option: string) {
+  const group = await screen.findByRole("group", { name: control });
+  await userEvent.click(within(group).getByRole("button", { name: option }));
+}
+
+/** The pressed segment of a segmented control. */
+async function pressed(control: string) {
+  const group = await screen.findByRole("group", { name: control });
+  return within(group)
+    .getAllByRole("button")
+    .find((button) => button.getAttribute("aria-pressed") === "true")?.textContent;
+}
+
 async function pick(select: string, option: string) {
   await userEvent.click(await screen.findByRole("combobox", { name: select }));
   await userEvent.click(await screen.findByRole("option", { name: option }));
 }
 
-test("a switched-off General setting stays off after leaving the page and coming back", async () => {
-  await harness().open("/settings/general");
+test("a switched-off agent setting stays off after leaving the page and coming back", async () => {
+  await harness().open("/settings/agents");
   const worktree = await screen.findByRole("switch", { name: "New threads use a worktree" });
   expect(worktree.getAttribute("aria-checked")).toBe("true");
   await userEvent.click(worktree);
 
   await goTo("Keyboard");
   await screen.findByRole("heading", { level: 2, name: "Keyboard" });
-  await goTo("General");
+  await goTo("Agents");
   expect(
     (await screen.findByRole("switch", { name: "New threads use a worktree" })).getAttribute(
       "aria-checked",
@@ -34,15 +48,15 @@ test("a switched-off General setting stays off after leaving the page and coming
   ).toBe("false");
 });
 
-test("the switch preservation setting persists after leaving General", async () => {
+test("the switch preservation setting persists after leaving Agents", async () => {
   const app = harness();
-  await app.open("/settings/general");
+  await app.open("/settings/agents");
   const toggle = await screen.findByRole("switch", { name: "Fork when switching providers" });
   expect(toggle.getAttribute("aria-checked")).toBe("false");
   await userEvent.click(toggle);
   await waitFor(() => expect(app.daemon.services.settings.get("threads.forkOnSwitch")).toBe(true));
   await goTo("Keyboard");
-  await goTo("General");
+  await goTo("Agents");
   expect(
     (await screen.findByRole("switch", { name: "Fork when switching providers" })).getAttribute(
       "aria-checked",
@@ -52,24 +66,21 @@ test("the switch preservation setting persists after leaving General", async () 
 
 test("follow-ups are stored on the daemon and nothing offers to continue work after a restart", async () => {
   const app = harness();
-  await app.open("/settings/general");
-  await pick("Messages sent while the agent works", "Steer");
+  await app.open("/settings/agents");
+  await press("Messages sent while the agent works", "Steer");
   expect(screen.queryByRole("switch", { name: /after a restart/i })).toBeNull();
   await waitFor(() => {
     expect(app.daemon.services.settings.get("threads.followUpBehavior")).toBe("steer");
   });
 
   await goTo("Keyboard");
-  await goTo("General");
-  expect(
-    (await screen.findByRole("combobox", { name: "Messages sent while the agent works" }))
-      .textContent,
-  ).toContain("Steer");
+  await goTo("Agents");
+  expect(await pressed("Messages sent while the agent works")).toBe("Steer");
 });
 
-test("when done threads settle is set in General and stored on the daemon", async () => {
+test("when done threads settle is set in Agents and stored on the daemon", async () => {
   const app = harness();
-  await app.open("/settings/general");
+  await app.open("/settings/agents");
   expect(await screen.findByText(/Threads that need you never settle/)).toBeTruthy();
   await pick("Settle done threads", "After a week");
   await waitFor(() =>
@@ -82,7 +93,7 @@ test("when done threads settle is set in General and stored on the daemon", asyn
 });
 
 test("the default provider lists the installed CLIs and remembers the choice", async () => {
-  await harness().open("/settings/general");
+  await harness().open("/settings/agents");
   const select = await screen.findByRole("combobox", { name: "Default provider for new threads" });
   await waitFor(() => expect(select.textContent).toContain("Claude Code"));
   await userEvent.click(select);
@@ -94,7 +105,7 @@ test("the default provider lists the installed CLIs and remembers the choice", a
   await userEvent.click(screen.getByRole("option", { name: "Codex" }));
 
   await goTo("Keyboard");
-  await goTo("General");
+  await goTo("Agents");
   await waitFor(() =>
     expect(
       screen.getByRole("combobox", { name: "Default provider for new threads" }).textContent,
@@ -103,29 +114,23 @@ test("the default provider lists the installed CLIs and remembers the choice", a
 });
 
 test("Reset restores the follow-up behavior on every device", async () => {
-  await harness().open("/settings/general");
+  await harness().open("/settings/agents");
   const section = await screen.findByRole("region", { name: "While agents work" });
   expect(within(section).queryByText("All devices")).toBeNull();
-  await pick("Messages sent while the agent works", "Steer");
-  expect(
-    screen.getByRole("combobox", { name: "Messages sent while the agent works" }).textContent,
-  ).toContain("Steer");
+  await press("Messages sent while the agent works", "Steer");
+  expect(await pressed("Messages sent while the agent works")).toBe("Steer");
 
   await goTo("Advanced");
   await userEvent.click(await screen.findByRole("button", { name: "Reset" }));
   const dialog = await screen.findByRole("dialog", { name: "Reset all settings?" });
-  expect(
-    within(dialog).getByText(/Appearance, themes and this computer's notifications stay/),
-  ).toBeTruthy();
+  expect(within(dialog).getByText(/Appearance, themes and notifications stay/)).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: "Reset settings" }));
   await waitFor(() =>
     expect(screen.queryByRole("dialog", { name: "Reset all settings?" })).toBeNull(),
   );
-  await goTo("General");
-  await waitFor(() =>
-    expect(
-      screen.getByRole("combobox", { name: "Messages sent while the agent works" }).textContent,
-    ).toContain("Queue"),
+  await goTo("Agents");
+  await waitFor(async () =>
+    expect(await pressed("Messages sent while the agent works")).toBe("Queue"),
   );
 });
 
@@ -142,7 +147,7 @@ test("a reset the daemon refuses keeps the dialog open and says why", async () =
 
 test("a save the daemon can't take goes back and says so, with Retry", async () => {
   const app = harness();
-  await app.open("/settings/general");
+  await app.open("/settings/agents");
   const worktree = await screen.findByRole("switch", { name: "New threads use a worktree" });
   app.daemon.failRequests("settings.set");
   await userEvent.click(worktree);
@@ -159,7 +164,7 @@ test("a save the daemon can't take goes back and says so, with Retry", async () 
 
 test("offline, daemon settings are disabled and say why; this device's stay editable", async () => {
   const app = harness();
-  await app.open("/settings/general");
+  await app.open("/settings/agents");
   const worktree = await screen.findByRole("switch", { name: "New threads use a worktree" });
   app.daemon.refuseConnections(true);
   app.daemon.disconnectAll();
@@ -173,9 +178,10 @@ test("offline, daemon settings are disabled and say why; this device's stay edit
   const wrapper = worktree.parentElement;
   await userEvent.hover(wrapper ?? worktree);
   expect(await screen.findByText("Reconnect to change settings stored on ace")).toBeTruthy();
-  expect((screen.getByRole("textbox", { name: "Your name" }) as HTMLInputElement).disabled).toBe(
-    false,
-  );
+  await goTo("General");
+  expect(
+    ((await screen.findByRole("textbox", { name: "Your name" })) as HTMLInputElement).disabled,
+  ).toBe(false);
 });
 
 test("searching Settings finds a single setting and opens its page at that row", async () => {
@@ -224,8 +230,8 @@ test("web offers in-app notifications in settings and search while hiding deskto
   expect(await screen.findByRole("heading", { level: 2, name: "Notifications" })).toBeTruthy();
   const nav = within(screen.getByRole("navigation", { name: "Settings pages" }));
   expect(nav.getByRole("link", { name: "Notifications" })).toBeTruthy();
-  expect(screen.queryByRole("region", { name: "Notifications on this computer" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Desktop notifications" })).toBeNull();
   await userEvent.type(screen.getByRole("searchbox", { name: "Search settings" }), "notifications");
   expect(await nav.findByRole("link", { name: "Notifications" })).toBeTruthy();
-  expect(screen.queryByRole("link", { name: "Notifications on this computer" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Desktop notifications" })).toBeNull();
 });

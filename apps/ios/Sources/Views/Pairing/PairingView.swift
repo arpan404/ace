@@ -17,7 +17,7 @@ struct PairingView: View {
                 Button { scanning = true } label: { Label("Scan pairing QR code", systemImage: "qrcode.viewfinder") }
                     .accessibilityIdentifier("pairing.scan")
             } footer: {
-                Text("On your computer, run `ace pair` or open Settings > Remote devices and create a pairing link.")
+                Text("On your computer, run `ace pair` or open Settings › Machines and devices and create a pairing link.")
             }
             Section("Or paste the link") {
                 TextField("https://…/pair#…", text: $pasted, axis: .vertical)

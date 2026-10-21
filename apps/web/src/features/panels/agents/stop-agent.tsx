@@ -3,8 +3,9 @@ import { ThreadId } from "@ace/protocol";
 import { useStopIntent } from "./use-stop-intent.ts";
 import { agentName, isRunning } from "@ace/ui-core";
 import { StopIcon } from "@phosphor-icons/react";
-import { Suspense, useEffect, useState, type KeyboardEvent } from "react";
+import { Suspense, useEffect, useEffectEvent, useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
+import { useToast } from "@/components/ui/toast.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { whenIdle } from "@/lib/idle.ts";
@@ -33,9 +34,23 @@ export function StopAgent(props: {
   className?: string;
   /** In the tree: reached with Delete or S rather than Tab. */
   inTree?: boolean;
+  /**
+   * Where a refused Stop says so: beside the button (default), or as a toast where the button
+   * sits in a fixed bar that has no room for a sentence (a subagent's status bar).
+   */
+  feedback?: "inline" | "toast";
   onKeyDown?(event: KeyboardEvent<HTMLButtonElement>): void;
 }) {
   const stop = useStopIntent();
+  const toast = useToast();
+  const toasts = props.feedback === "toast";
+  // Once per refusal, when it happens: the next press clears it.
+  const refused = useEffectEvent(() =>
+    toast.error({ title: "Couldn't stop this agent", description: "Try again." }),
+  );
+  useEffect(() => {
+    if (toasts && stop.failed) refused();
+  }, [toasts, stop.failed]);
   const [asking, setAsking] = useState(false);
   // Set by the first press; from then on the dialog stays mounted, closed or open.
   const [armed, setArmed] = useState(false);
@@ -78,7 +93,7 @@ export function StopAgent(props: {
   const stopButton = <Tip label={label}>{button}</Tip>;
   return (
     <>
-      {stop.failed && (
+      {stop.failed && !toasts && (
         <span
           role="alert"
           className={

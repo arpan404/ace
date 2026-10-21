@@ -129,27 +129,42 @@ test("a file page reads its merge base beside the files and checks the head once
   expect(paths.at(-1)).toBe("repos/octo/ace/pulls/7");
 });
 
-test("commit statistics are read beside the head check that proves the list current", async () => {
+test("a commit page, its statistics and the head that proves it current come in one request", async () => {
+  const node = {
+    commit: {
+      oid: sha,
+      message: "Fix",
+      url: pr.html_url,
+      additions: 4,
+      deletions: 2,
+      author: { name: "Octo", date: "2026-10-01", user: { login: "octo" } },
+    },
+  };
   const gh = await setup({
-    "repos/octo/ace/pulls/7": [{ body: detailPr, barrier: "head" }],
-    "repos/octo/ace/pulls/7/commits?per_page=25&page=1": [
+    "graphql:query PrCommits(": [
       {
-        body: [
-          {
-            sha,
-            html_url: pr.html_url,
-            author: { login: "octo" },
-            commit: { message: "Fix", author: { name: "Octo", date: "2026-10-01" } },
+        body: {
+          data: {
+            repository: {
+              pullRequest: {
+                headRefOid: sha,
+                baseRefOid: nextSha,
+                commits: {
+                  totalCount: 1,
+                  pageInfo: { hasPreviousPage: false, startCursor: null },
+                  nodes: [node],
+                },
+              },
+            },
           },
-        ],
+        },
       },
     ],
-    graphql: [{ body: { data: { repository: { c0: { oid: sha, additions: 4, deletions: 2 } } } } }],
   });
-  const page = gh.forge.prCommits(7, 1, sha, signal());
-  await gh.waitForRequest("graphql");
-  await gh.release("head");
-  expect((await page).commits).toMatchObject([{ sha, additions: 4, deletions: 2 }]);
+  expect((await gh.forge.prCommits(7, undefined, sha, signal())).commits).toMatchObject([
+    { sha, additions: 4, deletions: 2 },
+  ]);
+  expect(await gh.requests()).toHaveLength(1);
 });
 
 test("a read runs beside its identity probe and is answered only once the probe proves the account", async () => {

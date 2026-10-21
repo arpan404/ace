@@ -1,6 +1,7 @@
 import { restatesSelection } from "./input-delivery.ts";
 import { handleQueue } from "./queue-commands.ts";
 import { lostWork } from "./lost-work.ts";
+import { wakeFor } from "./snooze-wake.ts";
 import { z } from "zod";
 import {
   Command,
@@ -126,21 +127,21 @@ export class Recovery {
   sync(id: ThreadId): void {
     const queue = this.repo.queue.shown(id);
     const saved = this.repo.store.getThread(id)?.queue;
-    if (!saved || saved.pendingCount !== queue.pendingCount || saved.revision !== queue.revision)
+    if (!saved || saved.pendingCount !== queue.pendingCount || saved.revision !== queue.revision) {
+      const next = {
+        paused: queue.paused,
+        reason: queue.reason,
+        resumeAt: queue.resumeAt,
+        revision: queue.revision,
+        pendingCount: queue.pendingCount,
+      };
+      const at = this.clock.now();
       this.repo.store.appendEvents(
         id,
-        [
-          {
-            type: "queue.updated",
-            paused: queue.paused,
-            reason: queue.reason,
-            resumeAt: queue.resumeAt,
-            revision: queue.revision,
-            pendingCount: queue.pendingCount,
-          },
-        ],
-        this.clock.now(),
+        [...wakeFor(this.repo.store, id, next, at), { type: "queue.updated", ...next }],
+        at,
       );
+    }
     const fact = this.repo.engineQueueFact(id);
     if (fact) this.repo.apply(id, [fact], this.clock.now());
   }

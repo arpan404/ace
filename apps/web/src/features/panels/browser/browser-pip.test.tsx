@@ -47,12 +47,12 @@ test("a dismissed picture-in-picture stays away until the Browser shows again; a
 
 test("with picture in picture turned off in Settings › Browser, leaving the Browser never floats the page", async () => {
   const scenario = coldStartReplay();
-  const history = createMemoryHistory({ initialEntries: ["/settings/browser"] });
+  const history = createMemoryHistory({ initialEntries: ["/settings/general"] });
   browserVideo();
   const app = harness({ history });
   app.play(scenario).step();
   seedPanels(app.daemon);
-  await app.open("/settings/browser");
+  await app.open("/settings/general");
   const setting = await screen.findByRole("switch", { name: "Picture in picture" });
   expect(setting.getAttribute("aria-checked")).toBe("true");
   await userEvent.click(setting);
@@ -94,6 +94,34 @@ test("a page that floated while another tool showed comes back over that tool wh
   await userEvent.click(
     within(floating).getByRole("img", { name: "Live view of localhost:5173/settings/devices" }),
   );
+  await waitFor(() => expect(pip()).toBeNull());
+  expect(within(panel).getByRole("img", { name: /^Live view of/ })).toBeTruthy();
+});
+
+test("the floating window drags by its whole bar, and a click on the bar brings the page back", async () => {
+  const { panel, browser, thread } = await openThreadBrowser();
+  act(() => browser.agentWorks(thread, { agentId: "worker" }));
+  await togglePanel();
+  const floating = await screen.findByRole("region", { name: /^Picture in picture/ });
+  const bar = floating.querySelector<HTMLElement>("[data-pip-bar]");
+  if (!bar) throw new Error("Missing the window's bar");
+  const before = {
+    right: parseFloat(floating.style.right),
+    bottom: parseFloat(floating.style.bottom),
+  };
+  // Pressed on the title and moved: the window follows, and stays floating.
+  const title = within(bar).getByText("Fixture page");
+  await userEvent.pointer([
+    { keys: "[MouseLeft>]", target: title, coords: { clientX: 600, clientY: 500 } },
+    { target: title, coords: { clientX: 560, clientY: 470 } },
+    { target: title, coords: { clientX: 500, clientY: 440 } },
+    { keys: "[/MouseLeft]", target: title, coords: { clientX: 500, clientY: 440 } },
+  ]);
+  expect(parseFloat(floating.style.right)).toBe(before.right + 100);
+  expect(parseFloat(floating.style.bottom)).toBe(before.bottom + 60);
+  expect(pip()).toBe(floating);
+  // A press that doesn't travel is a click.
+  await userEvent.click(title);
   await waitFor(() => expect(pip()).toBeNull());
   expect(within(panel).getByRole("img", { name: /^Live view of/ })).toBeTruthy();
 });

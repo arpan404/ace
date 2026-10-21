@@ -18,7 +18,11 @@ export function NextRun(props: {
     return (
       <>
         Automations are off on this machine.{" "}
-        <Link to="/settings/general" className="text-foreground underline-offset-4 hover:underline">
+        <Link
+          to="/settings/agents"
+          hash="automations.enabled"
+          className="text-foreground underline-offset-4 hover:underline"
+        >
           Turn on Run automations
         </Link>
       </>

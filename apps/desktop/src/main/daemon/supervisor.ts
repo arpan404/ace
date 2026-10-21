@@ -148,7 +148,11 @@ export class DaemonSupervisor {
    * Before an app update replaces the daemon: close admission and wait for running work to
    * finish naturally. Returns false (and reopens admission) if work remains at the deadline.
    */
-  async drain(deadlineMs: number, pollMs = 1_000): Promise<boolean> {
+  async drain(
+    deadlineMs: number,
+    pollMs = 1_000,
+    waiting?: (count: number) => void,
+  ): Promise<boolean> {
     const daemon = this.daemon;
     if (!daemon || !this.child) return true;
     const generation = this.generation;
@@ -161,6 +165,7 @@ export class DaemonSupervisor {
         wasPaused: this.status.paused,
         current: () => !this.stale(generation) && this.daemon === daemon,
         paused: (on) => this.update({ paused: on }),
+        ...(waiting ? { waiting } : {}),
       });
     } finally {
       this.draining = false;

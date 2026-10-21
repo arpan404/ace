@@ -19,7 +19,7 @@ export function EnableRow(props: { use: ComputerUse }) {
     ? "ace on this machine has no screen helper, so agents can't use apps here."
     : !snapshot.connected
       ? "Connecting to the screen helper…"
-      : "Agents can use any app here. Their provider's permission mode decides each action.";
+      : "Their provider's permission mode approves each action.";
   return (
     <SettingRow
       title="Let agents use apps"

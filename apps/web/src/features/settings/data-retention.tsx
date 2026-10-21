@@ -19,7 +19,11 @@ export function DataRetentionSettings() {
   const logSource = useDaemonSettingProvenance("logs.maxBytes");
   const [error, setError] = useState<string>();
   return (
-    <SettingSection label="Data" scope="daemon">
+    <SettingSection
+      label="Data window"
+      scope="daemon"
+      note="Idle threads, unused attachments and old logs go after this many days. Pinned and live work stays."
+    >
       <NumberRow
         title="Keep data for"
         unit="days"
@@ -94,7 +98,7 @@ function NumberRow(props: {
       title={props.title}
       density="compact"
       inline
-      description={props.pinnedBy ? `Set by ${props.pinnedBy} on the host` : undefined}
+      description={props.pinnedBy ? `Set by ${props.pinnedBy} on this machine` : undefined}
     >
       <span className="flex items-center gap-2 text-sm text-muted-foreground">
         <input
