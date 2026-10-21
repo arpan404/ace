@@ -21,7 +21,9 @@ import { IssueComposer } from "./issue-composer.tsx";
 import { IssueTimeline } from "./issue-timeline.tsx";
 import { useIssueWrites } from "./issue-writes.ts";
 import { useIssueDetail } from "./lists.ts";
-import { Avatars, LabelPill, StateBadge } from "./marks.tsx";
+import { LabelPill, StateBadge } from "@/components/forge-marks.tsx";
+import { WorkHeading, WorkTitle } from "@/components/work-heading.tsx";
+import { Avatars } from "./marks.tsx";
 import { useProjectChoice } from "./project-choice.ts";
 
 /** A page's reading width, as a pull request's page has. */
@@ -61,37 +63,49 @@ function Header(props: { issue: ForgeIssueDetail; onBack(): void }) {
   const toast = useToast();
   return (
     <>
-      <div className="flex items-start gap-2">
-        <IconButton size="sm" icon={ArrowLeftIcon} label="Back to issues" onClick={props.onBack} />
-        <h2 className="min-w-0 flex-1 text-xl font-semibold tracking-title text-foreground">
-          {issue.title}{" "}
-          <span className="font-normal text-subtle-foreground">#{issue.ref.number}</span>
-        </h2>
-        <IconButton
-          size="sm"
-          icon={CopyIcon}
-          label="Copy link"
-          onClick={() =>
-            void navigator.clipboard
-              ?.writeText(issue.url)
-              .catch(() => toast.error({ title: "Couldn't copy the link" }))
-          }
-        />
-        <IconButton
-          size="sm"
-          icon={ArrowSquareOutIcon}
-          label="Open on GitHub"
-          onClick={() =>
-            void openExternal(issue.url).catch(() => toast.error({ title: "Couldn't open GitHub" }))
-          }
-        />
-      </div>
-      <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 pl-8 text-ui text-muted-foreground">
-        <StateBadge kind="issue" state={issue.state} />
-        <span className="font-medium text-foreground/85">{issue.author}</span>
-        <span>opened</span>
-        <PrTime at={issue.createdAt} />
-      </p>
+      <WorkHeading
+        back={
+          <IconButton
+            size="sm"
+            icon={ArrowLeftIcon}
+            label="Back to issues"
+            onClick={props.onBack}
+          />
+        }
+        title={<WorkTitle text={issue.title} number={issue.ref.number} />}
+        actions={
+          <>
+            <IconButton
+              size="sm"
+              icon={CopyIcon}
+              label="Copy link"
+              onClick={() =>
+                void navigator.clipboard
+                  ?.writeText(issue.url)
+                  .catch(() => toast.error({ title: "Couldn't copy the link" }))
+              }
+            />
+            <IconButton
+              size="sm"
+              icon={ArrowSquareOutIcon}
+              label="Open on GitHub"
+              onClick={() =>
+                void openExternal(issue.url).catch(() =>
+                  toast.error({ title: "Couldn't open GitHub" }),
+                )
+              }
+            />
+          </>
+        }
+        badge={<StateBadge kind="issue" state={issue.state} />}
+        byline={
+          <>
+            <span className="font-medium text-foreground/85">{issue.author}</span>
+            <span>opened</span>
+            <PrTime at={issue.createdAt} />
+          </>
+        }
+      />
       {(issue.labels.length > 0 || issue.assignees.length > 0 || issue.milestone) && (
         <div className="mt-3 flex flex-wrap items-center gap-1.5 pl-8 text-xs text-muted-foreground">
           {issue.labels.map((label) => (

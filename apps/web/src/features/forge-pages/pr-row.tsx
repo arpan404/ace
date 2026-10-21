@@ -4,7 +4,8 @@ import { DiffStat } from "@/components/diff-stat.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { openExternal } from "@/boot/open-external.ts";
 import type { LinkedThread } from "./linked-threads.ts";
-import { Avatars, ChecksMark, LabelPill, PrStateGlyph, ReviewMark } from "./marks.tsx";
+import { LabelPill } from "@/components/forge-marks.tsx";
+import { Avatars, ChecksMark, PrStateGlyph, ReviewMark } from "./marks.tsx";
 import {
   Age,
   Author,
