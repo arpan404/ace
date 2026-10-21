@@ -1,3 +1,5 @@
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
 import { TriageProvider } from "@ace/diagnostics/triage";
 import type { DiagnosticRepair, DiagnosticReport } from "@ace/protocol";
 import { collectDoctorReport } from "../diagnostics-report.ts";
@@ -29,7 +31,9 @@ export async function doctorCommand(args: Args, config: Config): Promise<void> {
   const interactive = triageInteractive(args);
 
   const daemon = await localDaemonState(config.dataDir);
-  const before = await cliDoctorReport(config, daemon);
+  const runChecks = () => cliDoctorReport(config, daemon);
+  const watched = interactive && !json;
+  const before = watched ? await withSpinner(config, runChecks) : await runChecks();
   const plan = planDoctorRepairs(before, daemon);
   if (!json) await print(args, formatChecks(before) + "\n\n" + describePlan(plan));
 
@@ -54,7 +58,11 @@ export async function doctorCommand(args: Args, config: Config): Promise<void> {
           status: "skipped",
           message: repair.blocked,
         });
-  const after = repairs.length ? await cliDoctorReport(config, daemon) : before;
+  const after = !repairs.length
+    ? before
+    : watched
+      ? await withSpinner(config, runChecks)
+      : await runChecks();
   const remaining = after.checks.filter((check) => check.status !== "ok");
   process.exitCode =
     after.checks.some((check) => check.status === "fail") ||
@@ -89,6 +97,20 @@ export async function doctorCommand(args: Args, config: Config): Promise<void> {
  * Doctor from the CLI. While ace's own daemon is running it holds the port, so the
  * "port in use" warning is expected and would only mislead.
  */
+/** Checks can take minutes on a big database; say so instead of sitting silent. */
+async function withSpinner<T>(config: Config, run: () => Promise<T>): Promise<T> {
+  const bytes = await stat(join(config.dataDir, "events.sqlite")).then(
+    (info) => info.size,
+    () => 0,
+  );
+  const { wizardSession } = await import("./triage-wizard.ts");
+  const message =
+    bytes >= 1024 ** 3
+      ? `Running checks. The integrity check reads all ${(bytes / 1024 ** 3).toFixed(1)} GB of the database, so this can take a few minutes`
+      : "Running checks";
+  return wizardSession().progress(message, "Checks finished", run);
+}
+
 async function cliDoctorReport(
   config: Config,
   daemon: "running" | "stopped",

@@ -11,6 +11,9 @@ import { useState } from "react";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Button } from "@/components/ui/button.tsx";
 
+/** Longer than the daemon's largest integrity budget, so the daemon reports first. */
+const CHECKS_TIMEOUT_MS = 16 * 60_000;
+
 const checks: Record<string, { label: string; fix: string }> = {
   "home.permissions": {
     label: "Data folder access",
@@ -60,7 +63,8 @@ export function RunChecks(props: {
     try {
       const result = await client.request(
         { type: "diagnostics.request", operation },
-        { timeoutMs: 30_000 },
+        // The integrity check scales with database size, up to 15 minutes on the daemon.
+        { timeoutMs: CHECKS_TIMEOUT_MS },
       );
       if (!result.report || result.error) throw new Error();
       setReport(result.report);

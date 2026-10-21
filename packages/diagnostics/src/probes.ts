@@ -1,4 +1,4 @@
-import { constants } from "node:fs";
+import { constants, statSync } from "node:fs";
 import { access, statfs } from "node:fs/promises";
 import { createServer } from "node:net";
 import { dirname, join } from "node:path";
@@ -8,7 +8,7 @@ import {
   findExecutable,
 } from "@ace/provider-kit/discovery";
 import { probeOutput } from "@ace/provider-kit/process";
-import type { DoctorProbes } from "./doctor.ts";
+import { integrityBudgetMs, type DoctorProbes } from "./doctor.ts";
 import { checkIntegrity, sqliteSpace } from "./sqlite.ts";
 export function portAvailable(port: number, signal: AbortSignal): Promise<boolean> {
   if (signal.aborted) return Promise.reject(new Error("Aborted"));
@@ -42,6 +42,9 @@ export function createSystemProbes(
   runtime: SystemProbeRuntime = systemProbes,
 ): DoctorProbes {
   const timeoutMs = options.timeoutMs ?? 4000;
+  const databaseBytes =
+    fileBytes(join(options.dataDir, "events.sqlite")) +
+    fileBytes(join(options.dataDir, "events.sqlite-wal"));
   let discovery: ReturnType<typeof discoverProviders> | undefined;
   let databaseSpace: ReturnType<typeof sqliteSpace> | undefined;
   return {
@@ -128,9 +131,23 @@ export function createSystemProbes(
         }
       }
     },
-    integrity: (signal) => checkIntegrity(join(options.dataDir, "events.sqlite"), signal),
+    // The child process gets the same size-scaled budget as the check itself.
+    integrity: (signal) =>
+      checkIntegrity(join(options.dataDir, "events.sqlite"), signal, {
+        probe: probeOutput,
+        deadlineMs: integrityBudgetMs(databaseBytes),
+      }),
+    databaseBytes,
     databaseSpace: (signal) =>
       (databaseSpace ??= sqliteSpace(join(options.dataDir, "events.sqlite"), signal)),
     port: (signal) => portAvailable(options.port, signal),
   };
+}
+
+function fileBytes(path: string): number {
+  try {
+    return statSync(path).size;
+  } catch {
+    return 0;
+  }
 }

@@ -3,6 +3,8 @@ import {
   createDoctorChecks,
   runDoctor,
   formatDoctor,
+  integrityBudgetMs,
+  MAX_INTEGRITY_BUDGET_MS,
   type DoctorProbes,
   type CheckResult,
 } from "./index.ts";
@@ -178,4 +180,50 @@ it("a failing probe cannot leak its exception or stop other checks", async () =>
   expect(result(value.checks, "node-pty").status).toBe("fail");
   expect(result(value.checks, "git").status).toBe("ok");
   expect(JSON.stringify(value)).not.toContain("private");
+});
+
+it("the integrity check gets time in proportion to the database, with room for slow disks, and a hard cap", () => {
+  const gib = 1024 ** 3;
+  // Measured: a full integrity check reads about 1 GiB per 1.7 s on a warm SSD.
+  const measured = (bytes: number) => (bytes / gib) * 1_700;
+  expect(integrityBudgetMs(0)).toBe(30_000);
+  for (const size of [1, 6, 20, 40].map((n) => n * gib))
+    expect(integrityBudgetMs(size)).toBeGreaterThanOrEqual(measured(size) * 10);
+  expect(integrityBudgetMs(6 * gib)).toBeGreaterThan(integrityBudgetMs(1 * gib));
+  expect(integrityBudgetMs(10_000 * gib)).toBe(MAX_INTEGRITY_BUDGET_MS);
+});
+
+it("a check with its own budget keeps running after the default limit cuts off a hung one", async () => {
+  const slow = deferred<void>();
+  const timers: { ms: number; fire: () => void }[] = [];
+  const pending = runDoctor(
+    [
+      {
+        id: "sqlite",
+        fix: "Restore a backup",
+        timeoutMs: 120_000,
+        run: async () => {
+          await slow.promise;
+          return { status: "ok", message: "SQLite integrity: ok", fix: "" };
+        },
+      },
+      { id: "hung", fix: "Repair probe", run: () => new Promise(() => {}) },
+    ],
+    {
+      now: () => 0,
+      schedule: (fire, ms) => {
+        timers.push({ ms, fire });
+        return () => {};
+      },
+    },
+  );
+  await Promise.resolve();
+  // Five seconds pass: only timers at or under the default limit fire.
+  for (const timer of timers) if (timer.ms <= 5_000) timer.fire();
+  slow.resolve();
+  const value = await pending;
+  expect(value.checks.map((check) => [check.id, check.status])).toEqual([
+    ["sqlite", "ok"],
+    ["hung", "warn"],
+  ]);
 });

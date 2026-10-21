@@ -11,8 +11,22 @@ export type Verdict = Omit<CheckResult, "id">;
 export interface Check {
   id: string;
   fix: string;
+  /** Overrides the runner's limit for checks whose cost grows with data, like integrity. */
+  timeoutMs?: number;
   run(signal: AbortSignal): Promise<Verdict>;
 }
+
+const GIB = 1024 ** 3;
+/**
+ * Time allowed for a full SQLite integrity check. Measured at about 1.7 s per GiB with a
+ * warm cache on an Apple SSD; the budget leaves roughly ten times that for cold caches and
+ * slower disks, and a hard cap so a hung probe still ends.
+ */
+export function integrityBudgetMs(databaseBytes: number): number {
+  const bytes = Number.isFinite(databaseBytes) && databaseBytes > 0 ? databaseBytes : 0;
+  return Math.min(MAX_INTEGRITY_BUDGET_MS, 30_000 + Math.ceil((bytes / GIB) * 20_000));
+}
+export const MAX_INTEGRITY_BUDGET_MS = 15 * 60_000;
 export interface DoctorProbes {
   node(signal: AbortSignal): Promise<string>;
   provider(provider: Provider, signal: AbortSignal): Promise<DiscoveryResult>;
@@ -22,6 +36,8 @@ export interface DoctorProbes {
   chromium(signal: AbortSignal): Promise<string | undefined>;
   disk(signal: AbortSignal): Promise<{ writable: boolean; freeBytes: number }>;
   integrity(signal: AbortSignal): Promise<"ok" | "corrupt" | "missing" | "unavailable">;
+  /** Size of the main database plus its WAL, read when the probes are created. */
+  databaseBytes?: number;
   databaseSpace?(signal: AbortSignal): Promise<SqliteSpace | null>;
   port(signal: AbortSignal): Promise<boolean>;
 }
@@ -180,6 +196,7 @@ export function createDoctorChecks(probes: DoctorProbes): Check[] {
     {
       id: "sqlite",
       fix: "Stop ace and preserve the database before restoring a backup.",
+      timeoutMs: integrityBudgetMs(probes.databaseBytes ?? 0),
       run: async (signal) => integrityVerdict(await probes.integrity(signal)),
     },
     ...(probes.databaseSpace
@@ -236,6 +253,7 @@ export async function runDoctor(
     });
   const results = await Promise.all(
     checks.map(async (check): Promise<CheckResult> => {
+      const limit = check.timeoutMs ?? timeoutMs;
       const controller = new AbortController();
       let cancel = noop;
       try {
@@ -247,11 +265,11 @@ export async function runDoctor(
             resolve(
               verdict(
                 "warn",
-                `Didn't finish within ${Math.round(timeoutMs / 1000)} s`,
+                `Didn't finish within ${Math.round(limit / 1000)} s`,
                 `Run ace doctor again. If it never finishes: ${check.fix}`,
               ),
             );
-          }, timeoutMs);
+          }, limit);
         });
         const result = await Promise.race([
           Promise.resolve().then(() => check.run(controller.signal)),

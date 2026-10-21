@@ -22,6 +22,8 @@ export {
   providerVerdict,
   diskVerdict,
   integrityVerdict,
+  integrityBudgetMs,
+  MAX_INTEGRITY_BUDGET_MS,
   DoctorReport,
   type DoctorProbes,
   type Check,

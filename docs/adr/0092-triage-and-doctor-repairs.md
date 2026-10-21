@@ -89,6 +89,15 @@ repairs the report calls for:
   rowid-preserving migration because a full VACUUM could renumber row IDs referenced by
   stored frames and receipts. Corruption stays a failure needing a backup restore.
 
+Most checks get 5 seconds; a hung CLI probe shouldn't stall the report. The database
+integrity check reads the whole file, so its budget scales with size: 30 seconds plus
+20 seconds per GiB, capped at 15 minutes. A full check measured about 1.7 s per GiB on a
+warm SSD (10 s for a 6 GiB database), so the budget leaves about ten times that for cold
+caches and slow disks. The SQLite child process gets the same budget. A check that runs
+out of time reports that it didn't finish, never that the database is corrupt, and space
+is not reclaimed until integrity is confirmed. The app's Checks dialog waits 16 minutes,
+longer than the largest budget. The CLI shows a spinner that names the database size.
+
 In a terminal the person picks repairs from a checklist with the recommended ones
 selected. `--fix` runs the recommended ones without asking, `--dry-run` changes nothing,
 and without a terminal doctor only reports. Checks run again after repairs; failures
