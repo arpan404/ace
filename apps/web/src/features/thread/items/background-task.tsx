@@ -4,20 +4,12 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useThreadLiveState } from "../lib/live-state.ts";
 import { useTicker } from "../lib/clock.ts";
-import { backgroundCommand, formatElapsed } from "@ace/ui-core";
+import { backgroundCommand, backgroundTaskLine, formatElapsed } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 import { rowClass } from "./transcript-row.tsx";
 
 /** The command, drawn as the work log's target chips are. */
 const chip = "min-w-0 truncate rounded-xs bg-fill px-1.5 py-px font-mono text-xs text-foreground";
-
-const ended = {
-  completed: "Finished",
-  failed: "Failed",
-  stopped: "Stopped",
-  unknown: "Stopped",
-  running: "Running in background",
-};
 
 /**
  * "Running in background `bun run dev:relay` 6m [Stop]". Stopping sends a durable intent; the
@@ -50,7 +42,9 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
           <span className="flex min-w-5 shrink-0 items-center justify-center text-subtle-foreground">
             <TerminalIcon aria-hidden size={16} />
           </span>
-          {running && !live.fresh ? "Last seen running in background" : ended[task.status]}
+          {running && !live.fresh
+            ? "Last seen running in background"
+            : backgroundTaskLine(task.status)}
         </span>
         <span className="flex min-w-0 flex-1 items-center gap-2 @max-[360px]:order-last @max-[360px]:basis-full">
           {task.kind === "shell" ? (
