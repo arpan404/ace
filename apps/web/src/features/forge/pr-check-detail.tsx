@@ -261,7 +261,7 @@ export function PrCheckDetail(props: {
             size="xs"
             variant="ghost"
             onClick={() =>
-              agent.send(checkFixRequest(check, { number: pr.number, url: detail.status.url }, run))
+              agent.ask(checkFixRequest(check, { number: pr.number, url: detail.status.url }, run))
             }
           >
             <SparkleIcon aria-hidden size={12} />
