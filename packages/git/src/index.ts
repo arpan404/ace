@@ -34,6 +34,14 @@ import {
   type StackReplayOptions,
 } from "./stack-sync.ts";
 import { changedFiles, changeSummary, checkoutSummary } from "./changed-files.ts";
+import {
+  abortMerge,
+  commitMerge,
+  readConflicts,
+  startMerge,
+  takeSide,
+  writeResolution,
+} from "./merge-conflicts.ts";
 import { deleteBranch, type BranchCleanup } from "./branch-cleanup.ts";
 import { GitCli } from "./cli.ts";
 import { mkdir } from "node:fs/promises";
@@ -75,6 +83,7 @@ export type {
 } from "./leased-push.ts";
 export type { CreateWorktreeOptions, WorktreeProgress } from "./worktrees.ts";
 export type { LayerReplay, StackReplayResult } from "./stack-sync.ts";
+export type { MergeStart } from "./merge-conflicts.ts";
 export type { RevisionLineOptions } from "./revision-lines.ts";
 export type { BranchRefs, FetchBranchOptions, FetchPrHeadOptions } from "./remote-branches.ts";
 
@@ -278,6 +287,33 @@ export class GitService {
     signal?: AbortSignal;
   }) {
     return restoreStackBranches(this.repository, options);
+  }
+  /** Merge `revision` into the checkout, stopping before the commit (see `merge-conflicts.ts`). */
+  startMerge(options: {
+    worktree: string;
+    revision: string;
+    expectedHead: string;
+    message: string;
+  }) {
+    return startMerge(this.repository, options);
+  }
+  abortMerge(worktree: string) {
+    return abortMerge(this.repository, worktree);
+  }
+  /** The merge in progress and each unmerged file's hunks (ours / base / theirs). */
+  conflicts(worktree: string) {
+    return readConflicts(this.repository, worktree);
+  }
+  /** Write a conflicted file's resolved text; staged once no hunk is left in it. */
+  writeResolution(options: { worktree: string; path: string; content: string; revision: string }) {
+    return writeResolution(this.repository, options);
+  }
+  takeSide(options: { worktree: string; path: string; side: "ours" | "theirs" }) {
+    return takeSide(this.repository, options);
+  }
+  /** Commit the merge in progress with what is staged; the person's commit (hooks, signing). */
+  commitMerge(options: { worktree: string; expectedHead: string; message: string }) {
+    return commitMerge(this.repository, options);
   }
   switchBranch(options: {
     worktree: string;
