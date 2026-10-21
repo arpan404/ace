@@ -16,8 +16,18 @@ export interface ComputerClientOptions {
   /** The installed helper executable; resolved before every start. */
   helper: () => Promise<string>;
   nextId: () => string;
+  /**
+   * The helper's environment, read before every start; defaults to the daemon's own. On Linux
+   * it carries the graphical session; throwing a `ComputerError` refuses the start with that
+   * message for the model.
+   */
+  environment?: () => Promise<NodeJS.ProcessEnv>;
   /** Starts a helper. Tests substitute a fake process. */
-  spawnHelper?: (command: string, args: readonly string[]) => ChildProcessWithoutNullStreams;
+  spawnHelper?: (
+    command: string,
+    args: readonly string[],
+    env: NodeJS.ProcessEnv,
+  ) => ChildProcessWithoutNullStreams;
   /** How long each op may run, from when it is sent, before it is cancelled. */
   deadlineMs?: (op: string) => number;
   /** How long a cancelled or overdue request may take to reply before its helper is killed. */
@@ -37,7 +47,7 @@ export interface ComputerRequestOptions {
   app?: string | undefined;
 }
 
-/** Ops about the Mac as a whole rather than one app. */
+/** Ops about the computer as a whole rather than one app. */
 const catalogOps: ReadonlySet<string> = new Set(["hello", "apps", "resolve"]);
 const catalog = "\u0000catalog";
 
@@ -100,8 +110,9 @@ export class ComputerClient {
     const entry: Entry = {
       connection: new HelperConnection({
         start: async () => {
+          const env = (await this.options.environment?.()) ?? process.env;
           const command = await this.options.helper();
-          return (this.options.spawnHelper ?? defaultSpawn)(command, ["--computer"]);
+          return (this.options.spawnHelper ?? defaultSpawn)(command, ["--computer"], env);
         },
         nextId: this.options.nextId,
         scheduler: this.scheduler,
@@ -151,6 +162,10 @@ export class ComputerClient {
   }
 }
 
-function defaultSpawn(command: string, args: readonly string[]): ChildProcessWithoutNullStreams {
-  return spawn(command, [...args], { stdio: ["pipe", "pipe", "pipe"] });
+function defaultSpawn(
+  command: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+): ChildProcessWithoutNullStreams {
+  return spawn(command, [...args], { env, stdio: ["pipe", "pipe", "pipe"] });
 }

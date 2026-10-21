@@ -8,7 +8,7 @@ import { UseMyChromeSettings } from "./use-my-chrome.tsx";
 
 /**
  * Settings › Computer use: on or off, the apps agents can't use, every live session,
- * macOS's grants to Ace Screen Helper and how Android emulators open. The daemon decides;
+ * the screen helper's permissions and how Android emulators open. The daemon decides;
  * this page shows and asks.
  */
 export function ComputerUseSettings() {
@@ -26,7 +26,7 @@ export function ComputerUseSettings() {
           <LiveSessions use={use} compact />
         </SettingSection>
       )}
-      <SettingSection label="macOS permissions">
+      <SettingSection label="Permissions">
         <Permissions use={use} />
       </SettingSection>
       <SettingSection label="Devices">

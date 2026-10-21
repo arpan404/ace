@@ -1,24 +1,39 @@
 import {
   ComputerClient,
+  graphicalSessionEnvironment,
   installScreenHelper,
+  linuxComputerEnvironment,
   localScreenManager,
   screenConnection,
   type Simulators,
 } from "@ace/screen";
 import { nodeScheduler } from "@ace/mcp-server";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { ComputerUsingThreads } from "../computer-using.ts";
+import { resolveScreenHelper } from "../screen-helper-path.ts";
 import { ScreenSettings } from "../screen-settings.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export async function startScreen({ config, options, resources, services, store }: ServiceContext) {
+  const helper = resolveScreenHelper({
+    platform: process.platform,
+    configured: config.screenHelper,
+    // A release runs one bundled entry file, so this is the bundle's directory.
+    bundleDirectory: import.meta.dirname,
+    exists: existsSync,
+  });
+  // Linux: the desktop session is read from the user manager each time a helper starts.
+  const session =
+    process.platform === "linux" ? graphicalSessionEnvironment({ env: process.env }) : undefined;
   const manager =
     options.screen ??
-    (config.screenHelper
-      ? localScreenManager(config.screenHelper, join(config.dataDir, "screen-artifacts"), {
+    (helper
+      ? localScreenManager(helper, join(config.dataDir, "screen-artifacts"), {
           manifest: config.screenHelperManifest,
           inheritResponsibility: config.screenHelperInheritsResponsibility,
+          session,
         })
       : undefined);
   if (!manager) return;
@@ -31,17 +46,26 @@ export async function startScreen({ config, options, resources, services, store 
   });
   resources.own(() => manager.close());
   services.screen = manager;
-  const helper = config.screenHelper;
-  if (helper && process.platform === "darwin" && !options.screen) {
-    // Same signed helper, so the person's Accessibility and Screen Recording grants apply.
-    const computer = new ComputerClient({
-      helper: () => installScreenHelper(helper, config.dataDir, config.screenHelperManifest),
-      nextId: randomUUID,
-    });
-    resources.own(() => computer.close());
-    services.computer = computer;
-    services.computerUsing = new ComputerUsingThreads({ after: nodeScheduler.after });
-  }
+  if (!helper || options.screen) return;
+  const computer =
+    process.platform === "darwin"
+      ? // Same signed helper, so the person's Accessibility and Screen Recording grants apply.
+        new ComputerClient({
+          helper: () => installScreenHelper(helper, config.dataDir, config.screenHelperManifest),
+          nextId: randomUUID,
+        })
+      : session
+        ? // The live-view helper binary; `--computer` selects the background engine.
+          new ComputerClient({
+            helper: async () => helper,
+            nextId: randomUUID,
+            environment: linuxComputerEnvironment(session),
+          })
+        : undefined;
+  if (!computer) return;
+  resources.own(() => computer.close());
+  services.computer = computer;
+  services.computerUsing = new ComputerUsingThreads({ after: nodeScheduler.after });
 }
 export function createScreenSession(context: SocketContext, simulators: Simulators): SocketService {
   let channel: ReturnType<typeof screenConnection> | undefined;
