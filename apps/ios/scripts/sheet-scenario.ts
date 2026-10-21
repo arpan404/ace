@@ -1,8 +1,10 @@
+import type { Fact } from "@ace/core";
 import { facts, type FakeDaemon } from "@ace/fake-daemon";
 
 /*
  * The spike's `ios-tree` thread for the Agents and Changes sheets: a finished root whose
- * subagents still work (one nested, one in the background), a running background command,
+ * subagents still work (one nested, one in the background) and show in its transcript as one
+ * rollup under the ask, a running background command,
  * reported usage, and an uncommitted checkout with a small diff, a 3,000-line file and a
  * long line. No provider CLI runs.
  */
@@ -40,7 +42,41 @@ const patch = [
   "",
 ].join("\n");
 
+/** A root launch that a subagent reports as its `spawnedBy`. */
+function launch(item: string, name: string): Fact[] {
+  return [
+    facts.tool("root", item, {
+      kind: "agent.spawn",
+      title: name,
+      detail: { kind: "agent.spawn", description: name },
+    }),
+    facts.toolDone("root", item),
+  ];
+}
+
+/** The root's ask, its launches and its turn's end, while the agents it launched work on. */
+function rootTurn(): Fact[] {
+  return [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Review the process-owner change for PID reuse."),
+    facts.message(
+      "root",
+      "split",
+      "assistant",
+      "Splitting this three ways: review PID reuse, map every spawn site, then write the tests.",
+    ),
+    ...launch("spawn", "Reviewer"),
+    ...launch("spawn-explorer", "Explorer"),
+    ...launch("spawn-writer", "Test writer"),
+    facts.subagent("codex", "reviewer", "Reviewer", "spawn"),
+    facts.turn("reviewer", "spawn"),
+    facts.endTurn("root"),
+  ];
+}
+
 export function seedSheets(daemon: FakeDaemon): void {
+  daemon.apply("ios-tree", rootTurn());
   daemon.apply("ios-tree", [
     facts.subagent("codex", "explorer", "Explorer", "spawn-explorer"),
     facts.turn("explorer", "spawn"),

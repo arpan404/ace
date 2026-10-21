@@ -103,13 +103,6 @@ daemon.createThread({
   provider: "codex",
   details: details("feat/process-owner"),
 });
-daemon.apply("ios-tree", [
-  facts.rootAgent("codex"),
-  facts.turn("root"),
-  facts.subagent("codex", "reviewer", "Reviewer", "spawn"),
-  facts.turn("reviewer", "spawn"),
-  facts.endTurn("root"),
-]);
 seedSheets(daemon);
 daemon.createThread({
   hasSentMessage: true,
