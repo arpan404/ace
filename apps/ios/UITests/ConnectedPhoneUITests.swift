@@ -63,7 +63,7 @@ import XCTest
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 30)); row.tap()
         XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 30))
-        XCTAssertTrue(app.staticTexts["Loading conversation…"].waitForNonExistence(timeout: 30))
+        waitForConversation(app)
         XCTAssertTrue(app.buttons["composer.attach"].isHittable)
         let model = app.buttons["composer.model"]
         let inputBeforeKeyboard = app.textViews["composer.input"]
@@ -97,7 +97,7 @@ import XCTest
         let current = app.buttons["thread.01a15b0e-7eef-705b-a011-fde54ae8afd1"]
         XCTAssertTrue(current.waitForExistence(timeout: 30)); current.tap()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20))
-        XCTAssertTrue(app.staticTexts["Loading conversation…"].waitForNonExistence(timeout: 30))
+        waitForConversation(app)
         app.buttons["thread.menu"].tap()
         let history = app.buttons["Conversation history"]
         XCTAssertTrue(history.waitForExistence(timeout: 10)); history.tap()
@@ -144,8 +144,10 @@ import XCTest
         let current = app.buttons["thread.01a15b0e-7eef-705b-a011-fde54ae8afd1"]
         XCTAssertTrue(current.waitForExistence(timeout: 30)); current.tap()
         XCTAssertTrue(app.buttons["thread.work"].waitForExistence(timeout: 20))
+        waitForConversation(app)
         let group = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "work.group.")).firstMatch
         XCTAssertTrue(group.waitForExistence(timeout: 20))
+        XCTAssertLessThanOrEqual(group.frame.height, 49, "Collapsed work should occupy one touch-target row without extra cell padding")
         XCTAssertFalse(app.staticTexts["compaction"].exists)
         capture("live-grouped-work", app)
     }
@@ -209,6 +211,16 @@ import XCTest
         XCTAssertTrue(app.buttons["project.create.submit"].exists)
         capture("clone-project", app)
         XCTAssertFalse(app.staticTexts["service.problem"].exists)
+    }
+    private func waitForConversation(_ app: XCUIApplication) {
+        let transcript = app.collectionViews["transcript"]
+        expectation(for: NSPredicate(format: "value == %@", "Ready"), evaluatedWith: transcript)
+        waitForExpectations(timeout: 30)
+        XCTAssertFalse(app.descendants(matching: .any)["transcript.loading"].exists)
+        if app.buttons["thread.fileChip"].exists {
+            XCTAssertLessThanOrEqual(app.buttons["thread.fileChip"].frame.height, 49, "The file summary must not add a padded empty row above the composer")
+        }
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "View work")).firstMatch.exists)
     }
     private func historyText(_ app: XCUIApplication) -> String {
         app.collectionViews["history.messages"].staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: "\n")

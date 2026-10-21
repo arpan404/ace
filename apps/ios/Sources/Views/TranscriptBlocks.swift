@@ -136,7 +136,7 @@ struct AttachmentChips: View {
 struct StepRow: View {
     let step: StepLine
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
+        HStack(alignment: .center, spacing: AceTheme.Spacing.sm) {
             Image(systemName: Self.symbol(step.icon)).frame(width: AceTheme.Spacing.lg)
                 .foregroundStyle(step.failed ? AceTheme.Status.failed : step.needsYou ? AceTheme.Status.needsYou : AceTheme.Colours.decoration)
             Text(step.verb).foregroundStyle(AceTheme.Colours.foreground).layoutPriority(1)

@@ -257,8 +257,16 @@ function action(json: string): void {
         openThreadId = value.threadId;
         lease = client.thread(value.threadId);
         session?.dispose();
-        stopThread = followThread(lease.store, value.threadId, ++epoch, pump, itemLimit);
-        session = new ThreadSession(client, lease.store, value.threadId, epoch, pump);
+        stopThread = followThread(lease.store, value.threadId, ++epoch, pump);
+        session = new ThreadSession(
+          client,
+          lease.store,
+          value.threadId,
+          epoch,
+          pump,
+          undefined,
+          itemLimit,
+        );
         browser?.close();
         browser?.probe(value.threadId, epoch);
         if (itemLimit > 200) {

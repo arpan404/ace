@@ -16,15 +16,17 @@ struct WorkProgressView: View {
     }
 }
 
-private struct WorkProgressGroup: View {
+struct WorkProgressGroup: View {
     let group: BlockRow.WorkGroup
     let thread: ThreadModel
     let openMedia: ((TranscriptRow) -> Void)?
     let openMessage: ((TranscriptRow) -> Void)?
     @State private var expanded = false
     var body: some View {
-        if group.single, let item = thread.items[group.id] {
-            ItemRowView(item: item, openMedia: openMedia, openMessage: openMessage, workEnded: !group.running)
+        if group.single {
+            if let item = thread.items[group.id] {
+                ItemRowView(item: item, openMedia: openMedia, openMessage: openMessage, workEnded: !group.running)
+            }
         } else {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
                 Button { expanded.toggle() } label: {
@@ -33,7 +35,7 @@ private struct WorkProgressGroup: View {
                             RunningStepLine(item: active, fallback: group.label)
                         } else {
                             Image(systemName: StepRow.symbol(group.icon)).foregroundStyle(AceTheme.Colours.decoration)
-                            Text(group.label.isEmpty ? "View work" : group.label).lineLimit(2).multilineTextAlignment(.leading)
+                            Text(group.label).lineLimit(2).multilineTextAlignment(.leading)
                         }
                         Spacer(minLength: AceTheme.Spacing.none)
                         Image(systemName: "chevron.right").rotationEffect(.degrees(expanded ? 90 : 0))

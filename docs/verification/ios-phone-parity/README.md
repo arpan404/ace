@@ -101,6 +101,38 @@ chat/project follow-up. Only the connected physical iPhone was used. Captures ar
 `/tmp/ace-iphone-chat-10-attachments` and the corresponding final xcresult attachments.
 Phone captures may include private conversation content and are not committed.
 
+## Conversation loading correction
+
+The previous captures and timing checks missed the partial loading screen reported by the
+owner. The app used the 2,200-item benchmark limit, while the service tests connected with a
+200-item limit. A new read-only phone regression goes through `MachinesModel`, the shipping
+connection path. `/tmp/ace-iphone-production-red-21.xcresult` failed because opening the
+current conversation eagerly admitted 1,710 items. The normal paired app now retains the
+latest 200 items and reads older content through the existing paged history reader. The
+explicit benchmark mode still supports its larger workload.
+
+Initial readiness is queued after both item rows and block layout. The UI reveals that
+snapshot together, uses message-shaped skeletons while waiting, and retains a parent's
+previous readable snapshot until its replacement is ready. Live work groups are separate
+list rows rather than one large nested vertical layout. Missing single items no longer
+turn into misleading "View work" disclosures. The UI wait now observes the transcript's
+actual ready value, replacing a loading-label absence check that could pass before loading
+started.
+
+`/tmp/ace-iphone-coherent-green-22.xcresult` passed 31 native tests in four suites
+and three UI flows on the connected iPhone. The native run covers the production machine
+connection path, retained parent snapshots, patch delivery and machine isolation. The UI
+run covers grouped live work, history paging and composer/keyboard/model/jump-to-latest
+controls. Captures confirm actual message/tool content replacing the reported empty rows.
+They are private local artifacts under `/tmp/ace-iphone-coherent-green-22-attachments`.
+
+The final spacing build passed all three UI flows again in
+`/tmp/ace-iphone-chat-final-24.xcresult`. Work disclosure and file-summary controls now
+occupy a single 48-point row; the invisible scroll anchor no longer inherits 30 points of
+list padding. Running indicators align with their text. These are layout checks, not FPS
+or input-latency measurements. Final private captures are under
+`/tmp/ace-iphone-chat-final-24-attachments`.
+
 ## Checks and limits
 
 The signed physical-phone build, formatting, lint, bounded TypeScript check, size guard,

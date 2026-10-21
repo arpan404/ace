@@ -468,7 +468,11 @@ outer list and observed item identities stay in place.
 Chat gives the message its own line above attachment, model/reasoning and send/stop
 controls. User messages are inset on the right; assistant responses are plain text. Copy,
 Share and timestamps are in the message menu, and code blocks have a language/Copy header.
-Reading older content pauses tail following; Jump to latest resumes it. Conversation history
+The paired app opens the latest 200 items instead of eagerly hydrating a 2,200-item
+benchmark window. The initial items and block layout complete before the transcript appears;
+a compact message skeleton fills the loading interval. Live work groups are independent
+list rows, and reopening a parent holds its last readable snapshot until the replacement
+is ready. Reading older content pauses tail following; Jump to latest resumes it. Conversation history
 uses separate bounded SDK windows and keeps page controls reachable below the content, so
 long conversations remain readable after the live cache is full. Historical full messages
 and media resolve their authenticated item without replacing the live tail.

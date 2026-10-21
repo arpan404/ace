@@ -45,33 +45,37 @@ struct ThreadView: View {
     var body: some View {
         ScrollViewReader { proxy in
             List {
-                if screen.hasOlder, !thread.order.isEmpty {
-                    Button("Earlier messages", systemImage: "clock.arrow.circlepath") { showHistory = true }
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                        .frame(minHeight: AceTheme.Dimensions.touchTarget)
-                        .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
-                        .accessibilityIdentifier("transcript.history")
-                }
-                // Back from a child: what this thread last showed stays until its session's first patch.
                 let shown = thread.placeholder ?? thread
-                if !thread.loaded && thread.placeholder == nil { ProgressView("Loading conversation…").listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background) }
-                let links = TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: screen, epoch: thread.epoch), openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { fullMessage = $0 })
-                ForEach(shown.screen.blockOrder, id: \.self) { id in
-                    if let block = shown.screen.blocks[id] {
-                        BlockView(block: block, thread: shown, links: links)
-                            .id(id).listRowSeparator(.hidden)
-                            .listRowBackground(AceTheme.Colours.background)
-                            .listRowInsets(EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.xl, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.xl))
+                if thread.loaded || thread.placeholder != nil {
+                    if shown.screen.hasOlder, !shown.order.isEmpty {
+                        Button("Earlier messages", systemImage: "clock.arrow.circlepath") { showHistory = true }
+                            .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                            .transcriptControlRow()
+                            .accessibilityIdentifier("transcript.history")
                     }
+                    let links = TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: screen, epoch: thread.epoch), openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { fullMessage = $0 })
+                    ForEach(shown.screen.blockOrder, id: \.self) { id in
+                        if let block = shown.screen.blocks[id] {
+                            TranscriptBlockRows(block: block, thread: shown, links: links)
+                        }
+                    }
+                } else {
+                    ConversationSkeleton()
+                        .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
+                        .listRowInsets(EdgeInsets(top: AceTheme.Spacing.lg, leading: AceTheme.Spacing.xl, bottom: AceTheme.Spacing.lg, trailing: AceTheme.Spacing.xl))
                 }
                 ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id < $1.id }) { row in
                     PendingSendRow(row: row, canRetry: model.canOperate) { await model.retrySend(row) }.listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
                 }
-                ThreadTailChips(metadata: metadata) { showChanges = true }.listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
+                if thread.loaded || thread.placeholder != nil {
+                    ThreadTailChips(metadata: metadata) { showChanges = true }.transcriptControlRow()
+                }
                 TranscriptTail(thread: thread, following: followsTail) { proxy.scrollTo("tail", anchor: .bottom) }
                     .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
+                    .listRowInsets(EdgeInsets())
             }
-            .listStyle(.plain).scrollContentBackground(.hidden)
+            .listStyle(.plain).listRowSpacing(AceTheme.Spacing.none).scrollContentBackground(.hidden)
             .environment(\.defaultMinListRowHeight, AceTheme.Spacing.none)
             .contentMargins(.vertical, AceTheme.Spacing.lg, for: .scrollContent)
             .onScrollPhaseChange { _, phase, context in
@@ -95,6 +99,7 @@ struct ThreadView: View {
                 if readingByTouch { followsTail = atBottom }
             }
             .accessibilityIdentifier("transcript")
+            .accessibilityValue(thread.loaded ? "Ready" : "Loading")
             .overlay(alignment: .bottomTrailing) {
                 if !followsTail {
                     Button {
