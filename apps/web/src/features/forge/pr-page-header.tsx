@@ -40,7 +40,7 @@ export function PrPageHeader(props: {
   );
   const commits = `${detail.commits} ${detail.commits === 1 ? "commit" : "commits"}`;
   return (
-    <header className="shrink-0 px-4 pt-6 sm:px-8">
+    <header className="shrink-0 px-[var(--forge-gutter,1rem)] pt-6">
       <WorkHeading
         back={
           props.onBack && (
@@ -96,7 +96,7 @@ export function PrPageHeader(props: {
           </>
         }
       />
-      <div className="mt-3 flex min-w-0 items-center gap-3 pb-3 pl-8 text-xs text-subtle-foreground">
+      <div className="mt-3 flex min-w-0 items-center gap-3 pb-3 text-xs text-subtle-foreground">
         <button
           type="button"
           aria-label={copied ? "Checkout command copied" : "Copy checkout command"}
@@ -115,7 +115,7 @@ export function PrPageHeader(props: {
           )}
         </span>
       </div>
-      <div className="-mx-4 sm:-mx-8">
+      <div className="-mx-[var(--forge-gutter,1rem)]">
         {props.gates}
         <PrMergeLines actions={actions} />
       </div>

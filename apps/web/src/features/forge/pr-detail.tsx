@@ -45,6 +45,11 @@ export function prWorkspaceTab(tab: string): PrTab {
 
 /** A page's reading width: the header, summary and timeline; the Code tab takes all of it. */
 const pageWidth = "mx-auto w-full max-w-[64rem]";
+/**
+ * On a page, the bands above the tab bodies keep the space the bodies' scrollbar takes, so the
+ * header, tab bar and body share one right edge.
+ */
+const scrollGutter = "overflow-hidden [scrollbar-gutter:stable]";
 
 /** Scrolled this far into a tab, the header folds its title block away. */
 const condenseAt = 64;
@@ -60,8 +65,12 @@ function belongsTo(query: Query, workspaceId: string, status: ForgePrStatus): bo
   );
 }
 
+/** Summary · Timeline · Code as plain words: the current one in the foreground, no fill. */
+const wordTab =
+  "h-7 rounded-md px-2 text-ui font-normal hover:not-data-active:bg-hover data-active:bg-transparent data-active:font-medium";
+
 /**
- * The tab bar: Summary · Timeline · Code as one segmented group, with the active tab's context
+ * The tab bar: Summary · Timeline · Code as words, with the active tab's context
  * (checks, or counters and order) at its right end. Each tab body is its own scroller.
  */
 function PrTabs(props: {
@@ -81,11 +90,16 @@ function PrTabs(props: {
       onValueChange={(value) => typeof value === "string" && props.onTab(value)}
       className="flex min-h-0 flex-1 flex-col"
     >
-      <div className="shrink-0 border-t border-border px-4 py-2">
-        <div className={cn("flex items-center justify-between gap-2", props.readable)}>
-          <TabsList aria-label="Pull request detail" className="rounded-md bg-muted p-0.5">
+      <div className={cn("shrink-0 border-t border-border py-2", props.readable && scrollGutter)}>
+        <div
+          className={cn(
+            "flex items-center justify-between gap-2 px-[var(--forge-gutter,1rem)]",
+            props.readable,
+          )}
+        >
+          <TabsList aria-label="Pull request detail" className="-ml-2">
             {order.map((tab) => (
-              <TabsTab key={tab} value={tab} className="h-6 data-active:bg-panel">
+              <TabsTab key={tab} value={tab} className={wordTab}>
                 {names[tab]}
               </TabsTab>
             ))}
@@ -97,7 +111,10 @@ function PrTabs(props: {
         <TabsPanel
           key={tab}
           value={tab}
-          className="overflow-auto border-t border-border"
+          className={cn(
+            "overflow-auto border-t border-border",
+            props.readable && "[scrollbar-gutter:stable]",
+          )}
           onScroll={(e: UIEvent<HTMLDivElement>) => props.onScroll(tab, e.currentTarget.scrollTop)}
         >
           {props.readable && tab !== "code" ? (
@@ -228,42 +245,47 @@ function PrDetailLoaded(props: {
         disabled={context.disabled}
         onRefresh={refresh}
         header={
-          <div className={readable}>
-            {props.page ? (
-              <PrPageHeader
-                actions={actions}
-                extensions={props.extensions}
-                behindOpen={behindOpen}
-                onBehindOpen={setBehindOpen}
-                gates={<PrGatesRow actions={actions} onSelect={onGate} />}
-                onBack={props.onBack}
-                menu={menu}
-              />
-            ) : (
-              <PrHeader
-                actions={actions}
-                extensions={props.extensions}
-                condensed={condensed[props.tab]}
-                behindOpen={behindOpen}
-                onBehindOpen={setBehindOpen}
-                gates={<PrGatesRow actions={actions} onSelect={onGate} />}
-                onBack={props.onBack}
-                onOpen={props.onOpen}
-                menu={menu}
-              />
-            )}
-            {props.refreshFailed && (
-              <p role="status" className="flex items-center gap-2 px-4 pb-1 text-xs">
-                <span className="min-w-0 truncate text-muted-foreground">
-                  {`Couldn't refresh: ${props.refreshFailed}`}
-                </span>
-                <Button size="xs" onClick={refresh}>
-                  Retry
-                </Button>
-              </p>
-            )}
-            <PrWriteStatus actions={actions} refreshing={props.refreshing} />
-            <PrSuggestionBatch />
+          <div className={props.page ? scrollGutter : undefined}>
+            <div className={readable}>
+              {props.page ? (
+                <PrPageHeader
+                  actions={actions}
+                  extensions={props.extensions}
+                  behindOpen={behindOpen}
+                  onBehindOpen={setBehindOpen}
+                  gates={<PrGatesRow actions={actions} onSelect={onGate} />}
+                  onBack={props.onBack}
+                  menu={menu}
+                />
+              ) : (
+                <PrHeader
+                  actions={actions}
+                  extensions={props.extensions}
+                  condensed={condensed[props.tab]}
+                  behindOpen={behindOpen}
+                  onBehindOpen={setBehindOpen}
+                  gates={<PrGatesRow actions={actions} onSelect={onGate} />}
+                  onBack={props.onBack}
+                  onOpen={props.onOpen}
+                  menu={menu}
+                />
+              )}
+              {props.refreshFailed && (
+                <p
+                  role="status"
+                  className="flex items-center gap-2 px-[var(--forge-gutter,1rem)] pb-1 text-xs"
+                >
+                  <span className="min-w-0 truncate text-muted-foreground">
+                    {`Couldn't refresh: ${props.refreshFailed}`}
+                  </span>
+                  <Button size="xs" onClick={refresh}>
+                    Retry
+                  </Button>
+                </p>
+              )}
+              <PrWriteStatus actions={actions} refreshing={props.refreshing} />
+              <PrSuggestionBatch />
+            </div>
           </div>
         }
       >
@@ -319,7 +341,13 @@ function PrDetailLoaded(props: {
               />
             ),
             timeline: (
-              <PrActivity workspaceId={context.workspaceId} detail={detail} order={order} />
+              <PrActivity
+                workspaceId={context.workspaceId}
+                detail={detail}
+                order={order}
+                // On a page the column already sets the width and the edges.
+                className={props.page ? "mx-0 max-w-none" : undefined}
+              />
             ),
             code: (
               <PrFiles
@@ -425,7 +453,10 @@ export function PrDetail(props: {
   return (
     <article
       aria-label={`Pull request #${props.number}`}
-      className="@container/pr relative flex h-full min-h-0 flex-col bg-panel"
+      className={cn(
+        "@container/pr relative flex h-full min-h-0 flex-col bg-panel [--forge-gutter:1rem]",
+        props.page && "sm:[--forge-gutter:2rem]",
+      )}
     >
       {context ? (
         <PrDetailLoaded

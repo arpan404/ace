@@ -79,8 +79,10 @@ function GlanceFrame(props: {
 }
 
 function GlanceRows(props: { files: GlanceFile[]; onOpenCode(path?: string): void }) {
+  // Rows overhang the column by their inset, so file names start on the page's edge and the
+  // hover wash reaches past it.
   return (
-    <ul>
+    <ul className="-mx-1.5">
       {props.files.map((file) => (
         <li key={file.path}>
           <button
@@ -148,7 +150,7 @@ function GlanceFromPages(props: {
         </p>
       ) : pages.pending ? (
         <LoadingRegion label="changed files">
-          <ul aria-hidden>
+          <ul aria-hidden className="-mx-1.5">
             {[0, 1, 2].map((row) => (
               <li key={row} className="flex h-7 items-center gap-3 px-1.5">
                 <Skeleton className="h-3 flex-1" />

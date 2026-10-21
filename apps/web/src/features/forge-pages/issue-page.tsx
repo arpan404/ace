@@ -107,7 +107,7 @@ function Header(props: { issue: ForgeIssueDetail; onBack(): void }) {
         }
       />
       {(issue.labels.length > 0 || issue.assignees.length > 0 || issue.milestone) && (
-        <div className="mt-3 flex flex-wrap items-center gap-1.5 pl-8 text-xs text-muted-foreground">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           {issue.labels.map((label) => (
             <LabelPill key={label} name={label} color={issue.labelColors?.[label]} />
           ))}

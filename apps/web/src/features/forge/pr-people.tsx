@@ -88,7 +88,11 @@ export function PrPeople(props: {
         <div
           role="group"
           aria-label="Labels"
-          className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1"
+          // The picker's glyph, not its box, ends on the column's edge.
+          className={cn(
+            "ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1",
+            labelPicker && "-mr-1",
+          )}
         >
           {detail.labels.map((label) => (
             <LabelPill key={label} name={label} color={detail.labelColors?.[label]} />

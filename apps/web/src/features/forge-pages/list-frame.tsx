@@ -60,20 +60,25 @@ function SearchBox(props: {
       value={text}
       onValueChange={setText}
       onBlur={() => setExpanded(false)}
-      className="w-64 min-w-40 shrink"
+      className="w-56 min-w-40 shrink"
     />
   );
 }
 
 /**
- * A list page's frame: the Pull requests / Issues tabs, the toolbar and the rows, in one
- * scroller. Once the rows scroll, the tabs fold away and search shrinks to its icon.
+ * A list page's frame: the Pull requests / Issues switch in large type with search, a toolbar of
+ * word choices and menus, and the rows, in one scroller. Every band shares one gutter
+ * (`--forge-gutter`), so titles, filters and rows start on the same edge. Once the rows scroll,
+ * the switch folds away and search shrinks to its icon.
  */
 export function ListFrame(props: {
   kind: "pulls" | "issues";
   search: string;
   onSearch(text: string): void;
+  /** The toolbar's left: word choices (state, involvement). */
   controls: ReactNode;
+  /** The toolbar's right, before search: menus (project, sort, filters). */
+  menus?: ReactNode;
   actions?: ReactNode;
   /** The list's address (filters, sort, search): where it was scrolled is kept per address. */
   address: string;
@@ -88,52 +93,68 @@ export function ListFrame(props: {
   return (
     <div
       ref={ref}
-      className="h-full overflow-y-auto"
+      className={cn("h-full overflow-y-auto", forgeGutter)}
       onScroll={(event) => {
         const top = event.currentTarget.scrollTop;
         onScroll(top);
         setCondensed((was) => (was ? top > 0 : top > condenseAt));
       }}
     >
-      <header className={cn("sticky top-0 z-[2] bg-background px-4", toolbarEdge)}>
+      <header className={cn("sticky top-0 z-[2] bg-background px-(--forge-gutter)", toolbarEdge)}>
         {!condensed && (
-          <div className="flex items-center gap-2 pt-4 pb-2">
+          <div className="flex items-center gap-2 pt-5 pb-1">
             <Tabs
               value={props.kind}
               onValueChange={(value) =>
                 void navigate({ to: value === "issues" ? "/issues" : "/pulls" })
               }
             >
-              <TabsList aria-label="Pull requests and issues">
-                <TabsTab value="pulls" className="h-8 px-3 text-base">
+              <TabsList aria-label="Pull requests and issues" className="gap-5">
+                <TabsTab value="pulls" className={titleTab}>
                   Pull requests
                 </TabsTab>
-                <TabsTab value="issues" className="h-8 px-3 text-base">
+                <TabsTab value="issues" className={titleTab}>
                   Issues
                 </TabsTab>
               </TabsList>
             </Tabs>
             <span className="flex-1" />
+            <SearchBox
+              label={label}
+              value={props.search}
+              onValue={props.onSearch}
+              condensed={false}
+            />
             {props.actions}
           </div>
         )}
         <div
           role="toolbar"
           aria-label={props.kind === "pulls" ? "Pull request filters" : "Issue filters"}
-          className="flex min-w-0 flex-wrap items-center gap-1 py-2"
+          className="-mx-2 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1 py-2"
         >
           {props.controls}
           <span className="flex-1" />
-          <SearchBox
-            label={label}
-            value={props.search}
-            onValue={props.onSearch}
-            condensed={condensed}
-          />
+          {props.menus}
+          {condensed && (
+            <SearchBox label={label} value={props.search} onValue={props.onSearch} condensed />
+          )}
           {condensed && props.actions}
         </div>
       </header>
       {props.children}
     </div>
   );
+}
+
+/** The page's one gutter: 16px in a narrow column, 32px beside it. */
+export const forgeGutter = "[--forge-gutter:1rem] sm:[--forge-gutter:2rem]";
+
+/** Pull requests / Issues: words in large type, the current one in the foreground. No fill. */
+const titleTab =
+  "h-8 rounded-sm px-0 text-lg font-semibold tracking-title text-subtle-foreground hover:not-data-active:bg-transparent hover:text-muted-foreground data-active:bg-transparent data-active:text-foreground";
+
+/** A thin rule between two groups of word choices in a toolbar. */
+export function ToolbarRule() {
+  return <span aria-hidden className="mx-1.5 h-4 w-px bg-border" />;
 }

@@ -14,14 +14,14 @@ import type { ForgePrRow } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
-import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
+import { WordChoice } from "@/components/ui/word-choice.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { FiltersMenu, type FilterSection } from "./filters-menu.tsx";
 import { useLinkedThreads, workKey } from "./linked-threads.ts";
-import { ListFrame } from "./list-frame.tsx";
+import { ListFrame, ToolbarRule } from "./list-frame.tsx";
 import { useGroupCounts, usePrPages } from "./lists.ts";
 import { PrRow } from "./pr-row.tsx";
 import { useReadyPages } from "./ready-pages.ts";
@@ -165,9 +165,9 @@ export function PullRequestsPage(props: {
     : groupPrs(sortPrs(list.rows, sort === "ready" ? "updated" : sort), list.first?.viewer);
   const counts = list.first?.counts;
   const stateOptions = [
-    { value: "open" as const, label: counts ? `Open ${counts.open + counts.draft}` : "Open" },
-    { value: "merged" as const, label: counts ? `Merged ${counts.merged}` : "Merged" },
-    { value: "closed" as const, label: counts ? `Closed ${counts.closed}` : "Closed" },
+    { value: "open" as const, label: "Open", count: counts && counts.open + counts.draft },
+    { value: "merged" as const, label: "Merged", count: counts?.merged },
+    { value: "closed" as const, label: "Closed", count: counts?.closed },
     { value: "all" as const, label: "All" },
   ];
   const rows = (
@@ -179,23 +179,27 @@ export function PullRequestsPage(props: {
       onSearch={(text) => onSearch({ q: text.trim() || undefined })}
       controls={
         <>
-          <SegmentedControl
-            label="Involvement"
-            size="sm"
-            value={search.who ?? "all"}
-            options={[
-              { value: "all", label: "All" },
-              { value: "authored", label: "Authored" },
-              { value: "reviewing", label: "Reviewing" },
-            ]}
-            onValueChange={(who) => onSearch({ who: who === "all" ? undefined : who })}
-          />
-          <FilterMenu
+          <WordChoice
             label="State"
             value={search.state ?? "open"}
             options={stateOptions}
             onValueChange={(state) => onSearch({ state: state === "open" ? undefined : state })}
           />
+          <ToolbarRule />
+          <WordChoice
+            label="Involvement"
+            value={search.who ?? "all"}
+            options={[
+              { value: "all", label: "Everyone" },
+              { value: "authored", label: "Authored" },
+              { value: "reviewing", label: "Reviewing" },
+            ]}
+            onValueChange={(who) => onSearch({ who: who === "all" ? undefined : who })}
+          />
+        </>
+      }
+      menus={
+        <>
           {project && choice.projects.length > 1 && (
             <FilterMenu
               label="Project"
@@ -249,7 +253,7 @@ export function PullRequestsPage(props: {
           }
         />
       ) : list.loading ? (
-        <ListSkeleton label="pull requests" shape="row" rows={8} className="px-4" />
+        <ListSkeleton label="pull requests" shape="row" rows={8} className="px-(--forge-gutter)" />
       ) : !list.rows.length ? (
         <EmptyState title="No pull requests match" />
       ) : (
@@ -285,7 +289,7 @@ export function PullRequestsPage(props: {
             </section>
           ))}
           {list.more && (
-            <div className="px-4 pt-2">
+            <div className="px-(--forge-gutter) pt-2">
               <Button
                 size="sm"
                 variant="ghost"

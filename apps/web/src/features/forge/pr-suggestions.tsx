@@ -122,7 +122,7 @@ export function PrSuggestionBatch() {
     <div
       role="group"
       aria-label="Suggestion batch"
-      className="flex shrink-0 items-center justify-between gap-2 px-4 pb-1 text-xs"
+      className="flex shrink-0 items-center justify-between gap-2 px-[var(--forge-gutter,1rem)] pb-1 text-xs"
     >
       <span className="text-muted-foreground tabular-nums">
         {count === 1 ? "1 suggestion in batch" : `${count} suggestions in batch`}

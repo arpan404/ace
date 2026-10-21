@@ -81,11 +81,11 @@ test("Reviewing narrows the list to pull requests asking for your review", async
   await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["226", "229"]));
 });
 
-test("the state menu counts each state and lists merged pull requests", async () => {
+test("the state choices count each state and Merged lists merged pull requests", async () => {
   const app = withRepository();
   await app.open("/pulls?project=ace");
   await screen.findByRole("navigation", { name: "Pull requests" });
-  await pick(/^State:/, /^Merged 1$/);
+  await userEvent.click(await screen.findByRole("button", { name: "Merged 1" }));
   await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["212"]));
 });
 

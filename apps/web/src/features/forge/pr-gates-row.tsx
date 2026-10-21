@@ -35,7 +35,7 @@ function Cell(props: { gate: Gate; loading: boolean; onSelect(key: GateKey): voi
       type="button"
       onClick={() => props.onSelect(gate.key)}
       aria-label={`${gate.label}: ${gate.value}${gate.detail ? `, ${gate.detail}` : ""}`}
-      className="flex min-w-0 flex-col gap-0.5 bg-panel py-2 pr-2 pl-4 text-left transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover"
+      className="flex min-w-0 flex-col gap-0.5 bg-panel py-2 pr-2 pl-4 text-left first:pl-[var(--forge-gutter,1rem)] transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover"
     >
       <span className="text-meta text-subtle-foreground">{gate.label}</span>
       {props.loading ? (

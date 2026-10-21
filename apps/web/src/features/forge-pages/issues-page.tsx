@@ -5,7 +5,7 @@ import type { ForgeIssueRow } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
-import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
+import { WordChoice } from "@/components/ui/word-choice.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { Screen } from "@/features/shell/index.ts";
@@ -20,7 +20,7 @@ import {
   type IssuesSort,
 } from "./issues-model.ts";
 import { useLinkedThreads, workKey } from "./linked-threads.ts";
-import { ListFrame } from "./list-frame.tsx";
+import { ListFrame, ToolbarRule } from "./list-frame.tsx";
 import { useGroupCounts, useIssuePages } from "./lists.ts";
 import { NewIssueDialog } from "./new-issue-dialog.tsx";
 import { useProjectChoice } from "./project-choice.ts";
@@ -108,26 +108,30 @@ export function IssuesPage(props: {
       }
       controls={
         <>
-          <SegmentedControl
+          <WordChoice
+            label="State"
+            value={search.state ?? "open"}
+            options={[
+              { value: "open" as const, label: "Open", count: counts?.open },
+              { value: "closed" as const, label: "Closed", count: counts?.closed },
+            ]}
+            onValueChange={(state) => onSearch({ state: state === "open" ? undefined : state })}
+          />
+          <ToolbarRule />
+          <WordChoice
             label="Involvement"
-            size="sm"
             value={search.who ?? "all"}
             options={[
-              { value: "all", label: "All" },
+              { value: "all", label: "Everyone" },
               { value: "assigned", label: "Assigned" },
               { value: "created", label: "Created" },
             ]}
             onValueChange={(who) => onSearch({ who: who === "all" ? undefined : who })}
           />
-          <FilterMenu
-            label="State"
-            value={search.state ?? "open"}
-            options={[
-              { value: "open" as const, label: counts ? `Open ${counts.open}` : "Open" },
-              { value: "closed" as const, label: counts ? `Closed ${counts.closed}` : "Closed" },
-            ]}
-            onValueChange={(state) => onSearch({ state: state === "open" ? undefined : state })}
-          />
+        </>
+      }
+      menus={
+        <>
           {project && choice.projects.length > 1 && (
             <FilterMenu
               label="Project"
@@ -173,7 +177,7 @@ export function IssuesPage(props: {
           }
         />
       ) : list.loading ? (
-        <ListSkeleton label="issues" shape="row" rows={8} className="px-4" />
+        <ListSkeleton label="issues" shape="row" rows={8} className="px-(--forge-gutter)" />
       ) : !list.rows.length ? (
         <EmptyState title="No issues match" />
       ) : (
@@ -209,7 +213,7 @@ export function IssuesPage(props: {
             </section>
           ))}
           {list.more && (
-            <div className="px-4 pt-2">
+            <div className="px-(--forge-gutter) pt-2">
               <Button
                 size="sm"
                 variant="ghost"

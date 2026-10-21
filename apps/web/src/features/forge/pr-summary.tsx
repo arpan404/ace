@@ -33,7 +33,7 @@ export function PrSummary(props: {
   const { context } = props;
   const { detail } = context;
   return (
-    <div className={cn("space-y-3 px-4 pt-2", composerClearance)}>
+    <div className={cn("space-y-3 px-[var(--forge-gutter,1rem)] pt-2", composerClearance)}>
       <PrAttention
         workspaceId={context.workspaceId}
         detail={detail}

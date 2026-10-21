@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
 
 /**
- * The top of a pull request's or issue's page: back, the title in large type with its number,
- * the page's actions at the right, then the state badge and who opened it. One layout for both
- * pages, so they read the same.
+ * The top of a pull request's or issue's page: the title in large type with its number, the
+ * page's actions at the right, then the state badge and who opened it. Title and byline start on
+ * the page's gutter like everything below them; back hangs in the gutter to the title's left
+ * (32px wide), and in a narrow column, where the gutter is too small, the header's back stands in.
+ * One layout for both pages, so they read the same.
  */
 export function WorkHeading(props: {
   /** Back to the list. */
@@ -18,12 +20,14 @@ export function WorkHeading(props: {
 }) {
   return (
     <>
-      <div className="flex items-start gap-2">
-        {props.back}
+      <div className="relative flex items-start gap-2">
+        {props.back && <div className="absolute top-0.5 -left-8 max-sm:hidden">{props.back}</div>}
         <div className="min-w-0 flex-1">{props.title}</div>
-        {props.actions && <div className="flex shrink-0 items-center gap-1">{props.actions}</div>}
+        {props.actions && (
+          <div className="-mr-1 flex shrink-0 items-center gap-1">{props.actions}</div>
+        )}
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 pl-8 text-ui text-muted-foreground">
+      <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-ui text-muted-foreground">
         {props.badge}
         {props.byline}
       </div>

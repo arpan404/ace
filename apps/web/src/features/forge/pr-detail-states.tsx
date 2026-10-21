@@ -18,7 +18,7 @@ export function PrGhost(props: {
 }) {
   return (
     <LoadingRegion label={`Reading pull request #${props.number}`} className="flex flex-col">
-      <div className="px-4 pt-2 pb-2">
+      <div className="px-[var(--forge-gutter,1rem)] pt-2 pb-2">
         <p className="flex h-7 items-center gap-1 text-xs text-muted-foreground">
           {props.repository && (
             <span className="font-medium">{`${props.repository.owner}/${props.repository.name}`}</span>
@@ -39,7 +39,7 @@ export function PrGhost(props: {
           <Skeleton className="w-2/3" />
         </div>
       </div>
-      <div className="flex items-center gap-0.5 border-t border-border px-4 py-2">
+      <div className="flex items-center gap-0.5 border-t border-border px-[var(--forge-gutter,1rem)] py-2">
         {tabs.map((tab) => (
           <span key={tab} className="px-2.5 text-sm font-medium text-subtle-foreground">
             {tab}

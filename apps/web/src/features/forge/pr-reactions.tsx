@@ -88,6 +88,8 @@ export function PrReactions(props: { subject: ForgeReactionSubject; className?: 
               label="Add reaction"
               size="sm"
               disabled={disabled}
+              // Alone, its glyph (not its box) starts on the column's edge.
+              className={groups.some((g) => g.count > 0) ? undefined : "-ml-1"}
             />
           }
         />
