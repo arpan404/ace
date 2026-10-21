@@ -162,8 +162,8 @@ test("an active search finds open PRs drafts included, and a failing-checks sear
 test("full PR detail includes hosted branch identities, description, reviews and fork identity", async () => {
   const fixtures = standard();
   fixtures["repos/octo/ace/pulls/7"] = [{ body: richPr }];
-  fixtures.graphql = [
-    { body: threads() },
+  fixtures.graphql = [{ body: threads() }];
+  fixtures["graphql:reviewDecision headRefOid"] = [
     {
       body: {
         data: {
@@ -239,10 +239,8 @@ test("a head that changes during diff preparation cannot return a ready diff for
     [`repos/octo/ace/compare/${nextSha}...${sha}`]: [
       { body: { merge_base_commit: { sha: nextSha } } },
     ],
-    "repos/octo/ace/pulls/7": [
-      { body: richPr },
-      { body: { ...richPr, head: { ...richPr.head, sha: nextSha } } },
-    ],
+    // The head moved while the files were read: the check after them sees it.
+    "repos/octo/ace/pulls/7": [{ body: { ...richPr, head: { ...richPr.head, sha: nextSha } } }],
     "repos/octo/ace/pulls/7/files?per_page=25&page=1": [{ body: [file] }],
   });
   try {
@@ -310,7 +308,9 @@ test("malformed pagination and cancelled or rate-limited reads never produce par
     await f.cleanup();
   }
   const limited = await fakeGh({
-    "repos/octo/ace/pulls/7": [{ status: 429, headers: { "retry-after": "60" } }],
+    "repos/octo/ace/pulls/7/commits?per_page=25&page=1": [
+      { status: 429, headers: { "retry-after": "60" } },
+    ],
   });
   try {
     await expect(limited.forge.prCommits(7, 1, sha, signal())).rejects.toMatchObject({
@@ -324,10 +324,8 @@ test("malformed pagination and cancelled or rate-limited reads never produce par
 
 test("a push during a commit-list read cannot label the new commits with the previously selected head", async () => {
   const f = await fakeGh({
-    "repos/octo/ace/pulls/7": [
-      { body: richPr },
-      { body: { ...richPr, head: { ...richPr.head, sha: nextSha } } },
-    ],
+    // The push landed while the list was read: the check after it sees the new head.
+    "repos/octo/ace/pulls/7": [{ body: { ...richPr, head: { ...richPr.head, sha: nextSha } } }],
     "repos/octo/ace/pulls/7/commits?per_page=25&page=1": [{ body: [{ ...commit, sha: nextSha }] }],
     graphql: [
       { body: { data: { repository: { c0: { oid: nextSha, additions: 8, deletions: 3 } } } } },

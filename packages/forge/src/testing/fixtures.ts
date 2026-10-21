@@ -220,34 +220,28 @@ const lifecycleBase = {
 export function lifecycleRecord(overrides: Partial<typeof lifecycleBase> = {}) {
   return { ...lifecycleBase, ...overrides };
 }
-export function lifecycleFixtures(records = [lifecycleRecord()]): Fixtures {
+export function lifecycleFixtures(
+  records = [lifecycleRecord()],
+  /** The mutations the host says it has, answered beside each PR snapshot. */
+  mutations = [
+    "updatePullRequest",
+    "markPullRequestReadyForReview",
+    "convertPullRequestToDraft",
+    "closePullRequest",
+    "reopenPullRequest",
+    "updatePullRequestBranch",
+    "revertPullRequest",
+  ],
+): Fixtures {
   return {
     "graphql:query AceLifecycleSnapshot": records.map((pullRequest) => ({
       body: {
         data: {
           repository: { isArchived: false, viewerPermission: "WRITE", pullRequest },
+          mutationType: { fields: mutations.map((name) => ({ name })) },
         },
       },
     })),
-    "graphql:mutationType:__type": [
-      {
-        body: {
-          data: {
-            mutationType: {
-              fields: [
-                "updatePullRequest",
-                "markPullRequestReadyForReview",
-                "convertPullRequestToDraft",
-                "closePullRequest",
-                "reopenPullRequest",
-                "updatePullRequestBranch",
-                "revertPullRequest",
-              ].map((name) => ({ name })),
-            },
-          },
-        },
-      },
-    ],
   };
 }
 

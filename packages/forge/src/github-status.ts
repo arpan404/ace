@@ -18,11 +18,11 @@ import {
 } from "./status.ts";
 import { sameCheck, sameStatus, sameComment, sameReview } from "./projections.ts";
 import { StatusRevisions, commentIdentity, checkIdentity } from "./revisions.ts";
-import { PageDecoder, ResourceReader } from "./resource.ts";
+import { PageDecoder, ResourceReader, type Resource } from "./resource.ts";
 import { immutable } from "./immutable.ts";
 import { ReviewThreadReader } from "./review-threads.ts";
 import { ReadBudget } from "./read-budget.ts";
-import type { GhApi } from "./http.ts";
+import type { GhApi, Page } from "./http.ts";
 import { ForgeError } from "./errors.ts";
 
 function latestStatuses(items: ForgeCheck[]): ForgeCheck[] {
@@ -60,6 +60,8 @@ export class GitHubStatusReader {
     this.#threads = new ReviewThreadReader(revisions);
   }
   #last: ForgePrStatus | undefined;
+  /** Each recently read PR's head, newest last. */
+  readonly #heads = new Map<number, string>();
   #parts: readonly unknown[] = [];
   #checkParts: readonly import("./resource.ts").Resource<ForgeCheck>[] = [];
   #legacySource: ForgeCheck[] | undefined;
@@ -77,28 +79,87 @@ export class GitHubStatusReader {
   ): Promise<ForgePrStatus> {
     const budget = new ReadBudget();
     const ref = ForgePrRef.parse({ repository, number });
-    const response = await api.request(`${root}/pulls/${number}`, signal);
-    budget.add(response.bytes);
-    const pr = this.#pr.read(response);
-    if (pr.number !== number) throw new ForgeError("invalid_data");
-    const sha = pr.head.sha;
-    // The resources below are independent once the head is known; read them concurrently.
-    // Every read settles before the call returns, so no gh process outlives a failed status.
+    // Only the commit checks depend on the head. Everything else starts at once, and so do the
+    // checks of the head this PR had at its last read: a head rarely moves between two reads, so
+    // a status usually costs one round trip instead of two. A wrong guess is dropped unseen.
+    const lifetime = new AbortController();
+    const guess = new AbortController();
+    const stop = () => {
+      lifetime.abort();
+      guess.abort();
+    };
+    signal.addEventListener("abort", stop, { once: true });
+    const commitPages = (sha: string, scope: AbortSignal) =>
+      [
+        api.pages(`${root}/commits/${sha}/check-runs?per_page=100&filter=latest`, scope, budget),
+        api.pages(`${root}/commits/${sha}/statuses?per_page=100`, scope, budget),
+      ] as const;
+    const known = this.#heads.get(number);
+    const guessed = known === undefined ? undefined : commitPages(known, guess.signal);
+    const prRead = api.request(`${root}/pulls/${number}`, lifetime.signal);
+    const scope = lifetime.signal;
     const reads = [
-      this.#checks.read(
-        api,
-        `${root}/commits/${sha}/check-runs?per_page=100&filter=latest`,
-        signal,
-        budget,
-      ),
-      this.#statuses.read(api, `${root}/commits/${sha}/statuses?per_page=100`, signal, budget),
-      this.#inline.read(api, `${root}/pulls/${number}/comments?per_page=100`, signal, budget),
-      this.#issue.read(api, `${root}/issues/${number}/comments?per_page=100`, signal, budget),
-      this.#reviews.read(api, `${root}/pulls/${number}/reviews?per_page=100`, signal, budget),
-      this.#threads.read(api, repository, number, signal, budget),
+      this.#inline.read(api, `${root}/pulls/${number}/comments?per_page=100`, scope, budget),
+      this.#issue.read(api, `${root}/issues/${number}/comments?per_page=100`, scope, budget),
+      this.#reviews.read(api, `${root}/pulls/${number}/reviews?per_page=100`, scope, budget),
+      this.#threads.read(api, repository, number, scope, budget),
     ] as const;
-    await Promise.allSettled(reads);
-    const [checks, statuses, inline, issue, reviews, threads] = await Promise.all(reads);
+    // Handled here: any of them may fail while the PR itself is still being read.
+    void Promise.allSettled([...reads, ...(guessed ?? [])]);
+    let commits: readonly [Promise<Page[]>, Promise<Page[]>] | undefined;
+    try {
+      const response = await prRead;
+      budget.add(response.bytes);
+      const pr = this.#pr.read(response);
+      if (pr.number !== number) throw new ForgeError("invalid_data");
+      this.#remember(number, pr.head.sha);
+      if (guessed && known === pr.head.sha) commits = guessed;
+      else {
+        guess.abort();
+        commits = commitPages(pr.head.sha, scope);
+      }
+      await Promise.allSettled([...reads, ...commits]);
+      const [inline, issue, reviews, threads] = await Promise.all(reads);
+      const [checkPages, statusPages] = await Promise.all(commits);
+      return this.#publish(ref, number, response, pr, {
+        checks: this.#checks.project(checkPages),
+        statuses: this.#statuses.project(statusPages),
+        inline,
+        issue,
+        reviews,
+        threads,
+      });
+    } finally {
+      // Every read settles before the call returns, so no gh process outlives a failed status.
+      stop();
+      await Promise.allSettled([prRead, ...reads, ...(guessed ?? []), ...(commits ?? [])]);
+      signal.removeEventListener("abort", stop);
+    }
+  }
+  /** At most this many PRs keep their last head, for guessing the next read's checks. */
+  #remember(number: number, sha: string): void {
+    this.#heads.delete(number);
+    this.#heads.set(number, sha);
+    if (this.#heads.size > 256) {
+      const oldest = this.#heads.keys().next().value;
+      if (oldest !== undefined) this.#heads.delete(oldest);
+    }
+  }
+  #publish(
+    ref: ForgePrRef,
+    number: number,
+    response: Page,
+    pr: z.infer<typeof GitHubPr>,
+    resources: {
+      checks: Resource<ForgeCheck>;
+      statuses: Resource<ForgeCheck>;
+      inline: Resource<ForgeComment>;
+      issue: Resource<ForgeComment>;
+      reviews: Resource<ForgeComment>;
+      threads: Awaited<ReturnType<ReviewThreadReader["read"]>>;
+    },
+  ): ForgePrStatus {
+    const { checks, statuses, inline, issue, reviews, threads } = resources;
     const parts = [response, checks, statuses, inline, issue, reviews, threads];
     if (
       this.#last?.ref.number === number &&

@@ -214,7 +214,8 @@ export class GitHubForge implements Forge, ForgeBrowser {
     return this.#browser.list(query, signal);
   }
   async prDetail(number: number, signal: AbortSignal) {
-    return this.#browser.detail(await this.status(number, signal), signal);
+    this.#ref(number);
+    return this.#browser.detail(number, (scope) => this.status(number, scope), signal);
   }
   prCommits(number: number, page: number, headSha: string, signal: AbortSignal) {
     return this.#browser.commits(number, page, headSha, signal);
