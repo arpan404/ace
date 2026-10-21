@@ -16,6 +16,38 @@ export const ForgeReviewAnchor = z.object({
 export type ForgeReviewAnchor = z.infer<typeof ForgeReviewAnchor>;
 export const ForgeReviewDraft = z.object({ id, body, anchor: ForgeReviewAnchor });
 export type ForgeReviewDraft = z.infer<typeof ForgeReviewDraft>;
+/** GitHub's reaction set, named as its REST API names them. */
+export const ForgeReactionContent = z.enum([
+  "+1",
+  "-1",
+  "laugh",
+  "hooray",
+  "confused",
+  "heart",
+  "rocket",
+  "eyes",
+]);
+export type ForgeReactionContent = z.infer<typeof ForgeReactionContent>;
+/** What a reaction is on: the PR description, a conversation comment or an inline comment. */
+export const ForgeReactionSubject = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("pr") }),
+  z.object({ kind: z.literal("issue"), commentId: z.number().int().positive() }),
+  z.object({ kind: z.literal("inline"), commentId: z.number().int().positive() }),
+]);
+export type ForgeReactionSubject = z.infer<typeof ForgeReactionSubject>;
+export const ForgeReactionSummary = z.object({
+  subject: ForgeReactionSubject,
+  groups: z
+    .array(
+      z.object({
+        content: ForgeReactionContent,
+        count: z.number().int().nonnegative(),
+        viewer: z.boolean(),
+      }),
+    )
+    .max(8),
+});
+export type ForgeReactionSummary = z.infer<typeof ForgeReactionSummary>;
 export const ForgeReviewAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("reconcile"), operationId: id }),
   z.object({ kind: z.literal("draft.save"), draft: ForgeReviewDraft }),
@@ -46,6 +78,35 @@ export const ForgeReviewAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("thread.unresolve"), threadId: id }),
   z.object({ kind: z.literal("file.view"), path: z.string().min(1).max(4096), headSha: sha }),
   z.object({ kind: z.literal("file.unview"), path: z.string().min(1).max(4096), headSha: sha }),
+  z.object({
+    kind: z.literal("reaction.add"),
+    subject: ForgeReactionSubject,
+    content: ForgeReactionContent,
+  }),
+  z.object({
+    kind: z.literal("reaction.remove"),
+    subject: ForgeReactionSubject,
+    content: ForgeReactionContent,
+  }),
+  z.object({
+    kind: z.literal("reviewers.request"),
+    reviewers: z
+      .array(
+        z
+          .string()
+          .regex(/^[\w-]+$/)
+          .max(39),
+      )
+      .min(1)
+      .max(100),
+  }),
+  /** One commit on the head branch applying each inline comment's suggestion, only at `headSha`. */
+  z.object({
+    kind: z.literal("suggestions.apply"),
+    headSha: sha,
+    commentIds: z.array(z.number().int().positive()).min(1).max(100),
+    message: z.string().trim().min(1).max(4096),
+  }),
 ]);
 export type ForgeReviewAction = z.infer<typeof ForgeReviewAction>;
 export const ForgeHostedReviewCommand = z.object({
@@ -66,5 +127,7 @@ export const ForgeReviewState = z.object({
   canComment: z.boolean(),
   resolvableThreads: z.array(id).max(2000),
   operations: z.array(z.object({ id, state: z.enum(["accepted", "uncertain"]) })).max(100),
+  /** Subjects with reactions only; null when GitHub's reactions couldn't be read. */
+  reactions: z.array(ForgeReactionSummary).max(4_001).nullable().optional(),
 });
 export type ForgeReviewState = z.infer<typeof ForgeReviewState>;
