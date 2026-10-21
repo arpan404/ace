@@ -70,7 +70,10 @@ export function PrSummary(props: {
         context={context}
         refreshing={props.refreshing}
         reveal={props.revealChecks}
+        hostThreadId={props.hostThreadId}
         onRefresh={props.onRefresh}
+        onOpen={props.onOpen}
+        onOpenCode={props.onOpenCode}
       />
       <PrComments status={detail.status} />
       {props.extensions?.summary?.(context)}

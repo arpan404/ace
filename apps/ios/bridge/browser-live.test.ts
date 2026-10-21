@@ -1,64 +1,8 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { BrowserPageMessage, type ServerMessage } from "@ace/protocol";
-import { BrowserLive, type BrowserOwner } from "./browser-live.ts";
-import { plainPreview, RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
+import { closeBrowserFixtures, liveBrowser as live, viewport } from "./browser-fixture.ts";
+import { type RecordingSink, until } from "./sheet-fixture.ts";
 
-const closers: (() => Promise<void>)[] = [];
-afterEach(async () => {
-  await Promise.all(closers.splice(0).map((close) => close()));
-});
-
-const viewport = { width: 390, height: 700, devicePixelRatio: 3 };
-
-/** A real client on the fake daemon; `push` delivers a message the fixture doesn't produce. */
-async function live(options: { browser?: boolean } = {}) {
-  const { daemon, client } = sheetFixture();
-  closers.push(() => client.close());
-  daemon.createThread({ id: "web", workspaceId: "ace", title: "Checkout", provider: "codex" });
-  if (options.browser !== false) daemon.browser.drive("web", { url: "https://shop.test/cart" });
-  await client.start();
-  const listeners = new Set<(message: ServerMessage) => void>();
-  const sent: unknown[] = [];
-  const requested: unknown[] = [];
-  const owner: BrowserOwner = {
-    request: (message) => {
-      requested.push(message);
-      return client.request(message);
-    },
-    send: (message) => {
-      sent.push(message);
-      client.send(message);
-    },
-    onMessage: (listener) => {
-      listeners.add(listener);
-      const stop = client.onMessage(listener);
-      return () => {
-        listeners.delete(listener);
-        stop();
-      };
-    },
-    get state() {
-      return client.state;
-    },
-    connectionState: () => client.connectionState(),
-  };
-  const sink = new RecordingSink();
-  const scheduled: (() => void)[] = [];
-  const view = new BrowserLive(owner, sink, plainPreview, (_delay, callback) => {
-    scheduled.push(callback);
-    return () => {
-      const index = scheduled.indexOf(callback);
-      if (index >= 0) scheduled.splice(index, 1);
-    };
-  });
-  closers.push(async () => view.dispose());
-  /** A page state report, as the daemon sends it (the fixture has none of its own). */
-  const push = (message: unknown) => {
-    const page = BrowserPageMessage.parse(message);
-    for (const listener of listeners) listener(page);
-  };
-  return { daemon, sink, view, sent, requested, push, scheduled };
-}
+afterEach(closeBrowserFixtures);
 
 const state = (sink: RecordingSink) =>
   sink.read("browser:view")?.state as

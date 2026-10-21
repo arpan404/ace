@@ -44,7 +44,7 @@ export function aceGuidance(groups?: readonly string[], tools?: readonly string[
       ? "- you changed a UI or a localhost page: browser_open, then browser_snapshot; the person watches; console and network logs are there;"
       : "",
     "- visuals or images: guide visualize first;",
-    "- you opened or found the PR for this work: thread_link_pr;",
+    "- after gh pr create or finding the PR: thread_link_pr;",
     has("thread_control")
       ? "- the person wants a separate thread in any project: thread_start; to settle a finished one, this one too: thread_control settle;"
       : "",

@@ -1,0 +1,71 @@
+{
+  "$id": "https://ace.local/protocol/v1/GitConflictHunk.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "base": {
+      "anyOf": [
+        {
+          "maxLength": 131072,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "kind": {
+      "const": "conflict",
+      "type": "string"
+    },
+    "markers": {
+      "properties": {
+        "base": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ours": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "separator": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "theirs": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "ours",
+        "base",
+        "separator",
+        "theirs"
+      ],
+      "type": "object"
+    },
+    "ours": {
+      "maxLength": 131072,
+      "type": "string"
+    },
+    "theirs": {
+      "maxLength": 131072,
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "ours",
+    "base",
+    "theirs",
+    "markers"
+  ],
+  "type": "object"
+}

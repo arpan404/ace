@@ -1,5 +1,6 @@
 import {
   CaretRightIcon,
+  CheckIcon,
   CopyIcon,
   DownloadSimpleIcon,
   EyeIcon,
@@ -170,8 +171,8 @@ export function FileToolbar(props: {
             onClick={props.onWrap}
           />
           <IconButton
-            icon={CopyIcon}
-            label="Copy path"
+            icon={actions.pathCopied ? CheckIcon : CopyIcon}
+            label={actions.pathCopied ? "Copied" : "Copy path"}
             className={tool}
             onClick={() => actions.copyPath(path)}
           />

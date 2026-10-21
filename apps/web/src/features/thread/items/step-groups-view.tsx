@@ -1,6 +1,7 @@
 import { toolSurface } from "@ace/projection";
 import type { Item, ToolSurface } from "@ace/protocol";
 import {
+  backgroundFact,
   groupSteps,
   retriedStepIds,
   sameFact,
@@ -37,6 +38,7 @@ import { cn } from "@/lib/cn.ts";
 import { useAceLog } from "./ace-steps.tsx";
 import { useStepItem, useStepItemsSelect } from "./step-items.ts";
 import { ToolStep } from "./work-log-steps.tsx";
+import { BackgroundStep, useBackgroundCalls } from "./background-step.tsx";
 import { RailMark, StepRail } from "./step-rail.tsx";
 import { LiveGroupTitle } from "./live-group-title.tsx";
 import { useAnswerText } from "./answer-text.ts";
@@ -86,7 +88,11 @@ interface LogReading {
   retried: ReadonlySet<string>;
 }
 
-function readLog(items: readonly (Item | undefined)[]): LogReading {
+/** The log's facts; `calls` are its calls that left a command running in the background. */
+function readLog(
+  items: readonly (Item | undefined)[],
+  calls: ReadonlyMap<string, string>,
+): LogReading {
   const loaded = items.filter((item): item is Item => item !== undefined);
   // Only a log with a failure looks for retries: the common case reads each item once.
   const retried = loaded.some((item) => factOf(item)?.failed) ? retriedStepIds(loaded) : undefined;
@@ -94,8 +100,9 @@ function readLog(items: readonly (Item | undefined)[]): LogReading {
   const shown = new Map<string, ToolSurface>();
   const sites = new Map<string, string>();
   for (const item of loaded) {
-    const fact = factOf(item);
-    if (!fact) continue;
+    const known = factOf(item);
+    if (!known) continue;
+    const fact = calls.has(item.id) ? backgroundFact(known) : known;
     out.push(retried?.has(item.id) ? { ...fact, failed: false } : fact);
     const surface = surfaceOf(item);
     if (!surface) continue;
@@ -159,7 +166,12 @@ export function GroupedSteps(props: {
     () => (ace.hidden.size ? props.itemIds.filter((id) => !ace.hidden.has(id)) : props.itemIds),
     [ace.hidden, props.itemIds],
   );
-  const log = useStepItemsSelect(props.threadId, shown, readLog, sameReading) ?? nothing;
+  const calls = useBackgroundCalls(props.threadId, shown);
+  const read = useCallback(
+    (items: readonly (Item | undefined)[]) => readLog(items, calls),
+    [calls],
+  );
+  const log = useStepItemsSelect(props.threadId, shown, read, sameReading) ?? nothing;
   const groups = useGroups(log.facts);
   const opened = useOpenSteps();
   const rows = groups.map((group, index) => (
@@ -172,6 +184,7 @@ export function GroupedSteps(props: {
       surfaces={props.surfaces}
       carried={log.surfaces}
       retried={log.retried}
+      calls={calls}
     />
   ));
   return (
@@ -203,6 +216,7 @@ const groupIcons: Record<GroupIcon, PhosphorIcon> = {
   list: FolderSimpleIcon,
   plan: ListChecksIcon,
   spawn: RobotIcon,
+  background: TerminalIcon,
   agent: RobotIcon,
   question: ChatTeardropTextIcon,
   tool: PlugIcon,
@@ -304,6 +318,7 @@ const GroupView = memo(function GroupView(props: {
   surfaces: ReadonlyMap<string, ToolSurface> | undefined;
   carried: ReadonlyMap<string, ToolSurface>;
   retried: ReadonlySet<string>;
+  calls: ReadonlyMap<string, string>;
 }) {
   const { group } = props;
   const [open, setOpen] = useGroupOpen(group.key, group.ids);
@@ -318,6 +333,9 @@ const GroupView = memo(function GroupView(props: {
       surface={props.surfaces?.get(id) ?? props.carried.get(id)}
     />
   );
+  // Commands left running in the background: their task's line, or one group of them.
+  if (group.icon === "background")
+    return <BackgroundStep threadId={props.threadId} itemIds={group.ids} calls={props.calls} />;
   if (group.single && group.icon === "think")
     return <ThoughtRow threadId={props.threadId} itemId={group.key} />;
   if (group.single) return step(group.key);

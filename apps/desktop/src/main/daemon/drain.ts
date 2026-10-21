@@ -17,6 +17,8 @@ export interface DrainRequest {
   current(): boolean;
   /** Admission changed: the status's `paused` follows it. */
   paused(on: boolean): void;
+  /** The work still running, each time it is counted. */
+  waiting?(count: number): void;
 }
 
 /**
@@ -32,11 +34,13 @@ export async function drainForUpdate(
   let blockers = await ports.setMaintenance(daemon, true);
   if (!request.current()) return false;
   request.paused(true);
+  request.waiting?.(blockers);
   const until = ports.now() + request.deadlineMs;
   while (blockers > 0 && ports.now() < until) {
     await new Promise<void>((resolve) => ports.timers.set(request.pollMs, resolve));
     if (!request.current()) return false;
     blockers = await ports.blockers(daemon);
+    request.waiting?.(blockers);
   }
   if (!request.current()) return false;
   if (blockers > 0 && !request.wasPaused) await ports.setMaintenance(daemon, false);

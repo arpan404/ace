@@ -3,16 +3,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "assignee": {
-      "default": "",
-      "maxLength": 100,
-      "pattern": "^[\\w-]*$",
-      "type": "string"
+      "$ref": "https://ace.local/protocol/v1/ForgeSearchLogin.json"
     },
     "author": {
-      "default": "",
-      "maxLength": 100,
-      "pattern": "^[\\w-]*$",
-      "type": "string"
+      "$ref": "https://ace.local/protocol/v1/ForgeSearchLogin.json"
     },
     "labels": {
       "default": [],

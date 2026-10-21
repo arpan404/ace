@@ -30,10 +30,9 @@ export function FileActions(props: {
 }) {
   const toast = useToast();
   const copy = () => {
-    void navigator.clipboard?.writeText(props.path).then(
-      () => toast.add({ title: "Path copied", description: props.path }),
-      () => toast.error({ title: "Couldn't copy the path" }),
-    );
+    void navigator.clipboard
+      ?.writeText(props.path)
+      .catch(() => toast.error({ title: "Couldn't copy the path" }));
   };
   return (
     <>

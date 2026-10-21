@@ -1,19 +1,13 @@
+import { aceToolInput } from "@ace/core";
 import { visibleHistoryOrder } from "@ace/projection";
 import type { BackgroundTask, Item, Run } from "@ace/protocol";
 import { carriesOnStretch, type InlineQuestion } from "./thread-ledger.ts";
 import { isBareErrorCode } from "./error-display.ts";
+import { isContinueInput, isPersonMessage } from "./person-message.ts";
 import { isThreadStartCall } from "./started-thread.ts";
-import { mergesWith, type GroupEntry } from "./transcript-groups.ts";
 import { reportsOn, toolRefusal } from "./tool-refusals.ts";
 
 export { isInlineInteraction } from "./thread-ledger.ts";
-
-/** A background command's place in the grouping rule: by its agent and run. */
-const backgroundEntry = (item: Item): GroupEntry => ({
-  kind: "background",
-  agentId: item.agentId ?? "",
-  runId: item.runId,
-});
 
 /**
  * The transcript reads like a document: tool work collapses into "Worked for" segments
@@ -21,9 +15,11 @@ const backgroundEntry = (item: Item): GroupEntry => ({
  * parent's, so these are per turn, not per run of adjacent items). What the agent says between
  * steps sits inside that log, in order; what it says after its last step is the answer, shown
  * below it. Launch cards separate work segments, and batch narration stays between the cards.
- * Background tasks, questions and notices show where they happened without opening a
- * second log, and a run the agent starts by itself when its background work finishes carries
- * the same log on. Once a turn's whole tree has settled, one changed-files card follows its
+ * Commands left running in the background are steps of the log, where they started, updating in
+ * place as they end. Questions, notices and other rows outside the log show where they
+ * happened, and the steps after them continue in a segment below them, never above (one head
+ * once the turn settles). A run the agent starts by itself when its background work finishes
+ * carries the same log on. Once a turn's whole tree has settled, one changed-files card follows its
  * last answer, and a turn that failed, was stopped or was paused by a usage limit says so after
  * its last block. Blocks
  * depend on item order, kinds and links, background calls, inline questions and how turns
@@ -75,20 +71,11 @@ export type Block =
   /** The newest turn's one live line ("Working for …"), at the end of its flow, until it settles. */
   | { kind: "live"; key: string; askId: string | undefined }
   | { kind: "subagents"; key: string; itemIds: string[] }
-  | {
-      /** Background commands started one after another in a turn: one row, or one group. */
-      kind: "background";
-      key: string;
-      itemId: string;
-      taskId: string;
-      itemIds: string[];
-      taskIds: string[];
-    }
   | { kind: "files"; key: string; itemIds: string[] }
   | { kind: "item"; key: string; itemId: string }
   /**
    * A conversation the agent started with ace's `thread_start`: a card that opens it, where
-   * it was started and never folded. Its step stays in the work log too.
+   * it was started, updated in place and never folded; not a step of the work log.
    */
   | { kind: "started"; key: string; itemId: string }
   /**
@@ -285,7 +272,7 @@ function actionFailure(item: Extract<Item, { type: "notice" }>): boolean {
 }
 
 /** The person's own words: not a message ace or the provider wrote for them. */
-const isPerson = (item: Item) => item.type === "message" && item.role === "user" && !item.synthetic;
+const isPerson = (item: Item) => isPersonMessage(item);
 const isLaunch = (item: Item) =>
   item.type === "delegation.started" ||
   (item.type === "tool_call" && item.call.kind === "agent.spawn");
@@ -305,10 +292,10 @@ function continues(source: BlockSource, previous: string, next: string): boolean
 }
 
 /** Whether an item goes into a work log (when it is not shown as a question instead). */
-function joinsWork(item: Item, source: BlockSource): boolean {
+function joinsWork(item: Item): boolean {
   switch (item.type) {
     case "tool_call":
-      return !source.background.has(item.id) && item.call.kind !== "agent.spawn";
+      return item.call.kind !== "agent.spawn" && !isThreadStartCall(item);
     case "reasoning":
       return true;
     case "notice": {
@@ -352,7 +339,7 @@ function lastWorkOf(
     // Look ahead only within the work segment on this side of a launch card.
     if (isLaunch(item)) stretch++;
     stretchAt[index] = stretch;
-    if (!standsIn(id, item) && joinsWork(item, source)) lastWork.set(stretch, index);
+    if (!standsIn(id, item) && joinsWork(item)) lastWork.set(stretch, index);
   }
   return { stretchAt, lastWork, lastStretch: stretch };
 }
@@ -379,8 +366,9 @@ function stillWorking(source: BlockSource, turn: TurnMark, lastStretch: boolean)
 /**
  * The transcript's blocks. A work segment ends at a launch card, an answer or the person's
  * next message. Narration following a launch batch stays in its own transcript block:
- * the agent's words between steps join the log in order, and notices, background tasks,
- * questions, injected messages and other events show inline without ending it. A turn's files
+ * the agent's words between steps and background commands join the log in order, and notices,
+ * questions, injected messages and other events show inline without ending it; the steps after
+ * them continue below them. A turn's files
  * card and ending wait until its whole tree has settled (ADR 0062).
  */
 export function buildBlocks(source: BlockSource): Block[] {
@@ -420,7 +408,9 @@ export function buildBlocks(source: BlockSource): Block[] {
   const { stretchAt, lastWork, lastStretch } = lastWorkOf(order, source, standsIn);
   const turns = new Map<string, TurnMark>();
   const ordered: TurnMark[] = [];
-  let stretch: { work?: { block: WorkBlock; at: number } } = {};
+  // `work` is the stretch's open log segment. `earlier` is its segment above a row outside the
+  // log (a notice, a question): steps after that row open a new segment below it.
+  let stretch: { work?: { block: WorkBlock; at: number }; earlier?: WorkBlock | undefined } = {};
   // Launch batches belong to their launching agent's own run, independent of work-log stretches.
   const batches = new Map<string, { run: string | undefined; itemIds: string[]; at: number }>();
   const launched = new Map<string, { run: string | undefined; itemIds: string[]; at: number }>();
@@ -428,6 +418,8 @@ export function buildBlocks(source: BlockSource): Block[] {
   const groupOf = new Map<string, { itemIds: string[]; at: number }>();
   let turnId: string | undefined;
   let askId: string | undefined;
+  /** Where the person's latest Continue ("Continue where you left off.") was placed. */
+  let continueAt: number | undefined;
   let mark: TurnMark | undefined;
   const keys = new Set<string>();
   const keyFor = (id: string, ask: string | undefined) => {
@@ -441,6 +433,18 @@ export function buildBlocks(source: BlockSource): Block[] {
     if (!isPseudoTurn(id)) source.turnKeys?.set(id, key);
     return key;
   };
+  /**
+   * The turn before a run ace started after it stopped (a restart, a limit resume) says so: the
+   * newest real turn, past the person's Continue still waiting on its run.
+   */
+  const stoppedBefore = (id: string, newer?: TurnMark) => {
+    const trigger = source.run?.(id)?.trigger;
+    if (trigger !== "limit_resume" && trigger !== "restart") return;
+    const before = ordered.findLast((turn) => turn !== newer && !isPseudoTurn(turn.id));
+    if (!before) return;
+    before.automatic = true;
+    if (trigger === "limit_resume") before.paused = true;
+  };
   const markOf = (id: string, ask: string | undefined) => {
     let found = turns.get(id);
     if (!found) {
@@ -453,9 +457,16 @@ export function buildBlocks(source: BlockSource): Block[] {
         admitted.heads = [id];
         source.turnKeys?.set(id, admitted.key);
         turns.set(id, admitted);
+        stoppedBefore(id, admitted);
         return admitted;
       }
-      if (previous && continues(source, previous.id, id)) {
+      // A restart's continuation shares its turn number too, but once it answers the person's
+      // Continue ("Continue where you left off.") it is a turn of its own under that message.
+      const continued =
+        source.run?.(id)?.trigger === "restart" &&
+        continueAt !== undefined &&
+        continueAt >= (previous?.lastBlock ?? -1);
+      if (previous && !continued && continues(source, previous.id, id)) {
         // A run the agent started by itself is already its turn's in the tree; one the daemon
         // numbered into this turn is a turn of its own there, which this one now waits on.
         if (!carriesOnStretch(source.run?.(id)?.trigger) && !isPseudoTurn(previous.id))
@@ -481,12 +492,7 @@ export function buildBlocks(source: BlockSource): Block[] {
         automatic: false,
         failure: undefined,
       };
-      // A turn ace started after the previous one stopped (a restart, a limit resume).
-      const trigger = source.run?.(id)?.trigger;
-      if (previous && (trigger === "limit_resume" || trigger === "restart")) {
-        previous.automatic = true;
-        if (trigger === "limit_resume") previous.paused = true;
-      }
+      stoppedBefore(id);
       turns.set(id, found);
       ordered.push(found);
     }
@@ -500,11 +506,21 @@ export function buildBlocks(source: BlockSource): Block[] {
   };
   /** End the stretch; its work log stops counting at `at`. */
   const close = (at: number | undefined) => {
-    const work = stretch.work;
-    if (work && at !== undefined) work.block.until = at;
-    if (mark && work && at === undefined) mark.openWork = work.block;
+    const work = stretch.work?.block ?? stretch.earlier;
+    if (work && at !== undefined) work.until = at;
+    if (mark && work && at === undefined) mark.openWork = work;
     stretch = {};
   };
+  /** Whether every row from `from` on is a log of nothing but ace `delegate` calls. */
+  const onlyLaunchers = (from: number) =>
+    blocks.slice(from).every(
+      (block) =>
+        block.kind === "work" &&
+        block.itemIds.every((id) => {
+          const step = source.item(id);
+          return step?.type === "tool_call" && aceToolInput(step.call)?.name === "delegate";
+        }),
+    );
   const group = (kind: "work" | "subagents", id: string) => {
     if (kind === "subagents") {
       const item = source.item(id);
@@ -520,8 +536,11 @@ export function buildBlocks(source: BlockSource): Block[] {
             : undefined;
       let open = branches.get(owner) ?? (child ? launched.get(child) : undefined);
       if (!open) {
+        // Launches made back to back share a card (with only ace's `delegate` calls that made
+        // them between); one made after other work starts its own, where it was made, never
+        // joining a card above that work.
         const batch = batches.get(owner);
-        if (batch?.run === item.runId) open = batch;
+        if (batch && batch.run === item.runId && onlyLaunchers(batch.at + 1)) open = batch;
       }
       if (!open) {
         close(item.createdAt);
@@ -560,8 +579,15 @@ export function buildBlocks(source: BlockSource): Block[] {
     groupOf.set(id, { itemIds: open.block.itemIds, at: open.at });
     placed(open.at);
   };
+  /**
+   * Add a row outside the log. One that does not end the stretch (a notice, an event, a
+   * question, a started thread's card) still sits below everything before it: the steps after
+   * it open a log segment below it, never append to the one above (one head once the turn
+   * settles).
+   */
   const push = (block: Block, closesAt: number | undefined | false, message = false) => {
     if (closesAt !== false) close(closesAt);
+    else if (stretch.work) stretch = { earlier: stretch.work.block };
     blocks.push(block);
     placed(blocks.length - 1, message);
   };
@@ -606,13 +632,14 @@ export function buildBlocks(source: BlockSource): Block[] {
       if (next !== turnId) {
         if (turnId === undefined || !continues(source, turnId, next)) {
           if (turnId !== undefined) close(item.createdAt);
-        } else if (stretch.work) {
+        } else if (stretch.work || stretch.earlier) {
           // The log carries on into the run the agent started by itself; the wait between the
           // two runs was no work.
+          const log = stretch.work?.block ?? stretch.earlier;
           const ended = source.run?.(turnId)?.endedAt;
           const started = source.run?.(next)?.startedAt;
-          if (ended !== undefined && started !== undefined && started > ended)
-            stretch.work.block.idle = (stretch.work.block.idle ?? 0) + started - ended;
+          if (log && ended !== undefined && started !== undefined && started > ended)
+            log.idle = (log.idle ?? 0) + started - ended;
         }
         turnId = next;
         mark = markOf(next, askId);
@@ -625,10 +652,11 @@ export function buildBlocks(source: BlockSource): Block[] {
     if (!replaced)
       switch (item.type) {
         case "message":
-          if (item.synthetic) push({ kind: "event", key: id, itemId: id }, false);
-          else if (person) {
+          if (person) {
             push({ kind: "user", key: id, itemId: id }, item.createdAt);
-          } else {
+            if (isContinueInput(item)) continueAt = blocks.length - 1;
+          } else if (item.synthetic) push({ kind: "event", key: id, itemId: id }, false);
+          else {
             // Said between steps: it reads inside the log, in order. After the last step: the
             // answer, below the log. Which one it is only shows once the turn has settled, so
             // while it works the row is decided by what came before it alone: after a step it
@@ -637,7 +665,8 @@ export function buildBlocks(source: BlockSource): Block[] {
             const at = stretchAt[index] ?? -1;
             const working = !!mark && stillWorking(source, mark, at === lastStretch);
             const between =
-              !launchNarration && (working ? !!stretch.work : (lastWork.get(at) ?? -1) > index);
+              !launchNarration &&
+              (working ? !!(stretch.work || stretch.earlier) : (lastWork.get(at) ?? -1) > index);
             if (between) group("work", id);
             else
               push(
@@ -656,36 +685,14 @@ export function buildBlocks(source: BlockSource): Block[] {
             if (item.call.detail.kind === "agent.spawn" && item.call.detail.childAgentId)
               mark?.agents.add(item.call.detail.childAgentId);
           } else if (isThreadStartCall(item)) {
-            // Even when a provider tracked the call as a background task: it starts a thread,
-            // it is not a command left running.
-            group("work", id);
+            // A conversation it started is a row of its own where it was started, never a step
+            // of the log: even when a provider tracked the call as a background task, it starts
+            // a thread, it is not a command left running.
             push({ kind: "started", key: `started:${id}`, itemId: id }, false);
-          } else if (taskId !== undefined) {
-            mark?.tasks.add(taskId);
-            const last = blocks.at(-1);
-            const newest =
-              last?.kind === "background" ? source.item(last.itemIds.at(-1) ?? "") : undefined;
-            // Background commands one agent started back to back in the same run read as one group.
-            if (
-              last?.kind === "background" &&
-              mark?.blocks.has(blocks.length - 1) &&
-              mergesWith(newest && backgroundEntry(newest), backgroundEntry(item))
-            ) {
-              last.itemIds.push(id);
-              last.taskIds.push(taskId);
-            } else
-              push(
-                {
-                  kind: "background",
-                  key: id,
-                  itemId: id,
-                  taskId,
-                  itemIds: [id],
-                  taskIds: [taskId],
-                },
-                false,
-              );
           } else {
+            // A command left running in the background is a step of the log like any other,
+            // where it started; its line updates in place as it ends.
+            if (taskId !== undefined) mark?.tasks.add(taskId);
             group("work", id);
             if (editKinds.has(item.call.kind)) mark?.edits.push(id);
           }
@@ -842,7 +849,15 @@ export function buildBlocks(source: BlockSource): Block[] {
       const first = turn.work[0];
       const firstIds = first?.itemIds ?? [];
       const state = ending?.state ?? lastFacts?.state ?? facts.state;
-      const outcome = turn.paused ? "paused" : state === "active" ? "completed" : state;
+      // A turn a restart cut short reads interrupted, even while the continuation the daemon
+      // numbered into the same turn still runs.
+      const outcome = turn.paused
+        ? "paused"
+        : turn.automatic && state !== "failed"
+          ? "interrupted"
+          : state === "active"
+            ? "completed"
+            : state;
       const restarted = outcome === "interrupted" && turn.automatic ? true : undefined;
       let head: WorkBlock | undefined = first;
       if (first) {
@@ -920,7 +935,9 @@ export function buildBlocks(source: BlockSource): Block[] {
     } else if (
       ending?.state === "interrupted" &&
       !turn.paused &&
-      (ending.endedAt === undefined || startedAt === undefined)
+      // The person's Stop always closes the turn with its divider; a restart only says so
+      // where the turn's head can't.
+      (!turn.automatic || ending.endedAt === undefined || startedAt === undefined)
     )
       place(turn.lastBlock, endBlock(turn, "interrupted", newest === turn, ending.runId));
   }
@@ -967,14 +984,14 @@ export function buildBlocks(source: BlockSource): Block[] {
 }
 
 /**
- * Whether a settled turn's block folds behind its "Worked for": its steps, what it said between
- * them, its background commands and the questions it asked once closed. Never a notice, an
+ * Whether a settled turn's block folds behind its "Worked for": its steps (background commands
+ * among them), what it said between them and the questions it asked once closed. Never a notice, an
  * ending, a question still waiting, an approval, a record such as a saved file, or the
  * subagents it started: those stay where they happened.
  */
 function foldable(block: Block, closedQuestion: (interactionId: string) => boolean): boolean {
   if (block.kind === "question") return closedQuestion(block.interactionId);
-  return block.kind === "work" || block.kind === "message" || block.kind === "background";
+  return block.kind === "work" || block.kind === "message";
 }
 
 function endBlock(
@@ -1049,8 +1066,7 @@ export function blockItems(block: Block): readonly string[] {
   if (block.kind === "work" && block.folded)
     return [...new Set([...block.folded.flatMap((inner) => blockItems(inner)), ...block.itemIds])];
   if ("itemIds" in block) return block.itemIds ?? [];
-  // A started thread's card repeats a step its work log already holds.
-  if (block.kind === "live" || block.kind === "started") return [];
+  if (block.kind === "live") return [];
   if (block.kind === "question") {
     const shown = block.itemId ?? block.anchorId;
     return shown === undefined ? [] : [shown];

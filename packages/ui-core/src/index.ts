@@ -62,6 +62,7 @@ export * from "./project-badge.ts";
 export type { Brand } from "./brand-art/index.gen.ts";
 export type { BrandArt, BrandGradient, BrandPath } from "./brand-art-types.ts";
 export * from "./providers.ts";
+export * from "./provider-slots.ts";
 export * from "./provider-status.ts";
 export * from "./provider-readiness.ts";
 export * from "./provider-account-model.ts";
@@ -82,6 +83,7 @@ export * from "./thread-title.ts";
 export * from "./time.ts";
 export * from "./turns.ts";
 export * from "./turn-activity.ts";
+export * from "./wait-words.ts";
 export * from "./thread-ledger.ts";
 export * from "./turn-ordinals.ts";
 export * from "./turn-digest.ts";
@@ -99,8 +101,13 @@ export { isToolSearch, toolSearchRow, type ToolSearchRow } from "./tool-search.t
 export * from "./step-groups.ts";
 export * from "./explore-command.ts";
 export * from "./browser-address.ts";
+export * from "./browser-logs.ts";
+export * from "./browser-zoom.ts";
+export * from "./browsing-history.ts";
+export * from "./browser-words.ts";
 export * from "./browser-help.ts";
 export * from "./checkout-files.ts";
+export * from "./checkout-errors.ts";
 export * from "./projects.ts";
 export * from "./folder-search.ts";
 export * from "./path-picker.ts";
@@ -194,3 +201,14 @@ export { livePlanStep } from "./plan.ts";
 export { isThreadStartCall, startedThreadOf, type StartedThread } from "./started-thread.ts";
 /** The utility model for titles and commit/PR drafts: the same resolution the daemon runs. */
 export { resolveUtilityModel, type UtilityModel } from "@ace/models/utility-model";
+
+export {
+  JumpController,
+  jumpedSource,
+  type Focus,
+  type JumpSnapshot,
+  type LiveTail,
+} from "./jump-controller.ts";
+export * from "./person-message.ts";
+export * from "./held-turn.ts";
+export { continueMessage } from "@ace/core";

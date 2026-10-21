@@ -11,6 +11,8 @@ import {
 } from "@ace/protocol/forge-issues";
 import type { GhApi } from "./http.ts";
 import { ForgeError } from "./errors.ts";
+import { viewerLogin } from "./github-browser-enrichment.ts";
+import { avatars, labelColors } from "./github-row-facts.ts";
 
 const user = z.looseObject({ login: z.string().max(256) });
 export const GitHubIssueRecord = z.looseObject({
@@ -27,13 +29,14 @@ export const GitHubIssueRecord = z.looseObject({
   updated_at: z.string(),
   locked: z.boolean().optional(),
   pull_request: z.unknown().optional(),
+  comments: z.number().int().nonnegative().optional(),
 });
 function decode<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
   if (!result.success) throw new ForgeError("invalid_data");
   return result.data;
 }
-function searchQuery(repo: ForgeRepository, query: ForgeIssueSearch) {
+export function issueSearchQuery(repo: ForgeRepository, query: ForgeIssueSearch) {
   return [
     `repo:${repo.owner}/${repo.name}`,
     "is:issue",
@@ -72,6 +75,12 @@ export class GitHubIssues {
       milestone: record.milestone?.title ?? null,
       createdAt: record.created_at,
       updatedAt: record.updated_at,
+      ...(typeof record.user?.avatar_url === "string"
+        ? { authorAvatarUrl: record.user.avatar_url.slice(0, 4096) }
+        : {}),
+      labelColors: labelColors(record.labels),
+      ...(record.comments === undefined ? {} : { commentCount: record.comments }),
+      avatars: avatars([...(record.user ? [record.user] : []), ...record.assignees]),
       raw: record,
     };
   }
@@ -83,7 +92,7 @@ export class GitHubIssues {
   async list(input: ForgeIssueSearch, signal: AbortSignal): Promise<ForgeIssueList> {
     const query = ForgeIssueSearch.parse(input);
     const params = new URLSearchParams({
-      q: searchQuery(this.#repo, query),
+      q: issueSearchQuery(this.#repo, query),
       sort: query.sort,
       order: query.order,
       per_page: "25",
@@ -99,12 +108,18 @@ export class GitHubIssues {
     );
     const fields = ["open", "closed"].map(
       (state) =>
-        `${state}: search(type:ISSUE,query:${JSON.stringify(searchQuery(this.#repo, ForgeIssueSearch.parse({ ...query, state })))},first:1) { issueCount }`,
+        `${state}: search(type:ISSUE,query:${JSON.stringify(issueSearchQuery(this.#repo, ForgeIssueSearch.parse({ ...query, state })))},first:1) { issueCount }`,
     );
+    const answer = (
+      await this.#request("graphql", signal, {
+        query: `query { viewer { login } ${fields.join(" ")} }`,
+      })
+    ).body;
     const counts = decode(
       z.object({ data: z.object({ open: count, closed: count }) }),
-      (await this.#request("graphql", signal, { query: `query { ${fields.join(" ")} }` })).body,
+      answer,
     ).data;
+    const viewer = viewerLogin(answer);
     const repository = decode(
       z.looseObject({ archived: z.boolean(), has_issues: z.boolean() }),
       (await this.#request(this.#root, signal)).body,
@@ -112,6 +127,7 @@ export class GitHubIssues {
     const canCreate = !repository.archived && repository.has_issues;
     return {
       repository: this.#repo,
+      ...(viewer ? { viewer } : {}),
       items: page.items.map((record) => this.#row(record)),
       total: page.total_count,
       ...(query.page * 25 < Math.min(1000, page.total_count) ? { nextPage: query.page + 1 } : {}),

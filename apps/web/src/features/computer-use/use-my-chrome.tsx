@@ -87,7 +87,7 @@ export function UseMyChromeSettings() {
             description={
               installed
                 ? `Installed for ${value.installed.map((host) => host.browser).join(", ")}.`
-                : "Agents can work in tabs you share from your own browser, with your sign-ins and extensions."
+                : "Agents work in tabs you share, with your sign-ins and extensions."
             }
             inline
           >
@@ -124,7 +124,7 @@ export function UseMyChromeSettings() {
             <SettingRow
               id="browser.userChrome.storageReads"
               title="Let agents read cookies and site storage"
-              description="Off: agents' scripts in your tabs read the page, never its cookies or saved site data."
+              description="When off, agents read the page, never its cookies or saved data."
               htmlFor={storageId}
               inline
             >
@@ -145,7 +145,7 @@ export function UseMyChromeSettings() {
           {installed && (
             <SettingRow
               title="Stop or revoke"
-              description="Stop releases every tab now. Revoke also disconnects every browser until you install again."
+              description="Stop releases every tab. Revoke disconnects every browser until you reinstall."
               inline
             >
               <div className="flex gap-2">

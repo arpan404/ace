@@ -18,7 +18,7 @@ const TimelineRecord = z.looseObject({
   requested_reviewer: z.looseObject({ login: name }).nullable().optional(),
 });
 /** The timeline page is a list; its records are judged one by one. */
-export const TimelinePage = z.array(z.unknown()).max(25);
+export const TimelinePage = z.array(z.unknown()).max(100);
 
 /**
  * Maps one GitHub timeline record to an activity entry. A record ace cannot read

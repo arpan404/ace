@@ -58,7 +58,7 @@ test("a restart with an interrupted turn starts nothing until Resume, which send
   });
   expect(resumed.ok).toBe(true);
   await recovered.engine.flush();
-  expect(inputs(replacement)).toEqual(["continue"]);
+  expect(inputs(replacement)).toEqual(["Continue where you left off."]);
   expect(recovered.store.getThread(id)?.status.state).toBe("done");
 });
 
@@ -98,7 +98,7 @@ test("a provider that dies mid-turn holds its queue until Resume", async () => {
     expectedRevision: h.engine.queue(id).revision,
   });
   await h.engine.flush();
-  expect(inputs(replacement)).toEqual(["continue", "a"]);
+  expect(inputs(replacement)).toEqual(["Continue where you left off.", "a"]);
 });
 
 test("a provider released after its idle window resumes with exactly the next message", async () => {

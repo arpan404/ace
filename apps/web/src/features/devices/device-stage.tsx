@@ -3,12 +3,18 @@ import type { DeviceRow } from "@ace/ui-core";
 import { useRef, useState, type ReactNode, type Ref } from "react";
 import { cn } from "@/lib/cn.ts";
 import { ActivityRipple, type ShownActivity } from "./activity-overlay.tsx";
-import { screenFraction } from "./agent-activity.ts";
-import { bodyTurn, deviceButtons } from "./device-buttons.ts";
-import { deviceKind } from "./device-catalog.ts";
+import {
+  screenFraction,
+  bodyTurn,
+  deviceButtons,
+  deviceKind,
+  defaultScreens,
+  frameGeometry,
+  framePoints,
+  type Size,
+} from "@ace/ui-core/devices";
 import { bareGeometry, DeviceFrame } from "./device-frame.tsx";
-import { defaultScreens, frameGeometry, framePoints, type Size } from "./device-frame-geometry.ts";
-import { DeviceScreen, type ShownScreen } from "./device-screen.tsx";
+import { DeviceScreen, type ShownScreen, type StreamObserver } from "./device-screen.tsx";
 import type { DeviceSession } from "./device-session.ts";
 import type { HardwarePress } from "./hardware-buttons.tsx";
 import { useElementSize } from "./use-element-size.ts";
@@ -70,10 +76,13 @@ export function DeviceStage({
   press: HardwarePress;
   onInput(input: DeviceInput): void | Promise<void>;
   onFrame(shown: ShownScreen): void;
+  stream?: StreamObserver | undefined;
   activity: ShownActivity | undefined;
   highlight: Bounds | undefined;
   idle?: ReactNode;
   rail?: ReactNode;
+  /** Over the stage's top left corner while live: the stream stats, when shown. */
+  corner?: ReactNode;
   /** The keyboard field and the agent's caption, bottom centre. */
   footer?: ReactNode;
 }) {
@@ -119,6 +128,7 @@ export function DeviceStage({
               name={row.name}
               interactive={props.interactive}
               onInput={props.onInput}
+              stream={props.stream}
               onFrame={(header) => {
                 props.onFrame(header);
                 setPictureTurn(header.rotation);
@@ -135,6 +145,7 @@ export function DeviceStage({
       {!props.live && props.idle && (
         <div className="absolute inset-0 grid place-items-center p-6">{props.idle}</div>
       )}
+      {props.live && props.corner && <div className="absolute top-3 left-3">{props.corner}</div>}
       {props.live && props.rail && (
         <div className="absolute top-1/2 right-3 -translate-y-1/2">{props.rail}</div>
       )}

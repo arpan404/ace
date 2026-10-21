@@ -2,6 +2,7 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
+  CheckIcon,
   CopyIcon,
   DownloadSimpleIcon,
   XIcon,
@@ -11,6 +12,7 @@ import { buttonVariants, Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { useCopy } from "@/components/use-copy.ts";
 import { cn } from "@/lib/cn.ts";
 import { copyImageToClipboard } from "@/lib/clipboard-image.ts";
 import { ImageUrl, type ImageState } from "./attachment-bytes.tsx";
@@ -127,6 +129,7 @@ function PopupFocus() {
 function Actions(props: { image: ShownImage; full: ImageState }) {
   const full = props.full;
   const toast = useToast();
+  const { copied, track } = useCopy(() => toast.error({ title: "Couldn't copy the image" }));
   const url = full.state === "ready" ? full.url : undefined;
   return (
     <>
@@ -136,14 +139,11 @@ function Actions(props: { image: ShownImage; full: ImageState }) {
         disabled={!url}
         onClick={() => {
           if (!url) return;
-          copyImageToClipboard(fetch(url).then((response) => response.blob())).then(
-            () => toast.add({ title: "Image copied" }),
-            () => toast.error({ title: "Couldn't copy the image" }),
-          );
+          track(copyImageToClipboard(fetch(url).then((response) => response.blob())));
         }}
       >
-        <CopyIcon aria-hidden size={14} />
-        Copy image
+        {copied ? <CheckIcon aria-hidden size={14} /> : <CopyIcon aria-hidden size={14} />}
+        {copied ? "Copied" : "Copy image"}
       </Button>
       {url ? (
         <a

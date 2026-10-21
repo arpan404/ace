@@ -284,12 +284,10 @@ test("revert creates a separate draft PR with the reviewed summary and preserves
 });
 
 test("unsupported revert and revoked device authority prevent the write", async () => {
-  const fixtures = lifecycleFixtures([
-    lifecycleRecord({ state: "MERGED", mergeCommit: { oid: nextSha } }),
-  ]);
-  fixtures["graphql:mutationType:__type"] = [
-    { body: { data: { mutationType: { fields: [{ name: "updatePullRequest" }] } } } },
-  ];
+  const fixtures = lifecycleFixtures(
+    [lifecycleRecord({ state: "MERGED", mergeCommit: { oid: nextSha } })],
+    ["updatePullRequest"],
+  );
   const f = await fakeGh(fixtures);
   try {
     const state = await f.forge.lifecycle.snapshot(7, signal());

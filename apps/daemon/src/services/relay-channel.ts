@@ -143,6 +143,7 @@ export function attachRelayService(
     if (!options.screen || !authorize("admin"))
       throw new Error("Screen relay requires admin access");
     const endpoint = screenConnection(options.screen, new Simulators(process.platform), sessionId, {
+      pictureEncoder: () => options.browser?.videoEncoder(),
       send(message) {
         void send(message).catch(() => channel.close());
       },
@@ -192,12 +193,12 @@ export function attachRelayService(
           );
           return { download, authorized };
         },
+        // Credits bound each stream to one 64 KiB frame, so a backlog from other traffic on a
+        // slow link waits its turn instead of failing the image.
         async send(message) {
-          if (channel.bufferedBytes > 256 * 1024) throw new Error("Attachment relay backpressure");
           await channel.send(message);
         },
         async binary(bytes) {
-          if (channel.bufferedBytes > 256 * 1024) throw new Error("Attachment relay backpressure");
           await channel.sendBinary(bytes);
         },
       })

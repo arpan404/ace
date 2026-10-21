@@ -5,7 +5,6 @@ import { useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { Footer, Problem, TextField } from "./form-parts.tsx";
 import { iconChoiceOf, iconEdit, type IconChoice } from "./icon-choice.ts";
@@ -31,7 +30,6 @@ export function EditProjectDialog(props: {
 }) {
   const project = useProjectDirectory().projects.find((each) => each.id === props.projectId);
   const commands = useProjectCommands();
-  const toast = useToast();
   const [name, setName] = useState<string>();
   const [icon, setIcon] = useState<IconChoice>();
   const [defaults, setDefaults] = useState<ProjectDefaults>();
@@ -62,7 +60,6 @@ export function EditProjectDialog(props: {
     setProblem(undefined);
     try {
       await commands.update(project.id, edit);
-      toast.add({ title: `Updated ${edit.name}` });
       props.onOpenChange(false);
     } catch (error) {
       setProblem(projectFailure(error).message);

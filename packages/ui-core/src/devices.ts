@@ -104,6 +104,19 @@ export function deviceProblem(failure: DeviceProblem & { code: string }): Device
   return plain[failure.code] ?? { message: failure.message, hint: failure.hint };
 }
 
+/**
+ * Whether this connection holds an unexpired control lease on the device. Input, boot,
+ * shutdown and app actions need one; a person's first such action takes it.
+ */
+export function holdsControl(
+  state: Pick<DeviceState, "controller" | "ownedHere" | "leaseExpiresAt"> | undefined,
+  now: number,
+): boolean {
+  return (
+    state?.controller === "human" && state.ownedHere === true && (state.leaseExpiresAt ?? 0) > now
+  );
+}
+
 export function deviceControls(
   device: AppDevice,
   state: DeviceState | undefined,
@@ -112,7 +125,7 @@ export function deviceControls(
   const controller = state?.controller ?? "none";
   const remaining = Math.max(0, (state?.leaseExpiresAt ?? 0) - now);
   const leaseLeftMs = controller === "human" && state?.ownedHere === true ? remaining : 0;
-  const inControl = leaseLeftMs > 0;
+  const inControl = holdsControl(state, now);
   const lifecycle = state?.lifecycle ?? "idle";
   const live = lifecycle === "live";
   const busy = state?.booting === true || lifecycle === "starting" || lifecycle === "stopping";

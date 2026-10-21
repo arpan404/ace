@@ -136,7 +136,7 @@ it("serve-sim video that won't start refuses the live view instead of handing it
   await expect.poll(() => frames.length).toBeGreaterThan(0);
   await expect(capture.configure?.(video)).rejects.toMatchObject({
     code: "command_failed",
-    hint: expect.stringContaining("npm install -g serve-sim@0.1.48"),
+    hint: expect.stringContaining("download device tools again in Devices (serve-sim 0.1.48)"),
   });
   // The capture itself lives on for agents' stills.
   expect(failures).toEqual([]);

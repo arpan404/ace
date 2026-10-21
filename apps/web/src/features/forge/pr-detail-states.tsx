@@ -6,7 +6,7 @@ import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { pullRequestTone } from "@/components/pull-request-state.tsx";
 import { openExternal } from "@/boot/open-external.ts";
 import { cn } from "@/lib/cn.ts";
-import { failureCode } from "./source.ts";
+import { failureCode } from "@/lib/forge-read.ts";
 
 const tabs = ["Summary", "Timeline", "Code"];
 

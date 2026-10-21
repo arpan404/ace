@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { deviceBrowser, openDevice, openDevices } from "@/test/device-browser.ts";
@@ -13,18 +13,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** The iPhone's tab with its screen live, handed to one of the thread's agents. */
+/** The iPhone's tab with its screen live, held by one of the thread's agents. */
 async function agentDriving() {
   const { app, panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const iphone = await openDevice(panel, "iPhone 16 Pro");
   await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
-  await userEvent.click(within(iphone).getByRole("button", { name: "Delegate to an agent" }));
-  const agent = (await screen.findAllByRole("menuitem"))[0];
-  const name = agent?.textContent ?? "";
-  await userEvent.click(agent!);
-  await within(iphone).findByText(name);
-  return { app, iphone, name };
+  act(() => app.daemon.appDevices.agentTakes(iphoneId, "thread-checkout", "agent-1"));
+  return { app, iphone };
 }
 
 test("an agent's tap shows on the stage as a ripple and a caption naming the element, which then fades", async () => {
@@ -73,16 +69,11 @@ test("the UI tree lists the refs agents read, and hovering one outlines it on th
   expect(iphone.querySelector("[data-bounds-outline]")).toBeNull();
 });
 
-test("taking over from an agent makes the rail usable and its keys reach the device", async () => {
-  const { app, iphone, name } = await agentDriving();
-  expect(within(iphone).getByRole("button", { name: "Home" }).getAttribute("aria-disabled")).toBe(
-    "true",
-  );
+test("a person's key takes the device from the agent holding it and reaches the device", async () => {
+  const { app, iphone } = await agentDriving();
 
-  await userEvent.click(within(iphone).getByRole("button", { name: /Take over/ }));
-  expect(await within(iphone).findByRole("status", { name: "You're in control" })).toBeTruthy();
-  expect(within(iphone).queryByText(name)).toBeNull();
   await userEvent.click(within(iphone).getByRole("button", { name: "Rotate" }));
+  // The fake device takes input only from the person holding it: the key took control first.
   await waitFor(() =>
     expect(app.daemon.appDevices.inputs.map((entry) => entry.input)).toEqual([
       { kind: "key", key: "rotate" },

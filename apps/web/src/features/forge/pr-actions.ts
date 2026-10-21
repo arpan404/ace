@@ -1,4 +1,4 @@
-import { mergeGate } from "@ace/ui-core";
+import { ciLine, mergeGate, noAutoMerge } from "@ace/ui-core";
 import { openExternal } from "@/boot/open-external.ts";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { usePrLifecycle } from "./pr-lifecycle.ts";
@@ -22,6 +22,8 @@ export function usePrActions(props: {
   extensions?: PrWorkspaceExtensions | undefined;
   /** The task whose side panel shows this PR, when there is one. */
   hostThreadId?: string | undefined;
+  /** Opens the panel's own conflict view; GitHub's conflict page when there is none. */
+  openConflicts?: (() => void) | undefined;
 }) {
   const { context } = props;
   const { detail, workspaceId } = context;
@@ -41,12 +43,16 @@ export function usePrActions(props: {
     workspaceId,
     detail,
     threadId,
+    projectWrites: threadId === undefined && props.hostThreadId === undefined,
     writeDisabled: context.disabled,
     onRefresh,
   });
+  // Outside a thread (the Pull requests page) a PR merges through its project, linked or not.
+  const projectMerge = threadId === undefined && props.hostThreadId === undefined;
   const writes = usePrLinkWrites({
     detail,
     threadId,
+    workspaceId,
     writeReady: !context.disabled,
     onRefresh: context.refresh,
   });
@@ -67,19 +73,29 @@ export function usePrActions(props: {
     status,
     mergeState: mergeState.state,
     method,
-    linked: threadId !== undefined,
+    linked: threadId !== undefined || projectMerge,
+    autoMerge: threadId !== undefined || projectMerge,
     blockers,
   });
   const host = props.hostThreadId;
-  const linkReason = threadId ? undefined : "Link this pull request to a task first";
+  const linkReason =
+    threadId || projectMerge ? undefined : "Link this pull request to a task first";
   const fenceReason = writes.fenced
     ? "Refresh GitHub to confirm the previous change first"
     : context.disabled || writes.pending
       ? "Wait for GitHub to refresh"
       : undefined;
   // The work card asks the same gate, so both say the same thing about this PR.
+  const gate = mergeGate(status, detail.baseBranch);
+  // Waiting on checks is what auto-merge is for: where GitHub won't arm it, say so instead.
+  const noAuto =
+    gate !== undefined &&
+    ciLine(status).tone === "pending" &&
+    mergeState.state !== undefined &&
+    !mergeState.state.canEnable &&
+    !mergeState.state.autoMerge;
   const mergeBlocked =
-    mergeGate(status, detail.baseBranch) ??
+    (noAuto ? `Checks are still running. ${noAutoMerge}` : gate) ??
     membership.mergeBlocker ??
     linkReason ??
     fenceReason ??
@@ -92,6 +108,7 @@ export function usePrActions(props: {
       : undefined;
   const resolveConflicts = () => {
     if (props.extensions?.resolveInWorktree) props.extensions.resolveInWorktree(context);
+    else if (props.openConflicts) props.openConflicts();
     else void openExternal(`${status.url}/conflicts`).catch(() => {});
   };
   return {

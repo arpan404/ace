@@ -25,6 +25,9 @@ let id = 0;
 let childText = false;
 let preToolCallback: string | undefined;
 let elicitationWaiting = false;
+/** The foreground Bash call the turn is blocked on, and the `now` messages held behind it. */
+let foreground: { tool: string; task: string } | undefined;
+const heldBehindTool: unknown[] = [];
 const configIndex = process.argv.indexOf("--mcp-config");
 let mcp: Record<string, unknown> =
   configIndex >= 0
@@ -64,6 +67,63 @@ for await (const line of lines) {
         strictMcp: process.argv.includes("--strict-mcp-config"),
       },
     });
+    // `background_tasks` (Ctrl+B): the blocked Bash call returns, keeps running as a background
+    // task, and the turn takes the messages held behind it.
+    if (request["subtype"] === "background_tasks") {
+      if (process.env["ACE_FAKE_CLAUDE_BACKGROUND_DISABLED"] === "1") {
+        write({
+          type: "control_response",
+          response: {
+            subtype: "error",
+            request_id: data["request_id"],
+            error: "Background tasks are disabled",
+          },
+        });
+        continue;
+      }
+      const moved = foreground;
+      foreground = undefined;
+      write({
+        type: "control_response",
+        response: {
+          subtype: "success",
+          request_id: data["request_id"],
+          response: { backgrounded: moved !== undefined },
+        },
+      });
+      if (!moved) continue;
+      write({
+        type: "system",
+        subtype: "background_tasks_changed",
+        tasks: [{ task_id: moved.task, task_type: "local_bash", description: "Wait for build" }],
+        session_id: session,
+      });
+      write({
+        type: "user",
+        parent_tool_use_id: null,
+        session_id: session,
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: moved.tool,
+              content: `Command was manually backgrounded by user with ID: ${moved.task}`,
+            },
+          ],
+        },
+      });
+      for (const input of heldBehindTool.splice(0))
+        write({ type: "system", subtype: "fake_input", input });
+      write({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        terminal_reason: "completed",
+        session_id: session,
+      });
+      continue;
+    }
     if (
       request["subtype"] === "stop_task" &&
       request["task_id"] === process.env["ACE_FAKE_STOP_TASK"]
@@ -150,10 +210,48 @@ for await (const line of lines) {
     const message = object(data["message"]);
     const parts = list(message["content"]);
     const text = parts.map((p) => object(p)["text"] ?? "image").join(" ");
+    // Claude Code holds even a `now` message until the running foreground tool returns.
+    if (foreground) {
+      heldBehindTool.push(data);
+      write({ type: "system", subtype: "fake_held", input: data });
+      continue;
+    }
     write({ type: "system", subtype: "init", session_id: session, cwd: process.cwd() });
     write({ type: "system", subtype: "fake_input", input: data });
     // Hold a turn open until a follow-up arrives; no timers or model involved.
     if (text === "steer-wait") continue;
+    // A foreground Bash call that blocks the turn until it is backgrounded.
+    if (text === "foreground-wait") {
+      foreground = { tool: "wait-tool", task: "wait-task" };
+      write({
+        type: "assistant",
+        parent_tool_use_id: null,
+        session_id: session,
+        message: {
+          id: "wait-message",
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: foreground.tool,
+              name: "Bash",
+              input: { command: "until grep -q '^exit ' build.log; do sleep 30; done" },
+            },
+          ],
+        },
+      });
+      write({
+        type: "system",
+        subtype: "task_started",
+        task_id: foreground.task,
+        tool_use_id: foreground.tool,
+        task_type: "local_bash",
+        is_backgrounded: false,
+        description: "Wait for build",
+        session_id: session,
+      });
+      continue;
+    }
     if (process.env["ACE_TEST_DELEGATION_RESULT"] === "1")
       write({
         type: "assistant",

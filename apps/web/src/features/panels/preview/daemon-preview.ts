@@ -26,7 +26,7 @@ import { documentVisibility, type PageVisibility } from "@/lib/page-visibility.t
 import { daemonAnnotate } from "./daemon-annotate.ts";
 import { LivePicture } from "./live-picture.ts";
 import { SuggestionStore } from "./preview-suggestions.ts";
-import { readBrowserLogs } from "./browser-logs.ts";
+import { readBrowserLogs } from "@ace/ui-core";
 import { PageStates } from "./page-states.ts";
 import { ThreadVideos } from "./thread-videos.ts";
 import { ThreadAudio } from "./thread-audio.ts";

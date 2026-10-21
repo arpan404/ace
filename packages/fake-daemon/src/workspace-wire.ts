@@ -10,6 +10,7 @@ import {
   type WorkspaceActionRequest,
   type CommandPayload,
   type CommandResult,
+  type ForgeCheckAction,
   type ThreadDetails,
   type ThreadId,
 } from "@ace/protocol";
@@ -18,9 +19,12 @@ import { scriptOutput } from "./catalog/scripts.ts";
 import { FakeForgeWire } from "./forge-wire.ts";
 import { FakePrCatalog } from "./pr-catalog-wire.ts";
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
+import { fakeOpenWork } from "./open-work-wire.ts";
 import { emptyIssueList, FakeIssueWire } from "./issue-wire.ts";
+import { catalogIssueList } from "./forge-list-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import { FakeGitStates } from "./git-states.ts";
+import { FakeConflicts } from "./conflict-wire.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 const emptyDiff = { files: 0, additions: 0, deletions: 0 };
 
@@ -28,6 +32,10 @@ export class FakeWorkspaceWire {
   readonly drafts = new FakeSourceControlDrafts();
   /** The projects' repositories as Git finds them: not one, empty, locked, failing setup. */
   readonly git = new FakeGitStates();
+  /** Workflow re-runs the PR panel asked GitHub for (`forge.hosted.checks`), in order. */
+  readonly checkReruns: ForgeCheckAction[] = [];
+  /** Merge conflicts in PR checkouts (`git.conflicts`). */
+  readonly conflicts = new FakeConflicts();
   private moveFailure: string | undefined;
   /** Every checkout move fails with `error` (its change kept as failed), or none does. */
   failMoves(error: string | undefined): void {
@@ -66,8 +74,36 @@ export class FakeWorkspaceWire {
   seedPullRequests(fixtures: readonly PullRequestFixture[]): void {
     this.pullRequests.seed(fixtures);
   }
+  private seededRead(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
+    return (
+      this.issues.read(op) ??
+      this.forgeReads.get(JSON.stringify(op)) ??
+      (op.op === "forge.issue.list" ? catalogIssueList(op, this.forgeReads) : undefined) ??
+      this.pullRequests.groupCounts(op, this.forgeReads) ??
+      emptyIssueList(op)
+    );
+  }
   setForgeRead(operation: ForgeBrowserOperation, result: ForgeBrowserResult): void {
     this.forgeReads.set(JSON.stringify(operation), ForgeBrowserResult.parse(result));
+  }
+  private held = new Map<string, Promise<void>>();
+  /**
+   * Answer `operation` only once the returned release runs, as a slow GitHub would: every read
+   * of it until then waits, and later ones are answered at once.
+   */
+  holdForgeRead(operation: ForgeBrowserOperation): () => void {
+    const key = JSON.stringify(operation);
+    const gate = Promise.withResolvers<void>();
+    this.held.set(key, gate.promise);
+    return () => {
+      if (this.held.get(key) === gate.promise) this.held.delete(key);
+      gate.resolve();
+    };
+  }
+  private forgeReadCounts = new Map<string, number>();
+  /** How many times clients asked for this forge read, as GitHub would see them. */
+  forgeReadCount(operation: ForgeBrowserOperation): number {
+    return this.forgeReadCounts.get(JSON.stringify(operation)) ?? 0;
   }
   /** Browser fixtures cannot inspect the OS. Apps exist only when a scenario explicitly seeds them. */
   private editors: readonly InstalledEditor[] = [];
@@ -115,6 +151,12 @@ export class FakeWorkspaceWire {
   }
   async read(request: WorkspaceActionRequest) {
     const op = request.operation;
+    if (op.op.startsWith("forge.")) {
+      const key = JSON.stringify(op);
+      this.forgeReadCounts.set(key, (this.forgeReadCounts.get(key) ?? 0) + 1);
+    }
+    const held = this.held.size ? this.held.get(JSON.stringify(op)) : undefined;
+    if (held) await held;
     if (op.op === "git.draft.cancel") {
       this.drafts.cancel(op.generationId);
       return ServerMessage.parse({
@@ -198,15 +240,26 @@ export class FakeWorkspaceWire {
           : { kind: "error", code: "forge_not_found" },
       });
     }
+    if (op.op === "forge.open-work")
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: { kind: "forge", data: fakeOpenWork(op, (list) => this.seededRead(list)) },
+      });
     if (op.op.startsWith("forge.")) {
-      const data =
-        this.issues.read(op) ?? this.forgeReads.get(JSON.stringify(op)) ?? emptyIssueList(op);
+      const data = this.seededRead(op);
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
         result: data ? { kind: "forge", data } : { kind: "error", code: "forge_not_found" },
       });
     }
+    if (op.op === "git.conflicts")
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: { kind: "gitConflicts", conflicts: this.conflicts.read(op.threadId) },
+      });
     if (op.op === "git.diff")
       return ServerMessage.parse({
         type: "workspace.result",
@@ -254,6 +307,12 @@ export class FakeWorkspaceWire {
         return { ok: false, error: "workspace_not_found" };
       return { ok: true, locksCleared: this.git.clearLock(payload.workspaceId) ? 1 : 0 };
     }
+    if (payload.type === "forge.hosted.checks") {
+      this.checkReruns.push(payload.action);
+      return { ok: true };
+    }
+    const merged = this.pullRequests.merge(payload) ?? this.pullRequests.mergeState(payload);
+    if (merged) return merged;
     const project = this.projects.command(payload);
     if (project) return project;
     const forge = this.forge.command(payload);
@@ -367,6 +426,7 @@ export class FakeWorkspaceWire {
       if (printed.done) this.terminals.prompt(terminal.id);
       return { ok: true, terminalId: terminal.id };
     }
+    if (payload.type === "git.conflicts") return this.conflicts.command(payload);
     if (payload.type === "git.commit") {
       if ((thread?.details?.head ?? null) !== payload.expectedHead)
         return { ok: false, error: "git_head_moved" };

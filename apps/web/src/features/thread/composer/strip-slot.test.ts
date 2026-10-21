@@ -6,6 +6,7 @@ const facts = (patch: Partial<StripFacts>): StripFacts => ({
   requests: [],
   sending: false,
   connection: false,
+  held: false,
   stopped: false,
   waiting: false,
   queue: false,
@@ -120,4 +121,11 @@ test("a goal shows above the task list, which waits as an indicator, and below t
     shown: "queue",
     others: ["goal", "plan"],
   });
+});
+
+test("a held turn shows ahead of the queue and the person's sends, but never over a request", () => {
+  const held = facts({ held: true, queue: true, sending: true });
+  expect(stripSlot(held, undefined)).toEqual({ shown: "held", others: ["sending", "queue"] });
+  const asked = facts({ held: true, requests: ["approval-1"] });
+  expect(stripSlot(asked, undefined)).toEqual({ shown: "request", others: ["held"] });
 });

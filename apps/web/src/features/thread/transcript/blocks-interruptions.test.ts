@@ -190,20 +190,23 @@ test("a run interrupted by a daemon restart reads as interrupted, not stopped", 
   expect(head(thread.blocks())).toBe("Interrupted after 3m 5s");
 });
 
-test("a run the person stopped still reads as stopped", () => {
+test("a run the person stopped keeps its time as worked and closes with Interrupted by you", () => {
   const thread = recorded();
   thread.admit(0, ask("ask", 0), started("first", 0, "user", 1), step("read", "first", 1_000));
   thread.admit(65_000, ended("first", 65_000, "interrupted"), settled("interrupted"));
   thread.admit(65_000, queue("stopped"));
-  expect(head(thread.blocks())).toBe("Stopped after 1m 5s");
+  const blocks = thread.blocks();
+  expect(head(blocks)).toBe("Worked for 1m 5s");
+  expect(blocks.at(-1)).toMatchObject({ kind: "end", ending: "interrupted" });
+  expect(blocks.at(-1)).not.toHaveProperty("automatic", true);
 });
 
-test("a turn ace continued after a restart keeps working until the continuation ends", () => {
+test("Continue after a restart starts its own turn under the person's message", () => {
   const thread = recorded();
   thread.admit(0, ask("ask", 0), started("first", 0, "user", 1), step("read", "first", 1_000));
   thread.admit(2 * minute, ended("first", 2 * minute, "interrupted"), settled("interrupted"));
   thread.admit(2 * minute, queue("restart"));
-  // Back up a minute later: ace's Continue runs in the same turn, and the person steers into it.
+  // Back up a minute later: the person's Continue starts a turn, and they steer into it.
   const back = 3 * minute;
   thread.admit(back, restartInput("continue", back), queue(null));
   thread.admit(back, started("continued", back, "restart", 1));
@@ -211,14 +214,16 @@ test("a turn ace continued after a restart keeps working until the continuation 
   thread.admit(back + 1_000, ask("steer", back + 1_000, "continued"));
   thread.admit(back + 2_000, step("write", "continued", back + 2_000));
   const live = thread.blocks();
-  // Never "Stopped" or "Interrupted" while the continuation works: one live line, no head.
+  // The interrupted turn keeps its head; the continuation works under its own bubble.
   expect(live.filter((block) => block.kind === "live")).toHaveLength(1);
-  expect(head(live)).toBeUndefined();
-  expect(rows(live)).toContain("continue");
+  expect(head(live)).toBe("Interrupted after 2m 0s");
+  expect(live.find((block) => block.kind === "user" && block.itemId === "continue")).toBeTruthy();
 
   thread.admit(back + 30_000, ended("continued", back + 30_000, "completed"), settled("idle"));
-  // Its time leaves out the minute the app was down.
-  expect(head(thread.blocks())).toBe("Worked for 2m 30s");
+  const heads = thread
+    .blocks()
+    .filter((block) => block.kind === "work" && block.outcome !== undefined);
+  expect(heads).toHaveLength(2);
 });
 
 test("a provider retry that recovers leaves no row in the transcript", () => {

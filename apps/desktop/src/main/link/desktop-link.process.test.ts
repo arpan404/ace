@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -181,7 +182,49 @@ it("reports the daemon's close code and reason when the link drops", async () =>
   await eventually(() => expect(t.summaries.at(-1)).toEqual({ needsYou: 0, working: 0 }));
   const daemon = t.daemons.started[0];
   if (!daemon) throw new Error("no daemon");
+  // Prove the thread subscription is live through public output before killing the
+  // daemon: the initial {0,0} publishes before the socket handshake necessarily finishes.
+  const thread = createDevThread(daemon.store, daemon.store.createWorkspace(t.home, "test"));
+  daemon.store.appendEvents(
+    thread.id,
+    [{ type: "thread.updated", status: { state: "needs_you", interactions: 1 } }],
+    Date.now(),
+  );
+  await eventually(() => expect(t.summaries.at(-1)).toEqual({ needsYou: 1, working: 0 }));
   expect(t.closes).toEqual([]);
   await daemon.close();
   await eventually(() => expect(t.closes[0]).toEqual({ code: 1001, reason: "Daemon shutdown" }));
+});
+
+it("ignores window focus and settings changes while the daemon socket is still opening", async () => {
+  // A daemon that accepts the connection but never answers the upgrade, as a frozen or
+  // restarting one does: the link's socket stays in its opening state.
+  const sockets: Socket[] = [];
+  const server = createServer((socket) => sockets.push(socket));
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  cleanups.push(
+    () =>
+      new Promise<void>((resolve) => {
+        for (const socket of sockets) socket.destroy();
+        server.close(() => resolve());
+      }),
+  );
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("no port");
+  const link = new DesktopLink({
+    url: `ws://127.0.0.1:${address.port}`,
+    token: "token",
+    deviceId: "desktop-test",
+    storage: { load: async () => null, save: async () => {} },
+    quietHours: () => null,
+    onAlert: () => {},
+    onSummary: () => {},
+  });
+  cleanups.push(() => link.close());
+  void link.start().catch(() => {});
+  await eventually(() => expect(sockets.length).toBeGreaterThan(0));
+
+  expect(() => link.setPresence(randomUUID())).not.toThrow();
+  expect(() => link.setPresence(null)).not.toThrow();
+  expect(() => link.updatePreferences()).not.toThrow();
 });

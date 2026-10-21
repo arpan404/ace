@@ -222,7 +222,7 @@
           "type": "string"
         },
         "evidence": {
-          "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceInput.json"
+          "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceBatch.json"
         },
         "requestId": {
           "maxLength": 128,

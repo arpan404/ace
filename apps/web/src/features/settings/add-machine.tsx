@@ -10,12 +10,10 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
 
 export function AddMachine(props: { onClose(): void }) {
   const pool = useMachinePool();
   const ensure = useEnsureMachinePool();
-  const toast = useToast();
   return (
     <Dialog
       open
@@ -40,10 +38,7 @@ export function AddMachine(props: { onClose(): void }) {
             if (!chosen)
               throw new Error("Couldn't open your machine directory. Reconnect and try again.");
             signal.throwIfAborted();
-            const entry = await chosen.pair(target.url, () =>
-              readPairedMachine(target, remember, signal),
-            );
-            toast.add({ title: `${entry.displayName} added` });
+            await chosen.pair(target.url, () => readPairedMachine(target, remember, signal));
             props.onClose();
           }}
         />

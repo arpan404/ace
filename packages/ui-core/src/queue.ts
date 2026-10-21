@@ -21,6 +21,8 @@ export type QueueAction =
       /** The account it moves to, when one is named. */ instanceId?: string;
     }
   | { id: "resume"; label: string }
+  /** Carry the stopped turn on: one "Continue where you left off." in the person's words. */
+  | { id: "continue"; label: string }
   | { id: "hold"; label: string }
   | { id: "choose_model"; label: string };
 
@@ -37,6 +39,8 @@ export interface QueueNotice {
     | "not_sent";
   title: string;
   detail: string;
+  /** When a limit resets (or a timed resume fires), when known. */
+  resetsAt?: number | undefined;
   /** In order of prominence; the first is the primary action. */
   actions: QueueAction[];
 }
@@ -71,9 +75,10 @@ export function queueNotice(
     return {
       kind: "resuming",
       title: "Resumes when the limit resets",
+      resetsAt: resumeAt,
       detail: `Queued messages send ${describeWake(resumeAt, now, locale)}.`,
       actions: [
-        { id: "resume_now", label: "Resume now" },
+        { id: "resume_now", label: "Continue now" },
         { id: "hold", label: "Don't resume" },
       ],
     };
@@ -81,11 +86,12 @@ export function queueNotice(
     return {
       kind: "snoozed",
       title: "Snoozed until the limit resets",
+      resetsAt: resumeAt ?? undefined,
       detail:
         resumeAt === null
           ? "Nothing sends until you resume."
           : `Resets ${describeWake(resumeAt, now, locale)}. Nothing sends until you resume.`,
-      actions: [{ id: "resume_now", label: "Resume now" }],
+      actions: [{ id: "resume_now", label: "Continue now" }],
     };
   if (status?.state === "limited" || reason === "limit") {
     // The thread's own reset, else the account's: the daemon resumes at the account's too.
@@ -100,6 +106,7 @@ export function queueNotice(
     return {
       kind: "limited",
       title: "Usage limit reached",
+      resetsAt: known ? until : undefined,
       // With no reset, nothing says the limit still holds: the next message tries again.
       detail: `${detail}${stuck} ${known ? "Queued messages wait." : "Your next message tries again."}`,
       actions: [
@@ -120,7 +127,7 @@ export function queueNotice(
                   } as const)
                 : ({ id: "migrate_now", label: "Move to another account" } as const),
             ]),
-        { id: "resume_now", label: "Resume now" },
+        { id: "resume_now", label: "Continue now" },
       ],
     };
   }
@@ -138,14 +145,14 @@ export function queueNotice(
         kind: "stopped",
         title: "Agent stopped",
         detail: "",
-        actions: [{ id: "resume", label: "Continue" }],
+        actions: [{ id: "continue", label: "Continue" }],
       };
     case "restart":
       return {
         kind: "restart",
         title: "Stopped by a restart",
         detail: "",
-        actions: [{ id: "resume", label: "Continue" }],
+        actions: [{ id: "continue", label: "Continue" }],
       };
     case "uncertain":
       return {

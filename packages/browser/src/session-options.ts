@@ -49,6 +49,12 @@ export interface SessionOptions {
   /** A tab's page state for remote views changed: its focused field, picker, cursor, tooltip. */
   pageState?: (tabId: string, page: BrowserPageState) => void;
   cleanup: () => Promise<void>;
+  /**
+   * The browser paused itself: the live capture of the viewed tab failed (a desktop view that
+   * stopped drawing never answers its first picture). Its owner recovers the pages from here,
+   * as it would after losing the backend; without one the browser stays paused.
+   */
+  suspended?: (reason: string) => void;
   /** Tab records from before a restart: their labels and openers come back with them. */
   restoredTabs?: readonly import("./tab-store.ts").BrowserTabRecord[];
   /** Keep the thread's tabs whenever they change, for restore after a daemon restart. */

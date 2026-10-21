@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { codeHash, codeLines, codeLinesWeight } from "./code-lines.ts";
-import { sourceHighlight } from "./source-highlight.ts";
+import { sourceHighlight } from "@ace/ui-core/source-highlight";
 
 test("token-dense source crosses the worker boundary as a compact cached plain result", async () => {
   const source =

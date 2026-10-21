@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/GitConflictsOperation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "op": {
+      "const": "git.conflicts",
+      "type": "string"
+    },
+    "pr": {
+      "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "op",
+    "threadId",
+    "pr"
+  ],
+  "type": "object"
+}

@@ -1,6 +1,6 @@
 import type { ClientCore } from "@ace/client";
 import { ProjectCommand, WorkspaceId } from "@ace/protocol";
-import { expectContext } from "@ace/ui-core";
+import { cloneProgress, expectContext } from "@ace/ui-core";
 import { submitCommand } from "./commands.ts";
 import type { PatchSink, Preview } from "./agents.ts";
 
@@ -12,7 +12,10 @@ import type { PatchSink, Preview } from "./agents.ts";
  * changes; the daemon also drops abandoned ones.
  */
 
-export type ComposeSearchOwner = Pick<ClientCore, "request" | "enqueue" | "intent" | "commandId">;
+export type ComposeSearchOwner = Pick<
+  ClientCore,
+  "request" | "enqueue" | "intent" | "commandId" | "onMessage"
+>;
 
 const quiet = { timeoutMs: 15_000 };
 /** Mention suggestions per query, as many as the web's own menu reads. */
@@ -28,6 +31,16 @@ export class ComposeSearch {
     this.#owner = owner;
     this.#sink = sink;
     this.#preview = preview;
+    owner.onMessage((message) => {
+      if (message.type !== "workspace.clone.progress") return;
+      const progress = cloneProgress(message.phase, message.percent);
+      sink.put("compose:clone", () => ({
+        type: "compose.clone",
+        id: message.commandId,
+        label: progress.label,
+        percent: message.percent ?? null,
+      }));
+    });
   }
 
   /** Files in the project matching `query`, best first; only the latest query is answered. */
@@ -141,6 +154,30 @@ export class ComposeSearch {
 
   /** Register an existing folder as a project, through the durable outbox. */
   async addProject(path: string, requestId: string): Promise<void> {
+    return this.#project(ProjectCommand.parse({ type: "workspace.add", path }), requestId);
+  }
+
+  async createProject(raw: unknown, requestId: string): Promise<void> {
+    const parsed = ProjectCommand.safeParse(raw);
+    if (
+      !parsed.success ||
+      (parsed.data.type !== "workspace.create" && parsed.data.type !== "workspace.clone")
+    ) {
+      this.#sink.put(`admission:${requestId}`, () => ({
+        type: "admission",
+        id: requestId,
+        ok: false,
+        message: !parsed.success
+          ? "Check the project name, repository URL and folder path. Use one folder name without slashes."
+          : "Unsupported project action",
+      }));
+      return;
+    }
+    await this.#project(parsed.data, requestId);
+  }
+
+  /** Creation and cloning share registration's saved admission and eventual workspace receipt. */
+  async #project(payload: ProjectCommand, requestId: string): Promise<void> {
     const admission = (ok: boolean, message: string) =>
       this.#sink.put(`admission:${requestId}`, () => ({
         type: "admission",
@@ -151,7 +188,7 @@ export class ComposeSearch {
     try {
       await submitCommand(
         this.#owner,
-        ProjectCommand.parse({ type: "workspace.add", path }),
+        payload,
         () => admission(true, ""),
         (result) =>
           this.#sink.put(`compose:added:${requestId}`, () => ({
@@ -161,8 +198,9 @@ export class ComposeSearch {
             projectId: result.workspace?.id ?? null,
             message: result.ok
               ? ""
-              : this.#preview(result.error ?? "Couldn't add the folder", 2048),
+              : this.#preview(result.error ?? "Couldn't add the project", 2048),
           })),
+        requestId,
       );
     } catch {
       admission(false, "Couldn't save the request on this phone.");

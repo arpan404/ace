@@ -16,6 +16,7 @@ export * from "./github-lifecycle.ts";
 
 export * from "./write-dispatch.ts";
 export { GhApi } from "./http.ts";
+export { ForgeListCaches, listFreshMs } from "./list-cache.ts";
 export { mergeStateChangeObserved } from "./merge-state.ts";
 export * from "./review-anchor.ts";
 export * from "./github-reviews.ts";

@@ -15,6 +15,7 @@ import { rootRunOf } from "@ace/ui-core";
 import { createBlockReader } from "@ace/ui-core/transcript-block-reader";
 import { blockItems, type Block } from "@ace/ui-core/transcript-blocks";
 import { preview } from "./presentation.ts";
+import { workGroups } from "./work-groups.ts";
 
 /*
  * The transcript's blocks as the web builds them (`@ace/ui-core` transcript grouping): "Worked
@@ -46,7 +47,11 @@ const tokens: Record<SubagentState, StatusToken> = {
   cancelled: "neutral",
   done: "done",
 };
-const endings = { failed: "Turn failed", interrupted: "Stopped", paused: "Paused · Usage limit" };
+const endings = {
+  failed: "Turn failed",
+  interrupted: "Interrupted by you",
+  paused: "Paused · Usage limit",
+};
 
 /** A folded head's steps, without the answer shown under it. */
 function workItems(block: WorkBlock): string[] {
@@ -124,6 +129,14 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
         ...base,
         items,
         work: workSummary(store, block, items),
+        groups: workGroups(
+          items,
+          (id) => store.item(id),
+          (item) => {
+            const run = item.runId ? store.run(item.runId) : undefined;
+            return run !== undefined && run.state !== "active";
+          },
+        ),
         ordinal: block.outcome === undefined ? null : (turnOf(store, blockItems(block)) ?? null),
       };
     }

@@ -2,6 +2,7 @@ import type { AgentError, Fact, Key } from "@ace/core";
 import type { InteractionRequest, RawPayload, RunTrigger } from "@ace/protocol";
 import { MissingEdges } from "./missing-edges.ts";
 import type { ChildUsage } from "./usage.ts";
+import { adapterWarning } from "@ace/engine-api";
 import { object, raw, string, type Data } from "./native.ts";
 
 export interface NativeTask {
@@ -156,6 +157,12 @@ export class ClaudeState {
     }
     this.start(agent, "parent_agent");
   }
+  /** Route frames that name `spawn` to a child Claude already registered under another call. */
+  bindChild(spawn: string, agent: Key): void {
+    if (this.children.get(spawn) === agent) return;
+    this.children.set(spawn, agent);
+    this.bindings.push(spawn);
+  }
   agentFor(data: Data): Key {
     const parent = string(data["parent_tool_use_id"]);
     return parent ? (this.children.get(parent) ?? this.root) : this.root;
@@ -168,6 +175,10 @@ export class ClaudeState {
       this.wakeUntil = now + 5_000;
       this.emit({ type: "wake.expected", agent: this.root, until: this.wakeUntil });
     }
+  }
+  /** ace's own bookkeeping worth a line in the daemon's log, never in the transcript. */
+  warn(event: string, data: Record<string, unknown>): void {
+    this.diagnostics.push({ type: adapterWarning, data: { event, ...data } });
   }
   notice(
     data: unknown,

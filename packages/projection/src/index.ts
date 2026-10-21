@@ -12,7 +12,7 @@ export {
   visibleHistoryOrder,
 } from "./history-visibility.ts";
 export { isProviderRetryNotice } from "./retry-notice.ts";
-export { threadAttention } from "./thread-attention.ts";
+export { queueWakesSnooze, threadAttention } from "./thread-attention.ts";
 export { startsTurn, startedRunTurn, runTurn } from "./turn-boundary.ts";
 export { siteOrigin, toolSurface, toolSurfaces } from "./tool-surface.ts";
 export { withoutPortableHandoff } from "./portable-input.ts";
@@ -420,6 +420,12 @@ export type { SettlePolicy } from "./organization.ts";
 
 export { liveMetadata, boundedLiveModel } from "./live-metadata.ts";
 export { isTestCommand } from "./step-purpose.ts";
+export {
+  isInternalTask,
+  listedBackgroundWork,
+  shellCommandOf,
+  standsForSubagent,
+} from "./task-presentation.ts";
 export { digestFromCounters, digestContributions, mergeTurnDigests } from "./long-thread-merge.ts";
 
 export { threadMoveError, movedThreadDetails, threadMoveEvents } from "./thread-move.ts";

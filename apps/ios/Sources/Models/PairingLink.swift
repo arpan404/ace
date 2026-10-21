@@ -5,7 +5,7 @@ enum PairingLinkError: Error, Equatable {
 
     var message: String {
         switch self {
-        case .notALink: "That isn't an ace pairing link. Run `ace pair` or open Remote devices on your computer."
+        case .notALink: "That isn't an ace pairing link. Run `ace pair` or open Settings › Machines and devices on your computer."
         case .insecure: "Pairing links must use HTTPS from your own computer."
         case .wrongPath, .credentialsInURL: "Use the complete pairing link from your computer, unchanged."
         case .missingCode: "This link has no pairing code. Create a new link on your computer."
@@ -14,7 +14,7 @@ enum PairingLinkError: Error, Equatable {
     }
 }
 
-/// A link from `ace pair` or Remote devices: `https://host:port/pair#fingerprint=…&code=…&scopes=…`.
+/// A link from `ace pair` or Machines and devices: `https://host:port/pair#fingerprint=…&code=…&scopes=…`.
 /// The fragment carries the code and pin; only scheme, host and port are ever used for networking.
 struct PairingLink: Sendable, Equatable {
     let socketURL: URL
@@ -63,7 +63,7 @@ struct Grants: Sendable, Equatable {
     var canOperate: Bool { scopes.contains("operate") || scopes.contains("admin") }
     var summary: String {
         if scopes.isEmpty { return "Chosen by your computer" }
-        if scopes.contains("admin") { return "Administrator" }
-        return canOperate ? "View and act" : "View only"
+        let access = scopes.contains("admin") ? "Administrator" : canOperate ? "View and act" : "View only"
+        return ([access] + (scopes.contains("projects") ? ["Projects"] : []) + (scopes.contains("accounts") ? ["Accounts"] : [])).joined(separator: " · ")
     }
 }

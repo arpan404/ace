@@ -81,7 +81,7 @@ for (const region of ["sidebar", "palette"] as const)
   test(`a broken ${region} keeps the selected page open and can be retried`, async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     failures[region] = true;
-    await harness().open("/settings/general");
+    await harness().open("/settings/agents");
     expect(await screen.findByRole("switch", { name: "New threads use a worktree" })).toBeTruthy();
     const toast = await screen.findByRole("alertdialog");
     expect(screen.queryByText("ace couldn't start")).toBeNull();

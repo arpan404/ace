@@ -165,16 +165,28 @@ function ComposerBody({
     suggestions.state === "closed";
   useAutosize(input, text, width, pill ? 1 : inputMinLines);
   useTypeToFocus(input, !!props.typeToFocus && !props.unavailable);
+  // The sent message ↑/↓ last put in the composer, and how many back it is.
+  const recalled = useRef<{ older: number; text: string } | undefined>(undefined);
   const step = (direction: "undo" | "redo") => {
     const shown = message.step(direction);
     if (shown) list.dismissAt(shown.text, shown.caret);
   };
-  // ↑ in an empty, idle composer brings the last sent message back to edit and send again.
-  const recall = () => {
-    const last = !text && !props.busy ? props.recall?.() : undefined;
-    if (!last) return false;
-    message.edit({ text: last, caret: last.length, tokens: [] });
-    list.dismissAt(last, last.length);
+  // In an idle composer, ↑ from empty brings back the last sent message and each further ↑ the
+  // one before it; ↓ walks forward and past the newest clears again. Once the shown message is
+  // edited or the caret leaves its end, the arrows move the caret as usual.
+  const recall = (direction: "older" | "newer") => {
+    if (props.busy || !props.recall) return false;
+    const shown = recalled.current;
+    const walking = !!shown && shown.text === text && caret === text.length;
+    if (!walking && text) return false;
+    const older = (walking ? shown.older : -1) + (direction === "older" ? 1 : -1);
+    if (older < -1) return false;
+    const next = older === -1 ? "" : props.recall(older);
+    // Past the oldest, ↑ stays on it rather than jumping the caret to the start.
+    if (next === undefined) return walking;
+    recalled.current = older === -1 ? undefined : { older, text: next };
+    message.edit({ text: next, caret: next.length, tokens: [] });
+    list.dismissAt(next, next.length);
     return true;
   };
   const clear = () => {

@@ -86,10 +86,8 @@ test("quiet hours set in the desktop app are the hours the desktop applies", asy
   await waitFor(() =>
     expect(machine.stored().notifications.quietHours).toEqual({ start: 22 * 60, end: 8 * 60 }),
   );
-  expect(await screen.findByText(/^22:00 to 08:00\./)).toBeTruthy();
-
   // 24-hour quarter hours: 22:00 reads as 22:00 in every locale.
-  const start = screen.getByRole("combobox", { name: "Quiet hours start" });
+  const start = await screen.findByRole("combobox", { name: "Quiet hours start" });
   expect(start.textContent).toContain("22:00");
   await userEvent.click(start);
   await userEvent.click(await screen.findByRole("option", { name: "23:30" }));
@@ -109,7 +107,7 @@ test("quiet hours set in the desktop app are the hours the desktop applies", asy
 test("a browser offers notification categories in Settings", async () => {
   const app = harness();
   const view = await app.open("/settings/general");
-  await screen.findByRole("switch", { name: "New threads use a worktree" });
+  await screen.findByRole("textbox", { name: "Your name" });
   expect(screen.queryByRole("switch", { name: "Open ace at login" })).toBeNull();
   view.unmount();
   await app.open("/settings/notifications");

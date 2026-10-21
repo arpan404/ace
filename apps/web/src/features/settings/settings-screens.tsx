@@ -1,7 +1,6 @@
 import { Navigate } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { loadComputerUseSettings } from "@/features/computer-use/index.ts";
-import { ToolchainHints } from "@/features/diagnostics/index.ts";
 import { PastSessionsSettings } from "@/features/history/index.ts";
 const AdvancedSettings = lazy(() =>
   import("./advanced-page.tsx").then((module) => ({ default: module.AdvancedSettings })),
@@ -9,8 +8,7 @@ const AdvancedSettings = lazy(() =>
 import { AppearanceSettings } from "./appearance-page.tsx";
 import { KeyboardShortcuts } from "./keyboard-page.tsx";
 import { NotificationSettings } from "./notifications-page.tsx";
-import { usePhone } from "@/lib/breakpoints.ts";
-import { Screen } from "@/features/shell/index.ts";
+import { ViewListPage } from "@/features/shell/index.ts";
 const RemoteDevices = lazy(() =>
   import("./remote-page.tsx").then((module) => ({ default: module.RemoteDevices })),
 );
@@ -19,11 +17,10 @@ import { settingRow } from "./settings-index.ts";
 import { Skeleton, ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { RediscoverButton } from "./rediscover-button.tsx";
 import { SettingsBody } from "./settings-body.tsx";
-import { SettingsPageLinks } from "./settings-nav.tsx";
+import { useSettingsMachine } from "./machine-scope.tsx";
 
 /* One screen per Settings page: its title, lede and actions around the page body. */
 
-// Provider preferences belong to General; keep them off every other settings route.
 const GeneralSettings = lazy(() =>
   import("./general-page.tsx").then((module) => ({ default: module.GeneralSettings })),
 );
@@ -31,17 +28,45 @@ const GeneralSettings = lazy(() =>
 export function GeneralSettingsScreen() {
   return (
     <SettingsBody page="General">
-      <Suspense fallback={<GeneralPlaceholder />}>
+      <Suspense fallback={null}>
         <GeneralSettings />
       </Suspense>
     </SettingsBody>
   );
 }
 
-function GeneralPlaceholder() {
+const AgentsSettings = lazy(() =>
+  import("./agents-page.tsx").then((module) => ({ default: module.AgentsSettings })),
+);
+
+export function AgentsSettingsScreen() {
   return (
-    <SettingSection label="Threads">
-      {(["providers.default", "threads.useWorktree", "threads.autoSettleAfter"] as const).map(
+    <SettingsBody page="Agents">
+      <Suspense fallback={<AgentsPlaceholder />}>
+        <AgentsSettings />
+      </Suspense>
+    </SettingsBody>
+  );
+}
+
+const OverviewSettings = lazy(() =>
+  import("./overview-page.tsx").then((module) => ({ default: module.OverviewSettings })),
+);
+
+export function OverviewSettingsScreen() {
+  return (
+    <SettingsBody page="Overview">
+      <Suspense fallback={<ListSkeleton label="machines" shape="row" rows={3} className="mt-10" />}>
+        <OverviewSettings />
+      </Suspense>
+    </SettingsBody>
+  );
+}
+
+function AgentsPlaceholder() {
+  return (
+    <SettingSection label="New threads">
+      {(["providers.default", "access.defaultMode", "threads.useWorktree"] as const).map(
         (entry) => (
           <SettingRow key={entry} {...settingRow(entry)}>
             <Skeleton className="h-7 w-28 rounded-md" />
@@ -71,13 +96,9 @@ const ProviderDetail = lazy(() =>
 
 export function ProviderSettingsScreen() {
   return (
-    <SettingsBody
-      page="Providers"
-      titleActions={<RediscoverButton />}
-      lede="The coding agents on this computer. ace runs each one with its own sign-in."
-    >
+    <SettingsBody page="Providers" titleActions={<RediscoverButton />}>
       <Suspense
-        fallback={<ListSkeleton label="provider CLIs" shape="row" rows={5} className="mt-7" />}
+        fallback={<ListSkeleton label="provider CLIs" shape="row" rows={5} className="mt-10" />}
       >
         <ProviderSettings />
       </Suspense>
@@ -92,7 +113,7 @@ export function ProviderDetailScreen(props: { id: string }) {
     <Suspense
       fallback={
         <SettingsBody page="Providers">
-          <ListSkeleton label="provider" shape="row" rows={4} className="mt-7" />
+          <ListSkeleton label="provider" shape="row" rows={4} className="mt-10" />
         </SettingsBody>
       }
     >
@@ -103,7 +124,7 @@ export function ProviderDetailScreen(props: { id: string }) {
 
 export function RemoteSettingsScreen() {
   return (
-    <SettingsBody page="Remote devices">
+    <SettingsBody page="Machines and devices">
       <Suspense fallback={<ListSkeleton label="remote settings" shape="row" rows={4} />}>
         <RemoteDevices />
       </Suspense>
@@ -140,33 +161,24 @@ export function AdvancedSettingsScreen() {
 const ComputerUseSettings = lazy(loadComputerUseSettings);
 
 export function ComputerUseSettingsScreen() {
+  const { machine } = useSettingsMachine();
   return (
     <SettingsBody page="Computer use">
       <Suspense fallback={null}>
-        <ComputerUseSettings />
+        <ComputerUseSettings
+          remoteMachine={machine && !machine.primary ? machine.name : undefined}
+        />
       </Suspense>
-      {/* The tools this computer has (Git, device toolchains), with how to get a missing one. */}
-      <div className="mt-8">
-        <ToolchainHints />
-      </div>
     </SettingsBody>
   );
 }
 
 /**
- * `/settings`: on a phone, the list of pages (the sidebar is a sheet there, so this is the way
- * in); wider, General.
+ * `/settings`: on a narrow window, where the sidebar is a sheet, the page list is the page (and
+ * leaves the sheet to the threads); wider, Overview.
  */
 export function SettingsIndexScreen() {
-  const phone = usePhone();
-  if (!phone) return <Navigate to="/settings/general" replace />;
-  return (
-    <Screen title="Settings">
-      <nav aria-label="Settings" className="h-full overflow-auto px-2 pt-4 pb-20">
-        <SettingsPageLinks />
-      </nav>
-    </Screen>
-  );
+  return <ViewListPage title="Settings" fallback={<Navigate to="/settings/overview" replace />} />;
 }
 
 const Prompts = lazy(() =>
@@ -198,7 +210,7 @@ export function SourceControlSettingsScreen() {
   return (
     <SettingsBody
       page="Source control"
-      lede="GitHub access through this computer’s installed CLI. Credentials stay with gh and Git."
+      lede="GitHub through this machine's gh CLI. Credentials stay with gh and Git."
     >
       <Suspense fallback={null}>
         <SourceControlSettings />
@@ -226,7 +238,7 @@ export function BrowserSettingsScreen() {
 
 export function StorageSettingsScreen() {
   return (
-    <SettingsBody page="Storage" lede="Review old data and recover space on this computer.">
+    <SettingsBody page="Storage">
       <Suspense fallback={<ListSkeleton label="storage" shape="row" rows={6} />}>
         <StorageSettings />
       </Suspense>

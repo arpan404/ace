@@ -11,11 +11,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { useCopy } from "@/components/use-copy.ts";
 import type { PageSource } from "./use-page-actions.ts";
 
 /** The page's source as the server sent it, read-only, with Copy. */
 export function PageSourceDialog(props: { source: PageSource | undefined; onClose(): void }) {
   const toast = useToast();
+  const { copied, copy } = useCopy(() => toast.error({ title: "Couldn't copy the source" }));
   const { source } = props;
   return (
     <Dialog open={!!source} onOpenChange={(open) => !open && props.onClose()}>
@@ -41,17 +43,8 @@ export function PageSourceDialog(props: { source: PageSource | undefined; onClos
           <Button variant="ghost" onClick={props.onClose}>
             Close
           </Button>
-          <Button
-            variant="secondary"
-            onClick={() =>
-              source &&
-              void navigator.clipboard?.writeText(source.source).then(
-                () => toast.add({ title: "Source copied" }),
-                () => toast.error({ title: "Couldn't copy the source" }),
-              )
-            }
-          >
-            Copy source
+          <Button variant="secondary" onClick={() => source && copy(source.source)}>
+            {copied ? "Copied" : "Copy source"}
           </Button>
         </DialogFooter>
       </DialogContent>

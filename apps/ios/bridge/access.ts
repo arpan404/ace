@@ -120,14 +120,14 @@ const messages: Record<Problem["code"], string> = {
   expired:
     "This pairing link expired or was already used. Create a new one on your computer and scan it again.",
   rate: "Too many pairing attempts. Wait a minute, then try again.",
-  disabled: "Remote access is off on that computer. Turn it on in Settings > Remote devices.",
+  disabled: "Remote access is off on that computer. Turn it on in Settings › Machines and devices.",
   pin: "This computer's identity doesn't match the pairing link. Nothing was sent. Pair again with a fresh link from that computer.",
   redirect: "That address tried to redirect the connection. ace refuses redirects; check the link.",
   unreachable:
     "Can't reach this computer. Check that it's awake and on the same network or tailnet. ace keeps retrying.",
   offline: "You're offline. Sends wait on this phone until the connection returns.",
   revoked:
-    "This phone's access was removed or no longer works. Pair again from Remote devices on that computer.",
+    "This phone's access was removed or no longer works. Pair again from Machines and devices on that computer.",
   identity: "A different computer answered at this address. Pair again with a fresh link.",
   version: "This computer runs a different ace version. Update ace on both devices.",
   storage: "Couldn't save on this phone. Free some space and try again.",

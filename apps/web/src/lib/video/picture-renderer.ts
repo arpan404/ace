@@ -9,7 +9,7 @@ export interface PictureImage {
 
 /**
  * One live picture as a picture kind carries it (a device's, or a computer-use session's): a
- * JPEG, or one H.264 access unit with its parameter sets in front of every keyframe.
+ * one H.264 access unit with its parameter sets in front of every keyframe.
  */
 export interface LivePicture {
   streamId: string;
@@ -23,21 +23,23 @@ export interface LivePicture {
 }
 
 export interface PictureRendererPorts<P extends LivePicture> {
-  /** WebCodecs, or undefined where there is none (every picture must be JPEG then). */
+  /** WebCodecs, or undefined where there is none (the view then says it can't show video). */
   decoder: VideoDecoderFactory | undefined;
-  /**
-   * A JPEG's bytes as something drawable. Absent for a view that takes video only (a device's
-   * live view): a JPEG is then acked and never drawn.
-   */
-  image?(bytes: Uint8Array): Promise<PictureImage>;
   /** Show this picture; the image is the renderer's to close after. */
   show(image: PictureImage, picture: P): void;
   /** Tell the daemon the view showed `picture`; `keyframe`: the decoder lost its place. */
   ack(picture: P, keyframe: boolean): void;
-  /** This client can't decode the stream's video: ask for JPEG instead, or say so (video only). */
+  /** This client can't decode the stream's video: the view says so. Live views are video only. */
   fallback(): void;
   /** The view fell behind or lost pictures: a lighter stream may keep up. */
   pressure(): void;
+  /**
+   * Runs `draw` at the display's next refresh (`requestAnimationFrame`); the result cancels it.
+   * Given, decoded video is acked at once and only the newest picture is drawn at each refresh,
+   * so a burst after a stall jumps to the present instead of replaying it. Absent, each picture
+   * is drawn as it decodes.
+   */
+  nextFrame?(draw: () => void): () => void;
 }
 
 /** Decoder errors in a row without a picture before the codec counts as unsupported here. */
@@ -45,10 +47,10 @@ const failureLimit = 3;
 
 /**
  * A source's live pictures onto its view (devices and computer use; ADR 0011 "One media
- * pipeline", ADR 0064 "Shared media stream"): JPEGs drawn as they come, H.264 through the same
- * `VideoStream` the browser's live view decodes with. Every picture is acked once shown, or at
- * once when it can't be shown, so the daemon's window never waits on a picture this view
- * dropped. A delta after a gap waits for a keyframe, which is asked for through the ack.
+ * pipeline", ADR 0064 "Shared media stream"): H.264 only, through the same `VideoStream` the
+ * browser's live view decodes with. Every picture is acked once shown (once
+ * decoded, when drawing is paced to the display), or at once when it can't be shown, so the
+ * daemon's window never waits on a picture this view dropped. A delta after a gap waits for a keyframe, which is asked for through the ack.
  */
 export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPorts<P>) {
   const ack = (picture: P, keyframe: boolean) => ports.ack(picture, keyframe);
@@ -65,6 +67,26 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
   /** The platform said it can't decode this stream at all: no point asking for a keyframe. */
   let refused = false;
   let closed = false;
+  /** The newest decoded picture waiting for the display's next refresh. */
+  let queued: { picture: DecodedPicture; shown: P } | undefined;
+  let cancelFrame: (() => void) | undefined;
+  const dropQueued = () => {
+    cancelFrame?.();
+    cancelFrame = undefined;
+    queued?.picture.close();
+    queued = undefined;
+  };
+  const drawQueued = () => {
+    cancelFrame = undefined;
+    const next = queued;
+    queued = undefined;
+    if (!next) return;
+    try {
+      if (!closed) ports.show(asImage(next.picture), next.shown);
+    } finally {
+      next.picture.close();
+    }
+  };
 
   const recover = (picture: P) => {
     needKey = true;
@@ -88,6 +110,15 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
         const shown = latest && { ...latest, sequence: picture.sequence };
         if (closed || !shown) return picture.close();
         failures = 0;
+        const nextFrame = ports.nextFrame;
+        if (nextFrame) {
+          // Newest wins: a picture replaced before the refresh is freed undrawn, but acked.
+          queued?.picture.close();
+          queued = { picture, shown };
+          cancelFrame ??= nextFrame(drawQueued);
+          ack(shown, false);
+          return;
+        }
         try {
           ports.show(asImage(picture), shown);
         } finally {
@@ -115,6 +146,7 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
     ports.fallback();
   };
   const reset = () => {
+    dropQueued();
     video?.reset();
     previous = -1;
     needKey = true;
@@ -134,22 +166,8 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
       if (picture.sequence <= previous) return;
       const gap = previous >= 0 && picture.sequence !== previous + 1;
       previous = picture.sequence;
-      if (picture.codec === "jpeg") {
-        const decode = ports.image;
-        if (!decode) return void ack(picture, false);
-        video?.reset();
-        let image: PictureImage | undefined;
-        try {
-          image = await decode(picture.bytes);
-          if (!closed) ports.show(image, picture);
-        } catch {
-          // An undecodable JPEG is skipped; the next one replaces it.
-        } finally {
-          image?.close();
-          ack(picture, false);
-        }
-        return;
-      }
+      // Live views are video only: a still that reaches one is acked and never drawn.
+      if (picture.codec === "jpeg") return void ack(picture, false);
       const decoder = unsupported ? undefined : toVideo();
       if (!decoder) {
         giveUp(picture);
@@ -172,6 +190,7 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
     reset,
     close() {
       closed = true;
+      dropQueued();
       video?.close();
       video = undefined;
     },

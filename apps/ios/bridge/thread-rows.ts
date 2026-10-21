@@ -1,5 +1,5 @@
 import type { Item } from "@ace/protocol";
-import { describeStep, handoffMarker, stepLabels } from "@ace/ui-core";
+import { describeStep, handoffMarker, opensAgentPage, stepLabels } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
 
 /*
@@ -10,12 +10,24 @@ import { preview } from "./presentation.ts";
 
 const attachmentLimit = 8;
 
+/**
+ * Where tapping a step goes: `device:<id>` for a simulator or emulator step that names its
+ * device, `computer` for a computer-use step; empty otherwise.
+ */
+function opensOf(ace: ReturnType<typeof describeStep>["ace"]): string {
+  if (ace?.family === "screen") return "computer";
+  const key = ace?.family === "device" ? ace.subject?.key : undefined;
+  return key?.startsWith("device:") && key.length > 7 ? key : "";
+}
+
 /** The step line for tools, thinking and notices: "Ran `bun test`  exit 0". */
 function stepOf(item: Item) {
   if (item.type !== "tool_call" && item.type !== "reasoning" && item.type !== "notice") return null;
   const step = describeStep(item, { labels: stepLabels });
+  const family = step.ace?.family;
   return {
-    icon: step.icon,
+    icon: family === "device" ? "device" : family === "screen" ? "computer" : step.icon,
+    opens: opensOf(step.ace),
     verb: preview(step.verb, 256),
     target: preview(step.target ?? "", 512),
     note: preview(step.note ?? "", 128),
@@ -24,6 +36,8 @@ function stepOf(item: Item) {
     needsYou: step.needsYou === true,
     added: step.added ?? null,
     removed: step.removed ?? null,
+    /** An agent opened a page in the thread's browser: the row opens the browser. */
+    browser: opensAgentPage(item),
   };
 }
 

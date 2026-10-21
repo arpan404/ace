@@ -22,6 +22,7 @@ import type { DoctorReport } from "../shared/onboarding.ts";
 import type { Background } from "./background.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
 import type { Handlers } from "./ipc.ts";
+import type { AppUpdates } from "./os/app-updates.ts";
 import { writeClipboardImage } from "./os/clipboard.ts";
 import { openInEditor, reveal } from "./os/editor.ts";
 import { appIdentities, systemApplication, systemApplicationIcon } from "./os/app-identity.ts";
@@ -63,6 +64,7 @@ export function createHandlers(options: {
   setWindowBackground(value: WindowBackground): void;
   /** A chat visualization in its own window, in the locked visualization session. */
   openVisualization(request: VisualizationWindow): void;
+  updates: AppUpdates;
 }): Handlers {
   const { runtime, settings, background } = options;
   const editorIcon = editorIcons(
@@ -207,8 +209,9 @@ export function createHandlers(options: {
       options.reportDiagnostic(report);
       return undefined;
     },
-    // The release feed check pulls in @ace/service and tar; load them only when asked.
-    "updates.check": async () =>
-      (await import("./os/updates.ts")).checkForUpdate(options.info.version),
+    "updates.check": () => options.updates.check("person"),
+    "updates.current": () => options.updates.current(),
+    "updates.download": () => options.updates.download(),
+    "updates.install": () => options.updates.install(),
   };
 }

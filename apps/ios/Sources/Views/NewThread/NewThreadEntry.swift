@@ -1,48 +1,20 @@
 import SwiftUI
 
-/// The inbox header's compose button and what follows a start: once the machine's receipt names
-/// the new thread and its row arrives, the thread opens. Offline, the start waits in Unsent.
+/// The New thread sheet and what follows a start: once the machine's receipt names the new
+/// thread and its row arrives, the thread opens. Offline, the start waits in Unsent. The inbox's
+/// compose button sets `composing`.
 struct NewThreadEntry: ViewModifier {
     @Bindable var inbox: MachineInbox
+    @Binding var composing: Bool
+    /// The project the inbox is filtered to, which the sheet starts on.
+    let project: String
     let open: (InboxKey) -> Void
-    @State private var composing = false
     @State private var awaiting: (machineId: String, commandId: String)?
-    /// Starting is impossible when every paired machine is view-only: both entries stay
-    /// out rather than opening a sheet whose Start can never enable.
-    private var canStart: Bool {
-        inbox.sessions.isEmpty || inbox.sessions.contains(where: { $0.client.canOperate })
-    }
 
     func body(content: Content) -> some View {
         content
-            .safeAreaInset(edge: .bottom) {
-                if canStart {
-                    Button { composing = true } label: {
-                        Label("Start a task", systemImage: "plus")
-                            .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                            .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                    .floatingGlass()
-                    .padding(.horizontal, AceTheme.Dimensions.composerInset)
-                    .padding(.bottom, AceTheme.Spacing.sm)
-                    .disabled(inbox.sessions.isEmpty)
-                    .accessibilityIdentifier("inbox.startTask")
-                }
-            }
-            .toolbar {
-                if canStart {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button { composing = true } label: { Image(systemName: "square.and.pencil") }
-                            .disabled(inbox.sessions.isEmpty)
-                            .accessibilityLabel("New thread")
-                            .accessibilityIdentifier("inbox.compose")
-                    }
-                }
-            }
             .sheet(isPresented: $composing) {
-                NewThreadSheet(inbox: inbox) { machineId, commandId in awaiting = (machineId, commandId) }
+                NewThreadSheet(inbox: inbox, saved: { machineId, commandId in awaiting = (machineId, commandId) }, initialProject: project.isEmpty ? nil : project)
                     .presentationDetents([.large]).presentationDragIndicator(.visible)
             }
             .task(id: awaiting?.commandId) {
@@ -65,7 +37,13 @@ struct NewThreadEntry: ViewModifier {
 }
 
 extension View {
-    func newThreadEntry(inbox: MachineInbox, open: @escaping (InboxKey) -> Void) -> some View {
-        modifier(NewThreadEntry(inbox: inbox, open: open))
+    func newThreadEntry(inbox: MachineInbox, composing: Binding<Bool>, project: String, open: @escaping (InboxKey) -> Void) -> some View {
+        modifier(NewThreadEntry(inbox: inbox, composing: composing, project: project, open: open))
     }
+}
+
+extension MachineInbox {
+    /// Starting is impossible when every paired machine is view-only: the compose button stays
+    /// out rather than opening a sheet whose Start can never enable.
+    var canStartThreads: Bool { sessions.isEmpty || sessions.contains { $0.client.canOperate } }
 }

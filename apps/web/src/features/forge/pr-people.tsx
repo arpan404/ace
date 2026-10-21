@@ -1,4 +1,5 @@
 import { PlusIcon, TagIcon } from "@phosphor-icons/react";
+import { LabelPill } from "@/components/forge-marks.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -90,13 +91,7 @@ export function PrPeople(props: {
           className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1"
         >
           {detail.labels.map((label) => (
-            <span
-              key={label}
-              title={label}
-              className="max-w-48 truncate rounded-xs bg-accent px-1.5 text-xs leading-5 text-muted-foreground"
-            >
-              {label}
-            </span>
+            <LabelPill key={label} name={label} color={detail.labelColors?.[label]} />
           ))}
           {labelPicker}
         </div>

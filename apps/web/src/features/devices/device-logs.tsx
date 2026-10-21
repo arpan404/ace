@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
-import { filterLines, logLevel } from "./device-log-lines.ts";
+import { filterLines, logLevel } from "@ace/ui-core/devices";
 import type { DeviceSession } from "./device-session.ts";
 
 const keep = 500;

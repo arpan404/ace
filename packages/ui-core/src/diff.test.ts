@@ -99,6 +99,26 @@ test("a full-text edit counts the lines that changed, not the size of the file",
   });
 });
 
+test("a file too large for a full comparison still shows only the lines that changed", () => {
+  const lines = Array.from({ length: 6_000 }, (_, i) => `line ${i}`);
+  const changed = [...lines];
+  changed[1_000] = "edited near the top";
+  changed[5_000] = "edited near the end";
+  changed.splice(3_000, 0, "inserted in the middle");
+  const diff = diffTexts(`${lines.join("\n")}\n`, `${changed.join("\n")}\n`);
+  expect(
+    diff.filter((line) => line.kind !== "context").map((line) => `${line.kind} ${line.text}`),
+  ).toEqual([
+    "del line 1000",
+    "add edited near the top",
+    "add inserted in the middle",
+    "del line 5000",
+    "add edited near the end",
+  ]);
+  // Line numbers stay true on both sides past the edits.
+  expect(diff.at(-1)).toMatchObject({ old: 6_000, new: 6_001, text: "line 5999" });
+});
+
 describe("a diff someone wrote, read line by line", () => {
   const patch = [
     "diff --git a/src/replay.ts b/src/replay.ts",

@@ -1,6 +1,7 @@
-import { pluralCount, waitingOnSubagentsLabel, type TurnWait } from "@ace/ui-core";
+import { waitText, waitWords, type TurnWait, type WaitWords } from "@ace/ui-core";
 import type { ThreadKey, ThreadReader } from "@ace/client";
-import { useThread } from "@ace/client-react";
+import { useItem, useThread } from "@ace/client-react";
+import { shellCommandOf } from "@ace/projection";
 import type { BackgroundTask } from "@ace/protocol";
 import { useCallback, useMemo, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -13,7 +14,7 @@ const sameTasks = (a: readonly BackgroundTask[], b: readonly BackgroundTask[]) =
 
 /**
  * What the main agent waits on while it does nothing itself, its Stop at the far right: "Waiting
- * for 3 subagents · 5m 58s", or, its turn over, "Waiting for bun run dev:relay". Stop ends what it
+ * for 3 subagents · 5m 58s", or, its turn over, "Running `bun run dev:relay`". Stop ends what it
  * waits on: the whole agent tree, or the background commands. "Stopping…" until the tree ends.
  */
 export function WaitingStrip(props: {
@@ -27,22 +28,18 @@ export function WaitingStrip(props: {
   indicators: ReactNode;
 }) {
   const { wait } = props;
+  if (wait.kind === "background")
+    return <CommandsStrip threadId={props.threadId} wait={wait} indicators={props.indicators} />;
+  const words = waitWords(wait);
   return (
     <div
       role="status"
-      aria-label={waitWords(wait)}
+      aria-label={waitText(words)}
       className="flex h-7 min-w-0 items-center gap-1.5 px-1 text-xs"
     >
       <span className="min-w-0 flex-1 truncate">
-        {wait.kind === "background" && wait.title ? (
-          <span className="text-foreground">
-            {"Waiting for "}
-            <code className="font-mono">{wait.title}</code>
-          </span>
-        ) : (
-          <span className="text-foreground">{waitWords(wait)}</span>
-        )}
-        {wait.kind === "subagents" && props.since !== undefined && (
+        <Words words={words} />
+        {props.since !== undefined && (
           <span className="text-muted-foreground tabular-nums">
             {" · "}
             <ElapsedTime from={props.since} />
@@ -50,12 +47,72 @@ export function WaitingStrip(props: {
         )}
       </span>
       {props.indicators}
-      {wait.kind === "subagents" ? (
-        <TreeStop onStop={props.onStop} stopping={props.stopping} />
-      ) : (
-        <CommandsStop threadId={props.threadId} taskIds={wait.taskIds} />
-      )}
+      <TreeStop onStop={props.onStop} stopping={props.stopping} />
     </div>
+  );
+}
+
+/**
+ * The background commands a stopped turn left running, said as a finished turn's are: the run
+ * already reads stopped in the transcript, so the strip only says what still runs.
+ */
+export function StoppedStrip(props: {
+  threadId: string;
+  commands: readonly BackgroundTask[];
+  indicators: ReactNode;
+}) {
+  const { commands } = props;
+  const single = commands.length === 1 ? commands[0] : undefined;
+  const item = useItem(props.threadId, single?.toolCallId ?? "");
+  const taskIds = useMemo(() => commands.map((task) => task.id), [commands]);
+  const wait: TurnWait = {
+    kind: "background",
+    count: commands.length,
+    title: single ? shellCommandOf(single, item) : undefined,
+    shells: true,
+    taskIds,
+  };
+  return <CommandsStrip threadId={props.threadId} wait={wait} indicators={props.indicators} />;
+}
+
+/** "Running 2 commands" or "Running `bun run dev`", with one Stop for all of them. */
+function CommandsStrip(props: {
+  threadId: string;
+  wait: Extract<TurnWait, { kind: "background" }>;
+  indicators: ReactNode;
+}) {
+  const words = waitWords(props.wait);
+  return (
+    <div
+      role="status"
+      aria-label={waitText(words)}
+      className="flex h-7 min-w-0 items-center gap-1.5 px-1 text-xs"
+    >
+      <span className="min-w-0 flex-1 truncate">
+        <Words words={words} />
+      </span>
+      {props.indicators}
+      <CommandsStop threadId={props.threadId} taskIds={props.wait.taskIds} />
+    </div>
+  );
+}
+
+/** The strip's lead words, a single shell's command as code, then what runs beside it. */
+function Words(props: { words: WaitWords }) {
+  const { label, code, detail } = props.words;
+  return (
+    <>
+      <span className="text-foreground">
+        {label}
+        {code !== undefined && (
+          <>
+            {" "}
+            <code className="font-mono">{code}</code>
+          </>
+        )}
+      </span>
+      {detail && <span className="text-muted-foreground">{` · ${detail}`}</span>}
+    </>
   );
 }
 
@@ -76,9 +133,8 @@ function TreeStop(props: { onStop?: (() => void) | undefined; stopping: boolean 
 }
 
 /**
- * Stop for the background commands a finished turn waits on, in one press: every one of them the
- * provider can stop, whatever its kind. None of them can be stopped: no button, rather than a
- * dead one.
+ * Stop for the background commands left running, in one press: every one of them the provider
+ * can stop, whatever its kind. None of them can be stopped: no button, rather than a dead one.
  */
 function CommandsStop(props: { threadId: string; taskIds: readonly string[] }) {
   const { taskIds } = props;
@@ -110,12 +166,4 @@ function CommandsStop(props: { threadId: string; taskIds: readonly string[] }) {
       Stop
     </Button>
   );
-}
-
-/** "Waiting for 2 subagents", "Waiting for bun run dev:relay", "Waiting for 2 background commands". */
-function waitWords(wait: TurnWait): string {
-  if (wait.kind === "subagents") return waitingOnSubagentsLabel(wait.count);
-  return wait.title
-    ? `Waiting for ${wait.title}`
-    : `Waiting for ${pluralCount(wait.count, "background command", "background commands")}`;
 }

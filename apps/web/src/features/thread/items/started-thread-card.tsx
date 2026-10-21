@@ -1,50 +1,58 @@
-import { cardEdge } from "@/components/ui/rules.ts";
 import { useItem, useSidebarThread } from "@ace/client-react";
-import { modelLine, startedThreadOf } from "@ace/ui-core";
+import { delegatedState, startedThreadOf, subagentTerminal } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
-import { buttonVariants } from "@/components/ui/button.tsx";
+import { useProjectName } from "@/lib/projects.ts";
+import { useThreadLiveState } from "../lib/live-state.ts";
+import { AgentRowContents, agentRowStyles } from "./agent-row.tsx";
+import { SubagentElapsed } from "./subagent-row.tsx";
 
 /**
- * The conversation an agent started with `thread_start` (or forked with `thread_fork`): "New thread" or "Fork",
- * its title and where it runs, and Open. The title and model follow the thread once the sidebar
- * knows it (a rename, a model switch); before then, ace's answer names them. Nothing shows until
- * ace answers with the thread, and nothing for a call that failed: its step says so.
+ * The conversation an agent started with `thread_start` (or forked with `thread_fork`), as an
+ * agent row where it was started: its provider's mark, its title, "New thread · project" (or
+ * "Fork"), its status and how long it has run, updated in place as it works and ends. The row
+ * opens it. The title and status follow the thread once the sidebar knows it (a rename, a
+ * finish); before then, ace's answer names it. Nothing shows until ace answers with the thread,
+ * and nothing for a call that failed: its step says so.
  */
 export function StartedThreadCard(props: { threadId: string; itemId: string }) {
   const item = useItem(props.threadId, props.itemId);
   const started = useMemo(() => startedThreadOf(item), [item]);
   const thread = useSidebarThread(started?.threadId ?? "");
+  const projectName = useProjectName();
+  const live = useThreadLiveState(props.threadId);
   if (!started) return null;
   const label = started.forked ? "Fork" : "New thread";
   const title = thread?.title ?? started.title ?? label;
   const provider = thread?.execution?.provider ?? thread?.provider ?? started.provider;
   const model = thread?.execution?.model ?? started.model;
-  const runsOn = provider ? modelLine(provider, model, started.account) : undefined;
+  const state = thread ? delegatedState(thread.status) : "working";
+  const terminal = subagentTerminal(state);
   return (
-    <section
-      aria-label={`${label}: ${title}`}
-      className={`flex min-h-(--row-height) items-center gap-(--surface-gap) rounded-lg px-(--surface-inset) py-2 ${cardEdge}`}
-    >
-      {provider && <ProviderIcon provider={provider} size={16} decorative />}
-      <p className="flex min-w-0 flex-1 items-baseline gap-x-1.5 text-ui">
-        <span className="shrink-0 text-muted-foreground">{label}</span>
-        <span aria-hidden className="shrink-0 text-subtle-foreground">
-          ·
-        </span>
-        <span className="min-w-0 truncate font-medium">{title}</span>
-        {runsOn && (
-          <span className="min-w-0 shrink-[2] truncate text-muted-foreground">· {runsOn}</span>
-        )}
-      </p>
+    <section aria-label={`${label}: ${title}`}>
       <Link
         to="/t/$threadId"
         params={{ threadId: started.threadId }}
         aria-label={`Open ${title}`}
-        className={buttonVariants({ variant: "secondary", size: "sm" })}
+        className={agentRowStyles.box}
       >
-        Open
+        <AgentRowContents
+          mark={{ provider, model }}
+          name={title}
+          meta={thread ? `${label} · ${projectName(thread.workspaceId)}` : label}
+          state={state}
+          stale={!live.fresh && !terminal}
+          elapsed={
+            thread && (
+              <SubagentElapsed
+                startedAt={thread.createdAt}
+                endedAt={thread.updatedAt}
+                running={!terminal}
+                fresh={live.fresh}
+              />
+            )
+          }
+        />
       </Link>
     </section>
   );

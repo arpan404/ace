@@ -100,10 +100,11 @@ test("the commit message is drafted from the picked files as the form opens, and
   const commit = form.getByRole("button", { name: /^Commit(?! &)/ });
   await waitFor(() => expect(commit).toHaveProperty("disabled", false));
   await userEvent.click(commit);
-  await screen.findByText("Committed");
-  expect(app.daemon.workspace.gitStatus("draft-thread").map((file) => file.path)).toEqual([
-    "excluded.ts",
-  ]);
+  await waitFor(() =>
+    expect(app.daemon.workspace.gitStatus("draft-thread").map((file) => file.path)).toEqual([
+      "excluded.ts",
+    ]),
+  );
 });
 
 test("a generated commit is reviewed, edited and submitted only for the selected files", async () => {
@@ -131,10 +132,11 @@ test("a generated commit is reviewed, edited and submitted only for the selected
   await userEvent.click(form.getByText("Sources for this draft"));
   expect(form.getByText("+selected change")).toBeTruthy();
   await userEvent.click(form.getByRole("button", { name: /^Commit(?! &)/ }));
-  await screen.findByText("Committed");
-  expect(app.daemon.workspace.gitStatus("draft-thread").map((file) => file.path)).toEqual([
-    "excluded.ts",
-  ]);
+  await waitFor(() =>
+    expect(app.daemon.workspace.gitStatus("draft-thread").map((file) => file.path)).toEqual([
+      "excluded.ts",
+    ]),
+  );
 });
 
 test("editing text while the opening draft is written keeps the person's text", async () => {

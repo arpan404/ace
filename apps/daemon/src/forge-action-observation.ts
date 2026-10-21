@@ -1,5 +1,12 @@
 import { mergeStateChangeObserved } from "@ace/forge";
-import { ForgeCommand, type ForgePrStatus, type ForgeMergeState } from "@ace/protocol";
+import {
+  ForgeCommand,
+  ForgeHostedMergeCommand,
+  ForgeHostedMergeStateCommand,
+  type ForgePrRef,
+  type ForgePrStatus,
+  type ForgeMergeState,
+} from "@ace/protocol";
 import { z } from "zod";
 
 export type RemoteForgeAction = Extract<
@@ -14,14 +21,48 @@ export type RemoteForgeAction = Extract<
   }
 >;
 
+/**
+ * A write to a PR from either entry point: a thread linked to it, or the project's Pull requests
+ * page (`forge.hosted.merge`). Both share one journal and one fence per PR and family.
+ */
+export type ForgePrWrite =
+  | RemoteForgeAction
+  | ForgeHostedMergeCommand
+  | ForgeHostedMergeStateCommand;
+
+/** The pull request a write targets, whichever entry point sent it. */
+export function writeTarget(action: ForgePrWrite): ForgePrRef {
+  return action.type === "forge.hosted.merge" || action.type === "forge.hosted.merge-state"
+    ? action.pr
+    : action.link.pr;
+}
+
+/** A change to how GitHub merges the PR (auto-merge on or off, leaving the queue), from either entry point. */
+export interface MergeStateWrite {
+  action: "enable" | "disable" | "dequeue";
+  headSha: string;
+  method: "merge" | "squash" | "rebase";
+}
+export function mergeStateWrite(action: ForgeWriteReceipt["action"]): MergeStateWrite | undefined {
+  if (action.type === "forge.pr.auto-merge")
+    return { action: "enable", headSha: action.headSha, method: action.method };
+  if (action.type === "forge.pr.merge-state.change" || action.type === "forge.hosted.merge-state")
+    return { action: action.action, headSha: action.headSha, method: action.method };
+  return undefined;
+}
+
 export const ForgeWriteReceipt = z.object({
-  action: ForgeCommand.refine(
-    (action) =>
-      action.type !== "forge.pr.status" &&
-      action.type !== "forge.pr.link" &&
-      action.type !== "forge.pr.unlink" &&
-      action.type !== "forge.pr.create",
-  ),
+  action: z.union([
+    ForgeCommand.refine(
+      (action) =>
+        action.type !== "forge.pr.status" &&
+        action.type !== "forge.pr.link" &&
+        action.type !== "forge.pr.unlink" &&
+        action.type !== "forge.pr.create",
+    ),
+    ForgeHostedMergeCommand,
+    ForgeHostedMergeStateCommand,
+  ]),
   phase: z.enum(["pending", "accepted", "reconciled", "failed"]),
   /** When the write was journalled for dispatch; bounds how long doubt can fence a retry. */
   at: z.number().int().nonnegative(),
@@ -44,20 +85,14 @@ export function observedMergeState(
   action: ForgeWriteReceipt["action"],
   state: ForgeMergeState,
 ): boolean {
-  if (action.type !== "forge.pr.auto-merge" && action.type !== "forge.pr.merge-state.change")
-    return false;
-  return mergeStateChangeObserved(
-    state,
-    action.headSha,
-    action.type === "forge.pr.auto-merge" ? "enable" : action.action,
-    action.method,
-  );
+  const change = mergeStateWrite(action);
+  return !!change && mergeStateChangeObserved(state, change.headSha, change.action, change.method);
 }
 
 /** Absence is never proof that a write was rejected: GitHub may still be converging. */
 export function observedWrite(receipt: ForgeWriteReceipt, status: ForgePrStatus): boolean {
   const action = receipt.action;
-  if (action.type === "forge.pr.merge")
+  if (action.type === "forge.pr.merge" || action.type === "forge.hosted.merge")
     return status.state === "merged" && status.headSha === action.headSha;
   if (action.type === "forge.comment.reply")
     return (

@@ -55,12 +55,13 @@ import CryptoKit
     let terminal = TerminalScreenModel()
     /// The open thread's live browser view (`Sources/Browser`, `bridge/browser-live.ts`).
     let browser = BrowserLiveModel()
+    let devices = DevicesModel()
     @ObservationIgnored private var generation = 0
     /// Confirmation fence: the newest activity generation the bridge has reported, on any
     /// connection or inbox row. Older confirmed rows read as unconfirmed until their snapshot
     /// returns, even when PatchPump delivers the connection and row frames separately.
     @ObservationIgnored private var activityGeneration = 0
-    /// Threads left for a child, so going back shows them until their session's first patch.
+    /// Threads left for a child, so going back shows them until their replacement snapshot is ready.
     @ObservationIgnored private var trail = ThreadTrail()
     @ObservationIgnored private var runtime: (any ClientSession)?
     @ObservationIgnored private let makeRuntime: ClientSessionFactory
@@ -200,8 +201,6 @@ import CryptoKit
             case .ready(let id, let epoch, _): if thread?.id == id, thread?.epoch == epoch { thread?.loaded = true; thread?.placeholder = nil }
             case .block, .blockPosition, .controls, .history, .models, .queue:
                 if let thread, let scope = patch.screenScope, scope.thread == thread.id, scope.epoch == thread.epoch {
-                    // The reopened session's first block replaces what was last shown of it.
-                    if case .block = patch { thread.placeholder = nil }
                     thread.screen.apply(patch)
                 }
             case .agents(let id, let epoch, let sheet): if thread?.id == id, thread?.epoch == epoch { sheets.agents = sheet }
@@ -216,6 +215,7 @@ import CryptoKit
             case .screen(let id, let epoch, let screen):
                 if let thread, thread.id == id, thread.epoch == epoch { thread.screen.apply(screen) }
             case .browser(let patch): browser.apply(patch)
+            case .devices(let patch): devices.apply(patch)
             }
         }
         thread?.screen.commit()

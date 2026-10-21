@@ -27,9 +27,9 @@ Example:
 
 ```json
 {
-  "height": 85,
   "html": "example",
-  "title": "H"
+  "mode": "static",
+  "title": "w"
 }
 ```
 
@@ -71,8 +71,8 @@ Example:
 
 ```json
 {
-  "alt": "{",
-  "mimeType": "image/gif"
+  "alt": "8",
+  "mimeType": "image/jpeg"
 }
 ```
 
@@ -111,6 +111,7 @@ Example:
 
 ```json
 {
+  "level": "warning",
   "text": "example"
 }
 ```
@@ -155,16 +156,14 @@ Example:
 {
   "tasks": [
     {
-      "machine": "JhaYZjSlOQskQxO5zvJ4qNCl6ZWRROFJmxa5ECsjmUWLWnkoE",
-      "model": "example",
       "project": "example",
-      "provider": "antigravity",
-      "requestId": "_",
+      "provider": "codex",
+      "requestId": "Tf",
       "role": "example",
+      "runRole": "build",
       "task": "example"
     }
-  ],
-  "waitSeconds": 8
+  ]
 }
 ```
 
@@ -183,7 +182,7 @@ Example:
 
 ```json
 {
-  "code": "limit",
+  "code": "not_ready",
   "ok": true
 }
 ```
@@ -229,12 +228,7 @@ Example:
 
 ```json
 {
-  "code": "unsupported",
-  "data": {
-    "mode": "all",
-    "status": "ready",
-    "threads": []
-  },
+  "hint": "example",
   "ok": true
 }
 ```
@@ -274,8 +268,9 @@ Example:
 
 ```json
 {
-  "code": "limit",
-  "ok": false
+  "code": "not_ready",
+  "hint": "example",
+  "ok": true
 }
 ```
 
@@ -300,7 +295,8 @@ Example:
 
 ```json
 {
-  "requestId": "ClD",
+  "delivery": "steer",
+  "requestId": "oe7I1",
   "text": "example",
   "threadId": "example"
 }
@@ -320,8 +316,7 @@ Example:
 
 ```json
 {
-  "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -344,7 +339,7 @@ Example:
 
 ```json
 {
-  "requestId": "5XWhi_jpSeb",
+  "requestId": "YuNF",
   "threadId": "example"
 }
 ```
@@ -363,8 +358,8 @@ Example:
 
 ```json
 {
-  "hint": "example",
-  "ok": true
+  "code": "not_found",
+  "ok": false
 }
 ```
 
@@ -402,6 +397,7 @@ Example:
 ```json
 {
   "data": null,
+  "hint": "example",
   "ok": false
 }
 ```
@@ -442,8 +438,7 @@ Example:
 
 ```json
 {
-  "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -471,7 +466,9 @@ Example:
 
 ```json
 {
-  "cursor": "example"
+  "cursor": "example",
+  "project": "example",
+  "query": "example"
 }
 ```
 
@@ -490,9 +487,10 @@ Example:
 
 ```json
 {
-  "code": "limit",
-  "hint": "example",
-  "ok": true
+  "data": {
+    "hits": []
+  },
+  "ok": false
 }
 ```
 
@@ -514,7 +512,9 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{}
+{
+  "query": "example"
+}
 ```
 
 ## projects_find.output
@@ -532,7 +532,8 @@ Example:
 
 ```json
 {
-  "ok": false
+  "hint": "example",
+  "ok": true
 }
 ```
 
@@ -559,9 +560,8 @@ Example:
 
 ```json
 {
-  "maxBytes": 10,
-  "streamId": "example",
-  "threadId": "example"
+  "before": 5,
+  "limit": 7
 }
 ```
 
@@ -580,12 +580,8 @@ Example:
 
 ```json
 {
-  "data": {
-    "bytes": "example",
-    "nextOffset": 8,
-    "queue": null
-  },
-  "ok": false
+  "hint": "example",
+  "ok": true
 }
 ```
 
@@ -615,12 +611,12 @@ Example:
 
 ```json
 {
-  "requestId": "53yKYn8dOw",
+  "access": "auto-review",
+  "model": "example",
+  "provider": "antigravity",
+  "requestId": "Eceo1",
   "text": "example",
-  "title": "example",
-  "workspace": {
-    "kind": "project"
-  }
+  "title": "example"
 }
 ```
 
@@ -639,7 +635,9 @@ Example:
 
 ```json
 {
-  "code": "not_ready",
+  "code": "unsupported",
+  "data": null,
+  "hint": "example",
   "ok": false
 }
 ```
@@ -668,11 +666,10 @@ Example:
 
 ```json
 {
-  "effort": "example",
-  "requestId": "a85-lI",
-  "runId": "example",
+  "model": "example",
+  "requestId": "3Fkw9",
   "text": "example",
-  "title": "example"
+  "threadId": "example"
 }
 ```
 
@@ -691,8 +688,8 @@ Example:
 
 ```json
 {
-  "code": "not_ready",
-  "data": null,
+  "code": "invalid",
+  "hint": "example",
   "ok": false
 }
 ```
@@ -718,7 +715,7 @@ Example:
 
 ```json
 {
-  "requestId": "-lYagbXJ.ii",
+  "requestId": "5uH-dYSS",
   "summary": "example",
   "threadId": "example"
 }
@@ -739,7 +736,8 @@ Example:
 
 ```json
 {
-  "data": null,
+  "code": "limit",
+  "hint": "example",
   "ok": true
 }
 ```
@@ -769,11 +767,13 @@ Example:
 
 ```json
 {
-  "action": "reorder",
+  "action": "steer",
+  "entryId": "example",
   "order": [
     "example"
   ],
-  "requestId": "0",
+  "requestId": "cKG_Ao",
+  "text": "example",
   "threadId": "example"
 }
 ```
@@ -792,7 +792,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "forbidden",
+  "ok": false
 }
 ```
 
@@ -820,8 +821,9 @@ Example:
 ```json
 {
   "answers": {},
+  "feedback": "example",
   "interactionId": "example",
-  "requestId": "M-7GeTgz",
+  "requestId": "QGQeOfI",
   "threadId": "example"
 }
 ```
@@ -840,6 +842,7 @@ Example:
 
 ```json
 {
+  "code": "unsupported",
   "ok": true
 }
 ```
@@ -868,7 +871,7 @@ Example:
 
 ```json
 {
-  "number": 2
+  "number": 6
 }
 ```
 
@@ -887,8 +890,9 @@ Example:
 
 ```json
 {
-  "code": "forbidden",
-  "ok": true
+  "code": "not_ready",
+  "data": null,
+  "ok": false
 }
 ```
 
@@ -924,7 +928,7 @@ Example:
 ```json
 {
   "action": "unsettle",
-  "threadId": "example"
+  "name": "example"
 }
 ```
 
@@ -943,14 +947,13 @@ Example:
 
 ```json
 {
-  "hint": "example",
   "ok": false
 }
 ```
 
 ## offshift
 
-Track a multi-step coding outcome in this thread's durable record: criteria, steps, phase, blocker and evidence. Steps come from a playbook or your own; phases are plan, implement, verify, review and delivery; evidence binds to the workspace's Git revision. It records work and never runs it. Changes take the last version. Every result's next says what to do now. Each action's fields are named in action's description.
+Track a multi-step coding outcome in this thread's durable record: criteria, steps, phase, blocker and evidence. Steps come from a playbook or your own; phases are plan, implement, verify, review and delivery; evidence binds to the workspace's Git revision. It records work and never runs it. Every result's next says what to do now and, for a change, which version to send. Each action's fields are named in action's description.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -962,10 +965,10 @@ Semantic rule: start needs runId, outcome, endpoint and criteria; get needs runI
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| action | yes | ["start","get","list","playbooks","advance","block","resume","evidence","revise","step"] | {"description":"start: open a run with its outcome, endpoint, criteria, and optional playbook and steps. get: the run, revision, pending evidence and next. list: this thread's runs. playbooks: the built-in playbooks and their steps. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. step: mark stepId done or skipped (note: what you saw, or why)."} |
+| action | yes | ["start","get","list","playbooks","advance","block","resume","evidence","revise","step"] | {"description":"start: open a run with its outcome, endpoint, criteria, and optional playbook and steps. get: the run, revision, pending evidence and next. list: this thread's runs. playbooks: the built-in playbooks and their steps. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record the result of one check or several. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. step: mark stepId done or skipped (note: what you saw, or why)."} |
 | runId | no | string | {"description":"Every action but list: the run's id, chosen at start (letters, digits, _ . -).","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
 | requestId | no | string | {"description":"Optional on changes; omitted, an identical retry still applies once.","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| version | no | integer | {"description":"Every change after start: the version the last result returned. A mismatch means the run changed; get it again.","minimum":0,"maximum":9007199254740991} |
+| version | no | integer | {"description":"Every change after start: run.version from the last result, which next repeats when the next change is yours. A mismatch means the run changed; get it again.","minimum":0,"maximum":9007199254740991} |
 | outcome | no | string | {"description":"start: the observable result the work delivers.","minLength":1,"maxLength":4096} |
 | endpoint | no | string | {"description":"start: where the work stops, as authorized (local changes, an open PR, ...).","minLength":1,"maxLength":4096} |
 | criteria | no | [OffshiftCriteria.json](schema/OffshiftCriteria.json) | {"description":"start: what must hold for the outcome, up to 64."} |
@@ -976,7 +979,7 @@ Semantic rule: start needs runId, outcome, endpoint and criteria; get needs runI
 | steps | no | [OffshiftStepsInput.json](schema/OffshiftStepsInput.json) | {"description":"start: your own steps ({id, title, phase}), after the playbook's; up to 24 in all."} |
 | stepId | no | string | {"description":"step: the step to mark.","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
 | state | no | ["done","skipped"] | {"description":"step: done or skipped."} |
-| evidence | no | [OffshiftEvidenceInput.json](schema/OffshiftEvidenceInput.json) | {"description":"evidence: one check, at the revision get returned before it ran."} |
+| evidence | no | union | {"description":"evidence: the checks you ran, one or a list of up to 32, each at the revision get returned before it ran. A list is one write: all are recorded or none.","anyOf":[{"$ref":"https://ace.local/protocol/v1/OffshiftEvidenceInput.json"},{"$ref":"https://ace.local/protocol/v1/OffshiftEvidenceBatch.json"}]} |
 | runOwner | no | [ThreadId.json](schema/ThreadId.json) | {"description":"get and evidence only: the ancestor thread whose run you check, as its brief named it."} |
 
 Example:
@@ -984,33 +987,10 @@ Example:
 ```json
 {
   "action": "list",
-  "criterion": {
-    "description": "example",
-    "id": "GYvvb",
-    "requiredKinds": [
-      "manual"
-    ]
-  },
-  "evidence": {
-    "action": "example",
-    "artifact": "example",
-    "criterionId": "kE.UTnwG",
-    "kind": "ui",
-    "note": "example",
-    "result": "pass",
-    "revision": "example"
-  },
-  "playbook": "land",
-  "requestId": "Jm",
-  "runId": "prVogpX",
-  "steps": [
-    {
-      "id": "62MQ1X89-Ua",
-      "phase": "delivery",
-      "title": "example"
-    }
-  ],
-  "version": 0
+  "endpoint": "example",
+  "runId": "R9fd2oN",
+  "state": "skipped",
+  "stepId": "8VK"
 }
 ```
 
@@ -1029,9 +1009,8 @@ Example:
 
 ```json
 {
-  "data": [],
-  "hint": "example",
-  "ok": true
+  "code": "not_ready",
+  "ok": false
 }
 ```
 
@@ -1055,7 +1034,10 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{}
+{
+  "before": 3,
+  "runs": true
+}
 ```
 
 ## automations_list.output
@@ -1073,7 +1055,8 @@ Example:
 
 ```json
 {
-  "data": null,
+  "code": "not_found",
+  "hint": "example",
   "ok": false
 }
 ```
@@ -1104,10 +1087,10 @@ Example:
 
 ```json
 {
-  "access": "auto-review",
   "id": "example",
-  "missedRun": "run_once",
+  "missedRun": "skip",
   "prompt": "example",
+  "provider": "antigravity",
   "title": "example"
 }
 ```
@@ -1127,9 +1110,7 @@ Example:
 
 ```json
 {
-  "code": "invalid",
-  "data": null,
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1154,7 +1135,7 @@ Example:
 ```json
 {
   "id": "example",
-  "requestId": "0"
+  "requestId": "ane"
 }
 ```
 
@@ -1173,8 +1154,8 @@ Example:
 
 ```json
 {
-  "code": "invalid",
-  "ok": true
+  "code": "unavailable",
+  "ok": false
 }
 ```
 
@@ -1214,9 +1195,7 @@ Example:
 
 ```json
 {
-  "code": "invalid",
-  "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1243,8 +1222,8 @@ Example:
 
 ```json
 {
-  "sourceThreadId": "example",
-  "streamId": "example"
+  "before": 7,
+  "sourceThreadId": "example"
 }
 ```
 
@@ -1267,8 +1246,9 @@ Example:
 
 ```json
 {
-  "eof": false,
-  "omitted": []
+  "bytes": "example",
+  "items": [],
+  "nextOffset": 9
 }
 ```
 
@@ -1289,7 +1269,11 @@ Required capability: none beyond session authentication. Timeout: 30000 ms.
 Example:
 
 ```json
-{}
+{
+  "topics": [
+    "changes"
+  ]
+}
 ```
 
 ## context.output
@@ -1309,19 +1293,24 @@ Example:
 
 ```json
 {
-  "changes": null,
+  "changes": {
+    "ahead": 1,
+    "behind": 2,
+    "branch": null,
+    "files": [],
+    "staged": 1,
+    "unstaged": 6,
+    "untracked": 2,
+    "upstream": "example"
+  },
   "diagnostics": {
     "blocking": [],
     "failures": []
   },
   "status": {
-    "access": null,
+    "access": "ask",
     "agentId": "example",
     "groups": [],
-    "project": {
-      "id": "example",
-      "name": "example"
-    },
     "threadId": "example"
   }
 }
@@ -1363,7 +1352,7 @@ Example:
 ```json
 {
   "noteId": "example",
-  "notes": 6
+  "notes": 9
 }
 ```
 
@@ -1401,7 +1390,7 @@ Example:
 
 ```json
 {
-  "retired": true
+  "retired": false
 }
 ```
 
@@ -1426,6 +1415,8 @@ Example:
 
 ```json
 {
+  "allowOther": true,
+  "options": [],
   "question": "example"
 }
 ```
@@ -1445,7 +1436,7 @@ Example:
 ```json
 {
   "askId": "example",
-  "status": "declined"
+  "status": "answered"
 }
 ```
 
@@ -1469,7 +1460,7 @@ Example:
 
 ```json
 {
-  "limit": 9,
+  "limit": 4,
   "query": "example"
 }
 ```
@@ -1489,6 +1480,7 @@ Example:
 ```json
 {
   "hint": "example",
+  "how": "example",
   "matches": []
 }
 ```
@@ -1512,6 +1504,7 @@ Example:
 
 ```json
 {
+  "arguments": {},
   "name": "example"
 }
 ```
@@ -1529,6 +1522,7 @@ Example:
 
 ```json
 {
-  "content": []
+  "content": [],
+  "isError": true
 }
 ```

@@ -2,7 +2,8 @@ import { StatusLabel } from "@/components/status-label.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 
-const names = {
+/** Each tool's name as people know it. */
+export const toolchainNames = {
   git: "Git",
   xcode: "iOS Simulator",
   "serve-sim": "Simulator streaming",
@@ -47,7 +48,7 @@ export function ToolchainHints({ devices = false }: { devices?: boolean }) {
             .map((tool) => (
               <li key={tool.id}>
                 <div className="flex h-8 items-center justify-between gap-2 text-sm">
-                  <span>{names[tool.id]}</span>
+                  <span>{toolchainNames[tool.id]}</span>
                   <StatusLabel
                     tone={tool.available ? "done" : "idle"}
                     label={tool.available ? "Ready" : "Not installed"}

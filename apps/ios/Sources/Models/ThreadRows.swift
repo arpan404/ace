@@ -11,6 +11,10 @@ struct StepLine: Codable, Sendable, Equatable {
     let needsYou: Bool
     let added: Int?
     let removed: Int?
+    /// An agent opened a page in the thread's browser; the row opens it.
+    var browser: Bool? = nil
+    /// `device:<id>` or `computer`: where tapping the step goes; empty or nil for nowhere.
+    var opens: String? = nil
 }
 struct AttachmentLine: Codable, Sendable, Equatable, Hashable {
     let kind: String
@@ -20,6 +24,15 @@ struct AttachmentLine: Codable, Sendable, Equatable, Hashable {
 /// One transcript block as `@ace/ui-core` groups it. Items are referenced by id; their rows
 /// stream separately, so a delta never rebuilds a block.
 struct BlockRow: Codable, Sendable, Equatable {
+    struct WorkGroup: Codable, Sendable, Equatable, Identifiable {
+        let id: String
+        let items: [String]
+        let single: Bool
+        let label: String
+        let icon: String
+        let running: Bool
+        let active: String
+    }
     struct Work: Codable, Sendable, Equatable {
         let label: String
         let counts: String
@@ -66,6 +79,7 @@ struct BlockRow: Codable, Sendable, Equatable {
     let started: Started?
     /// A settled work head's root turn, whose full steps open on demand.
     var ordinal: Int? = nil
+    var groups: [WorkGroup]? = nil
 }
 
 /// The composer's canonical choices: delivery while busy, the alternate, and Stop.
@@ -75,6 +89,8 @@ struct ControlsRow: Codable, Sendable, Equatable {
     let alternate: String?
     let canStop: Bool
     let provider: String
+    /// The provider's display name, for the model sheet's header.
+    var providerName: String?
     let model: String
     let switching: String
 }

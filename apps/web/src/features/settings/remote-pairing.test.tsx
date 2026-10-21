@@ -33,7 +33,7 @@ test("the chosen access shows above the code, and Change goes back to choose aga
   await harness({ clock: () => Date.now() }).open("/settings/remote");
   await userEvent.click(await screen.findByRole("button", { name: "Pair a device" }));
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
-  await userEvent.click(within(dialog).getByRole("button", { name: "View only" }));
+  await userEvent.click(within(dialog).getByRole("radio", { name: "View only" }));
   await userEvent.click(within(dialog).getByRole("button", { name: "Show pairing code" }));
   expect(await within(dialog).findByText("View only")).toBeTruthy();
 

@@ -41,6 +41,13 @@ type Channel = {
       release(): void;
     }
 );
+/** Reads that may run beside each other; writes keep their order. */
+function readOnly(message: FilesClientMessage): boolean {
+  return (
+    message.type === "files.pull" ||
+    (message.type === "files.request" && fileCapability(message.operation) === "files.read")
+  );
+}
 /** Pull/ACK frames bound memory to one 64 KiB chunk per channel, even through a shared worker. */
 export function chunkFilesChannel(options: {
   device: string;
@@ -294,7 +301,9 @@ export function chunkFilesChannel(options: {
       binding.release?.();
     }
   };
-  // Serialize control requests. Binary chunks still flow one at a time and never buffer a file.
+  // Writes run one at a time, in order. Reads (opening a download, pulling its chunks, stat,
+  // list) start once the writes sent before them finish but don't wait for each other, so a
+  // slow listing never holds up opening a file.
   let serial = Promise.resolve();
   return {
     accept(input: unknown) {
@@ -353,13 +362,14 @@ export function chunkFilesChannel(options: {
         openings.set(message.requestId, opening);
       }
       pending++;
-      serial = serial
+      const run = serial
         .then(() => handle(message, opening))
         .catch(fail)
         .finally(() => {
           pending--;
           if (opening && "requestId" in message) openings.delete(message.requestId);
         });
+      if (!readOnly(message)) serial = run;
     },
     close() {
       closed = true;

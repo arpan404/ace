@@ -26,6 +26,7 @@ export type StepKind =
   | "plan"
   | "agent"
   | "spawn"
+  | "background"
   | "question"
   | "tool"
   | "think";
@@ -66,6 +67,14 @@ export interface StepGroup {
 }
 
 const exploring = new Set<StepKind>(["read", "list", "search"]);
+
+/**
+ * How a command left running in the background counts (its call has a background task): as a
+ * background task, never as a plain command, so a folded "Ran 3 commands" never hides it.
+ */
+export function backgroundFact(fact: StepFact): StepFact {
+  return fact.kind === "background" ? fact : { ...fact, kind: "background", target: undefined };
+}
 
 /**
  * How one item counts for grouping; `retried` holds failed steps a later step re-ran. Undefined
@@ -203,6 +212,7 @@ function phrases(facts: readonly StepFact[]): { kind: StepKind; text: string; st
   add("list", (steps) => `listed ${plural(steps, "folder")}`);
   add("plan", () => "updated the task list");
   add("spawn", (steps) => `started ${plural(steps, "subagent")}`);
+  add("background", (steps) => `ran ${plural(steps, "background task")}`);
   add("agent", (steps) => `messaged ${plural(steps, "subagent")}`);
   add("question", (steps) => `asked ${plural(steps, "question")}`);
   add("tool", (steps) => `used ${plural(steps, "tool")}`);
@@ -291,62 +301,31 @@ function makeGroup(facts: readonly StepFact[]): StepGroup {
   };
 }
 
-/**
- * A step's family for grouping: exploration (reads, listings, searches), edits, commands, the web
- * (browsing, fetches, web searches), computer use, the plan, subagents, other tools. Thoughts have
- * none: they ride along with the family around them.
- */
-export type StepFamily =
-  | "explore"
-  | "edit"
-  | "command"
-  | "web"
-  | "computer"
-  | "plan"
-  | "agents"
-  | "question"
-  | "tool";
-
-const families: Record<Exclude<StepKind, "think">, StepFamily> = {
-  read: "explore",
-  list: "explore",
-  search: "explore",
-  edit: "edit",
-  command: "command",
-  browser: "web",
-  fetch: "web",
-  websearch: "web",
-  computer: "computer",
-  plan: "plan",
-  spawn: "agents",
-  agent: "agents",
-  question: "question",
-  tool: "tool",
-};
-
-export function stepFamily(kind: StepKind): StepFamily | undefined {
-  return kind === "think" ? undefined : families[kind];
-}
+/** Steps that reach other agents: launching one, or sending one a message. */
+const reachesAgents = (kind: StepKind) => kind === "spawn" || kind === "agent";
 
 /**
- * Whether `fact` joins the group holding `facts`: consecutive steps of one family by one agent
- * merge ("Explored 3 files", "Edited 2 files", "Ran 4 commands"); a step of another family
- * starts a new group. What the agent says, an image it showed or an error stands alone and ends
- * the group. A thought joins whatever group it falls in, but a thought standing as a row of its
- * own shows its words, so a step after it starts a new group rather than folding them away:
- * appending to a log never hides what was already in view.
+ * Whether `fact` joins the group holding `facts`: consecutive tool steps by one agent merge into
+ * one row, whatever they did ("Ran 3 commands, read 2 files and searched once"). Steps that
+ * reach other agents (a launch, a message to one) group only with each other: they never fold
+ * into the tools around them. What the agent says, an image it showed or an error stands alone
+ * and ends the group. A thought joins whatever group it falls in, but a thought standing as a row
+ * of its own shows its words, so a step after it starts a new group rather than folding them
+ * away: appending to a log never hides what was already in view.
  */
 function joins(facts: readonly StepFact[], fact: StepFact): boolean {
   const last = facts.at(-1);
   if (!last || last.alone || fact.alone || last.agentId !== fact.agentId) return false;
+  // Commands left running in the background read as one card of their own (their lines, Stop
+  // and all): only consecutive ones share it, and a thought after one starts a new row.
+  if ((last.kind === "background") !== (fact.kind === "background")) return false;
   // A question reads as its own row, with its answer: only another question joins it.
   if ((last.kind === "question") !== (fact.kind === "question")) return false;
   if (facts.length === 1 && last.kind === "think") return false;
-  const joining = stepFamily(fact.kind);
-  if (!joining) return true;
-  // The group's family is its first step's that has one; usually its first step.
+  if (fact.kind === "think") return true;
+  // The group's first step that isn't a thought says whether it is about other agents.
   const lead = facts.find((step) => step.kind !== "think");
-  return !lead || stepFamily(lead.kind) === joining;
+  return !lead || reachesAgents(lead.kind) === reachesAgents(fact.kind);
 }
 
 export interface GroupedSteps {
