@@ -32,6 +32,8 @@ export const SearchPage = z.looseObject({
         draft: z.boolean().optional(),
         labels: Labels,
         updated_at: text,
+        created_at: text.optional(),
+        assignees: z.array(z.unknown()).max(100).optional(),
         comments: z.number().int().nonnegative().optional(),
         pull_request: z.looseObject({ merged_at: text.nullable().optional() }),
       }),

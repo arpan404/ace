@@ -40,6 +40,10 @@ interface PrSketch {
   updated: number;
   body: string;
   labels?: string[];
+  branch: string;
+  decision?: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED";
+  assignees?: string[];
+  conflicting?: boolean;
   files: [string, number, number][];
 }
 
@@ -61,7 +65,7 @@ function sketched(now: number, pr: PrSketch): PullRequestFixture {
       url: `https://github.com/acme/ace/pull/${pr.number}`,
       headSha,
       state: pr.state === "draft" ? "draft" : pr.state,
-      mergeability: pr.state === "open" ? "mergeable" : "unknown",
+      mergeability: pr.conflicting ? "conflicting" : pr.state === "open" ? "mergeable" : "unknown",
       ci: pr.ci,
       checks,
       comments: [],
@@ -74,13 +78,13 @@ function sketched(now: number, pr: PrSketch): PullRequestFixture {
     updatedAt: iso(at),
     additions: pr.files.reduce((sum, [, add]) => sum + add, 0),
     deletions: pr.files.reduce((sum, [, , del]) => sum + del, 0),
-    headBranch: `work/${pr.number}`,
+    headBranch: pr.branch,
     baseBranch: "main",
     baseSha: pr.number.toString(16).padStart(40, "f"),
     headRepository: repository,
     labels: pr.labels ?? [],
     reviewers: pr.reviewers,
-    reviewDecision: pr.state === "open" ? "REVIEW_REQUIRED" : null,
+    reviewDecision: pr.decision ?? null,
     commits: pr.files.length,
     changedFiles: pr.files.length,
     relatedThreads: [],
@@ -88,18 +92,20 @@ function sketched(now: number, pr: PrSketch): PullRequestFixture {
   });
   const open = pr.state === "open" || pr.state === "draft";
   const activity: ForgeActivity[] = [];
+  const state = lifecycle(detail, open ? ["close"] : []);
+  state.snapshot.metadata.assignees = pr.assignees ?? [];
   return {
     detail,
     ...(open
       ? {
           mergeState: mergeState(headSha, {
-            mergeState: pr.ci === "failure" ? "UNSTABLE" : "BLOCKED",
-            reviewDecision: "REVIEW_REQUIRED",
+            mergeState: pr.conflicting ? "DIRTY" : pr.ci === "failure" ? "UNSTABLE" : "BLOCKED",
+            reviewDecision: pr.decision ?? null,
             checksState: pr.ci === "failure" ? "FAILURE" : "SUCCESS",
           }),
         }
       : {}),
-    lifecycle: lifecycle(detail, open ? ["close"] : []),
+    lifecycle: state,
     review: review(headSha, open),
     files: pr.files.map(([path, add, del]) => file(path, add, del)),
     activity,
@@ -114,13 +120,16 @@ export function browsePullRequests(now: number): PullRequestFixture[] {
       state: "open",
       author: "you",
       reviewers: ["mira"],
+      assignees: ["you"],
+      decision: "REVIEW_REQUIRED",
       ci: "pending",
       updated: 12 * minute,
-      labels: ["web"],
-      body: "Adds a Pull requests view beside Automations and Skills: a project's PRs and issues in the sidebar, each opened as a page.",
+      labels: ["web", "enhancement"],
+      branch: "feature/pulls-page",
+      body: "Adds a Pull requests view: a project's PRs and issues as a full-width list, each opened beside it.",
       files: [
-        ["apps/web/src/features/forge-pages/forge-sidebar.tsx", 180, 0],
-        ["apps/web/src/features/forge-pages/issue-page.tsx", 160, 0],
+        ["apps/web/src/features/forge-pages/forge-list-page.tsx", 180, 0],
+        ["apps/web/src/features/forge-pages/issue-page.tsx", 160, 12],
       ],
     },
     {
@@ -129,9 +138,12 @@ export function browsePullRequests(now: number): PullRequestFixture[] {
       state: "open",
       author: "sam",
       reviewers: ["you"],
+      assignees: ["sam"],
+      decision: "CHANGES_REQUESTED",
       ci: "failure",
       updated: 2 * hour,
       labels: ["bug", "client"],
+      branch: "fix/worker-sleep",
       body: "The worker kept a dead socket after the Mac slept. It now pings on visibility change and reconnects.",
       files: [
         ["packages/client-worker/src/socket.ts", 42, 9],
@@ -146,18 +158,40 @@ export function browsePullRequests(now: number): PullRequestFixture[] {
       reviewers: [],
       ci: "none",
       updated: 26 * hour,
+      branch: "spike/ios-share",
       body: "Early sketch, not ready for review.",
       files: [["native/ios/Share/ShareViewController.swift", 120, 0]],
+    },
+    {
+      number: 226,
+      title: "Split the composer toolbar into its own module",
+      state: "open",
+      author: "dana",
+      reviewers: ["you"],
+      decision: "REVIEW_REQUIRED",
+      ci: "success",
+      conflicting: true,
+      updated: 30 * hour,
+      labels: ["web"],
+      branch: "refactor/composer-toolbar",
+      body: "Moves the toolbar out of the composer so the model chip can be reused in New thread.",
+      files: [
+        ["apps/web/src/features/thread/composer/toolbar.tsx", 210, 160],
+        ["apps/web/src/features/thread/composer/composer.tsx", 14, 96],
+      ],
     },
     {
       number: 224,
       title: "Retry provider logins once on a 502",
       state: "open",
       author: "mira",
-      reviewers: ["you", "sam"],
+      reviewers: ["sam"],
+      assignees: ["mira"],
+      decision: "APPROVED",
       ci: "success",
       updated: 3 * 24 * hour,
-      labels: ["providers"],
+      labels: ["providers", "good first issue"],
+      branch: "fix/login-retry",
       body: "A login probe that hits a 502 is retried once before the provider shows as signed out.",
       files: [["apps/daemon/src/provider-login.ts", 18, 4]],
     },
@@ -169,6 +203,8 @@ export function browsePullRequests(now: number): PullRequestFixture[] {
       reviewers: ["you"],
       ci: "success",
       updated: 6 * 24 * hour,
+      labels: ["enhancement"],
+      branch: "perf/history-worker",
       body: "Superseded by the streaming importer.",
       files: [["packages/history-import/src/worker.ts", 88, 12]],
     },

@@ -4,6 +4,8 @@ import {
   ForgeIssueResults,
   ForgeIssueRow,
   ForgeSearchLogin,
+  ForgeLabelColors,
+  ForgeAvatars,
 } from "./forge-issues.ts";
 import { ForgeMergeState } from "./forge-merge-state.ts";
 import { ForgeStackMembership, ForgeStackWorkspace } from "./forge-stacks.ts";
@@ -31,14 +33,19 @@ export const ForgeFilePageInput = z.object({
   page: z.number().int().min(1).max(4_000).default(1),
 });
 export const ForgePrSearch = z.object({
-  /** `open` leaves drafts out; `active` is every open PR, drafts included. */
-  state: z.enum(["open", "draft", "closed", "merged", "active"]).default("open"),
+  /** `open` leaves drafts out; `active` is every open PR, drafts included; `all` is every state. */
+  state: z.enum(["open", "draft", "closed", "merged", "active", "all"]).default("open"),
   /** `failure`: only PRs whose head commit's checks failed. */
-  ci: z.enum(["any", "failure"]).default("any"),
+  ci: z.enum(["any", "failure", "success"]).default("any"),
   search: z.string().max(256).default(""),
   author: ForgeSearchLogin,
   /** Review requested from this login. */
   reviewer: ForgeSearchLogin,
+  assignee: ForgeSearchLogin,
+  /** Every one of these labels. */
+  labels: z.array(z.string().min(1).max(100)).max(20).default([]),
+  /** GitHub's review decision: approved, changes requested, or review still required. */
+  review: z.enum(["any", "approved", "changes_requested", "required", "none"]).default("any"),
   sort: z.enum(["created", "updated", "comments"]).default("updated"),
   order: z.enum(["asc", "desc"]).default("desc"),
   page: z.number().int().min(1).max(40).default(1),
@@ -57,6 +64,24 @@ export const ForgePrRow = z.object({
   commentCount: z.number().int().nonnegative().optional(),
   reviewCount: z.number().int().nonnegative().optional(),
   ci: ForgePrStatus.shape.ci.optional(),
+  createdAt: text.optional(),
+  labelColors: ForgeLabelColors.optional(),
+  headBranch: text.optional(),
+  baseBranch: text.optional(),
+  /** GitHub's decision; null when the repository requires no review. */
+  reviewDecision: z
+    .enum(["APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"])
+    .nullable()
+    .optional(),
+  assignees: z.array(text).max(100).optional(),
+  /** Who is asked to review and hasn't yet. */
+  reviewers: z.array(text).max(100).optional(),
+  /** The author's, assignees' and reviewers' avatars. */
+  avatars: ForgeAvatars.optional(),
+  additions: z.number().int().nonnegative().optional(),
+  deletions: z.number().int().nonnegative().optional(),
+  /** GitHub found conflicts with the base branch. */
+  conflicting: z.boolean().optional(),
 });
 export type ForgePrRow = z.infer<typeof ForgePrRow>;
 export const ForgePrList = z.object({
@@ -70,6 +95,8 @@ export const ForgePrList = z.object({
     closed: z.number().int().nonnegative(),
     merged: z.number().int().nonnegative(),
   }),
+  /** The login `gh` is signed in as, when GitHub said, so rows can be grouped as yours. */
+  viewer: text.optional(),
   incomplete: z.boolean(),
   truncated: z.boolean(),
 });

@@ -196,6 +196,94 @@ test("a search for your own PRs or reviews asked of you leaves GitHub to resolve
   expect(ForgePrSearch.safeParse({ author: "@you" }).success).toBe(false);
 });
 
+test("a listed PR carries its label colours, people, branches, review decision, size and conflicts", async () => {
+  const query = ForgePrSearch.parse({
+    state: "all",
+    assignee: "@me",
+    labels: ["bug"],
+    review: "approved",
+    ci: "success",
+  });
+  const params = new URLSearchParams({
+    q: 'repo:octo/ace is:pr "fix" assignee:@me label:"bug" review:approved status:success',
+    sort: "updated",
+    order: "desc",
+    per_page: "25",
+    page: "1",
+  });
+  const f = await fakeGh({
+    [`search/issues?${params}`]: [
+      {
+        body: {
+          total_count: 1,
+          incomplete_results: false,
+          items: [
+            {
+              ...row,
+              draft: false,
+              created_at: "2026-09-30T00:00:00Z",
+              user: { login: "octo", avatar_url: "https://avatars.example/octo" },
+              labels: [{ name: "bug", color: "d73a4a" }, { name: "odd", color: "not a colour" }],
+              assignees: [{ login: "you", avatar_url: "https://avatars.example/you" }],
+            },
+          ],
+        },
+      },
+    ],
+    graphql: [
+      {
+        body: {
+          data: {
+            ...counts.data,
+            viewer: { login: "you" },
+            repository: {
+              p0: {
+                comments: { totalCount: 1 },
+                reviews: { totalCount: 1 },
+                statusCheckRollup: { state: "SUCCESS" },
+                reviewDecision: "APPROVED",
+                headRefName: "fix/build",
+                baseRefName: "main",
+                additions: 12,
+                deletions: 3,
+                mergeable: "CONFLICTING",
+                reviewRequests: {
+                  nodes: [{ requestedReviewer: { login: "mira", avatarUrl: "https://a/mira" } }],
+                },
+              },
+            },
+          },
+        },
+      },
+    ],
+  });
+  try {
+    const result = await f.forge.listPrs({ ...query, search: "fix" }, signal());
+    expect(result.viewer).toBe("you");
+    expect(result.items[0]).toMatchObject({
+      labelColors: { bug: "d73a4a" },
+      createdAt: "2026-09-30T00:00:00Z",
+      assignees: ["you"],
+      reviewers: ["mira"],
+      avatars: {
+        octo: "https://avatars.example/octo",
+        you: "https://avatars.example/you",
+        mira: "https://a/mira",
+      },
+      reviewDecision: "APPROVED",
+      headBranch: "fix/build",
+      baseBranch: "main",
+      additions: 12,
+      deletions: 3,
+      conflicting: true,
+      ci: "success",
+    });
+    expect(result.items[0]?.labelColors).not.toHaveProperty("odd");
+  } finally {
+    await f.cleanup();
+  }
+});
+
 test("an active search finds open PRs drafts included, and a failing-checks search asks GitHub for failures", async () => {
   const query = ForgePrSearch.parse({ state: "active", ci: "failure" });
   const params = new URLSearchParams({

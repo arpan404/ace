@@ -14,13 +14,28 @@
       "maxLength": 65536,
       "type": "string"
     },
+    "authorAvatarUrl": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "avatars": {
+      "$ref": "https://ace.local/protocol/v1/ForgeAvatars.json"
+    },
     "body": {
       "maxLength": 65536,
       "type": "string"
     },
+    "commentCount": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "createdAt": {
       "maxLength": 65536,
       "type": "string"
+    },
+    "labelColors": {
+      "$ref": "https://ace.local/protocol/v1/ForgeLabelColors.json"
     },
     "labels": {
       "items": {

@@ -7,6 +7,7 @@ import type {
   ForgeRepository,
 } from "@ace/protocol";
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
+import { issueRow, prRow } from "./forge-list-rows.ts";
 
 /** The account the fake's `gh` is signed in as: what GitHub resolves `@me` to. */
 const viewer = "you";
@@ -41,25 +42,17 @@ const page = <T>(items: readonly T[], at: number) => ({
   ...(at * pageSize < items.length ? { nextPage: at + 1 } : {}),
 });
 
-function prRow(fixture: PullRequestFixture): ForgePrRow {
-  const { status } = fixture.detail;
-  return {
-    ref: status.ref,
-    title: status.title,
-    url: status.url,
-    author: fixture.detail.author,
-    state: status.state === "unknown" ? "open" : status.state,
-    labels: fixture.detail.labels,
-    updatedAt: fixture.detail.updatedAt ?? new Date(0).toISOString(),
-    commentCount: status.comments.length,
-    ci: status.ci,
-  };
-}
+const reviewMatches = (row: ForgePrRow, review: Op<"forge.pr.list">["query"]["review"]) =>
+  review === "any" ||
+  (review === "approved" && row.reviewDecision === "APPROVED") ||
+  (review === "changes_requested" && row.reviewDecision === "CHANGES_REQUESTED") ||
+  (review === "required" && row.reviewDecision === "REVIEW_REQUIRED") ||
+  (review === "none" && !row.reviewDecision);
 
 /**
  * A pull request search answered from the catalog's whole pull requests, as GitHub's search
- * would: by state, words in the title, author and requested reviewer, newest activity first,
- * with the count of each state for the same search.
+ * would: by state, words in the title, author, reviewer, assignee, labels, review decision and
+ * checks, newest activity first, with the count of each state for the same search.
  */
 export function catalogPrList(
   op: Op<"forge.pr.list">,
@@ -70,24 +63,30 @@ export function catalogPrList(
   const { query } = op;
   const found = fixtures
     .filter((fixture) => sameRepository(fixture.detail.status.ref.repository, repository))
-    .filter(
-      (fixture) =>
-        matches(fixture.detail.status.title, query.search) &&
-        (!query.author || fixture.detail.author === login(query.author)) &&
-        (!query.reviewer || fixture.detail.reviewers.includes(login(query.reviewer))) &&
-        (query.ci === "any" || fixture.detail.status.ci === "failure"),
-    )
     .map(prRow)
+    .filter(
+      (row) =>
+        matches(row.title, query.search) &&
+        (!query.author || row.author === login(query.author)) &&
+        (!query.reviewer || (row.reviewers ?? []).includes(login(query.reviewer))) &&
+        (!query.assignee || (row.assignees ?? []).includes(login(query.assignee))) &&
+        (query.ci === "any" || row.ci === query.ci) &&
+        reviewMatches(row, query.review) &&
+        query.labels.every((label) => row.labels.includes(label)),
+    )
     .toSorted(newestFirst);
   const inState = (state: ForgePrRow["state"]) => found.filter((row) => row.state === state);
   const listed =
-    query.state === "active"
-      ? found.filter((row) => row.state === "open" || row.state === "draft")
-      : inState(query.state);
+    query.state === "all"
+      ? found
+      : query.state === "active"
+        ? found.filter((row) => row.state === "open" || row.state === "draft")
+        : inState(query.state);
   return {
     resource: "prList",
     value: {
       repository,
+      viewer,
       ...page(listed, query.page),
       counts: {
         open: inState("open").length,
@@ -101,15 +100,15 @@ export function catalogPrList(
   };
 }
 
-function issueRow(detail: ForgeIssueDetail): ForgeIssueRow {
-  const {
-    body: _body,
-    permissions: _p,
-    relatedThreads: _r,
-    relatedThreadsTruncated: _t,
-    ...row
-  } = detail;
-  return row;
+/** The number a timeline read's key names, for counting an issue's comments. */
+function timelineNumber(key: string): number | undefined {
+  try {
+    const op: unknown = JSON.parse(key);
+    if (typeof op !== "object" || op === null || !("number" in op)) return undefined;
+    return typeof op.number === "number" ? op.number : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -123,11 +122,16 @@ export function catalogIssueList(
   const repository = projectRepository(op);
   const { query } = op;
   const byNumber = new Map<number, ForgeIssueDetail>();
-  for (const value of reads.values())
+  const comments = new Map<number, number>();
+  for (const [key, value] of reads) {
     if (value.resource === "issueDetail" && sameRepository(value.value.ref.repository, repository))
       byNumber.set(value.value.ref.number, value.value);
+    const number = value.resource === "issueTimeline" ? timelineNumber(key) : undefined;
+    if (value.resource === "issueTimeline" && number !== undefined)
+      comments.set(number, value.events.filter((event) => event.kind === "issue_comment").length);
+  }
   if (!byNumber.size) return undefined;
-  const found = [...byNumber.values()]
+  const found: ForgeIssueRow[] = [...byNumber.values()]
     .filter(
       (issue) =>
         matches(issue.title, query.search) &&
@@ -135,13 +139,14 @@ export function catalogIssueList(
         (!query.assignee || issue.assignees.includes(login(query.assignee))) &&
         query.labels.every((label) => issue.labels.includes(label)),
     )
-    .map(issueRow)
+    .map((issue) => issueRow(issue, comments.get(issue.ref.number) ?? 0))
     .toSorted(newestFirst);
   const inState = (state: ForgeIssueRow["state"]) => found.filter((row) => row.state === state);
   return {
     resource: "issueList",
     value: {
       repository,
+      viewer,
       ...page(inState(query.state), query.page),
       counts: { open: inState("open").length, closed: inState("closed").length },
       canCreate: true,

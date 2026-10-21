@@ -2,6 +2,9 @@
   "$id": "https://ace.local/protocol/v1/ForgePrSearch.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "assignee": {
+      "$ref": "https://ace.local/protocol/v1/ForgeSearchLogin.json"
+    },
     "author": {
       "$ref": "https://ace.local/protocol/v1/ForgeSearchLogin.json"
     },
@@ -9,9 +12,20 @@
       "default": "any",
       "enum": [
         "any",
-        "failure"
+        "failure",
+        "success"
       ],
       "type": "string"
+    },
+    "labels": {
+      "default": [],
+      "items": {
+        "maxLength": 100,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 20,
+      "type": "array"
     },
     "order": {
       "default": "desc",
@@ -26,6 +40,17 @@
       "maximum": 40,
       "minimum": 1,
       "type": "integer"
+    },
+    "review": {
+      "default": "any",
+      "enum": [
+        "any",
+        "approved",
+        "changes_requested",
+        "required",
+        "none"
+      ],
+      "type": "string"
     },
     "reviewer": {
       "$ref": "https://ace.local/protocol/v1/ForgeSearchLogin.json"
@@ -51,7 +76,8 @@
         "draft",
         "closed",
         "merged",
-        "active"
+        "active",
+        "all"
       ],
       "type": "string"
     }
