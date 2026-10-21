@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { build } from "esbuild";
 import { z } from "zod";
-import { bundleDaemon } from "@ace/release";
+import { bundleDaemon, linuxScreenHelperName, stageLinuxScreenHelper } from "@ace/release";
 import { stageNodeRuntime } from "@ace/release/node-runtime";
 import {
   desktop,
@@ -182,14 +182,7 @@ async function stageScreenHelper(helpers: string): Promise<void> {
         join(helpers, "ace-screen-helper-windows.exe"),
       );
     } else if (process.platform === "linux") {
-      run("sh", [join(repo, "native/screen-helper-linux/build.sh")]);
-      const triple =
-        process.arch === "arm64" ? "aarch64-unknown-linux-gnu" : "x86_64-unknown-linux-gnu";
-      await copyFile(
-        join(repo, "native/screen-helper-linux/build", `ace-screen-helper-linux-${triple}`),
-        join(helpers, "ace-screen-helper-linux"),
-      );
-      await chmod(join(helpers, "ace-screen-helper-linux"), 0o755);
+      await stageLinuxScreenHelper(repo, join(helpers, linuxScreenHelperName));
     }
   } catch (error) {
     if (process.env.ACE_REQUIRE_SCREEN_HELPER === "1") throw error;

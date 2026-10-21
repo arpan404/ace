@@ -84,9 +84,13 @@ test(
     // The published installer on a host whose target is missing stops before any download.
     const fake = join(directory, "fake-bin");
     await mkdir(fake);
-    await writeFile(join(fake, "uname"), '#!/bin/sh\n[ "$1" = -s ] && echo Darwin || echo arm64\n', {
-      mode: 0o755,
-    });
+    await writeFile(
+      join(fake, "uname"),
+      '#!/bin/sh\n[ "$1" = -s ] && echo Darwin || echo arm64\n',
+      {
+        mode: 0o755,
+      },
+    );
     await writeFile(join(fake, "curl"), "#!/bin/sh\necho downloaded >&2\nexit 1\n", {
       mode: 0o755,
     });
