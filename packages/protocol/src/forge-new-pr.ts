@@ -93,6 +93,8 @@ export const ForgeCompare = z.object({
   nextPage: z.number().int().positive().optional(),
   /** GitHub left commits or files out: the pull request will show them all. */
   truncated: z.boolean(),
+  /** The open pull request these branches already have, on the first page only. */
+  existingPr: z.number().int().positive().optional(),
 });
 export type ForgeCompare = z.infer<typeof ForgeCompare>;
 

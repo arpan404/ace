@@ -27,6 +27,12 @@ const reasons = Object.keys(lockReasonLabels) as ForgeLockReason[];
 export function LockDialog(props: { actions: PrActions; open: boolean; onClose(): void }) {
   const { lifecycle } = props.actions;
   const [reason, setReason] = useState<string>(noReason);
+  // Each opening starts from no reason, never the last one picked.
+  const [wasOpen, setWasOpen] = useState(props.open);
+  if (props.open !== wasOpen) {
+    setWasOpen(props.open);
+    if (props.open) setReason(noReason);
+  }
   return (
     <Dialog open={props.open} onOpenChange={(open) => !open && props.onClose()}>
       <DialogContent>

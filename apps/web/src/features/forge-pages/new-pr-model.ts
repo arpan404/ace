@@ -37,9 +37,11 @@ export function compareBlocker(
   base: string,
   head: string | undefined,
   compare: ForgeCompare | undefined,
+  /** Both branches live in one repository; a fork's `main` into its parent's `main` doesn't. */
+  sameRepository = true,
 ): string | undefined {
   if (!head) return "Pick the branch with your changes.";
-  if (head === base) return "Pick two different branches.";
+  if (sameRepository && head === base) return "Pick two different branches.";
   if (!compare) return undefined;
   if (compare.status === "identical") return `${head} and ${base} are the same.`;
   if (compare.aheadBy === 0) return `${head} has no commits that ${base} doesn't.`;

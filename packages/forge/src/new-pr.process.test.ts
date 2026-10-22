@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { fakeGh, sha, nextSha, type Fixtures } from "./testing/fixtures.ts";
+import { fakeGh, pr, sha, nextSha, type Fixtures } from "./testing/fixtures.ts";
 
 const signal = () => new AbortController().signal;
 const cleanups: (() => Promise<void>)[] = [];
@@ -17,6 +17,20 @@ const commit = (n: number) => ({
   commit: { message: `Commit ${n}`, author: { name: "Octo", date: "2026-10-01T00:00:00Z" } },
   author: { login: "octo", avatar_url: "https://avatars/octo" },
 });
+/** GitHub's open PRs from `owner:branch` into `base`, as the compare's lookup reads them. */
+const openFrom = (owner: string, branch: string, numbers: number[] = []) => ({
+  [`repos/octo/ace/pulls?${new URLSearchParams({ state: "open", head: `${owner}:${branch}`, base: "main", per_page: "2" })}`]:
+    [
+      {
+        body: numbers.map((number) => ({
+          ...pr,
+          number,
+          head: { sha, ref: branch },
+          base: { ref: "main" },
+        })),
+      },
+    ],
+});
 const file = (n: number) => ({
   filename: `src/file-${n}.ts`,
   status: "modified",
@@ -28,6 +42,7 @@ const file = (n: number) => ({
 test("a comparison lists its commits oldest first and its files a page at a time", async () => {
   const files = Array.from({ length: 30 }, (_, i) => file(i));
   const gh = await setup({
+    ...openFrom("octo", "feature/card", [41]),
     "repos/octo/ace/compare/main...feature/card": [
       {
         body: {
@@ -52,6 +67,8 @@ test("a comparison lists its commits oldest first and its files a page at a time
   expect(first.headSha).toBe(commit(2).sha);
   expect(first.files).toHaveLength(25);
   expect(first).toMatchObject({ totalFiles: 30, nextPage: 2, truncated: false, aheadBy: 2 });
+  // The branch already has #41 into main: the page says so before anything is created.
+  expect(first.existingPr).toBe(41);
   const second = await gh.forge.compare(
     "main",
     { owner: "octo", branch: "feature/card" },
@@ -64,6 +81,7 @@ test("a comparison lists its commits oldest first and its files a page at a time
 
 test("a fork's branch is compared as owner:branch", async () => {
   const gh = await setup({
+    ...openFrom("fork", "card"),
     "repos/octo/ace/compare/main...fork:card": [
       {
         body: {
@@ -80,6 +98,7 @@ test("a fork's branch is compared as owner:branch", async () => {
   });
   const result = await gh.forge.compare("main", { owner: "fork", branch: "card" }, 1, signal());
   expect(result).toMatchObject({ status: "identical", headSha: nextSha, totalCommits: 0 });
+  expect(result.existingPr).toBeUndefined();
 });
 
 const templates = (list: unknown[] | null) => ({
@@ -165,6 +184,7 @@ test("a comparison GitHub cuts at 250 commits still names the branch's newest as
   // Without paging parameters GitHub lists 250 commits and the last is the comparison's newest.
   const commits = Array.from({ length: 250 }, (_, i) => commit(i + 1));
   const gh = await setup({
+    ...openFrom("octo", "big"),
     "repos/octo/ace/compare/main...big": [
       {
         body: {
@@ -181,6 +201,6 @@ test("a comparison GitHub cuts at 250 commits still names the branch's newest as
   });
   const result = await gh.forge.compare("main", { owner: "octo", branch: "big" }, 1, signal());
   expect(result).toMatchObject({ headSha: commit(250).sha, truncated: true, totalCommits: 300 });
-  const [request] = await gh.requests();
-  expect(request?.path).not.toContain("page");
+  const compared = (await gh.requests()).find((request) => request.path.includes("/compare/"));
+  expect(compared?.path).not.toContain("page");
 });

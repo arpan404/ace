@@ -421,13 +421,19 @@ export class GitHubForge implements Forge, ForgeBrowser {
     return this.#newPr.options(signal);
   }
   /** What a pull request from `head` into `base` would show, one page of files at a time. */
-  compare(
+  async compare(
     base: string,
     head: import("@ace/protocol/forge-new-pr").ForgeCompareHead,
     page: number,
     signal: AbortSignal,
   ) {
-    return this.#newPr.compare(base, head, page, signal);
+    if (page !== 1) return this.#newPr.compare(base, head, page, signal);
+    // GitHub refuses a second open PR for the same head and base: say so before Create.
+    const [compared, existing] = await Promise.all([
+      this.#newPr.compare(base, head, page, signal),
+      this.findPr(head.branch, base, signal, head.owner),
+    ]);
+    return existing ? { ...compared, existingPr: existing.number } : compared;
   }
   async replyComment(
     number: number,
