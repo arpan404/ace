@@ -64,16 +64,17 @@ struct PullRequestRef: Codable, Sendable, Equatable {
     /// open, draft, merged or closed.
     let state: String
 }
-/// Drop `cut` UTF-16 units from the front of a text `base` units long, then add `append`.
+/// Drop `cut` UTF-8 bytes from the front of a text `base` bytes long, then add `append`. Bytes,
+/// because Swift's strings count and slice them without transcoding.
 struct TextEdit: Sendable, Equatable {
     let base: Int
     let cut: Int
     let append: String
-    /// The edited text, or nil when `text` is not the one the edit was made against.
+    /// The edited text, or nil when `text` is not the one the edit was made against or the cut
+    /// would split a character.
     func applied(to text: String) -> String? {
-        let units = text.utf16
-        guard units.count == base else { return nil }
-        return String(decoding: units.dropFirst(cut), as: UTF16.self) + append
+        guard text.utf8.count == base, let kept = String(text.utf8.dropFirst(cut)) else { return nil }
+        return kept + append
     }
 }
 
@@ -185,7 +186,7 @@ enum BridgePatch: Decodable, Sendable {
     case threadReset(String, Int)
     case position(String, Int, String, Int?)
     case item(String, Int, String, TranscriptRow?)
-    /// Streaming text as an edit of the row native shows (`bridge/text-edit.ts`): `row` carries
+    /// Streaming text as an edit of the row shown (`bridge/text-edit.ts`): `row` carries
     /// every other field, its text empty until `ClientModel` applies the edit.
     case itemText(String, Int, String, TextEdit, TranscriptRow)
     case metadata(String, Int, ThreadRow?)

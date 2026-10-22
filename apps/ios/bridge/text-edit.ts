@@ -1,14 +1,15 @@
 /*
  * Streaming text as an edit of what native already shows. A row's text is the last 8,192 units
- * of the item, so a delta either extends it or, once it is long, slides it: drop `cut` units from
- * the front, then add `append`. JavaScript decides the edit; native only applies it, after
- * checking that its text is still `base` units long (`ClientModel.applyTextEdits`).
+ * of the item, so a delta either extends it or, once it is long, slides it: drop `cut` from the
+ * front, then add `append`. JavaScript decides the edit; native only applies it, after checking
+ * that its text is still `base` long (`ClientModel.resolveTextEdits`). On the wire `base` and
+ * `cut` count UTF-8 bytes, which Swift's strings count without transcoding.
  */
 
 export interface TextEdit {
-  /** How many UTF-16 units native's text must hold before the edit. */
+  /** How long native's text must be before the edit. */
   base: number;
-  /** UTF-16 units dropped from the front. */
+  /** How much is dropped from its front. */
   cut: number;
   append: string;
 }
@@ -16,7 +17,10 @@ export interface TextEdit {
 /** How far into `before` an edit may start, so a rewrite costs a bounded search. */
 const maxCut = 4096;
 
-/** `after` as an edit of `before`, or undefined when sending it whole is as good or required. */
+/**
+ * `after` as an edit of `before` in UTF-16 units, or undefined when sending it whole is as good
+ * or required.
+ */
 export function textEdit(before: string, after: string): TextEdit | undefined {
   if (after === before) return undefined;
   for (let cut = 0; cut <= Math.min(before.length, maxCut); cut++) {
@@ -38,21 +42,31 @@ const isHigh = (code: number) => code >= 0xd800 && code <= 0xdbff;
 const isLow = (code: number) => code >= 0xdc00 && code <= 0xdfff;
 
 /**
- * The patch to send for a thread item, given what native last confirmed for it: an edit of its
- * text when that is smaller, else the patch itself. Every other row field travels whole.
+ * The patch to send for a thread item, given the row text native last confirmed for it (`held`):
+ * an edit of its text when that is smaller, else the patch itself. Every other row field travels
+ * whole.
  */
 export function itemPatch(
   patch: Record<string, unknown>,
-  held: Record<string, unknown> | undefined,
+  held: string | undefined,
+  utf8Length: (text: string) => number,
 ): Record<string, unknown> {
-  if (patch.type !== "thread.item" || !held) return patch;
+  if (patch.type !== "thread.item" || held === undefined) return patch;
   const row = textOf(patch.row);
-  const before = textOf(held.row);
-  if (row === undefined || before === undefined) return patch;
-  const edit = textEdit(before, row);
+  if (row === undefined) return patch;
+  const edit = textEdit(held, row);
   if (!edit) return patch;
   const { text: _text, ...rest } = patch.row as Record<string, unknown>;
-  return { ...patch, type: "thread.item.text", row: { ...rest, text: "" }, ...edit };
+  const base = utf8Length(held);
+  const cut = edit.cut && utf8Length(held.slice(0, edit.cut));
+  return {
+    ...patch,
+    type: "thread.item.text",
+    row: { ...rest, text: "" },
+    base,
+    cut,
+    append: edit.append,
+  };
 }
 
 function textOf(row: unknown): string | undefined {

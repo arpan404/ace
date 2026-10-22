@@ -20,10 +20,10 @@ import Testing
         model.open("thread")
         let epoch = try #require(model.thread?.epoch)
         #expect(model.receive(try frame([["type": "thread.item", "threadId": "thread", "epoch": epoch, "id": "a", "row": row("Hello 😀")]])))
-        #expect(model.receive(try frame([edit(epoch, base: 8, cut: 0, append: " world")])))
+        #expect(model.receive(try frame([edit(epoch, base: 10, cut: 0, append: " world")])))
         #expect(model.thread?.items["a"]?.row.text == "Hello 😀 world")
-        // A sliding window drops whole characters from the front.
-        #expect(model.receive(try frame([edit(epoch, base: 14, cut: 6, append: "!")])))
+        // A sliding window drops whole characters from the front, counted in UTF-8 bytes.
+        #expect(model.receive(try frame([edit(epoch, base: 16, cut: 6, append: "!")])))
         #expect(model.thread?.items["a"]?.row.text == "😀 world!")
     }
 
@@ -37,5 +37,9 @@ import Testing
         #expect(model.thread?.items["a"]?.row.text == "Hello")
         #expect(model.thread?.cursor != 7)
         #expect(model.error == nil)
+        // A cut inside a character is refused the same way.
+        #expect(model.receive(try frame([edit(epoch, base: 5, cut: 0, append: " 😀")])))
+        #expect(!model.receive(try frame([edit(epoch, base: 10, cut: 7, append: "!")])))
+        #expect(model.thread?.items["a"]?.row.text == "Hello 😀")
     }
 }
