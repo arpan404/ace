@@ -85,8 +85,10 @@ fn the_stream_type_decides_window_or_screen_and_a_screen_names_no_app() {
     let screen = Picked::new(Some(SOURCE_MONITOR), both, Some(calculator.clone()));
     assert!(screen.display);
     assert_eq!(screen.json(), serde_json::json!({"source": "display"}));
-    // A virtual screen is a screen too.
+    // A virtual source from a dialog offering both is a screen; from a dialog offering only
+    // windows it is the window (xdg-desktop-portal-hyprland 1.3 reports windows so).
     assert!(Picked::new(Some(4), both, None).display);
+    assert!(!Picked::new(Some(4), SOURCE_WINDOW, None).display);
 }
 
 #[test]

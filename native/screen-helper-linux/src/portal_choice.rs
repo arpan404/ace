@@ -27,14 +27,16 @@ pub struct Picked {
     pub app: Option<Recorded>,
 }
 impl Picked {
-    /// `kind` is the stream's `source_type` when the portal gives it (a screen or a virtual
-    /// one unless it is a window); otherwise a dialog that offered only windows shared one, and
-    /// a dialog that offered both shared a window only when the desktop recorded one. Unsure
-    /// means a screen, which is view-only.
+    /// `kind` is the stream's `source_type` when the portal gives it: a window, a screen, or
+    /// a virtual source, which is the window when only windows were offered (Hyprland's portal
+    /// reports a shared window so) and a screen otherwise. Without it a dialog that offered only
+    /// windows shared one, and a dialog that offered both shared a window only when the desktop
+    /// recorded one. Unsure means a screen, which is view-only.
     pub fn new(kind: Option<u32>, offered: u32, recorded: Option<Recorded>) -> Self {
         let display = match kind {
-            Some(kind) => kind != SOURCE_WINDOW,
-            None => offered != SOURCE_WINDOW && recorded.is_none(),
+            Some(SOURCE_WINDOW) => false,
+            Some(SOURCE_MONITOR) => true,
+            Some(_) | None => offered != SOURCE_WINDOW && recorded.is_none(),
         };
         Self {
             display,

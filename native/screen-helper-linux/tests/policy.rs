@@ -226,6 +226,8 @@ fn a_shared_source_of_the_wrong_kind_is_never_shown() {
     assert!(!stream_matches(1, Some(2)), "a window given for a screen");
     assert!(stream_matches(1, Some(1)));
     assert!(stream_matches(1, Some(4)));
+    // xdg-desktop-portal-hyprland 1.3 calls a shared window a virtual source.
+    assert!(stream_matches(2, Some(4)));
     // A dialog offering both may share either.
     assert!(stream_matches(3, Some(1)) && stream_matches(3, Some(2)));
     // Portals before ScreenCast version 3 don't say.

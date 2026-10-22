@@ -146,12 +146,11 @@ pub fn portal_policy(offer: &PortalOffer, route: PortalRoute) -> PortalPolicy {
 /// Whether the portal shared the kind of source that was asked for (`asked`: 1 monitor,
 /// 2 window, 3 either), from the stream's `source_type` (1 monitor, 2 window, 4 virtual;
 /// absent before ScreenCast version 3). A window never stands in for a screen, nor a screen
-/// for a window.
+/// for a window (KDE's RemoteDesktop shares a monitor whatever is asked). A virtual source is
+/// what was asked for: xdg-desktop-portal-hyprland 1.3 reports a shared window as one.
 pub fn stream_matches(asked: u32, source_type: Option<u32>) -> bool {
     match (asked, source_type) {
-        (_, None) => true,
-        (2, Some(kind)) => kind == 2,
-        (1, Some(kind)) => kind != 2,
+        (2, Some(1)) | (1, Some(2)) => false,
         _ => true,
     }
 }

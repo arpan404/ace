@@ -374,7 +374,10 @@ impl Portal {
         if !stream_matches(source, kind) {
             return Err(Fault::new(
                 "not_supported",
-                "The desktop shared a different kind of source than was asked for (a whole screen for a window, or a window for a screen); nothing is shown",
+                format!(
+                    "The desktop shared a different kind of source than was asked for (a whole screen for a window, or a window for a screen); nothing is shown (asked {source}, shared {})",
+                    kind.unwrap_or(0)
+                ),
             ));
         }
         self.node = node;
