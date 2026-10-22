@@ -75,6 +75,13 @@ test("a curated accent is the same hue in light and dark on every theme", () => 
   }
 });
 
+test("destructive buttons are the same red in light and dark on every theme", () => {
+  for (const id of themeIds) {
+    const [light, dark] = schemes.map((scheme) => themeDeclarations(id, scheme)["--danger"]);
+    expect(deltaE(rgb(light), rgb(dark)), id).toBeLessThan(3);
+  }
+});
+
 test("no two themes share an accent, in either scheme", () => {
   // Themes are colour only: their accents are what tells them apart at a glance.
   for (const scheme of schemes)

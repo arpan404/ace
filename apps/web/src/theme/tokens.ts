@@ -1,5 +1,5 @@
 import { oklchToHex } from "./colour.ts";
-import { dangerFill, stopFill } from "./danger.ts";
+import { dangerFill } from "./danger.ts";
 import { rampSteps, sharedStatus, type Palette, type Scheme } from "./palettes.ts";
 import { glassText } from "./glass-floor.ts";
 import { defaultTranslucency, glassVariables } from "./translucency.ts";
@@ -81,7 +81,6 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
     ? "inset 0 1px 0 0 rgb(255 255 255 / 0.95), inset 0 0 0 1px rgb(255 255 255 / 0.4), inset 0 -1px 0 0 rgb(255 255 255 / 0.3)"
     : "inset 0 1px 0 0 rgb(255 255 255 / 0.16), inset 0 0 0 1px rgb(255 255 255 / 0.06), inset 0 -1px 0 0 rgb(255 255 255 / 0.04)";
   const danger = dangerFill(p.failed);
-  const stop = stopFill(p.failed);
   const glassInk = glassText(p, scheme);
   return {
     // The neutral ramp, by step (`--neutral-1` canvas … `--neutral-12` text).
@@ -143,10 +142,6 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
     "--danger-hover": danger.hover,
     "--danger-pressed": danger.pressed,
     "--danger-foreground": danger.foreground,
-    "--stop": stop.fill,
-    "--stop-hover": stop.hover,
-    "--stop-pressed": stop.pressed,
-    "--stop-foreground": stop.foreground,
 
     // Status hues (dots, rings) and the same hue as readable words.
     "--status-working": p.working,
