@@ -159,7 +159,7 @@ it("reports a missing SDK with an actionable typed error", async () => {
     hint: expect.stringContaining("ANDROID_HOME"),
   });
 });
-it("on arm64 Linux a missing SDK says Google ships no emulator for it, not how to install one", async () => {
+it("on arm64 Linux a missing adb points at the distribution's adb and says Google ships no emulator for it", async () => {
   const f = await fixture();
   const manager = new DevicePlatform({
     platform: "linux",
@@ -170,8 +170,8 @@ it("on arm64 Linux a missing SDK says Google ships no emulator for it, not how t
   onTestFinished(() => manager.close());
   await expect(manager.list()).rejects.toMatchObject({
     code: "sdk_missing",
-    message: expect.stringContaining("arm64"),
-    hint: expect.stringContaining("x86-64 Linux"),
+    message: "adb was not found",
+    hint: expect.stringMatching(/sudo apt install adb.*emulators aren't available on Linux arm64/),
   });
 });
 

@@ -43,9 +43,10 @@ it("on a Mac ace boots emulators with token-protected gRPC on console port + 300
   expect(linux).not.toContain("-grpc");
 });
 
+const boot = (gpu: string | undefined, platform = "linux", window = false) =>
+  emulatorBootArgs({ avd: "Pixel", port: 5554, window, platform, gpu }).join(" ");
+
 it("a person's ACE_ANDROID_EMULATOR_GPU picks the emulator's -gpu mode, and none drops the flag", () => {
-  const boot = (gpu: string | undefined, platform = "linux", window = false) =>
-    emulatorBootArgs({ avd: "Pixel", port: 5554, window, platform, gpu }).join(" ");
   expect(boot("swiftshader_indirect")).toContain("-gpu swiftshader_indirect");
   expect(boot("host", "linux", true)).toContain("-gpu host");
   expect(boot("none", "darwin")).not.toContain("-gpu");
