@@ -48,7 +48,8 @@ struct ComposerModelButton: View {
                 if let provider = screen.controls?.provider, !provider.isEmpty { ProviderMark(provider: provider) }
                 Text(name).foregroundStyle(AceTheme.Colours.foreground)
                     .lineLimit(1).truncationMode(.tail)
-                    .frame(maxWidth: AceTheme.Dimensions.touchTarget * 2, alignment: .leading)
+                    // Narrow enough that "Ask anything" beside it never truncates on a 6.1" phone.
+                    .frame(maxWidth: AceTheme.Spacing.xxxl * 2 + AceTheme.Spacing.lg, alignment: .leading)
                 if let effort {
                     Text("·").foregroundStyle(AceTheme.Colours.subtleForeground).accessibilityHidden(true)
                     Text(effort.short ?? effort.label).lineLimit(1)
