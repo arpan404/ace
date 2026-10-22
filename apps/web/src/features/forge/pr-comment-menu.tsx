@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   ArrowBendUpLeftIcon,
   DotsThreeIcon,
@@ -55,6 +55,8 @@ export function PrCommentMenu(props: {
   const { comment, actions } = props;
   const toast = useToast();
   const [confirming, setConfirming] = useState(false);
+  // A quote moves focus to the box it lands in; the menu mustn't take it back.
+  const quoting = useRef(false);
   const copy = () => {
     const url = commentUrl(props.prUrl, comment);
     void (navigator.clipboard?.writeText(url) ?? Promise.reject(new Error("No clipboard"))).then(
@@ -82,12 +84,22 @@ export function PrCommentMenu(props: {
             />
           }
         />
-        <MenuContent align="end">
+        <MenuContent
+          align="end"
+          finalFocus={() => {
+            const quoted = quoting.current;
+            quoting.current = false;
+            return !quoted;
+          }}
+        >
           {actions.quote && (
             <MenuItem
               icon={<ArrowBendUpLeftIcon aria-hidden size={16} />}
               disabled={actions.disabled}
-              onClick={actions.quote}
+              onClick={() => {
+                quoting.current = true;
+                actions.quote?.();
+              }}
             >
               Quote reply
             </MenuItem>
