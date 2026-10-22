@@ -1,4 +1,4 @@
-import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@phosphor-icons/react";
 import { useMemo, type ReactNode } from "react";
 import { Input, Textarea } from "@/components/ui/input.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
@@ -7,19 +7,29 @@ import { Select } from "@/components/ui/select.tsx";
 import { composerStrip } from "@/features/thread/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
-import { AutomationForm, hourSteps, minuteSteps, scheduleFromForm } from "./automation-values.ts";
+import { useProjectRepository } from "./project-repository.ts";
+import {
+  AutomationForm,
+  chosenStart,
+  hourSteps,
+  minuteSteps,
+  scheduleFromForm,
+} from "./automation-values.ts";
 import { missedRunLabels } from "./labels.ts";
 import {
   describeSchedule,
   formatWhen,
   onceInstant,
   githubEventLabels,
+  localTimeZone,
   timeZones,
   upcomingRuns,
   weekdayName,
   weekdays,
 } from "@/features/automation-schedule/index.ts";
-import { TimeInput } from "./time-input.tsx";
+import { dateLabel } from "@/components/ui/date-grid.ts";
+import { DateTimePicker, type DateTime } from "@/components/ui/date-time-picker.tsx";
+import { displayTime, TimePicker } from "@/components/ui/time-picker.tsx";
 
 /*
  * When an automation runs, as the strip's first control: a list of the four kinds, then the
@@ -32,9 +42,9 @@ export type FieldErrors = Partial<Record<keyof AutomationForm, string>>;
 
 const kinds: { value: Trigger; label: string }[] = [
   { value: "schedule", label: "On a schedule" },
-  { value: "github", label: "When a pull request or issue changes" },
+  { value: "github", label: "On pull requests or issues" },
   { value: "file", label: "When files change" },
-  { value: "manual", label: "Only when I run it" },
+  { value: "manual", label: "By hand" },
 ];
 const cadences = [
   { value: "minutes", label: "Minutes" },
@@ -77,6 +87,22 @@ function nextDateFor(time: string, now: number, timezone: string): string {
   const at = onceInstant({ date: today, time }, timezone);
   return at !== undefined && at > now ? today : dateIn(now + 86_400_000, timezone);
 }
+/** The next quarter hour from `now` on the zone's clock, "14:15": where a new start time opens. */
+function nextQuarter(now: number, timezone: string): string {
+  const quarter = 15 * 60_000;
+  return new Date(Math.ceil((now + 60_000) / quarter) * quarter).toLocaleTimeString("en-GB", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+}
+const cityOf = (zone: string) => (zone.split("/").pop() ?? zone).replaceAll("_", " ");
+/** "Oct 25, 9:30 AM", with the zone's city when it isn't this computer's. */
+function momentText(moment: { date: string; time: string }, today: string, timezone: string) {
+  const zone = timezone === localTimeZone() ? "" : ` · ${cityOf(timezone)}`;
+  return `${dateLabel(moment.date, today)}, ${displayTime(moment.time)}${zone}`;
+}
 const hoursLabel = (hours: number) => (hours === 1 ? "Every hour" : `Every ${hours} hours`);
 function hourOptions(current: number) {
   const steps: number[] = hourSteps.includes(current as (typeof hourSteps)[number])
@@ -90,7 +116,8 @@ export function fieldErrors(form: AutomationForm): FieldErrors {
   const errors: FieldErrors = {};
   for (const issue of AutomationForm.safeParse(form).error?.issues ?? []) {
     const field = String(issue.path[0]) as keyof AutomationForm;
-    errors[field] ??= issue.message;
+    // Our own checks say what to do; a raw schema message ("expected string") never reaches people.
+    errors[field] ??= issue.code === "custom" ? issue.message : "Check this value.";
   }
   return errors;
 }
@@ -99,6 +126,9 @@ export function fieldErrors(form: AutomationForm): FieldErrors {
 export const whenFields = new Set<keyof AutomationForm>([
   "time",
   "every",
+  "minutes",
+  "date",
+  "startsAt",
   "timezone",
   "expression",
   "repository",
@@ -106,16 +136,36 @@ export const whenFields = new Set<keyof AutomationForm>([
   "paths",
 ]);
 
-const scheduleFields: (keyof AutomationForm)[] = ["time", "every", "expression", "timezone"];
+const scheduleFields: (keyof AutomationForm)[] = [
+  "time",
+  "every",
+  "minutes",
+  "date",
+  "startsAt",
+  "expression",
+  "timezone",
+];
 
 /** The strip's words for the chosen trigger: "Every day at 09:00", "When files change". */
 export function whenSummary(form: AutomationForm, now: number): string {
   switch (form.trigger) {
     case "schedule": {
       const errors = fieldErrors(form);
-      return scheduleFields.some((field) => errors[field])
-        ? "On a schedule"
-        : describeSchedule(scheduleFromForm(form, now));
+      if (scheduleFields.some((field) => errors[field])) return "On a schedule";
+      const schedule = scheduleFromForm(form, now);
+      const text = describeSchedule(schedule);
+      if (form.cadence === "once" || schedule.startAt <= now) return text;
+      // A later start says so: "Every day at 9:00 AM from Oct 25", "Every hour from Sunday 9:00 AM".
+      const timed = ["daily", "weekdays", "weekly"].includes(form.cadence);
+      return `${text} from ${
+        timed
+          ? new Date(schedule.startAt).toLocaleDateString("en-US", {
+              timeZone: schedule.timezone,
+              month: "short",
+              day: "numeric",
+            })
+          : formatWhen(schedule.startAt, now, schedule.timezone)
+      }`;
     }
     case "github":
       return `When ${githubEventLabels[form.event]}`;
@@ -138,6 +188,7 @@ export function WhenPopover(props: {
   const now = useNow();
   const { form } = props;
   const summary = whenSummary(form, now);
+  const suggested = useProjectRepository(form.workspace);
   return (
     <Popover open={props.open} onOpenChange={props.onOpenChange}>
       <PopoverTrigger
@@ -155,24 +206,22 @@ export function WhenPopover(props: {
         finalFocus={props.returnFocus}
         className="flex max-h-[min(36rem,var(--available-height))] w-72 max-w-[calc(100vw-2rem)] flex-col overflow-y-auto p-1"
       >
-        <div role="radiogroup" aria-label="What starts it" className="flex flex-col">
-          {kinds.map((kind) => (
-            <button
-              key={kind.value}
-              type="button"
-              role="radio"
-              aria-checked={form.trigger === kind.value}
-              onClick={() => props.onChange({ trigger: kind.value })}
-              className="flex h-[30px] items-center gap-2 rounded-md px-2 text-left text-ui transition-colors duration-(--motion-fast) hover:bg-hover focus-ring-inset"
-            >
-              <span className="min-w-0 flex-1 truncate">{kind.label}</span>
-              {form.trigger === kind.value && (
-                <CheckIcon aria-hidden size={16} className="shrink-0 text-muted-foreground" />
-              )}
-            </button>
-          ))}
-        </div>
-        {form.trigger !== "manual" && <div aria-hidden className="mx-1 my-1.5 h-px bg-border" />}
+        <Field label="Runs">
+          <Select
+            label="Runs"
+            value={form.trigger}
+            options={kinds}
+            onValueChange={(trigger) =>
+              props.onChange(
+                // A GitHub trigger starts from the project's own repository; the field stays editable.
+                trigger === "github" && !form.repository && suggested
+                  ? { trigger, repository: suggested }
+                  : { trigger },
+              )
+            }
+            className="h-7 w-full min-w-0"
+          />
+        </Field>
         <TriggerFields {...props} now={now} />
       </PopoverContent>
     </Popover>
@@ -199,7 +248,7 @@ function TriggerFields(props: {
               value={form.repository}
               onValueChange={(repository) => onChange({ repository })}
               placeholder="owner/name"
-              className="font-mono"
+              className="h-7 font-mono"
               aria-invalid={errors.repository ? true : undefined}
               aria-describedby={errors.repository ? "automation-repo-error" : undefined}
             />
@@ -265,10 +314,8 @@ function ScheduleFields(props: {
     [form.timezone],
   );
   const timed =
-    form.cadence === "daily" ||
-    form.cadence === "weekdays" ||
-    form.cadence === "weekly" ||
-    form.cadence === "once";
+    form.cadence === "daily" || form.cadence === "weekdays" || form.cadence === "weekly";
+  const today = dateIn(props.now, form.timezone);
   const own = fieldErrors(form);
   const next = scheduleFields.some((field) => own[field])
     ? undefined
@@ -318,25 +365,34 @@ function ScheduleFields(props: {
         </Field>
       )}
       {form.cadence === "once" && (
-        <Field label="On" htmlFor="automation-date" error={errors.date}>
-          <Input
+        <Field
+          label="At"
+          htmlFor="automation-date"
+          error={errors.date ?? errors.time ?? errors.timezone}
+        >
+          <DateTimePicker
             id="automation-date"
-            type="date"
-            value={form.date}
-            onValueChange={(date) => onChange({ date })}
-            className="h-7 tabular-nums"
-            aria-invalid={errors.date ? true : undefined}
+            label="Runs at"
+            value={{ date: form.date, time: form.time, timezone: form.timezone }}
+            text={form.date ? momentText(form, today, form.timezone) : "Pick a date"}
+            today={today}
+            min={today}
+            zones={zones}
+            onChange={(patch) => onChange(patch)}
+            className="h-7 w-full min-w-0"
+            aria-invalid={errors.date || errors.time ? true : undefined}
             aria-describedby={errors.date ? "automation-date-error" : undefined}
           />
         </Field>
       )}
       {timed && (
         <Field label="At" htmlFor="automation-time" error={errors.time}>
-          <TimeInput
+          <TimePicker
             id="automation-time"
+            label="At"
             value={form.time}
-            onBlur={() => undefined}
             onValueChange={(time) => onChange({ time })}
+            className="h-7 w-full min-w-0"
             aria-invalid={errors.time ? true : undefined}
             aria-describedby={errors.time ? "automation-time-error" : undefined}
           />
@@ -384,15 +440,16 @@ function ScheduleFields(props: {
           </Field>
         </>
       )}
-      <Field label="Time zone" error={errors.timezone}>
-        <Select
-          label="Time zone"
-          value={form.timezone}
-          options={zones}
-          onValueChange={(timezone) => onChange({ timezone })}
-          className="h-7 w-full min-w-0"
+      {form.cadence !== "once" && (
+        <StartsField
+          form={form}
+          onChange={onChange}
+          error={errors.startsAt ?? errors.timezone}
+          now={props.now}
+          today={today}
+          zones={zones}
         />
-      </Field>
+      )}
       <Field label="If missed">
         <Select
           label="If a run is missed"
@@ -409,6 +466,58 @@ function ScheduleFields(props: {
   );
 }
 
+/**
+ * When a repeating schedule begins: "Now" until a later moment is picked in its panel, which also
+ * holds the zone every time in the schedule is read in.
+ */
+function StartsField(props: {
+  form: AutomationForm;
+  onChange(patch: Partial<AutomationForm>): void;
+  error: string | undefined;
+  now: number;
+  today: string;
+  zones: { value: string; label: string }[];
+}) {
+  const { form, today } = props;
+  const [date = "", time = nextQuarter(props.now, form.timezone)] = form.startsAt.split("T");
+  const start = chosenStart(form);
+  const later = start !== undefined && start > props.now;
+  const change = (patch: Partial<DateTime>) => {
+    const { timezone, ...moment } = patch;
+    const next = { date: date || today, time, ...moment };
+    props.onChange({
+      ...(timezone ? { timezone } : {}),
+      // A zone alone keeps "now" as now; a day or a time picks a moment.
+      ...(moment.date || moment.time || date ? { startsAt: `${next.date}T${next.time}` } : {}),
+    });
+  };
+  return (
+    <Field label="Starts" htmlFor="automation-starts" error={props.error}>
+      <DateTimePicker
+        id="automation-starts"
+        label="Starts"
+        value={{ date: later ? date : "", time, timezone: form.timezone }}
+        text={
+          later
+            ? momentText({ date, time }, today, form.timezone)
+            : form.timezone === localTimeZone()
+              ? "Now"
+              : `Now · ${cityOf(form.timezone)}`
+        }
+        today={today}
+        min={today}
+        zones={props.zones}
+        onChange={change}
+        clearLabel="Start now"
+        onClear={() => props.onChange({ startsAt: "" })}
+        className="h-7 w-full min-w-0"
+        aria-invalid={props.error ? true : undefined}
+        aria-describedby={props.error ? "automation-starts-error" : undefined}
+      />
+    </Field>
+  );
+}
+
 /** A label on the left and its control on the right, with the control's problem under it. */
 function Field(props: {
   label: string;
@@ -420,16 +529,11 @@ function Field(props: {
   const errorId = props.htmlFor ? `${props.htmlFor}-error` : undefined;
   return (
     <div className="flex flex-col gap-1 px-2 py-0.5">
-      <div
-        className={cn(
-          "flex gap-3",
-          props.stacked ? "flex-col gap-1" : "items-center justify-between",
-        )}
-      >
-        <label htmlFor={props.htmlFor} className="shrink-0 text-ui text-muted-foreground">
+      <div className={cn("flex gap-3", props.stacked ? "flex-col gap-1" : "items-center")}>
+        <label htmlFor={props.htmlFor} className="w-18 shrink-0 text-ui text-muted-foreground">
           {props.label}
         </label>
-        <div className={props.stacked ? "w-full" : "w-36 min-w-0"}>{props.children}</div>
+        <div className={props.stacked ? "w-full" : "min-w-0 flex-1"}>{props.children}</div>
       </div>
       {props.error && (
         <p id={errorId} className="text-xs text-destructive">

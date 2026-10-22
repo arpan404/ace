@@ -93,6 +93,43 @@ export function presetToSchedule(
   }
 }
 
+/**
+ * A repeating preset that starts no earlier than `from`. An RRULE's DTSTART is always its first
+ * run, so a pattern with set times starts on its first matching time at or after `from` (daily at
+ * 9:00 from 10:30 on Oct 25 first runs at 9:00 on Oct 26), and hours count from the top of the
+ * hour. Every few minutes, and custom schedules, count from `from` itself.
+ */
+export function presetStartingAt(
+  preset: SchedulePreset,
+  timezone: string,
+  from: number,
+): AutomationSchedule {
+  const minute = Math.ceil(from / 60_000) * 60_000;
+  // The pattern's first time at or after `minute`: anchored a minute before, which never runs.
+  const first = (pattern: AutomationSchedule) =>
+    compileSchedule({ ...pattern, startAt: minute - 60_000 }).next(minute - 60_000) ?? minute;
+  switch (preset.kind) {
+    case "daily":
+    case "weekdays":
+    case "weekly":
+      return presetToSchedule(preset, timezone, first(presetToSchedule(preset, timezone, minute)));
+    case "hourly":
+      return presetToSchedule(
+        preset,
+        timezone,
+        first({ kind: "rrule", expression: "FREQ=HOURLY;BYMINUTE=0", timezone, startAt: minute }),
+      );
+    default:
+      return presetToSchedule(preset, timezone, minute);
+  }
+}
+
+/** An instant as the wall clock in `timezone` reads it: date "2026-10-24", time "09:30". */
+export function wallMoment(instant: number, timezone: string): { date: string; time: string } {
+  const local = wallClockDate(instant, timezone);
+  return { date: local.date, time: clock(local.hour, local.minute) };
+}
+
 /** The instant a one-off preset names in `timezone`; undefined for an unreadable date. */
 export function onceInstant(
   preset: { date: string; time: string },

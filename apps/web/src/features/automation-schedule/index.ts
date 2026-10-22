@@ -5,6 +5,8 @@ export {
   weekdayName,
   localTimeZone,
   presetToSchedule,
+  presetStartingAt,
+  wallMoment,
   scheduleToPreset,
   describeSchedule,
   describeRepeat,

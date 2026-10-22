@@ -7,12 +7,18 @@ import {
 } from "@ace/protocol";
 import { z } from "zod";
 import {
+  onceInstant,
+  presetStartingAt,
   presetToSchedule,
+  wallMoment,
   scheduleToPreset,
   weekdays,
   type SchedulePreset,
 } from "@/features/automation-schedule/index.ts";
 import { customScheduleError } from "./schedule-validate.ts";
+
+/** "2026-10-24T09:30": a start on the schedule zone's wall clock. */
+const startPattern = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$/;
 
 /** An IANA zone this browser can format in ("Europe/London"). */
 function isTimeZone(zone: string): boolean {
@@ -43,9 +49,14 @@ export const AutomationForm = z
     day: z.enum(weekdays),
     every: z.number(),
     /** "Every few minutes": how many. */
-    minutes: z.number(),
+    minutes: z.number().catch(15),
     /** "Once": the wall-clock date, "2026-10-24", in the schedule's zone. */
-    date: z.string(),
+    date: z.string().catch(""),
+    /**
+     * When a repeating schedule begins, "2026-10-24T09:30" on the zone's wall clock. Empty, or a
+     * time already past, means now (or an existing schedule's own start).
+     */
+    startsAt: z.string().catch(""),
     timezone: z.string(),
     /** An existing schedule's DTSTART, which anchors its recurrence; new ones start now. */
     startAt: z.number().optional(),
@@ -85,6 +96,8 @@ export const AutomationForm = z
           path: ["minutes"],
           message: "Enter whole minutes from 1 to 59.",
         });
+      if (form.cadence !== "once" && form.startsAt && !startPattern.test(form.startsAt))
+        ctx.addIssue({ code: "custom", path: ["startsAt"], message: "Pick when it starts." });
       if (form.cadence === "once" && !/^\d{4}-\d{2}-\d{2}$/.test(form.date))
         ctx.addIssue({ code: "custom", path: ["date"], message: "Pick a date." });
       if (
@@ -162,6 +175,7 @@ export function blankForm(workspace: string, timezone: string): AutomationForm {
     every: 6,
     minutes: 15,
     date: "",
+    startsAt: "",
     timezone,
     syntax: "rrule",
     expression: "",
@@ -199,12 +213,14 @@ export function formFromAutomation(automation: Automation, localZone: string): A
   if (trigger.kind === "file") return { ...form, trigger: "file", paths: trigger.paths.join("\n") };
   if (trigger.kind !== "schedule") return { ...form, trigger: "manual" };
   const preset = scheduleToPreset(trigger.schedule);
+  const start = wallMoment(trigger.schedule.startAt, trigger.schedule.timezone);
   const scheduled = {
     ...form,
     trigger: "schedule" as const,
     cadence: preset.kind,
     timezone: trigger.schedule.timezone,
     startAt: trigger.schedule.startAt,
+    startsAt: `${start.date}T${start.time}`,
   };
   switch (preset.kind) {
     case "custom":
@@ -240,12 +256,25 @@ export function presetFromForm(form: AutomationForm): SchedulePreset {
   }
 }
 
+/** The instant a form's start names, in its zone; undefined when it names none. */
+export function chosenStart(form: AutomationForm): number | undefined {
+  const match = startPattern.exec(form.startsAt);
+  return match?.[1] && match[2]
+    ? onceInstant({ date: match[1], time: match[2] }, form.timezone)
+    : undefined;
+}
+
 /**
- * The schedule the form describes, anchored where it will be saved: the existing DTSTART when
- * editing, else `now`. The read-back and the save both use this, so the preview is what runs.
+ * The schedule the form describes, as it will be saved, so the preview is what runs. A start
+ * still ahead begins on its first run from then; otherwise an existing schedule keeps the start
+ * that anchors its recurrence, and a new one starts now.
  */
 export function scheduleFromForm(form: AutomationForm, now: number): AutomationSchedule {
-  return presetToSchedule(presetFromForm(form), form.timezone, form.startAt ?? now);
+  const preset = presetFromForm(form);
+  const start = form.cadence === "once" ? undefined : chosenStart(form);
+  if (start !== undefined && start > now) return presetStartingAt(preset, form.timezone, start);
+  const begun = form.startAt !== undefined && form.startAt <= now ? form.startAt : now;
+  return presetToSchedule(preset, form.timezone, begun);
 }
 
 /** The trigger a submitted form describes, keeping what the form doesn't show. */

@@ -365,7 +365,7 @@ test("a new automation is named from its prompt, runs when chosen and opens once
   await userEvent.click(screen.getByRole("link", { name: "New automation" }));
   expect(await screen.findByText(/What should run on its own in/)).toBeTruthy();
   const popover = await when();
-  await userEvent.click(popover.getByRole("radio", { name: "On a schedule" }));
+  await choose("Runs", "On a schedule");
   await choose("Repeat", "Weekdays");
   expect(popover.getByText(/^Next: /)).toBeTruthy();
   await userEvent.keyboard("{Escape}");
@@ -380,6 +380,33 @@ test("a new automation is named from its prompt, runs when chosen and opens once
   );
   expect(saved?.prompt).toBe("Summarise last night's CI failures. Then open a thread for each.");
   expect(saved?.enabled).toBe(true);
+});
+
+test("a repeating automation can start at a later day and time, on its first run from then", async () => {
+  const { app } = await open("/automations/new");
+  const popover = await when();
+  await choose("Repeat", "Every day");
+  await userEvent.click(popover.getByRole("button", { name: "Starts: Now" }));
+  // The calendar opens on today: two weeks on, then 10:30 AM, after that day's 9:00 AM run.
+  await userEvent.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+  const clock = await screen.findByRole("textbox", { name: "Time" });
+  await userEvent.clear(clock);
+  await userEvent.type(clock, "10:30 AM{Enter}");
+  await userEvent.keyboard("{Escape}");
+  expect(popover.getByRole("button", { name: /^Starts: .*10:30 AM/ })).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+  expect(screen.getByRole("button", { name: /^When: / }).textContent).toMatch(
+    /^Every day at 9:00 AM from /,
+  );
+  await userEvent.type(await prompt(), "Later start{Enter}");
+  await heading("Later start");
+  const saved = (await app.client.request({ type: "automation.list" })).automations?.find(
+    (automation) => automation.title === "Later start",
+  );
+  const startAt = saved?.trigger.kind === "schedule" ? saved.trigger.schedule.startAt : 0;
+  const start = new Date(startAt);
+  expect([start.getHours(), start.getMinutes()]).toEqual([9, 0]);
+  expect(startAt).toBeGreaterThan(Date.now() + 14 * 86_400_000);
 });
 
 test("an idea fills the prompt and when it runs", async () => {
@@ -425,9 +452,7 @@ test("a valid custom RRULE is created and reads back", async () => {
 test("a GitHub trigger needs an owner/name repository", async () => {
   await open("/automations/new");
   const popover = await when();
-  await userEvent.click(
-    popover.getByRole("radio", { name: "When a pull request or issue changes" }),
-  );
+  await choose("Runs", "On pull requests or issues");
   await userEvent.type(popover.getByRole("textbox", { name: "Repository" }), "not a repo");
   expect(await popover.findByText("Use owner/name, like arpan404/ace.")).toBeTruthy();
   await userEvent.clear(popover.getByRole("textbox", { name: "Repository" }));
@@ -439,8 +464,8 @@ test("a GitHub trigger needs an owner/name repository", async () => {
 
 test("a file change automation needs globs and saves them", async () => {
   const { app } = await open("/automations/new");
-  const popover = await when();
-  await userEvent.click(popover.getByRole("radio", { name: "When files change" }));
+  await when();
+  await choose("Runs", "When files change");
   await userEvent.keyboard("{Escape}");
   await userEvent.type(await prompt(), "Review changed tests{Enter}");
   const reopened = within(await screen.findByRole("dialog", { name: "When it runs" }));
@@ -477,9 +502,11 @@ test("Edit when opens the same screen filled in, and a new schedule reads everyw
   await when();
   await choose("Repeat", "Weekly");
   await choose("Day", "Monday");
-  const time = screen.getByRole("textbox", { name: "At" });
-  await userEvent.clear(time);
-  await userEvent.type(time, "9:07 PM");
+  await userEvent.click(screen.getByRole("button", { name: /^At: / }));
+  await userEvent.type(
+    await screen.findByRole("textbox", { name: "Exact time" }),
+    "9:07 PM{Enter}",
+  );
   await userEvent.keyboard("{Escape}");
   await userEvent.type(await prompt(), "{Enter}");
   await heading("Flaky test triage");

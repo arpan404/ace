@@ -223,3 +223,33 @@ test("a one-off run happens once, at that date and time in its own zone, and rea
   expect(upcomingRuns(schedule, startAt)).toEqual([schedule.startAt]);
   expect(upcomingRuns(schedule, schedule.startAt + 60_000)).toEqual([]);
 });
+
+test("a later start begins on the schedule's first run from then, never at the start itself", () => {
+  const now = Date.UTC(2026, 9, 21, 19, 0);
+  const form = { ...blankForm("ws", "America/New_York"), time: "09:00" };
+  const runs = (patch: Partial<typeof form>) =>
+    upcomingRuns(scheduleFromForm({ ...form, ...patch }, now), now, 2);
+  // New York is UTC-4 in October: 10:30 AM on Oct 25 is 14:30 UTC.
+  expect(runs({ cadence: "daily", startsAt: "2026-10-25T10:30" })).toEqual([
+    Date.UTC(2026, 9, 26, 13, 0),
+    Date.UTC(2026, 9, 27, 13, 0),
+  ]);
+  expect(runs({ cadence: "daily", startsAt: "2026-10-25T09:00" })[0]).toBe(
+    Date.UTC(2026, 9, 25, 13, 0),
+  );
+  expect(runs({ cadence: "hourly", every: 6, startsAt: "2026-10-25T10:30" })).toEqual([
+    Date.UTC(2026, 9, 25, 15, 0),
+    Date.UTC(2026, 9, 25, 21, 0),
+  ]);
+  expect(runs({ cadence: "minutes", minutes: 15, startsAt: "2026-10-25T10:07" })).toEqual([
+    Date.UTC(2026, 9, 25, 14, 7),
+    Date.UTC(2026, 9, 25, 14, 22),
+  ]);
+});
+
+test("a start that has already passed means now, so nothing reads as missed", () => {
+  const now = Date.UTC(2026, 9, 21, 19, 0);
+  const form = { ...blankForm("ws", "America/New_York"), cadence: "daily" as const };
+  expect(scheduleFromForm({ ...form, startsAt: "2026-10-21T09:00" }, now).startAt).toBe(now);
+  expect(scheduleFromForm({ ...form, startsAt: "" }, now).startAt).toBe(now);
+});
