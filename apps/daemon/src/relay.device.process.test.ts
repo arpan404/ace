@@ -383,10 +383,32 @@ it("two live device streams and a screenshot keep whole pictures over one encryp
   expect(pixel.frame.streamId).not.toBe(tablet.frame.streamId);
 });
 
-it("read-only pairings cannot open the device channel and revocation closes an active controller", async () => {
+it("a pairing without administrator access is told why its device list is refused", async () => {
   const f = await fixture();
-  const reader = await f.connect(f.reader);
-  await reader.closed;
+  const phone = await f.connect(f.reader);
+  expect(await phone.receive()).toMatchObject({ type: "welcome" });
+  await phone.send({ type: "devices.request", requestId: "list", operation: { op: "list" } });
+  expect(await phone.receive()).toEqual({
+    type: "devices.result",
+    requestId: "list",
+    ok: false,
+    error: {
+      code: "permission_denied",
+      message: "Administrator scope is required for device access",
+      hint: "Connect with an administrator device credential to use Devices.",
+    },
+  });
+  await phone.send({
+    type: "devices.request",
+    requestId: "enable",
+    operation: { op: "enable", enabled: true },
+  });
+  expect(await phone.receive()).toMatchObject({ requestId: "enable", ok: false });
+  expect(f.service.states()).toEqual([]);
+});
+
+it("read-only pairings cannot use devices and revocation closes an active controller", async () => {
+  const f = await fixture();
   expect(f.auth.deviceBearer(f.reader.token)?.scopes).toEqual(["read"]);
   const files = await f.connect(f.reader, "files");
   expect(await files.receive()).toMatchObject({ type: "welcome" });

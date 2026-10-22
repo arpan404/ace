@@ -1,6 +1,5 @@
 import Foundation
 import JavaScriptCore
-import Security
 import QuartzCore
 
 /// What a runtime serves: its daemon, its outbox database, its native services and where its
@@ -36,12 +35,16 @@ final class NativeHost: @unchecked Sendable {
     /// A warm runtime's machine, on the VM thread before its entry runs: nothing has called the
     /// host yet, and every later call (and the queues it dispatches to) reads this binding.
     func bind(_ binding: HostBinding) { self.binding = binding }
+    /// Installs `aceHost`: the stateless capabilities (`HostContract`) and this runtime's own.
     func install(in context: JSContext) {
-        let call: @convention(block) (String, String, JSValue) -> Void = { [weak self] operation, json, value in
-            self?.call(operation, json: json, callback: Callback(value))
+        let call: @convention(block) (String, String, JSValue, JSValue) -> Void = { [weak self] operation, json, body, value in
+            // The body is the operation's large text, sent unescaped; absent unless a string.
+            let text = body.isString ? body.toString() : nil
+            self?.call(HostRequest(operation, input: Data(json.utf8), body: text), callback: Callback(value))
         }
         let emit: @convention(block) (String) -> Void = { [weak self] json in
-            guard let data = json.data(using: .utf8), data.count <= 32768 else { return }
+            guard let data = HostTrace.measure("host.emit", { json.data(using: .utf8) }), data.count <= 32768 else { return }
+            HostTrace.add("host.emit.bytes", seconds: 0, bytes: data.count)
             ThreadOpenTrace.emitted()
             self?.receive(data)
         }
@@ -50,88 +53,61 @@ final class NativeHost: @unchecked Sendable {
             self?.setTimer(id, delay: delay, callback: Callback(value))
         }
         let cancel: @convention(block) (String) -> Void = { [weak self] id in self?.timers.removeValue(forKey: id)?.invalidate() }
-        let now: @convention(block) () -> Double = { Date().timeIntervalSince1970 * 1000 }
-        let uuid: @convention(block) () -> String = { UUID().uuidString.lowercased() }
-        let random: @convention(block) () -> Double = { Double(UInt32.random(in: .min ... .max)) / 4294967296 }
-        let utf8Base64: @convention(block) (String) -> String = { Data($0.utf8).base64EncodedString() }
-        let previewHead: @convention(block) (String, Int) -> String = { DisplayText.head($0, limit: $1) }
-        let previewTail: @convention(block) (String, Int) -> String = { DisplayText.tail($0, limit: $1) }
-        let entropy: @convention(block) (Int) -> [UInt8] = { count in
-            guard count >= 0, count <= 65536 else { return [] }
-            var bytes = [UInt8](repeating: 0, count: count)
-            guard SecRandomCopyBytes(kSecRandomDefault, count, &bytes) == errSecSuccess else {
-                JSContext.current()?.exception = JSValue(newErrorFromMessage: "Entropy unavailable", in: JSContext.current())
-                return []
-            }
-            return bytes
-        }
-        let base64: @convention(block) (String, Bool) -> String = { text, decode in
-            if decode {
-                guard let data = Data(base64Encoded: text) else { return "" }
-                return String(data: data, encoding: .isoLatin1) ?? ""
-            }
-            return Data(text.unicodeScalars.map { UInt8(truncatingIfNeeded: $0.value) }).base64EncodedString()
-        }
-        // JavaScriptCore has no WHATWG URL. Foundation parses absolute URLs for the SDK's checks.
-        let parseURL: @convention(block) (String) -> String = { text in
-            guard let parsed = ParsedURL.parse(text), let data = try? JSONEncoder().encode(parsed) else { return "" }
-            return String(decoding: data, as: UTF8.self)
-        }
-        let functions: [String: Any] = ["parseURL": parseURL, "call": call, "emit": emit, "socket": socket, "timer": timer,
-            "cancelTimer": cancel, "now": now, "uuid": uuid, "random": random,
-            "randomBytes": entropy, "base64": base64, "utf8Base64": utf8Base64,
-            "previewHead": previewHead, "previewTail": previewTail].merging(NativeBytes.functions()) { current, _ in current }
-        context.setObject(functions, forKeyedSubscript: "aceHost" as NSString)
+        let own: [String: Any] = ["call": call, "emit": emit, "socket": socket, "timer": timer, "cancelTimer": cancel]
+        HostContract.install(HostContract.stateless().merging(own) { _, runtime in runtime }, in: context)
     }
-    private func call(_ operation: String, json: String, callback: Callback) {
-        if operation == "http" { http(json, callback: callback); return }
-        if operation.hasPrefix("snapshot.") { snapshot(operation, json: json, callback: callback); return }
+    /// Inputs past this are refused before any work; bodies have each operation's own cap.
+    private static let inputLimit = 1024 * 1024
+    private static let bodyLimit = 9 * 1024 * 1024
+    private func call(_ request: HostRequest, callback: Callback) {
+        let operation = request.operation
+        let callback = HostTrace.enabled ? Callback(callback.value, traced: operation, began: CACurrentMediaTime()) : callback
+        guard request.input.count <= Self.inputLimit, (request.body?.utf8.count ?? 0) <= Self.bodyLimit else {
+            reply(.failure(HostError.storage), to: callback); return
+        }
+        if operation == "http" { http(request.input, callback: callback); return }
+        if operation.hasPrefix("snapshot.") { snapshot(request, callback: callback); return }
         storageQueue.async { [self] in
             let result: Result<String, Error> = Result {
-                guard let data = json.data(using: .utf8), data.count <= 9 * 1024 * 1024 else { throw HostError.storage }
                 if operation == "credential" {
                     guard let target, target.isLoopbackFixture else { throw HostError.unsupported }
                     return try target.credential()
                 }
-                if let value = try services.perform(operation, input: data) { return value }
+                if let value = try services.perform(request) { return value }
                 guard let storageURL else { throw HostError.unsupported }
                 if operation == "inbox.checkpoint" {
-                    try InboxCheckpoint.write(try JSONDecoder().decode(String.self, from: data), database: storageURL)
+                    try InboxCheckpoint.write(try request.requireBody(), database: storageURL)
                     return ""
                 }
                 if store == nil { store = try DurableStore(url: storageURL) }
                 guard let store else { throw HostError.storage }
-                return try store.perform(operation, input: data)
+                return try store.perform(request)
             }
-            runtime?.execute { _ in
-                switch result {
-                case .success(let text): callback.value.call(withArguments: [NSNull(), text])
-                case .failure: callback.value.call(withArguments: ["Host operation failed", ""])
-                }
-            }
+            reply(result, to: callback)
         }
     }
-    private func snapshot(_ operation: String, json: String, callback: Callback) {
+    private func snapshot(_ request: HostRequest, callback: Callback) {
         snapshotQueue.async { [self] in
             let result: Result<String, Error> = Result {
-                guard let storageURL, let data = json.data(using: .utf8), data.count <= 9 * 1024 * 1024 else { throw HostError.storage }
+                guard let storageURL else { throw HostError.storage }
                 if snapshots == nil { snapshots = try SnapshotStore(database: storageURL, now: services.now) }
-                guard let value = try snapshots?.perform(operation, input: data) else { throw HostError.unsupported }
+                guard let value = try snapshots?.perform(request) else { throw HostError.unsupported }
                 return value
             }
             reply(result, to: callback)
         }
     }
     private func reply(_ result: Result<String, Error>, to callback: Callback) {
-        runtime?.execute { _ in
+        callback.finish()
+        runtime?.execute { _ in HostTrace.measure("js.reply") {
             switch result {
             case .success(let text): callback.value.call(withArguments: [NSNull(), text])
-            case .failure: callback.value.call(withArguments: ["Host operation failed", ""])
+            case .failure(let error): callback.value.call(withArguments: [HostError.code(of: error), ""])
             }
-        }
+        } }
     }
     /// Pinned HTTPS to this runtime's own daemon. Refusals reach the bridge as their reason.
-    private func http(_ json: String, callback: Callback) {
+    private func http(_ input: Data, callback: Callback) {
         let runtime = runtime
         let reply: @Sendable (Result<PinnedHTTPResponse, PinnedHTTPError>) -> Void = { result in
             let encoded = result.flatMap { response in
@@ -145,12 +121,13 @@ final class NativeHost: @unchecked Sendable {
             }
         }
         guard let target, let origin = target.httpsOrigin,
-              let request = try? JSONDecoder().decode(PinnedHTTPRequest.self, from: Data(json.utf8)) else {
+              let request = try? JSONDecoder().decode(PinnedHTTPRequest.self, from: input) else {
             reply(.failure(.invalid)); return
         }
         let tracing = LaunchTrace.begin("http", request.path)
         PinnedHTTP.send(origin: origin, pin: target.pin, request: request, now: services.now) { result in
             tracing.end()
+            callback.finish()
             reply(result)
         }
     }
@@ -164,11 +141,12 @@ final class NativeHost: @unchecked Sendable {
             }
             let socket = PinnedSocket(target: target, now: services.now, streams: runtime?.browserStreams) { type, value in
                 runtime?.execute { context in
-                    // Binary messages reach the SDK as a Uint8Array, never as text to unpack in script.
-                    let payload: Any = type == "binary"
-                        ? (Data(base64Encoded: value) ?? Data()).withUnsafeBytes { NativeBytes.makeArray($0, in: context) }
-                        : value
-                    context.objectForKeyedSubscript("aceSocket")?.call(withArguments: [id, type, payload])
+                    // Binary messages reach the SDK as a Uint8Array made from the socket's own bytes.
+                    let payload: Any = switch value {
+                    case .text(let text): text
+                    case .bytes(let bytes): bytes.withUnsafeBytes { NativeBytes.makeArray($0, in: context) }
+                    }
+                    HostTrace.measure("js.socket") { _ = context.objectForKeyedSubscript("aceSocket")?.call(withArguments: [id, type, payload]) }
                 }
             }
             sockets[id] = socket
@@ -183,7 +161,7 @@ final class NativeHost: @unchecked Sendable {
         let timer = Timer(timeInterval: delay / 1000, repeats: false) { [weak self] _ in
             self?.timers.removeValue(forKey: id)
             let began = CACurrentMediaTime()
-            callback.value.call(withArguments: [])
+            HostTrace.measure("js.timer") { _ = callback.value.call(withArguments: []) }
             let spent = CACurrentMediaTime() - began
             ThreadOpenTrace.scriptBusy.withLock { $0 += spent }
         }

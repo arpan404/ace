@@ -18,6 +18,8 @@ struct ComposerView<Top: View, Leading: View, Trailing: View>: View {
     var files = 0
     /// While the strip above shows what the agent only waits on, its Stop sits there, not here.
     var stopInStrip = false
+    /// Where this composer's unsent words are kept (`ThreadDrafts.key`); nil keeps them only on screen.
+    var draftKey: String? = nil
     @ViewBuilder var top: () -> Top
     @ViewBuilder var leading: () -> Leading
     @ViewBuilder var trailing: () -> Trailing
@@ -25,6 +27,8 @@ struct ComposerView<Top: View, Leading: View, Trailing: View>: View {
     @State private var feedback = 0
     @State private var wraps = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.threadDrafts) private var drafts
+    @Environment(\.scenePhase) private var scenePhase
     private var empty: Bool { files == 0 && draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var stops: Bool { empty && !stopInStrip && controls?.busy == true && controls?.canStop == true }
     var body: some View {
@@ -51,6 +55,9 @@ struct ComposerView<Top: View, Leading: View, Trailing: View>: View {
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: wraps)
         .sensoryFeedback(.impact(weight: .light), trigger: feedback)
         .onChange(of: mention) { _, picked in if let picked { draft.text = Mention.insert(picked.path, into: draft.text) } }
+        .onChange(of: draftKey, initial: true) { _, key in draft.follow(key, in: drafts) }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { draft.flush() } }
+        .onDisappear { draft.flush() }
     }
     private var input: some View {
         NativeTextInput(text: $draft.text, inputBegan: inputBegan, submit: { if !disabled && !stops { submit(alternate: false) } },

@@ -52,6 +52,7 @@ private struct TaskProfileEditor: View {
                 }
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .disabled(profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityIdentifier("profile.save")
             }
             .insetRowBackground()
         }

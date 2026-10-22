@@ -1,19 +1,10 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-vi.hoisted(() => {
-  let next = 0;
-  Object.assign(globalThis, {
-    aceHost: {
-      now: () => 0,
-      uuid: () => `id-${++next}`,
-      previewHead: (text: string, limit: number) => text.slice(0, limit),
-      previewTail: (text: string, limit: number) => text.slice(-limit),
-      emit: () => {},
-      timer: () => {},
-      cancelTimer: () => {},
-      utf8Base64: (text: string) => Buffer.from(text, "utf8").toString("base64"),
-    },
-  });
+await vi.hoisted(async () => {
+  const { createNodeHost } = await import("@ace/native-host/node");
+  // Timers never fire: these tests drive time themselves.
+  const host = createNodeHost({ now: () => 0 });
+  Object.assign(globalThis, { aceHost: { ...host, timer: () => {}, cancelTimer: () => {} } });
 });
 
 import { FakeDaemon, facts } from "@ace/fake-daemon";

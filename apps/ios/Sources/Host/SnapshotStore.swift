@@ -30,19 +30,20 @@ final class SnapshotStore {
     deinit { sqlite3_close(db) }
 
     /// `snapshot.get` (a key, answered with the text or "" for a miss), `snapshot.set` and `snapshot.clear`.
-    func perform(_ operation: String, input: Data) throws -> String? {
-        switch operation {
+    func perform(_ request: HostRequest) throws -> String? {
+        switch request.operation {
         case "snapshot.get":
-            let key = try JSONDecoder().decode(String.self, from: input)
+            let key = try JSONDecoder().decode(String.self, from: request.input)
             guard let value = try text("SELECT value FROM snapshots WHERE key=?", key) else { return "" }
             try run("UPDATE snapshots SET used=? WHERE key=?", [.real(stamp()), .text(key)])
             return value
         case "snapshot.set":
-            let record = try JSONDecoder().decode(SnapshotWrite.self, from: input)
-            let bytes = record.value.utf8.count
-            guard record.key.utf8.count <= 1024, bytes <= Self.maxValue else { throw HostError.storage }
+            let key = try JSONDecoder().decode(SnapshotKey.self, from: request.input).key
+            let value = try request.requireBody()
+            let bytes = value.utf8.count
+            guard key.utf8.count <= 1024, bytes <= Self.maxValue else { throw HostError.storage }
             try run("INSERT INTO snapshots(key,value,bytes,used) VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, bytes=excluded.bytes, used=excluded.used",
-                    [.text(record.key), .text(record.value), .integer(bytes), .real(stamp())])
+                    [.text(key), .text(value), .integer(bytes), .real(stamp())])
             try evict()
             return ""
         case "snapshot.clear":
@@ -94,4 +95,4 @@ final class SnapshotStore {
         return String(cString: text)
     }
 }
-private struct SnapshotWrite: Decodable { let key: String; let value: String }
+private struct SnapshotKey: Decodable { let key: String }

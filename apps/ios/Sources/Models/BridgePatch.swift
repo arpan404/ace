@@ -64,12 +64,26 @@ struct PullRequestRef: Codable, Sendable, Equatable {
     /// open, draft, merged or closed.
     let state: String
 }
+/// Drop `cut` UTF-8 bytes from the front of a text `base` bytes long, then add `append`. Bytes,
+/// because Swift's strings count and slice them without transcoding.
+struct TextEdit: Sendable, Equatable {
+    let base: Int
+    let cut: Int
+    let append: String
+    /// The edited text, or nil when `text` is not the one the edit was made against or the cut
+    /// would split a character.
+    func applied(to text: String) -> String? {
+        guard text.utf8.count == base, let kept = String(text.utf8.dropFirst(cut)) else { return nil }
+        return kept + append
+    }
+}
+
 struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     let id: String
     let index: Int?
     let type: String
     let role: String
-    let text: String
+    var text: String
     let complete: Bool
     let createdAt: Double
     let agentId: String
@@ -172,6 +186,9 @@ enum BridgePatch: Decodable, Sendable {
     case threadReset(String, Int)
     case position(String, Int, String, Int?)
     case item(String, Int, String, TranscriptRow?)
+    /// Streaming text as an edit of the row shown (`bridge/text-edit.ts`): `row` carries
+    /// every other field, its text empty until `ClientModel` applies the edit.
+    case itemText(String, Int, String, TextEdit, TranscriptRow)
     case metadata(String, Int, ThreadRow?)
     case interaction(String, Int, String, ApprovalRow?)
     case cursor(String, Int, Int)
@@ -211,7 +228,7 @@ enum BridgePatch: Decodable, Sendable {
     case serviceCache(ServiceReply.Cache, ServiceValue)
     case serviceGenerations([String: Int])
 
-    private enum Keys: String, CodingKey { case type, id, ids, row, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation }
+    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -233,6 +250,12 @@ enum BridgePatch: Decodable, Sendable {
         case "thread.item":
             let (id, epoch) = try scope()
             self = .item(id, epoch, try box.decode(String.self, forKey: .id), try box.decodeIfPresent(TranscriptRow.self, forKey: .row))
+        case "thread.item.text":
+            let (id, epoch) = try scope()
+            let edit = TextEdit(base: try box.decode(Int.self, forKey: .base), cut: try box.decode(Int.self, forKey: .cut),
+                                append: try box.decode(String.self, forKey: .append))
+            guard edit.cut >= 0, edit.cut <= edit.base else { throw DecodingError.dataCorruptedError(forKey: .cut, in: box, debugDescription: "cut past base") }
+            self = .itemText(id, epoch, try box.decode(String.self, forKey: .id), edit, try box.decode(TranscriptRow.self, forKey: .row))
         case "thread.metadata": let (id, epoch) = try scope(); self = .metadata(id, epoch, try box.decodeIfPresent(ThreadRow.self, forKey: .row))
         case "thread.interaction":
             let (id, epoch) = try scope()

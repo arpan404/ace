@@ -1,26 +1,20 @@
 import { afterEach, expect, test, vi } from "vitest";
 
-vi.hoisted(() => {
-  let next = 0;
-  Object.assign(globalThis, {
-    aceHost: {
-      now: () => 0,
-      uuid: () => `id-${++next}`,
-      previewHead: (text: string, limit: number) => text.slice(0, limit),
-      previewTail: (text: string, limit: number) => text.slice(-limit),
-      emit: () => {},
-      timer: () => {},
-      cancelTimer: () => {},
-      utf8Base64: (text: string) => Buffer.from(text, "utf8").toString("base64"),
-    },
-  });
+await vi.hoisted(async () => {
+  const { createNodeHost } = await import("@ace/native-host/node");
+  // Timers never fire: these tests drive time themselves.
+  const host = createNodeHost({ now: () => 0 });
+  Object.assign(globalThis, { aceHost: { ...host, timer: () => {}, cancelTimer: () => {} } });
 });
 
 import { Client, type ClientOptions } from "@ace/client";
 import { FakeDaemon, facts, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId } from "@ace/protocol";
 import { followInbox } from "./inbox.ts";
-import { nativeReadSnapshots, type HostCall } from "./read-snapshots.ts";
+import { requester, type HostRequest } from "@ace/native-host";
+import { createNodeHost } from "@ace/native-host/node";
+import { z } from "zod";
+import { nativeReadSnapshots } from "./read-snapshots.ts";
 import { RecordingSink, until } from "./sheet-fixture.ts";
 
 /*
@@ -33,25 +27,28 @@ afterEach(async () => {
   for (const close of closers.splice(0).toReversed()) await close();
 });
 
-/** The native snapshot store's contract (`SnapshotStore.swift`), over a map. */
-function nativeStore(): HostCall {
+/** The native snapshot store's contract (`SnapshotStore.swift`), over a map, through the host. */
+function nativeStore(): HostRequest {
   const records = new Map<string, string>();
-  return async (operation, input) => {
-    if (operation === "snapshot.get") return records.get(input as string) ?? "";
-    if (operation === "snapshot.set") {
-      const { key, value } = input as { key: string; value: string };
-      records.set(key, value);
-      return "";
-    }
-    if (operation === "snapshot.clear") {
-      records.clear();
-      return "";
-    }
-    throw new Error("unsupported");
-  };
+  return requester(
+    createNodeHost({
+      operations: {
+        "snapshot.get": (key) => records.get(String(key)) ?? "",
+        "snapshot.set": (input, body) => {
+          const { key } = z.object({ key: z.string() }).parse(input);
+          records.set(key, body ?? "");
+          return "";
+        },
+        "snapshot.clear": () => {
+          records.clear();
+          return "";
+        },
+      },
+    }),
+  );
 }
 
-function phone(daemon: FakeDaemon, call: HostCall, transport: ClientOptions["transport"]) {
+function phone(daemon: FakeDaemon, call: HostRequest, transport: ClientOptions["transport"]) {
   let ids = 0;
   const client = new Client({
     deviceId: DeviceId.parse("ios-snapshot-device"),

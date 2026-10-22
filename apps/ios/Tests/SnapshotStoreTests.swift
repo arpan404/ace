@@ -9,7 +9,7 @@ import Testing
         let database = try temporaryDatabase()
         defer { try? FileManager.default.removeItem(at: database.deletingLastPathComponent()) }
         let clock = Clock()
-        try SnapshotStore(database: database, now: clock.now).perform("snapshot.set", input: write("host/sidebar", "[1]"))
+        try SnapshotStore(database: database, now: clock.now).perform("snapshot.set", input: keyed("host/sidebar"), body: "[1]")
         let reopened = try SnapshotStore(database: database, now: clock.now)
         #expect(try reopened.perform("snapshot.get", input: key("host/sidebar")) == "[1]")
         #expect(try reopened.perform("snapshot.get", input: key("host/other")) == "")
@@ -22,13 +22,13 @@ import Testing
         let store = try SnapshotStore(database: database, now: clock.now)
         for index in 0..<SnapshotStore.maxEntries {
             clock.tick()
-            _ = try store.perform("snapshot.set", input: write("k\(index)", "v\(index)"))
+            _ = try store.perform("snapshot.set", input: keyed("k\(index)"), body: "v\(index)")
         }
         // Reading the oldest makes it recent: the second oldest is evicted instead.
         clock.tick()
         _ = try store.perform("snapshot.get", input: key("k0"))
         clock.tick()
-        _ = try store.perform("snapshot.set", input: write("new", "v"))
+        _ = try store.perform("snapshot.set", input: keyed("new"), body: "v")
         #expect(try store.perform("snapshot.get", input: key("k0")) == "v0")
         #expect(try store.perform("snapshot.get", input: key("k1")) == "")
         #expect(try store.perform("snapshot.get", input: key("new")) == "v")
@@ -38,7 +38,7 @@ import Testing
         let database = try temporaryDatabase()
         defer { try? FileManager.default.removeItem(at: database.deletingLastPathComponent()) }
         let store = try SnapshotStore(database: database, now: Clock().now)
-        _ = try store.perform("snapshot.set", input: write("a", "1"))
+        _ = try store.perform("snapshot.set", input: keyed("a"), body: "1")
         _ = try store.perform("snapshot.clear", input: Data("null".utf8))
         #expect(try store.perform("snapshot.get", input: key("a")) == "")
     }
@@ -49,7 +49,7 @@ import Testing
         return directory.appendingPathComponent("machine.sqlite")
     }
     private func key(_ key: String) throws -> Data { try JSONEncoder().encode(key) }
-    private func write(_ key: String, _ value: String) throws -> Data { try JSONEncoder().encode(["key": key, "value": value]) }
+    private func keyed(_ key: String) throws -> Data { try JSONEncoder().encode(["key": key]) }
 }
 
 private final class Clock: @unchecked Sendable {

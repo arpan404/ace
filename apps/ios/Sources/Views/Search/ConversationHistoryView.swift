@@ -67,7 +67,7 @@ struct ConversationHistoryView: View {
             .listStyle(.plain).scrollContentBackground(.hidden).background(AceTheme.Colours.background)
             .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-            .task { await read() }
+            .readWhenConnected(model) { await read() }
             .task(id: targetId) { await Task.yield(); if let targetId, !Task.isCancelled { proxy.scrollTo(targetId, anchor: .center) } }
             .sheet(item: $fullMessage) { FullMessageView(model: model, threadId: threadId, item: $0) }
             .sheet(item: $media) { item in NavigationStack { NativeMediaView(model: model, threadId: threadId, item: item) } }

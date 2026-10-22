@@ -1,19 +1,19 @@
-import "./test-native.ts";
+import { host } from "./test-host.ts";
 import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { readFile, type FileReader } from "@ace/client";
 import { FILE_READ_PART, ThreadId } from "@ace/protocol";
-import { installDecompression } from "./decompression.ts";
+import { installWebPlatform } from "@ace/native-host";
 
 /*
- * The phone's JavaScriptCore has no DecompressionStream. With the bridge's native-backed one
- * installed, the shared client asks for gzip file parts and expands them; the stand-in host
+ * The phone's JavaScriptCore has no DecompressionStream. With the host-backed one
+ * (`@ace/native-host`) installed, the shared client asks for gzip file parts and expands them; the stand-in host
  * expands with Node's zlib the way Swift does with the system's.
  */
 
 beforeEach(() => {
   vi.stubGlobal("DecompressionStream", undefined);
-  installDecompression();
+  installWebPlatform(host);
 });
 afterEach(() => vi.unstubAllGlobals());
 

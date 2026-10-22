@@ -2,6 +2,7 @@ import { TicketPool, defaultTicketLimits, type TicketLimits } from "./ticket-poo
 import { DeviceId, PendingPairing } from "@ace/protocol";
 import { activeDevice, allows, hash, type Device, type Devices, type Scope } from "./devices.ts";
 import { validToken } from "./local-files.ts";
+import { MemoryPairingCodes, type PairingCodeStore } from "./pairing-codes.ts";
 
 export class AccessError extends Error {
   status: number;
@@ -19,18 +20,11 @@ export interface PairingTerms {
   /** How long the paired device keeps access; until revoked when omitted or null. */
   deviceTtlMs?: number | null | undefined;
 }
-interface Pending {
-  id: string;
-  expiresAt: number;
-  scopes: Scope[];
-  label?: string | undefined;
-  deviceTtlMs?: number | undefined;
-}
 const localOnly = (device: Pick<Device, "scopes">) =>
   device.scopes.includes("desktop") || device.scopes.includes("user-browser");
 
 export class RemoteAuth {
-  private codes = new Map<string, Pending>();
+  private codes: PairingCodeStore;
   private tickets: TicketPool;
   private ticketLimits: TicketLimits;
   private attempts = new Map<string, { count: number; resetsAt: number }>();
@@ -45,7 +39,9 @@ export class RemoteAuth {
     localToken: string,
     runtime: { now: () => number; secret: () => string; id?: () => string },
     limits: TicketLimits = defaultTicketLimits,
+    codes: PairingCodeStore = new MemoryPairingCodes(),
   ) {
+    this.codes = codes;
     this.devices = devices;
     this.localToken = localToken;
     this.now = runtime.now;
@@ -80,12 +76,12 @@ export class RemoteAuth {
   ): { id: string; code: string; expiresAt: number } {
     if (granted.includes("desktop") || granted.includes("user-browser"))
       throw new AccessError(403, "Desktop credentials are local only");
-    this.prune(this.codes);
-    if (this.codes.size >= 100) throw new AccessError(429, "Too many pending pairings");
+    if (this.codes.pending(this.now()).length >= 100)
+      throw new AccessError(429, "Too many pending pairings");
     const code = this.secret();
     const id = this.id();
     const expiresAt = this.now() + (terms.ttlMs ?? 300_000);
-    this.codes.set(hash(code), {
+    this.codes.put(hash(code), {
       id,
       expiresAt,
       scopes: granted,
@@ -96,30 +92,22 @@ export class RemoteAuth {
   }
   /** Links not yet redeemed or expired, oldest first. Never their codes. */
   pendingPairings(): PendingPairing[] {
-    this.prune(this.codes);
-    return [...this.codes.values()]
-      .toSorted((a, b) => a.expiresAt - b.expiresAt)
+    return this.codes
+      .pending(this.now())
       .map(({ id, label, scopes, expiresAt, deviceTtlMs }) =>
         PendingPairing.parse({ id, label, scopes, expiresAt, deviceTtlMs }),
       );
   }
   /** False when no pending link has that id. */
   cancelPairing(id: string): boolean {
-    for (const [key, pending] of this.codes)
-      if (pending.id === id) {
-        this.codes.delete(key);
-        return true;
-      }
-    return false;
+    return this.codes.remove(id);
   }
   pairingAttempt(address: string): void {
     this.limit(address);
     this.limit("*");
   }
   redeem(code: string, name: string): { device: Device; token: string } {
-    const key = hash(code);
-    const pairing = this.codes.get(key);
-    this.codes.delete(key);
+    const pairing = this.codes.take(hash(code));
     if (!pairing || pairing.expiresAt <= this.now())
       throw new AccessError(401, "Invalid or expired pairing code");
     const at = this.now();
@@ -184,9 +172,6 @@ export class RemoteAuth {
   }
   requireAdmin(device: Device | undefined): void {
     if (!device || !allows(device, "admin")) throw new AccessError(403, "Admin scope required");
-  }
-  private prune<T extends { expiresAt: number }>(entries: Map<string, T>): void {
-    for (const [key, entry] of entries) if (entry.expiresAt <= this.now()) entries.delete(key);
   }
   private limit(address: string): void {
     const now = this.now();

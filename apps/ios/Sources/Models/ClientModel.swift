@@ -102,11 +102,15 @@ import QuartzCore
         await closing?.value
         guard connectionEpoch == epoch, !Task.isCancelled else { return }
         shutdown = nil
+        // Frames are decoded off both the main thread and the script's; the main thread applies them.
+        let decoder = FrameDecoder()
         let runtime = makeRuntime(target, database, { [weak self] data in
-            Task { @MainActor in
-                guard let self, self.connectionEpoch == epoch else { return }
-                let accepted = self.receive(data)
-                self.runtime?.acknowledge(accepted: accepted)
+            decoder.decode(data) { patches in
+                Task { @MainActor in
+                    guard let self, self.connectionEpoch == epoch else { return }
+                    let accepted = self.accept(patches, bytes: data.count)
+                    self.runtime?.acknowledge(accepted: accepted)
+                }
             }
         }, { [weak self] message in Task { @MainActor in
             guard let self, self.connectionEpoch == epoch else { return }
@@ -120,22 +124,47 @@ import QuartzCore
         let scope = SHA256.hash(data: Data("\(hostId)\u{0}\(deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
         return directory.appendingPathComponent(scope + ".sqlite")
     }
+    /// Decodes and applies one frame on the main thread, as tests deliver them.
     @discardableResult func receive(_ data: Data) -> Bool {
+        accept(try? frames.decode(data), bytes: data.count)
+    }
+    /// Applies one decoded frame; nil is a frame that could not be read.
+    func accept(_ patches: [BridgePatch]?, bytes: Int) -> Bool {
         let began = CACurrentMediaTime()
         let patchesBefore = patchCount
         let signpost = ThreadOpenTrace.signposter.beginInterval("bridge.frame")
         defer {
             ThreadOpenTrace.signposter.endInterval("bridge.frame", signpost)
-            ThreadOpenTrace.shared.frame(bytes: data.count, patches: patchCount - patchesBefore, seconds: CACurrentMediaTime() - began)
+            ThreadOpenTrace.shared.frame(bytes: bytes, patches: patchCount - patchesBefore, seconds: CACurrentMediaTime() - began)
         }
-        largestFrame = max(largestFrame, data.count)
+        largestFrame = max(largestFrame, bytes)
         if patchCount == 0 { LaunchTrace.mark("bridge.firstFrame") }
-        guard let patches = try? frames.decode(data) else {
+        guard let patches else {
             error = "Could not read a client update"
             return false
         }
-        apply(patches)
+        // An edit made against text this model no longer shows turns the whole frame down, before
+        // anything applies; the bridge then sends that row whole.
+        guard let edited = HostTrace.measure("main.edits", { resolveTextEdits(patches) }) else { return false }
+        HostTrace.measure("main.apply") { apply(edited) }
         return true
+    }
+    /// `patches` with each streaming text edit for the open thread turned into its whole row, or
+    /// nil when one was made against text other than the row shown.
+    private func resolveTextEdits(_ patches: [BridgePatch]) -> [BridgePatch]? {
+        var texts: [String: String] = [:]
+        var resolved: [BridgePatch] = []
+        resolved.reserveCapacity(patches.count)
+        for patch in patches {
+            guard case .itemText(let id, let epoch, let itemId, let edit, var row) = patch else { resolved.append(patch); continue }
+            // Another thread's or an older generation's edit is dropped like its whole row would be.
+            guard let thread, thread.id == id, thread.epoch == epoch else { continue }
+            guard let shown = texts[itemId] ?? thread.items[itemId]?.row.text, let text = edit.applied(to: shown) else { return nil }
+            texts[itemId] = text
+            row.text = text
+            resolved.append(.item(id, epoch, itemId, row))
+        }
+        return resolved
     }
     private func apply(_ patches: [BridgePatch]) {
         var reorder = false
@@ -151,6 +180,7 @@ import QuartzCore
             case .terminal(let patch):
                 if let offset = terminal.receive(patch) { action(["type": "terminal.credit", "id": patch.id, "offset": offset]) }
             case .fragment: break // BridgeFrames only returns complete patches.
+            case .itemText: break // `resolveTextEdits` turns these into whole rows first.
             case .inboxReset(let ids):
                 LaunchTrace.mark("inbox.reset", "\(inbox.count) rows held")
                 resetInbox(keeping: ids); inboxLoaded = true; activityChanged = true
@@ -310,6 +340,8 @@ import QuartzCore
     }
     func network(_ online: Bool) { action(["type": "network", "online": online]) }
     func retry() { action(["type": "retry"]) }
+    /// The app is in front again: the SDK checks the socket now and skips a waiting backoff.
+    func wake() { action(["type": "wake"]) }
     /// Ask the computer for its CLIs and usage; runs on the next ready connection if offline.
     func refreshMachine() { action(["type": "machine.refresh"]) }
     func send(_ text: String, delivery: String) async -> Bool {

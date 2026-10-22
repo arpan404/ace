@@ -50,6 +50,7 @@ const Action = z.discriminatedUnion("type", [
     requestId: z.string().min(1).max(64),
   }),
   z.object({ type: z.literal("retry") }),
+  z.object({ type: z.literal("wake") }),
   z.object({ type: z.literal("machine.refresh") }),
   /** `epoch`: the navigation generation the action was sent for (`thread-route.ts`). */
   z.object({
@@ -125,18 +126,18 @@ async function start(json: string): Promise<void> {
     storage: {
       load: async () => (await call("storage.load")) || null,
       save: async (value) => {
-        await call("storage.save", value);
+        await call("storage.save", null, value);
       },
       hostBinding: {
         load: async () => (await call("storage.host.load")) || null,
         save: async (value) => {
-          await call("storage.host.save", value);
+          await call("storage.host.save", null, value);
         },
       },
       records: {
         load: async () => z.array(z.string()).parse(JSON.parse(await call("storage.records"))),
         write: async (id, value) => {
-          await call("storage.write", { id, value });
+          await call("storage.write", { id }, value ?? undefined);
         },
       },
     },
@@ -165,7 +166,7 @@ async function start(json: string): Promise<void> {
     { now: () => host.now(), set: scheduler.set },
     activityGeneration,
     // What the phone draws first at its next launch, before this runtime starts.
-    (checkpoint) => void call("inbox.checkpoint", checkpoint).catch(() => {}),
+    (checkpoint) => void call("inbox.checkpoint", null, checkpoint).catch(() => {}),
   );
   followMachine(client, pump, trust);
   machine = new MachineProviders(client, pump);
@@ -176,7 +177,7 @@ async function start(json: string): Promise<void> {
     storage: {
       load: () => call("storage.reads.load"),
       save: async (text) => {
-        await call("storage.reads.save", text);
+        await call("storage.reads.save", null, text);
       },
     },
   });
@@ -324,6 +325,9 @@ function action(json: string): void {
         break;
       case "retry":
         client.reconnectNow();
+        break;
+      case "wake":
+        client.wake();
         break;
       case "machine.refresh":
         machine?.refresh();
