@@ -380,6 +380,74 @@
         "value"
       ],
       "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
+          "const": "newPrContext",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgeNewPrContext.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
+          "const": "repoPrOptions",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgeRepoPrOptions.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
+          "const": "repoMilestones",
+          "type": "string"
+        },
+        "value": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ForgeMilestone.json"
+          },
+          "maxItems": 100,
+          "type": "array"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
+          "const": "compare",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgeCompare.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
     }
   ]
 }

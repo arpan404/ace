@@ -15,6 +15,8 @@ import { ForgeReviewState } from "./forge-review.ts";
 import { ForgeCheckOperations, ForgeCheckResults } from "./forge-checks.ts";
 import { ForgeFileContentOperations, ForgeFileContentResults } from "./forge-file-content.ts";
 import { z } from "zod";
+import { ForgeCommit, ForgeFile } from "./forge-changes.ts";
+import { ForgeNewPrOperations, ForgeNewPrResults } from "./forge-new-pr.ts";
 import { ForgePrRef, ForgePrStatus, ForgeRepository } from "./forge.ts";
 import { WorkspaceId, ThreadId } from "./ids.ts";
 
@@ -177,29 +179,7 @@ export const ForgePrDetail = z.object({
   relatedThreadsTruncated: z.boolean(),
 });
 export type ForgePrDetail = z.infer<typeof ForgePrDetail>;
-export const ForgeCommit = z.object({
-  raw: z.unknown().optional(),
-  sha,
-  message: text,
-  author: text,
-  authorAvatarUrl: text.optional(),
-  additions: z.number().int().nonnegative().optional(),
-  deletions: z.number().int().nonnegative().optional(),
-  date: text.nullable(),
-  url: text,
-});
-export type ForgeCommit = z.infer<typeof ForgeCommit>;
-export const ForgeFile = z.object({
-  raw: z.unknown().optional(),
-  path: text,
-  previousPath: text.optional(),
-  status: text,
-  additions: z.number().int().nonnegative(),
-  deletions: z.number().int().nonnegative(),
-  patch: z.string().max(262_144).nullable(),
-  truncated: z.boolean(),
-});
-export type ForgeFile = z.infer<typeof ForgeFile>;
+export { ForgeCommit, ForgeFile } from "./forge-changes.ts";
 export const ForgePrFiles = z.object({
   ref: ForgePrRef,
   baseSha: sha,
@@ -276,6 +256,7 @@ export const ForgeBrowserOperations = [
     commit: sha.optional(),
   }),
   ...ForgeCheckOperations,
+  ...ForgeNewPrOperations,
 ] as const;
 export const ForgeBrowserResult = z.discriminatedUnion("resource", [
   z.object({ resource: z.literal("prLifecycle"), value: ForgeLifecycleState }),
@@ -322,6 +303,7 @@ export const ForgeBrowserResult = z.discriminatedUnion("resource", [
   }),
   z.object({ resource: z.literal("prFiles"), value: ForgePrFiles }),
   ...ForgeCheckResults,
+  ...ForgeNewPrResults,
 ]);
 export type ForgeBrowserResult = z.infer<typeof ForgeBrowserResult>;
 export type ForgeBrowserOperation = z.infer<(typeof ForgeBrowserOperations)[number]>;

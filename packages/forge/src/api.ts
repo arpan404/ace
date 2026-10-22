@@ -8,6 +8,11 @@ import type {
 } from "@ace/protocol/forge";
 import type { StatusRevisions } from "./revisions.ts";
 export type MergeMethod = "merge" | "squash" | "rebase";
+/**
+ * The repository a PR's head branch lives in: this one, or a fork in its network. Owner alone
+ * can't tell a same-owner fork (`acme/ace-fork` of `acme/ace`) from the parent.
+ */
+export type PrHead = { owner: string; name: string };
 export interface Forge {
   readonly repository: ForgeRepository;
   readonly revisions?: StatusRevisions;
@@ -22,13 +27,13 @@ export interface Forge {
     branch: string,
     base: string,
     signal: AbortSignal,
-    headOwner?: string,
+    head?: PrHead,
   ): Promise<ForgePrRef | null>;
   createPr(
     threadId: string,
     input: ForgeCreatePrInput,
     signal: AbortSignal,
-    headOwner?: string,
+    head?: PrHead,
   ): Promise<ForgePrRef>;
   replyComment(number: number, commentId: number, body: string, signal: AbortSignal): Promise<void>;
   requestReviews(number: number, reviewers: string[], signal: AbortSignal): Promise<void>;

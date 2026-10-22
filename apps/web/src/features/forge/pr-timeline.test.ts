@@ -341,3 +341,21 @@ test("a conversation whose first comment wasn't read still shows, at its first c
   const threads = prTimelineItems(shown, [], [], "oldest").filter((item) => item.kind === "thread");
   expect(threads.map((item) => [item.id, item.at])).toEqual([["thread:T7", reply.createdAt]]);
 });
+
+const said = (name: string, subject?: string) =>
+  eventText({
+    id: name,
+    event: name,
+    actor: "octo",
+    at: null,
+    raw: {},
+    ...(subject ? { subject } : {}),
+  });
+
+test("branch, lock and milestone events read as what happened, with the lock's reason", () => {
+  expect(said("locked", "too heated")).toBe("locked the conversation as too heated");
+  expect(said("locked")).toBe("locked the conversation");
+  expect(said("head_ref_restored")).toBe("restored the branch");
+  expect(said("milestoned", "October polish")).toBe("added this to the milestone October polish");
+  expect(said("connected")).toBe("linked an issue");
+});

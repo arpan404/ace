@@ -45,12 +45,27 @@ const Context = createContext<{
   batch: readonly number[];
   toggleBatch(commentId: number): void;
   clearBatch(): void;
+  /** The conversation is locked to this account: comments, reviews and reactions are refused. */
+  commentsLocked: boolean;
 } | null>(null);
+/** What a locked conversation refuses from someone who can't push. */
+const lockedKinds: ReadonlySet<ForgeReviewAction["kind"]> = new Set([
+  "conversation",
+  "reply",
+  "line.comment",
+  "submit",
+  "draft.save",
+  "comment.edit",
+  "reaction.add",
+  "reaction.remove",
+]);
 export function PrReviewWorkspace(props: {
   workspaceId: string;
   detail: ForgePrDetail;
   onRefresh(): void;
   disabled?: boolean;
+  /** A locked conversation this account can't comment on. */
+  commentsLocked?: boolean;
   header?: ReactNode;
   children: ReactNode;
 }) {
@@ -96,9 +111,14 @@ export function PrReviewWorkspace(props: {
   });
   const refetch = query.refetch;
   const disabled = props.disabled ?? false;
+  const commentsLocked = props.commentsLocked ?? false;
   const run = useCallback(
     async (action: ForgeReviewAction) => {
       if (action.kind !== "reconcile" && (disabled || pending || !ready)) return false;
+      if (commentsLocked && lockedKinds.has(action.kind)) {
+        setMessage("This conversation is locked. Only collaborators who can push can comment.");
+        return false;
+      }
       setPending(true);
       setMessage("Waiting for GitHub…");
       try {
@@ -128,7 +148,7 @@ export function PrReviewWorkspace(props: {
         setPending(false);
       }
     },
-    [client, workspaceId, pr, refetch, disabled, pending, ready],
+    [client, workspaceId, pr, refetch, disabled, commentsLocked, pending, ready],
   );
   const toggleBatch = useCallback(
     (id: number) =>
@@ -147,8 +167,9 @@ export function PrReviewWorkspace(props: {
       batch,
       toggleBatch,
       clearBatch,
+      commentsLocked,
     }),
-    [query.data, pending, ready, run, disabled, batch, toggleBatch, clearBatch],
+    [query.data, pending, ready, run, disabled, batch, toggleBatch, clearBatch, commentsLocked],
   );
   const uncertain = (query.data?.operations ?? []).filter((op) => op.state === "uncertain");
   return (

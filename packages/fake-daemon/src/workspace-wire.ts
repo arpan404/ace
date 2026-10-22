@@ -85,10 +85,27 @@ export class FakeWorkspaceWire {
   mergePullRequest(number: number): void {
     this.pullRequests.mergeNumber(number);
   }
+  /**
+   * A seeded read asked for with the repository named, as a link from a PR page asks: the
+   * catalog seeds `acme/ace`'s reads without it.
+   */
+  private withoutRepository(op: WorkspaceActionRequest["operation"]) {
+    if (!("repository" in op) || !op.repository || op.repository.name !== "ace") return undefined;
+    const { repository: _repository, ...rest } = op;
+    return this.forgeReads.get(JSON.stringify(rest));
+  }
+  /** An issue's title, as the seeded issue reads have it. */
+  private issueTitle(number: number): string | undefined {
+    for (const read of this.forgeReads.values())
+      if (read.resource === "issueDetail" && read.value.ref.number === number)
+        return read.value.title;
+    return undefined;
+  }
   private seededRead(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
     return (
       this.issues.read(op) ??
       this.forgeReads.get(JSON.stringify(op)) ??
+      this.withoutRepository(op) ??
       (op.op === "forge.issue.list" ? catalogIssueList(op, this.forgeReads) : undefined) ??
       this.pullRequests.groupCounts(op, this.forgeReads) ??
       emptyIssueList(op)
@@ -255,8 +272,12 @@ export class FakeWorkspaceWire {
       });
     }
     const catalogued =
-      op.op.startsWith("forge.pr.") && !this.forgeReads.has(JSON.stringify(op))
-        ? this.pullRequests.read(op)
+      (op.op.startsWith("forge.pr.") ||
+        op.op === "forge.repo.pr-options" ||
+        op.op === "forge.repo.milestones" ||
+        op.op === "forge.compare") &&
+      !this.forgeReads.has(JSON.stringify(op))
+        ? this.pullRequests.read(op, this.context.now())
         : undefined;
     if (catalogued)
       return ServerMessage.parse({
@@ -357,6 +378,12 @@ export class FakeWorkspaceWire {
     const merged =
       this.pullRequests.merge(payload) ??
       this.pullRequests.mergeState(payload) ??
+      this.pullRequests.lifecycle(
+        payload,
+        (number) => this.issueTitle(number),
+        this.context.now(),
+      ) ??
+      this.pullRequests.create(payload, this.context.now()) ??
       (this.scriptedReview(payload) ? undefined : this.pullRequests.review(payload, commandId));
     if (merged) return merged;
     const project = this.projects.command(payload);

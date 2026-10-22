@@ -33,6 +33,18 @@
               "maxItems": 100,
               "type": "array"
             },
+            "milestone": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "title": {
               "maxLength": 256,
               "minLength": 1,
@@ -144,6 +156,113 @@
         "kind",
         "title",
         "body"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "lock",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/ForgeLockReason.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "unlock",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "branch.delete",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "branch.restore",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "issue": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "issue.link",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "issue"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "issue": {
+          "properties": {
+            "number": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            }
+          },
+          "required": [
+            "repository",
+            "number"
+          ],
+          "type": "object"
+        },
+        "kind": {
+          "const": "issue.unlink",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "issue"
       ],
       "type": "object"
     }

@@ -7,6 +7,7 @@ import {
   ForgeReviewState,
   type ForgeRepository,
 } from "@ace/protocol";
+import { withManagement } from "./pr-management.ts";
 
 /*
  * The full pull request views the design's PR panel opens, one for each state it has to look
@@ -89,27 +90,36 @@ export const mergeState = (headSha: string, patchState: Partial<ForgeMergeState>
     ...patchState,
   });
 export const lifecycle = (detail: ForgePrDetail, actions: string[]) =>
-  ForgeLifecycleState.parse({
-    snapshot: {
-      pr: detail.status.ref,
-      id: `PR_${detail.status.ref.number}`,
-      version: detail.status.ref.number.toString(16).padStart(64, "a"),
-      headSha: detail.status.headSha,
-      baseSha: detail.baseSha,
-      state: detail.status.state === "unknown" ? "open" : detail.status.state,
-      metadata: {
-        title: detail.status.title,
-        body: detail.body,
-        baseBranch: detail.baseBranch,
-        labels: detail.labels,
-        assignees: [],
+  withManagement(
+    ForgeLifecycleState.parse({
+      snapshot: {
+        pr: detail.status.ref,
+        id: `PR_${detail.status.ref.number}`,
+        version: detail.status.ref.number.toString(16).padStart(64, "a"),
+        headSha: detail.status.headSha,
+        baseSha: detail.baseSha,
+        state: detail.status.state === "unknown" ? "open" : detail.status.state,
+        metadata: {
+          title: detail.status.title,
+          body: detail.body,
+          baseBranch: detail.baseBranch,
+          labels: detail.labels,
+          assignees: [],
+        },
+        editableFields: detail.status.state === "merged" ? [] : ["title", "body", "labels"],
+        actions,
+        unsupported: [],
+        headBranch: {
+          name: detail.headBranch,
+          exists: true,
+          sameRepository: true,
+          isDefault: false,
+          deleteOnMerge: false,
+        },
       },
-      editableFields: detail.status.state === "merged" ? [] : ["title", "body", "labels"],
-      actions,
-      unsupported: [],
-    },
-    operations: [],
-  });
+      operations: [],
+    }),
+  );
 /** The account `gh` is signed in as in the fake app. */
 export const viewer = "you";
 /**
@@ -510,7 +520,8 @@ function merged(now: number): PullRequestFixture {
     ForgeActivity.parse({ id, event: name, actor, at: iso(at), raw: {} });
   return {
     detail,
-    lifecycle: lifecycle(detail, ["revert"]),
+    // Its branch also heads another open PR, so GitHub would close that one with it.
+    lifecycle: withManagement(lifecycle(detail, ["revert"]), { usedBy: [233] }),
     review: review(headSha, false, { detail }),
     files: [
       file("apps/daemon/src/providers/codex/app-server.ts", 212, 180),

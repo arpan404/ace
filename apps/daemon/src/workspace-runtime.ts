@@ -428,7 +428,11 @@ export class WorkspaceRuntime {
       op.op === "forge.pr.commits" ||
       op.op === "forge.pr.files" ||
       op.op === "forge.pr.check" ||
-      op.op === "forge.file.content"
+      op.op === "forge.file.content" ||
+      op.op === "forge.pr.new-context" ||
+      op.op === "forge.repo.pr-options" ||
+      op.op === "forge.repo.milestones" ||
+      op.op === "forge.compare"
     ) {
       if (
         op.op === "forge.pr.stack" &&
@@ -633,6 +637,11 @@ export class WorkspaceRuntime {
         const cwd = this.store.getWorkspacePath(p.workspaceId);
         if (!cwd) return commandNotDispatched(command, "workspace_not_found");
         return this.forge.hostedMerge({ ...command, payload: p }, cwd, allowed);
+      }
+      if (p.type === "forge.hosted.pr.create") {
+        const cwd = this.store.getWorkspacePath(p.workspaceId);
+        if (!cwd) return commandNotDispatched(command, "workspace_not_found");
+        return this.forge.hostedPrCreate({ ...command, payload: p }, cwd, allowed);
       }
       if (p.type === "forge.hosted.checks") {
         const cwd = this.store.getWorkspacePath(p.workspaceId);

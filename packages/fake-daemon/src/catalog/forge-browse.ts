@@ -14,6 +14,7 @@ import {
   review,
   type PullRequestFixture,
 } from "./pull-request-details.ts";
+import { catalogMilestones, closingIssue, withManagement } from "./pr-management.ts";
 
 /*
  * The Pull requests view's lists for the design's main repository: pull requests in every state
@@ -251,7 +252,38 @@ export function browsePullRequests(now: number): PullRequestFixture[] {
       files: [["packages/history-import/src/worker.ts", 88, 12]],
     },
   ];
-  return sketches.map((pr) => sketched(now, pr));
+  return sketches.map((pr) => managedSketch(sketched(now, pr)));
+}
+
+/**
+ * The PR management states the pages have to show: #233 sits in a milestone and closes #240
+ * through its description; #224's conversation is locked against this account's comments.
+ */
+function managedSketch(fixture: PullRequestFixture): PullRequestFixture {
+  const ref = fixture.detail.status.ref;
+  if (ref.number === 233)
+    return {
+      ...fixture,
+      lifecycle: withManagement(fixture.lifecycle, {
+        milestone: catalogMilestones[0] ?? null,
+        closingIssues: [
+          closingIssue(
+            ref.repository,
+            240,
+            "Sidebar loses its scroll position after archiving",
+            false,
+          ),
+        ],
+      }),
+    };
+  if (ref.number === 224)
+    return {
+      ...fixture,
+      lifecycle: withManagement(fixture.lifecycle, {
+        locked: { reason: "too_heated", viewerCanComment: false },
+      }),
+    };
+  return fixture;
 }
 
 /** Whole pull requests of `acme/ace` from sketches, for a scenario's own catalog. */

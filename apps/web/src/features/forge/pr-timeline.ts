@@ -81,12 +81,23 @@ export function eventText(event: ForgeActivity): string {
     review_request_removed: "removed review request for",
     head_ref_force_pushed: "force-pushed the branch",
     head_ref_deleted: "deleted the branch",
+    head_ref_restored: "restored the branch",
+    locked: "locked the conversation",
+    unlocked: "unlocked the conversation",
+    milestoned: "added this to the milestone",
+    demilestoned: "removed this from the milestone",
+    connected: "linked an issue",
+    disconnected: "unlinked an issue",
     ready_for_review: "marked ready for review",
     convert_to_draft: "converted to draft",
     renamed: "renamed the pull request",
     committed: "added a commit",
   };
-  return `${titles[event.event] ?? event.event.replaceAll("_", " ")}${event.subject ? ` ${event.subject}` : ""}`;
+  const title = titles[event.event] ?? event.event.replaceAll("_", " ");
+  // A lock's subject is its reason: "locked the conversation as too heated".
+  if (event.event === "locked" && event.subject)
+    return `${title} as ${event.subject.replaceAll("-", " ")}`;
+  return `${title}${event.subject ? ` ${event.subject}` : ""}`;
 }
 
 /* Grouped timeline: what the Timeline tab renders, one item per row. */

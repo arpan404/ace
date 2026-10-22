@@ -168,6 +168,7 @@ export * from "./forge-stacks.ts";
 export * from "./forge-review.ts";
 export * from "./forge-checks.ts";
 export * from "./forge-hosted-merge.ts";
+export * from "./forge-new-pr.ts";
 export * from "./hosted-repositories.ts";
 
 export * from "./cli-control.ts";

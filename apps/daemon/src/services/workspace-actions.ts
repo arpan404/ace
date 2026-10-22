@@ -179,6 +179,7 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
             p.type !== "forge.hosted.checks" &&
             p.type !== "forge.hosted.merge" &&
             p.type !== "forge.hosted.merge-state" &&
+            p.type !== "forge.hosted.pr.create" &&
             (!id || !canReadThread(ThreadId.parse(id))))
         ) {
           send({
@@ -276,6 +277,7 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
               p.type === "forge.hosted.checks" ||
               p.type === "forge.hosted.merge" ||
               p.type === "forge.hosted.merge-state" ||
+              p.type === "forge.hosted.pr.create" ||
               (id !== undefined && canReadThread(ThreadId.parse(id)))),
         );
         if (connected()) send({ type: "commandResult", ...result });

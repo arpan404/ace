@@ -108,3 +108,64 @@ test("clearing labels sends an empty set and missing field permission prevents e
   await userEvent.click(screen.getByRole("button", { name: "Save PR metadata" }));
   await waitFor(() => expect(submitted).toEqual({ kind: "edit", changes: { labels: [] } }));
 });
+
+const milestoned = ForgeLifecycleSnapshot.parse({
+  ...snapshot,
+  metadata: { ...snapshot.metadata, milestone: 3 },
+  editableFields: [...snapshot.editableFields, "milestone"],
+  milestone: { number: 3, title: "October polish", state: "open", dueOn: null },
+});
+const milestones = [
+  { number: 3, title: "October polish", state: "open" as const, dueOn: null },
+  { number: 4, title: "Mobile beta", state: "open" as const, dueOn: null },
+];
+
+test("clearing the milestone saves it as none, against the version it was chosen from", async () => {
+  const sent: { action: ForgeLifecycleAction; version: string }[] = [];
+  render(
+    <PrMetadataEditor
+      snapshot={milestoned}
+      disabled={false}
+      milestones={milestones}
+      apply={async (action, version) => {
+        sent.push({ action, version });
+        return true;
+      }}
+    />,
+  );
+  await userEvent.click(screen.getByRole("combobox", { name: "Milestone" }));
+  await userEvent.click(await screen.findByRole("option", { name: "No milestone" }));
+  await userEvent.click(screen.getByRole("button", { name: "Save PR metadata" }));
+  await waitFor(() =>
+    expect(sent).toEqual([
+      { action: { kind: "edit", changes: { milestone: null } }, version: "a".repeat(64) },
+    ]),
+  );
+});
+
+test("a new base and a new milestone save as two writes, the milestone against the PR as it is after the first", async () => {
+  const first: ForgeLifecycleAction[] = [];
+  const latest: ForgeLifecycleAction[] = [];
+  render(
+    <PrMetadataEditor
+      snapshot={milestoned}
+      disabled={false}
+      milestones={milestones}
+      apply={async (action) => {
+        first.push(action);
+        return true;
+      }}
+      applyLatest={async (action) => {
+        latest.push(action);
+        return true;
+      }}
+    />,
+  );
+  await userEvent.clear(screen.getByRole("textbox", { name: "Base branch" }));
+  await userEvent.type(screen.getByRole("textbox", { name: "Base branch" }), "release");
+  await userEvent.click(screen.getByRole("combobox", { name: "Milestone" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Mobile beta" }));
+  await userEvent.click(screen.getByRole("button", { name: "Save PR metadata" }));
+  await waitFor(() => expect(latest).toEqual([{ kind: "edit", changes: { milestone: 4 } }]));
+  expect(first).toEqual([{ kind: "edit", changes: { baseBranch: "release" } }]);
+});

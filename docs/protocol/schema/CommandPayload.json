@@ -723,6 +723,9 @@
       "$ref": "https://ace.local/protocol/v1/ForgeHostedMergeStateCommand.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ForgeHostedPrCreateCommand.json"
+    },
+    {
       "properties": {
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
@@ -1275,6 +1278,9 @@
           ],
           "type": "string"
         },
+        "commit": {
+          "$ref": "https://ace.local/protocol/v1/ForgeMergeCommit.json"
+        },
         "headSha": {
           "pattern": "^[a-fA-F0-9]{40,64}$",
           "type": "string"
@@ -1506,6 +1512,9 @@
     },
     {
       "properties": {
+        "commit": {
+          "$ref": "https://ace.local/protocol/v1/ForgeMergeCommit.json"
+        },
         "headSha": {
           "type": "string"
         },

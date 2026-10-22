@@ -168,6 +168,7 @@ export function PrPrimaryControl(props: { actions: PrActions }) {
       blocked={actions.primaryBlocked}
       working={working}
       onRun={() => void actions.runPrimary()}
+      confirmsItself={actions.editsCommit}
       onDisable={() => void actions.mergeState.run("disable", actions.method)}
       disableBlocked={
         actions.mergeState.blocked ??

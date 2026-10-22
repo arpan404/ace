@@ -49,6 +49,7 @@ import { Route as SettingsRemoteMachineRouteImport } from "./routes/settings.rem
 import { Route as HomeIssuesProjectNumberRouteImport } from "./routes/_home.issues_.$project.$number"
 import { Route as HomeIssuesProjectNewRouteImport } from "./routes/_home.issues_.$project.new"
 import { Route as HomePullsProjectNumberRouteImport } from "./routes/_home.pulls_.$project.$number"
+import { Route as HomePullsProjectNewRouteImport } from "./routes/_home.pulls_.$project.new"
 import { Route as HomeTThreadIdForkRouteImport } from "./routes/_home.t.$threadId_.fork"
 import { Route as HomeTThreadIdAgentsAgentIdRouteImport } from "./routes/_home.t.$threadId_.agents.$agentId"
 
@@ -254,6 +255,11 @@ const HomePullsProjectNumberRoute = HomePullsProjectNumberRouteImport.update({
   path: "/pulls/$project/$number",
   getParentRoute: () => HomeRoute,
 } as any)
+const HomePullsProjectNewRoute = HomePullsProjectNewRouteImport.update({
+  id: "/pulls_/$project/new",
+  path: "/pulls/$project/new",
+  getParentRoute: () => HomeRoute,
+} as any)
 const HomeTThreadIdForkRoute = HomeTThreadIdForkRouteImport.update({
   id: "/t/$threadId_/fork",
   path: "/t/$threadId/fork",
@@ -306,6 +312,7 @@ export interface FileRoutesByFullPath {
   "/issues/$project/$number": typeof HomeIssuesProjectNumberRoute
   "/issues/$project/new": typeof HomeIssuesProjectNewRoute
   "/pulls/$project/$number": typeof HomePullsProjectNumberRoute
+  "/pulls/$project/new": typeof HomePullsProjectNewRoute
   "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
@@ -346,6 +353,7 @@ export interface FileRoutesByTo {
   "/issues/$project/$number": typeof HomeIssuesProjectNumberRoute
   "/issues/$project/new": typeof HomeIssuesProjectNewRoute
   "/pulls/$project/$number": typeof HomePullsProjectNumberRoute
+  "/pulls/$project/new": typeof HomePullsProjectNewRoute
   "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
@@ -391,6 +399,7 @@ export interface FileRoutesById {
   "/_home/issues_/$project/$number": typeof HomeIssuesProjectNumberRoute
   "/_home/issues_/$project/new": typeof HomeIssuesProjectNewRoute
   "/_home/pulls_/$project/$number": typeof HomePullsProjectNumberRoute
+  "/_home/pulls_/$project/new": typeof HomePullsProjectNewRoute
   "/_home/t/$threadId_/fork": typeof HomeTThreadIdForkRoute
   "/_home/t/$threadId_/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
@@ -436,6 +445,7 @@ export interface FileRouteTypes {
     | "/issues/$project/$number"
     | "/issues/$project/new"
     | "/pulls/$project/$number"
+    | "/pulls/$project/new"
     | "/t/$threadId/fork"
     | "/t/$threadId/agents/$agentId"
   fileRoutesByTo: FileRoutesByTo
@@ -476,6 +486,7 @@ export interface FileRouteTypes {
     | "/issues/$project/$number"
     | "/issues/$project/new"
     | "/pulls/$project/$number"
+    | "/pulls/$project/new"
     | "/t/$threadId/fork"
     | "/t/$threadId/agents/$agentId"
   id:
@@ -520,6 +531,7 @@ export interface FileRouteTypes {
     | "/_home/issues_/$project/$number"
     | "/_home/issues_/$project/new"
     | "/_home/pulls_/$project/$number"
+    | "/_home/pulls_/$project/new"
     | "/_home/t/$threadId_/fork"
     | "/_home/t/$threadId_/agents/$agentId"
   fileRoutesById: FileRoutesById
@@ -816,6 +828,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof HomePullsProjectNumberRouteImport
       parentRoute: typeof HomeRoute
     }
+    "/_home/pulls_/$project/new": {
+      id: "/_home/pulls_/$project/new"
+      path: "/pulls/$project/new"
+      fullPath: "/pulls/$project/new"
+      preLoaderRoute: typeof HomePullsProjectNewRouteImport
+      parentRoute: typeof HomeRoute
+    }
     "/_home/t/$threadId_/fork": {
       id: "/_home/t/$threadId_/fork"
       path: "/t/$threadId/fork"
@@ -844,6 +863,7 @@ interface HomeRouteChildren {
   HomeIssuesProjectNumberRoute: typeof HomeIssuesProjectNumberRoute
   HomeIssuesProjectNewRoute: typeof HomeIssuesProjectNewRoute
   HomePullsProjectNumberRoute: typeof HomePullsProjectNumberRoute
+  HomePullsProjectNewRoute: typeof HomePullsProjectNewRoute
   HomeTThreadIdForkRoute: typeof HomeTThreadIdForkRoute
   HomeTThreadIdAgentsAgentIdRoute: typeof HomeTThreadIdAgentsAgentIdRoute
 }
@@ -859,6 +879,7 @@ const HomeRouteChildren: HomeRouteChildren = {
   HomeIssuesProjectNumberRoute: HomeIssuesProjectNumberRoute,
   HomeIssuesProjectNewRoute: HomeIssuesProjectNewRoute,
   HomePullsProjectNumberRoute: HomePullsProjectNumberRoute,
+  HomePullsProjectNewRoute: HomePullsProjectNewRoute,
   HomeTThreadIdForkRoute: HomeTThreadIdForkRoute,
   HomeTThreadIdAgentsAgentIdRoute: HomeTThreadIdAgentsAgentIdRoute,
 }

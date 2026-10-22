@@ -537,6 +537,97 @@
         },
         {
           "properties": {
+            "op": {
+              "const": "forge.pr.new-context",
+              "type": "string"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "forge.repo.pr-options",
+              "type": "string"
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "forge.repo.milestones",
+              "type": "string"
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "base": {
+              "$ref": "https://ace.local/protocol/v1/ForgeBranchName.json"
+            },
+            "head": {
+              "$ref": "https://ace.local/protocol/v1/ForgeCompareHead.json"
+            },
+            "headSha": {
+              "pattern": "^[a-fA-F0-9]{40,64}$",
+              "type": "string"
+            },
+            "op": {
+              "const": "forge.compare",
+              "type": "string"
+            },
+            "page": {
+              "default": 1,
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId",
+            "base",
+            "head"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "after": {
               "maxLength": 128,
               "minLength": 1,

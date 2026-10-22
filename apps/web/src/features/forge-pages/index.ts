@@ -9,3 +9,4 @@ export { InboxPage } from "./inbox-page.tsx";
 export type { PullsSearch } from "./pulls-model.ts";
 export type { IssuesSearch } from "./issues-model.ts";
 export type { InboxSearch } from "./inbox-model.ts";
+export { NewPullRequestPage } from "./new-pr-page.tsx";

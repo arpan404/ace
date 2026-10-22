@@ -8,6 +8,7 @@ import {
   sha,
   nextSha,
 } from "./testing/fixtures.ts";
+import { extraFixtures, extraRecord } from "./testing/lifecycle-extra-fixtures.ts";
 const signal = () => new AbortController().signal;
 const allowed = () => true;
 const beforeWrite = new WriteDispatch();
@@ -441,6 +442,35 @@ test("an acknowledged lifecycle write retains uncertainty after the transport re
       ),
     ).rejects.toMatchObject({ kind: "outcome_uncertain" });
     expect(dispatch.definitelyFailed).toBe(false);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a milestone change with a base change is refused before anything is sent", async () => {
+  const f = await fakeGh(
+    extraFixtures([
+      extraRecord({ milestone: { number: 1, title: "v1", state: "OPEN", dueOn: null } }),
+    ]),
+  );
+  try {
+    const state = await f.forge.lifecycle.snapshot(7, signal());
+    await expect(
+      f.forge.lifecycle.apply(
+        7,
+        state.version,
+        { kind: "edit", changes: { milestone: null, baseBranch: "release" } },
+        "edit",
+        signal(),
+        allowed,
+        beforeWrite,
+      ),
+    ).rejects.toMatchObject({ kind: "invalid_data" });
+    expect(
+      (await f.requests()).some(
+        (r) => r.args.includes("PATCH") || JSON.stringify(r.body).includes("mutation("),
+      ),
+    ).toBe(false);
   } finally {
     await f.cleanup();
   }

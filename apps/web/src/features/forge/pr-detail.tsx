@@ -35,6 +35,8 @@ import { PrSuggestionBatch } from "./pr-suggestions.tsx";
 import { usePrActions } from "./pr-actions.ts";
 import { PrOverflowMenu } from "./pr-overflow-menu.tsx";
 import { PrDialogs, type PrDialog } from "./pr-dialogs.tsx";
+import { PrDetails } from "./pr-details.tsx";
+import { PrMergeCommitDialog } from "./pr-merge-commit.tsx";
 import { PrWriteStatus } from "./pr-write-status.tsx";
 import { PrFailure } from "./pr-detail-states.tsx";
 import { PrPageSkeleton, type PrSeed } from "./pr-page-skeleton.tsx";
@@ -215,11 +217,13 @@ function PrDetailLoaded(props: {
   const readable = props.page ? pageWidth : undefined;
   const { detail } = context;
   const [dialog, setDialog] = useState<PrDialog>();
+  const [commitWhen, setCommitWhen] = useState<"now" | "auto">();
   const actions = usePrActions({
     context,
     extensions: props.extensions,
     hostThreadId: props.hostThreadId,
     openConflicts: () => setDialog("conflicts"),
+    editCommit: setCommitWhen,
   });
   const [behindOpen, setBehindOpen] = useState(false);
   const [revealChecks, setRevealChecks] = useState(0);
@@ -292,8 +296,14 @@ function PrDetailLoaded(props: {
       onEdit={() => setDialog("edit")}
       onRevert={() => setDialog("revert")}
       onRequestReview={() => setDialog("review")}
+      onLock={() => setDialog("lock")}
+      onLinkIssue={() => setDialog("link-issue")}
+      onDeleteBranch={() => setDialog("delete-branch")}
     />
   );
+  // A locked conversation takes comments only from collaborators who can push.
+  const conversation = actions.lifecycle.snapshot?.conversation;
+  const lockedOut = !!conversation?.locked && !conversation.viewerCanComment;
   const canRequestReview = detail.status.state === "open";
   return (
     // Shortcuts work anywhere in the panel; `contents` keeps the layout the article's. On a
@@ -311,6 +321,7 @@ function PrDetailLoaded(props: {
             workspaceId={context.workspaceId}
             detail={detail}
             disabled={context.disabled}
+            commentsLocked={lockedOut}
             onRefresh={refresh}
             header={
               <div>
@@ -407,6 +418,7 @@ function PrDetailLoaded(props: {
                     onOpenCode={openCode}
                     onRequestReview={canRequestReview ? () => setDialog("review") : undefined}
                     onEdit={editable ? () => setDialog("edit") : undefined}
+                    details={<PrDetails actions={actions} onDialog={setDialog} />}
                   />
                 ),
                 timeline: (
@@ -434,6 +446,11 @@ function PrDetailLoaded(props: {
               hostThreadId={props.hostThreadId}
               open={dialog}
               onClose={() => setDialog(undefined)}
+            />
+            <PrMergeCommitDialog
+              actions={actions}
+              when={commitWhen}
+              onClose={() => setCommitWhen(undefined)}
             />
           </PrReviewWorkspace>
         </PrQuoteProvider>

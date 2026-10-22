@@ -1,5 +1,5 @@
 import { SourceControlContext } from "./source-control-draft.ts";
-import { ForgeMergeState } from "./forge-merge-state.ts";
+import { ForgeMergeCommit, ForgeMergeState } from "./forge-merge-state.ts";
 import { ForgeStackExpected } from "./forge-stacks.ts";
 import { z } from "zod";
 
@@ -148,6 +148,8 @@ export const ForgeCommand = z.discriminatedUnion("type", [
     headSha: z.string().regex(/^[a-fA-F0-9]{40,64}$/),
     action: z.enum(["enable", "disable", "dequeue"]),
     method: z.enum(["merge", "squash", "rebase"]),
+    /** The commit auto-merge writes; only with `enable` and a merge or squash. */
+    commit: ForgeMergeCommit.optional(),
   }),
   z.object({
     type: z.literal("forge.pr.stack.change"),
@@ -200,6 +202,8 @@ export const ForgeCommand = z.discriminatedUnion("type", [
     link: ForgeThreadLink,
     headSha: z.string(),
     method: z.enum(["merge", "squash", "rebase"]),
+    /** The merge or squash commit's title and message; GitHub's own when absent. */
+    commit: ForgeMergeCommit.optional(),
   }),
   z.object({
     type: z.literal("forge.pr.auto-merge"),

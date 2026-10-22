@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrAttention } from "./pr-attention.tsx";
 import { PrPeople } from "./pr-people.tsx";
@@ -27,6 +28,8 @@ export function PrSummary(props: {
   onRequestReview: (() => void) | undefined;
   /** Opens the details editor, when GitHub lets this account edit them. */
   onEdit: (() => void) | undefined;
+  /** The milestone, linked issues, lock and branch, under the reviewers. */
+  details?: ReactNode;
 }) {
   const { context } = props;
   const { detail } = context;
@@ -44,6 +47,7 @@ export function PrSummary(props: {
         onRequestReview={props.onRequestReview}
         onEdit={props.onEdit}
       />
+      {props.details}
       <PrChangesGlance
         workspaceId={context.workspaceId}
         detail={detail}

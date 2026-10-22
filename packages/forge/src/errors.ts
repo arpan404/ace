@@ -14,6 +14,8 @@
  * - `conflict`: the resource changed under a guarded write (stale SHA, 409, stale read).
  * - `notifications_unavailable`: gh's sign-in can't read or change notifications (a token
  *   without the `notifications` or `repo` scope, a fine-grained token, an app token).
+ * - `branch_in_use`: another open PR has this branch as its head; deleting it would close it.
+ * - `branch_gone`: the branch to delete is already gone from the host.
  */
 export type ForgeErrorKind =
   | "not_found"
@@ -26,6 +28,8 @@ export type ForgeErrorKind =
   | "cancelled"
   | "unsupported"
   | "conflict"
+  | "branch_in_use"
+  | "branch_gone"
   | "no_commits"
   | "head_missing"
   | "base_missing"
