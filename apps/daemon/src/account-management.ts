@@ -20,6 +20,7 @@ import {
   type TerminalManagerOptions,
 } from "@ace/terminal";
 import {
+  accountProvider,
   antigravityIdentity,
   assertManagedHome,
   instanceEnv,
@@ -271,13 +272,7 @@ export class AccountManagement {
   summaries(provider: ManagedAccountProvider | ProviderInstance["provider"]) {
     return this.options.registry
       .summaries(this.options.now())
-      .filter((account) =>
-        provider === "antigravity"
-          ? account.provider === "acp" &&
-            account.acpAgentId === antigravityIdentity.acpAgentId &&
-            account.installationId === antigravityIdentity.installationId
-          : account.provider === provider,
-      );
+      .filter((account) => accountProvider(account) === provider);
   }
   providerOf(instanceId: string) {
     return this.options.registry.get(instanceId)?.instance.provider;

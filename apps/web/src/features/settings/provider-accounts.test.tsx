@@ -346,6 +346,17 @@ async function antigravityPage() {
     label: "Antigravity",
     isDefault: true,
   });
+  // The CLI login's catalog, so an account that signs in has models to list.
+  const template = services.models.find((entry) => entry.provider === "claude");
+  if (!template) throw new Error("Missing model fixture");
+  services.models.push({
+    ...template,
+    id: "gemini-3.8-flash",
+    nativeModelId: "gemini-3.8-flash",
+    displayName: "Gemini 3.8 Flash",
+    provider: "antigravity",
+    instance: "antigravity-cli-default",
+  });
   await app.open("/settings/providers");
   await userEvent.click(
     await screen.findByRole("link", { name: "Antigravity" }, { timeout: 10_000 }),
@@ -390,15 +401,26 @@ test("an Antigravity account added in Settings signs in on its own, beside the C
   );
   const work = await row("Work");
   expect(await row("Antigravity")).toBeTruthy();
-  expect((await listed()).find((entry) => entry.label === "Work")).toMatchObject({
+  const added = (await listed()).find((entry) => entry.label === "Work");
+  expect(added).toMatchObject({
     provider: "acp",
     homeStrategy: "managed",
     installationId: "antigravity-cli",
+    // Signed in on its own: it can run, and has a catalog of its own.
+    quota: { auth: "logged_in" },
   });
+  const models = await app.client.request({
+    type: "models.list",
+    options: { provider: "antigravity" },
+  });
+  if (!("models" in models.result)) throw new Error("Model list unavailable");
+  expect(
+    models.result.models.filter((entry) => entry.instance === added?.id).map((entry) => entry.id),
+  ).toEqual(["gemini-3.8-flash"]);
   expect(screen.queryByText(/keeps one sign-in/)).toBeNull();
 
-  await userEvent.click(within(work).getByRole("button", { name: "Manage Work" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Make default" }));
+  // Signed in, it offers Make default on its row.
+  await userEvent.click(within(work).getByRole("button", { name: "Make default" }));
   await waitFor(async () =>
     expect((await listed()).filter((entry) => entry.isDefault).map((entry) => entry.label)).toEqual(
       ["Work"],

@@ -142,10 +142,7 @@ function AccountItem(props: {
     ...(cliLogin ? {} : { instance: account.id }),
   };
   // Accounts ace added can be removed; a CLI's or agent's own login can't.
-  const removable =
-    native !== undefined &&
-    !account.implicit &&
-    (account.provider !== "acp" || isAddedAgentAccount(account));
+  const removable = native !== undefined && !account.implicit && account.acpHome !== "default_cli";
   const needsSignIn =
     state.text === "Signed out" ||
     state.text === "Not signed in yet" ||

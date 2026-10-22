@@ -4,6 +4,7 @@ import type { ProviderKind } from "@ace/protocol";
 import type { AccountQuota, AccountSummary } from "@ace/protocol/accounts";
 import type { z } from "zod";
 import type { ReadinessTone } from "./provider-readiness.ts";
+import { accountProvider } from "@ace/accounts/acp-instances";
 import { antigravityIdentity, providerDisplayName } from "./providers.ts";
 
 type Summary = z.infer<typeof AccountSummary>;
@@ -161,7 +162,7 @@ export function accountView(summary: Summary): AccountView {
     .map(({ rank: _rank, ...window }) => window);
   return {
     id: summary.id,
-    provider: summary.provider,
+    provider: accountProvider(summary),
     acpAgentId: summary.acpAgentId,
     ...(summary.installationId ? { installationId: summary.installationId } : {}),
     ...(summary.homeStrategy ? { acpHome: summary.homeStrategy } : {}),
@@ -251,25 +252,19 @@ export function isPlainCliLogin(account: {
   return named && (!account.shortLabel || account.badgeUsesInitial === true) && !account.badgeIcon;
 }
 
-/**
- * The accounts a provider's page and the model picker list. ace runs Antigravity through its ACP
- * agent, so Antigravity's are the ACP accounts of its own installation: its CLI login and the
- * accounts added to it, never another installation of the same agent.
- */
+/** The accounts a provider's page and the model picker list; an ACP agent's, by its agent. */
+export { accountProvider };
 export function providerAccountViews(
   accounts: readonly AccountView[],
   provider: ProviderKind,
   acpAgentId?: string,
 ): AccountView[] {
-  return accounts.filter((account) =>
-    provider === "antigravity"
-      ? account.provider === "acp" &&
-        account.acpAgentId === antigravityIdentity.acpAgentId &&
-        account.installationId === antigravityIdentity.installationId
-      : account.provider === provider && (provider !== "acp" || account.acpAgentId === acpAgentId),
+  return accounts.filter(
+    (account) =>
+      account.provider === provider && (provider !== "acp" || account.acpAgentId === acpAgentId),
   );
 }
 
 /** An account ace added for an agent, in its own home: it can be removed, unlike the CLI login. */
-export const isAddedAgentAccount = (account: Pick<AccountView, "provider" | "acpHome">) =>
-  account.provider === "acp" && account.acpHome === "managed";
+export const isAddedAgentAccount = (account: Pick<AccountView, "acpHome">) =>
+  account.acpHome === "managed";

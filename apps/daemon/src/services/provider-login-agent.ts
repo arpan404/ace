@@ -6,7 +6,10 @@ import {
   antigravityLaunch,
   registerAntigravityAccount,
 } from "./antigravity.ts";
-import { registerAntigravityAccountCatalog } from "./antigravity-accounts.ts";
+import {
+  isAddedAntigravityAccount,
+  registerAntigravityAccountCatalog,
+} from "./antigravity-accounts.ts";
 import {
   antigravityIdentity,
   createAcpInstance,
@@ -78,11 +81,11 @@ export async function prepareAgentLogin(
     target.provider === "antigravity" &&
     target.instance &&
     target.instance !== antigravityIdentity.instanceId &&
-    (added?.provider !== "acp" ||
-      added.homeStrategy !== "managed" ||
-      added.acpAgentId !== antigravityIdentity.acpAgentId)
+    !isAddedAntigravityAccount(added)
   )
     throw new Error("Agent unavailable");
+  // Its home must still be the private one ace made before the agent signs in there.
+  if (added) await registry.validateHome(added);
   const cliEnv = cli && "launch" in cli ? cli.launch.env : env;
   signal.throwIfAborted();
   const release =

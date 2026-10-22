@@ -1,4 +1,10 @@
-import { antigravityIdentity, instanceEnv, type AccountRegistry } from "@ace/accounts";
+import {
+  accountProvider,
+  antigravityIdentity,
+  instanceEnv,
+  type AccountRegistry,
+  type AccountService,
+} from "@ace/accounts";
 import type { ProviderAdapter } from "@ace/engine-api";
 import type { ProviderInstance } from "@ace/protocol/accounts";
 import type { ServiceContext } from "./types.ts";
@@ -12,10 +18,9 @@ import type { ServiceContext } from "./types.ts";
 /** Whether an account is one ace added to Antigravity. */
 export function isAddedAntigravityAccount(instance: ProviderInstance | undefined): boolean {
   return (
-    instance?.provider === "acp" &&
+    instance !== undefined &&
     instance.homeStrategy === "managed" &&
-    instance.acpAgentId === antigravityIdentity.acpAgentId &&
-    instance.installationId === antigravityIdentity.installationId
+    accountProvider(instance) === "antigravity"
   );
 }
 
@@ -34,18 +39,28 @@ export function antigravitySessionAccount(
   return instance;
 }
 
-/** Antigravity sessions on an added account start inside that account's home. */
+/**
+ * Antigravity sessions on an added account open through the accounts service, as native accounts
+ * do: inside the account's validated home, fenced while it signs in or changes, and counted, so
+ * a sign-in change stops them first and removal waits for them. The CLI login opens as before.
+ */
 export function withAntigravityAccounts(
   adapter: ProviderAdapter,
   registry: AccountRegistry | undefined,
+  accounts: AccountService | undefined,
 ): ProviderAdapter {
   return {
     ...adapter,
     async openSession(session) {
       const account = antigravitySessionAccount(registry, session.instanceId);
-      return adapter.openSession(
-        account ? { ...session, env: instanceEnv(account, session.env ?? process.env) } : session,
-      );
+      if (!account) return adapter.openSession(session);
+      if (!accounts) throw new Error("Antigravity accounts are unavailable");
+      const opened = await accounts.openSession(adapter, session, {
+        instanceId: account.id,
+        role: "worker",
+        estimatedLoad: 1,
+      });
+      return opened.session;
     },
   };
 }
@@ -72,20 +87,24 @@ export function registerAntigravityAccountCatalog(
   if (!models || !registry || !isAddedAntigravityAccount(instance)) return;
   if (registry.get(instance.id)?.quota.auth !== "logged_in") return;
   const env = instanceEnv(instance, { ...launch.env });
-  const method = registry.acpSignInMethod(instance.id);
-  models.registerInstance({
-    id: instance.id,
-    provider: "antigravity",
-    label: instance.label,
-    executable: launch.executable,
-    cwd: context.config.dataDir,
-    args: [...launch.args],
-    env: Object.fromEntries(
-      Object.entries(env).flatMap(([key, value]) => (value === undefined ? [] : [[key, value]])),
-    ),
-    loginRevision: `${launch.loginRevision}:${instance.loginRevision ?? "0"}`,
-    ...(method ? { signInMethod: method } : {}),
-  });
+  models.registerInstance(
+    {
+      id: instance.id,
+      provider: "antigravity",
+      label: instance.label,
+      executable: launch.executable,
+      cwd: context.config.dataDir,
+      args: [...launch.args],
+      env: Object.fromEntries(
+        Object.entries(env).flatMap(([key, value]) => (value === undefined ? [] : [[key, value]])),
+      ),
+      loginRevision: `${launch.loginRevision}:${instance.loginRevision ?? "0"}`,
+      // No sign-in method: if its login has lapsed, discovery reports it instead of asking the
+      // agent to sign in, which would open a browser nobody asked for.
+    },
+    // Discovery starts only in the account's own, still-private home.
+    () => registry.validateHome(instance),
+  );
 }
 
 /** Every signed-in added account's catalog, on the installation the provider runs. */

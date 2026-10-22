@@ -94,6 +94,7 @@ export async function registerAntigravity(
           : {}),
       }),
       accounts,
+      context.services.accounts,
     ),
     cli,
   );

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -11,11 +11,16 @@ import {
 } from "@ace/accounts";
 import { antigravityQuirks, createAcpAdapter } from "@ace/adapter-acp";
 import { createLogger } from "@ace/diagnostics";
+import { ModelCatalog, openModelStorage } from "@ace/models";
 import { ThreadId } from "@ace/protocol";
 import { createManagedHome } from "./account-homes.ts";
 import { readConfig } from "./config.ts";
-import { withAntigravityAccounts } from "./services/antigravity-accounts.ts";
+import {
+  registerAntigravityAccountCatalog,
+  withAntigravityAccounts,
+} from "./services/antigravity-accounts.ts";
 import { prepareAgentLogin } from "./services/provider-login-agent.ts";
+import { accountTransitions } from "./services/thread-transitions.ts";
 import { Resources } from "./services/resources.ts";
 import type { ServiceContext } from "./services/types.ts";
 import { Store } from "./store.ts";
@@ -63,13 +68,11 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     sink: { write: async () => {}, close: async () => {} },
   });
   let id = 0;
+  const accounts = new AccountService({ registry, env, now: () => 1000, timeZone: "UTC" });
   const context: ServiceContext = {
     config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }, home),
     options: { accounts: { env }, providerStatus: { env } },
-    services: {
-      accountRegistry: registry,
-      accounts: new AccountService({ registry, env, now: () => 1000, timeZone: "UTC" }),
-    },
+    services: { accountRegistry: registry, accounts },
     resources,
     store,
     now: () => 1000,
@@ -91,11 +94,31 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
         owner,
       ),
   });
+  const adapter = withAntigravityAccounts(
+    createAcpAdapter(antigravityQuirks, { command: join(bin, "agy_acp_server"), env }),
+    registry,
+    accounts,
+  );
   return {
     home,
     bin,
     env,
     registry,
+    accounts,
+    /** Open a thread's Antigravity session on an account; exits are what its thread hears. */
+    open(instanceId?: string, exits: { deliberate: boolean }[] = []) {
+      return adapter.openSession({
+        threadId: ThreadId.parse("thread-antigravity"),
+        cwd: home,
+        env,
+        ...(instanceId ? { instanceId } : {}),
+        signal: new AbortController().signal,
+        onFrame() {},
+        onExit(exit) {
+          exits.push(exit);
+        },
+      });
+    },
     /** Add an Antigravity account the way Settings does: its own home, then registered. */
     async add(label: string) {
       const instance = await createManagedHome(home, `account-${++id}`, "antigravity", label);
@@ -156,33 +179,112 @@ test("a thread on an added Antigravity account runs in its home; one whose accou
   const f = await antigravity();
   try {
     const work = await f.add("Work");
-    const adapter = withAntigravityAccounts(
-      createAcpAdapter(antigravityQuirks, { command: join(f.bin, "agy_acp_server"), env: f.env }),
-      f.registry,
-    );
-    const open = (instanceId?: string) =>
-      adapter.openSession({
-        threadId: ThreadId.parse("thread-antigravity"),
-        cwd: f.home,
-        env: f.env,
-        ...(instanceId ? { instanceId } : {}),
-        signal: new AbortController().signal,
-        onFrame() {},
-        onExit() {},
-      });
-
-    await (await open(work.id)).close("shutdown");
-    await (await open(antigravityIdentity.instanceId)).close("shutdown");
+    await (await f.open(work.id)).close("shutdown");
+    await (await f.open(antigravityIdentity.instanceId)).close("shutdown");
     expect(await f.seen("session/new")).toEqual([
       { home: work.homeDir, fileStore: "true" },
       { home: null, fileStore: null },
     ]);
 
     f.registry.unregister(work.id);
-    await expect(open(work.id)).rejects.toThrow(/no longer available/);
+    await expect(f.open(work.id)).rejects.toThrow(/no longer available/);
     // Never moved onto the CLI login instead.
     expect(await f.seen("session/new")).toHaveLength(2);
   } finally {
+    await f.close();
+  }
+});
+
+test("signing an added account in again stops its running thread first, and it can't be removed while one runs", async () => {
+  const f = await antigravity();
+  try {
+    const work = await f.add("Work");
+    const exits: { deliberate: boolean }[] = [];
+    await f.open(work.id, exits);
+    // Removal waits for its threads to finish.
+    expect(() => f.accounts.reserveAccountChange(work.id)).toThrow(/busy/);
+    expect(await f.signIn(work.id)).toMatchObject({ state: "succeeded" });
+    // The thread was told its session ended on purpose before the login changed under it.
+    expect(exits).toEqual([expect.objectContaining({ deliberate: true })]);
+    expect(() => f.accounts.reserveAccountChange(work.id)).not.toThrow();
+  } finally {
+    await f.close();
+  }
+});
+
+test("an added account whose home was swapped for a link elsewhere is never started or signed in there", async () => {
+  const f = await antigravity();
+  try {
+    const work = await f.add("Work");
+    const other = join(f.home, "someone-else");
+    await mkdir(other);
+    await rm(work.homeDir, { recursive: true });
+    await symlink(other, work.homeDir);
+    await expect(f.open(work.id)).rejects.toThrow();
+    expect(await f.signIn(work.id)).toMatchObject({ state: "failed" });
+    // The agent never ran in the swapped home.
+    expect(await f.seen("session/new").catch(() => [])).toEqual([]);
+    expect(await f.seen("authenticate").catch(() => [])).toEqual([]);
+  } finally {
+    await f.close();
+  }
+});
+
+test("a thread can switch onto an added Antigravity account, which other providers' threads can't use", async () => {
+  const f = await antigravity();
+  try {
+    const work = await f.add("Work");
+    expect(await f.signIn(work.id)).toMatchObject({ state: "succeeded" });
+    const transitions = accountTransitions({
+      now: () => 1000,
+      id: () => "switch",
+      services: { accounts: f.accounts, accountRegistry: f.registry },
+    });
+    expect(transitions.accountProblem?.("antigravity", work.id)).toBeUndefined();
+    expect(transitions.accountProblem?.("codex", work.id)).toMatch(/isn't set up/);
+  } finally {
+    await f.close();
+  }
+});
+
+test("a signed-in added account's models load in its own home, never with a sign-in, and never in a swapped home", async () => {
+  const f = await antigravity();
+  const discovered: { home: string | undefined; signInMethod: string | undefined }[] = [];
+  const models = new ModelCatalog({
+    storage: openModelStorage(join(f.home, "models.sqlite")),
+    now: () => 1000,
+    deadline: () => () => {},
+    discover: async (instance) => {
+      discovered.push({ home: instance.env["GEMINI_HOME"], signInMethod: instance.signInMethod });
+      return [];
+    },
+  });
+  try {
+    const work = await f.add("Work");
+    expect(await f.signIn(work.id)).toMatchObject({ state: "succeeded" });
+    const context = {
+      config: readConfig({ ACE_HOME: f.home, ACE_PORT: "0" }, f.home),
+      services: { accountRegistry: f.registry, models },
+    };
+    const launch = {
+      executable: join(f.bin, "agy_acp_server"),
+      args: [],
+      env: {},
+      loginRevision: "1",
+    };
+    registerAntigravityAccountCatalog(context, work, launch);
+    await models.refresh({ instance: work.id });
+    // Even though it signed in with a method, discovery is never handed one to sign in again.
+    expect(discovered).toEqual([{ home: work.homeDir, signInMethod: undefined }]);
+
+    const other = join(f.home, "someone-else");
+    await mkdir(other);
+    await rm(work.homeDir, { recursive: true });
+    await symlink(other, work.homeDir);
+    await models.refresh({ instance: work.id }).catch(() => undefined);
+    expect(discovered).toHaveLength(1);
+  } finally {
+    await models.close();
     await f.close();
   }
 });

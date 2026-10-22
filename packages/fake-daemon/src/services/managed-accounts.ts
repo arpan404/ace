@@ -1,4 +1,4 @@
-import { antigravityIdentity } from "@ace/accounts/acp-instances";
+import { accountProvider, antigravityIdentity } from "@ace/accounts/acp-instances";
 import type { AccountSummary, ManagedAccountProvider } from "@ace/protocol/accounts";
 
 /**
@@ -6,11 +6,7 @@ import type { AccountSummary, ManagedAccountProvider } from "@ace/protocol/accou
  * CLI login and those added in their own homes. Every other provider's are its own.
  */
 export function ofManagedProvider(row: AccountSummary, provider: ManagedAccountProvider): boolean {
-  return provider === "antigravity"
-    ? row.provider === "acp" &&
-        row.acpAgentId === antigravityIdentity.acpAgentId &&
-        row.installationId === antigravityIdentity.installationId
-    : row.provider === provider;
+  return accountProvider(row) === provider;
 }
 
 /** What an account added to a provider's page is: an Antigravity one is a managed ACP account. */

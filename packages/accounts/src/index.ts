@@ -40,6 +40,7 @@ export { bindCursorSdk, cursorSdkLoginDriver } from "./cursor-sdk.ts";
 
 export { CursorAuthService, type CursorAuthOptions } from "./cursor-auth.ts";
 export {
+  accountProvider,
   antigravityIdentity,
   createAcpInstance,
   createAntigravityInstance,

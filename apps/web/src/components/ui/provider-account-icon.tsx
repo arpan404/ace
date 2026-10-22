@@ -1,6 +1,6 @@
 import type { AccountBadgeColor } from "@ace/protocol/accounts";
 import type { AccountView } from "@ace/ui-core";
-import { isPlainCliLogin, providerAccountViews, providerNames } from "@ace/ui-core";
+import { isPlainCliLogin, providerNames } from "@ace/ui-core";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { cn } from "@/lib/cn.ts";
 import { ProviderIcon, type ProviderIconProps } from "./provider-icons.tsx";
@@ -32,12 +32,7 @@ export function ProviderAccountIcon(
   },
 ) {
   const accounts = useAccountViews();
-  // Antigravity's accounts are ACP accounts of its own installation (`providerAccountViews`).
-  const own =
-    accounts.data &&
-    (props.provider === "antigravity"
-      ? providerAccountViews(accounts.data, "antigravity")
-      : accounts.data.filter((account) => account.provider === props.provider));
+  const own = accounts.data?.filter((account) => account.provider === props.provider);
   const account =
     props.account ??
     (props.instance

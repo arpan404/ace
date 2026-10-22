@@ -1,5 +1,5 @@
 import { ProviderInstance } from "@ace/protocol/accounts";
-import { AcpIdentity, RegistryInstallation } from "@ace/protocol";
+import { AcpIdentity, RegistryInstallation, type ProviderKind } from "@ace/protocol";
 /** No home selector is applied: the CLI keeps its existing user-owned authentication store. */
 export function createAcpInstance(input: {
   identity: AcpIdentity;
@@ -46,3 +46,21 @@ export const antigravityIdentity = AcpIdentity.parse({
 });
 export const createAntigravityInstance = (userHome: string) =>
   createAcpInstance({ identity: antigravityIdentity, label: "Antigravity", userHome });
+
+/**
+ * The provider an account serves, as threads, models and Settings name providers. ace runs
+ * Antigravity through its ACP agent and keeps its accounts (the CLI login and those added to it)
+ * as ACP accounts of its own installation; those serve "antigravity". Another installation of
+ * the same agent stays an ACP agent of its own.
+ */
+export function accountProvider(account: {
+  provider: ProviderInstance["provider"];
+  acpAgentId?: string | undefined;
+  installationId?: string | undefined;
+}): ProviderKind {
+  return account.provider === "acp" &&
+    account.acpAgentId === antigravityIdentity.acpAgentId &&
+    account.installationId === antigravityIdentity.installationId
+    ? "antigravity"
+    : account.provider;
+}
