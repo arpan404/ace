@@ -67,6 +67,8 @@ const containers = new Set([
   "u",
   "ul",
   "var",
+  // Its source plays through the daemon with controls; anything inside it is dropped.
+  "video",
 ]);
 /** Elements that never hold children. */
 const voids = new Set(["br", "hr", "img", "source", "wbr"]);
@@ -83,6 +85,7 @@ const attributes: Readonly<Record<string, readonly string[]>> = {
   td: ["colspan", "rowspan"],
   th: ["colspan", "rowspan"],
   time: ["datetime"],
+  video: ["src"],
 };
 const aligned = new Set(["div", "p", "h1", "h2", "h3", "h4", "h5", "h6", "td", "th", "img"]);
 const alignments = new Set(["left", "right", "center", "justify"]);
@@ -163,6 +166,8 @@ export function safeElement(
     } else if (name === "name" || name === "id") {
       // The renderer keeps it apart from the app's own ids.
       if (/^[\w:.-]{1,200}$/.test(value)) kept.id = value;
+    } else if (name === "type" && tag === "ol") {
+      if (/^[1aAiI]$/.test(value)) kept.type = value;
     } else if (name === "dir") {
       if (value === "ltr" || value === "rtl") kept.dir = value;
     } else if (name === "open") kept.open = "";

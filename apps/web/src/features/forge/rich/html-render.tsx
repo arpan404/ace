@@ -6,10 +6,10 @@ import { blockRhythm } from "@/components/markdown/rhythm.ts";
 import { WebLink } from "@/components/web-link.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useTheme } from "@/theme/theme-provider.tsx";
-import { ForgeImage } from "./forge-media.tsx";
+import { ForgeImage, ForgeVideo } from "./forge-media.tsx";
 import { ForgeDocument, ForgeText, forgeLinkClass, scrollToAnchor } from "./forge-text.tsx";
 import type { HtmlNode } from "./html-tree.ts";
-import { InsideLink } from "./scope.ts";
+import { InsideCode, InsideLink } from "./scope.ts";
 
 /*
  * Sanitized HTML from forge text as React elements (ADR 0096). Only elements `html-policy.ts`
@@ -25,6 +25,14 @@ const alignText: Record<string, string> = {
   right: "text-right",
   center: "text-center",
   justify: "text-justify",
+};
+/** `<ol type>`: the numbering it asks for. */
+const listType: Record<string, string> = {
+  "1": "list-decimal",
+  a: "list-[lower-alpha]",
+  A: "list-[upper-alpha]",
+  i: "list-[lower-roman]",
+  I: "list-[upper-roman]",
 };
 const heading: Record<string, string> = {
   h1: "text-[1.25em] font-semibold",
@@ -205,6 +213,9 @@ function ElementNode(props: { node: Element; draw: Draw }): ReactNode {
       ) : null;
     case "picture":
       return <Picture node={node} />;
+    case "video":
+      // An uploaded recording plays through the daemon, controls on; never the URL itself.
+      return attrs.src ? <ForgeVideo src={attrs.src} /> : null;
     case "source":
       return null;
     case "a":
@@ -262,9 +273,22 @@ function ElementNode(props: { node: Element; draw: Draw }): ReactNode {
       );
     case "ol":
       return (
-        <ol className={styled.ol} start={attrs.start ? Number(attrs.start) : undefined}>
+        <ol
+          className={cn(styled.ol, attrs.type && listType[attrs.type])}
+          start={attrs.start ? Number(attrs.start) : undefined}
+        >
           {children}
         </ol>
+      );
+    case "code":
+    case "pre":
+    case "kbd":
+    case "samp":
+    case "tt":
+      return createElement(
+        tag,
+        { className: styled[tag] },
+        <InsideCode value>{children}</InsideCode>,
       );
     case "br":
       return <br />;

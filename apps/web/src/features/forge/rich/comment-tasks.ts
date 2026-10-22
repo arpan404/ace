@@ -1,6 +1,7 @@
 import { authoredReviewComment } from "@ace/forge/review-comment-body";
 import type { ForgeComment } from "@ace/protocol";
 import { usePrReview } from "../pr-review-context.tsx";
+import { useTaskSave } from "./use-task-save.ts";
 
 /**
  * How a ticked task box in a PR comment is saved: the comment edit the viewer's own comments
@@ -11,21 +12,24 @@ export function useCommentTasks(
   comment: ForgeComment,
 ): ((next: string) => Promise<boolean>) | undefined {
   const review = usePrReview();
-  if (
-    !review?.state ||
-    !review.ready ||
-    review.pending ||
-    comment.author !== review.state.viewer ||
-    comment.kind === "review"
-  )
-    return undefined;
+  const editable =
+    !!review?.state &&
+    review.ready &&
+    !review.pending &&
+    comment.author === review.state.viewer &&
+    comment.kind !== "review";
   const source = comment.kind;
-  return (next) =>
-    review.run({
-      kind: "comment.edit",
-      source,
-      commentId: comment.id,
-      expectedBody: comment.body,
-      body: authoredReviewComment(next),
-    });
+  return useTaskSave(
+    editable && review && source !== "review"
+      ? (next) =>
+          review.run({
+            kind: "comment.edit",
+            source,
+            commentId: comment.id,
+            expectedBody: comment.body,
+            body: authoredReviewComment(next),
+          })
+      : undefined,
+    `${comment.id}:${comment.body}`,
+  );
 }

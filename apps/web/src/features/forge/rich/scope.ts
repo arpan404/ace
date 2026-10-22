@@ -10,3 +10,6 @@ export const ForgeContentScope = createContext<ForgeScope | undefined>(undefined
 
 /** Inside a link: an image there follows the link instead of opening the viewer. */
 export const InsideLink = createContext(false);
+
+/** Inside code (`<code>`, `<pre>`, `<kbd>`…): text stays exactly as written. */
+export const InsideCode = createContext(false);

@@ -9,7 +9,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import type { ForgeIssueDetail, ForgeRepository } from "@ace/protocol";
-import { ForgeContentScope, ForgeProse } from "@/features/forge/index.ts";
+import { ForgeContentScope, ForgeProse, useTaskSave } from "@/features/forge/index.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -143,18 +143,21 @@ function IssueBody(props: {
     [props.project, repository],
   );
   // Ticking a task box edits the body, guarded by the version it was read at.
-  const tasks = issue.permissions.edit
-    ? (body: string) =>
-        writes
-          .write({
-            action: "edit",
-            number: issue.ref.number,
-            expectedUpdatedAt: issue.updatedAt,
-            title: issue.title,
-            body,
-          })
-          .then((written) => written !== undefined)
-    : undefined;
+  const tasks = useTaskSave(
+    issue.permissions.edit
+      ? (body: string) =>
+          writes
+            .write({
+              action: "edit",
+              number: issue.ref.number,
+              expectedUpdatedAt: issue.updatedAt,
+              title: issue.title,
+              body,
+            })
+            .then((written) => written !== undefined)
+      : undefined,
+    `${issue.ref.number}:${issue.updatedAt}`,
+  );
   return (
     <ForgeContentScope value={scope}>
       <div className={`${readable} pt-6 pb-16`}>

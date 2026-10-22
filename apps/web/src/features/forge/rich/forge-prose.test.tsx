@@ -299,3 +299,31 @@ test("whatever raw HTML tries, the drawn page holds no handler, style or unsafe 
   }
   expect(container.querySelector("svg script, math, iframe")).toBeNull();
 });
+
+test("code and link text stay as written; a raw video plays; outside media offers its original", async () => {
+  const daemon = await connected();
+  const { container } = page(
+    daemon,
+    <ForgeProse
+      text={[
+        '<a href="https://ok.dev">ping @octocat about #12</a> and <code>@octocat #12</code>',
+        "",
+        `<video src="${recording}"></video>`,
+        "",
+        '<ol type="a"><li>first</li></ol>',
+        "",
+        "![Gone](https://cdn.example.com/gone.png)",
+      ].join("\n")}
+    />,
+  );
+  const link = await screen.findByRole("link", { name: "ping @octocat about #12" });
+  expect(link.querySelector("a")).toBeNull();
+  expect(container.querySelector("code")?.textContent).toBe("@octocat #12");
+  expect(container.querySelector("code a")).toBeNull();
+  await waitFor(() =>
+    expect(container.querySelector("video")?.getAttribute("src")).toMatch(/^blob:/),
+  );
+  expect(container.querySelector("video")?.hasAttribute("controls")).toBe(true);
+  expect(container.querySelector("ol")?.className).toContain("lower-alpha");
+  expect(await screen.findByRole("link", { name: "Open original" })).toBeTruthy();
+});

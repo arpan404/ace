@@ -3,7 +3,7 @@ import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { useLightbox } from "@/components/attachment-open.tsx";
 import { WebLink } from "@/components/web-link.tsx";
 import { cn } from "@/lib/cn.ts";
-import { InsideLink } from "./scope.ts";
+import { ForgeContentScope, InsideLink } from "./scope.ts";
 import { useForgeMedia, type MediaView } from "./use-forge-media.ts";
 import type { ReadyMedia } from "./media-loads.ts";
 
@@ -46,7 +46,18 @@ const alignClass: Record<string, string> = {
   right: "float-right ml-3 mb-2",
 };
 
+/** Whether `href` is on the forge itself (or its content hosts), where its original opens. */
+function onForge(href: string, host: string): boolean {
+  try {
+    const name = new URL(href).hostname;
+    return name === host || name.endsWith(`.${host}`) || name.endsWith(".githubusercontent.com");
+  } catch {
+    return false;
+  }
+}
+
 function MediaFallback(props: { what: string; reason?: string | undefined; href?: string }) {
+  const host = useContext(ForgeContentScope)?.repository.host ?? "github.com";
   const text =
     props.reason === "too_large"
       ? `${props.what} is too large to show here.`
@@ -58,7 +69,7 @@ function MediaFallback(props: { what: string; reason?: string | undefined; href?
         <>
           {" "}
           <WebLink href={props.href} className="text-link hover:underline focus-ring">
-            Open on GitHub
+            {onForge(props.href, host) ? "Open on GitHub" : "Open original"}
           </WebLink>
         </>
       )}
@@ -200,4 +211,19 @@ export function ForgeLinkMedia(props: { url: string; standard: ReactNode }): Rea
       </p>
     );
   return props.standard;
+}
+
+/** `<video src>` in the text: a player through the daemon, its space held while it loads. */
+export function ForgeVideo(props: { src: string }): ReactNode {
+  const view = useForgeMedia(props.src, "link");
+  if (view.phase === "ready" && view.media.kind === "video") return <Video view={view} />;
+  if (view.phase === "loading")
+    return <Skeleton className="block aspect-video h-auto w-full max-w-160 rounded-sm" />;
+  return (
+    <MediaFallback
+      what="Video"
+      reason={view.phase === "unavailable" ? view.reason : undefined}
+      href={props.src}
+    />
+  );
 }
