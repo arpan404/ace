@@ -28,8 +28,15 @@ export class NativeScreen {
   readonly connection: NativeFeatureConnection;
   #ack: ((value: z.infer<typeof ScreenAck>) => Promise<void>) | undefined;
   readonly label: ScreenAgentLabel;
-  constructor(config: NativeFeatureConfig, label: ScreenAgentLabel = () => undefined) {
+  readonly #machine: () => Promise<string | undefined>;
+  constructor(
+    config: NativeFeatureConfig,
+    label: ScreenAgentLabel = () => undefined,
+    /** The computer's name, for words about its own sharing dialog. */
+    machine: () => Promise<string | undefined> = async () => undefined,
+  ) {
     this.label = label;
+    this.#machine = machine;
     this.client = new ScreenStreamClient({
       id: config.id,
       schedule: (callback, delay) => scheduler.set(delay, callback),
@@ -51,7 +58,8 @@ export class NativeScreen {
     const states = z
       .array(ScreenState)
       .parse(await this.client.request({ op: "sessions" }, { signal }));
-    return { sessions: phoneScreenSessions(states, this.label) };
+    const machine = await this.#machine().catch(() => undefined);
+    return { sessions: phoneScreenSessions(states, this.label, machine) };
   }
   handle(action: z.infer<typeof NativeScreenControl>): void {
     if (action.type === "native.screen.close") {
