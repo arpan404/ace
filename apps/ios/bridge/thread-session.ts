@@ -1,13 +1,13 @@
 import { retrySend, type ChangeTap, type ClientCore, type ThreadSource } from "@ace/client";
 import { FollowUpBehavior, InteractionId, ThreadId, type CommandPayload } from "@ace/protocol";
-import { isBusy, messageHasContent, modelLabel } from "@ace/ui-core";
+import { composerReply, isBusy, messageHasContent, modelLabel } from "@ace/ui-core";
 import { runsOn } from "@ace/ui-core/thread-execution";
 import { z } from "zod";
 import { host } from "./host.ts";
 import { dispatchCommand } from "./commands.ts";
 import type { PatchPump } from "./patch-pump.ts";
 import { preview } from "./presentation.ts";
-import { ThreadAction } from "./thread-actions.ts";
+import { questionDraft, ThreadAction, type QuestionReply } from "./thread-actions.ts";
 import { AttachmentTray, nativeChunks, type ChunkReader } from "./thread-attachments.ts";
 import { followActivity } from "./thread-activity.ts";
 import { followBlocks } from "./thread-blocks.ts";
@@ -135,7 +135,8 @@ export class ThreadSession {
     const action = parsed.data;
     switch (action.type) {
       case "send":
-        this.#send(action.text, action.opposite, action.requestId);
+        if (!this.#reply(action.text, action.reply, action.requestId))
+          this.#send(action.text, action.opposite, action.requestId);
         break;
       case "stop":
         this.#dispatch(stopPayload(this.#store, this.#threadId), action.requestId);
@@ -252,6 +253,21 @@ export class ThreadSession {
       id,
       refused,
     );
+  }
+  /**
+   * Words sent while the agent waits on its question answer it, when they can (the shared
+   * `composerReply`): the picks on its card stay. Otherwise they go as a message.
+   */
+  #reply(text: string, reply: QuestionReply | undefined, id: string): boolean {
+    if (!reply) return false;
+    const resolution = composerReply(
+      this.#store.interaction(reply.interactionId),
+      questionDraft(reply),
+      text,
+    );
+    if (!resolution) return false;
+    this.#resolve(reply.interactionId, resolution, id, "That answer doesn't fit the question.");
+    return true;
   }
   /** A message as the composer showed it: its delivery, the picked effort and speed, its files. */
   #send(text: string, opposite: boolean, id: string): void {

@@ -27,6 +27,8 @@ struct ThreadView: View {
     @State private var showSearch = false
     /// The strip item the person switched to, while it's present.
     @State private var stripPick: StripKind?
+    /// The question card's picks and page, kept here so a reply typed below keeps them.
+    @State private var questionDraft = QuestionDraftState()
     @State private var height: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
@@ -44,11 +46,15 @@ struct ThreadView: View {
     /// An archived thread opens read-only (from the archive browser) until it's unarchived.
     private var archived: Bool { (model.inbox[thread.id] ?? metadata)?.archivedAt != nil }
     private var queued: Int { screen.queue?.messages.count ?? 0 }
-    /// The composer's one strip: a request (a question takes the composer's place instead), the
+    /// The composer's one strip: a request (a question too, the composer staying under it), the
     /// queue, or what the main agent waits on.
     private var slot: StripSlot {
-        let request = thread.approvals.first.map { $0.kind != "question" } ?? false
-        return StripSlot.pick(request: request, queue: queued > 0, waiting: screen.activity?.wait != nil, picked: stripPick)
+        StripSlot.pick(request: !thread.approvals.isEmpty, queue: queued > 0, waiting: screen.activity?.wait != nil, picked: stripPick)
+    }
+    /// The question on the strip, whose card the composer's words may answer.
+    private var asking: ApprovalRow? {
+        guard slot.shown == .request, let request = thread.approvals.first, request.kind == "question" else { return nil }
+        return request
     }
     private var subtitle: String {
         guard let metadata else { return "" }
@@ -60,7 +66,7 @@ struct ThreadView: View {
         ConversationFeed(model: model, thread: thread, acceptedSend: acceptedSend,
                          links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: screen, epoch: thread.epoch),
                                                 openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { fullMessage = $0 },
-                                                openAgents: { showAgents = true }, live: true))
+                                                openAgents: { showAgents = true }, threadStatus: { model.inbox[$0]?.status }, live: true))
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { bottomBar }
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
@@ -69,7 +75,6 @@ struct ThreadView: View {
             }
             .toolbar {
                 ThreadToolbar(title: metadata?.title ?? "Thread", project: metadata?.project ?? "", badge: metadata?.badge, status: metadata?.status,
-                              openAgents: { showAgents = true },
                               menu: ThreadMenu(model: model, thread: thread, archived: archived, activityRow: activityRow,
                                                open: open, problem: { activityProblem = $0 }, leave: { dismiss() }))
             }
@@ -131,9 +136,9 @@ struct ThreadView: View {
             #endif
     }
 
-    /// The composer with its one strip tucked under its top edge (the oldest open request, the
-    /// queue, or what the main agent waits on). A question takes the composer's place. Nothing
-    /// renders below the composer.
+    /// The composer with its one strip tucked under its top edge (the oldest open request, a
+    /// question included, the queue, or what the main agent waits on). Nothing renders below
+    /// the composer.
     @ViewBuilder private var bottomBar: some View {
         let request = thread.approvals.first
         let slot = slot
@@ -158,16 +163,11 @@ struct ThreadView: View {
             if archived {
                 ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
                     .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.lg)))
-            } else if let request, request.kind == "question" {
-                QuestionCard(interaction: request, submission: model.approvalSubmissions[request.id], canAct: model.canOperate, maxHeight: height * 0.6) {
-                    model.answer(request, answers: $0, dismissed: $1)
-                }
-                .id(request.id)
-                .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.lg, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.md, trailing: AceTheme.Spacing.lg)))
             } else if model.canOperate {
-                ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: placeholder,
+                ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: asking == nil ? placeholder : "Reply…",
                              send: { text, alternate in
-                                 let saved = await model.sendMessage(text, alternate: alternate)
+                                 let reply = asking.map { QuestionReply(interactionId: $0.id, draft: questionDraft) }
+                                 let saved = await model.sendMessage(text, alternate: alternate, reply: reply)
                                  if saved { acceptedSend += 1 }
                                  return saved
                              }, stop: { model.stopTree() },
@@ -186,7 +186,10 @@ struct ThreadView: View {
             }
         }
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: slot)
-        .onChange(of: thread.approvals.first?.id) { _, id in if id != nil { stripPick = nil } }
+        .onChange(of: thread.approvals.first?.id) { _, id in
+            questionDraft = QuestionDraftState()
+            if id != nil { stripPick = nil }
+        }
     }
     private func indicators(_ slot: StripSlot) -> some View {
         StripIndicators(kinds: slot.others, queued: queued) { stripPick = $0 }
@@ -202,6 +205,10 @@ struct ThreadView: View {
     @ViewBuilder private func requestCard(_ request: ApprovalRow) -> some View {
         let submission = model.approvalSubmissions[request.id]
         switch request.kind {
+        case "question":
+            QuestionCard(interaction: request, submission: submission, canAct: model.canOperate, maxHeight: height * 0.6, draft: $questionDraft) {
+                model.answer(request, answers: $0, dismissed: $1)
+            }.id(request.id)
         case "plan_review":
             PlanReviewCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
         case "elicitation":
@@ -226,6 +233,7 @@ struct ThreadView: View {
         case .devices: devicesRoute = .list
         case .computer: showComputer = true
         case .tools: showTools = true
+        case .agents: showAgents = true
         }
     }
     /// Restarts the browser follow on a new visit, a new turn or a return to the foreground.

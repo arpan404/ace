@@ -1,29 +1,25 @@
 import SwiftUI
 
 /// Everything the ⋯ menu opens: each destination is listed once.
-enum ThreadDestination { case changes, search, files, terminal, browser, devices, computer, tools }
+enum ThreadDestination { case changes, search, files, terminal, browser, devices, computer, tools, agents }
 
 /// The thread's header, quiet like the web's: the native back, the title with its project under
-/// it, then ⋯ and the Work entry (the agent tree, with a small dot in the tree's status colour
-/// while it works or needs the person). Each control stands on its own, with no shared capsule.
+/// it, then ⋯. Agents are secondary: the agent tree is one entry in ⋯, never its own control.
 struct ThreadToolbar: ToolbarContent {
     let title: String
     let project: String
     /// The project's two-letter tag, as the task list draws it.
     let badge: String?
     let status: StatusDisplay?
-    let openAgents: () -> Void
     let menu: ThreadMenu
 
     var body: some ToolbarContent {
         if #available(iOS 26, *) {
             ToolbarItem(placement: .principal) { heading }.sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .topBarTrailing) { menu }.sharedBackgroundVisibility(.hidden)
-            ToolbarItem(placement: .topBarTrailing) { work }.sharedBackgroundVisibility(.hidden)
         } else {
             ToolbarItem(placement: .principal) { heading }
             ToolbarItem(placement: .topBarTrailing) { menu }
-            ToolbarItem(placement: .topBarTrailing) { work }
         }
     }
     private var heading: some View {
@@ -44,29 +40,6 @@ struct ThreadToolbar: ToolbarContent {
         .accessibilityValue(status?.label ?? "")
         .accessibilityIdentifier("thread.title")
     }
-    private var work: some View {
-        Button(action: openAgents) {
-            AceIcon(.graph, size: 20)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-                .overlay(alignment: .topTrailing) {
-                    if let dot {
-                        Circle().fill(dot).frame(width: AceTheme.Spacing.xs + AceTheme.Spacing.xxs, height: AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
-                            .offset(x: AceTheme.Spacing.xxs, y: -AceTheme.Spacing.xxs)
-                    }
-                }
-                .frame(width: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm, height: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Agents")
-        .accessibilityValue(status?.label ?? "")
-        .accessibilityIdentifier("thread.agents")
-    }
-    /// The tree's status hue, while it works, waits or needs the person; none at rest.
-    private var dot: Color? {
-        guard let token = status?.token, ["needsYou", "working", "waiting", "unresponsive", "failed"].contains(token) else { return nil }
-        return StateStyle.marker(token)
-    }
 }
 
 /// The ⋯ menu: the thread's other places and what can be done to it.
@@ -85,6 +58,7 @@ struct ThreadMenu: View {
         Menu {
             Section {
                 Button("Changes", ace: .plusMinus) { open(.changes) }.accessibilityIdentifier("thread.changes")
+                Button("Agent tree", ace: .treeStructure) { open(.agents) }.accessibilityIdentifier("thread.agents")
                 Button("Find in thread", ace: .magnifyingGlass) { open(.search) }.accessibilityIdentifier("thread.search")
                 Button("Files", ace: .folder) { open(.files) }.accessibilityIdentifier("thread.files")
                 Button("Browser", ace: .compass) { open(.browser) }.accessibilityIdentifier("thread.browser")

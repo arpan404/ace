@@ -10,8 +10,10 @@ struct TranscriptLinks {
     var openMedia: ((TranscriptRow) -> Void)? = nil
     var openChanges: (() -> Void)? = nil
     var openMessage: ((TranscriptRow) -> Void)? = nil
-    /// The whole agent tree, from a subagent rollup.
+    /// The whole agent tree, for a subagent not seen yet (only its spawn call is known).
     var openAgents: (() -> Void)? = nil
+    /// A child thread's status, as the thread list words it, for a started conversation's row.
+    var threadStatus: ((String) -> StatusDisplay?)? = nil
     /// The thread's own transcript: its live turn carries the thread's live line. A subagent's
     /// lane has none of its own.
     var live = false
@@ -27,7 +29,7 @@ struct BlockView: View {
         let row = block.row
         switch row.kind {
         case "work": WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps, openMessage: links.openMessage)
-        case "subagents": if let agents = row.agents { SubagentGroupView(agents: agents, items: row.items, thread: thread, blockId: block.id, open: open, openAll: links.openAgents) }
+        case "subagents": if let agents = row.agents { SubagentGroupView(agents: agents, thread: thread, blockId: block.id, open: open) }
         case "live": if links.live { LiveLine(activity: thread.screen.activity) }
         case "end": if let ending = row.ending { EndingLine(ending: ending) }
         case "files":
@@ -37,9 +39,9 @@ struct BlockView: View {
             }
         case "started":
             if let started = row.started {
-                QuietLink(icon: .chatsTeardrop, title: started.title) { links.openThread(started.threadId) }
+                StartedThreadRow(started: started, status: links.threadStatus?(started.threadId), open: links.openThread)
             }
-        case "question": QuestionLine(interaction: thread.interactions[row.interactionId])
+        case "question": if let question = row.question { QuestionAskedLine(question: question) }
         case "event":
             ForEach(row.items, id: \.self) { id in
                 if let item = thread.items[id] { EventLine(item: item) }
@@ -55,6 +57,7 @@ struct BlockView: View {
     private func open(_ entry: BlockRow.Agents.Entry) {
         if !entry.threadId.isEmpty { links.openThread(entry.threadId) }
         else if !entry.agentId.isEmpty { links.openAgent(entry) }
+        else { links.openAgents?() }
     }
 }
 
