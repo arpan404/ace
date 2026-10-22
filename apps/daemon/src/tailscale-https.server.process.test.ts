@@ -14,6 +14,8 @@ import { readConfig } from "./config.ts";
 import { tlsFixtureHome } from "./process-test-support.ts";
 import { fixture, token } from "./socket-test-support.ts";
 import { loadIdentity, publicKeyFingerprint } from "./tls-identity.ts";
+import { trustedCertificate } from "./tailscale-certificate.ts";
+import { X509Certificate } from "node:crypto";
 
 const tailnet = "studio.tail1234.ts.net";
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -149,9 +151,8 @@ async function serve(certificate: { cert: string; key: string }): Promise<number
   return address.port;
 }
 
-test("over Tailscale, a pairing link names the ts.net host and browsers asking for it get Tailscale's certificate", async () => {
-  const ca = await authority();
-  const leaf = await ca.leaf(tailnet);
+/** A daemon on Tailscale at 127.0.0.1, with MagicDNS on and `certificate` standing in for `tailscale cert`. */
+async function tailnetDaemon(certificate: (name: string) => Promise<string>) {
   const home = await mkdtemp(join(tmpdir(), "ace-tailnet-https-"));
   cleanups.push(() => rm(home, { recursive: true, force: true }));
   const settings = new SettingsService({ dataDir: home });
@@ -172,30 +173,79 @@ test("over Tailscale, a pairing link names the ts.net host and browsers asking f
           Self: { DNSName: `${tailnet}.` },
           CurrentTailnet: { MagicDNSEnabled: true },
         }),
-      // `tailscale cert --cert-file - --key-file -` prints the chain, then the key.
-      certificate: async (name) => {
-        if (name !== tailnet) throw new Error(`unexpected certificate request for ${name}`);
-        return `${leaf.cert}${ca.root}${leaf.key}`;
-      },
+      certificate,
     },
   });
   cleanups.push(() => f.close());
+  const link = async () =>
+    new URL(
+      PairingResponse.parse(
+        await accessRequest(f.server.httpUrl, "/v1/pairings", { token, method: "POST", body: {} }),
+      ).url,
+    );
+  return { identity, link };
+}
 
-  const pairing = PairingResponse.parse(
-    await accessRequest(f.server.httpUrl, "/v1/pairings", { token, method: "POST", body: {} }),
-  );
-  const link = new URL(pairing.url);
-  expect(link.hostname).toBe(tailnet);
-  expect(new URLSearchParams(link.hash.slice(1)).get("fingerprint")).toBe(identity.fingerprint);
-  const port = Number(link.port);
+test("over Tailscale, a pairing link names the ts.net host once browsers asking for it get Tailscale's certificate", async () => {
+  const ca = await authority();
+  const leaf = await ca.leaf(tailnet);
+  // `tailscale cert --cert-file - --key-file -` prints the chain, then the key.
+  const { identity, link } = await tailnetDaemon(async (name) => {
+    if (name !== tailnet) throw new Error(`unexpected certificate request for ${name}`);
+    return `${leaf.cert}${ca.root}${leaf.key}`;
+  });
 
-  const tailscaleKey = publicKeyFingerprint(leaf.cert);
-  await expect.poll(() => presented(port, tailnet), { timeout: 5000 }).toBe(tailscaleKey);
+  await expect.poll(async () => (await link()).hostname, { timeout: 5000 }).toBe(tailnet);
+  const url = await link();
+  expect(new URLSearchParams(url.hash.slice(1)).get("fingerprint")).toBe(identity.fingerprint);
+  const port = Number(url.port);
+  expect(await presented(port, tailnet)).toBe(publicKeyFingerprint(leaf.cert));
   // Clients that reach the 100.x address, or name nothing, keep ace's own pinned certificate.
   expect(await presented(port)).toBe(identity.fingerprint);
   expect(await presented(port, "other.tail1234.ts.net")).toBe(identity.fingerprint);
   // A paired native client still holds ace's pin and connects to the ts.net name.
   expect(await pinnedGet(port, tailnet, identity.fingerprint, [ca.root])).toBeGreaterThan(0);
+});
+
+test("when the tailnet can't issue a certificate, pairing links keep the 100.x address", async () => {
+  let asked = 0;
+  const { identity, link } = await tailnetDaemon(async () => {
+    asked++;
+    throw new Error(
+      "500 Internal Server Error: your Tailscale account does not support getting TLS certs",
+    );
+  });
+
+  await expect.poll(() => asked, { timeout: 5000 }).toBeGreaterThan(0);
+  const url = await link();
+  expect(url.hostname).toBe("127.0.0.1");
+  expect(new URLSearchParams(url.hash.slice(1)).get("fingerprint")).toBe(identity.fingerprint);
+  expect(await presented(Number(url.port), tailnet)).toBe(identity.fingerprint);
+});
+
+test("a Tailscale certificate that expires while renewals fail stops being offered", async () => {
+  const ca = await authority();
+  const leaf = await ca.leaf(tailnet);
+  let now = Date.now();
+  let fail = false;
+  const certificate = trustedCertificate({
+    name: tailnet,
+    fetch: async () => {
+      if (fail) throw new Error("tailscaled is unreachable");
+      return `${leaf.cert}${leaf.key}`;
+    },
+    now: () => now,
+    delay: () => () => {},
+  });
+  cleanups.push(() => certificate.stop());
+  await certificate.ready;
+  expect(certificate.active()).toBe(true);
+  expect(certificate.select(tailnet)).toBeDefined();
+
+  fail = true;
+  now = new X509Certificate(leaf.cert).validToDate.getTime();
+  expect(certificate.active()).toBe(false);
+  expect(certificate.select(tailnet)).toBeUndefined();
 });
 
 test("the pin gives way only to a trusted certificate for the exact ts.net name asked for", async () => {

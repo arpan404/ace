@@ -20,8 +20,12 @@ and tailscaled renews them with a new key.
 ## Decision
 
 - **Name.** In Tailscale mode, the pairing link's origin is the machine's MagicDNS name and the
-  remote port (`https://mac.tailnet.ts.net:4243`). The 100.x address is used only when MagicDNS
-  is off, because then there is no name. The listener still binds the Tailscale IPv4 address.
+  remote port (`https://mac.tailnet.ts.net:4243`) only while the listener is serving a valid
+  Tailscale certificate for that name. Otherwise it is the 100.x address: when MagicDNS is off,
+  HTTPS certificates are off, the fetch fails (Linux operator permission, tailscaled down), or
+  the certificate expired while renewals kept failing. Without a trusted certificate the name buys
+  nothing, and it fails on devices that don't use Tailscale's DNS. Each new link is decided when
+  it is created. The listener always binds the Tailscale IPv4 address.
 - **Certificate by SNI.** The listener serves the certificate Tailscale issues when a client asks
   for the ts.net name (`tailscale cert --cert-file - --key-file -`), and ace's own certificate for
   any other name, for clients that name nothing, and until Tailscale's certificate arrives. The
