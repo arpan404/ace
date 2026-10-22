@@ -60,8 +60,17 @@ export class PillFollower {
   /** The reader changed: emit when a key the pill was read from moved. */
   readonly tap: ChangeTap = (keys) => {
     if (keys === "all") return this.#emit();
-    for (const key of keys) if (this.#watch.has(key)) return this.#emit();
+    // A request opening or closing moves whether its card takes the pill's place.
+    for (const key of keys)
+      if (this.#watch.has(key) || key.startsWith("interaction:")) return this.#emit();
   };
+
+  /** A request card is in the strip: Swift shows one for each of this thread's open requests. */
+  #requestShown(): boolean {
+    return this.#store
+      .interactionIds()
+      .some((id) => this.#store.interaction(id)?.state === "pending");
+  }
 
   /** The queue was read again: its count is one of the pill's parts. */
   queued(count: number): void {
@@ -85,6 +94,7 @@ export class PillFollower {
         activity: reading.activity,
         queued: this.#queued,
         goal: thread?.goal,
+        requestShown: this.#requestShown(),
       });
       return {
         type: "thread.pill",
@@ -97,6 +107,7 @@ export class PillFollower {
                     since: pill.status.since ?? null,
                     code: preview(pill.status.code ?? "", 512),
                     live: pill.status.live,
+                    tone: pill.status.tone,
                     opens: pill.status.opens ?? "",
                   }
                 : null,

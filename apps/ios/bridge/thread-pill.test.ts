@@ -108,3 +108,44 @@ test("a goal the provider keeps itself offers no changes, and a change sent anyw
   expect(refused).toMatchObject({ ok: false });
   expect(commands("thread.goal.clear")).toEqual([]);
 });
+
+test("a request card takes the pill's place while it is open, and the pill comes back after", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "ask", workspaceId: "ace", title: "Ask", provider: "codex" });
+  fake.apply("ask", [facts.rootAgent("codex"), facts.turn("root")]);
+  fake.updateThread("ask", { goal: { objective: "ship it", status: "active" } });
+  open(connect(fake), "ask");
+  await until(() => pill()?.status, "the working pill");
+  fake.apply("ask", [
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "tabs",
+      blocking: true,
+      request: {
+        kind: "question",
+        questions: [
+          {
+            id: "tabs",
+            text: "Tabs or spaces?",
+            multiSelect: false,
+            allowOther: false,
+            options: [{ id: "tabs", label: "Tabs" }],
+          },
+        ],
+      },
+    },
+  ]);
+  // The goal and everything else step aside with the status: the card is what needs the person.
+  await until(() => latest("thread.pill") && pill() === null, "the pill stepping aside");
+  fake.apply("ask", [
+    {
+      type: "interaction.closed",
+      interaction: "tabs",
+      state: "resolved",
+      resolution: { kind: "question", answers: { tabs: ["tabs"] } },
+    },
+  ]);
+  const back = await until(() => pill()?.segments.length && pill(), "the pill coming back");
+  expect(back?.segments.map((segment) => segment.kind)).toEqual(["goal"]);
+});
