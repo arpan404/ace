@@ -21,10 +21,7 @@ const TailscaleStatus = z.object({
     .catch(undefined),
 });
 
-/**
- * This machine's MagicDNS name (`mac.tailnet.ts.net`), so pairing links carry the tailnet's HTTPS
- * hostname rather than its internal 100.x address. Undefined when MagicDNS is off for the tailnet.
- */
+/** This machine's MagicDNS name (`mac.tailnet.ts.net`); undefined when MagicDNS is off. */
 function magicDnsName(status: z.infer<typeof TailscaleStatus>): string | undefined {
   if (status.CurrentTailnet?.MagicDNSEnabled === false) return undefined;
   const name = status.Self?.DNSName?.trim().replace(/\.$/, "").toLowerCase();
@@ -37,8 +34,8 @@ export interface RemoteListener {
   port: number;
   identity: TlsIdentity;
   /**
-   * Tailscale only: this machine's ts.net name. Clients asking for it get the browser-trusted
-   * certificate Tailscale issues, once the tailnet's HTTPS certificates are on.
+   * Tailscale only: this machine's MagicDNS name. Clients asking for it get the browser-trusted
+   * certificate Tailscale issues, and pairing links switch to it, once that certificate is served.
    */
   tailnetName?: string;
 }
@@ -96,8 +93,9 @@ export async function remoteListener(
       const address = status.TailscaleIPs.find((value) => isIP(value) === 4);
       if (!address) throw new Error("No Tailscale IPv4 address");
       host = address;
+      // Links name the 100.x address until Tailscale's certificate for this name is served.
+      advertisedHost = address;
       tailnetName = magicDnsName(status);
-      advertisedHost = tailnetName ?? address;
     } catch (error) {
       throw new Error(
         "Cannot detect Tailscale address. Start Tailscale, or start ace with ACE_LISTEN=lan and ACE_REMOTE_PORT=4243, then run tailscale serve --tcp=443 tcp://localhost:4243. Replace the pairing URL authority with the Serve hostname:443 and keep its fragment to preserve the ace public-key pin.",

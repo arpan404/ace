@@ -5,6 +5,8 @@ export interface TailscalePem {
   /** Leaf first, then the issuing chain. */
   cert: string;
   key: string;
+  /** When the leaf stops being valid, in epoch milliseconds. */
+  expires: number;
 }
 
 const pemBlock = /-----BEGIN ([A-Z0-9 ]+)-----[\s\S]+?-----END \1-----/g;
@@ -27,16 +29,18 @@ export function parseTailscaleCertificate(
   }
   const [leaf] = chain;
   if (!leaf || !key) return undefined;
+  let expires: number;
   try {
     const certificate = new X509Certificate(leaf);
     if (certificate.checkHost(name) === undefined) return undefined;
     if (now < certificate.validFromDate.getTime() || now >= certificate.validToDate.getTime())
       return undefined;
     if (!certificate.checkPrivateKey(createPrivateKey(key))) return undefined;
+    expires = certificate.validToDate.getTime();
   } catch {
     return undefined;
   }
-  return { cert: `${chain.join("\n")}\n`, key: `${key}\n` };
+  return { cert: `${chain.join("\n")}\n`, key: `${key}\n`, expires };
 }
 
 export interface TrustedCertificateOptions {
@@ -49,8 +53,12 @@ export interface TrustedCertificateOptions {
 }
 
 export interface TrustedCertificate {
+  /** The ts.net name this certificate is for. */
+  readonly name: string;
   /** For SNI: the Tailscale certificate when a client asks for its ts.net name, else nothing. */
   select(servername: string): SecureContext | undefined;
+  /** True while a valid Tailscale certificate is served, so a ts.net link works in browsers. */
+  active(): boolean;
   /** Settles after the first fetch, whether or not it produced a certificate. */
   ready: Promise<void>;
   stop(): void;
@@ -66,6 +74,7 @@ const retryMs = 10 * 60 * 1000;
  */
 export function trustedCertificate(options: TrustedCertificateOptions): TrustedCertificate {
   let context: SecureContext | undefined;
+  let expires = 0;
   let current = "";
   let stopped = false;
   let failing = false;
@@ -88,6 +97,7 @@ export function trustedCertificate(options: TrustedCertificateOptions): TrustedC
       if (stopped) return;
       if (pem.cert !== current) {
         context = createSecureContext({ cert: pem.cert, key: pem.key, minVersion: "TLSv1.2" });
+        expires = pem.expires;
         current = pem.cert;
       }
       failing = false;
@@ -100,9 +110,15 @@ export function trustedCertificate(options: TrustedCertificateOptions): TrustedC
     }
   };
   const ready = refresh();
+  // A certificate that expired while refreshes kept failing is no use to anyone.
+  const active = () => context !== undefined && options.now() < expires;
   return {
+    name: options.name,
     select: (servername) =>
-      servername.toLowerCase().replace(/\.$/, "") === options.name ? context : undefined,
+      active() && servername.toLowerCase().replace(/\.$/, "") === options.name
+        ? context
+        : undefined,
+    active,
     ready,
     stop() {
       stopped = true;

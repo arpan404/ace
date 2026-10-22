@@ -31,7 +31,7 @@ export function remoteRuntime(
   let error: string | undefined;
   let listener: Server | undefined;
   let trusted: TrustedCertificate | undefined;
-  let connection: { origin: string; fingerprint: string } | undefined;
+  let connection: { origin: string; fingerprint: string; port: number } | undefined;
   let relay: Awaited<ReturnType<typeof startRelayTransport>>;
   let preferences: Preferences = {
     "remote.enabled": false,
@@ -144,6 +144,7 @@ export function remoteRuntime(
         connection = {
           origin: `https://${urlHost(remote.advertisedHost)}:${port}`,
           fingerprint: remote.identity.fingerprint,
+          port,
         };
       }
       directSignature = listen;
@@ -178,7 +179,14 @@ export function remoteRuntime(
     retryMs = Math.min(retryMs * 2, 30000);
   };
   return {
-    pairing: () => connection,
+    // A link names the ts.net host only while browsers would trust it there; otherwise the
+    // 100.x (or LAN) address, which works wherever the pinned certificate does.
+    pairing: () => {
+      if (!connection) return undefined;
+      const { origin, fingerprint, port } = connection;
+      const name = trusted?.active() ? trusted.name : undefined;
+      return { origin: name ? `https://${name}:${port}` : origin, fingerprint };
+    },
     status: () => ({
       ...(error ? { error } : {}),
       enabled: connection !== undefined || relay !== undefined,
