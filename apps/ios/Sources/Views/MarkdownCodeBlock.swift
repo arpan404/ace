@@ -29,8 +29,8 @@ struct MarkdownCodeBlock: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.lg))
-        .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.lg).stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+        .background(AceTheme.Colours.fill, in: AceShape.block)
+        .overlay(AceShape.block.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
         .task(id: copied) {
             guard copied else { return }
             do { try await Task.sleep(for: .seconds(2)); copied = false } catch { }
