@@ -71,6 +71,11 @@ const linuxPasswords = [
   "org.kde.kwalletmanager5",
   "me.proton.Pass",
   "proton-pass",
+  // KDE's wallet: Plasma 6's secret service (ksecretd) and the older KWallet daemons.
+  "org.kde.ksecretd",
+  "ksecretd",
+  "kwalletd6",
+  "kwalletd5",
 ] as const;
 const linuxAuthentication = [
   "gcr-prompter",
@@ -79,6 +84,11 @@ const linuxAuthentication = [
   "ksshaskpass",
   "org.kde.ksshaskpass",
   "ssh-askpass",
+  // Plasma 6 asks for the wallet password in its secret prompter; kdesu asks for root's.
+  "org.kde.secretprompter",
+  "ksecretprompter",
+  "kdesu",
+  "org.kde.kdesu",
 ] as const;
 
 const builtIn: ReadonlyMap<string, string> = new Map(
