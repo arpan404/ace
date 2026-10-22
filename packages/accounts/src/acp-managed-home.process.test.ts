@@ -49,6 +49,25 @@ test("an added Antigravity account signs in inside its own home; the CLI login k
       AGY_ACP_FORCE_FILE_STORAGE: "true",
     });
     expect(instanceEnv(createAntigravityInstance(f.root), person)).toEqual(person);
+
+    // The person's Google credentials and billing project never reach an added account; the
+    // CLI login keeps them, and network settings stay for both.
+    const ambient = {
+      ...person,
+      GEMINI_API_KEY: "person-key",
+      GOOGLE_APPLICATION_CREDENTIALS: "/person/adc.json",
+      GOOGLE_CLOUD_PROJECT: "person-project",
+      AGY_ACP_CCPA_PROJECT: "person-billing",
+      HTTPS_PROXY: "http://proxy.local:8080",
+    };
+    expect(instanceEnv(work, ambient)).toEqual({
+      HOME: f.root,
+      PATH: "/usr/bin",
+      HTTPS_PROXY: "http://proxy.local:8080",
+      GEMINI_HOME: f.home("work"),
+      AGY_ACP_FORCE_FILE_STORAGE: "true",
+    });
+    expect(instanceEnv(createAntigravityInstance(f.root), ambient)).toEqual(ambient);
   } finally {
     await f.close();
   }
