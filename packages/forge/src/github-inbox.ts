@@ -105,9 +105,9 @@ export class GitHubInbox {
         const state = row.number
           ? known.get(stateKey(row.repository.owner, row.repository.name, row.number))
           : undefined;
-        return state && (row.type === "PullRequest" || row.type === "Issue")
-          ? { ...row, state }
-          : row;
+        // The row is new here, so it takes its state in place.
+        if (state && (row.type === "PullRequest" || row.type === "Issue")) row.state = state;
+        return row;
       }),
       ...(this.#api.next(page, path) && number < 20 ? { nextPage: number + 1 } : {}),
       pollSeconds: pollSeconds(page.headers["x-poll-interval"]),

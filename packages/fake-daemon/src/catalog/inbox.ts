@@ -202,17 +202,20 @@ const sketches: Sketch[] = [
 
 /** The fake's notifications as the daemon maps them, newest first. */
 export function inboxNotifications(now: number): ForgeInboxRow[] {
-  return sketches.map((sketch) => ({
-    id: sketch.id,
-    repository: repo(sketch.name),
-    type: sketch.type,
-    title: sketch.title,
-    ...(sketch.number ? { number: sketch.number } : {}),
-    ...(sketch.state ? { state: sketch.state } : {}),
-    reason: sketch.reason,
-    unread: sketch.unread ?? true,
-    updatedAt: iso(now - sketch.ago),
-    lastReadAt: sketch.unread === false ? iso(now - sketch.ago + minute) : null,
-    url: web(sketch.name, sketch.path),
-  }));
+  return sketches.map((sketch) => {
+    const row: ForgeInboxRow = {
+      id: sketch.id,
+      repository: repo(sketch.name),
+      type: sketch.type,
+      title: sketch.title,
+      reason: sketch.reason,
+      unread: sketch.unread ?? true,
+      updatedAt: iso(now - sketch.ago),
+      lastReadAt: sketch.unread === false ? iso(now - sketch.ago + minute) : null,
+      url: web(sketch.name, sketch.path),
+    };
+    if (sketch.number) row.number = sketch.number;
+    if (sketch.state) row.state = sketch.state;
+    return row;
+  });
 }
