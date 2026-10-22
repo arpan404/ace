@@ -95,7 +95,8 @@ function segmentsOf(facts: LivePillFacts, status: PillStatus | undefined): PillS
   const segments: PillSegment[] = [];
   const wait = activity?.waitingOn;
   // Subagents beside a working root; while the root only waits on them the status names them.
-  const subagents = activity && !activity.waitingOnSubagents && !wait ? (activity.subagents ?? 0) : 0;
+  const subagents =
+    activity && !activity.waitingOnSubagents && !wait ? (activity.subagents ?? 0) : 0;
   if (subagents > 0)
     segments.push({
       kind: "subagents",
