@@ -20,9 +20,9 @@ export function readThreadTree(
 export function readTreeMembers(
   context: Pick<ServiceContext, "store" | "services">,
   members: readonly ThreadId[],
+  journal = context.services.agentControl?.delegations.journal,
 ): CliTree {
   const { store, services } = context;
-  const journal = services.agentControl?.delegations.journal;
   const data = members.map((id) => {
     const value = store.getThread(id);
     const edge = journal?.get(id);

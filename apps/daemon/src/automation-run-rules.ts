@@ -89,6 +89,8 @@ export interface RunFacts {
   /** The engine run the record saw take the message, kept after the engine forgets it. */
   boundRun: string | undefined;
   cancel: "requested" | "sent" | undefined;
+  /** Whether a stop of the run's cancellation reached its work, not only asked for. */
+  stopReached: boolean;
   /** Facts of the run's turn, once an engine run took the message. */
   turn: TurnFacts | undefined;
   tree: TreeState | undefined;
@@ -140,6 +142,8 @@ function settled(facts: RunFacts, stopped: boolean): RunDecision {
   const { turn, tree } = facts;
   if (!turn || turn.active || tree === undefined) return { kind: "wait" };
   if (tree === "working" || tree === "needs-human" || tree === "uncertain") return { kind: "wait" };
+  // Its work was cut short by its own stop, though the turn itself may have completed.
+  if (facts.stopReached) return settleFailed("Stopped before it finished.");
   if (tree === "ok" && turn.last === "completed")
     return { kind: "settle", status: "succeeded", fallback: "Finished without a written answer." };
   if (stopped) return settleFailed("Stopped before it finished.");

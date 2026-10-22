@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { SettingsService } from "@ace/settings";
 import { createLogger } from "@ace/diagnostics";
-import type { McpAttribution } from "@ace/protocol";
+import {
+  AgentAutomation,
+  AutomationInbox,
+  AutomationResponse,
+  type McpAttribution,
+} from "@ace/protocol";
 import { readConfig } from "../config.ts";
 import { end } from "../engine/test-support.ts";
 import { Resources } from "../services/resources.ts";
@@ -53,6 +58,78 @@ export async function automationFixture(provider: "codex" | "claude" = "codex") 
   return {
     h,
     caller,
+    /** The agent saves a manual automation `id` that sends `prompt` into its thread. */
+    async save(id: string, prompt: string) {
+      const result = await owner.owners.execute(
+        caller,
+        {
+          op: "automation.manage",
+          request: {
+            type: "automation.put",
+            requestId: `put-${id}`,
+            automation: AgentAutomation.parse({
+              id,
+              title: id,
+              enabled: true,
+              workspace: h.home,
+              provider,
+              prompt,
+              worktree: false,
+              trigger: { kind: "manual" },
+            }),
+          },
+        },
+        new AbortController().signal,
+      );
+      if (!result.ok) throw new Error(`Could not save ${id}`);
+    },
+    /** Run automation `id` now, as the agent's tool does. */
+    async run(id: string, requestId: string) {
+      return AutomationResponse.parse(
+        (
+          await owner.owners.execute(
+            caller,
+            {
+              op: "automation.manage",
+              request: { type: "automation.run", requestId, id, variables: {} },
+            },
+            new AbortController().signal,
+          )
+        ).data,
+      );
+    },
+    /** Automation `id`'s newest run. */
+    async latest(id: string) {
+      const inbox = AutomationInbox.parse(
+        (
+          await owner.owners.execute(
+            caller,
+            {
+              op: "automation.manage",
+              request: { type: "automation.inbox", requestId: "inbox", limit: 50 },
+            },
+            new AbortController().signal,
+          )
+        ).data,
+      );
+      return inbox.runs.find((entry) => entry.automationId === id);
+    },
+    /** Pause or resume automation `id`. */
+    setEnabled(id: string, enabled: boolean) {
+      return owner.owners.execute(
+        caller,
+        {
+          op: "automation.manage",
+          request: {
+            type: "automation.setEnabled",
+            requestId: `enabled-${id}-${enabled}`,
+            id,
+            enabled,
+          },
+        },
+        new AbortController().signal,
+      );
+    },
     /** Where the agent automations' own store lives. */
     get dataDir() {
       return owner.context.config.dataDir;

@@ -1,7 +1,7 @@
 import { isAgentProse } from "@ace/projection";
 import { Run, type ThreadId } from "@ace/protocol";
 import { z } from "zod";
-import type { ServiceContext } from "./services/types.ts";
+import type { DelegationJournal } from "./agent-control/journal.ts";
 import type { Store } from "./store.ts";
 import type { TurnFacts } from "./automation-run-rules.ts";
 import { delegatedChildPersisted } from "./thread-tree.ts";
@@ -178,13 +178,13 @@ export function readTurnWork(
  * window of the turn. Undefined while delegated children can't be read.
  */
 export function turnDelegations(
-  context: Pick<ServiceContext, "store" | "services">,
+  store: Store,
+  journal: DelegationJournal | undefined,
   threadId: ThreadId,
   turn: TurnRead,
 ): { children: ThreadId[]; reservations: ThreadId[] } | undefined {
-  const journal = context.services.agentControl?.delegations.journal;
   if (!journal)
-    return delegatedChildPersisted(context.store, threadId)
+    return delegatedChildPersisted(store, threadId)
       ? undefined
       : { children: [], reservations: [] };
   const direct = new Set<ThreadId>();

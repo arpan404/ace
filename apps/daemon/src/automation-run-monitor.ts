@@ -30,6 +30,7 @@ import {
   type TurnRead,
 } from "./automation-run-facts.ts";
 import type { RunRecord, RunRecords } from "./automation-run-record.ts";
+import type { DelegationJournal } from "./agent-control/journal.ts";
 
 /** A check now and then in case a change came without an event the monitor listens for. */
 const reconcileMs = 5_000;
@@ -40,6 +41,8 @@ const reconcileMs = 5_000;
  * the turn delegated to whose results never wake the thread again (`hostCancel`).
  */
 export interface HostStop {
+  /** Whose delegations an automation's runs can see and cancel. */
+  journal: DelegationJournal;
   stop(thread: ThreadId, command: Command): CommandResult;
   cancel(
     children: readonly ThreadId[],
@@ -199,20 +202,21 @@ async function inspect(
     runId === undefined ? undefined : readTurn(store, threadId, runId, thread.rootAgentId);
   let tree: TreeState | undefined;
   if (turn && !turn.facts.active) {
-    const open = readOpenWork(context, threadId, turn, thread.rootAgentId);
+    const journal = options.hostStop()?.journal;
+    const open = readOpenWork(context, journal, threadId, turn, thread.rootAgentId);
     for (const child of open?.delegations.children ?? []) members.add(child);
     tree =
       open === undefined
         ? "uncertain"
         : runTreeState({
-            root: turn.later ? undefined : readTreeMembers(context, [threadId])[0],
+            root: turn.later ? undefined : readTreeMembers(context, [threadId], journal)[0],
             work: {
               tasks: open.work.tasks.length,
               agentRuns: open.work.agentRuns.length,
               questions: open.work.questions,
               reservations: open.delegations.reservations.length,
             },
-            children: readTreeMembers(context, open.delegations.children),
+            children: readTreeMembers(context, open.delegations.children, journal),
             cancelling: record.cancel !== undefined,
           });
   }
@@ -228,6 +232,7 @@ async function inspect(
     fate,
     boundRun: runId,
     cancel: latest.cancel === "acknowledged" ? undefined : latest.cancel,
+    stopReached: latest.cancel !== undefined && latest.stopTarget !== undefined,
     turn: turn?.facts,
     tree,
   });
@@ -268,7 +273,10 @@ async function reconcileStop(
     const turn =
       bound === undefined ? undefined : readTurn(store, threadId, bound, thread.rootAgentId);
     const active = activeRootRun(store, threadId, thread.rootAgentId);
-    const open = turn ? readOpenWork(context, threadId, turn, thread.rootAgentId) : undefined;
+    const journal = options.hostStop()?.journal;
+    const open = turn
+      ? readOpenWork(context, journal, threadId, turn, thread.rootAgentId)
+      : undefined;
     const plan = stopPlan({
       fate,
       boundRun: record.engineRun,
@@ -279,7 +287,7 @@ async function reconcileStop(
       // Only tasks the engine can stop on their own; the others are left to end.
       tasks: open?.work.tasks.filter((task) => task.stoppable).map((task) => task.id) ?? [],
       agentRuns: open?.work.agentRuns ?? [],
-      liveChildren: open ? liveChildren(context, open.delegations.children) : [],
+      liveChildren: open ? liveChildren(journal, open.delegations.children) : [],
       reservations: open?.delegations.reservations ?? [],
     });
     if (plan.kind === "wait") return false;
@@ -303,17 +311,20 @@ async function reconcileStop(
 /** The turn's open work: native work in its thread, and the delegations it began. */
 function readOpenWork(
   context: ServiceContext,
+  journal: DelegationJournal | undefined,
   threadId: ThreadId,
   turn: TurnRead,
   rootAgentId: string | undefined,
 ) {
-  const delegations = turnDelegations(context, threadId, turn);
+  const delegations = turnDelegations(context.store, journal, threadId, turn);
   if (!delegations) return undefined;
   return { work: readTurnWork(context.store, threadId, turn, rootAgentId), delegations };
 }
 
-function liveChildren(context: ServiceContext, children: readonly ThreadId[]): ThreadId[] {
-  const journal = context.services.agentControl?.delegations.journal;
+function liveChildren(
+  journal: DelegationJournal | undefined,
+  children: readonly ThreadId[],
+): ThreadId[] {
   return children.filter((child) => {
     const edge = journal?.get(child);
     return edge !== undefined && edge.phase !== "settled" && edge.phase !== "cancelling";

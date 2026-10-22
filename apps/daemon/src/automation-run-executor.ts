@@ -137,9 +137,10 @@ export function automationRunExecutor(
 
 /** The delegation service's host stops, for a run's monitor (`HostStop`). */
 export function hostControl(
-  delegations: Pick<DelegationService, "hostStop" | "hostCancel">,
+  delegations: Pick<DelegationService, "hostStop" | "hostCancel" | "journal">,
 ): HostStop {
   return {
+    journal: delegations.journal,
     stop: (thread, command) => delegations.hostStop(thread, command),
     cancel: (children, reservations, request) =>
       delegations.hostCancel(children, reservations, request),

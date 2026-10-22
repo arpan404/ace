@@ -17,6 +17,7 @@ const facts = (patch: Partial<RunFacts>): RunFacts => ({
   fate: delivered,
   boundRun: runId,
   cancel: undefined,
+  stopReached: false,
   turn: ended,
   tree: "ok",
   ...patch,
@@ -42,7 +43,9 @@ const root = (patch: Partial<CliTree[number]> = {}) => ({
 const stoppedRoot = root({ attention: "stopped" });
 
 test("a stopped run stays running while anything its turn began still works", () => {
-  expect(decideRun(facts({ cancel: "sent", tree: "working" }))).toEqual({ kind: "wait" });
+  expect(decideRun(facts({ cancel: "sent", stopReached: true, tree: "working" }))).toEqual({
+    kind: "wait",
+  });
   expect(decideRun(facts({ cancel: "sent", turn: { active: true, last: "active" } }))).toEqual({
     kind: "wait",
   });
@@ -51,6 +54,17 @@ test("a stopped run stays running while anything its turn began still works", ()
       facts({ cancel: "sent", turn: { active: false, last: "interrupted" }, tree: "failed" }),
     ),
   ).toEqual({ kind: "settle", status: "failed", result: "Stopped before it finished." });
+  // A stop that cut the run's leftover work short reads as stopped, though its turn completed.
+  expect(decideRun(facts({ cancel: "sent", stopReached: true }))).toEqual({
+    kind: "settle",
+    status: "failed",
+    result: "Stopped before it finished.",
+  });
+  // A pause that found nothing left to stop keeps the turn's own result.
+  expect(decideRun(facts({ cancel: "sent" }))).toMatchObject({
+    kind: "settle",
+    status: "succeeded",
+  });
 });
 
 test("a Stop marker never ends a run whose background task, subagent or preparation still works", () => {

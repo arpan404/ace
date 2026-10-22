@@ -63,6 +63,8 @@ export function setup(
     { commandId: string; nativeId: string; origin?: "ace"; delivery?: "steer" | "queue" }[]
   >();
   const contexts = new Map<ThreadId, SessionContext>();
+  /** Native keys of background tasks ace asked a provider to stop. */
+  const stoppedTasks: string[] = [];
   const registry = new AdapterRegistry();
   const capabilities = Capabilities.parse({
     steer,
@@ -163,6 +165,13 @@ export function setup(
               if (provider === "claude")
                 ctx.onFrame(frames.frame({ ...end, outcome: "interrupted" }));
             },
+            async stopTask(task) {
+              await session.stopTask(task);
+              stoppedTasks.push(task);
+              // A Claude task ends once asked to stop, as the CLI reports it.
+              if (provider === "claude")
+                ctx.onFrame(frames.frame({ type: "background.ended", task, status: "stopped" }));
+            },
             close: async () => {
               ctx.onExit({ deliberate: true });
             },
@@ -262,6 +271,7 @@ export function setup(
   }
   return {
     home,
+    stoppedTasks,
     nativeHistories,
     inputs,
     inputMessages,

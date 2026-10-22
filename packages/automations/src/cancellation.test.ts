@@ -67,13 +67,31 @@ test("a stop that fails to reach the executor is tried again until it gets throu
 test("deleting an automation keeps its run's cancellation until the run has stopped", async () => {
   const h = harness();
   h.service.put(definition());
-  h.service.trigger("triage", subject("first"));
+  const first = h.service.trigger("triage", subject("first"));
   const stops = unreachableStop(h);
   h.service.remove("triage");
   await flush();
+  expect(h.service.inbox().runs[0]).toMatchObject({ id: first.id, status: "running" });
+  // After a restart the stop gets through, and the run it was for ends stopped.
+  h.deps.executor.interrupt = (input) => {
+    stops.push(input);
+    h.completions[0]?.resolve({
+      threadId: "thread-0",
+      status: "failed",
+      result: "Stopped before it finished.",
+    });
+    return Promise.resolve();
+  };
+  h.recoveries.set(first.id, h.completions[0]?.promise ?? Promise.resolve(undefined));
   h.restart();
   await flush();
-  expect(stops).toHaveLength(2);
+  expect(stops.map((input) => input.idempotencyKey)).toEqual([first.id, first.id]);
+  expect(h.service.inbox().runs[0]).toMatchObject({
+    id: first.id,
+    status: "failed",
+    result: "Stopped before it finished.",
+  });
+  expect(h.inputs).toHaveLength(1);
 });
 
 /** Let promise callbacks run; the runs here stay open, so `settled` would wait on them. */
