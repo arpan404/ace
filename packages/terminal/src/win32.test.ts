@@ -98,6 +98,8 @@ function boundary({
       backendFactory: createWindowsBackendFactory(
         {
           spawn: (file, argv, options) => {
+            live = true;
+            exitedFired = false;
             // The bootstrap image is the only permitted spawn target, on the
             // dll path, with preload vectors neutralized for any spelling.
             if (file !== process.execPath) throw new Error("refuses raw shell spawn");
@@ -282,7 +284,9 @@ test("shell exit keeps ownership until close confirms the job is empty", async (
 
 test("a surviving tree fails close but succeeds after repair", async () => {
   const context = open({ unkillable: true });
-  await expect(context.manager.closeAll()).rejects.toThrow("survived");
+  await expect(context.manager.closeAll()).rejects.toMatchObject({
+    errors: [expect.objectContaining({ message: expect.stringContaining("survived") })],
+  });
   expect(context.terminal.ownsProcesses).toBe(true);
   context.repair();
   await context.manager.closeAll();
@@ -397,7 +401,7 @@ test("a case-variant mask removes the inherited preload", async () => {
 test("a non-SIGKILL kill is an explicit error, not a silent force-kill", async () => {
   const context = open();
   const attachment = context.terminal.attach();
-  await expect(context.terminal.kill("SIGTERM")).rejects.toThrow("does not support");
+  await expect(context.terminal.kill("SIGTERM")).rejects.toThrow("do not support");
   expect(context.terminal.ownsProcesses).toBe(true);
   // The console is still alive: input keeps flowing.
   context.terminal.write("still here\r");
@@ -414,7 +418,9 @@ test("a non-SIGKILL kill is an explicit error, not a silent force-kill", async (
 
 test("a failed handle close retains ownership for retry", async () => {
   const context = open({ disposeFails: true });
-  await expect(context.manager.closeAll()).rejects.toThrow("close failed");
+  await expect(context.manager.closeAll()).rejects.toMatchObject({
+    errors: [expect.objectContaining({ message: expect.stringContaining("close failed") })],
+  });
   expect(context.terminal.ownsProcesses).toBe(true);
   await context.manager.closeAll();
   expect(context.terminal.ownsProcesses).toBe(false);

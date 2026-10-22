@@ -31,14 +31,10 @@ async function openWindows() {
   const attachment: TerminalAttachment = terminal.attach();
   async function cleanup() {
     attachment.detach();
-    const results = await Promise.allSettled([
-      manager.closeAll(),
-      rm(home, { recursive: true, force: true }),
-    ]);
-    const failures = results.flatMap((result) =>
-      result.status === "rejected" ? [result.reason as unknown] : [],
-    );
-    if (failures.length) throw new AggregateError(failures, "Fixture cleanup failed");
+    // Windows keeps the shell's cwd locked until the tree has stopped.
+    // Preserve a failed close for retry instead of deleting its live cwd.
+    await manager.closeAll();
+    await rm(home, { recursive: true, force: true });
   }
   cleanups.push(cleanup);
   // Transformed barrier: the shell must evaluate the sum. The literal result
