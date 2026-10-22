@@ -25,7 +25,7 @@ test.runIf(process.platform === "win32")(
       process.stdin.once('data', () => {
         const descendant = spawn(process.execPath,
           ['-e', 'console.log("descendant-ready"); setInterval(() => {}, 60000)'],
-          { detached: true, stdio: ['ignore', 'pipe', 'inherit'] });
+          { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
         descendant.once('error', (error) => { console.error(error); process.exit(1); });
         descendant.stdout.once('data', () => {
           descendant.stdout.destroy();
