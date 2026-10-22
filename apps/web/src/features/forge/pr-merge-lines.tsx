@@ -1,5 +1,5 @@
 import { ArrowSquareOutIcon } from "@phosphor-icons/react";
-import { openExternal } from "@/boot/open-external.ts";
+import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import type { PrActions } from "./pr-actions.ts";
 import { humanize } from "./pr-stack-labels.ts";
@@ -15,6 +15,7 @@ function eta(seconds: number): string {
  */
 export function PrMergeLines(props: { actions: PrActions }) {
   const toast = useToast();
+  const openWeb = useOpenWebAddress();
   const { status } = props.actions.context.detail;
   const state = props.actions.mergeState.state;
   if (!state || (status.state !== "open" && status.state !== "draft")) return null;
@@ -40,8 +41,8 @@ export function PrMergeLines(props: { actions: PrActions }) {
           <button
             key={deployment.environment}
             type="button"
-            onClick={() =>
-              void openExternal(url).catch(() =>
+            onClick={(event) =>
+              void openWeb(url, event).catch(() =>
                 toast.error({ title: "Couldn't open the deployment" }),
               )
             }

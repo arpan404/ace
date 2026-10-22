@@ -4,6 +4,7 @@ import { Prose } from "@/components/markdown/prose.tsx";
 import type { MarkdownLinks } from "@/components/markdown/link-options.ts";
 import { PullRequestLink, pullRequestAt } from "@/components/pull-request-link.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
+import { WebLink } from "@/components/web-link.tsx";
 
 type Props = {
   text: string;
@@ -25,14 +26,12 @@ function forgeLinks(props: Props): MarkdownLinks {
         {children}
       </button>
     ) : (
-      <a
+      <WebLink
         href={`https://${repository.host}/${repository.owner}/${repository.name}/issues/${number}`}
-        target="_blank"
-        rel="noreferrer noopener"
         className="text-link hover:underline focus-ring"
       >
         {children}
-      </a>
+      </WebLink>
     );
   };
   return {
@@ -84,10 +83,10 @@ function forgeLinks(props: Props): MarkdownLinks {
           </PullRequestLink>
         );
       return (
-        <a href={url.href} target="_blank" rel="noreferrer noopener" className={className}>
+        <WebLink href={url.href} className={className}>
           <GithubLogoIcon aria-hidden size={14} />
           {children}
-        </a>
+        </WebLink>
       );
     },
   };
