@@ -281,6 +281,39 @@ describe("inbox attention", () => {
   });
 });
 
+const account = (sink: RecordingSink, id: string) =>
+  (sink.read(`inbox:${id}`) as { row: { account: string | null } } | undefined)?.row.account;
+const execution = (instanceId: string) => ({
+  provider: "codex" as const,
+  model: "gpt-5.5",
+  instanceId,
+  options: {},
+});
+
+describe("inbox provider accounts", () => {
+  test("a row on one of several accounts wears that account's mark; the CLI's own login stays plain", async () => {
+    const { sink } = await following((daemon) => {
+      daemon.createThread({
+        id: "team",
+        workspaceId: "ace",
+        title: "Team",
+        provider: "codex",
+        execution: execution("codex-team"),
+      });
+      daemon.createThread({
+        id: "plain",
+        workspaceId: "ace",
+        title: "Plain",
+        provider: "codex",
+        execution: execution("codex-cli-default"),
+      });
+    });
+    await until(() => account(sink, "team") != null, "the account bubble");
+    expect(account(sink, "team")).toBe("T");
+    expect(account(sink, "plain")).toBeNull();
+  });
+});
+
 describe("inbox settling", () => {
   test("settling a finished thread moves it to Settled, and unsettling brings it back to Done", async () => {
     const { client, sink } = await following((daemon) => finished(daemon, "notes", "Notes"));
