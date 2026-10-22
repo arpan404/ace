@@ -1,4 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
+import { reloadApp } from "@/boot/desktop.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { isEditable, useHotkey } from "@/lib/hotkeys.ts";
 import { useKeybindingsSync } from "@/lib/keybindings.ts";
@@ -40,6 +41,8 @@ export function GlobalHotkeys(props: {
   useHotkey(keymap.back.keys, nav.back);
   useHotkey(keymap.forward.keys, nav.forward);
   useHotkey(keymap.settings.keys, () => void navigate({ to: "/settings" }));
+  // A focused browser panel handles ⌘R first and reloads its own page instead.
+  useHotkey(keymap.reloadApp.keys, () => reloadApp());
   useHotkey(keymap.goHome.keys, () => void navigate({ to: "/" }));
   useHotkey(keymap.goAutomations.keys, () => void navigate({ to: "/automations" }));
   useHotkey(keymap.goSkills.keys, () => void navigate({ to: "/skills" }));
