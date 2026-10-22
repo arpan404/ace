@@ -68,19 +68,57 @@ struct AnswerRow: View {
     }
 }
 
-/// The caret after text still arriving: a soft pulse, still under Reduce Motion.
+/// The caret after text still arriving: a soft pulse, still under Reduce Motion. The pulse runs
+/// in Core Animation, off the main thread: a SwiftUI repeating animation would redraw the view
+/// graph on every frame for as long as an answer streams.
 struct StreamingCaret: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var dim = false
     var body: some View {
-        AceShape.capsule.fill(AceTheme.Colours.mutedForeground)
+        PulsingCapsule(colour: UIColor(AceTheme.Colours.mutedForeground), pulses: !reduceMotion)
             .frame(width: 3, height: AceTheme.Typography.body.size)
-            .opacity(dim ? 0.3 : 1)
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { dim = true }
-            }
             .accessibilityElement()
             .accessibilityLabel("Streaming")
+    }
+}
+
+/// A filled capsule whose opacity eases between 1 and 0.3 every 0.8 s, autoreversing.
+private struct PulsingCapsule: UIViewRepresentable {
+    let colour: UIColor
+    let pulses: Bool
+    func makeUIView(context: Context) -> PulseView { PulseView() }
+    func updateUIView(_ view: PulseView, context: Context) {
+        view.backgroundColor = colour
+        view.pulses = pulses
+    }
+
+    final class PulseView: UIView {
+        var pulses = false { didSet { if pulses != oldValue { restart() } } }
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+            layer.cornerCurve = .continuous
+        }
+        required init?(coder: NSCoder) { nil }
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            layer.cornerRadius = min(bounds.width, bounds.height) / 2
+        }
+        // A layer leaving the window loses its animations; a row scrolled back in pulses again.
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            restart()
+        }
+        private func restart() {
+            layer.removeAnimation(forKey: "pulse")
+            guard pulses, window != nil else { return }
+            let pulse = CABasicAnimation(keyPath: "opacity")
+            pulse.fromValue = 1
+            pulse.toValue = 0.3
+            pulse.duration = 0.8
+            pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            layer.add(pulse, forKey: "pulse")
+        }
     }
 }
