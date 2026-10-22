@@ -35,8 +35,30 @@ test("a missing shared library is named so the person can install it", async () 
 });
 
 test("a helper that starts fine leaves the refusal to the system, not the loader", async () => {
-  const message = await explainSandboxRefusal({ helper: await helper("usage: cursorsandbox", 0) });
+  const message = await explainSandboxRefusal({
+    helper: await helper("usage: cursorsandbox", 0),
+    restricted: false,
+  });
   expect(message).toMatch(/reports this system unsupported.*Full access still works/);
+});
+
+test("under Ubuntu's user-namespace restriction the refusal names AppArmor and the one-time fix", async () => {
+  const message = await explainSandboxRefusal({
+    helper: await helper("usage: cursorsandbox", 0),
+    restricted: true,
+  });
+  expect(message).toBe(
+    "Ubuntu's AppArmor blocks the user namespaces Cursor's sandbox helper needs, so Cursor can't run in Auto review, its sandboxed mode, on this machine. Set up the sandbox in ace's desktop app, or run `ace doctor` for the one-time commands; Full access still works.",
+  );
+});
+
+test("an old glibc is named even where AppArmor would also block the helper", async () => {
+  const message = await explainSandboxRefusal({
+    helper: await helper(loader, 1),
+    glibc: "2.36",
+    restricted: true,
+  });
+  expect(message).toMatch(/^Cursor's sandbox helper needs glibc 2\.39 and this system has 2\.36/);
 });
 
 test("a helper that isn't installed says so instead of a loader error", async () => {

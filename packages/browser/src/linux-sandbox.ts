@@ -8,7 +8,8 @@
  *
  * This file is the one source of those profiles: the desktop package installs ace-chromium,
  * `ace doctor` prints it for a person to install once, and the desktop app's one-time sandbox
- * setup installs it together with the app's own profile.
+ * setup installs it together with the app's own profile. Cursor's sandbox helper needs the same
+ * grant (ace-cursor-sandbox, also printed by `ace doctor`).
  */
 
 export const chromiumAppArmorProfileName = "ace-chromium";
@@ -84,6 +85,37 @@ export function chromiumAppArmorProfile(attachment = defaultChromiumAttachment):
     name: chromiumAppArmorProfileName,
     attachment,
     purpose: "ace's Chrome: lets its sandbox create user namespaces on Ubuntu 23.10+.",
+  });
+}
+
+export const cursorSandboxProfileName = "ace-cursor-sandbox";
+/**
+ * Where Cursor's sandbox helper runs from. A standalone install keeps each release under
+ * `ACE_HOME/releases/<version>-<target>`, so the attachment covers every release there and
+ * survives updates; any other copy (a checkout, a custom layout) is attached by its own path.
+ * Under the desktop app the helper needs no profile: it inherits the app's.
+ */
+export function cursorSandboxAttachment(options: {
+  /** The helper's resolved path: AppArmor matches executables after symlinks. */
+  helper: string;
+  dataDir: string;
+  home: string;
+}): string {
+  if (!options.helper.startsWith("/")) throw new Error("Cursor's helper path must be absolute");
+  const dataDir = options.dataDir.replace(/\/+$/, "");
+  if (!options.helper.startsWith(`${dataDir}/releases/`)) return appArmorLiteral(options.helper);
+  const root =
+    dataDir === `${options.home.replace(/\/+$/, "")}/.ace`
+      ? "@{HOME}/.ace"
+      : appArmorLiteral(dataDir);
+  return `${root}/releases/*/node_modules/@cursor/sdk-linux-{x64,arm64}/bin/cursorsandbox`;
+}
+/** The text of `/etc/apparmor.d/ace-cursor-sandbox`. */
+export function cursorSandboxProfile(attachment: string): string {
+  return usernsProfileText({
+    name: cursorSandboxProfileName,
+    attachment,
+    purpose: "Cursor's sandbox helper in ace: lets it create user namespaces on Ubuntu 23.10+.",
   });
 }
 

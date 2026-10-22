@@ -9,6 +9,7 @@ import { createRedactor } from "@ace/redaction";
 import { checkBrowserEngine } from "@ace/browser/engine-check";
 import { DiagnosticReport } from "@ace/protocol";
 import { homedir } from "node:os";
+import { cursorSandboxChecks } from "./cursor-sandbox-check.ts";
 import { remoteDoctorChecks } from "./doctor.ts";
 import type { Config } from "./config.ts";
 
@@ -30,6 +31,9 @@ export async function collectDoctorReport(
         }),
       ),
       ...(process.platform === "linux" ? linuxHostChecks(linuxHost(env, process.arch)) : []),
+      ...(process.platform === "linux"
+        ? cursorSandboxChecks({ dataDir: config.dataDir, home: homedir() })
+        : []),
       ...remoteDoctorChecks(config, env),
     ],
     // A real Chrome start (version, then a headless launch) needs more than the 5 s default.

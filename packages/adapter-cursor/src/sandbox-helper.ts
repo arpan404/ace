@@ -1,5 +1,8 @@
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 
@@ -12,9 +15,14 @@ import { z } from "zod";
  * on Ubuntu 22.04 or Debian 12 Cursor's sandboxed mode cannot start. ace can't rebuild the
  * helper, and the SDK's only other path is no sandbox at all, which ace never picks for the
  * person: it says what is missing and which mode still works.
+ *
+ * On Ubuntu 23.10+ AppArmor also blocks the user namespaces the helper creates, whatever the
+ * glibc, until a profile grants them. Under the desktop app the helper inherits the app's
+ * profile once its sandbox is set up; a standalone daemon gets the profile from `ace doctor`.
  */
 export type HelperProblem =
   | { kind: "glibc"; required: string; host?: string }
+  | { kind: "apparmor" }
   | { kind: "library"; library: string }
   | { kind: "missing" }
   | { kind: "other" };
@@ -53,6 +61,8 @@ export function sandboxUnavailableMessage(problem: HelperProblem): string {
       return `Cursor's sandbox helper needs glibc ${problem.required}${problem.host ? ` and this system has ${problem.host}` : ""}, ${affected}. ${fallback}; or run ace on a distribution with glibc ${problem.required} or newer.`;
     case "library":
       return `Cursor's sandbox helper can't load ${problem.library}, ${affected}. Install the package that provides ${problem.library}, or use Full access.`;
+    case "apparmor":
+      return `Ubuntu's AppArmor blocks the user namespaces Cursor's sandbox helper needs, ${affected}. Set up the sandbox in ace's desktop app, or run \`ace doctor\` for the one-time commands; ${fallback}.`;
     case "missing":
       return `Cursor's sandbox helper is not installed with this ace, ${affected}. ${fallback}.`;
     case "other":
@@ -99,17 +109,70 @@ function loaderOutput(helper: string): Promise<{ started: boolean; stderr: strin
   });
 }
 
+/** `kernel.apparmor_restrict_unprivileged_userns` is 1: Ubuntu 23.10+'s default. */
+export function userNamespacesRestricted(): boolean {
+  try {
+    return (
+      readFileSync("/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "utf8").trim() === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Why the helper can't sandbox Cursor here, on Linux after the SDK refused its sandbox.
- * `helper` and `glibc` default to the installed helper and this process's glibc.
+ * `helper`, `glibc` and `restricted` default to the installed helper, this process's glibc
+ * and the kernel's AppArmor user-namespace switch.
  */
 export async function explainSandboxRefusal(
-  options: { helper?: string | undefined; glibc?: string | undefined } = {},
+  options: { helper?: string | undefined; glibc?: string | undefined; restricted?: boolean } = {},
 ): Promise<string> {
   const helper = "helper" in options ? options.helper : sandboxHelperPath();
   if (!helper) return sandboxUnavailableMessage({ kind: "missing" });
   const run = await loaderOutput(helper);
   if (!run.started) return sandboxUnavailableMessage({ kind: "missing" });
   const glibc = "glibc" in options ? options.glibc : hostGlibc();
-  return sandboxUnavailableMessage(helperLoadProblem(run.stderr, glibc) ?? { kind: "other" });
+  const loader = helperLoadProblem(run.stderr, glibc);
+  if (loader) return sandboxUnavailableMessage(loader);
+  const restricted = options.restricted ?? userNamespacesRestricted();
+  return sandboxUnavailableMessage({ kind: restricted ? "apparmor" : "other" });
+}
+
+/**
+ * Runs the helper's own preflight, as the SDK does before it sandboxes a command: exit 0 when
+ * it can sandbox here, 2 when the system lacks what it needs. The policy is the SDK's
+ * smallest, a writable workspace in a scratch folder.
+ */
+export async function sandboxPreflight(
+  helper: string,
+  signal?: AbortSignal,
+): Promise<{ code: number | null; stderr: string }> {
+  const dir = await mkdtemp(join(tmpdir(), "ace-cursor-preflight-"));
+  try {
+    const policy = join(dir, "policy.json");
+    await writeFile(
+      policy,
+      JSON.stringify({ sandbox: { type: "workspace_readwrite", cwd: dir } }),
+      { mode: 0o600 },
+    );
+    return await new Promise((done) => {
+      execFile(
+        helper,
+        ["--policy", policy, "--preflight-only", "--", "/bin/true"],
+        { cwd: dir, timeout: 15_000, maxBuffer: 256 * 1024, ...(signal ? { signal } : {}) },
+        (error, _out, stderr) => {
+          const code =
+            error === null
+              ? 0
+              : "code" in error && typeof error.code === "number"
+                ? error.code
+                : null;
+          done({ code, stderr: String(stderr) });
+        },
+      );
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
