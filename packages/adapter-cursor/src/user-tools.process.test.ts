@@ -1,6 +1,7 @@
+import { spawnSync } from "node:child_process";
 import { lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, win32 } from "node:path";
+import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { createCursorAdapter } from "./index.ts";
@@ -30,13 +31,15 @@ async function hostEnv(input: {
   platform: NodeJS.Platform;
   userHome: string;
   instanceHome: string;
-  env?: NodeJS.ProcessEnv;
+  /** The person's own environment; the launch env is this plus Cursor's private HOME. */
+  userEnv: NodeJS.ProcessEnv;
 }): Promise<NodeJS.ProcessEnv> {
   await mkdir(join(input.instanceHome, "user"), { recursive: true });
   let captured: NodeJS.ProcessEnv | undefined;
   const adapter = createCursorAdapter({
     instance: { id: "tools", homeDir: input.instanceHome },
     userHome: input.userHome,
+    userEnv: input.userEnv,
     platform: input.platform,
     discovery,
     spawn: (options) => {
@@ -49,7 +52,7 @@ async function hostEnv(input: {
       adapter.openSession({
         threadId: ThreadId.parse("cursor-tools"),
         cwd: input.instanceHome,
-        env: { PATH: "/fake", ...input.env, HOME: join(input.instanceHome, "user") },
+        env: { PATH: "/fake", ...input.userEnv, HOME: join(input.instanceHome, "user") },
         signal: new AbortController().signal,
         onFrame: () => {},
         onExit: () => {},
@@ -68,65 +71,90 @@ async function tempRoot() {
   return root;
 }
 
-it("gh and git inside a Cursor session read the person's real config while the SDK keeps its private home", async () => {
-  const root = await tempRoot();
+/** What the real git binary reads with the Cursor host's environment, outside any repo. */
+function gitConfig(env: NodeJS.ProcessEnv, cwd: string, ...args: string[]): string {
+  const result = spawnSync("git", ["config", ...args], {
+    cwd,
+    encoding: "utf8",
+    env: { ...env, PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: "1" },
+  });
+  return result.stdout.trim();
+}
+
+async function personWithGitConfig(root: string, xdg = join(root, "real", ".config")) {
   const userHome = join(root, "real");
-  const instanceHome = join(root, "instance");
+  await mkdir(join(xdg, "git"), { recursive: true });
   await mkdir(userHome, { recursive: true });
   await writeFile(join(userHome, ".gitconfig"), "[user]\n\tname = Person\n");
-  const env = await hostEnv({ platform: "darwin", userHome, instanceHome });
+  await writeFile(join(xdg, "git", "config"), "[credential]\n\thelper = person-helper\n");
+  return userHome;
+}
+
+it("gh and both of git's global files reach a Cursor session while the SDK keeps its private home", async () => {
+  const root = await tempRoot();
+  const userHome = await personWithGitConfig(root);
+  const instanceHome = join(root, "instance");
+  const env = await hostEnv({
+    platform: "darwin",
+    userHome,
+    instanceHome,
+    userEnv: { HOME: userHome },
+  });
   expect(env).toMatchObject({
     HOME: join(instanceHome, "user"),
     GH_CONFIG_DIR: join(userHome, ".config", "gh"),
-    GIT_CONFIG_GLOBAL: join(userHome, ".gitconfig"),
   });
+  expect(gitConfig(env, root, "--get", "user.name")).toBe("Person");
+  expect(gitConfig(env, root, "--get", "credential.helper")).toBe("person-helper");
 });
 
-it("on Linux, a person's XDG config root holds the gh and git config a Cursor session uses", async () => {
+it("on Linux, a person's XDG config root holds the gh config, and git reads its XDG file once", async () => {
   const root = await tempRoot();
-  const userHome = join(root, "real");
   const xdg = join(root, "xdg");
-  await mkdir(join(xdg, "git"), { recursive: true });
-  await writeFile(join(xdg, "git", "config"), "[user]\n\tname = Person\n");
+  const userHome = await personWithGitConfig(root, xdg);
   const env = await hostEnv({
     platform: "linux",
     userHome,
     instanceHome: join(root, "instance"),
-    env: { XDG_CONFIG_HOME: xdg },
+    userEnv: { HOME: userHome, XDG_CONFIG_HOME: xdg },
   });
-  expect(env).toMatchObject({
-    GH_CONFIG_DIR: join(xdg, "gh"),
-    GIT_CONFIG_GLOBAL: join(xdg, "git", "config"),
-  });
+  expect(env.GH_CONFIG_DIR).toBe(join(xdg, "gh"));
+  expect(gitConfig(env, root, "--get", "user.name")).toBe("Person");
+  expect(gitConfig(env, root, "--get-all", "credential.helper")).toBe("person-helper");
 });
 
-it("on Windows, a Cursor session uses gh's AppData folder and the profile's .gitconfig", async () => {
+it("on Windows, a Cursor session uses gh's AppData folder and git's own home, HOME before USERPROFILE", async () => {
   const root = await tempRoot();
-  const userHome = "C:\\Users\\person";
+  const instanceHome = join(root, "instance");
   const env = await hostEnv({
     platform: "win32",
-    userHome,
-    instanceHome: join(root, "instance"),
-    env: { APPDATA: "C:\\Users\\person\\AppData\\Roaming" },
+    userHome: "C:\\Users\\person",
+    instanceHome,
+    userEnv: {
+      HOME: "D:\\GitHome",
+      USERPROFILE: "C:\\Users\\person",
+      APPDATA: "C:\\Users\\person\\AppData\\Roaming",
+    },
   });
-  expect(env).toMatchObject({
-    GH_CONFIG_DIR: "C:\\Users\\person\\AppData\\Roaming\\GitHub CLI",
-    GIT_CONFIG_GLOBAL: win32.join(userHome, ".gitconfig"),
-  });
+  expect(env.GH_CONFIG_DIR).toBe("C:\\Users\\person\\AppData\\Roaming\\GitHub CLI");
+  const includes = await readFile(join(instanceHome, "user", ".gitconfig"), "utf8");
+  expect(includes).toContain('path = "D:\\\\GitHome\\\\.gitconfig"');
+  expect(includes).not.toContain("Users");
 });
 
 it("a person's own GH_CONFIG_DIR and GIT_CONFIG_GLOBAL reach a Cursor session unchanged", async () => {
   const root = await tempRoot();
+  const userHome = await personWithGitConfig(root);
+  const custom = join(root, "custom.gitconfig");
+  await writeFile(custom, "[user]\n\tname = Custom\n");
   const env = await hostEnv({
     platform: "darwin",
-    userHome: join(root, "real"),
+    userHome,
     instanceHome: join(root, "instance"),
-    env: { GH_CONFIG_DIR: "/custom/gh", GIT_CONFIG_GLOBAL: "/custom/gitconfig" },
+    userEnv: { HOME: userHome, GH_CONFIG_DIR: "/custom/gh", GIT_CONFIG_GLOBAL: custom },
   });
-  expect(env).toMatchObject({
-    GH_CONFIG_DIR: "/custom/gh",
-    GIT_CONFIG_GLOBAL: "/custom/gitconfig",
-  });
+  expect(env.GH_CONFIG_DIR).toBe("/custom/gh");
+  expect(gitConfig(env, root, "--get", "user.name")).toBe("Custom");
 });
 
 it("on macOS, a Cursor session reaches the person's keychain so gh can read its token", async () => {
@@ -135,9 +163,11 @@ it("on macOS, a Cursor session reaches the person's keychain so gh can read its 
   const instanceHome = join(root, "instance");
   await mkdir(join(userHome, "Library", "Keychains"), { recursive: true });
   await writeFile(join(userHome, "Library", "Keychains", "login.keychain-db"), "keychain");
-  await hostEnv({ platform: "darwin", userHome, instanceHome });
-  // Twice: a second session open keeps the same link.
-  await hostEnv({ platform: "darwin", userHome, instanceHome });
+  const open = () =>
+    hostEnv({ platform: "darwin", userHome, instanceHome, userEnv: { HOME: userHome } });
+  await open();
+  // A second session open keeps the same link.
+  await open();
   const linked = join(instanceHome, "user", "Library", "Keychains", "login.keychain-db");
   expect(await readFile(linked, "utf8")).toBe("keychain");
 });
@@ -148,7 +178,7 @@ it("on Linux and Windows, a Cursor session's private home gets no keychain link"
     const userHome = join(root, "real");
     const instanceHome = join(root, "instance");
     await mkdir(join(userHome, "Library", "Keychains"), { recursive: true });
-    await hostEnv({ platform, userHome, instanceHome });
+    await hostEnv({ platform, userHome, instanceHome, userEnv: { HOME: userHome } });
     await expect(lstat(join(instanceHome, "user", "Library"))).rejects.toMatchObject({
       code: "ENOENT",
     });

@@ -1,5 +1,6 @@
 import { cursorSdkEnvironment } from "@ace/adapter-cursor/instance";
 import { openCodeAuthArgs } from "./opencode-auth.ts";
+import { ghConfigDir } from "@ace/provider-kit/user-tool-paths";
 import { opendir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import {
@@ -46,6 +47,9 @@ const authOverrides = [
   "ANTHROPIC_API_KEY",
   "ANTHROPIC_AUTH_TOKEN",
   "CLAUDE_CODE_OAUTH_TOKEN",
+  // Claude reads its login from this folder ahead of CLAUDE_CONFIG_DIR; an empty value
+  // selects the person's own default login.
+  "CLAUDE_SECURESTORAGE_CONFIG_DIR",
   "CURSOR_API_KEY",
   "CURSOR_AUTH_TOKEN",
   "OPENCODE_DB",
@@ -57,25 +61,31 @@ const authOverrides = [
   "CLAUDE_CODE_USE_FOUNDRY",
 ];
 /**
- * Only the selector that holds the CLI's own login moves to the account home. HOME, XDG
- * roots, APPDATA and TMPDIR stay the person's, so gh, git, ssh, npm and the keychain work
- * inside an account exactly as they do in a terminal. Each CLI keys its credentials on that
+ * Only the selectors that hold the CLI's own login and settings move to the account home.
+ * HOME, APPDATA and TMPDIR stay the person's, so gh, git, ssh, npm and the keychain work
+ * inside an account exactly as they do in a terminal. Each CLI keys its credentials on its
  * selector (Claude's keychain entry name hashes CLAUDE_CONFIG_DIR, Codex and Pi keep
  * `auth.json` in their home), so accounts stay apart without a private HOME. Cursor's SDK
  * reads `os.homedir()` and is the one exception; see `cursorSdkEnvironment`.
  */
-function appliedSelectors(instance: ProviderInstance): ProviderInstance["env"] {
-  // OpenCode keeps its login under XDG_DATA_HOME, and 2.x finds its background service
-  // (which serves that login) through XDG_STATE_HOME, so both move. Its stored config and
-  // cache roots are not applied: config would move gh and git off the person's own files.
-  if (instance.provider === "opencode") {
-    const { XDG_DATA_HOME, XDG_STATE_HOME } = instance.env;
-    return {
-      ...(XDG_DATA_HOME ? { XDG_DATA_HOME } : {}),
-      ...(XDG_STATE_HOME ? { XDG_STATE_HOME } : {}),
-    };
-  }
-  return instance.env;
+function appliedSelectors(
+  instance: ProviderInstance,
+  person: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+): NodeJS.ProcessEnv {
+  if (instance.provider !== "opencode") return instance.env;
+  // OpenCode keeps its login under XDG_DATA_HOME, finds its background service (which
+  // serves that login) through XDG_STATE_HOME, and reads provider keys from its config
+  // under XDG_CONFIG_HOME, so all three move. Its cache stays the person's. gh would follow
+  // the moved config root, so it is pointed back at the person's own.
+  const { XDG_DATA_HOME, XDG_STATE_HOME, XDG_CONFIG_HOME } = instance.env;
+  const gh = XDG_CONFIG_HOME ? ghConfigDir({ platform, env: person }) : undefined;
+  return {
+    ...(XDG_DATA_HOME ? { XDG_DATA_HOME } : {}),
+    ...(XDG_STATE_HOME ? { XDG_STATE_HOME } : {}),
+    ...(XDG_CONFIG_HOME ? { XDG_CONFIG_HOME } : {}),
+    ...(gh ? { GH_CONFIG_DIR: gh } : {}),
+  };
 }
 
 /** Undefined masks the ambient variable when provider-kit merges process.env. */
@@ -83,6 +93,7 @@ export function instanceEnv(
   instance: ProviderInstance,
   base: NodeJS.ProcessEnv,
   backend?: "cursor-sdk" | "acp",
+  platform: NodeJS.Platform = process.platform,
 ): NodeJS.ProcessEnv {
   const parsed = ProviderInstance.parse(instance);
   if (parsed.implicit) return { ...base };
@@ -108,7 +119,7 @@ export function instanceEnv(
   for (const key of authOverrides) env[key] = undefined;
   if (parsed.provider === "cursor" && backend === "cursor-sdk" && parsed.authMethod !== "api_key")
     env["CURSOR_API_KEY"] = base["CURSOR_API_KEY"];
-  const selected = { ...env, ...appliedSelectors(parsed) };
+  const selected = { ...env, ...appliedSelectors(parsed, base, platform) };
   return parsed.provider === "cursor" && backend === "cursor-sdk"
     ? cursorSdkEnvironment({ id: parsed.id, homeDir: parsed.homeDir }, selected)
     : selected;

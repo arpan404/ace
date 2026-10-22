@@ -8,6 +8,7 @@ import { pickInstance } from "@ace/accounts";
 import { createDaemonCommandLibrary, defaultCommandInstances } from "../command-library.ts";
 import { connectDaemonCommandEvents, type CommandEventSource } from "../command-events.ts";
 import { PromptFiles, type ProviderInstance } from "@ace/commands";
+import { join } from "node:path";
 import { builtinSkillsDirectory } from "@ace/plugins";
 import { WorkspaceId, type Thread } from "@ace/protocol";
 import type { ServiceContext } from "./types.ts";
@@ -61,11 +62,13 @@ async function initializeCommands({
             skillsHome: instance.implicit
               ? defaults.find((d) => d.provider === instance.provider)?.skillsHome
               : undefined,
-            // OpenCode accounts only isolate their data root; commands come from the
-            // person's own config, the same as the default instance.
-            home:
-              instance.implicit || instance.provider === "opencode"
-                ? (defaults.find((d) => d.provider === instance.provider)?.home ?? instance.homeDir)
+            home: instance.implicit
+              ? (defaults.find((d) => d.provider === instance.provider)?.home ?? instance.homeDir)
+              : instance.provider === "opencode"
+                ? join(
+                    instance.env.XDG_CONFIG_HOME ?? join(instance.homeDir, "user/.config"),
+                    "opencode",
+                  )
                 : instance.homeDir,
           })),
       ]),

@@ -11,7 +11,7 @@ import type { readCursorSnapshot } from "./history.ts";
 import { CursorHostSlots } from "./slots.ts";
 import { Limits, type CursorLimits } from "./contracts.ts";
 import { addShippedSkills, mirrorCursorUserConfig } from "./user-settings.ts";
-import { linkUserKeychains, userToolEnv } from "./user-tools.ts";
+import { linkUserKeychains, userToolEnv, writeGitIncludes } from "./user-tools.ts";
 
 export interface CursorAdapterOptions extends Omit<HostOptions, "env"> {
   instance?: CursorInstance;
@@ -33,6 +33,8 @@ export interface CursorAdapterOptions extends Omit<HostOptions, "env"> {
   userHome?: string;
   /** The platform whose gh/git lookup rules apply; defaults to the daemon's. */
   platform?: NodeJS.Platform;
+  /** The person's own environment, whose gh and git config sessions reach; defaults to the daemon's. */
+  userEnv?: NodeJS.ProcessEnv;
   /** The owner issues a thread/instance-scoped lease; no shared static token. */
   mcp?: (context: SessionContext & { instanceId: string }) => Promise<{
     connection: AceMcpConnection;
@@ -57,16 +59,18 @@ export function createCursorAdapter(
   const fenced = new Set<string>();
   // One copy at a time: concurrent opens would otherwise swap the same entries under each other.
   let mirroring: Promise<unknown> = Promise.resolve();
-  const mirror = (home: string, skills: readonly string[]) => {
+  const userTools = () => ({
+    platform: options.platform ?? process.platform,
+    userEnv: options.userEnv ?? process.env,
+    userHome: options.userHome ?? homedir(),
+  });
+  const mirror = (home: string, skills: readonly string[], launch: NodeJS.ProcessEnv) => {
     const next = mirroring.then(async () => {
       await mirrorCursorUserConfig(options.userHome ?? homedir(), home);
-      await linkUserKeychains({
-        platform: options.platform ?? process.platform,
-        userHome: options.userHome ?? homedir(),
-        privateHome: home,
-      });
       // ace's shipped skills join the person's own, which win on a shared name.
       await addShippedSkills(home, skills);
+      await linkUserKeychains({ ...userTools(), privateHome: home });
+      await writeGitIncludes({ ...userTools(), launch, privateHome: home });
     });
     mirroring = next.catch(() => {});
     return next;
@@ -111,16 +115,16 @@ export function createCursorAdapter(
         const launch = context.env ?? options.env ?? process.env;
         const env = {
           ...cursorSdkEnvironment(selected, launch),
-          ...(await userToolEnv({
-            platform: options.platform ?? process.platform,
-            userHome: options.userHome ?? homedir(),
-            env: launch,
-          })),
+          ...userToolEnv({ ...userTools(), launch }),
         };
         // An accounts-composed environment must already carry the private SDK default home.
         if (env.HOME !== join(selected.homeDir, "user"))
           throw new Error("Cursor SDK host home must match the selected instance");
-        await mirror(join(selected.homeDir, "user"), context.builtinSkills?.directories ?? []);
+        await mirror(
+          join(selected.homeDir, "user"),
+          context.builtinSkills?.directories ?? [],
+          launch,
+        );
         lease = await options.mcp?.({ ...context, instanceId: selected.id });
         let session: ProviderSession | undefined;
         let exitedDuringAdmission = false;
@@ -128,6 +132,7 @@ export function createCursorAdapter(
           mcp: _mcpFactory,
           userHome: _userHome,
           platform: _platform,
+          userEnv: _userEnv,
           limits: _baseLimits,
           limitsForSession: _limitsForSession,
           ...hostOptions
