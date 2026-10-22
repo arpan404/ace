@@ -137,15 +137,19 @@ each one GraphQL request through `gh`:
 - `forge.references`: two aliased `search(type: ISSUE)` queries (open, then any state,
   10 each, newest activity first, words matched `in:title` only) plus
   `repository.issueOrPullRequest` when the query is a number, so an exact number leads.
-  Reused for one minute and dropped on any write.
+  GitHub's search matches whole words only, so the client sends the words already finished
+  and narrows the answer by what is typed (each typed word must start a title word, a number
+  must start the item's number). Reused for one minute and dropped on any write.
 - `forge.pr.reviewers`: `reviewRequests` (people and teams), `latestOpinionatedReviews`
   and `latestReviews`, `suggestedReviewers`, `viewerCanUpdate` and
   `repository.viewerPermission`. Each reviewer's standing review is their latest verdict
   (approved, changes requested, dismissed), which a later comment-only review leaves in
   force; their latest comment stands only when they gave no verdict. Its state and id
   (the one a dismissal names) come from that review. Not cached in the daemon; the web
-  client shares one read across views, reads it again after a write and whenever the PR
-  changes (from the PR view, mounted on every tab, so gates never lag), and not on focus.
+  client shares one read across views and reads it again whenever the PR changes (from the
+  PR view, mounted on every tab), after a dismissal, and on opening when older than the PR's
+  read, never on focus. While it is being read again or has failed, the gates use the PR's
+  own review comments, so they never lag the PR.
   Requests are offered when the PR is open and the viewer can update it; dismissal when
   it is open and the viewer has write, maintain or admin permission. A branch rule that
   restricts dismissal still refuses on GitHub and shows as `forbidden`.
