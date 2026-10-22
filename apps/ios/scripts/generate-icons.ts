@@ -173,6 +173,7 @@ export const fromSymbols: Record<string, string> = {
   "text.bubble": "chat-text",
   "text.line.last.and.arrowtriangle.forward": "queue",
   "text.word.spacing": "text-align-justify",
+  target: "target",
   timer: "timer",
   trash: "trash",
   tray: "tray",

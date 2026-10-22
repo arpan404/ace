@@ -16,8 +16,6 @@ struct ComposerView<Top: View, Leading: View, Trailing: View>: View {
     var mention: ComposerMention? = nil
     /// Files on the next message: with any, the message can go without words.
     var files = 0
-    /// While the strip above shows what the agent only waits on, its Stop sits there, not here.
-    var stopInStrip = false
     /// Where this composer's unsent words are kept (`ThreadDrafts.key`); nil keeps them only on screen.
     var draftKey: String? = nil
     @ViewBuilder var top: () -> Top
@@ -30,7 +28,7 @@ struct ComposerView<Top: View, Leading: View, Trailing: View>: View {
     @Environment(\.threadDrafts) private var drafts
     @Environment(\.scenePhase) private var scenePhase
     private var empty: Bool { files == 0 && draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    private var stops: Bool { empty && !stopInStrip && controls?.busy == true && controls?.canStop == true }
+    private var stops: Bool { empty && controls?.busy == true && controls?.canStop == true }
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             top()
