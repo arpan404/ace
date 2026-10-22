@@ -307,3 +307,38 @@ history or replay is retained. Confirmed ACP auth updates only the account's
 readiness fact and login revision, then refreshes readiness and models. ACP quota
 frames remain opaque. Login output remains bounded and reviewed; Google-account
 verification URLs are admitted only for ACP/Antigravity login observations.
+
+### Antigravity sign-in methods
+
+`provider.login.start`, `provider.accounts.add` and `provider.accounts.reauth` take an
+optional `signIn` for Antigravity only (any other provider is refused with
+`invalid_input`): `google` (`oauth-personal`), `enterprise` (`oauth-business`, with a
+Google Cloud project and location) or `agent_platform` (`agent-platform`, with a
+project and location, using the Application Default Credentials already on the
+daemon's computer). The chosen method is authenticated directly, without the
+agent's method choice. Gemini API key and the Agent Platform API key are not
+offered: the agent keeps a key only in memory, so ace would have to store it.
+
+Before an Enterprise or Agent Platform sign-in, the daemon writes only
+`gcp.project` and `gcp.location` into `<home>/antigravity-acp/settings.json`: the
+account's own home for an added account (whose environment never carries the
+person's Google variables), `GEMINI_HOME` or `~/.gemini` for the CLI login, and only
+when the person chose one of these methods. Every other key is kept and the file
+is replaced atomically. A file that isn't plain JSON, or a link inside a home ace
+made, is left alone and the sign-in fails with a fixed message. The method an
+account signed in with is remembered as before and reported on its summary as
+`antigravitySignIn`.
+
+### Finishing a browser sign-in from another device
+
+Antigravity's Google sign-in returns the browser to a one-shot listener the agent
+runs on the daemon's computer (`redirect_uri` `http://127.0.0.1:<port>/`). When the
+relayed page carries such a `redirect_uri`, progress sets `returnUrlEntry`. The
+device that started the sign-in may then paste the address its browser ended on as
+`provider.login.input` `{ returnUrl }`, accepted only while the attempt is waiting
+in `awaiting_browser`, only for a `127.0.0.1`/`localhost` address with that
+listener's port and path. The daemon requests it from `127.0.0.1` itself with a
+5-second timeout, never follows a redirect and drops the reply. The address is
+never logged, stored, broadcast or echoed. The listener answering is not proof of
+sign-in: the agent's own `authenticate` still decides. Gemini Enterprise then asks
+for a license on a second local page, which only the daemon's computer can open.
