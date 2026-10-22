@@ -22,6 +22,11 @@ enum SpikeConfiguration {
         return arguments.firstIndex(of: "--spike-items").flatMap { arguments.indices.contains($0 + 1) ? Int(arguments[$0 + 1]) : nil }
             .map { min(max($0, 50), 2200) } ?? 2200
     }
+    /// The thread `--spike-open ID` asks to open at launch.
+    static var openOnLaunch: String? {
+        let arguments = ProcessInfo.processInfo.arguments
+        return arguments.firstIndex(of: "--spike-open").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
+    }
     static func target() -> ConnectionTarget? {
         // `--spike-port N` lets parallel fixtures share one Mac; loopback only.
         let arguments = ProcessInfo.processInfo.arguments

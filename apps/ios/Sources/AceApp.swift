@@ -60,6 +60,14 @@ import QuartzCore
                     let metrics = SpikeMetrics(model: model, now: { CACurrentMediaTime() }, output: directory.appendingPathComponent("spike-metrics.json"))
                     model.metrics = metrics
                     metrics.start()
+                    // `--spike-open ID`: open one thread once its row is listed, for long
+                    // measured runs and Instruments sessions that tap nothing.
+                    if let id = SpikeConfiguration.openOnLaunch {
+                        Task {
+                            for _ in 0..<300 where model.inbox[id] == nil { try? await Task.sleep(for: .milliseconds(100)) }
+                            model.deepLink = id
+                        }
+                    }
                 }
                 #endif
             }
@@ -111,6 +119,12 @@ import QuartzCore
         let machines = self.machines ?? Self.machines(directory: directory, notifications: notifications, warmup: warmup)
         if self.machines == nil {
             self.machines = machines
+            // In front, the directory waits for the inbox; background launches read it at once.
+            machines.beforeListing = { inbox in
+                for _ in 0..<40 where !inbox.sessions.contains(where: { $0.client.connection == "ready" }) {
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
+            }
             network.start { change in
                 Task { @MainActor in machines.network(online: change.online, interfaceChanged: change.interfaceChanged) }
             }
