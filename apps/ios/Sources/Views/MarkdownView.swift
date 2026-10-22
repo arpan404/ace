@@ -43,14 +43,13 @@ struct MarkdownView: View {
         case .rule:
             Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
         case .table(let headers, let rows):
-            // Fixed-width columns in plain stacks: a Grid inside a sideways scroller in the lazy
-            // transcript re-places rows without end.
-            ScrollView(.horizontal, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                    tableRow(headers, header: true)
-                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in tableRow(row, header: false) }
-                }
-            }.accessibilityIdentifier("markdown.table")
+            // Columns share the reading width and wrap: a sideways scroller inside the lazy
+            // transcript made it re-place rows without end.
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                tableRow(headers, header: true)
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in tableRow(row, header: false) }
+            }
+            .accessibilityIdentifier("markdown.table")
         }
     }
     private func tableRow(_ cells: [String], header: Bool) -> some View {
@@ -58,11 +57,10 @@ struct MarkdownView: View {
             ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
                 Text(styled(cell)).aceFont(AceTheme.Typography.body, relativeTo: .body)
                     .fontWeight(header ? .semibold : .regular)
-                    .frame(width: AceTheme.Dimensions.touchTarget * 4, alignment: .leading)
                     .padding(AceTheme.Spacing.sm)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
-        .fixedSize(horizontal: false, vertical: true)
         .background(header ? AceTheme.Colours.fill : .clear)
         .overlay(alignment: .bottom) { Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border) }
     }
