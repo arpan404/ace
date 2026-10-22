@@ -38,3 +38,27 @@ export function dangerFill(failed: string): DangerFill {
     foreground: "#FFFFFF",
   };
 }
+
+/** An icon reads at 3:1 (WCAG 1.4.11); a little over so rounding never lands under. */
+const iconMinimum = 3.2;
+/** A clear, bright red: no lighter (it turns coral) and no greyer than this. */
+const stopLightness = 0.62;
+const stopChroma = 0.19;
+
+const iconReads = (hex: string) => {
+  const rgb = parseOpaqueColor(hex);
+  return rgb !== undefined && contrastRatio(white, rgb) >= iconMinimum;
+};
+
+/**
+ * The Stop button's fill: the theme's failed hue as a bright red. It carries only an icon, so it
+ * may stay lighter than the danger fill, as long as the white glyph reads at 3:1.
+ */
+export function stopFill(failed: string): DangerFill {
+  const { c, h } = rgbToOklch(parseOpaqueColor(failed) ?? [180, 40, 40]);
+  const chroma = Math.max(c, stopChroma);
+  let lightness = stopLightness;
+  while (lightness > 0 && !iconReads(oklchToHex(lightness, chroma, h))) lightness -= 0.005;
+  const at = (step: number) => oklchToHex(Math.max(0, lightness - step), chroma, h);
+  return { fill: at(0), hover: at(hoverStep), pressed: at(pressedStep), foreground: "#FFFFFF" };
+}
