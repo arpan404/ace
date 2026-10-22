@@ -140,10 +140,11 @@ final class NativeHost: @unchecked Sendable {
             }
             let socket = PinnedSocket(target: target, now: services.now, streams: runtime?.browserStreams) { type, value in
                 runtime?.execute { context in
-                    // Binary messages reach the SDK as a Uint8Array, never as text to unpack in script.
-                    let payload: Any = type == "binary"
-                        ? (Data(base64Encoded: value) ?? Data()).withUnsafeBytes { NativeBytes.makeArray($0, in: context) }
-                        : value
+                    // Binary messages reach the SDK as a Uint8Array made from the socket's own bytes.
+                    let payload: Any = switch value {
+                    case .text(let text): text
+                    case .bytes(let bytes): bytes.withUnsafeBytes { NativeBytes.makeArray($0, in: context) }
+                    }
                     HostTrace.measure("js.socket") { _ = context.objectForKeyedSubscript("aceSocket")?.call(withArguments: [id, type, payload]) }
                 }
             }

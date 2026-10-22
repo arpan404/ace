@@ -27,8 +27,8 @@ enum HostContract {
         }
         // Counted without making the bytes: the pump sizes every patch before it sends it.
         let utf8Length: @convention(block) (String) -> Int = { text in HostTrace.measure("host.utf8Length") { text.utf8.count } }
-        let previewHead: @convention(block) (String, Int) -> String = { DisplayText.head($0, limit: $1) }
-        let previewTail: @convention(block) (String, Int) -> String = { DisplayText.tail($0, limit: $1) }
+        let previewHead: @convention(block) (String, Int) -> String = { text, limit in HostTrace.measure("host.preview") { DisplayText.head(text, limit: limit) } }
+        let previewTail: @convention(block) (String, Int) -> String = { text, limit in HostTrace.measure("host.preview") { DisplayText.tail(text, limit: limit) } }
         let latin1Base64: @convention(block) (String, Bool) -> String = { text, decode in
             if decode {
                 guard let data = Data(base64Encoded: text) else { return "" }
