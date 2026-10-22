@@ -84,7 +84,8 @@ export async function evalWorld(options: {
     config: readConfig({
       ACE_HOME: join(h.home, "daemon"),
       ACE_PORT: "0",
-      ACE_LOG_LEVEL: "silent",
+      // ACE_E2E_LOG_LEVEL shows the daemon's log while an opt-in end-to-end suite runs.
+      ACE_LOG_LEVEL: process.env.ACE_E2E_LOG_LEVEL ?? "silent",
       ...(options.screenHelper ? { ACE_SCREEN_HELPER: options.screenHelper } : {}),
     }),
     engine: { registry: h.registry, clock: h.clock },

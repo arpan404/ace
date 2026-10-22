@@ -7,20 +7,17 @@
  * Opt-in only: `apps/daemon/scripts/linux-e2e/run.sh` starts a throwaway desktop and sets
  * `ACE_LINUX_DESKTOP_E2E` (x11 or wayland) and `ACE_SCREEN_HELPER`. Needs ffmpeg.
  */
-import { execFile } from "node:child_process";
-import { dirname, join } from "node:path";
-import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { ScreenInventory, ScreenState, type ScreenTarget } from "@ace/protocol";
+import { ScreenState } from "@ace/protocol";
 import { evalWorld, type EvalWorld } from "./evals/world.ts";
 import { at, changed, decodeH264 } from "./testing/decode-h264.ts";
+import { shareWindow } from "./testing/linux-share.ts";
 import { LiveViewer, type ViewerFrame } from "./testing/live-viewer.ts";
 
 const session = process.env.ACE_LINUX_DESKTOP_E2E;
 const helper = process.env.ACE_SCREEN_HELPER;
 const graphical = session === "x11" || session === "wayland";
 const enabled = process.platform === "linux" && graphical && !!helper;
-const exec = promisify(execFile);
 const calculator = "org.gnome.Calculator";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -43,55 +40,26 @@ async function world(): Promise<EvalWorld> {
   return created;
 }
 
-const seedPortal = new URL(
-  "../../../native/screen-helper-linux/tests/computer/seed_portal.py",
-  import.meta.url,
-).pathname;
-
-/** A Wayland window target: the portal's chooser, not the id, decides what is shared. */
-const waylandCalculator: ScreenTarget = {
-  kind: "window",
-  bundleId: "gnome-calculator",
-  windowId: 1,
-};
-
-/**
- * The window a person picks. X11 lists Calculator's window. Wayland lists nothing: the portal's
- * chooser picks the source, so the test records the approval the person would give there
- * (test scaffolding only; ace never writes the permission store) for the helper to restore.
- */
-async function calculatorWindow(
-  ace: EvalWorld,
-  viewer: LiveViewer,
-): Promise<{ target: ScreenTarget; size?: { width: number; height: number } }> {
-  const inventory = ScreenInventory.parse(await viewer.request({ op: "targets" }));
-  if (session === "x11") {
-    const window = inventory.windows.find((entry) => entry.title === "Calculator");
-    if (!window?.bounds) throw new Error(`No Calculator window: ${JSON.stringify(inventory)}`);
-    return {
-      target: { kind: "window", bundleId: window.bundleId, windowId: window.windowId },
-      size: { width: window.bounds.width, height: window.bounds.height },
-    };
-  }
-  expect(inventory).toEqual({ displays: [], windows: [] });
-  const token = join(dirname(ace.daemon.tokenPath), "screen-artifacts", "portal", "restore-token");
-  // GNOME's shell names the window's app by its desktop file.
-  const app = `${calculator}.desktop`;
-  await exec("python3", [seedPortal, "grant-remote-desktop", token, app, "Calculator"]);
-  cleanups.push(async () => {
-    await exec("python3", [seedPortal, "revoke-remote-desktop", token]).catch(() => {});
-  });
-  return { target: waylandCalculator };
-}
-
 describe.skipIf(!enabled)(`Linux live view (${session ?? "off"})`, () => {
   it("a person watching Calculator gets decodable H.264 of its window that changes when the app does", async () => {
     const ace = await world();
     expect(ace.browser, "ace's pinned Chrome (ACE_CHROMIUM_PATH) encodes the video").toBe(true);
     const viewer = await LiveViewer.connect(ace.daemon.url, ace.daemon.tokenPath);
     cleanups.push(() => viewer.close());
-    const { target, size } = await calculatorWindow(ace, viewer);
+    const { target, size } = await shareWindow(
+      session === "x11" ? "x11" : "wayland",
+      ace,
+      viewer,
+      { desktopId: calculator, title: "Calculator" },
+      cleanups,
+    );
     const state = ScreenState.parse(await viewer.request({ op: "start", target }));
+    // What the person picked names the session: the app's desktop id, as computer use names it.
+    if (target.kind === "chooser")
+      expect(state.target).toEqual({
+        kind: "chooser",
+        picked: expect.objectContaining({ source: "window", bundleId: calculator }),
+      });
     await viewer.request({ op: "subscribe", sessionId: state.sessionId });
     expect(
       await viewer.request({
@@ -154,10 +122,40 @@ describe.skipIf(!enabled)(`Linux live view (${session ?? "off"})`, () => {
       const ace = await world();
       const viewer = await LiveViewer.connect(ace.daemon.url, ace.daemon.tokenPath);
       cleanups.push(() => viewer.close());
-      const started = viewer.request({ op: "start", target: waylandCalculator }, 180_000);
-      await expect(started).rejects.toThrow(/Portal consent timed out/);
+      const started = viewer.request({ op: "start", target: { kind: "chooser" } }, 180_000);
+      await expect(started).rejects.toThrow(
+        /Nobody chose a window or screen in the sharing dialog within 2 minutes\./,
+      );
       expect(await viewer.request({ op: "sessions" })).toEqual([]);
     },
     200_000,
+  );
+
+  it.skipIf(session !== "wayland")(
+    "stopping a Wayland live view while the sharing dialog waits ends the wait at once",
+    async () => {
+      const ace = await world();
+      const viewer = await LiveViewer.connect(ace.daemon.url, ace.daemon.tokenPath);
+      cleanups.push(() => viewer.close());
+      const started = viewer.request({ op: "start", target: { kind: "chooser" } }, 180_000);
+      const outcome = started.then(
+        () => "started",
+        (error: unknown) => String(error),
+      );
+      // The viewer sees the session waiting for the person's choice.
+      let waiting: ScreenState | undefined;
+      for (let tries = 0; !waiting && tries < 100; tries++) {
+        const states = ScreenState.array().parse(await viewer.request({ op: "sessions" }));
+        waiting = states.find((state) => state.target.kind === "chooser");
+        if (!waiting) await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      expect(waiting?.lifecycle).toBe("starting");
+      const asked = Date.now();
+      await viewer.request({ op: "stop", sessionId: waiting?.sessionId ?? "" });
+      expect(await outcome).not.toBe("started");
+      expect(Date.now() - asked).toBeLessThan(10_000);
+      expect(await viewer.request({ op: "sessions" })).toEqual([]);
+    },
+    60_000,
   );
 });
