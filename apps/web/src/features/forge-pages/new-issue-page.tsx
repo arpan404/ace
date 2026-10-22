@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { WorkHeading } from "@/components/work-heading.tsx";
 import { Screen } from "@/features/shell/index.ts";
+import { ForgeCompletions } from "@/features/forge/index.ts";
 import { applePlatform } from "@/lib/keymap.ts";
 import { useBackToList } from "./back-to-list.ts";
 import { readable } from "./issue-page.tsx";
@@ -13,6 +14,9 @@ import { useIssueWrites } from "./issue-writes.ts";
 import { issueQuery } from "./issues-model.ts";
 import { useIssuePages } from "./lists.ts";
 import { useProjectChoice } from "./project-choice.ts";
+
+/** A new issue has no conversation yet: everyone comes from the repository. */
+const noParticipants: never[] = [];
 
 /**
  * A new issue as a page in the main column, laid out as the issue it becomes: back to the
@@ -97,15 +101,21 @@ export function NewIssuePage(props: {
             />
           ) : (
             <>
-              <MarkdownEditor
-                className="mt-4"
-                size="page"
-                label="Description"
-                placeholder="Add a description"
-                maxLength={64_000}
-                value={body.text}
-                onChange={body.setText}
-              />
+              <ForgeCompletions
+                workspaceId={project}
+                repository={list.first?.repository}
+                participants={noParticipants}
+              >
+                <MarkdownEditor
+                  className="mt-4"
+                  size="page"
+                  label="Description"
+                  placeholder="Add a description"
+                  maxLength={64_000}
+                  value={body.text}
+                  onChange={body.setText}
+                />
+              </ForgeCompletions>
               <div className="mt-3 flex justify-end gap-2">
                 <Button type="button" variant="ghost" onClick={back}>
                   Cancel

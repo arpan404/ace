@@ -14,3 +14,4 @@ export type {
   PrDiffContext,
   PrListExtensions,
 } from "./pr-extensions.ts";
+export { ForgeCompletions, issueParticipants } from "./forge-completions.tsx";
