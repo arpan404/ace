@@ -25,7 +25,7 @@ struct RemoteScreenSessionView: View {
                 DeviceSurface(next: { screen.live.nextPicture() }, interactive: controlling, label: "\(session?.app ?? "Mac app") window",
                               identifier: "screen.surface", screenSize: { windowSize = $0 }) { from, to in gesture(from.point, to.point) }
                     .aspectRatio(windowSize ?? CGSize(width: 4, height: 3), contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: AceTheme.Radii.card, style: .continuous))
+                    .clipShape(AceShape.block)
                     .padding(AceTheme.Spacing.lg)
             } else {
                 Text(session?.error.isEmpty == false ? session?.error ?? "" : session?.status ?? "The app isn't live.")
@@ -62,7 +62,7 @@ struct RemoteScreenSessionView: View {
                     Button("Send", action: type).disabled(text.isEmpty)
                 }
                 .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                .aceGlass(in: Capsule())
+                .aceGlass(in: AceShape.capsule)
                 .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.xs)
             }
             if let problem = screen.problem {

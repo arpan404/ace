@@ -24,7 +24,7 @@ struct BrowserBar: View {
                 }
                 .accessibilityIdentifier("browser.forward")
             }
-            .aceGlass(in: Capsule(), interactive: true)
+            .aceGlass(in: AceShape.capsule, interactive: true)
             address
             HStack(spacing: AceTheme.Spacing.none) {
                 Button { sheet = .tabs } label: {
@@ -38,7 +38,7 @@ struct BrowserBar: View {
                 .accessibilityIdentifier("browser.tabs")
                 BrowserMenu(model: model, sheet: $sheet, finding: $finding, screenshot: screenshot)
             }
-            .aceGlass(in: Capsule(), interactive: true)
+            .aceGlass(in: AceShape.capsule, interactive: true)
         }
         .padding(.horizontal, AceTheme.Spacing.md)
         .padding(.top, AceTheme.Spacing.sm)
@@ -76,7 +76,7 @@ struct BrowserBar: View {
                 }
             }
         }
-        .aceGlass(in: Capsule(), interactive: true)
+        .aceGlass(in: AceShape.capsule, interactive: true)
     }
     private static let prompt = "Search or enter address"
     private var addressText: String {
@@ -107,7 +107,7 @@ private struct TabCount: View {
             .font(.system(size: 12, weight: .semibold, design: .rounded))
             .monospacedDigit()
             .frame(width: 20, height: 20)
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(AceTheme.Colours.foreground, lineWidth: 1.6))
+            .overlay(AceShape.glyph.stroke(AceTheme.Colours.foreground, lineWidth: 1.6))
             .foregroundStyle(AceTheme.Colours.foreground)
     }
 }
@@ -146,7 +146,7 @@ struct BrowserAddressEditor: View {
                 .aceFont(AceTheme.Typography.body, relativeTo: .body)
                 .padding(.horizontal, AceTheme.Spacing.lg)
                 .frame(minHeight: AceTheme.Dimensions.touchTarget)
-                .aceGlass(in: Capsule())
+                .aceGlass(in: AceShape.capsule)
                 Button("Cancel") { editing = false }
                     .aceFont(AceTheme.Typography.label, relativeTo: .body)
                     .tint(AceTheme.Colours.foreground)
@@ -193,7 +193,7 @@ struct BrowserFindBar: View {
             .aceFont(AceTheme.Typography.body, relativeTo: .body)
             .padding(.horizontal, AceTheme.Spacing.lg)
             .frame(minHeight: AceTheme.Dimensions.touchTarget)
-            .aceGlass(in: Capsule())
+            .aceGlass(in: AceShape.capsule)
             HStack(spacing: AceTheme.Spacing.none) {
                 Button { model.browserFind(text, forward: false) } label: {
                     AceIcon(.caretUp).frame(width: 40, height: AceTheme.Dimensions.touchTarget)
@@ -205,7 +205,7 @@ struct BrowserFindBar: View {
                 .accessibilityLabel("Next match")
             }
             .disabled(text.isEmpty)
-            .aceGlass(in: Capsule(), interactive: true)
+            .aceGlass(in: AceShape.capsule, interactive: true)
             Button("Done") { finish() }
                 .aceFont(AceTheme.Typography.label, relativeTo: .body).fontWeight(.semibold)
         }

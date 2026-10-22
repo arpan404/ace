@@ -171,7 +171,7 @@ struct DeviceScreenshotSheet: View {
     var body: some View {
         NavigationStack {
             Image(uiImage: image).resizable().scaledToFit()
-                .clipShape(RoundedRectangle(cornerRadius: AceTheme.Radii.card, style: .continuous))
+                .clipShape(AceShape.block)
                 .padding(AceTheme.Spacing.xl)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(AceTheme.Colours.background)

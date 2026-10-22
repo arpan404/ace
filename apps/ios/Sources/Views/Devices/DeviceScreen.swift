@@ -153,7 +153,7 @@ struct DeviceScreen: View {
             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
             .foregroundStyle(AceTheme.Colours.foreground)
             .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
-            .aceGlass(in: Capsule())
+            .aceGlass(in: AceShape.capsule)
             .transition(.opacity)
             .accessibilityLabel("Agent action: \(caption.caption)")
             .accessibilityIdentifier("devices.activity")
@@ -186,7 +186,7 @@ struct DeviceScreen: View {
                     Button("Send", action: type).disabled(text.isEmpty)
                 }
                 .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                .aceGlass(in: Capsule())
+                .aceGlass(in: AceShape.capsule)
                 .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.xs)
                 .accessibilityIdentifier("devices.keyboard")
             }
