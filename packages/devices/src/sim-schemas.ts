@@ -6,7 +6,7 @@ import { deviceInstallTimeoutMs } from "./action-budget.ts";
 import { simRefPattern } from "./sim-refs.ts";
 
 const simId = AppDeviceId.describe(
-  "Simulator or emulator id from sim_list, e.g. ios:<UDID> or android:<serial>.",
+  "Simulator, emulator or Android device id from sim_list, e.g. ios:<UDID> or android:<name>.",
 );
 const point = z.number().int().min(0).max(16384);
 export const SimRef = z.string().regex(simRefPattern, "Expected an element ref like @e3");
@@ -140,7 +140,7 @@ export const simToolMetadata: Record<
     riskClass: "read-only",
     timeoutMs: 120_000,
     description:
-      "List the iOS simulators and Android emulators ace can drive on this machine, with simIds and status. Not for paired machines (machines).",
+      "List the iOS simulators, Android emulators and Android phones or network devices ace can drive on this machine, with simIds and status. Not for paired machines (machines).",
   },
   sim_start: {
     title: "Start simulator",
