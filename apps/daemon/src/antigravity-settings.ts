@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { lstat, mkdir, open, readFile, realpath, rename, rm, stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { ProviderLoginFailure } from "@ace/accounts";
 import { GcpLocation, GcpProjectId } from "@ace/protocol";
 
@@ -18,9 +17,15 @@ const unreadable =
 const unwritable =
   "ace couldn't save the project and location to Antigravity's settings.json. Check that folder's permissions, then try again.";
 
-/** The home Antigravity's CLI login keeps its settings in: `GEMINI_HOME`, else `~/.gemini`. */
-export function antigravityCliHome(env: NodeJS.ProcessEnv): string {
-  return env.GEMINI_HOME || join(env.HOME || homedir(), ".gemini");
+/** The Gemini home the person's own Antigravity uses: `GEMINI_HOME`, else `~/.gemini`. */
+export function personalGeminiHome(env: NodeJS.ProcessEnv): string | undefined {
+  const home = env["HOME"];
+  const chosen = env["GEMINI_HOME"];
+  if (chosen) {
+    const expanded = chosen.startsWith("~/") && home ? join(home, chosen.slice(2)) : chosen;
+    return isAbsolute(expanded) ? resolve(expanded) : undefined;
+  }
+  return home && isAbsolute(home) ? join(home, ".gemini") : undefined;
 }
 
 /** Where the agent reads its settings, inside an Antigravity home. */

@@ -1,5 +1,5 @@
 import { lstat, mkdir, readlink, rm, symlink } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { join } from "node:path";
 
 /**
  * The person's own skills in an added Antigravity account. The agent reads user-global skills
@@ -11,17 +11,6 @@ const skillFolders = [
   ["config", "skills"],
   ["antigravity-cli", "skills"],
 ] as const;
-
-/** The Gemini home the person's own Antigravity uses: `GEMINI_HOME`, else `~/.gemini`. */
-export function personalGeminiHome(env: NodeJS.ProcessEnv): string | undefined {
-  const home = env["HOME"];
-  const chosen = env["GEMINI_HOME"];
-  if (chosen) {
-    const expanded = chosen.startsWith("~/") && home ? join(home, chosen.slice(2)) : chosen;
-    return isAbsolute(expanded) ? resolve(expanded) : undefined;
-  }
-  return home && isAbsolute(home) ? join(home, ".gemini") : undefined;
-}
 
 /**
  * Links an account home's skill folders to the person's. A folder the account already has of

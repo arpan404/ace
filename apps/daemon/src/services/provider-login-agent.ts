@@ -11,7 +11,7 @@ import {
   registerAntigravityAccountCatalog,
 } from "./antigravity-accounts.ts";
 import {
-  antigravityCliHome,
+  personalGeminiHome,
   antigravitySettingsFile,
   writeAntigravityGcp,
 } from "../antigravity-settings.ts";
@@ -116,7 +116,7 @@ export async function prepareAgentLogin(
   // Gemini Enterprise and Agent Platform read their project and location from the agent's
   // settings in the home it signs in to: the account's own, or the person's for the CLI login.
   const gcp = signIn && signIn.method !== "google" ? signIn : undefined;
-  const settingsHome = added ? agentEnv.GEMINI_HOME : antigravityCliHome(agentEnv);
+  const settingsHome = added ? agentEnv.GEMINI_HOME : personalGeminiHome(agentEnv);
   const driver = acpLoginDriver({
     provider: target.provider,
     action,

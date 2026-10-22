@@ -7,7 +7,8 @@ import {
 } from "@ace/accounts";
 import type { ProviderAdapter } from "@ace/engine-api";
 import type { ProviderInstance } from "@ace/protocol/accounts";
-import { linkPersonalSkills, personalGeminiHome } from "./antigravity-skills.ts";
+import { personalGeminiHome } from "../antigravity-settings.ts";
+import { linkPersonalSkills } from "./antigravity-skills.ts";
 import type { ServiceContext } from "./types.ts";
 
 /**
