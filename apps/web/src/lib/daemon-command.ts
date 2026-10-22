@@ -72,6 +72,9 @@ const refusals: Record<string, string> = {
   acp_account_fixed:
     "An agent can't move to another account. Switch to another agent from the model picker.",
   model_unavailable: "That model isn't available. Pick another model and try again.",
+  launch_options_unsupported:
+    "That agent can't start with this effort or speed. Pick another and try again.",
+  permission_mode_unsupported: "That agent doesn't offer this access mode. Pick another.",
   unsupported_goal: "This agent can't keep a goal across turns. Describe it in a message instead.",
   goal_not_found: "There's no goal to change.",
   not_implemented: "ace on this machine can't do that yet.",

@@ -1243,7 +1243,10 @@ it("the iOS catalog explains which tools enable background input", async () => {
   const f = await fixture("darwin");
   await f.manager.list();
   expect(f.manager.diagnostics()).toContainEqual(
-    expect.objectContaining({ message: expect.stringContaining("serve-sim or idb") }),
+    expect.objectContaining({
+      code: "tool_missing",
+      hint: expect.stringContaining("serve-sim streams the Simulator"),
+    }),
   );
 });
 for (const closing of [false, true])

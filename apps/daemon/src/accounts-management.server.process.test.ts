@@ -14,7 +14,7 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { once } from "node:events";
-import { openRegistry } from "@ace/accounts";
+import { antigravityIdentity, createAntigravityInstance, openRegistry } from "@ace/accounts";
 import { DeviceId, type ClientMessage } from "@ace/protocol";
 import { startDaemon, readConfig, AdapterRegistry } from "@ace/daemon";
 import { CursorTranslator, cursorCapabilities } from "@ace/adapter-cursor";
@@ -155,8 +155,9 @@ test.each([
         .parse(launch);
       expect(record.args).toEqual(args);
       expect(record.env[selector]).toBe(provider === "opencode" ? join(home, "data") : home);
-      expect(record.env.HOME).toBe(join(home, "user"));
-      expect(record.env.TMPDIR).toBe(home);
+      // Only the CLI's login selector moves; the person's home and temp folder stay theirs.
+      expect(record.env.HOME).toBe(f.normalHome);
+      expect(record.env.TMPDIR).toBe(process.env.TMPDIR ?? null);
       expect(record.env.OPENAI_API_KEY).toBeNull();
       // Completion and refresh finish before account changes are admitted again.
       await poll(async () => {
@@ -311,11 +312,11 @@ createInterface({input:process.stdin}).on('line', requestLine => {
       .parse(launch);
     expect(record.env).toMatchObject({
       HOME: join(home, "user"),
-      TMPDIR: home,
       OPENAI_API_KEY: null,
       CURSOR_CONFIG_DIR: null,
       AGENT_CLI_CREDENTIAL_STORE: null,
     });
+    expect(record.env.TMPDIR).not.toBe(home);
     expect(record.args).not.toContain("login");
     await writeFile(join(home, "user", "fixture-authorized"), "browser approved");
     do {
@@ -587,6 +588,33 @@ test("removing an account stops its outstanding metadata CLI before deleting the
     ).toMatchObject({ type: "accounts.changed", account: null });
     expect(() => process.kill(pid, 0)).toThrow();
     await expect(lstat(home)).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    await f.close();
+  }
+});
+
+test("an agent's account takes a new name and badge, kept across a restart", async () => {
+  const f = await harness();
+  try {
+    await f.registry.register(createAntigravityInstance(f.normalHome));
+    expect(
+      await f.request(f.owner, {
+        type: "accounts.rename",
+        requestId: f.rid(),
+        instanceId: antigravityIdentity.instanceId,
+        label: "Personal Google",
+        badgeColor: "green",
+      }),
+    ).toMatchObject({ account: { label: "Personal Google", badgeColor: "green" } });
+    const reopened = await openRegistry(join(f.dataDir, "accounts.sqlite"));
+    try {
+      expect(reopened.summary(antigravityIdentity.instanceId, 100)).toMatchObject({
+        label: "Personal Google",
+        badgeColor: "green",
+      });
+    } finally {
+      reopened.close();
+    }
   } finally {
     await f.close();
   }

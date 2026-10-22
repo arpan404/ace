@@ -1,0 +1,55 @@
+---
+import { download, formatSize } from "../content/release.ts";
+import Icon from "./Icon.astro";
+
+interface Props {
+  small?: boolean;
+  /** Show the version, requirement and size under the button. */
+  withNote?: boolean;
+}
+
+const { small = false, withNote = false } = Astro.props;
+const direct = download.version !== undefined;
+// The spoken name starts with the visible words, then adds what sighted readers get from the note.
+const label = direct
+  ? `Download for Mac (ace ${download.version}, Apple silicon${download.bytes ? `, ${formatSize(download.bytes)}` : ""})`
+  : "Download for Mac (latest release page)";
+---
+
+<a
+  class:list={["button", "button-primary", { "button-small": small }]}
+  href={download.url}
+  aria-label={label}
+>
+  {!small && <Icon name="apple-logo" size={18} />}
+  Download for Mac
+</a>
+{
+  withNote && (
+    <p class="download-note">
+      {direct ? `v${download.version} for macOS on Apple silicon` : "macOS on Apple silicon"}
+      {download.bytes ? `, ${formatSize(download.bytes)}. ` : ". "}
+      <a href={download.notesUrl}>Release notes</a>
+    </p>
+  )
+}
+
+<style>
+  /* Always last in its row of buttons, on a line of its own. */
+  .download-note {
+    order: 1;
+    flex-basis: 100%;
+    color: var(--subtle);
+    font-size: 13px;
+  }
+
+  .download-note a {
+    color: var(--muted);
+    text-decoration: none;
+  }
+
+  .download-note a:hover {
+    color: var(--foreground);
+    text-decoration: underline;
+  }
+</style>

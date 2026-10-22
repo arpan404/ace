@@ -75,8 +75,8 @@ it("support export works before adding a project, redacts secrets, and includes 
     modelInstances: [],
     diagnostics: { doctor: async () => report, toolchains: async () => [] },
   });
-  const client = new Client(daemon.url);
   const token = await readFile(daemon.tokenPath, "utf8");
+  const client = new Client(daemon.url);
   try {
     await once(client.socket, "open");
     client.send({

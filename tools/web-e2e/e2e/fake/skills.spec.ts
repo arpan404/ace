@@ -20,10 +20,12 @@ for (const theme of screenThemes)
         theme,
       );
       await page.goto("/skills/engineering~skill~code-review");
-      await expect(page.getByRole("heading", { level: 1, name: "Code review" })).toBeVisible();
+      await expect(page.getByRole("heading", { level: 2, name: "Code review" })).toBeVisible();
       const source = page.getByRole("region", { name: "Source" });
       await expect(source.getByText("skills/code-review/SKILL.md", { exact: true })).toBeVisible();
-      await expect(source.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
+      await source.getByRole("button", { name: "Source actions" }).click();
+      await expect(page.getByRole("menuitem", { name: "Edit", exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
       const control = page.getByRole("switch", { name: "Enabled" });
       await expect(control).toBeVisible();
       const box = await control.boundingBox();
@@ -63,7 +65,7 @@ for (const theme of screenThemes)
       await control.click();
       await expect(control).toBeChecked();
       await page.goto("/skills/plugin~engineering");
-      await expect(page.getByRole("heading", { level: 1, name: "Engineering" })).toBeVisible();
+      await expect(page.getByRole("heading", { level: 2, name: "Engineering" })).toBeVisible();
       const pluginSwitch = page.getByRole("switch", { name: "Enabled" });
       expect((await pluginSwitch.boundingBox())?.width).toBeLessThanOrEqual(40);
       const contents = page.getByRole("region", { name: "Contents" });

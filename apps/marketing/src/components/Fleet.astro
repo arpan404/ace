@@ -1,0 +1,107 @@
+---
+import fleetDark from "../assets/shots/fleet-dark.png";
+import fleetLight from "../assets/shots/fleet-light.png";
+import { fleetPoints } from "../content/product.ts";
+import ThemeShot from "./ThemeShot.astro";
+---
+
+<section id="fleet" class="fleet">
+  <div class="page fleet-grid">
+    <div class="shot reveal">
+      <ThemeShot
+        light={fleetLight}
+        dark={fleetDark}
+        alt="ace's Fleet settings: two machines, This Mac and a build server, with Link buttons; remote access reached over Tailscale; and paired devices, an iPhone with view and act access and an iPad with view only."
+        sizes="(min-width: 1024px) 560px, calc(100vw - 48px)"
+        widths={[560, 1000, 1425]}
+      />
+    </div>
+
+    <div class="copy reveal">
+      <h2 class="section-title">One fleet for all your machines.</h2>
+      <p class="lede">
+        Run agents on your laptop, a build server and a workstation, and steer all of them from
+        whichever screen is closest.
+      </p>
+      <div class="points">
+        {
+          fleetPoints.map((point) => (
+            <div class="point">
+              <h3>{point.title}</h3>
+              <p>{point.body}</p>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .fleet {
+    background: var(--sidebar);
+    border-block: 1px solid var(--border);
+  }
+
+  .fleet-grid {
+    display: grid;
+    gap: 56px;
+    padding-block: 112px;
+  }
+
+  .shot {
+    overflow: hidden;
+    border-radius: 12px;
+    border: 1px solid var(--border-strong);
+    background: var(--background);
+    box-shadow:
+      0 1px 2px rgb(var(--shadow) / 0.05),
+      0 24px 56px -28px rgb(var(--shadow) / 0.24);
+  }
+
+  .copy {
+    display: grid;
+    gap: 20px;
+    align-content: center;
+  }
+
+  .points {
+    display: grid;
+    margin-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  .point {
+    display: grid;
+    gap: 6px;
+    padding-block: 18px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .point:last-child {
+    border-bottom: none;
+  }
+
+  .point p {
+    color: var(--muted);
+  }
+
+  @media (min-width: 1024px) {
+    .fleet-grid {
+      grid-template-columns: 560px 1fr;
+      gap: 80px;
+      align-items: center;
+    }
+  }
+
+  @media (max-width: 767px) {
+    .fleet-grid {
+      padding-block: 72px;
+      gap: 40px;
+    }
+
+    .shot {
+      border-radius: 8px;
+    }
+  }
+</style>

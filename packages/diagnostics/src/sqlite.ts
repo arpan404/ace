@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { probeOutput } from "@ace/provider-kit/process";
 import { z } from "zod";
+import { SqlitePageSpace, type SqliteSpace } from "./sqlite-space.ts";
 export interface SqliteRuntime {
   probe: typeof probeOutput;
   deadlineMs: number;
@@ -9,7 +10,7 @@ export interface SqliteRuntime {
 const systemSqlite: SqliteRuntime = { probe: probeOutput, deadlineMs: 5000 };
 export async function sqliteProbe(
   path: string,
-  task: "integrity" | "pages",
+  task: "integrity" | "pages" | "space",
   signal: AbortSignal,
   runtime: SqliteRuntime = systemSqlite,
 ): Promise<unknown> {
@@ -39,6 +40,26 @@ export async function checkIntegrity(
     if (signal.aborted) throw error;
     return "unavailable";
   }
+}
+export async function sqliteSpace(
+  path: string,
+  signal: AbortSignal,
+  runtime: SqliteRuntime = systemSqlite,
+): Promise<SqliteSpace | null> {
+  try {
+    await stat(path);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+    throw error;
+  }
+  const pages = SqlitePageSpace.parse(await sqliteProbe(path, "space", signal, runtime));
+  let walBytes = 0;
+  try {
+    walBytes = (await stat(`${path}-wal`)).size;
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+  }
+  return { ...pages, walBytes };
 }
 export async function sqliteSizes(
   path: string,

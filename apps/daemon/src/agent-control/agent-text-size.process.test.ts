@@ -6,6 +6,7 @@ import {
   ThreadId,
   maxMessageBytes,
   type Automation,
+  AgentAutomation,
 } from "@ace/protocol";
 import { automationFixture } from "./automation-test-support.ts";
 import { daemonFixture } from "./daemon-test-support.ts";
@@ -125,7 +126,7 @@ test("a task longer than a person's message is refused with the limit and starts
   }
 });
 
-test("an agent's automation with a 100 KB prompt runs with the whole prompt", async () => {
+test("an agent's automation with a 100 KB prompt sends the whole prompt into its thread", async () => {
   const f = await automationFixture();
   try {
     const prompt = largeTask("Summarize overnight failures");
@@ -146,7 +147,11 @@ test("an agent's automation with a 100 KB prompt runs with the whole prompt", as
       (
         await f.call({
           op: "automation.manage",
-          request: { type: "automation.put", requestId: "put", automation },
+          request: {
+            type: "automation.put",
+            requestId: "put",
+            automation: AgentAutomation.parse(automation),
+          },
         })
       ).ok,
     ).toBe(true);
@@ -161,14 +166,8 @@ test("an agent's automation with a 100 KB prompt runs with the whole prompt", as
       ).data,
     );
     expect(admitted).toMatchObject({ ok: true, run: { status: "running" } });
-    const runId = admitted.run?.id ?? "";
-    await expect.poll(() => f.h.service.journal.receipt(f.caller.threadId, runId)).toBeDefined();
-    await f.h.engine.flush();
-    const child = f.h.service.journal.receipt(f.caller.threadId, runId)?.childId;
-    if (!child) throw new Error("Missing automation child");
-    expect(f.h.inputs.get(child)?.[0]).toBe(
-      `Role: automation: ${automation.id}\n\nTask:\n${prompt}`,
-    );
+    // The run is a message into the agent's own thread, whole.
+    await expect.poll(() => f.h.inputs.get(f.caller.threadId)?.at(-1)).toBe(prompt);
   } finally {
     await f.close();
   }

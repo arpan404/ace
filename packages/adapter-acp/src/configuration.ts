@@ -86,7 +86,7 @@ export class AcpConfiguration {
     );
     this.#ctx.onCapabilities?.(this.capabilities, this.support);
   }
-  async select(kind: "model" | "mode", value: string, sessionId: string): Promise<void> {
+  async select(kind: "model" | "mode" | "effort", value: string, sessionId: string): Promise<void> {
     const request = selectorRequest(this.selectors, kind, value, sessionId);
     const result = await this.#rpc.request(request.method, request.params, {
       signal: this.#ctx.signal,

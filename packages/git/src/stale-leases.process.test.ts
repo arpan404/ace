@@ -232,3 +232,53 @@ test("a lease whose git process is still alive is never retired", async () => {
     await other.close();
   }
 });
+
+test("a lease another daemon is still writing doesn't fence the repository", async () => {
+  const { y, journal } = await worktrees();
+  // Another daemon has created its lease for X but not written it yet.
+  const id = randomUUID();
+  await mkdir(journal, { recursive: true });
+  const file = join(journal, id);
+  await writeFile(file, "");
+  const lease = {
+    version: 1,
+    id,
+    root: join(journal, "..", "elsewhere"),
+    owner: { port: await stoppedDaemonPort(), token: randomUUID() },
+    roots: [join(journal, "..", "elsewhere")],
+  };
+  const git2 = service();
+  try {
+    const work = checkpoint(git2, y);
+    setTimeout(() => void writeFile(file, JSON.stringify(lease)), 15);
+    await expect(work).resolves.toMatchObject({ label: "after" });
+  } finally {
+    await git2.close();
+  }
+});
+
+test("a lease that stays unreadable still fences the repository", async () => {
+  const { y, journal } = await worktrees();
+  await mkdir(journal, { recursive: true });
+  await writeFile(join(journal, randomUUID()), "{not a lease");
+  const git2 = service();
+  try {
+    await expect(checkpoint(git2, y)).rejects.toMatchObject({ code: "git_quarantined" });
+  } finally {
+    await git2.close();
+  }
+});
+
+test("leases left half-written by crashed daemons never fence the repository", async () => {
+  const { y, journal } = await worktrees();
+  await mkdir(journal, { recursive: true });
+  // More staged writes than the journal holds published leases: none were ever published.
+  for (let count = 0; count < 300; count++)
+    await writeFile(join(journal, `${randomUUID()}.next`), "{");
+  const git2 = service();
+  try {
+    await expect(checkpoint(git2, y)).resolves.toMatchObject({ label: "after" });
+  } finally {
+    await git2.close();
+  }
+});

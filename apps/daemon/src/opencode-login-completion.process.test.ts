@@ -7,7 +7,7 @@ test.each(["login", "logout"] as const)(
   "OpenCode v2 %s verifies the chosen integration in its managed account while preserving another service",
   async (action) => {
     const f = await nativeLoginHarness("opencode", async () => []);
-    const home = join(f.instance.homeDir, "user");
+    const home = f.credentialHome;
     try {
       await writeFile(join(home, "other-credential"), "another configured service");
       if (action === "logout") await writeFile(join(home, "cli-credential"), "previous login");
@@ -68,7 +68,7 @@ test.each(["login", "logout"] as const)(
 
 test("OpenCode v2 logout through the untargeted picker succeeds while another service remains", async () => {
   const f = await nativeLoginHarness("opencode", async () => []);
-  const home = join(f.instance.homeDir, "user");
+  const home = f.credentialHome;
   try {
     await writeFile(join(home, "other-credential"), "another configured service");
     await writeFile(join(home, "cli-credential"), "previous login");

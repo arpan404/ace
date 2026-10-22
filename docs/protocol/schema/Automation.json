@@ -10,10 +10,20 @@
       "minimum": 1,
       "type": "integer"
     },
+    "effort": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
     "enabled": {
       "type": "boolean"
     },
     "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instance": {
       "maxLength": 256,
       "minLength": 1,
       "type": "string"

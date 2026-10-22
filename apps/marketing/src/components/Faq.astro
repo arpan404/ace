@@ -1,0 +1,72 @@
+---
+import { faq } from "../content/product.ts";
+---
+
+<section id="faq" class="faq page">
+  <h2 class="section-title reveal">Frequently asked questions</h2>
+  <div class="list">
+    {
+      faq.map((entry) => (
+        <div class="entry reveal">
+          <h3>{entry.question}</h3>
+          <p>{entry.answer}</p>
+        </div>
+      ))
+    }
+  </div>
+</section>
+
+<style>
+  .faq {
+    display: grid;
+    gap: 40px;
+    padding-block: 120px;
+  }
+
+  .list {
+    display: grid;
+    margin: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .entry {
+    display: grid;
+    gap: 8px;
+    padding-block: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .entry:last-child {
+    border-bottom: none;
+  }
+
+  h3 {
+    font-size: 17px;
+  }
+
+  p {
+    max-width: 44em;
+    color: var(--muted);
+  }
+
+  @media (min-width: 1024px) {
+    .faq {
+      grid-template-columns: 320px 1fr;
+      gap: 64px;
+      align-items: start;
+    }
+
+    .faq h2 {
+      position: sticky;
+      top: 96px;
+      font-size: 40px;
+    }
+  }
+
+  @media (max-width: 767px) {
+    .faq {
+      padding-block: 72px;
+      gap: 24px;
+    }
+  }
+</style>

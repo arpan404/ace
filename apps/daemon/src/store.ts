@@ -1014,6 +1014,11 @@ export class Store {
   getInteraction(id: string) {
     return this.threadReads.getInteraction(id);
   }
+  /** The event seq that created an item, or undefined while the thread has no such item. */
+  itemCreatedSeq(threadId: ThreadId, itemId: string): number | undefined {
+    this.flushLiveWrites();
+    return this.payloads.itemCreatedSeq(threadId, itemId);
+  }
   readItems(threadId: ThreadId, before: number, limit: number) {
     return this.threadReads.readItems(threadId, before, limit);
   }

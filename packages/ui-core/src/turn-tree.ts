@@ -2,7 +2,7 @@ import type { ThreadReader, ThreadSource } from "@ace/client";
 import type { Interaction, BackgroundTask } from "@ace/protocol";
 import { isActionableInteraction } from "@ace/core/human";
 import { isInternalTask, standsForSubagent } from "@ace/projection";
-import { isRunning } from "./agents.ts";
+import { isRunning, rootRunning } from "./agents.ts";
 import { TurnStretches } from "./turn-stretches.ts";
 import { rootRunOf } from "./turn-ordinals.ts";
 import { ledgerOf } from "./thread-ledger.ts";
@@ -206,10 +206,13 @@ export class TurnTree {
         const turn = ownerTurn(id);
         if (turn) ended = { turn, at: agent.endedAt };
       }
+      // The thread's status decides whether a starting root is at work; read it again when
+      // that changes.
+      if (agent && root) watch.add("thread");
       if (
         agent &&
         root &&
-        isRunning(agent) &&
+        rootRunning(agent, reader.thread?.status) &&
         !(
           reader.thread?.imported &&
           reader.thread.status.state === "new" &&

@@ -68,7 +68,10 @@ export function CompactWindow(props: { window: QuotaWindowView; now: number }) {
       className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground"
       title={formatResetCountdown(window.resetsAt, props.now)}
     >
-      <span className="w-10 shrink-0">{quotaWindowShort(window)}</span>
+      {/* One line: a named window ("Weekly · Claude and GPT models") truncates, never stacks. */}
+      <span className="min-w-10 max-w-56 truncate whitespace-nowrap" title={window.label}>
+        {quotaWindowShort(window)}
+      </span>
       <span
         role="meter"
         aria-label={`${window.label} window`}

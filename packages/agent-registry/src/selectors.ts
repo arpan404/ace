@@ -48,6 +48,12 @@ export type SelectorState = Readonly<{
     method: "session/set_config_option" | "session/set_mode";
     values: readonly string[];
   };
+  /** The session's thinking level, when the agent offers one as a config option. */
+  effort?: {
+    configId: string;
+    method: "session/set_config_option";
+    values: readonly string[];
+  };
   raw: unknown;
 }>;
 export function sessionSelectors(
@@ -59,6 +65,7 @@ export function sessionSelectors(
   if (profile?.denySelectors) return { raw };
   let model: SelectorState["model"];
   let mode: SelectorState["mode"];
+  let effort: SelectorState["effort"];
   for (const entry of session.configOptions ?? []) {
     const result = Select.safeParse(entry);
     if (!result.success) continue;
@@ -80,6 +87,9 @@ export function sessionSelectors(
       model = { method: "session/set_config_option", configId: config.id, values };
     if (!mode && ["mode", "permission", "permissions"].includes(config.category ?? config.id))
       mode = { method: "session/set_config_option", configId: config.id, values };
+    // The same options the model catalog reads as effort levels.
+    if (!effort && (config.category === "thought_level" || config.id === "reasoning_effort"))
+      effort = { method: "session/set_config_option", configId: config.id, values };
   }
   if (!model && session.models && (profile?.legacyModel || legacyModel))
     model = {
@@ -91,11 +101,16 @@ export function sessionSelectors(
       method: "session/set_mode",
       values: session.modes.availableModes.map((value) => value.id),
     };
-  return { ...(model ? { model } : {}), ...(mode ? { mode } : {}), raw };
+  return {
+    ...(model ? { model } : {}),
+    ...(mode ? { mode } : {}),
+    ...(effort ? { effort } : {}),
+    raw,
+  };
 }
 export function selectorRequest(
   selectors: SelectorState,
-  kind: "model" | "mode",
+  kind: "model" | "mode" | "effort",
   value: string,
   sessionId: string,
 ): { method: string; params: Record<string, string> } {

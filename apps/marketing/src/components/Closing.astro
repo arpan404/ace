@@ -1,0 +1,53 @@
+---
+import { links } from "../site.ts";
+import AceMark from "./AceMark.astro";
+import DownloadButton from "./DownloadButton.astro";
+---
+
+<section class="closing">
+  <div class="page closing-inner reveal">
+    <AceMark size={56} />
+    <h2 class="section-title">Free, open source, and yours to run.</h2>
+    <p class="lede">
+      ace is Apache-2.0. Install the Mac app, point it at a project, and start a thread with any
+      agent you have logged in.
+    </p>
+    <div class="actions">
+      <DownloadButton withNote />
+      <a class="button button-secondary" href={links.source}>View source</a>
+    </div>
+  </div>
+</section>
+
+<style>
+  .closing {
+    background: var(--sidebar);
+    border-top: 1px solid var(--border);
+  }
+
+  .closing-inner {
+    display: grid;
+    justify-items: center;
+    gap: 20px;
+    padding-block: 128px;
+    text-align: center;
+  }
+
+  .closing-inner :global(.ace-logo) {
+    margin-bottom: 12px;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 8px;
+  }
+
+  @media (max-width: 767px) {
+    .closing-inner {
+      padding-block: 80px;
+    }
+  }
+</style>

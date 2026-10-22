@@ -27,6 +27,14 @@ const Stopped = z.object({
   overran: z.array(z.string()).optional(),
 });
 const Marker = z.discriminatedUnion("state", [Running, Stopped]);
+/** One `daemon-run.json` record. Extra fields from a newer build are ignored. */
+export type RunRecord = z.infer<typeof Marker>;
+
+/** The run record in parsed JSON, or undefined when it isn't one. Pure, for every reader. */
+export function parseRunMarker(value: unknown): RunRecord | undefined {
+  const marker = Marker.safeParse(value);
+  return marker.success ? marker.data : undefined;
+}
 
 export type PreviousRun =
   | { kind: "none" }
@@ -56,9 +64,8 @@ function readMarker(home: string): PreviousRun {
   } catch {
     return { kind: "unreadable" };
   }
-  const marker = Marker.safeParse(parsed);
-  if (!marker.success) return { kind: "unreadable" };
-  const value = marker.data;
+  const value = parseRunMarker(parsed);
+  if (!value) return { kind: "unreadable" };
   if (value.state === "running")
     return { kind: "crashed", pid: value.pid, startedAt: value.startedAt };
   return {

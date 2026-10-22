@@ -11,6 +11,7 @@
     "./review-comment-body": "./src/review-comment-body.ts",
     "./suggestions": "./src/suggestions.ts",
     "./pr-reference": "./src/pr-reference.ts",
+    "./detect": "./src/detect.ts",
     "./testing": "./src/testing/fixtures.ts"
   },
   "scripts": {

@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
-import { useAutomationRuns } from "@/features/automations/index.ts";
+import { useAutomationRuns } from "@/features/automation-data/index.ts";
 import { notifyInBrowser } from "@/lib/browser-notify.ts";
 import { documentVisibility } from "@/lib/page-visibility.ts";
 import { useNotificationPrefs } from "./notification-prefs.ts";

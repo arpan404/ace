@@ -9,7 +9,8 @@ import { ClientError } from "@ace/client";
 import { NewerDataError, prepareDaemonHome } from "@ace/service";
 import { readConfig } from "../config.ts";
 import { option, parseArgs, type Args } from "./args.ts";
-import { CliFailure, exitCodes } from "./output.ts";
+import { CliFailure } from "./output.ts";
+import { reportFailure } from "./failure.ts";
 import { print, validateOutput } from "./io.ts";
 import { runtimeCommand } from "./runtime.ts";
 import { accessCommand } from "./access.ts";
@@ -34,7 +35,9 @@ ace start|status|token|devices list|revoke ID
 ace pair [SCOPES] [--label NAME] [--ttl 5m|1h|24h|7d] [--device-ttl 1d|7d|30d]
 ace service install|uninstall|start|stop|status
 ace accounts add|list|status|discover
-ace doctor|support-bundle PATH
+ace triage [--provider claude|codex|cursor|opencode] [--print]
+ace doctor [--fix] [--dry-run] [--provider claude|codex|cursor|opencode]
+ace support-bundle PATH
 ace stop|kill-all [--thread ID|--provider PROVIDER|--project ID]
 ace mcp enroll --scope read|operate --ttl DURATION [--project ID]
 ace mcp list|revoke ID
@@ -102,23 +105,15 @@ export async function main(input: string[]): Promise<void> {
       } else process.stdout.write(lines.join(""));
       return;
     }
-    if (["doctor", "support-bundle"].includes(command)) {
+    if (command === "support-bundle") {
       const { diagnosticsCli } = await import("../diagnostics-cli.ts");
       const output: string[] = [];
       await diagnosticsCli(
-        [
-          ...args.words,
-          ...(command === "doctor" && (args.flags.json || args.flags.jq) ? ["--json"] : []),
-          ...(args.flags["include-threads"] ? ["--include-threads"] : []),
-        ],
+        [...args.words, ...(args.flags["include-threads"] ? ["--include-threads"] : [])],
         config,
         (text) => output.push(text),
       );
-      if (args.flags.json || args.flags.jq)
-        await print(
-          args,
-          command === "doctor" ? JSON.parse(output.join("")) : { path: args.words[1] },
-        );
+      if (args.flags.json || args.flags.jq) await print(args, { path: args.words[1] });
       else process.stdout.write(output.join(""));
       return;
     }
@@ -203,23 +198,7 @@ export async function main(input: string[]): Promise<void> {
               ? "refused"
               : "uncertain"
           : "refused";
-    const message = error instanceof Error ? error.message : "Command failed";
-    const evidence = error instanceof CliFailure ? error.evidence : undefined;
-    const failure = {
-      ok: false,
-      status: outcome,
-      error: message,
-      ...(evidence !== undefined ? { admission: evidence } : {}),
-    };
-    process.exitCode = exitCodes[outcome];
-    if (args.flags.json || args.flags.jq || args.flags.stream === "jsonl")
-      await print({ ...args, flags: { ...args.flags, jq: "", json: true } }, failure).catch(() => {
-        process.stderr.write(`${JSON.stringify(failure)}\n`);
-      });
-    else
-      process.stderr.write(
-        `${message}\n${evidence === undefined ? "" : `${JSON.stringify(evidence)}\n`}`,
-      );
+    await reportFailure(args, error, outcome);
   }
 }
 

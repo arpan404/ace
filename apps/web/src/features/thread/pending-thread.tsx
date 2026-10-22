@@ -168,6 +168,7 @@ export function PendingThreadView(props: {
             permission={payload.access}
             worktree={isWorktreeCreate(payload)}
             progress={progress}
+            failed={failed}
           />
         )}
       </div>
@@ -200,6 +201,7 @@ function PendingComposer({
   permission,
   worktree,
   progress,
+  failed,
 }: {
   thread: ThreadRef;
   draftKey: string;
@@ -210,6 +212,8 @@ function PendingComposer({
   /** The thread starts in a worktree being made: the strip says how far it got. */
   worktree: boolean;
   progress: WorktreeCreationProgress | undefined;
+  /** The start was refused: nothing is being prepared any more. */
+  failed: boolean;
 }) {
   const reason = useId();
   const approvals = permission ? accessLabel(permission) : "Default";
@@ -248,8 +252,10 @@ function PendingComposer({
           />
         }
         environment={
-          // Only while the worktree is made: once it stops, its card above says how it ended.
+          // Only while the worktree is made: once it stops, its card above says how it ended,
+          // and a refused start says why under the message.
           worktree &&
+          !failed &&
           (!progress || progress.state === "running" || progress.state === "cancelling") && (
             <section aria-label="Environment" className={environmentSurface}>
               <div className={environmentRow}>
@@ -262,9 +268,11 @@ function PendingComposer({
           )
         }
         placeholder={
-          worktree
-            ? "Draft your next message while the worktree is prepared"
-            : "Draft your next message while the thread starts"
+          failed
+            ? "Draft your next message"
+            : worktree
+              ? "Draft your next message while the worktree is prepared"
+              : "Draft your next message while the thread starts"
         }
         shortPlaceholder="Draft your next message"
         sendBlocked={{

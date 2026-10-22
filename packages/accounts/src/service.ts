@@ -11,7 +11,6 @@ import { object } from "./quota-decode.ts";
 import { loginAcpAccount, type AcpLoginResolver } from "./acp-login.ts";
 import { AcpIdentity } from "@ace/protocol";
 import { instanceEnv } from "./instances.ts";
-import { filterSessionToolEnv } from "./tool-env.ts";
 import { pickInstance } from "./scheduler.ts";
 import { migrateSession, noMigrationLease, type MigrationSafety } from "./migration.ts";
 import { accountFrame } from "./frames.ts";
@@ -367,9 +366,6 @@ export class AccountService {
           {
             ...(adapter.backend === "cursor-sdk" ? this.cursorEnv : this.env),
             ...context.env,
-            // Explicit per-session tool credentials win over ambient values but
-            // never over the instance home selectors applied inside instanceEnv.
-            ...filterSessionToolEnv(context.toolEnv),
           },
           adapter.backend,
         ),

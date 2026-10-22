@@ -27,10 +27,9 @@ Example:
 
 ```json
 {
-  "height": 83,
+  "height": 88,
   "html": "example",
-  "mode": "interactive",
-  "title": "_"
+  "title": "9"
 }
 ```
 
@@ -72,9 +71,8 @@ Example:
 
 ```json
 {
-  "alt": "{",
-  "data": "agWBO",
-  "path": "example"
+  "alt": "F",
+  "mimeType": "image/gif"
 }
 ```
 
@@ -113,6 +111,7 @@ Example:
 
 ```json
 {
+  "level": "warning",
   "text": "example"
 }
 ```
@@ -157,9 +156,13 @@ Example:
 {
   "tasks": [
     {
-      "requestId": "M75XK",
+      "provider": "opencode",
+      "requestId": "1yxYuNF",
       "role": "example",
-      "task": "example"
+      "task": "example",
+      "workspace": {
+        "kind": "project"
+      }
     }
   ]
 }
@@ -180,9 +183,6 @@ Example:
 
 ```json
 {
-  "data": {
-    "threadIds": []
-  },
   "hint": "example",
   "ok": false
 }
@@ -229,13 +229,9 @@ Example:
 
 ```json
 {
-  "data": {
-    "mode": "any",
-    "status": "needs_you",
-    "threads": []
-  },
+  "code": "limit",
   "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -256,9 +252,7 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{
-  "threadId": "example"
-}
+{}
 ```
 
 ## agents_status.output
@@ -276,6 +270,17 @@ Example:
 
 ```json
 {
+  "code": "invalid",
+  "data": {
+    "children": [],
+    "counts": {
+      "cancelled": 4,
+      "done": 5,
+      "failed": 5,
+      "needs_you": 6,
+      "working": 0
+    }
+  },
   "ok": true
 }
 ```
@@ -301,8 +306,7 @@ Example:
 
 ```json
 {
-  "delivery": "restart",
-  "requestId": "tq",
+  "requestId": "ClO",
   "text": "example",
   "threadId": "example"
 }
@@ -322,6 +326,8 @@ Example:
 
 ```json
 {
+  "code": "unsupported",
+  "hint": "example",
   "ok": true
 }
 ```
@@ -345,7 +351,7 @@ Example:
 
 ```json
 {
-  "requestId": "e",
+  "requestId": "FZvPgTvMRT",
   "threadId": "example"
 }
 ```
@@ -364,8 +370,9 @@ Example:
 
 ```json
 {
-  "code": "not_ready",
-  "ok": false
+  "code": "not_found",
+  "hint": "example",
+  "ok": true
 }
 ```
 
@@ -402,8 +409,6 @@ Example:
 
 ```json
 {
-  "code": "unsupported",
-  "hint": "example",
   "ok": true
 }
 ```
@@ -426,7 +431,9 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{}
+{
+  "provider": "opencode"
+}
 ```
 
 ## models.output
@@ -444,8 +451,6 @@ Example:
 
 ```json
 {
-  "code": "invalid",
-  "data": null,
   "hint": "example",
   "ok": true
 }
@@ -474,7 +479,9 @@ Semantic rule: With threadId, query must not be empty.
 Example:
 
 ```json
-{}
+{
+  "project": "example"
+}
 ```
 
 ## threads_find.output
@@ -492,11 +499,6 @@ Example:
 
 ```json
 {
-  "code": "invalid",
-  "data": {
-    "hits": []
-  },
-  "hint": "example",
   "ok": true
 }
 ```
@@ -519,9 +521,7 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{
-  "limit": 7
-}
+{}
 ```
 
 ## projects_find.output
@@ -539,7 +539,7 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
+  "hint": "example",
   "ok": true
 }
 ```
@@ -567,9 +567,9 @@ Example:
 
 ```json
 {
-  "limit": 9,
-  "offset": 3,
-  "threadId": "example"
+  "before": 9,
+  "maxBytes": 5,
+  "offset": 0
 }
 ```
 
@@ -588,8 +588,7 @@ Example:
 
 ```json
 {
-  "code": "invalid",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -619,13 +618,15 @@ Example:
 
 ```json
 {
-  "access": "full-access",
   "effort": "example",
   "model": "example",
-  "provider": "acp",
-  "requestId": "WX",
+  "provider": "antigravity",
+  "requestId": "cKG_Ao",
   "text": "example",
-  "title": "example"
+  "title": "example",
+  "workspace": {
+    "kind": "project"
+  }
 }
 ```
 
@@ -644,7 +645,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -672,7 +673,8 @@ Example:
 
 ```json
 {
-  "requestId": "0qFNWVS91R",
+  "model": "example",
+  "requestId": "fIPlzra",
   "runId": "example",
   "text": "example",
   "threadId": "example"
@@ -694,7 +696,6 @@ Example:
 
 ```json
 {
-  "data": null,
   "hint": "example",
   "ok": false
 }
@@ -721,7 +722,7 @@ Example:
 
 ```json
 {
-  "requestId": ".Z9W8a0",
+  "requestId": "I",
   "summary": "example",
   "threadId": "example"
 }
@@ -743,7 +744,7 @@ Example:
 ```json
 {
   "data": null,
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -772,9 +773,10 @@ Example:
 
 ```json
 {
-  "action": "cancel",
+  "action": "edit",
   "entryId": "example",
-  "requestId": "XNaVyXt9",
+  "requestId": "X7",
+  "text": "example",
   "threadId": "example"
 }
 ```
@@ -793,8 +795,7 @@ Example:
 
 ```json
 {
-  "code": "limit",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -822,8 +823,10 @@ Example:
 ```json
 {
   "answers": {},
+  "dismissed": true,
+  "feedback": "example",
   "interactionId": "example",
-  "requestId": "R9wRfi6jt79",
+  "requestId": "f4UZXTZ191",
   "threadId": "example"
 }
 ```
@@ -843,7 +846,7 @@ Example:
 ```json
 {
   "code": "unavailable",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -871,7 +874,8 @@ Example:
 
 ```json
 {
-  "number": 4
+  "unlink": false,
+  "url": "https://example.invalid/"
 }
 ```
 
@@ -890,7 +894,7 @@ Example:
 
 ```json
 {
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -925,10 +929,12 @@ Example:
 
 ```json
 {
-  "action": "rename",
-  "previewId": "example",
+  "action": "settle",
+  "branch": "example",
+  "name": "example",
   "threadId": "example",
-  "title": "example"
+  "title": "example",
+  "until": null
 }
 ```
 
@@ -947,8 +953,7 @@ Example:
 
 ```json
 {
-  "code": "not_ready",
-  "hint": "example",
+  "data": null,
   "ok": true
 }
 ```
@@ -989,24 +994,16 @@ Example:
 ```json
 {
   "action": "playbooks",
-  "endpoint": "example",
-  "evidence": [
-    {
-      "action": "example",
-      "artifact": "example",
-      "criterionId": "3E",
-      "kind": "human",
-      "note": "example",
-      "result": "pass",
-      "revision": "example"
-    }
-  ],
-  "note": "example",
-  "outcome": "example",
-  "phase": "review",
-  "requestId": "LqLuP",
-  "runOwner": "example",
-  "stepId": "mRQrLL"
+  "criterion": {
+    "description": "example",
+    "id": "C",
+    "requiredKinds": [
+      "human"
+    ]
+  },
+  "requestId": "QzNLTjK2YUn",
+  "state": "done",
+  "stepId": "MAze"
 }
 ```
 
@@ -1026,9 +1023,41 @@ Example:
 ```json
 {
   "data": {
-    "playbooks": []
+    "next": "example",
+    "pending": [],
+    "revision": "example",
+    "run": {
+      "blocker": "example",
+      "createdAt": 9,
+      "criteria": [
+        {
+          "description": "example",
+          "id": "PNKVU8jC",
+          "independent": true,
+          "requiredKinds": [
+            "ui"
+          ]
+        }
+      ],
+      "endpoint": "example",
+      "evidence": [],
+      "id": "l7Rw2pJz4x",
+      "note": "example",
+      "outcome": "example",
+      "owner": {
+        "model": "example",
+        "provider": "claude",
+        "threadId": "example"
+      },
+      "phase": "review",
+      "steps": [],
+      "threadId": "example",
+      "updatedAt": 7,
+      "version": 1
+    },
+    "state": "waiting_on_tree",
+    "treeState": "needs_you"
   },
-  "hint": "example",
   "ok": true
 }
 ```
@@ -1054,9 +1083,7 @@ Example:
 
 ```json
 {
-  "automationId": "example",
-  "before": 6,
-  "limit": 3
+  "limit": 7
 }
 ```
 
@@ -1076,13 +1103,13 @@ Example:
 ```json
 {
   "hint": "example",
-  "ok": false
+  "ok": true
 }
 ```
 
 ## automation_put
 
-Create or replace an automation in this project: a prompt that runs as a child agent when run with automation_run, or on a schedule (RRULE or cron). Saving the same id again replaces it.
+Create or replace an automation: a message ace sends into this thread when run with automation_run, or on a schedule (RRULE or cron). You answer it here, with this thread's model and access, queued behind any turn already going. Saving the same id again replaces it.
 
 Required capability: automations. Timeout: 630000 ms.
 
@@ -1094,12 +1121,9 @@ Required capability: automations. Timeout: 630000 ms.
 | --- | --- | --- | --- |
 | id | yes | string | {"minLength":1,"maxLength":256,"description":"The automation's id, as you named it in automation_put."} |
 | title | yes | string | {"minLength":1,"maxLength":256,"description":"What it does, for the person's list."} |
-| prompt | yes | string | {"minLength":1,"maxLength":262144,"description":"The child's whole task, standing on its own."} |
-| schedule | no | [AutomationSchedule.json](schema/AutomationSchedule.json) | {"description":"Run on this schedule. kind rrule or cron; startAt in epoch ms, a whole minute. Omit for manual runs only."} |
+| prompt | yes | string | {"minLength":1,"maxLength":262144,"description":"The message you receive each run: the whole task, readable without this conversation's context."} |
+| schedule | no | [AgentAutomationSchedule.json](schema/AgentAutomationSchedule.json) | {"description":"Run on this schedule: kind rrule (FREQ=DAILY;BYHOUR=9;BYMINUTE=0) or cron (0 9 * * 1-5). timezone defaults to this machine's, startAt (epoch ms, a whole minute) to now. Omit for runs by hand only."} |
 | enabled | no | boolean | {"default":true,"description":"false saves it paused."} |
-| provider | no | [ProviderKind.json](schema/ProviderKind.json) | {"description":"Default: yours."} |
-| model | no | string | {"description":"A model id from `models`.","minLength":1,"maxLength":256} |
-| access | no | [AccessMode.json](schema/AccessMode.json) | {"description":"The child's access mode; default yours."} |
 | missedRun | no | ["skip","run_once"] | {"default":"skip","description":"A schedule missed while ace was off: skip (default) or run once."} |
 
 Example:
@@ -1107,7 +1131,7 @@ Example:
 ```json
 {
   "id": "example",
-  "model": "example",
+  "missedRun": "run_once",
   "prompt": "example",
   "title": "example"
 }
@@ -1128,13 +1152,15 @@ Example:
 
 ```json
 {
-  "ok": false
+  "code": "not_found",
+  "data": null,
+  "ok": true
 }
 ```
 
 ## automation_run
 
-Run a saved automation now, as a child agent. Its run appears in automations_list {runs: true} with the child's threadId.
+Run a saved automation now: its message arrives in this thread, after any turn already going. The run and its answer appear in automations_list {runs: true}.
 
 Required capability: automations. Timeout: 630000 ms.
 
@@ -1153,7 +1179,7 @@ Example:
 ```json
 {
   "id": "example",
-  "requestId": "KGVsLn"
+  "requestId": "Xjtw"
 }
 ```
 
@@ -1172,8 +1198,51 @@ Example:
 
 ```json
 {
-  "data": null,
+  "code": "not_found",
   "ok": false
+}
+```
+
+## automation_pause
+
+Pause an automation (paused: true) or resume it (paused: false). Pausing skips a run waiting to start and stops one still going in this thread; resuming picks the schedule up from now.
+
+Required capability: automations. Timeout: 630000 ms.
+
+## automation_pause.input
+
+[JSON Schema](schema/automation_pause.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"minLength":1,"maxLength":256,"description":"The automation's id, as you named it in automation_put."} |
+| paused | no | boolean | {"default":true,"description":"true pauses it; false resumes it."} |
+
+Example:
+
+```json
+{
+  "id": "example"
+}
+```
+
+## automation_pause.output
+
+[JSON Schema](schema/automation_pause.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+
+Example:
+
+```json
+{
+  "code": "invalid",
+  "hint": "example",
+  "ok": true
 }
 ```
 
@@ -1213,8 +1282,8 @@ Example:
 
 ```json
 {
-  "code": "not_ready",
-  "ok": true
+  "code": "limit",
+  "ok": false
 }
 ```
 
@@ -1241,8 +1310,9 @@ Example:
 
 ```json
 {
-  "before": 9,
-  "sourceThreadId": "example"
+  "limit": 4,
+  "sourceThreadId": "example",
+  "streamId": "example"
 }
 ```
 
@@ -1266,7 +1336,8 @@ Example:
 ```json
 {
   "encoding": "utf-8",
-  "eof": false
+  "itemsBefore": null,
+  "nextOffset": 6
 }
 ```
 
@@ -1307,7 +1378,17 @@ Example:
 
 ```json
 {
-  "prs": []
+  "diagnostics": {
+    "blocking": [],
+    "failures": []
+  },
+  "recent": [],
+  "status": {
+    "access": "full-access",
+    "agentId": "example",
+    "groups": [],
+    "threadId": "example"
+  }
 }
 ```
 
@@ -1347,7 +1428,7 @@ Example:
 ```json
 {
   "noteId": "example",
-  "notes": 4
+  "notes": 3
 }
 ```
 
@@ -1385,7 +1466,7 @@ Example:
 
 ```json
 {
-  "retired": true
+  "retired": false
 }
 ```
 
@@ -1410,7 +1491,7 @@ Example:
 
 ```json
 {
-  "allowOther": true,
+  "allowOther": false,
   "question": "example"
 }
 ```
@@ -1429,8 +1510,9 @@ Example:
 
 ```json
 {
+  "answer": [],
   "askId": "example",
-  "status": "declined"
+  "status": "pending"
 }
 ```
 
@@ -1495,7 +1577,6 @@ Example:
 
 ```json
 {
-  "arguments": {},
   "name": "example"
 }
 ```
@@ -1513,6 +1594,7 @@ Example:
 
 ```json
 {
-  "content": []
+  "content": [],
+  "isError": true
 }
 ```

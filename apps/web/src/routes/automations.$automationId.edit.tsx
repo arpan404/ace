@@ -1,9 +1,12 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { EditAutomationScreen } from "@/features/automations/index.ts";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/automations/$automationId/edit")({ component: Edit });
-
-function Edit() {
-  const { automationId } = Route.useParams();
-  return <EditAutomationScreen id={automationId} />;
-}
+/** Editing happens in place on the automation; an old link to its edit page lands there. */
+export const Route = createFileRoute("/automations/$automationId/edit")({
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/automations/$automationId",
+      params: { automationId: params.automationId },
+      replace: true,
+    });
+  },
+});

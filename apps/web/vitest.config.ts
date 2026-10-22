@@ -11,6 +11,8 @@ export default defineProject({
   test: {
     name: "web",
     environment: "jsdom",
+    // Cold route compilation shares the host with the daemon and other test workers.
+    testTimeout: 15_000,
     include: ["src/**/*.test.{ts,tsx}", "*.test.ts"],
     setupFiles: ["./src/test/setup.ts"],
   },

@@ -103,6 +103,18 @@ export const isRunning = (agent: Pick<Agent, "status">) =>
   agent.status.state === "starting" ||
   agent.status.state === "blocked";
 
+/**
+ * Whether a thread's root agent is at work. A root that is only starting is not, once the
+ * thread has settled as failed or done: a start whose first message never went out keeps its
+ * session's root starting while nothing runs, and the daemon reads that thread as failed.
+ */
+export const rootRunning = (agent: Pick<Agent, "status">, threadStatus: ThreadStatus | undefined) =>
+  isRunning(agent) &&
+  !(
+    agent.status.state === "starting" &&
+    (threadStatus?.state === "failed" || threadStatus?.state === "done")
+  );
+
 /** Unsettled work belongs to every ancestor, even after its own turn has ended. */
 export function agentTreeWork(
   agents: readonly Agent[],
