@@ -167,8 +167,7 @@ import Testing
         model.open("thread")
         let emit: @convention(block) (String) -> Void = { [weak self] text in self?.emitted.append(Data(text.utf8)) }
         let encode: @convention(block) (String) -> String = { Data($0.utf8).base64EncodedString() }
-        let bytes: @convention(block) (String) -> [UInt8] = { Array($0.utf8) }
-        context.setObject(bytes, forKeyedSubscript: "nativeBytes" as NSString)
+        context.setObject(NativeBytes.functions(), forKeyedSubscript: "nativeBytes" as NSString)
         let head: @convention(block) (String, Int) -> String = { DisplayText.head($0, limit: $1) }
         let tail: @convention(block) (String, Int) -> String = { DisplayText.tail($0, limit: $1) }
         context.setObject(head, forKeyedSubscript: "nativeHead" as NSString)
@@ -186,7 +185,7 @@ import Testing
           globalThis.aceHost = {
             now: () => time, uuid: () => String(++nextID),
             timer: (id, delay, run) => timers.set(id, {at: time + delay, run}),
-            cancelTimer: id => timers.delete(id), emit: nativeEmit, utf8Base64: nativeEncode, encode: nativeBytes,
+            cancelTimer: id => timers.delete(id), emit: nativeEmit, utf8Base64: nativeEncode, encode: nativeBytes.encode, decode: nativeBytes.decode, inflate: nativeBytes.inflate,
             previewHead: nativeHead, previewTail: nativeTail, parseURL: nativeParseURL
           };
           function advance() {

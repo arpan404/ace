@@ -72,7 +72,7 @@ private struct HistoryDetail {
     let context: JSContext
     init() throws {
         context = try #require(JSContext())
-        context.setObject(nativeBytes, forKeyedSubscript: "nativeBytes" as NSString)
+        context.setObject(NativeBytes.functions(), forKeyedSubscript: "nativeBytes" as NSString)
         context.setObject(nativeHead, forKeyedSubscript: "nativeHead" as NSString)
         context.setObject(nativeTail, forKeyedSubscript: "nativeTail" as NSString)
         context.setObject(nativeEmit, forKeyedSubscript: "nativeEmit" as NSString)
@@ -88,7 +88,7 @@ private struct HistoryDetail {
           globalThis.aceHost = {
             now: () => time, uuid: () => String(++nextID),
             timer: (id, delay, run) => timers.set(id, {at: time + delay, run}),
-            cancelTimer: id => timers.delete(id), emit: nativeEmit, utf8Base64: nativeEncode, encode: nativeBytes,
+            cancelTimer: id => timers.delete(id), emit: nativeEmit, utf8Base64: nativeEncode, encode: nativeBytes.encode, decode: nativeBytes.decode, inflate: nativeBytes.inflate,
             previewHead: nativeHead, previewTail: nativeTail, parseURL: nativeParseURL
           };
           function advance() {
@@ -125,7 +125,6 @@ private struct HistoryDetail {
     }
 
     var nativeEmit: @convention(block) (String) -> Void { { _ in } }
-    var nativeBytes: @convention(block) (String) -> [UInt8] { { Array($0.utf8) } }
     var nativeEncode: @convention(block) (String) -> String { { Data($0.utf8).base64EncodedString() } }
     var nativeHead: @convention(block) (String, Int) -> String {
         { DisplayText.head($0, limit: $1) }

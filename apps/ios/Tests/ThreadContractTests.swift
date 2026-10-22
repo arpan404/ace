@@ -34,14 +34,16 @@ import Testing
         _ = try await until("the parent again") { model.thread?.screen.blocks.values.contains { $0.row.kind == "subagents" } == true ? true : nil }
         #expect(model.error == nil)
     }
-    @Test func whileTheAgentWorksTheComposerOffersQueueAndSteerAndBothAreAdmitted() async throws {
+    /// The main agent only waits on its subagents: a message goes straight in, and the modified
+    /// send queues it (`@ace/ui-core` waitingDelivery), from the first controls the phone shows.
+    @Test func whileTheMainAgentOnlyWaitsOnSubagentsAMessageGoesInNowOrQueuesAndBothAreAdmitted() async throws {
         let (model, root) = try await connected()
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
         model.open("ios-agents")
         let controls = try await until("composer controls") { model.thread?.screen.controls }
         #expect(controls.busy)
-        #expect(controls.delivery == "queue")
-        #expect(controls.alternate == "steer")
+        #expect(controls.delivery == "steer")
+        #expect(controls.alternate == "queue")
         #expect(await model.sendMessage("Queue: also run lint \(UUID().uuidString)", alternate: false))
         #expect(await model.sendMessage("Steer: skip the docs \(UUID().uuidString)", alternate: true))
         #expect(model.error == nil)

@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import CryptoKit
+import QuartzCore
 
 @MainActor @Observable final class ItemModel: Identifiable {
     let id: String
@@ -17,9 +18,7 @@ import CryptoKit
     var cursor = 0
     var loaded = false
     let screen = ThreadScreenModel()
-    /// What this thread last showed, kept on screen while its reopened session catches up.
-    var placeholder: ThreadModel?
-    /// Which folds are open; shared with the placeholder and history pages of the same thread.
+    /// Which folds are open; shared with the history pages of the same thread.
     @ObservationIgnored var disclosures = Disclosures()
     @ObservationIgnored var positions: [String: Int] = [:]
     init(id: String) { self.id = id }
@@ -65,8 +64,8 @@ import CryptoKit
     /// connection or inbox row. Older confirmed rows read as unconfirmed until their snapshot
     /// returns, even when PatchPump delivers the connection and row frames separately.
     @ObservationIgnored private var activityGeneration = 0
-    /// Threads left for a child, so going back shows them until their replacement snapshot is ready.
-    @ObservationIgnored private var trail = ThreadTrail()
+    /// Threads shown recently, kept whole so reopening one paints at once (`ThreadShelf`).
+    @ObservationIgnored private var shelf = ThreadShelf()
     @ObservationIgnored private var runtime: (any ClientSession)?
     @ObservationIgnored private let makeRuntime: ClientSessionFactory
     @ObservationIgnored private var connectionEpoch = 0
@@ -89,7 +88,7 @@ import CryptoKit
         let epoch = connectionEpoch
         let closing = retireRuntime()
         hostId = target.hostId
-        inbox.removeAll(); pending = [:]; thread = nil; inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset()
+        inbox.removeAll(); pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset()
         inboxLayout = .empty
         machineStatus = nil; providers = nil
         connection = "connecting"; error = nil; problem = nil
@@ -122,6 +121,13 @@ import CryptoKit
         return directory.appendingPathComponent(scope + ".sqlite")
     }
     @discardableResult func receive(_ data: Data) -> Bool {
+        let began = CACurrentMediaTime()
+        let patchesBefore = patchCount
+        let signpost = ThreadOpenTrace.signposter.beginInterval("bridge.frame")
+        defer {
+            ThreadOpenTrace.signposter.endInterval("bridge.frame", signpost)
+            ThreadOpenTrace.shared.frame(bytes: data.count, patches: patchCount - patchesBefore, seconds: CACurrentMediaTime() - began)
+        }
         largestFrame = max(largestFrame, data.count)
         if patchCount == 0 { LaunchTrace.mark("bridge.firstFrame") }
         guard let patches = try? frames.decode(data) else {
@@ -220,7 +226,8 @@ import CryptoKit
                     if row?.state != "pending", let submission = approvalSubmissions.removeValue(forKey: interactionId) { approvalRequests[submission.requestId] = nil }
                 }
             case .cursor(let id, let epoch, let cursor): if thread?.id == id, thread?.epoch == epoch { thread?.cursor = cursor }
-            case .ready(let id, let epoch, _): if thread?.id == id, thread?.epoch == epoch { thread?.loaded = true; thread?.placeholder = nil }
+            case .ready(let id, let epoch, _):
+                if thread?.id == id, thread?.epoch == epoch { thread?.loaded = true; ThreadOpenTrace.shared.ready(id) }
             case .block, .blockPosition, .controls, .history, .models, .queue:
                 if let thread, let scope = patch.screenScope, scope.thread == thread.id, scope.epoch == thread.epoch {
                     thread.screen.apply(patch)
@@ -263,17 +270,22 @@ import CryptoKit
         generation += 1
         sheets.reset()
         browser.close(streams: runtime?.browserStreams)
-        let opened = ThreadModel(id: id)
+        // A thread shown recently comes back whole, folds and open groups as they were left.
+        let kept = thread?.id == id ? thread : shelf.take(id)
+        if let current = thread, current.id != id { shelf.keep(current) }
+        let opened = kept ?? ThreadModel(id: id)
         opened.epoch = generation
-        opened.placeholder = trail.reopen(id, leaving: thread)
-        if let placeholder = opened.placeholder { opened.disclosures = placeholder.disclosures }
-        // Coming back from a child finds its subagent groups as they were left.
-        opened.screen.openGroups = opened.placeholder?.screen.openGroups ?? []
+        if kept != nil { opened.screen.revisit() }
+        ThreadOpenTrace.shared.open(id, warm: kept != nil)
+        ThreadOpenTrace.shared.showing(true)
         thread = opened
-        action(["type": "open", "threadId": id])
+        action(["type": "open", "threadId": id, "warm": kept != nil])
     }
     func back() {
-        generation += 1; action(["type": "back"]); thread = nil; trail.clear(); sheets.reset()
+        generation += 1; action(["type": "back"])
+        if let thread { shelf.keep(thread) }
+        thread = nil; sheets.reset()
+        ThreadOpenTrace.shared.showing(false)
         browser.close(streams: runtime?.browserStreams)
     }
     /// Where this runtime's sockets deliver browser pictures (`ClientModel+Browser.swift`).
