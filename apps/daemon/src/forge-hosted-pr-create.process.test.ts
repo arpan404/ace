@@ -361,3 +361,109 @@ test("a project whose remote still uses a renamed repository's old name finds it
     await env.close();
   }
 });
+
+/** The comparisons that reached GitHub; none at all when GitHub was never asked anything. */
+const compares = async (gh: Awaited<ReturnType<typeof fakeGh>>) => {
+  const requests = await gh.requests().catch(() => []);
+  return requests.filter((request) => request.path.includes("/compare/"));
+};
+
+test("comparing a head from a repository the project doesn't push to is refused unread", async () => {
+  const env = await environment({ "repos/octo/ace": [metadata()] });
+  try {
+    await expect(
+      env.runtime.read({
+        type: "workspace.request",
+        requestId: "foreign",
+        operation: {
+          op: "forge.compare",
+          workspaceId: env.workspaceId,
+          base: "main",
+          head: { owner: "mallory", name: "ace", branch: "card" },
+          page: 1,
+        },
+      }),
+    ).rejects.toThrow("repository_mismatch");
+    expect(await compares(env.gh)).toEqual([]);
+  } finally {
+    await env.close();
+  }
+});
+
+test("a comparison named by repository only takes that repository's own branches", async () => {
+  const env = await environment({});
+  try {
+    await expect(
+      env.runtime.read({
+        type: "workspace.request",
+        requestId: "named",
+        operation: {
+          op: "forge.compare",
+          workspaceId: env.workspaceId,
+          repository,
+          base: "main",
+          head: { owner: "octo", name: "ace-fork", branch: "card" },
+          page: 1,
+        },
+      }),
+    ).rejects.toThrow("repository_mismatch");
+    expect(await compares(env.gh)).toEqual([]);
+  } finally {
+    await env.close();
+  }
+});
+
+test("a fork whose remote still uses its old name finds its open PR on the parent", async () => {
+  // The remote says octo/old-fork; GitHub renamed it octo/ace-fork, a fork of octo/ace.
+  const fork = { id: 2, name: "ace-fork", owner: { login: "octo" } };
+  const parent = { id: 1, name: "ace", owner: { login: "octo" } };
+  const env = await environment(
+    {
+      "repos/octo/old-fork": [metadata({ owner: "octo", name: "ace" }, "ace-fork")],
+      "repos/octo/ace/branches?per_page=100": [{ body: [{ name: "main", commit: { sha } }] }],
+      "repos/octo/old-fork/branches?per_page=100": [
+        { body: [{ name: "feature/card", commit: { sha } }] },
+      ],
+      "graphql:pullRequestTemplates": [
+        { body: { data: { repository: { pullRequestTemplates: [] } } } },
+      ],
+      [lookup("octo/ace", "octo")]: [
+        {
+          body: [
+            // The parent's own branch of the same name: not the fork's PR.
+            {
+              ...opened,
+              number: 5,
+              base: { ref: "main", repo: parent },
+              head: { ...opened.head, repo: parent },
+            },
+            {
+              ...opened,
+              number: 9,
+              base: { ref: "main", repo: parent },
+              head: { ...opened.head, repo: fork },
+            },
+          ],
+        },
+      ],
+    },
+    "octo/old-fork",
+  );
+  try {
+    const context = await env.runtime.read({
+      type: "workspace.request",
+      requestId: "context",
+      operation: { op: "forge.pr.new-context", workspaceId: env.workspaceId },
+    });
+    // The page is told GitHub's current name for the fork, which its PRs report.
+    expect(context).toMatchObject({
+      result: { data: { value: { head: { repository: { owner: "octo", name: "ace-fork" } } } } },
+    });
+    expect(
+      await env.create({ head: { owner: "octo", name: "ace-fork", branch: "feature/card" } }),
+    ).toMatchObject({ ok: true, pr: { repository, number: 9 }, prExisting: true });
+    expect(await sent(env.gh, "repos/octo/ace/pulls")).toEqual([]);
+  } finally {
+    await env.close();
+  }
+});
