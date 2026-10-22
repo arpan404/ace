@@ -14,3 +14,6 @@ export type {
   PrDiffContext,
   PrListExtensions,
 } from "./pr-extensions.ts";
+export { useRepoPrOptions } from "./pr-repo-options.ts";
+export { PrCompareFiles } from "./pr-compare-files.tsx";
+export { readFailureText } from "./query-state.tsx";

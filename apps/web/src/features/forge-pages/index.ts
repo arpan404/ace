@@ -7,3 +7,4 @@ export { NewIssuePage } from "./new-issue-page.tsx";
 export { PullRequestsNavRow } from "./nav-row.tsx";
 export type { PullsSearch } from "./pulls-model.ts";
 export type { IssuesSearch } from "./issues-model.ts";
+export { NewPullRequestPage } from "./new-pr-page.tsx";
