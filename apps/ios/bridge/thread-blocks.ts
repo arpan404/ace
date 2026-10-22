@@ -1,4 +1,5 @@
 import type { ChangeTap, ThreadSource } from "@ace/client";
+import type { Item } from "@ace/protocol";
 import {
   turnHeadLabel,
   turnTreeOf,
@@ -21,6 +22,7 @@ import {
   subagentToolId,
   providerSlots,
   summarizeWork,
+  thoughtMs,
   workCounts,
   type SubagentGroupStatus,
   type SubagentState,
@@ -31,8 +33,10 @@ import { rootRunOf } from "@ace/ui-core";
 import { createBlockReader } from "@ace/ui-core/transcript-block-reader";
 import { blockItems, type Block } from "@ace/ui-core/transcript-blocks";
 import { preview } from "./presentation.ts";
-import { workGroups } from "./work-groups.ts";
-import { backgroundCalls, backgroundRows } from "./background-rows.ts";
+import { endingRow, filesRow } from "./turn-ending.ts";
+import { backgroundRows } from "./background-rows.ts";
+import { stepContext } from "./thread-rows.ts";
+import { workLog, type LogFacts } from "./work-log.ts";
 
 /*
  * The transcript's blocks as the web builds them (`@ace/ui-core` transcript grouping): "Worked
@@ -67,11 +71,6 @@ const tokens: Record<SubagentState, StatusToken> = {
   failed: "failed",
   cancelled: "neutral",
   done: "done",
-};
-const endings = {
-  failed: "Turn failed",
-  interrupted: "Interrupted by you",
-  paused: "Paused · Usage limit",
 };
 
 /** A folded head's steps, without the answer shown under it. */
@@ -201,6 +200,18 @@ function questionLine(store: ThreadSource, interactionId: string) {
   };
 }
 
+/** What a log of this thread reads with: its turns' ends, thoughts' times, steps' contexts. */
+export function logFacts(store: ThreadSource): LogFacts {
+  return {
+    ended: (item: Item) => {
+      const run = item.runId ? store.run(item.runId) : undefined;
+      return run !== undefined && run.state !== "active";
+    },
+    took: (id) => thoughtMs(store, id),
+    context: (item) => stepContext(store, item),
+  };
+}
+
 /** The root turn a block's items belong to: the first item whose run is still known. */
 function turnOf(store: ThreadSource, ids: readonly string[]): number | undefined {
   for (const id of ids) {
@@ -211,6 +222,9 @@ function turnOf(store: ThreadSource, ids: readonly string[]): number | undefined
 }
 
 export function blockRow(store: ThreadSource, block: Block, index: number | undefined) {
+  const read = (id: string) => store.item(id);
+  // A step whose turn is over is settled, whatever its stream last said.
+  const facts = logFacts(store);
   const base = {
     index: index ?? null,
     kind: block.kind,
@@ -221,7 +235,8 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
     interactionId: "",
     work: null as ReturnType<typeof workSummary> | null,
     agents: null as ReturnType<typeof subagents> | null,
-    ending: null as { label: string; automatic: boolean; error: string } | null,
+    ending: null as ReturnType<typeof endingRow> | null,
+    files: null as ReturnType<typeof filesRow> | null,
     started: null as { threadId: string; title: string } | null,
     /** A settled work head's root turn, which `turn.steps` reads its full steps by. */
     ordinal: null as number | null,
@@ -229,20 +244,17 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
   switch (block.kind) {
     case "work": {
       const items = workItems(block);
+      const background = backgroundRows(store, items);
+      const log = workLog(items, read, { ...facts, background });
       return {
         ...base,
         items,
         work: workSummary(store, block, items),
-        groups: workGroups(
-          items,
-          (id) => store.item(id),
-          (item) => {
-            const run = item.runId ? store.run(item.runId) : undefined;
-            return run !== undefined && run.state !== "active";
-          },
-          backgroundCalls(store, items),
-        ),
-        background: backgroundRows(store, items),
+        log: log.rows,
+        background,
+        aceSteps: log.ace,
+        retried: log.retried,
+        thoughts: log.thoughts,
         ordinal: block.outcome === undefined ? null : (turnOf(store, blockItems(block)) ?? null),
       };
     }
@@ -256,20 +268,23 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
         question: questionLine(store, block.interactionId),
       };
     case "end": {
-      const error = block.errorId ? store.item(block.errorId) : undefined;
+      const items = block.itemIds ?? [];
+      // A usage-limit pause keeps the work it did, a tap away.
+      const background = block.ending === "paused" ? backgroundRows(store, items) : [];
+      const log = block.ending === "paused" ? workLog(items, read, { ...facts, background }) : null;
       return {
         ...base,
-        ending: {
-          // A restart, not the person, cut it short.
-          label:
-            block.ending === "interrupted" && block.automatic
-              ? "Interrupted"
-              : endings[block.ending],
-          automatic: block.automatic === true,
-          error: preview(error?.type === "notice" ? error.text : "", 512),
-        },
+        items: [...items],
+        ending: endingRow(store, block),
+        log: log?.rows ?? null,
+        background,
+        aceSteps: log?.ace ?? [],
+        retried: log?.retried ?? [],
+        thoughts: log?.thoughts ?? [],
       };
     }
+    case "files":
+      return { ...base, items: [...block.itemIds], files: filesRow(store, block.itemIds) };
     case "started": {
       const started = startedThreadOf(store.item(block.itemId));
       return {

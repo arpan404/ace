@@ -1,7 +1,7 @@
 import type { ChangeTap, ThreadSource } from "@ace/client";
 import { threadRow, itemRow } from "./presentation.ts";
 import { interactionRow } from "./interaction-rows.ts";
-import { itemDetail } from "./thread-rows.ts";
+import { itemDetail, stepContext } from "./thread-rows.ts";
 
 import { PatchPump } from "./patch-pump.ts";
 export { PatchPump } from "./patch-pump.ts";
@@ -28,7 +28,10 @@ export function followThread(
         type: "thread.item",
         id,
         row: item
-          ? { ...itemRow(item, positions.get(id), store.truncated(id)), ...itemDetail(item) }
+          ? {
+              ...itemRow(item, positions.get(id), store.truncated(id)),
+              ...itemDetail(item, stepContext(store, item)),
+            }
           : null,
       };
     });
@@ -68,7 +71,12 @@ export function followThread(
       }
       for (const key of keys) {
         if (key.startsWith("item:")) row(key.slice(5));
-        if (key.startsWith("interaction:")) interaction(key.slice(12));
+        if (key.startsWith("interaction:")) {
+          interaction(key.slice(12));
+          // The approval reads on its step ("Approved by you"): the step's row changes too.
+          const call = store.interaction(key.slice(12))?.toolCallId;
+          if (call && store.item(call)) row(call);
+        }
       }
     }
     if (keys !== "all" && keys.has("error") && store.error)

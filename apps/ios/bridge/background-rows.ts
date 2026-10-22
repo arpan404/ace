@@ -8,12 +8,6 @@ import { preview } from "./presentation.ts";
  * (the web's `BackgroundTaskLine`). ace's own bookkeeping is never listed. Pure over the store.
  */
 
-/** The calls among `ids` that became background tasks, by call id. */
-export function backgroundCalls(store: ThreadSource, ids: readonly string[]): Set<string> {
-  const calls = ledgerOf(store).background;
-  return new Set(calls.size ? ids.filter((id) => calls.has(id)) : []);
-}
-
 export function backgroundRows(store: ThreadSource, ids: readonly string[]) {
   const calls = ledgerOf(store).background;
   if (!calls.size) return [];
@@ -29,6 +23,7 @@ export function backgroundRows(store: ThreadSource, ids: readonly string[]) {
         label: backgroundTaskLine(task.status),
         command: preview(backgroundCommand(task, store.item(id)), 512),
         running: task.status === "running",
+        status: task.status,
         stoppable: task.stoppable,
         startedAt: task.startedAt,
         endedAt: task.endedAt ?? null,
