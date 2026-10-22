@@ -125,6 +125,14 @@ describe.skipIf(!enabled)(`Linux live view (${session ?? "off"})`, () => {
     ]);
     const state = ScreenState.parse(started);
     await viewer.request({ op: "subscribe", sessionId: state.sessionId });
+    // The person's view knows the window's elements by name, as an agent's look does.
+    const tree = await viewer.request({
+      op: "ui.tree",
+      sessionId: state.sessionId,
+      maxDepth: 16,
+      maxNodes: 512,
+    });
+    expect(JSON.stringify(tree)).toContain(`"name":"${desktop.keys[0]}"`);
     expect(
       await viewer.request({
         op: "stream.configure",
