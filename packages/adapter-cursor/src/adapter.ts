@@ -11,6 +11,7 @@ import type { readCursorSnapshot } from "./history.ts";
 import { CursorHostSlots } from "./slots.ts";
 import { Limits, type CursorLimits } from "./contracts.ts";
 import { addShippedSkills, mirrorCursorUserConfig } from "./user-settings.ts";
+import { linkUserKeychains, userToolEnv } from "./user-tools.ts";
 
 export interface CursorAdapterOptions extends Omit<HostOptions, "env"> {
   instance?: CursorInstance;
@@ -30,6 +31,8 @@ export interface CursorAdapterOptions extends Omit<HostOptions, "env"> {
    * copied into the private instance home before each session. Defaults to the daemon's home.
    */
   userHome?: string;
+  /** The platform whose gh/git lookup rules apply; defaults to the daemon's. */
+  platform?: NodeJS.Platform;
   /** The owner issues a thread/instance-scoped lease; no shared static token. */
   mcp?: (context: SessionContext & { instanceId: string }) => Promise<{
     connection: AceMcpConnection;
@@ -57,6 +60,11 @@ export function createCursorAdapter(
   const mirror = (home: string, skills: readonly string[]) => {
     const next = mirroring.then(async () => {
       await mirrorCursorUserConfig(options.userHome ?? homedir(), home);
+      await linkUserKeychains({
+        platform: options.platform ?? process.platform,
+        userHome: options.userHome ?? homedir(),
+        privateHome: home,
+      });
       // ace's shipped skills join the person's own, which win on a shared name.
       await addShippedSkills(home, skills);
     });
@@ -100,7 +108,15 @@ export function createCursorAdapter(
       try {
         if (context.env && context.env.HOME !== join(selected.homeDir, "user"))
           throw new Error("Cursor SDK host home must match the selected instance");
-        const env = cursorSdkEnvironment(selected, context.env ?? options.env ?? process.env);
+        const launch = context.env ?? options.env ?? process.env;
+        const env = {
+          ...cursorSdkEnvironment(selected, launch),
+          ...(await userToolEnv({
+            platform: options.platform ?? process.platform,
+            userHome: options.userHome ?? homedir(),
+            env: launch,
+          })),
+        };
         // An accounts-composed environment must already carry the private SDK default home.
         if (env.HOME !== join(selected.homeDir, "user"))
           throw new Error("Cursor SDK host home must match the selected instance");
@@ -111,6 +127,7 @@ export function createCursorAdapter(
         const {
           mcp: _mcpFactory,
           userHome: _userHome,
+          platform: _platform,
           limits: _baseLimits,
           limitsForSession: _limitsForSession,
           ...hostOptions
