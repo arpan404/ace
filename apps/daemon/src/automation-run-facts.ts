@@ -117,53 +117,94 @@ export function activeRootRun(
   });
 }
 
+/** Native work the turn began in its own thread that is still open. */
+export interface TurnWork {
+  /** Running background tasks that hold the thread open (never ambient helpers). */
+  tasks: { id: string; stoppable: boolean }[];
+  /** Runs of the thread's other agents (native subagents) still going. */
+  agentRuns: { agentId: string; runId: string }[];
+  /** Questions still waiting on the person. */
+  questions: number;
+}
+
+const TaskValue = z.object({
+  status: z.string(),
+  ambient: z.boolean().optional(),
+  stoppable: z.boolean().optional(),
+});
+const RunValue = z.object({ agentId: z.string(), state: z.string() });
+
 /**
- * Work the turn began in its own thread that is still open: runs of its other agents and
- * background work, or a question waiting on the person. Read once a later turn started.
+ * The turn's open native work: entities created from the turn's first root run until the
+ * thread's next turn began (event order, never time), read through the active-entity index.
  */
-export function readWindowWork(
+export function readTurnWork(
   store: Store,
   threadId: ThreadId,
   turn: TurnRead,
-): "none" | "working" | "needs-human" {
+  rootAgentId: string | undefined,
+): TurnWork {
   return store.atomic((db) => {
-    const rows = db
-      .prepare(`SELECT collection FROM view_entity_windows WHERE thread_id=? AND active=1
-        AND created_seq>=? AND created_seq<? AND collection IN ('runs','backgroundTasks','interactions')
-        GROUP BY collection`)
-      .all(threadId, turn.start.seq, turn.later?.seq ?? Number.MAX_SAFE_INTEGER)
-      .map((row) => z.string().parse(row.collection));
-    if (rows.includes("interactions")) return "needs-human";
-    return rows.length ? "working" : "none";
+    const statement = db.prepare(`SELECT e.id,e.value FROM view_entity_windows w
+      JOIN view_entities e ON e.thread_id=w.thread_id AND e.collection=w.collection AND e.id=w.id
+      WHERE w.thread_id=? AND w.collection=? AND w.active=1 AND w.created_seq>=? AND w.created_seq<?`);
+    const read = (collection: string) =>
+      statement
+        .all(threadId, collection, turn.start.seq, turn.later?.seq ?? Number.MAX_SAFE_INTEGER)
+        .map((row) => ({
+          id: z.string().parse(row.id),
+          value: JSON.parse(z.string().parse(row.value)),
+        }));
+    const tasks = read("backgroundTasks").flatMap(({ id, value }) => {
+      const task = TaskValue.safeParse(value);
+      return task.success && task.data.status === "running" && !task.data.ambient
+        ? [{ id, stoppable: task.data.stoppable === true }]
+        : [];
+    });
+    const agentRuns = read("runs").flatMap(({ id, value }) => {
+      const run = RunValue.safeParse(value);
+      return run.success && run.data.state === "active" && run.data.agentId !== rootAgentId
+        ? [{ agentId: run.data.agentId, runId: id }]
+        : [];
+    });
+    return { tasks, agentRuns, questions: read("interactions").length };
   });
 }
 
 /**
- * The threads the turn delegated to, with their own descendants: direct children made from
- * its start until the next turn began. Undefined while those children can't be read.
+ * The delegated work the turn began: children whose current generation one of the turn's runs
+ * asked for (`DelegationOrigins`), with their own live descendants, and reservations still
+ * preparing a child for it. Delegations made before origins were kept fall back to the time
+ * window of the turn. Undefined while delegated children can't be read.
  */
-export function turnChildren(
+export function turnDelegations(
   context: Pick<ServiceContext, "store" | "services">,
   threadId: ThreadId,
   turn: TurnRead,
-): ThreadId[] | undefined {
+): { children: ThreadId[]; reservations: ThreadId[] } | undefined {
   const journal = context.services.agentControl?.delegations.journal;
-  if (!journal) return delegatedChildPersisted(context.store, threadId) ? undefined : [];
-  const edges = journal.descendants(threadId);
-  const chosen = new Set<ThreadId>(
-    edges
-      .filter(
-        (edge) =>
-          edge.parentId === threadId &&
-          edge.createdAt >= turn.start.at &&
-          (turn.later === undefined || edge.createdAt < turn.later.at),
-      )
-      .map((edge) => edge.childId),
-  );
-  // Descendants are listed parents before children at every depth only by id, so repeat.
-  for (let depth = 0; depth < 8; depth++)
-    for (const edge of edges) if (chosen.has(edge.parentId)) chosen.add(edge.childId);
-  return [...chosen];
+  if (!journal)
+    return delegatedChildPersisted(context.store, threadId)
+      ? undefined
+      : { children: [], reservations: [] };
+  const direct = new Set<ThreadId>();
+  const reservations: ThreadId[] = [];
+  for (const { child, generation } of journal.origins.byRuns(threadId, turn.runIds)) {
+    const edge = journal.get(child);
+    if (edge?.generation === generation) direct.add(child);
+    else if (!edge && generation === 0 && journal.reservationOf(child)) reservations.push(child);
+  }
+  for (const edge of journal.liveChildren(threadId))
+    if (
+      !journal.origins.known(edge.childId) &&
+      edge.createdAt >= turn.start.at &&
+      (turn.later === undefined || edge.createdAt < turn.later.at)
+    )
+      direct.add(edge.childId);
+  const children = new Set<ThreadId>(direct);
+  for (const child of direct)
+    for (const edge of journal.liveDescendants(child)) children.add(edge.childId);
+  return { children: [...children], reservations };
 }
 
 /**

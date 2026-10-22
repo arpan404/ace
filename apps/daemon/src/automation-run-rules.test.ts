@@ -4,6 +4,7 @@ import {
   decideRun,
   runTreeState,
   stopPlan,
+  type OpenWork,
   type RunFacts,
   type StopFacts,
 } from "./automation-run-rules.ts";
@@ -20,6 +21,8 @@ const facts = (patch: Partial<RunFacts>): RunFacts => ({
   tree: "ok",
   ...patch,
 });
+const idle: OpenWork = { tasks: 0, agentRuns: 0, questions: 0, reservations: 0 };
+const none = CliTree.parse([]);
 const child = (state: "working" | "done", cancelled = false) =>
   CliTree.parse([
     {
@@ -36,6 +39,7 @@ const root = (patch: Partial<CliTree[number]> = {}) => ({
   cancelled: false,
   ...patch,
 });
+const stoppedRoot = root({ attention: "stopped" });
 
 test("a stopped run stays running while anything its turn began still works", () => {
   expect(decideRun(facts({ cancel: "sent", tree: "working" }))).toEqual({ kind: "wait" });
@@ -49,21 +53,55 @@ test("a stopped run stays running while anything its turn began still works", ()
   ).toEqual({ kind: "settle", status: "failed", result: "Stopped before it finished." });
 });
 
-test("a run's own stop ends its turn, while a person's Stop waits on the person", () => {
-  const stoppedRoot = root({ attention: "stopped" });
-  const children = CliTree.parse([]);
-  expect(runTreeState({ root: stoppedRoot, windowWork: "none", children, cancelling: true })).toBe(
+test("a Stop marker never ends a run whose background task, subagent or preparation still works", () => {
+  for (const work of [
+    { ...idle, tasks: 1 },
+    { ...idle, agentRuns: 1 },
+    { ...idle, reservations: 1 },
+  ])
+    expect(runTreeState({ root: stoppedRoot, work, children: none, cancelling: true })).toBe(
+      "working",
+    );
+  expect(
+    runTreeState({
+      root: stoppedRoot,
+      work: { ...idle, questions: 1 },
+      children: none,
+      cancelling: true,
+    }),
+  ).toBe("needs-human");
+  // The thread itself still working beats its Stop marker too.
+  expect(
+    runTreeState({
+      root: root({ attention: "stopped", status: { state: "working", agents: 1 } }),
+      work: idle,
+      children: none,
+      cancelling: true,
+    }),
+  ).toBe("working");
+  expect(
+    runTreeState({
+      root: root({ attention: "stopped", status: { state: "waiting", on: "background_task" } }),
+      work: idle,
+      children: none,
+      cancelling: true,
+    }),
+  ).toBe("working");
+});
+
+test("with nothing open, a run's own stop ends its turn, while a person's Stop waits on the person", () => {
+  expect(runTreeState({ root: stoppedRoot, work: idle, children: none, cancelling: true })).toBe(
     "failed",
   );
-  expect(runTreeState({ root: stoppedRoot, windowWork: "none", children, cancelling: false })).toBe(
+  expect(runTreeState({ root: stoppedRoot, work: idle, children: none, cancelling: false })).toBe(
     "needs-human",
   );
   // Killed work never carries on, whoever stopped it.
   expect(
     runTreeState({
       root: { ...stoppedRoot, cancelled: true },
-      windowWork: "none",
-      children,
+      work: idle,
+      children: none,
       cancelling: false,
     }),
   ).toBe("failed");
@@ -71,55 +109,32 @@ test("a run's own stop ends its turn, while a person's Stop waits on the person"
 
 test("a run whose delegated thread still works is not over, even after its root turn ended", () => {
   expect(
-    runTreeState({
-      root: root(),
-      windowWork: "none",
-      children: child("working"),
-      cancelling: true,
-    }),
+    runTreeState({ root: root(), work: idle, children: child("working"), cancelling: true }),
   ).toBe("working");
   expect(
-    runTreeState({
-      root: root(),
-      windowWork: "none",
-      children: child("done", true),
-      cancelling: true,
-    }),
+    runTreeState({ root: root(), work: idle, children: child("done", true), cancelling: true }),
   ).toBe("failed");
 });
 
 test("a later turn in the thread neither holds the run open nor counts as its work", () => {
-  // Once another turn started, the thread's own state is that turn's: only the run's work counts.
+  // Once another turn started, only the run's own open work counts.
+  expect(runTreeState({ root: undefined, work: idle, children: none, cancelling: false })).toBe(
+    "ok",
+  );
   expect(
     runTreeState({
       root: undefined,
-      windowWork: "none",
-      children: CliTree.parse([]),
-      cancelling: false,
-    }),
-  ).toBe("ok");
-  expect(
-    runTreeState({
-      root: undefined,
-      windowWork: "working",
-      children: CliTree.parse([]),
+      work: { ...idle, tasks: 1 },
+      children: none,
       cancelling: false,
     }),
   ).toBe("working");
-  expect(
-    runTreeState({
-      root: undefined,
-      windowWork: "needs-human",
-      children: CliTree.parse([]),
-      cancelling: false,
-    }),
-  ).toBe("needs-human");
   // Messages others queued, held behind the thread's own queue, are not the run's work.
   expect(
     runTreeState({
       root: root({ status: { state: "waiting", on: "queue" } }),
-      windowWork: "none",
-      children: CliTree.parse([]),
+      work: idle,
+      children: none,
       cancelling: false,
     }),
   ).toBe("ok");
@@ -172,41 +187,51 @@ const stopFacts = (patch: Partial<StopFacts>): StopFacts => ({
   fate: delivered,
   boundRun: runId,
   rootActive: undefined,
+  tasks: [],
+  agentRuns: [],
   liveChildren: [],
+  reservations: [],
   ...patch,
 });
 
 test("stopping a run never interrupts a turn that is not its own", () => {
   const someoneElse = { runId: "run-other", ours: false };
   expect(stopPlan(stopFacts({ rootActive: someoneElse }))).toEqual({ kind: "none" });
-  expect(
-    stopPlan(
-      stopFacts({ fate: { state: "sending" }, boundRun: undefined, rootActive: someoneElse }),
-    ),
-  ).toEqual({ kind: "wait" });
-  expect(
-    stopPlan(
-      stopFacts({ fate: { state: "delivered" }, boundRun: undefined, rootActive: someoneElse }),
-    ),
-  ).toEqual({ kind: "wait" });
   expect(stopPlan(stopFacts({ rootActive: { runId: "run-own-later", ours: true } }))).toEqual({
     kind: "interrupt",
     runId: "run-own-later",
   });
 });
 
-test("stopping a run takes a queued message out, and after its turn stops only its children", () => {
+test("a run whose message no run has taken yet is never stopped by an unguarded interrupt", () => {
+  // On its way, or delivered but not yet taken: whatever turn runs now could be anyone's.
+  for (const fate of [{ state: "sending" as const }, { state: "delivered" as const }]) {
+    expect(stopPlan(stopFacts({ fate, boundRun: undefined }))).toEqual({ kind: "wait" });
+    expect(
+      stopPlan(stopFacts({ fate, boundRun: undefined, rootActive: { runId: "x", ours: false } })),
+    ).toEqual({ kind: "wait" });
+  }
+});
+
+test("stopping a run takes a queued message out, and after its turn stops what that turn left", () => {
   expect(stopPlan(stopFacts({ fate: { state: "waiting" }, boundRun: undefined }))).toEqual({
     kind: "remove",
   });
-  expect(stopPlan(stopFacts({ fate: { state: "sending" }, boundRun: undefined }))).toEqual({
-    kind: "interrupt",
-  });
   const children = [ThreadId.parse("child")];
-  expect(stopPlan(stopFacts({ liveChildren: children }))).toEqual({
-    kind: "cancel-children",
-    children,
-  });
+  const reservations = [ThreadId.parse("reserved")];
+  const agentRuns = [{ agentId: "sub", runId: "run-sub" }];
+  // Left going while someone else's turn runs: still the run's own to stop, part by part.
+  expect(
+    stopPlan(
+      stopFacts({
+        rootActive: { runId: "run-other", ours: false },
+        tasks: ["shell"],
+        agentRuns,
+        liveChildren: children,
+        reservations,
+      }),
+    ),
+  ).toEqual({ kind: "stop-work", tasks: ["shell"], agentRuns, children, reservations });
   expect(stopPlan(stopFacts({ fate: { state: "removed" }, boundRun: undefined }))).toEqual({
     kind: "none",
   });

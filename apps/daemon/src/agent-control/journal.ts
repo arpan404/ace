@@ -6,6 +6,7 @@ import type { StatementSync } from "node:sqlite";
 import { z } from "zod";
 import { DelegationRecord, ThreadId, type DelegationOutcome, type Event } from "@ace/protocol";
 import type { Store } from "../store.ts";
+import { DelegationOrigins } from "./delegation-origins.ts";
 import { hasStoppedAncestor } from "./ancestor-stop.ts";
 
 export const DelegationReservation = z.object({
@@ -23,9 +24,12 @@ export class DelegationJournal {
   private store: Store;
   private capacity: number;
   private statements = new Map<string, StatementSync>();
+  /** The parent turn each delegation generation came from. */
+  readonly origins: DelegationOrigins;
   constructor(store: Store, capacity = 10000) {
     this.capacity = z.number().int().min(1).max(10000).parse(capacity);
     this.store = store;
+    this.origins = new DelegationOrigins(store);
     store.atomic((db) =>
       db.exec(`
       CREATE TABLE IF NOT EXISTS delegation_trees (
@@ -178,6 +182,13 @@ export class DelegationJournal {
     ).get(parent, request);
     return row ? this.decodeReservation(row.reservation) : undefined;
   }
+  /** The reservation still preparing `child`, if it is one. */
+  reservationOf(child: ThreadId) {
+    const row = this.sql("SELECT reservation FROM delegation_reservations WHERE child_id=?").get(
+      child,
+    );
+    return row ? this.decodeReservation(row.reservation) : undefined;
+  }
   /** In-flight preparations only; each is released or committed when its owner finishes. */
   reservations() {
     return this.sql("SELECT reservation FROM delegation_reservations ORDER BY child_id")
@@ -187,6 +198,7 @@ export class DelegationJournal {
   reserve(reservation: DelegationReservation) {
     this.assertCapacity();
     const r = reservation.record;
+    this.origins.note(r.childId, r.generation, r.parentId);
     this.sql("INSERT INTO delegation_reservations VALUES (?,?,?,?,?)").run(
       r.childId,
       r.parentId,
@@ -209,6 +221,7 @@ export class DelegationJournal {
     if (!reservation || reservation.record.childId !== record.childId)
       throw new Error("Missing reservation");
     this.sql("DELETE FROM delegation_reservations WHERE child_id=?").run(record.childId);
+    this.origins.note(record.childId, record.generation, record.parentId);
     this.sql(
       "INSERT INTO delegated_threads(child_id,parent_id,root_id,request_id,record,phase) VALUES (?,?,?,?,?,?)",
     ).run(
@@ -249,6 +262,14 @@ export class DelegationJournal {
       .map((row) => this.decode(row.record));
   }
   /** Direct children, settled ones included. */
+  /** Unsettled direct children only, read through the parent/phase index. */
+  liveChildren(parent: ThreadId) {
+    return this.sql(
+      "SELECT record FROM delegated_threads WHERE parent_id=? AND phase<>'settled' ORDER BY child_id",
+    )
+      .all(parent)
+      .map((row) => this.decode(row.record));
+  }
   children(parent: ThreadId) {
     return this.sql("SELECT record FROM delegated_threads WHERE parent_id=? ORDER BY child_id")
       .all(parent)
@@ -316,6 +337,7 @@ export class DelegationJournal {
     record.generation++;
     delete record.outcome;
     this.save(record);
+    this.origins.note(record.childId, record.generation, record.parentId);
     this.sql("UPDATE delegation_trees SET active=active+1 WHERE root_id=?").run(record.rootId);
     this.sql("UPDATE delegated_threads SET result_pending=0 WHERE child_id=?").run(record.childId);
     this.sql(

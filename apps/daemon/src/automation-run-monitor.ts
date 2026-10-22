@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ExecutionResult } from "@ace/automations";
 import {
+  BackgroundTaskId,
   Command,
   CommandId,
   type CommandPayload,
@@ -24,8 +25,8 @@ import {
   activeRootRun,
   readRunAnswer,
   readTurn,
-  readWindowWork,
-  turnChildren,
+  readTurnWork,
+  turnDelegations,
   type TurnRead,
 } from "./automation-run-facts.ts";
 import type { RunRecord, RunRecords } from "./automation-run-record.ts";
@@ -40,7 +41,11 @@ const reconcileMs = 5_000;
  */
 export interface HostStop {
   stop(thread: ThreadId, command: Command): CommandResult;
-  cancel(children: readonly ThreadId[], request: string): boolean;
+  cancel(
+    children: readonly ThreadId[],
+    reservations: readonly ThreadId[],
+    request: string,
+  ): boolean;
 }
 
 export interface FollowOptions {
@@ -194,15 +199,20 @@ async function inspect(
     runId === undefined ? undefined : readTurn(store, threadId, runId, thread.rootAgentId);
   let tree: TreeState | undefined;
   if (turn && !turn.facts.active) {
-    const children = turnChildren(context, threadId, turn);
-    for (const child of children ?? []) members.add(child);
+    const open = readOpenWork(context, threadId, turn, thread.rootAgentId);
+    for (const child of open?.delegations.children ?? []) members.add(child);
     tree =
-      children === undefined
+      open === undefined
         ? "uncertain"
         : runTreeState({
             root: turn.later ? undefined : readTreeMembers(context, [threadId])[0],
-            windowWork: turn.later ? readWindowWork(store, threadId, turn) : "none",
-            children: readTreeMembers(context, children),
+            work: {
+              tasks: open.work.tasks.length,
+              agentRuns: open.work.agentRuns.length,
+              questions: open.work.questions,
+              reservations: open.delegations.reservations.length,
+            },
+            children: readTreeMembers(context, open.delegations.children),
             cancelling: record.cancel !== undefined,
           });
   }
@@ -258,6 +268,7 @@ async function reconcileStop(
     const turn =
       bound === undefined ? undefined : readTurn(store, threadId, bound, thread.rootAgentId);
     const active = activeRootRun(store, threadId, thread.rootAgentId);
+    const open = turn ? readOpenWork(context, threadId, turn, thread.rootAgentId) : undefined;
     const plan = stopPlan({
       fate,
       boundRun: record.engineRun,
@@ -265,7 +276,11 @@ async function reconcileStop(
         active === undefined
           ? undefined
           : { runId: active, ours: turn?.runIds.includes(active) ?? false },
-      liveChildren: turn ? liveChildren(context, threadId, turn) : [],
+      // Only tasks the engine can stop on their own; the others are left to end.
+      tasks: open?.work.tasks.filter((task) => task.stoppable).map((task) => task.id) ?? [],
+      agentRuns: open?.work.agentRuns ?? [],
+      liveChildren: open ? liveChildren(context, open.delegations.children) : [],
+      reservations: open?.delegations.reservations ?? [],
     });
     if (plan.kind === "wait") return false;
     if (plan.kind === "none") {
@@ -285,9 +300,21 @@ async function reconcileStop(
   });
 }
 
-function liveChildren(context: ServiceContext, threadId: ThreadId, turn: TurnRead): ThreadId[] {
+/** The turn's open work: native work in its thread, and the delegations it began. */
+function readOpenWork(
+  context: ServiceContext,
+  threadId: ThreadId,
+  turn: TurnRead,
+  rootAgentId: string | undefined,
+) {
+  const delegations = turnDelegations(context, threadId, turn);
+  if (!delegations) return undefined;
+  return { work: readTurnWork(context.store, threadId, turn, rootAgentId), delegations };
+}
+
+function liveChildren(context: ServiceContext, children: readonly ThreadId[]): ThreadId[] {
   const journal = context.services.agentControl?.delegations.journal;
-  return (turnChildren(context, threadId, turn) ?? []).filter((child) => {
+  return children.filter((child) => {
     const edge = journal?.get(child);
     return edge !== undefined && edge.phase !== "settled" && edge.phase !== "cancelling";
   });
@@ -298,9 +325,14 @@ function planTarget(plan: Exclude<StopPlan, { kind: "wait" | "none" }>, record: 
     case "remove":
       return `remove:${record.inputCommand}`;
     case "interrupt":
-      return `interrupt:${plan.runId ?? `before:${record.inputCommand}`}`;
-    case "cancel-children":
-      return `children:${plan.children.join(",")}`;
+      return `interrupt:${plan.runId}`;
+    case "stop-work":
+      return `work:${[
+        ...plan.tasks.map((id) => `task:${id}`),
+        ...plan.agentRuns.map((run) => `run:${run.runId}`),
+        ...plan.children.map((id) => `child:${id}`),
+        ...plan.reservations.map((id) => `reserved:${id}`),
+      ].join(",")}`;
   }
 }
 
@@ -333,38 +365,71 @@ function sendStop(
         messageId: record.inputCommand,
       }).ok;
     }
-    case "interrupt": {
-      const command = Command.parse({
-        id: stopId,
-        deviceId: options.deviceId,
-        payload: {
-          type: "thread.interrupt",
-          threadId,
-          cascade: true,
-          ...(plan.runId ? { runId: plan.runId } : {}),
-        },
-      });
-      // The automation's own stop leaves no Stop marker, so its later runs aren't held.
-      const host = options.hostStop();
-      return host
-        ? host.stop(threadId, command).ok
-        : store.recordCommand(command.id, command.deviceId, () =>
-            handle.handle(command, commandContext(store)),
-          ).ok;
-    }
-    case "cancel-children": {
-      const host = options.hostStop();
-      if (host) return host.cancel(plan.children, stopId);
-      return plan.children
-        .map((child) =>
-          send(
-            CommandId.parse(
-              `automation-stop-${createHash("sha256").update(`${stopId}:${child}`).digest("hex")}`,
-            ),
-            { type: "thread.interrupt", threadId: child, cascade: true },
-          ),
-        )
-        .every((result) => result.ok);
+    case "interrupt":
+      return hostInterrupt(context, options, threadId, stopId, { runId: plan.runId });
+    case "stop-work": {
+      const part = (name: string) =>
+        CommandId.parse(
+          `automation-stop-${createHash("sha256").update(`${stopId}:${name}`).digest("hex")}`,
+        );
+      const results = [
+        ...plan.tasks.map(
+          (taskId) =>
+            send(part(`task:${taskId}`), {
+              type: "background_task.stop",
+              taskId: BackgroundTaskId.parse(taskId),
+            }).ok,
+        ),
+        ...plan.agentRuns.map((run) =>
+          hostInterrupt(context, options, threadId, part(`run:${run.runId}`), run),
+        ),
+      ];
+      if (plan.children.length || plan.reservations.length) {
+        const host = options.hostStop();
+        results.push(
+          host
+            ? host.cancel(plan.children, plan.reservations, stopId)
+            : plan.children
+                .map(
+                  (child) =>
+                    send(part(`child:${child}`), {
+                      type: "thread.interrupt",
+                      threadId: child,
+                      cascade: true,
+                    }).ok,
+                )
+                .every(Boolean),
+        );
+      }
+      return results.every(Boolean);
     }
   }
+}
+
+/**
+ * Stop one run of the thread, root (`runId` alone) or a native subagent's (`agentId` too). The
+ * run's id guards the stop when it is admitted and again when it is delivered. The automation's
+ * own stop leaves no Stop marker, so its later runs aren't held.
+ */
+function hostInterrupt(
+  context: ServiceContext,
+  options: FollowOptions,
+  threadId: ThreadId,
+  id: CommandId,
+  target: { runId: string; agentId?: string },
+): boolean {
+  const { store, services } = context;
+  const handle = services.engine?.internalHandler ?? services.handler;
+  if (!handle) throw new Error("engine_unavailable");
+  const command = Command.parse({
+    id,
+    deviceId: options.deviceId,
+    payload: { type: "thread.interrupt", threadId, cascade: true, ...target },
+  });
+  const host = options.hostStop();
+  return host
+    ? host.stop(threadId, command).ok
+    : store.recordCommand(command.id, command.deviceId, () =>
+        handle.handle(command, commandContext(store)),
+      ).ok;
 }

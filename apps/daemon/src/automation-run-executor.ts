@@ -141,6 +141,7 @@ export function hostControl(
 ): HostStop {
   return {
     stop: (thread, command) => delegations.hostStop(thread, command),
-    cancel: (children, request) => delegations.hostCancel(children, request),
+    cancel: (children, reservations, request) =>
+      delegations.hostCancel(children, reservations, request),
   };
 }
