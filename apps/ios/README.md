@@ -66,6 +66,59 @@ Callback cadence does not establish GPU presentation FPS. Save metrics before th
 next app launch, which starts a new window. XCTest attachment exports preserve the
 simulator screenshots.
 
+## Performance budgets
+
+Budgets fail tests when the app gets slower. Two suites hold them:
+
+- `AceTests/MainThreadBudgetTests`, in-process, in Debug or Perf: one streaming text edit
+  to a 2,000-item thread (budget 100 µs, measured 11 µs in Debug), one new item at its end
+  (150 µs, measured 12; 5,780 when every new item re-sorted the thread), one inbox row
+  changing among 500 rows with its sections (1,000 µs, measured 174), and decoding a full
+  32-patch frame (1,500 µs, measured 211).
+- `AceUITests/PerformanceBudgetUITests`, the app against the fixture, built with the
+  `AcePerf` scheme. Its `Perf` configuration is Release optimisation with the loopback
+  fixture compiled in (`ACE_FIXTURE`); archives build Release, which has none. Each test
+  reports Xcode metrics through `measure(metrics:)` (launch, CPU, memory, scroll
+  deceleration, the `thread.open` signpost) and fails when the app's own numbers pass a
+  budget in `PerfBudget`. The app publishes those numbers with `--perf-probe`
+  (`Sources/Spike/PerfProbe.swift`, fixture builds only) as one hidden accessibility value.
+
+Run the UI budgets with two fixtures, the second for the busy inbox:
+
+```sh
+ACE_IOS_SPIKE_PORT=9882 ACE_IOS_SPIKE_STREAMED=650000 bun run spike:daemon
+ACE_IOS_SPIKE_PORT=9883 ACE_IOS_SPIKE_INBOX=300 bun run spike:daemon
+xcodebuild build-for-testing -project Ace.xcodeproj -scheme AcePerf -configuration Perf \
+  -destination 'platform=iOS Simulator,id=YOUR_SIMULATOR_UDID' -derivedDataPath .build/DerivedData -jobs 4
+TEST_RUNNER_ACE_IOS_SPIKE_PORT=9882 TEST_RUNNER_ACE_IOS_SPIKE_BUSY_PORT=9883 \
+  xcodebuild test-without-building -project Ace.xcodeproj -scheme AcePerf -configuration Perf \
+  -destination 'platform=iOS Simulator,id=YOUR_SIMULATOR_UDID' -derivedDataPath .build/DerivedData \
+  -parallel-testing-enabled NO -only-testing:AceUITests/PerformanceBudgetUITests
+```
+
+Medians on the iOS 26 simulator (Perf, 2026-10-22), with the budget in brackets:
+
+| Flow | Measured | Budget |
+|---|---|---|
+| Launch to inbox rows on screen (XCUITest launch) | 1,157 ms | 1,700 ms |
+| Busy inbox (300 threads, one changing every 200 ms), per 5 s | 50 patches, 614 KB, 15 ms main thread | 400, 800 KB, 40 ms |
+| Open the long live thread (650,000 streamed deltas) cold: ready, first rows | 317 ms, 387 ms | 700, 800 ms |
+| Reopen it (kept copy): ready | 280 ms | 500 ms |
+| Streaming 20 deltas a second into it, per 5 s | 5.4 ms main thread, 95 ms script, 7.4 KB | 30 ms, 250 ms, 40 KB |
+| Footprint over a minute of streaming | flat (−1 MiB) | +8 MiB |
+| Scrolling its transcript: late-frame time | 13.6 ms per s | 60 ms per s |
+| Agents and Changes sheets, asked to rows applied | 140, 128 ms | 350 ms |
+| Model sheet, tap to shown (mostly XCUITest waiting) | 1,940 ms | 3,000 ms |
+| Typing 33 characters with the long thread behind (XCUITest's own pace) | 830 ms | 1,800 ms |
+
+Budgets sit 1.5 to 5 times above the medians so a busy Mac doesn't fail them and a real
+regression does. Lower one when the app gets faster; never raise one without a measured reason.
+The simulator's display-link callbacks are not GPU frames: real-device frame rate is still owed.
+
+For long runs and Instruments sessions, fixture builds take `--spike-open ID` (open a thread
+once its row is listed) and `--spike-items 200` (the paired app's 200-item window). Launch with
+`-ace-frame-trace` to log late frames while a thread is open; the sampler never runs otherwise.
+
 ## Ownership and bounds
 
 - `bridge/` imports only package public exports. `ClientCore` owns protocol decoding,
