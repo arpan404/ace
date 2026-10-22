@@ -11,7 +11,7 @@ struct InboxUndo: Equatable {
 }
 
 /// The single inbox (issue #560) across every paired machine, in a system tab bar: Threads,
-/// Pulls (threads whose pull request is in review) and the detached New thread button. Grouping
+/// Pulls (the web's Pull requests and Issues lists) and the detached New thread button. Grouping
 /// and wording come from each machine's runtime. A row and its thread belong to their machine.
 struct InboxView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -101,7 +101,10 @@ struct InboxView: View {
     private var failing: MachineSession? { inbox.sessions.first { $0.client.error != nil } }
 
     private func stack(_ tab: InboxTab, path: Binding<[String]>) -> some View {
-        InboxStack(inbox: inbox, path: path, pulls: tab == .pulls, machine: $machineFilter, project: $projectFilter,
+        InboxStack(inbox: inbox, path: path, pulls: tab == .pulls,
+                   forge: ForgeInboxHooks(openThread: { openThread($0, in: .threads) },
+                                          startThread: { if !inbox.sessions.isEmpty { composing = true } }),
+                   machine: $machineFilter, project: $projectFilter,
                    shelves: $shelves, actions: actions(in: tab),
                    header: InboxHeaderActions(settings: { settingsStart = []; showingSettings = true },
                                               machines: { settingsStart = [.machines]; showingSettings = true })) { id in
@@ -171,7 +174,8 @@ struct InboxView: View {
         openTab = tab
         self.tab = tab
         client.open(key.id)
-        if tab == .pulls { threadsPath = []; pullsPath = [key.id] } else { pullsPath = []; threadsPath = [key.id] }
+        // Threads open on the Threads tab; the Pulls tab keeps its pull request or issue page.
+        threadsPath = [key.id]
     }
     private func pathChanged(_ tab: InboxTab, old: [String], new: [String]) {
         // Only the tab holding the open thread drives it; clearing the other tab is silent.

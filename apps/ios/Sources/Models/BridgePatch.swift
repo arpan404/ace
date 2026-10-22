@@ -63,7 +63,6 @@ struct PullRequestRef: Codable, Sendable, Equatable {
     let number: Int
     /// open, draft, merged or closed.
     let state: String
-    var inReview: Bool { state == "open" || state == "draft" }
 }
 struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     let id: String

@@ -152,6 +152,18 @@ struct NewThreadSheet: View {
                     .padding(.horizontal, AceTheme.Spacing.sm)
                     .accessibilityIdentifier("newThread.note")
             }
+            if let issue = draft.issue {
+                HStack(spacing: AceTheme.Spacing.sm) {
+                    Text("From issue #\(issue.number) \(issue.title)").lineLimit(1)
+                    Spacer(minLength: AceTheme.Spacing.sm)
+                    Button("Unlink") { drafts.edit { $0.issue = nil } }
+                        .accessibilityIdentifier("newThread.unlinkIssue")
+                }
+                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                .padding(.horizontal, AceTheme.Spacing.sm)
+                .accessibilityIdentifier("newThread.issue")
+            }
             if draft.projectId != nil {
                 NewThreadWorktreeChips(drafts: drafts, branches: branches)
             }
