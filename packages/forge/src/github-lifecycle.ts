@@ -57,6 +57,27 @@ export class GitHubLifecycle {
     this.#repository = repository;
     this.#writes = new GitHubLifecycleWrites(api, repository);
   }
+  /** Open PRs of this repository whose base is `branch`: PRs stacked on it. */
+  async #openPrsOnto(branch: string, signal: AbortSignal): Promise<number[]> {
+    if (!branch) return [];
+    const response = await this.#graphql(
+      `query AceStackedOnto($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){pullRequests(baseRefName:$branch,states:OPEN,first:10){nodes{number}}}}`,
+      { owner: this.#repository.owner, name: this.#repository.name, branch },
+      signal,
+    );
+    return decode(
+      z.object({
+        data: z.object({
+          repository: z.object({
+            pullRequests: z.object({
+              nodes: z.array(z.looseObject({ number: z.number().int().positive() })).max(10),
+            }),
+          }),
+        }),
+      }),
+      response.body,
+    ).data.repository.pullRequests.nodes.map((pr) => pr.number);
+  }
   async #snapshotQuery(number: number, signal: AbortSignal) {
     const variables = { owner: this.#repository.owner, name: this.#repository.name, number };
     if (this.#extended)
@@ -106,6 +127,16 @@ export class GitHubLifecycle {
           number,
         )
       : undefined;
+    // After a close (not a merge) GitHub closes, rather than retargets, PRs stacked on the head
+    // branch: they use it too.
+    if (extras && repository.pullRequest.state === "CLOSED" && extras.facts.headExists) {
+      const stacked = await this.#openPrsOnto(extras.fields.headBranch?.name ?? "", signal);
+      const using = [...new Set([...extras.facts.openPrsUsingBranch, ...stacked])].filter(
+        (each) => each !== number,
+      );
+      extras.facts.openPrsUsingBranch = using;
+      if (extras.fields.headBranch) extras.fields.headBranch.usedBy = using.slice(0, 10);
+    }
     const raw = repository.pullRequest;
     if (raw.number !== number) throw new ForgeError("invalid_data");
     if (raw.labels.pageInfo.hasNextPage || raw.assignees.pageInfo.hasNextPage)

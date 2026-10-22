@@ -4,6 +4,7 @@ import {
   ForgeHostedPrCreateCommand,
   WorkspaceId,
   type ForgeCompare,
+  type ForgeCompareHead,
   type ForgePrRef,
 } from "@ace/protocol";
 import { actionErrorText } from "@ace/ui-core";
@@ -34,7 +35,7 @@ export function useNewPrContext(project: string) {
 export function useCompare(
   project: string,
   base: string,
-  head: { owner: string; branch: string } | undefined,
+  head: ForgeCompareHead | undefined,
   page: number,
   /** The head is in the base's repository, where a branch can't compare with itself. */
   sameRepository = true,

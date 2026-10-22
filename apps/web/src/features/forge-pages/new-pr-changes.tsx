@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ForgeCommit, ForgeCompare } from "@ace/protocol";
+import type { ForgeCommit, ForgeCompare, ForgeCompareHead } from "@ace/protocol";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { PersonAvatar, RelativeTime } from "@/components/person-avatar.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -13,7 +13,7 @@ import { useCompare } from "./new-pr-data.ts";
 export function NewPrChanges(props: {
   project: string;
   base: string;
-  head: { owner: string; branch: string };
+  head: ForgeCompareHead;
   first: ForgeCompare;
   sameRepository: boolean;
 }) {
@@ -81,7 +81,7 @@ function CommitRow(props: { commit: ForgeCommit }) {
 function FilePage(props: {
   project: string;
   base: string;
-  head: { owner: string; branch: string };
+  head: ForgeCompareHead;
   page: number;
   sameRepository: boolean;
 }) {
@@ -99,7 +99,7 @@ function FilePage(props: {
 function MoreFiles(props: {
   project: string;
   base: string;
-  head: { owner: string; branch: string };
+  head: ForgeCompareHead;
   first: ForgeCompare;
   pages: number;
   sameRepository: boolean;

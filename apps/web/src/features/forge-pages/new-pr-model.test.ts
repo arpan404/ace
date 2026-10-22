@@ -11,7 +11,7 @@ const commit = (message: string) => ({
 });
 const compare = (messages: string[], aheadBy = messages.length): ForgeCompare => ({
   base: "main",
-  head: { owner: "acme", branch: "feature/release-notes" },
+  head: { owner: "acme", name: "ace", branch: "feature/release-notes" },
   status: aheadBy ? "ahead" : "identical",
   aheadBy,
   behindBy: 0,

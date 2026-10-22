@@ -1,4 +1,5 @@
-import type { ForgeCompare, ForgeNewPrContext } from "@ace/protocol";
+import type { ForgeCompare, ForgeNewPrContext, ForgeRepository } from "@ace/protocol";
+import { repositoryParam } from "@/lib/pull-request-route.ts";
 
 /** "feature/release-notes" as a title: "Feature/release notes". */
 export function branchTitle(branch: string): string {
@@ -56,4 +57,38 @@ export function compareSummary(compare: ForgeCompare): string {
   const removed = compare.files.reduce((sum, file) => sum + file.deletions, 0);
   const lines = compare.nextPage ? "" : ` · +${added} −${removed}`;
   return `${plural(compare.totalCommits, "commit")} · ${plural(compare.totalFiles, "file")}${lines}`;
+}
+
+/** The head branches live in another repository than the base: a fork, by owner or by name. */
+export function isFork(context: ForgeNewPrContext): boolean {
+  const head = context.head.repository;
+  const base = context.base.repository;
+  return (
+    head.owner.toLowerCase() !== base.owner.toLowerCase() ||
+    head.name.toLowerCase() !== base.name.toLowerCase()
+  );
+}
+
+/**
+ * A branch as the page names it: plain in one repository; `owner:branch` across owners; and
+ * `owner/name:branch` for a fork that shares its owner with its parent.
+ */
+export function branchLabel(
+  repository: ForgeRepository,
+  other: ForgeRepository,
+  branch: string,
+): string {
+  if (repository.owner.toLowerCase() !== other.owner.toLowerCase())
+    return `${repository.owner}:${branch}`;
+  if (repository.name.toLowerCase() !== other.name.toLowerCase())
+    return `${repository.owner}/${repository.name}:${branch}`;
+  return branch;
+}
+
+/**
+ * Where a PR's page is, from the new-PR page: always naming the repository it is in, since a
+ * fork's PR opens on the parent while the project's own repository is the fork.
+ */
+export function prPageSearch(repository: ForgeRepository, back: string | undefined) {
+  return { repo: repositoryParam(repository), back };
 }

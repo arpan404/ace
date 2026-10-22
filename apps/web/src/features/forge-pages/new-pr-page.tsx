@@ -12,12 +12,19 @@ import { WorkHeading } from "@/components/work-heading.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { readFailureText, useRepoPrOptions } from "@/features/forge/index.ts";
 import { applePlatform } from "@/lib/keymap.ts";
-import { repositoryParam } from "@/lib/pull-request-route.ts";
 import { useBackToList } from "./back-to-list.ts";
 import { readable } from "./issue-page.tsx";
 import { useProjectChoice } from "./project-choice.ts";
 import { ChoicePicker } from "./new-pr-pickers.tsx";
-import { compareBlocker, compareSummary, prefill, startingBase } from "./new-pr-model.ts";
+import {
+  branchLabel,
+  compareBlocker,
+  compareSummary,
+  isFork,
+  prefill,
+  prPageSearch,
+  startingBase,
+} from "./new-pr-model.ts";
 import { useCompare, useCreatePr, useNewPrContext } from "./new-pr-data.ts";
 import { NewPrChanges } from "./new-pr-changes.tsx";
 
@@ -124,8 +131,11 @@ function NewPrForm(props: {
       search: { base: next.base ?? base, head: next.head ?? head, back: props.back },
       replace: true,
     });
-  const headRef = head ? { owner: context.head.repository.owner, branch: head } : undefined;
-  const fork = context.head.repository.owner !== context.base.repository.owner;
+  const headRepository = context.head.repository;
+  const headRef = head
+    ? { owner: headRepository.owner, name: headRepository.name, branch: head }
+    : undefined;
+  const fork = isFork(context);
   const compare = useCompare(project, base, headRef, 1, !fork);
   const blocker = compareBlocker(base, head, compare.data, !fork);
   const ready = compare.data && !blocker ? compare.data : undefined;
@@ -156,14 +166,14 @@ function NewPrForm(props: {
     void navigate({
       to: "/pulls/$project/$number",
       params: { project, number: String(number) },
-      search: { repo: repositoryParam(context.base.repository), back: props.back },
+      search: prPageSearch(context.base.repository, props.back),
     });
   const submit = async () => {
     if (!canCreate || !head) return;
     const pr = await create.run({
       repository: context.base.repository,
       base,
-      head: { owner: context.head.repository.owner, branch: head },
+      head: { owner: headRepository.owner, name: headRepository.name, branch: head },
       title: title.text.trim(),
       body: body.text,
       draft,
@@ -178,7 +188,8 @@ function NewPrForm(props: {
     void navigate({
       to: "/pulls/$project/$number",
       params: { project, number: String(pr.number) },
-      search: { back: props.back },
+      // The PR is where it was opened: a fork's opens on its parent.
+      search: prPageSearch(pr.repository, props.back),
       replace: true,
     });
   };
@@ -234,11 +245,7 @@ function NewPrForm(props: {
               picked={head ? [head] : []}
               trigger={
                 head ? (
-                  fork ? (
-                    `${context.head.repository.owner}:${head}`
-                  ) : (
-                    head
-                  )
+                  branchLabel(headRepository, context.base.repository, head)
                 ) : (
                   <span className="font-sans text-ui text-muted-foreground">Pick a branch</span>
                 )
@@ -251,7 +258,9 @@ function NewPrForm(props: {
               mono
               choices={branchChoices("base")}
               picked={[base]}
-              trigger={fork ? `${context.base.repository.owner}:${base}` : base}
+              trigger={
+                fork ? branchLabel(context.base.repository, headRepository, base) : base
+              }
               onChange={([next]) => next && pickBranches({ base: next })}
             />
             {ready ? (

@@ -80,6 +80,17 @@ export class GitHubLifecycleWrites {
     if (!issue || issue.number !== number) throw new ForgeError("not_found");
     return issue.id;
   }
+  /** Open PRs of this repository whose base is `branch`: PRs stacked on it. */
+  async #openPrsOnto(branch: string, signal: AbortSignal): Promise<number[]> {
+    const query = new URLSearchParams({ state: "open", base: branch, per_page: "10" });
+    const response = await this.#api.request(`${this.#root}/pulls?${query}`, signal);
+    const parsed = z
+      .array(z.looseObject({ number: z.number().int().positive() }))
+      .max(10)
+      .safeParse(response.body);
+    if (!parsed.success) throw new ForgeError("invalid_data");
+    return parsed.data.map((pr) => pr.number);
+  }
   /** Open PRs of this repository whose head is `branch`, newest first. */
   async #openPrsFrom(branch: string, signal: AbortSignal): Promise<number[]> {
     const query = new URLSearchParams({
@@ -159,8 +170,11 @@ export class GitHubLifecycleWrites {
       // A branch that moved past the PR's head holds commits the PR doesn't: keep it.
       if (current.toLowerCase() !== snapshot.headSha.toLowerCase())
         throw new ForgeError("head_moved");
-      // An open PR from the same branch, opened since the snapshot, would close with it.
+      // An open PR from the same branch, opened since the snapshot, would close with it; after
+      // a close, so would one stacked onto it.
       if ((await this.#openPrsFrom(head.name, signal)).some((n) => n !== snapshot.pr.number))
+        throw new ForgeError("branch_in_use");
+      if (snapshot.state === "closed" && (await this.#openPrsOnto(head.name, signal)).length)
         throw new ForgeError("branch_in_use");
       return (dispatch) =>
         this.#rest(

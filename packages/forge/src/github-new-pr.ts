@@ -96,6 +96,20 @@ export class GitHubNewPr {
     }
     return { items, truncated: endpoint !== undefined };
   }
+  /** The commit `head`'s branch points at in its own repository; `head_missing` when gone. */
+  async #forkHead(head: ForgeCompareHead, signal: AbortSignal): Promise<string> {
+    try {
+      const response = await this.#api.request(
+        `repos/${head.owner}/${head.name}/git/ref/heads/${branchPath(head.branch)}`,
+        signal,
+      );
+      return decode(z.looseObject({ object: z.looseObject({ sha }) }), response.body).object.sha;
+    } catch (error) {
+      if (error instanceof ForgeError && error.kind === "not_found")
+        throw new ForgeError("head_missing");
+      throw error;
+    }
+  }
   /** This repository's branches, the default first, then by name. */
   async branches(
     defaultBranch: string,
@@ -174,7 +188,12 @@ export class GitHubNewPr {
             : { login: person.login },
         ),
       milestones,
-      truncated: labels.truncated || people.truncated,
+      // Paging stopped early, or more were read than the lists hold.
+      truncated:
+        labels.truncated ||
+        people.truncated ||
+        labels.items.length > 500 ||
+        people.items.length > 500,
     });
   }
   /**
@@ -190,11 +209,17 @@ export class GitHubNewPr {
     // Both names reach the URL path: only names git itself would take are sent.
     if (!ForgeBranchName.safeParse(base).success || !ForgeBranchName.safeParse(head.branch).success)
       throw new ForgeError("unprocessable");
-    // A fork's branch is named `owner:branch`, as GitHub documents for comparisons.
+    const sameOwner = head.owner.toLowerCase() === this.#repository.owner.toLowerCase();
+    const sameName = head.name.toLowerCase() === this.#repository.name.toLowerCase();
+    // A fork with another owner is named `owner:branch`, as GitHub documents. A fork with this
+    // owner can't be named that way, so it is compared by the commit its branch points at,
+    // read from the fork itself: GitHub compares commits across a repository network.
     const headRef =
-      head.owner.toLowerCase() === this.#repository.owner.toLowerCase()
+      sameOwner && sameName
         ? branchPath(head.branch)
-        : `${head.owner}:${branchPath(head.branch)}`;
+        : sameOwner
+          ? await this.#forkHead(head, signal)
+          : `${head.owner}:${branchPath(head.branch)}`;
     // No paging parameters: GitHub then lists up to 250 commits and documents the last one as
     // the newest of the whole comparison, which is what `headSha` names.
     const response = await this.#api.request(
