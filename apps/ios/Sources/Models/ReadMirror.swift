@@ -24,7 +24,11 @@ import Observation
     func value<T: Decodable>(_ key: String, as type: T.Type) -> T? {
         guard let kept = values[key] else { return nil }
         if let memo = decoded[key], memo.revision == kept.revision, let value = memo.value as? T { return value }
-        guard let value = try? kept.value.decode(type) else { return nil }
+        let value: T
+        do { value = try kept.value.decode(type) } catch {
+            serviceLog.error("kept read didn't decode as \(String(describing: type), privacy: .public): \(String(describing: error), privacy: .public)")
+            return nil
+        }
         decoded[key] = (kept.revision, value)
         return value
     }

@@ -77,7 +77,9 @@ extension ClientModel {
     }
     /// The last kept answer to `payload`, for drawing before the read finishes.
     func kept<T: Decodable>(_ payload: [String: Any], as type: T.Type) -> T? {
-        ReadMirror.key(payload).flatMap { reads.value($0, as: type) }
+        let value = ReadMirror.key(payload).flatMap { reads.value($0, as: type) }
+        serviceLog.debug("kept \(serviceName(payload), privacy: .public) \(value == nil ? "miss" : "hit", privacy: .public)")
+        return value
     }
     /// Moves when the kept answer to `payload` goes out of date; a screen reads it again.
     func readGeneration(_ payload: [String: Any]) -> Int {
