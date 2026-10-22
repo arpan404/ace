@@ -39,7 +39,12 @@ export class GitHubInbox {
   readonly #recent = new Map<string, Remembered>();
   readonly #decoder = new PageDecoder(z.array(z.unknown()).max(100));
   readonly #states = new WeakMap<Page, Map<string, ForgeInboxSubjectState>>();
-  constructor(options: { runner: CommandRunner; command?: string; host: string; now: () => number }) {
+  constructor(options: {
+    runner: CommandRunner;
+    command?: string;
+    host: string;
+    now: () => number;
+  }) {
     this.host = options.host;
     this.#now = options.now;
     this.#flights = new ListCache(options.now, 0);

@@ -31,7 +31,9 @@ export class WorkspaceForgeBrowse {
     if (operation.op === "forge.inbox.list")
       return {
         resource: "inboxList",
-        value: await (await this.ctx.backends.inbox(cwd, operation.host)).list(operation.query, signal),
+        value: await (
+          await this.ctx.backends.inbox(cwd, operation.host)
+        ).list(operation.query, signal),
       };
     const repository = operation.repository ?? (await this.ctx.backends.repository(cwd));
     signal.throwIfAborted();

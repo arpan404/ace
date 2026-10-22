@@ -22,7 +22,11 @@ function notification(
     updated_at: "2026-10-22T09:00:00Z",
     last_read_at: null,
     subject: { title: `${type} ${id}`, url, type },
-    repository: { name: repo, owner: { login: "acme" }, html_url: `https://github.com/acme/${repo}` },
+    repository: {
+      name: repo,
+      owner: { login: "acme" },
+      html_url: `https://github.com/acme/${repo}`,
+    },
     ...extra,
   };
 }

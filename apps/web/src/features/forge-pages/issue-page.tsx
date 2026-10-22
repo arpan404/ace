@@ -15,7 +15,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { RelativeTime as PrTime } from "@/components/person-avatar.tsx";
 import { Screen } from "@/features/shell/index.ts";
-import { useBackToList } from "./back-to-list.ts";
+import { backLabel, useBackToList } from "./back-to-list.ts";
 import { IssueActionsStrip } from "./issue-actions-strip.tsx";
 import { IssueComposer } from "./issue-composer.tsx";
 import { IssueTimeline } from "./issue-timeline.tsx";
@@ -32,7 +32,12 @@ import { repositoryFromParam } from "@/lib/pull-request-route.ts";
 /** A page's reading width, as a pull request's page has. */
 export const readable = "mx-auto w-full max-w-[64rem] px-4 sm:px-8";
 
-function Header(props: { project: string; issue: ForgeIssueDetail; onBack(): void }) {
+function Header(props: {
+  project: string;
+  issue: ForgeIssueDetail;
+  backLabel: string;
+  onBack(): void;
+}) {
   const { issue } = props;
   const toast = useToast();
   const openWeb = useOpenWebAddress();
@@ -40,7 +45,7 @@ function Header(props: { project: string; issue: ForgeIssueDetail; onBack(): voi
   const threads = issue.relatedThreads.filter((thread) => !thread.archived);
   return (
     <WorkHeading
-      back={{ label: "Issues", onBack: props.onBack }}
+      back={{ label: props.backLabel, onBack: props.onBack }}
       title={<WorkTitle text={issue.title} number={issue.ref.number} />}
       actions={
         <>
@@ -132,13 +137,19 @@ function IssueBody(props: {
   /** The issue's repository when it isn't the project's own. */
   repository: ForgeRepository | undefined;
   issue: ForgeIssueDetail;
+  backLabel: string;
   onBack(): void;
 }) {
   const { issue } = props;
   const writes = useIssueWrites(props.project, issue.ref.repository);
   return (
     <div className={`${readable} pt-6 pb-16`}>
-      <Header project={props.project} issue={issue} onBack={props.onBack} />
+      <Header
+        project={props.project}
+        issue={issue}
+        backLabel={props.backLabel}
+        onBack={props.onBack}
+      />
       <IssueActionsStrip project={props.project} issue={issue} writes={writes} />
       <div className="mt-6 border-t border-border pt-5">
         {issue.body.trim() ? (
@@ -171,6 +182,7 @@ export function IssuePage(props: {
 }) {
   const choice = useProjectChoice(props.project);
   const back = useBackToList("/issues", props.project, props.back);
+  const label = backLabel(props.back, "Issues");
   const repository = repositoryFromParam(props.repo);
   const query = useIssueDetail(props.project, props.number, repository);
   const cache = useQueryClient();
@@ -185,6 +197,7 @@ export function IssuePage(props: {
                 project={props.project}
                 repository={repository}
                 issue={issue}
+                backLabel={label}
                 onBack={back}
               />
             ) : query.isError ? (
@@ -205,6 +218,7 @@ export function IssuePage(props: {
                     ? undefined
                     : cachedRow(cache, props.project, "issueList", props.number)
                 }
+                backLabel={label}
                 onBack={back}
                 readable={readable}
               />

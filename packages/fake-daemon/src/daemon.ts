@@ -330,6 +330,7 @@ export class FakeDaemon implements Host {
     | "mergePullRequest"
     | "setDraftGenerator"
     | "setIssueOutcome"
+    | "inbox"
     | "checkReruns"
     | "git"
     | "conflicts"

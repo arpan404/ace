@@ -114,10 +114,18 @@ export class ForgeBackends {
   async inbox(cwd: string, host: string | undefined): Promise<GitHubInbox> {
     const target = host ?? (await this.repository(cwd)).host;
     const identity = await this.sourceControl?.identity(cwd, target, this.signal);
-    const key = JSON.stringify({ host: target, account: identity?.account, revision: identity?.revision });
+    const key = JSON.stringify({
+      host: target,
+      account: identity?.account,
+      revision: identity?.revision,
+    });
     const inbox =
       this.inboxes.get(key) ??
-      new GitHubInbox({ host: target, runner: identity?.runner ?? this.runner(cwd), now: this.now });
+      new GitHubInbox({
+        host: target,
+        runner: identity?.runner ?? this.runner(cwd),
+        now: this.now,
+      });
     this.inboxes.delete(key);
     this.inboxes.set(key, inbox);
     if (this.inboxes.size > 8) {

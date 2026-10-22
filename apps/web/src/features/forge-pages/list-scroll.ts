@@ -10,7 +10,7 @@ const Kept = z.object({ address: z.string().max(4096), top: z.number().nonnegati
  * kept on this device: coming back from a pull request or issue puts the rows where they were.
  * One position per list, so a different filter set starts at the top.
  */
-export function useListScroll(kind: "pulls" | "issues", address: string, ready: boolean) {
+export function useListScroll(kind: "inbox" | "pulls" | "issues", address: string, ready: boolean) {
   const { storage } = useLayout();
   const key = `ace.forge.scroll.${kind}`;
   const element = useRef<HTMLDivElement | null>(null);
