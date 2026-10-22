@@ -11,14 +11,19 @@ import XCTest
         let app = launch()
         app.openBrowseDestination("inbox.settings")
         XCTAssertTrue(app.buttons["settings.notifications"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["settings.diagnostics"].exists)
         screenshot("settings")
+        let diagnostics = app.buttons["settings.diagnostics"]
+        for _ in 0..<6 where !diagnostics.exists { app.swipeUp() }
+        XCTAssertTrue(diagnostics.exists)
+        for _ in 0..<6 where !app.buttons["settings.notifications"].isHittable { app.swipeDown() }
         app.buttons["settings.notifications"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["notifications.enabled"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'notifications.machine.'")).firstMatch.exists)
         screenshot("settings-notifications")
         app.buttons["BackButton"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["settings.licences"].waitForExistence(timeout: 5))
+        let licences = app.buttons["settings.licences"]
+        for _ in 0..<6 where !licences.isHittable { app.swipeUp() }
+        XCTAssertTrue(licences.waitForExistence(timeout: 5))
         app.buttons["settings.licences"].tap()
         XCTAssertTrue(app.staticTexts["Zod"].waitForExistence(timeout: 5))
         screenshot("settings-licences")
@@ -33,8 +38,9 @@ import XCTest
         XCTAssertTrue(app.buttons["archive.ios-archived-44"].waitForExistence(timeout: 15))
         screenshot("archive")
         let older = app.buttons["archive.ios-archived-10"]
-        for _ in 0..<12 where !older.exists { app.swipeUp(velocity: .fast) }
-        XCTAssertTrue(older.waitForExistence(timeout: 10))
+        // Rows are three lines tall: fast swipes coast past the row and the lazy list drops it again.
+        app.bringToMiddle(older, attempts: 40)
+        XCTAssertTrue(older.isHittable)
         older.tap()
         XCTAssertTrue(app.descendants(matching: .any)["thread.archived"].waitForExistence(timeout: 15))
         XCTAssertFalse(app.buttons["composer.send"].exists)
@@ -124,7 +130,7 @@ import XCTest
         app.closeSheet()
         app.buttons["thread.menu"].tap()
         app.buttons["thread.changes"].tap()
-        let file = app.buttons["changes.file.packages/provider-kit/src/process-owner.ts"]
+        let file = app.changesFile("packages/provider-kit/src/process-owner.ts")
         XCTAssertTrue(file.waitForExistence(timeout: 15))
         file.tap()
         XCTAssertTrue(app.descendants(matching: .any)["diff.view"].waitForExistence(timeout: 10))

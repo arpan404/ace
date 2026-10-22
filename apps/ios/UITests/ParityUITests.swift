@@ -9,10 +9,9 @@ import XCTest
         XCTAssertTrue(start.waitForExistence(timeout: 30))
         let filter = app.buttons["inbox.projects"]
         XCTAssertTrue(filter.exists)
-        // The scope and compose share the bottom toolbar, compose at its trailing end.
-        XCTAssertGreaterThan(filter.frame.minY, app.frame.midY)
+        // The project chip sits under the header; New thread is the tab bar's round trailing button.
+        XCTAssertLessThan(filter.frame.maxY, app.frame.midY)
         XCTAssertGreaterThan(start.frame.minY, app.frame.midY)
-        XCTAssertGreaterThan(start.frame.minX, filter.frame.maxX)
         XCTAssertGreaterThan(start.frame.midX, app.frame.midX)
         start.tap()
         XCTAssertTrue(app.navigationBars["New thread"].waitForExistence(timeout: 10))
@@ -65,8 +64,7 @@ import XCTest
 
     func testPublishedCanvasRunsItsInteractionInTheNativeSandbox() {
         let app = launch()
-        let row = app.buttons["thread.ios-media"]
-        XCTAssertTrue(row.waitForExistence(timeout: 30)); row.tap()
+        app.revealRow("thread.ios-media").tap()
         let canvas = app.buttons["Interactive counter"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 20)); canvas.tap()
         let next = app.webViews.buttons["Next"]
@@ -77,7 +75,7 @@ import XCTest
     }
     func testPublishedImageOpensAsNativePixels() {
         let app = launch()
-        XCTAssertTrue(app.buttons["thread.ios-media"].waitForExistence(timeout: 30)); app.buttons["thread.ios-media"].tap()
+        app.revealRow("thread.ios-media").tap()
         let image = app.buttons["Orange fixture image"]
         XCTAssertTrue(image.waitForExistence(timeout: 20)); image.tap()
         XCTAssertTrue(app.images["Orange fixture image"].waitForExistence(timeout: 20))
