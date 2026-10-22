@@ -13,8 +13,14 @@ export function createDiagnosticsSession({
     healthPending: () => Number(pending),
     handle(message) {
       if (message.type === "diagnostics.request") {
-        const run = message.operation === "doctor" ? options.doctor : options.toolchains;
-        const error = !authorize("read")
+        const scope = message.operation === "fix" ? "admin" : "read";
+        const run =
+          message.operation === "doctor"
+            ? options.doctor
+            : message.operation === "fix"
+              ? options.doctorFix
+              : options.toolchains;
+        const error = !authorize(scope)
           ? "forbidden"
           : pending
             ? "diagnostics_busy"
@@ -28,11 +34,17 @@ export function createDiagnosticsSession({
         pending = true;
         void Promise.resolve()
           .then(async () => {
+            if (closed || !authorize(scope)) return;
+            const assertAuthorized = () => {
+              if (closed || !authorize(scope)) throw new Error("forbidden");
+            };
             const result =
               message.operation === "doctor"
                 ? { report: await options.doctor?.() }
-                : { toolchains: await options.toolchains?.() };
-            if (!closed && authorize("read"))
+                : message.operation === "fix"
+                  ? await options.doctorFix?.(assertAuthorized)
+                  : { toolchains: await options.toolchains?.() };
+            if (!closed && authorize(scope))
               send({ type: "diagnostics.result", requestId: message.requestId, ...result });
           })
           .catch(() => {

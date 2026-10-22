@@ -67,9 +67,9 @@ user namespaces, or running as root). `/dev/shm` under 512 MB adds `--disable-de
 Disabling the sandbox is an explicit opt-in, `ACE_CHROMIUM_NO_SANDBOX=1`, never a silent
 fallback. The AppArmor profile (unconfined plus `userns`, attached to
 `@{HOME}/.ace/chromium/*/chrome-linux{64,-arm64}/chrome`) is defined once in
-`@ace/browser/linux-sandbox`; the deb installs it and `ace doctor` prints it with the commands
-to load it. `ace doctor` starts the real engine (`--version`, then a bounded headless start)
-to check all of this. The Chromium process guardian reads `/proc` on Linux, so it works
+`@ace/browser/linux-sandbox`; the deb installs it and `ace doctor --fix` installs it (see
+below). `ace doctor` starts the real engine (`--version`, then a bounded headless start; the
+`chromium` check's own budget is 25 s, above the 5 s default) to check all of this. The Chromium process guardian reads `/proc` on Linux, so it works
 without procps.
 
 The desktop parks unseen agent tabs without a visible window on Linux. A never-shown,
@@ -126,7 +126,8 @@ The deb installs one; an AppImage and an extracted tar.gz have no installer. The
   `--no-sandbox` only where it fails. Without the launcher Electron aborts at start there.
 - The app then says in one sentence what is off and offers **Set up sandbox**: pkexec (or
   systemd's run0) runs a fixed root script that writes and loads a per-user profile attached
-  to this copy, plus `ace-chromium` exactly as `ace doctor` prints it. An AppImage's profile
+  to this copy, plus `ace-chromium` exactly as `ace doctor --fix` installs it (one root script
+  in `@ace/browser/linux-sandbox` serves both). An AppImage's profile
   attaches to the AppImage file; everything it starts keeps that profile (an unconfined
   profile's children stay in it unless another attaches, `security/apparmor/domain.c`), so
   AppRun's probe passes. A versioned file name also covers `ace-*.AppImage` in its folder,
@@ -142,13 +143,20 @@ The deb installs one; an AppImage and an extracted tar.gz have no installer. The
 - Cursor's sandbox helper (`cursorsandbox`, Auto review) creates user namespaces too, so the
   same restriction blocks it whatever the glibc. Under the desktop app it inherits the app's
   profile (the deb's, or the one the setup installs). A standalone daemon has no app profile:
-  `ace doctor` runs the helper's own `--preflight-only` there and prints `ace-cursor-sandbox`,
+  `ace doctor` runs the helper's own `--preflight-only` there and offers `ace-cursor-sandbox`,
   attached to `ACE_HOME/releases/*/…/cursorsandbox` so updates keep it. The provider's
   refusal names AppArmor and both fixes.
-- `ace doctor`'s report is redacted for sharing, which breaks install commands (an AppArmor
-  `{…}` glob reads as a record, `ACE_HOME` becomes `<ENV>`). Where redaction changes a fix,
-  the report says to run `ace doctor fix <id>`, which prints that fix unredacted on the
-  person's own terminal and never goes into a support bundle.
+- Doctor repairs these from the CLI (ADR 0092's repair list): **Install ace's AppArmor
+  profiles** (`linux.apparmor`: `ace-chromium` and `ace-cursor-sandbox`, whichever is needed)
+  and **Install the libraries ace's browser needs** (`linux.packages`: the distribution's
+  install command, after `apt-get update` on Debian and Ubuntu). Both run through sudo, so the
+  person's password is the consent; as root they run directly. Profiles go through the same
+  root script the app uses, which has AppArmor parse each one before writing it.
+  `ace doctor --dry-run` prints the exact commands, unredacted, on the person's own terminal.
+  The report the app shows and support bundles carry says only "run `ace doctor --fix`":
+  redaction would break the commands (home becomes a marker), and they are this machine's
+  paths. Disabled user namespaces (`kernel.unprivileged_userns_clone=0`) and running as root
+  stay advice: changing a kernel switch or the account ace runs as is the person's decision.
 - Trade-off: these attachments are paths the person's account can write, so code running as
   that person could gain user namespaces by placing an executable there. Chromium's own
   guidance accepts the same for builds in a home folder; the alternative, a root-owned copy,

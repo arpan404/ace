@@ -22,6 +22,12 @@ export class ReservationLifetimes {
       if (entry.parentId === thread || descendant(entry.parentId, thread))
         entry.controller.abort(new AgentControlError("delegation_cancelled", "cancelled"));
   }
+  /** Abort one reservation's preparation, so it can never commit. */
+  cancelChild(child: ThreadId) {
+    this.entries
+      .get(child)
+      ?.controller.abort(new AgentControlError("delegation_cancelled", "cancelled"));
+  }
   close() {
     for (const entry of this.entries.values())
       entry.controller.abort(new AgentControlError("admission_closed", "Admission closed"));

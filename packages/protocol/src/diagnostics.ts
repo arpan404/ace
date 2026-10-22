@@ -73,6 +73,12 @@ export const DiagnosticReport = z.object({
   checks: z.array(DiagnosticCheck).max(64),
 });
 export type DiagnosticReport = z.infer<typeof DiagnosticReport>;
+export const DiagnosticRepair = z.object({
+  id: z.string().max(128),
+  status: z.enum(["fixed", "failed", "skipped"]),
+  message: z.string().max(2048),
+});
+export type DiagnosticRepair = z.infer<typeof DiagnosticRepair>;
 export const Toolchain = z.object({
   id: z.enum(["git", "xcode", "android", "serve-sim"]),
   available: z.boolean(),
@@ -85,12 +91,13 @@ export type Toolchain = z.infer<typeof Toolchain>;
 export const DiagnosticsRequest = z.object({
   type: z.literal("diagnostics.request"),
   requestId: z.string().min(1).max(128),
-  operation: z.enum(["doctor", "toolchains"]),
+  operation: z.enum(["doctor", "toolchains", "fix"]),
 });
 export const DiagnosticsResult = z.object({
   type: z.literal("diagnostics.result"),
   requestId: z.string().min(1).max(128),
   report: DiagnosticReport.optional(),
+  repairs: z.array(DiagnosticRepair).max(8).optional(),
   toolchains: z.array(Toolchain).max(4).optional(),
   error: z.string().max(256).optional(),
 });

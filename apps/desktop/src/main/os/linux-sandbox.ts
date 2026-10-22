@@ -89,7 +89,7 @@ export function appProfile(install: LinuxInstall, uid: number): SandboxProfile |
   };
 }
 
-/** The ace-chromium profile for the daemon's headless Chrome, exactly as `ace doctor` prints it. */
+/** The ace-chromium profile for the daemon's headless Chrome, exactly as `ace doctor --fix` installs it. */
 export function browserProfile(options: {
   dataDir: string;
   home: string;

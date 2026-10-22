@@ -44,20 +44,18 @@ it("deduplicates repeated events even after restart", async () => {
   expect(h.inputs).toHaveLength(1);
   expect(h.service.inbox().runs).toHaveLength(1);
 });
-it("keeps concurrency occupied while an executor waits for a human", async () => {
+it("runs one at a time even when a stored definition asks for more", async () => {
   const h = harness();
-  h.service.put(definition({ concurrency: 2 }));
+  h.service.put(definition({ concurrency: 4 }));
   for (let i = 0; i < 3; i++)
     h.service.trigger("triage", { key: `event-${i}`, variables: { subject: "review" } });
-  expect(h.inputs).toHaveLength(2);
-  expect(h.service.inbox().runs.map((r) => r.status)).toEqual(["skipped", "running", "running"]);
+  // Every run goes into the automation's one thread: one runs, one waits, the third is skipped.
+  expect(h.inputs).toHaveLength(1);
+  expect(h.service.inbox().runs.map((r) => r.status)).toEqual(["skipped", "queued", "running"]);
   h.completions[0]?.resolve({ threadId: "one", status: "succeeded", result: "done" });
-  h.completions[1]?.resolve({ threadId: "two", status: "succeeded", result: "done" });
-  await h.service.settled();
-  expect(
-    h.service.trigger("triage", { key: "event-3", variables: { subject: "review" } }).status,
-  ).toBe("running");
-  await h.finish(2);
+  await h.nextExecution(1);
+  expect(h.store.active()).toHaveLength(1);
+  await h.finish(1);
 });
 it("records a missing template variable as failure without creating a thread", () => {
   const h = harness();
@@ -168,15 +166,17 @@ it("reconciles a running thread after restart before admitting more work", async
   h.restart();
   expect(
     h.service.trigger("triage", { key: "second", variables: { subject: "issues" } }).status,
-  ).toBe("skipped");
+  ).toBe("queued");
   expect(h.inputs).toHaveLength(1);
   recovery.resolve({ threadId: "recovered", status: "succeeded", result: "Recovered completion" });
-  await h.service.settled();
+  // The waiting run starts once the recovered one has settled, not before.
+  expect((await h.nextExecution(1)).prompt).toContain("issues");
   expect(h.service.inbox().runs.find((r) => r.id === first.id)).toMatchObject({
     status: "succeeded",
     threadId: "recovered",
   });
   h.completions[0]?.resolve({ threadId: "obsolete", status: "failed", result: "late" });
+  await h.finish(1);
 });
 it("retries creation with the same idempotency key when a crash preceded thread creation", async () => {
   const h = harness();
@@ -273,7 +273,7 @@ it("preserves a running record and its slot when recovery is uncertain", async (
   expect(h.service.inbox().runs[0]?.status).toBe("running");
   expect(
     h.service.trigger("triage", { key: "second", variables: { subject: "issues" } }).status,
-  ).toBe("skipped");
+  ).toBe("queued");
   expect(h.errors).toEqual([expect.objectContaining({ message: "Engine unavailable" })]);
   h.completions[0]?.resolve({ threadId: "old", status: "succeeded", result: "old" });
 });

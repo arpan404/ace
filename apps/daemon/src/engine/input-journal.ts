@@ -85,6 +85,13 @@ export class InputJournal {
         PRIMARY KEY(thread_id,native_id))`);
     });
     store.atomic((db) => {
+      // A queued input the person sent again under a new command: which one replaced it.
+      db.exec(`CREATE TABLE IF NOT EXISTS engine_input_replacements (
+        thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+        command_id TEXT NOT NULL, replacement_id TEXT NOT NULL,
+        PRIMARY KEY(thread_id,command_id))`);
+    });
+    store.atomic((db) => {
       requireEngineColumns(db, "engine_inputs", ["generation", "run_id"]);
       db.exec(`CREATE INDEX IF NOT EXISTS engine_inputs_run ON engine_inputs(thread_id,run_id);
         CREATE INDEX IF NOT EXISTS engine_inputs_delivery ON engine_inputs(thread_id,generation,signature,sent,matched,ordinal);
@@ -123,6 +130,28 @@ export class InputJournal {
     this.store
       .statement("UPDATE engine_inputs SET run_id=? WHERE thread_id=? AND item_key=?")
       .run(run ?? null, thread, key);
+  }
+  /** The run that took input `key`; none until one does. */
+  runOf(thread: ThreadId, key: string): string | undefined {
+    const row = this.store
+      .statement("SELECT run_id FROM engine_inputs WHERE thread_id=? AND item_key=?")
+      .get(thread, key);
+    return typeof row?.run_id === "string" ? row.run_id : undefined;
+  }
+  /** Input `commandId` was sent again as `replacement` (a queue resend). */
+  replace(thread: ThreadId, commandId: CommandId, replacement: CommandId): void {
+    this.store
+      .statement("INSERT OR IGNORE INTO engine_input_replacements VALUES (?,?,?)")
+      .run(thread, commandId, replacement);
+  }
+  /** The command that replaced input `commandId`, if it was sent again. */
+  replacement(thread: ThreadId, commandId: CommandId): CommandId | undefined {
+    const row = this.store
+      .statement(
+        "SELECT replacement_id FROM engine_input_replacements WHERE thread_id=? AND command_id=?",
+      )
+      .get(thread, commandId);
+    return row ? CommandId.parse(row.replacement_id) : undefined;
   }
   /** The transcript key of the input whose send carried native id `nativeId`. */
   keyFor(thread: ThreadId, nativeId: string): string | undefined {

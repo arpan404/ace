@@ -13,6 +13,9 @@
     "ok": {
       "type": "boolean"
     },
+    "person": {
+      "type": "boolean"
+    },
     "version": {
       "const": 2,
       "type": "number"

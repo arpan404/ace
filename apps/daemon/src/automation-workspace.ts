@@ -13,13 +13,21 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
     await Promise.allSettled(pending);
   });
   return {
-    subscribe(root, paths, receive) {
+    subscribe(root, paths, receive, hooks) {
       const row = context.store.atomic((db) =>
         db.prepare("SELECT path FROM workspaces WHERE path=? OR id=? LIMIT 1").get(root, root),
       );
       const workspace = row ? z.object({ path: z.string() }).parse(row) : undefined;
-      if (!workspace) throw new Error("automation_workspace_not_found");
-      if (subscriptions >= 256) throw new Error("automation_watch_limit");
+      if (!workspace) {
+        const error = new Error("automation_workspace_not_found");
+        hooks?.onError?.(error);
+        throw error;
+      }
+      if (subscriptions >= 256) {
+        const error = new Error("automation_watch_limit");
+        hooks?.onError?.(error);
+        throw error;
+      }
       subscriptions++;
       let closed = false;
       let watcher: WorkspaceWatcher | undefined;
@@ -62,11 +70,15 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
             },
           });
           if (closed) await created.dispose();
-          else watcher = created;
+          else {
+            watcher = created;
+            hooks?.onReady?.();
+          }
         })
-        .catch((error) =>
-          context.log.log("error", "Automation watcher unavailable", logError(error)),
-        );
+        .catch((error) => {
+          context.log.log("error", "Automation watcher unavailable", logError(error));
+          hooks?.onError?.(error);
+        });
       pending.add(opening);
       void opening.finally(() => pending.delete(opening));
       return () => {

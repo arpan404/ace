@@ -23,11 +23,11 @@ if (args.includes('--version')) console.log(${JSON.stringify(provider === "codex
 else if (args.includes('--help')) console.log('login logout --device-auth --claudeai');
 else if (args[0] === 'app-server') process.exit(2);
 else if (args.includes('status')) console.log(${JSON.stringify(provider === "codex" ? "Not logged in" : '{"loggedIn":false}')});
-else {
+else if (args.includes('login')) {
  console.log(${JSON.stringify(provider === "codex" ? "Open https://auth.openai.com/codex/device\nEnter code: ABCD-12345\nPress Enter to continue." : "Open https://claude.ai/oauth/authorize?client_id=synthetic&response_type=code&code_challenge=fixture\nPress Enter to continue.")});
  process.on('SIGTERM', () => { fs.appendFileSync(${JSON.stringify(marker)}, 'drained\\n'); process.exit(0); });
  setInterval(() => {}, 1000);
-}
+} else process.exit(2);
 `,
     );
     const f = await daemonFixture(undefined, {
@@ -45,7 +45,7 @@ else {
       const home = join(f.h.home, "daemon");
       for (let attempt = 0; attempt < 2; attempt++) {
         const output = await invoke(home, ["login", provider, "--json", "--timeout", "10s"]);
-        expect(output.code, output.stderr).toBe(2);
+        expect(output.code, output.stdout + output.stderr).toBe(2);
         expect(JSON.parse(output.stdout)).toMatchObject({
           sessionReleased: true,
           manual: { action: "open_terminal" },

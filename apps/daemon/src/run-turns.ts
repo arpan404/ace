@@ -10,7 +10,8 @@ import { startedRunTurn, startsTurn } from "@ace/projection";
 export function migrateRunTurns(db: DatabaseSync): void {
   db.exec(`CREATE TABLE IF NOT EXISTS client_turn_sequence(thread_id TEXT PRIMARY KEY,turn INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS client_run_turn(thread_id TEXT NOT NULL,run_id TEXT NOT NULL,turn INTEGER NOT NULL,PRIMARY KEY(thread_id,run_id));
-    CREATE TABLE IF NOT EXISTS client_turn_asks(thread_id TEXT NOT NULL,item_id TEXT NOT NULL,PRIMARY KEY(thread_id,item_id));`);
+    CREATE TABLE IF NOT EXISTS client_turn_asks(thread_id TEXT NOT NULL,item_id TEXT NOT NULL,PRIMARY KEY(thread_id,item_id));
+    CREATE INDEX IF NOT EXISTS client_run_turn_number ON client_run_turn(thread_id,turn);`);
 }
 
 /**

@@ -6,12 +6,23 @@ import { StatusLine } from "@/components/provider-tile.tsx";
 import { catalogKey } from "@/lib/model-catalog.ts";
 import { refreshProviders } from "@/lib/provider-readiness.ts";
 import { useQueryClient } from "@tanstack/react-query";
-import type { DiagnosticReport } from "@ace/protocol";
+import type { DiagnosticReport, DiagnosticRepair } from "@ace/protocol";
 import { useState } from "react";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Button } from "@/components/ui/button.tsx";
 
+/** Longer than the daemon's largest integrity budget, so the daemon reports first. */
+const CHECKS_TIMEOUT_MS = 16 * 60_000;
+
 const checks: Record<string, { label: string; fix: string }> = {
+  "home.permissions": {
+    label: "Data folder access",
+    fix: "Run safe repairs, or restore owner access to the ace data folder.",
+  },
+  "logs.directory": {
+    label: "Log folder",
+    fix: "Run safe repairs to create the log folder or restore owner access.",
+  },
   node: { label: "App runtime", fix: "Update ace and restart it." },
   git: { label: "Git", fix: "Install Git. On a Mac, install the Xcode Command Line Tools." },
   "node-pty": { label: "Terminal", fix: "Reinstall ace, then try opening a terminal again." },
@@ -43,17 +54,21 @@ export function RunChecks(props: {
   const queries = useQueryClient();
   const ready = useConnectionState() === "ready";
   const [report, setReport] = useState<DiagnosticReport>();
+  const [repairs, setRepairs] = useState<DiagnosticRepair[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string>();
-  const run = async () => {
+  const run = async (operation: "doctor" | "fix") => {
     setRunning(true);
     setError(undefined);
     try {
       const result = await client.request(
-        { type: "diagnostics.request", operation: "doctor" },
-        { timeoutMs: 30_000 },
+        { type: "diagnostics.request", operation },
+        // The integrity check scales with database size, up to 15 minutes on the daemon.
+        { timeoutMs: CHECKS_TIMEOUT_MS },
       );
       if (!result.report || result.error) throw new Error();
+      setReport(result.report);
+      setRepairs(result.repairs ?? []);
       await client.request({ type: "providers.request", operation: "refresh" });
       // Discovery includes installed ACP agents as well as the built-in providers.
       await client.request({ type: "models.refresh", filter: {} }, { timeoutMs: 30_000 });
@@ -74,7 +89,7 @@ export function RunChecks(props: {
           size="sm"
           variant="secondary"
           disabled={!ready || running}
-          onClick={() => void run()}
+          onClick={() => void run("doctor")}
         >
           {running ? "Checking…" : "Run checks"}
         </Button>
@@ -83,6 +98,15 @@ export function RunChecks(props: {
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
+      )}
+      {!!repairs.length && (
+        <ul aria-label="Repair results" className="space-y-2 py-2 text-sm">
+          {repairs.map((repair) => (
+            <li key={repair.id}>
+              {repair.status === "fixed" ? "Repaired" : "Needs attention"}: {repair.message}
+            </li>
+          ))}
+        </ul>
       )}
       {report && (
         <ul aria-label="Check results" className="divide-y">
@@ -105,6 +129,7 @@ export function RunChecks(props: {
                       }
                     />
                   </div>
+                  <p className="pb-2 text-sm text-muted-foreground">{check.message}</p>
                   {check.status !== "ok" && (
                     <p className="pb-2 text-sm text-muted-foreground">
                       {info?.fix ??
@@ -131,6 +156,18 @@ export function RunChecks(props: {
             </li>
           ))}
         </ul>
+      )}
+      {report?.checks.some((check) => check.status !== "ok") && (
+        <div className="flex flex-wrap justify-end gap-2 py-3">
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!ready || running}
+            onClick={() => void run("fix")}
+          >
+            Run safe repairs
+          </Button>
+        </div>
       )}
     </>
   );

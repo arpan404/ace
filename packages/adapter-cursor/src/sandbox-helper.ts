@@ -18,7 +18,7 @@ import { z } from "zod";
  *
  * On Ubuntu 23.10+ AppArmor also blocks the user namespaces the helper creates, whatever the
  * glibc, until a profile grants them. Under the desktop app the helper inherits the app's
- * profile once its sandbox is set up; a standalone daemon gets the profile from `ace doctor`.
+ * profile once its sandbox is set up; a standalone daemon gets the profile from `ace doctor --fix`.
  */
 export type HelperProblem =
   | { kind: "glibc"; required: string; host?: string }
@@ -62,7 +62,7 @@ export function sandboxUnavailableMessage(problem: HelperProblem): string {
     case "library":
       return `Cursor's sandbox helper can't load ${problem.library}, ${affected}. Install the package that provides ${problem.library}, or use Full access.`;
     case "apparmor":
-      return `Ubuntu's AppArmor blocks the user namespaces Cursor's sandbox helper needs, ${affected}. Set up the sandbox in ace's desktop app, or run \`ace doctor fix linux.cursor-sandbox\` for the one-time commands; ${fallback}.`;
+      return `Ubuntu's AppArmor blocks the user namespaces Cursor's sandbox helper needs, ${affected}. Set up the sandbox in ace's desktop app, or run \`ace doctor --fix\` to install its profile; ${fallback}.`;
     case "missing":
       return `Cursor's sandbox helper is not installed with this ace, ${affected}. ${fallback}.`;
     case "other":

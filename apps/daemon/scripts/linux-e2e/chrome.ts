@@ -1,6 +1,6 @@
 /*
  * ace's pinned Chrome for the Linux end-to-end run, and the AppArmor profile that lets its
- * sandbox start on Ubuntu 23.10+, from the same source `ace doctor` prints it from.
+ * sandbox start on Ubuntu 23.10+, from the same source `ace doctor --fix` installs it from.
  *   node apps/daemon/scripts/linux-e2e/chrome.ts install <data-dir>       prints the executable
  *   node apps/daemon/scripts/linux-e2e/chrome.ts apparmor <executable> <profile-name>
  */

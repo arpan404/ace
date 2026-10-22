@@ -746,3 +746,22 @@ test("daemon restart preserves independent device read cursors and redundant wri
   expect(f.store.threadReadState(f.thread.id, device)).toEqual(firstState);
   expect(f.store.threadReadState(f.thread.id, second).lastSeenSeq).toBe(head - 1);
 });
+
+test("a turn's time starts with its run, not with an ask that waited hours to be delivered", () => {
+  const f = storeFixture();
+  const hours = 6 * 60 * 60 * 1000;
+  // The message was written, then held (a failed send) until the person's Try again.
+  f.store.appendEvents(
+    f.thread.id,
+    [{ type: "item.created", item: userMessage("held-input", "hi") }],
+    1_000,
+  );
+  start(f.store, f.thread, "retried", 1_000 + hours);
+  end(f.store, f.thread, "retried", 1_000 + hours + 3_000);
+  // An automatic continuation numbered into the same turn keeps the turn's start.
+  start(f.store, f.thread, "continued", 1_000 + hours + 4_000, "background_completion");
+  end(f.store, f.thread, "continued", 1_000 + hours + 5_000);
+  const turn = turns(f.store, f.thread).turns.at(-1);
+  expect(turn).toMatchObject({ ordinal: 1, startedAt: 1_000 + hours });
+  expect((turn?.endedAt ?? 0) - (turn?.startedAt ?? 0)).toBe(5_000);
+});

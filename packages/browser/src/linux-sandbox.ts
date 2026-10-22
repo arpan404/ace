@@ -6,10 +6,11 @@
  * https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md
  * https://documentation.ubuntu.com/release-notes/24.04/ (the `unconfined` profile mode)
  *
- * This file is the one source of those profiles: the desktop package installs ace-chromium,
- * `ace doctor` prints it for a person to install once, and the desktop app's one-time sandbox
- * setup installs it together with the app's own profile. Cursor's sandbox helper needs the same
- * grant (ace-cursor-sandbox, also printed by `ace doctor`).
+ * This file is the one source of those profiles and of the root script that installs them: the
+ * desktop package installs ace-chromium, `ace doctor --fix` installs it (and `--dry-run` prints
+ * the commands), and the desktop app's one-time sandbox setup installs it together with the
+ * app's own profile. Cursor's sandbox helper needs the same grant (ace-cursor-sandbox, also
+ * installed by `ace doctor --fix`).
  */
 
 export const chromiumAppArmorProfileName = "ace-chromium";
@@ -119,8 +120,47 @@ export function cursorSandboxProfile(attachment: string): string {
   });
 }
 
+/** A profile to install as `/etc/apparmor.d/<name>`. */
+export interface AppArmorProfile {
+  name: string;
+  text: string;
+}
+
+/**
+ * The root side of an install, run through sudo, pkexec or run0 after the person's password:
+ * writes each profile to /etc/apparmor.d and loads it. The text is fixed; profile names and
+ * contents arrive as arguments, never through files the person's account could swap in between.
+ * A name outside `ace-[a-z0-9-]` or a profile AppArmor can't parse stops it before anything is
+ * written.
+ */
+export const appArmorSetupScript = `set -eu
+while [ "$#" -ge 2 ]; do
+  name=$1; text=$2; shift 2
+  case "$name" in ace-?*) ;; *) exit 64 ;; esac
+  case "$name" in *[!abcdefghijklmnopqrstuvwxyz0123456789-]*) exit 64 ;; esac
+  tmp=$(mktemp)
+  printf '%s' "$text" > "$tmp"
+  if ! apparmor_parser --skip-kernel-load --skip-cache "$tmp"; then rm -f "$tmp"; exit 65; fi
+  install -m 0644 "$tmp" "/etc/apparmor.d/$name"
+  rm -f "$tmp"
+  apparmor_parser --replace --write-cache "/etc/apparmor.d/$name"
+done`;
+
+/** The argument vector, after the elevation command, that installs `profiles` as root. */
+export function appArmorSetupArgs(profiles: readonly AppArmorProfile[]): string[] {
+  for (const { name } of profiles)
+    if (!isAceProfileName(name)) throw new Error("Invalid AppArmor profile name");
+  return [
+    "/bin/sh",
+    "-c",
+    appArmorSetupScript,
+    "ace-sandbox-setup",
+    ...profiles.flatMap(({ name, text }) => [name, text]),
+  ];
+}
+
 /** Shell commands a person runs once to install and load profiles. */
-export function appArmorInstallCommands(profiles: { name: string; text: string }[]): string {
+export function appArmorInstallCommands(profiles: readonly AppArmorProfile[]): string {
   return profiles
     .flatMap(({ name, text }) => {
       if (!isAceProfileName(name)) throw new Error("Invalid AppArmor profile name");

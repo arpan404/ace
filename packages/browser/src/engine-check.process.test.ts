@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
-import { checkBrowserEngine } from "./engine-check.ts";
+import { browserEngineRepairs, checkBrowserEngine } from "./engine-check.ts";
 import type { LinuxMachine } from "./launch-diagnosis.ts";
 import { executablePath } from "./test-support.ts";
 
@@ -64,6 +64,14 @@ fs.createReadStream(null, { fd: 3 }).on("data", (chunk) => {
 const version = 'if [ "$1" = --version ]; then echo "Chromium 153.0.8010.12"; exit 0; fi';
 const check = (dataDir: string, env: NodeJS.ProcessEnv) =>
   checkBrowserEngine({ dataDir, env, signal: new AbortController().signal, machine: ubuntu });
+const repairs = (dataDir: string, env: NodeJS.ProcessEnv, machine: LinuxMachine = ubuntu) =>
+  browserEngineRepairs({
+    dataDir,
+    env,
+    signal: new AbortController().signal,
+    platform: "linux",
+    machine,
+  });
 
 describe("ace doctor's browser check", () => {
   it("names the missing libraries and the install command when Chrome cannot load", async () => {
@@ -73,19 +81,50 @@ describe("ace doctor's browser check", () => {
     const verdict = await check(fake.dataDir, { ACE_CHROMIUM_PATH: fake.path });
     expect(verdict.status).toBe("fail");
     expect(verdict.message).toMatch(/missing libnss3\.so, libgbm\.so\.1/);
-    expect(verdict.fix).toBe("Install them: sudo apt-get install -y libnss3 libgbm1");
+    expect(verdict.fix).toBe(
+      "Run ace doctor --fix to install them, or run: sudo apt-get install -y libnss3 libgbm1",
+    );
+    expect((await repairs(fake.dataDir, { ACE_CHROMIUM_PATH: fake.path })).packages).toEqual({
+      libraries: ["libnss3.so", "libgbm.so.1"],
+      install: "sudo apt-get install -y libnss3 libgbm1",
+      steps: [
+        ["apt-get", "update"],
+        ["apt-get", "install", "-y", "libnss3", "libgbm1"],
+      ],
+    });
   });
 
-  it("gives the AppArmor profile for the executable ace runs when the sandbox is blocked", async () => {
+  it("offers the AppArmor profile for the executable ace runs when the sandbox is blocked", async () => {
     const fake = await chromium(
       `${version}\necho "[1:1:FATAL:zygote_host_impl_linux.cc(129)] No usable sandbox!" >&2; exit 134`,
     );
-    const verdict = await check(fake.dataDir, { ACE_CHROMIUM_PATH: fake.path });
+    const env = { ACE_CHROMIUM_PATH: fake.path };
+    const verdict = await check(fake.dataDir, env);
     expect(verdict.status).toBe("fail");
     expect(verdict.message).toMatch(/AppArmor/);
-    expect(verdict.fix).toContain("sudo tee /etc/apparmor.d/ace-chromium");
-    expect(verdict.fix).toContain(`profile ace-chromium ${fake.path} flags=(unconfined)`);
+    expect(verdict.fix).toContain("ace doctor --fix");
     expect(verdict.fix).toContain("ACE_CHROMIUM_NO_SANDBOX=1");
+    // The shared report never carries this machine's path; the repair does.
+    expect(verdict.fix).not.toContain(fake.path);
+    const { profile, packages } = await repairs(fake.dataDir, env);
+    expect(packages).toBeUndefined();
+    expect(profile?.name).toBe("ace-chromium");
+    expect(profile?.text).toContain(`profile ace-chromium ${fake.path} flags=(unconfined)`);
+  });
+
+  it("offers no profile once the one ace needs is installed, or where AppArmor doesn't restrict", async () => {
+    const fake = await chromium(
+      `${version}\necho "[1:1:FATAL:zygote_host_impl_linux.cc(129)] No usable sandbox!" >&2; exit 134`,
+    );
+    const env = { ACE_CHROMIUM_PATH: fake.path };
+    const wanted = (await repairs(fake.dataDir, env)).profile?.text;
+    const installed: LinuxMachine = {
+      ...ubuntu,
+      readText: async (path) =>
+        path === "/etc/apparmor.d/ace-chromium" ? wanted : ubuntu.readText(path),
+    };
+    expect(await repairs(fake.dataDir, env, installed)).toEqual({});
+    expect(await repairs(fake.dataDir, env, arch)).toEqual({});
   });
 
   it("passes a Chromium that starts headless, and warns when it runs without its sandbox", async () => {
@@ -116,7 +155,7 @@ describe("ace doctor's browser check", () => {
       });
     const onUbuntu = await onLinux(ubuntu);
     expect(onUbuntu.status).toBe("warn");
-    expect(onUbuntu.fix).toContain("sudo apparmor_parser -r /etc/apparmor.d/ace-chromium");
+    expect(onUbuntu.fix).toMatch(/AppArmor profile.*ace doctor --fix/s);
     const onArch = await onLinux(arch);
     expect(onArch.status).toBe("warn");
     expect(onArch.fix).not.toMatch(/AppArmor|apparmor/);

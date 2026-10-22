@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { SqliteSpace } from "./sqlite-space.ts";
 import type { DiscoveryResult, Provider } from "@ace/provider-kit/discovery";
 export { DiagnosticReport as DoctorReport } from "@ace/protocol";
 import {
@@ -10,8 +11,23 @@ export type Verdict = Omit<CheckResult, "id">;
 export interface Check {
   id: string;
   fix: string;
+  /** Overrides the runner's limit for checks whose cost grows with data, like integrity. */
+  timeoutMs?: number;
   run(signal: AbortSignal): Promise<Verdict>;
 }
+
+const GIB = 1024 ** 3;
+/**
+ * Time allowed for a full SQLite integrity check. Measured at about 1.7 s per GiB with a
+ * warm cache on an Apple SSD; the budget leaves roughly ten times that for cold caches and
+ * slower disks, and a hard cap so a hung probe still ends.
+ */
+export function integrityBudgetMs(databaseBytes: number): number {
+  const bytes = Number.isFinite(databaseBytes) && databaseBytes > 0 ? databaseBytes : 0;
+  return Math.min(MAX_INTEGRITY_BUDGET_MS, 30_000 + Math.ceil((bytes / GIB) * 20_000));
+}
+export const MAX_INTEGRITY_BUDGET_MS = 15 * 60_000;
+const CHROMIUM_BUDGET_MS = 25_000;
 export interface DoctorProbes {
   node(signal: AbortSignal): Promise<string>;
   provider(provider: Provider, signal: AbortSignal): Promise<DiscoveryResult>;
@@ -22,7 +38,29 @@ export interface DoctorProbes {
   chromium(signal: AbortSignal): Promise<Verdict>;
   disk(signal: AbortSignal): Promise<{ writable: boolean; freeBytes: number }>;
   integrity(signal: AbortSignal): Promise<"ok" | "corrupt" | "missing" | "unavailable">;
+  /** Size of the main database plus its WAL, read when the probes are created. */
+  databaseBytes?: number;
+  databaseSpace?(signal: AbortSignal): Promise<SqliteSpace | null>;
   port(signal: AbortSignal): Promise<boolean>;
+}
+export function databaseSpaceVerdict(space: SqliteSpace | null): Verdict {
+  if (!space) return verdict("ok", "No SQLite database yet; no space to reclaim", "");
+  const free = (space.reclaimableBytes / 1024 / 1024).toFixed(2);
+  const allocated = (space.pageBytes / 1024 / 1024).toFixed(2);
+  return verdict(
+    space.reclaimableBytes >= 1024 * 1024 ? "warn" : "ok",
+    `SQLite: ${allocated} MiB allocated, ${free} MiB reusable; auto_vacuum=${space.autoVacuum}`,
+    space.autoVacuum === 0
+      ? "Legacy database: free pages are reused, but shrinking requires a rowid-preserving migration. Do not run plain VACUUM."
+      : "Run ace doctor --fix with the local daemon running to reclaim deleted-row space.",
+  );
+}
+export function walSpaceVerdict(space: SqliteSpace | null): Verdict {
+  return verdict(
+    space && space.walBytes >= 32 * 1024 * 1024 ? "warn" : "ok",
+    `SQLite WAL: ${((space?.walBytes ?? 0) / 1024 / 1024).toFixed(2)} MiB`,
+    "Run ace doctor --fix with the local daemon running. A reader can delay checkpointing; retry after it finishes.",
+  );
 }
 const verdict = (status: Verdict["status"], message: string, fix: string): Verdict => ({
   status,
@@ -143,6 +181,8 @@ export function createDoctorChecks(probes: DoctorProbes): Check[] {
     {
       id: "chromium",
       fix: "Check ace's browser: the daemon log has why it did not start, or set ACE_CHROMIUM_PATH to a working Chromium.",
+      // A real Chrome start (version, then a headless launch, 10 s each at most).
+      timeoutMs: CHROMIUM_BUDGET_MS,
       run: (signal) => probes.chromium(signal),
     },
     {
@@ -153,8 +193,25 @@ export function createDoctorChecks(probes: DoctorProbes): Check[] {
     {
       id: "sqlite",
       fix: "Stop ace and preserve the database before restoring a backup.",
+      timeoutMs: integrityBudgetMs(probes.databaseBytes ?? 0),
       run: async (signal) => integrityVerdict(await probes.integrity(signal)),
     },
+    ...(probes.databaseSpace
+      ? [
+          {
+            id: "sqlite.space",
+            fix: "Check database free pages and run ace doctor --fix.",
+            run: async (signal: AbortSignal) =>
+              databaseSpaceVerdict((await probes.databaseSpace?.(signal)) ?? null),
+          },
+          {
+            id: "sqlite.wal",
+            fix: "Check the SQLite WAL and run ace doctor --fix.",
+            run: async (signal: AbortSignal) =>
+              walSpaceVerdict((await probes.databaseSpace?.(signal)) ?? null),
+          },
+        ]
+      : []),
     {
       id: "port",
       fix: "Stop the existing daemon or set ACE_PORT to an unused port.",
@@ -193,14 +250,23 @@ export async function runDoctor(
     });
   const results = await Promise.all(
     checks.map(async (check): Promise<CheckResult> => {
+      const limit = check.timeoutMs ?? timeoutMs;
       const controller = new AbortController();
       let cancel = noop;
       try {
         const timeout = new Promise<Verdict>((resolve) => {
           cancel = schedule(() => {
             controller.abort();
-            resolve(verdict("fail", "Check timed out", check.fix));
-          }, timeoutMs);
+            // Not finishing in time says nothing about health; a slow check on a big
+            // database must not read as corruption.
+            resolve(
+              verdict(
+                "warn",
+                `Didn't finish within ${Math.round(limit / 1000)} s`,
+                `Run ace doctor again. If it never finishes: ${check.fix}`,
+              ),
+            );
+          }, limit);
         });
         const result = await Promise.race([
           Promise.resolve().then(() => check.run(controller.signal)),

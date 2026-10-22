@@ -148,7 +148,14 @@ export function harness(
       request: {
         kind: "question",
         questions: [
-          { id: "q", text: "Continue?", options: [], multiSelect: false, allowOther: true },
+          {
+            id: "q",
+            text: "Continue?",
+            options: [],
+            multiSelect: false,
+            allowOther: true,
+            secret: false,
+          },
         ],
       },
     });

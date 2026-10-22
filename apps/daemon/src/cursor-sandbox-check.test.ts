@@ -3,7 +3,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, onTestFinished, test } from "vitest";
-import { cursorSandboxChecks, type CursorSandboxMachine } from "./cursor-sandbox-check.ts";
+import {
+  cursorSandboxChecks,
+  cursorSandboxRepair,
+  type CursorSandboxMachine,
+} from "./cursor-sandbox-check.ts";
 
 const home = "/home/me";
 const releaseHelper =
@@ -29,11 +33,15 @@ async function verdict(overrides: Partial<CursorSandboxMachine>) {
   return check.run(AbortSignal.timeout(5_000));
 }
 
-/** The profile between the heredoc markers of the fix's commands. */
-function profileIn(fix: string): string {
-  const text = /<<'EOF'\n([\s\S]*?)\nEOF/.exec(fix)?.[1];
-  if (!text) throw new Error(`no profile in ${fix}`);
-  return `${text}\n`;
+/** The profile `ace doctor --fix` would install. */
+async function profile(overrides: Partial<CursorSandboxMachine>): Promise<string> {
+  const repair = await cursorSandboxRepair(
+    { dataDir: "/home/me/.ace", home, machine: machine(overrides) },
+    AbortSignal.timeout(5_000),
+  );
+  if (!repair) throw new Error("no profile");
+  expect(repair.name).toBe("ace-cursor-sandbox");
+  return repair.text;
 }
 
 test("doctor stays quiet about Cursor's sandbox where user namespaces aren't restricted", () => {
@@ -50,17 +58,17 @@ test("a helper AppArmor blocks gets a one-time profile covering every standalone
   const result = await verdict({});
   expect(result.status).toBe("warn");
   expect(result.message).toMatch(/Cursor can't run in Auto review: AppArmor restricts/);
-  expect(result.fix).toContain("sudo tee /etc/apparmor.d/ace-cursor-sandbox >/dev/null <<'EOF'");
-  expect(result.fix).toContain("sudo apparmor_parser -r /etc/apparmor.d/ace-cursor-sandbox");
-  expect(profileIn(result.fix)).toContain(
+  expect(result.fix).toMatch(/ace doctor --fix/);
+  expect(await profile({})).toContain(
     "profile ace-cursor-sandbox @{HOME}/.ace/releases/*/node_modules/@cursor/sdk-linux-{x64,arm64}/bin/cursorsandbox flags=(unconfined) {",
   );
 });
 
 test("a helper outside a standalone release is attached by its own path", async () => {
   const helper = "/srv/ace dev/node_modules/@cursor/sdk-linux-x64/bin/cursorsandbox";
-  const result = await verdict({ helper: async () => helper });
-  expect(profileIn(result.fix)).toContain(`profile ace-cursor-sandbox "${helper}" flags=`);
+  expect(await profile({ helper: async () => helper })).toContain(
+    `profile ace-cursor-sandbox "${helper}" flags=`,
+  );
 });
 
 test("a helper whose preflight passes reports Cursor's sandbox working", async () => {
@@ -76,16 +84,28 @@ test("an old glibc is reported as such, not as an AppArmor profile to install", 
     glibc: () => "2.35",
   });
   expect(result.message).toMatch(/needs glibc 2\.39 and this system has 2\.35/);
-  expect(result.fix).not.toContain("apparmor");
+  expect(result.fix).not.toMatch(/apparmor|doctor --fix/i);
+  const repair = await cursorSandboxRepair(
+    {
+      dataDir: "/home/me/.ace",
+      home,
+      machine: machine({ preflight: async () => ({ code: 1, stderr }), glibc: () => "2.35" }),
+    },
+    AbortSignal.timeout(5_000),
+  );
+  expect(repair).toBeUndefined();
 });
 
 const parser = spawnSync("apparmor_parser", ["--version"]).status === 0;
-test.skipIf(!parser)("AppArmor accepts the profile doctor prints for Cursor's helper", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "ace-cursor-profile-"));
-  onTestFinished(() => rm(dir, { recursive: true, force: true }));
-  const file = join(dir, "ace-cursor-sandbox");
-  await writeFile(file, profileIn((await verdict({})).fix));
-  const run = spawnSync("apparmor_parser", ["-QK", "-d", file], { encoding: "utf8" });
-  expect(run.status, run.stderr).toBe(0);
-  expect(`${run.stdout}\n${run.stderr}`).toMatch(/Mode:\s+unconfined/);
-});
+test.skipIf(!parser)(
+  "AppArmor accepts the profile doctor installs for Cursor's helper",
+  async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ace-cursor-profile-"));
+    onTestFinished(() => rm(dir, { recursive: true, force: true }));
+    const file = join(dir, "ace-cursor-sandbox");
+    await writeFile(file, await profile({}));
+    const run = spawnSync("apparmor_parser", ["-QK", "-d", file], { encoding: "utf8" });
+    expect(run.status, run.stderr).toBe(0);
+    expect(`${run.stdout}\n${run.stderr}`).toMatch(/Mode:\s+unconfined/);
+  },
+);

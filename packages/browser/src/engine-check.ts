@@ -20,9 +20,11 @@ import {
   type ChromeLaunchProblem,
 } from "./launch-failure.ts";
 import {
-  chromiumAppArmorInstall,
   chromiumAppArmorProfile,
+  chromiumAppArmorProfileName,
+  chromiumAppArmorProfilePath,
   chromiumAttachmentForEngine,
+  type AppArmorProfile,
 } from "./linux-sandbox.ts";
 
 /** A doctor verdict on ace's browser engine. */
@@ -175,11 +177,14 @@ function parseJson(text: string): unknown {
 }
 const PipeReply = z.object({ id: z.number().optional(), result: z.unknown().optional() });
 
-function problemVerdict(
-  problem: ChromeLaunchProblem,
-  sandboxFix: string,
-  stderr: string,
-): EngineVerdict {
+/**
+ * Report text points at `ace doctor --fix` instead of carrying the commands: the shared report is
+ * redacted, and a redacted AppArmor profile or path no longer works. `--dry-run` prints them.
+ */
+export const appArmorRepairHint =
+  "Run ace doctor --fix to install ace's AppArmor profile (sudo asks for your password); ace doctor --dry-run prints the commands.";
+
+function problemVerdict(problem: ChromeLaunchProblem, stderr: string): EngineVerdict {
   const optOut =
     "Or, accepting the risk, set ACE_CHROMIUM_NO_SANDBOX=1 in the daemon's environment to run ace's browser without its sandbox.";
   switch (problem.kind) {
@@ -188,7 +193,7 @@ function problemVerdict(
         status: "fail",
         message: `ace's browser cannot start: missing ${problem.libraries.join(", ")}`,
         fix: problem.install
-          ? `Install them: ${problem.install}`
+          ? `Run ace doctor --fix to install them, or run: ${problem.install}`
           : `Install the packages that provide ${problem.libraries.join(", ")}.`,
       };
     case "sandbox_blocked":
@@ -202,7 +207,7 @@ function problemVerdict(
               : "ace's browser cannot start its sandbox",
         fix:
           problem.cause === "apparmor"
-            ? `Install ace's AppArmor profile once:\n${sandboxFix}\n${optOut}`
+            ? `${appArmorRepairHint} ${optOut}`
             : problem.cause === "userns_disabled"
               ? `Enable them: sudo sysctl -w kernel.unprivileged_userns_clone=1 (persist it in /etc/sysctl.d). ${optOut}`
               : `Chrome said: ${stderrLine(stderr).replace(/\.+$/, "")}. ${optOut}`,
@@ -263,19 +268,9 @@ export async function checkBrowserEngine(options: EngineCheckOptions): Promise<E
         };
   }
   const sandbox = options.env.ACE_CHROMIUM_NO_SANDBOX !== "1";
-  const sandboxFix = chromiumAppArmorInstall(
-    chromiumAppArmorProfile(
-      chromiumAttachmentForEngine({
-        dataDir: resolve(options.dataDir),
-        home: options.home ?? homedir(),
-        ...(engine.pinned ? {} : { chromiumPath: engine.path }),
-      }),
-    ),
-  );
   const diagnose = async (stderr: string) =>
     problemVerdict(
       classifyChromeLaunch(await chromeLaunchFacts(engine.path, stderr, machine)),
-      sandboxFix,
       stderr,
     );
   const printed = await version(engine.path, timeoutMs, options.signal);
@@ -318,7 +313,7 @@ export async function checkBrowserEngine(options: EngineCheckOptions): Promise<E
       message: `${name} starts headless without its sandbox (ACE_CHROMIUM_NO_SANDBOX=1)`,
       fix:
         obstacle === "apparmor"
-          ? `Pages run without Chrome's sandbox. Install ace's AppArmor profile instead and unset ACE_CHROMIUM_NO_SANDBOX:\n${sandboxFix}`
+          ? `Pages run without Chrome's sandbox. Install ace's AppArmor profile instead, then unset ACE_CHROMIUM_NO_SANDBOX. ${appArmorRepairHint}`
           : obstacle === "userns_disabled"
             ? "Pages run without Chrome's sandbox. Enable user namespaces instead (sudo sysctl -w kernel.unprivileged_userns_clone=1, persisted in /etc/sysctl.d) and unset ACE_CHROMIUM_NO_SANDBOX."
             : "Pages run without Chrome's sandbox, and nothing on this machine blocks it: unset ACE_CHROMIUM_NO_SANDBOX.",
@@ -326,4 +321,69 @@ export async function checkBrowserEngine(options: EngineCheckOptions): Promise<E
   } finally {
     await rm(profile, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+/** What `ace doctor --fix` can change on this machine so ace's browser starts. */
+export interface EngineRepairs {
+  /**
+   * The system packages that provide the libraries Chrome could not load: `install` as a person
+   * types it, `steps` as commands to run as root (no `sudo`).
+   */
+  packages?: { libraries: string[]; install: string; steps: string[][] };
+  /** ace-chromium, when AppArmor restricts user namespaces and it isn't installed as needed. */
+  profile?: AppArmorProfile;
+}
+
+/**
+ * The repairs for the Chromium ace runs, for a doctor that saw its check fail. Reads the machine
+ * (`--version` and the AppArmor switch) instead of the report, whose text is redacted.
+ */
+export async function browserEngineRepairs(options: EngineCheckOptions): Promise<EngineRepairs> {
+  const platform = options.platform ?? process.platform;
+  if (platform !== "linux") return {};
+  const machine = options.machine ?? linuxMachine;
+  let engine: { path: string; pinned?: string };
+  try {
+    engine = engineExecutable({
+      dataDir: options.dataDir,
+      env: options.env,
+      platform,
+      arch: options.arch ?? process.arch,
+    });
+    await access(engine.path, constants.X_OK);
+  } catch {
+    return {};
+  }
+  const repairs: EngineRepairs = {};
+  const printed = await version(engine.path, options.timeoutMs ?? 10_000, options.signal);
+  if (printed.code !== 0) {
+    const problem = classifyChromeLaunch(
+      await chromeLaunchFacts(engine.path, printed.stderr, machine),
+    );
+    if (problem.kind === "missing_libraries" && problem.install)
+      repairs.packages = {
+        libraries: problem.libraries,
+        install: problem.install,
+        steps: installSteps(problem.install),
+      };
+  }
+  if ((await sandboxFacts(machine)).appArmorRestrictsUserns) {
+    const text = chromiumAppArmorProfile(
+      chromiumAttachmentForEngine({
+        dataDir: resolve(options.dataDir),
+        home: options.home ?? homedir(),
+        ...(engine.pinned ? {} : { chromiumPath: engine.path }),
+      }),
+    );
+    if ((await machine.readText(chromiumAppArmorProfilePath)) !== text)
+      repairs.profile = { name: chromiumAppArmorProfileName, text };
+  }
+  return repairs;
+}
+
+function installSteps(install: string): string[][] {
+  const words = install.split(" ").filter(Boolean);
+  const command = words[0] === "sudo" ? words.slice(1) : words;
+  // A fresh system or container has no package lists yet, so apt would find nothing.
+  return command[0] === "apt-get" ? [["apt-get", "update"], command] : [command];
 }

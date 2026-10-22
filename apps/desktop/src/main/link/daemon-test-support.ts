@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:net";
-import { startDaemon } from "@ace/daemon";
+import { startDaemon, AdapterRegistry } from "@ace/daemon";
 import type { DaemonProcess } from "../daemon/supervisor.ts";
 
 /** Test support: real daemons in this process for the desktop's composition tests. */
@@ -28,6 +28,9 @@ export function inProcessDaemons(home: string, port: number) {
       exit?.(code, signal);
     };
     startDaemon({
+      // Desktop link composition exercises sockets and lifecycle, without provider CLIs.
+      engine: { registry: new AdapterRegistry() },
+      modelInstances: [],
       config: {
         dataDir: home,
         host: "127.0.0.1",

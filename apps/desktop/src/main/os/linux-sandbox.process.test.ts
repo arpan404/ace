@@ -2,10 +2,10 @@ import { spawnSync } from "node:child_process";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { checkBrowserEngine, engineExecutable } from "@ace/browser/engine-check";
+import { browserEngineRepairs, engineExecutable } from "@ace/browser/engine-check";
+import { appArmorSetupScript } from "@ace/browser/linux-sandbox";
 import { expect, onTestFinished, test } from "vitest";
 import { appProfile, browserProfile, linuxInstall } from "./linux-sandbox.ts";
-import { setupScript } from "./linux-sandbox-setup.ts";
 
 async function scratch(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "ace-sandbox-"));
@@ -13,7 +13,7 @@ async function scratch(): Promise<string> {
   return dir;
 }
 
-test("the setup installs exactly the profile ace doctor prints when AppArmor blocks Chrome", async () => {
+test("the app sets up exactly the profile ace doctor --fix installs when AppArmor blocks Chrome", async () => {
   const dataDir = join(await scratch(), "ace home");
   // A Chrome that fails the way a blocked sandbox does, at the path the daemon would run.
   const chrome = engineExecutable({ dataDir, env: {}, platform: "linux", arch: "x64" }).path;
@@ -23,7 +23,7 @@ test("the setup installs exactly the profile ace doctor prints when AppArmor blo
     "#!/bin/sh\necho 'FATAL:zygote_host_impl_linux.cc No usable sandbox!' >&2\nexit 1\n",
   );
   await chmod(chrome, 0o755);
-  const verdict = await checkBrowserEngine({
+  const repairs = await browserEngineRepairs({
     dataDir,
     env: {},
     signal: AbortSignal.timeout(10_000),
@@ -37,17 +37,19 @@ test("the setup installs exactly the profile ace doctor prints when AppArmor blo
       root: false,
     },
   });
-  expect(verdict.message).toMatch(/AppArmor restricts user namespaces/);
   const desktop = browserProfile({ dataDir, home: "/home/me" });
-  expect(verdict.fix).toContain(`sudo tee /etc/apparmor.d/${desktop.name} >/dev/null <<'EOF'\n`);
-  expect(verdict.fix).toContain(`${desktop.text.trimEnd()}\nEOF\n`);
+  expect(repairs.profile).toEqual({ name: desktop.name, text: desktop.text });
 });
 
 test("the root side refuses a profile name outside ace's own before writing anything", () => {
   for (const name of ["../../etc/passwd", "ace-x/../../etc/passwd", "ace-", "chrome", "ace-A"]) {
-    const run = spawnSync("/bin/sh", ["-c", setupScript, "ace-sandbox-setup", name, "text"], {
-      encoding: "utf8",
-    });
+    const run = spawnSync(
+      "/bin/sh",
+      ["-c", appArmorSetupScript, "ace-sandbox-setup", name, "text"],
+      {
+        encoding: "utf8",
+      },
+    );
     expect({ name, status: run.status }).toEqual({ name, status: 64 });
   }
 });

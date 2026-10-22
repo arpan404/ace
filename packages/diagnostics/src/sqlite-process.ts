@@ -1,7 +1,8 @@
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
+import { readSqlitePageSpace } from "./sqlite-space.ts";
 const { path, task } = z
-  .object({ path: z.string(), task: z.enum(["integrity", "pages"]) })
+  .object({ path: z.string(), task: z.enum(["integrity", "pages", "space"]) })
   .parse({ path: process.argv[2], task: process.argv[3] });
 let db: DatabaseSync | undefined;
 try {
@@ -11,6 +12,8 @@ try {
     process.stdout.write(
       JSON.stringify(rows.length === 1 && rows[0]?.integrity_check === "ok" ? "ok" : "corrupt"),
     );
+  } else if (task === "space") {
+    process.stdout.write(JSON.stringify(readSqlitePageSpace(db)));
   } else {
     const count = z
       .object({ page_count: z.number().nonnegative() })

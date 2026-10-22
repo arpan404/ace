@@ -49,6 +49,8 @@ export interface ServerOptions {
   /** Detected dev servers per thread (`preview.request` list with suggestions). */
   previewSuggestions?: import("./preview-suggestions/tracker.ts").SuggestionTracker;
   automations?: Pick<import("@ace/automations").AutomationService, "handle">;
+  /** Automations agents made from threads (`source: "thread"`, `includeThreads`). */
+  threadAutomations?: import("./agent-control/thread-automations.ts").ThreadAutomations;
   /** Threads whose browser an agent works in now (`browser.browsing.watch`). */
   browsing?: import("./browsing.ts").BrowsingThreads;
   /** Threads whose agent uses Mac apps now (`computer.using.watch`). */
@@ -123,6 +125,10 @@ export interface ServerOptions {
   health?: () => Promise<DiagnosticsHealth>;
   doctor?: () => Promise<import("@ace/protocol").DiagnosticReport>;
   toolchains?: () => Promise<import("@ace/protocol").Toolchain[]>;
+  doctorFix?: (assertAuthorized: () => void) => Promise<{
+    report: import("@ace/protocol").DiagnosticReport;
+    repairs: import("@ace/protocol").DiagnosticRepair[];
+  }>;
   supportFiles?: FilesService;
   context?: {
     downloadAttachment?: import("@ace/context").ContextService["downloadAttachment"];

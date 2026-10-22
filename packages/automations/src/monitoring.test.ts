@@ -92,13 +92,17 @@ it("immediate stop and start keeps a long run until its recovered thread settles
   expect(h.service.inbox().runs).toMatchObject([{ status: "running" }]);
   expect(
     h.service.trigger("triage", { key: "next", variables: { subject: "issues" } }).status,
-  ).toBe("skipped");
+  ).toBe("queued");
   h.completions[0]?.resolve({ threadId: "obsolete", status: "succeeded", result: "late" });
   recovered.resolve({ threadId: "recovered", status: "failed", result: "Thread failed" });
-  await h.service.settled();
+  // The waiting run starts only once the recovered one has settled.
+  for (let i = 0; i < 100 && h.inputs.length < 2; i++)
+    await new Promise<void>((resolve) => setImmediate(resolve));
   expect(h.service.inbox().runs.find((item) => item.id === run.id)).toMatchObject({
     status: "failed",
     threadId: "recovered",
   });
-  expect(h.inputs).toHaveLength(1);
+  expect(h.inputs).toHaveLength(2);
+  h.completions.at(-1)?.resolve({ threadId: "next", status: "succeeded", result: "Done" });
+  await h.service.settled();
 });

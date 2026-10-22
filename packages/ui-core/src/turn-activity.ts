@@ -2,7 +2,7 @@ import type { ThreadReader } from "@ace/client";
 import { isInternalTask, isTestCommand, shellCommandOf, standsForSubagent } from "@ace/projection";
 import type { AgentStatus, Interaction, Item, ThreadStatus } from "@ace/protocol";
 import { turnTreeOf } from "./turn-tree.ts";
-import { agentName } from "./agents.ts";
+import { agentName, rootRunning } from "./agents.ts";
 import {
   askingLabel,
   describeLive,
@@ -427,6 +427,8 @@ function readActivity(
   if (blocking.length && live) return waitingOnYou(reader, rootId, blocking);
   switch (status.state) {
     case "starting":
+      // A refused start keeps its root starting; the thread says nothing is running.
+      if (!rootRunning(agent, threadStatus)) return undefined;
       return line("Starting", "working");
     case "working": {
       const stretch = ledger.currentStretch(reader);

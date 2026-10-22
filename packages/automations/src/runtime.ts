@@ -7,6 +7,11 @@ interface PreparedConfiguration {
   revision: number;
   recurrence: Recurrence | undefined;
   unsubscribe: (() => void) | undefined;
+  watchError: unknown;
+}
+export interface WatchHooks {
+  onReady?: (id: string, revision: number) => void;
+  onError?: (id: string, revision: number, error: unknown) => void;
 }
 /** Runtime subscriptions are prepared before persistence, then handed over after commit. */
 export class AutomationRuntime {
@@ -29,27 +34,42 @@ export class AutomationRuntime {
     this.receive = receive;
     this.report = report;
   }
-  prepare(automation: Automation): PreparedConfiguration {
+  prepare(automation: Automation, hooks?: WatchHooks): PreparedConfiguration {
     const revision = ++this.revision;
     const recurrence =
       automation.trigger.kind === "schedule"
         ? compileSchedule(automation.trigger.schedule)
         : undefined;
-    const unsubscribe =
+    let unsubscribe: (() => void) | undefined;
+    let watchError: unknown;
+    if (
       automation.enabled &&
       this.isLive() &&
       this.deps.workspace &&
       automation.trigger.kind === "file"
-        ? this.deps.workspace.subscribe(
-            automation.workspace,
-            automation.trigger.paths,
-            async (event) => {
-              if (this.isLive() && this.current(automation.id) === revision)
-                this.receive(automation.id, event);
-            },
-          )
-        : undefined;
-    return { automation, revision, recurrence, unsubscribe };
+    ) {
+      try {
+        unsubscribe = this.deps.workspace.subscribe(
+          automation.workspace,
+          automation.trigger.paths,
+          async (event) => {
+            if (
+              this.isLive() &&
+              this.current(automation.id) === revision &&
+              this.watches.has(automation.id)
+            )
+              this.receive(automation.id, event);
+          },
+          {
+            onReady: () => hooks?.onReady?.(automation.id, revision),
+            onError: (error) => hooks?.onError?.(automation.id, revision, error),
+          },
+        );
+      } catch (error) {
+        watchError = error;
+      }
+    }
+    return { automation, revision, recurrence, unsubscribe, watchError };
   }
   install(prepared: PreparedConfiguration): void {
     const { automation, revision, recurrence, unsubscribe } = prepared;
@@ -60,6 +80,18 @@ export class AutomationRuntime {
     if (unsubscribe) this.watches.set(automation.id, unsubscribe);
     else this.watches.delete(automation.id);
     this.release(previous);
+  }
+  /** Drop a failed async watcher only when its generation is still current. */
+  failed(id: string, revision: number): boolean {
+    if (this.revisions.get(id) !== revision) return false;
+    const unsubscribe = this.watches.get(id);
+    this.watches.delete(id);
+    this.revisions.delete(id);
+    this.release(unsubscribe);
+    return true;
+  }
+  hasWatch(id: string): boolean {
+    return this.watches.has(id);
   }
   discard(prepared: PreparedConfiguration): void {
     this.release(prepared.unsubscribe);

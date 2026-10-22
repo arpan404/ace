@@ -403,7 +403,7 @@ test("fake automations publish no next run or admission while globally disabled"
         },
       },
     });
-    expect((await f.client.request({ type: "automation.list" })).schedules).toEqual([
+    expect((await f.client.request({ type: "automation.list" })).schedules).toMatchObject([
       { id: "scheduled", nextRunAt: null },
     ]);
     expect(

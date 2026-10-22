@@ -469,8 +469,12 @@ export function engineHandler(
         }
         const heldSend = p.type === "thread.send" && repo.queue.get(threadId).paused;
         if (!heldSend && !repo.reserve(threadId)) return fail("engine_capacity_exceeded");
-        const released = p.type === "thread.interrupt" ? repo.cancelPending(threadId, now()) : [];
-        if (p.type === "thread.interrupt") {
+        // A Stop of the thread (its root, with or without a run id) cancels what waits to be sent
+        // and holds the queue for the person. A stop of one of its other agents stops that agent
+        // alone: the root's turn, its inputs and the queue are someone else's to stop.
+        const threadStop = p.type === "thread.interrupt" && !stopsOneAgent(repo, threadId, p);
+        const released = threadStop ? repo.cancelPending(threadId, now()) : [];
+        if (threadStop) {
           const queue = repo.queue.get(threadId);
           repo.queue.set(
             threadId,
@@ -529,4 +533,15 @@ function releaseInterruptedHold(repo: EngineRepository, threadId: ThreadId, at: 
     },
     at,
   );
+}
+
+/** Whether an interrupt names one of the thread's agents other than its root. */
+function stopsOneAgent(
+  repo: EngineRepository,
+  threadId: ThreadId,
+  p: { agentId?: string | undefined },
+): boolean {
+  if (p.agentId === undefined) return false;
+  const state = repo.requireState(threadId);
+  return state.agents[state.rootKey ?? ""]?.agent.id !== p.agentId;
 }

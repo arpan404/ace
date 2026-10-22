@@ -41,6 +41,8 @@ export interface Services {
   previewClient?: import("../preview-client.ts").PreviewClient;
   previewSuggestions?: import("../preview-suggestions/tracker.ts").SuggestionTracker;
   automations?: import("@ace/automations").AutomationService;
+  /** Automations agents made from threads, for the person's own controls. */
+  threadAutomations?: import("../agent-control/thread-automations.ts").ThreadAutomations;
   activityReads?: import("../activity-reads.ts").ActivityReads;
   /** Local checks and verified batch merges of pull requests (ADR 0094). */
   verify?: import("../verify/verify-service.ts").Verify;

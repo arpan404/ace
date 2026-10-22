@@ -1262,7 +1262,9 @@ it("without serve-sim or idb the iOS catalog says the device tools are missing a
     expect.objectContaining({
       code: "tool_missing",
       message: "The Simulator's device tools aren't downloaded",
-      hint: expect.stringContaining("Download device tools in Devices"),
+      hint: expect.stringContaining(
+        "Download device tools in Devices: ace's serve-sim streams the Simulator",
+      ),
     }),
   );
 });

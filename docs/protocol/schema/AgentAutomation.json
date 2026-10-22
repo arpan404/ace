@@ -2,9 +2,6 @@
   "$id": "https://ace.local/protocol/v1/AgentAutomation.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "access": {
-      "$ref": "https://ace.local/protocol/v1/AccessMode.json"
-    },
     "concurrency": {
       "default": 1,
       "maximum": 32,
@@ -33,16 +30,8 @@
       ],
       "type": "string"
     },
-    "model": {
-      "maxLength": 256,
-      "minLength": 1,
-      "type": "string"
-    },
     "prompt": {
       "$ref": "https://ace.local/protocol/v1/MessageText.json"
-    },
-    "provider": {
-      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },
     "title": {
       "maxLength": 256,
@@ -50,7 +39,36 @@
       "type": "string"
     },
     "trigger": {
-      "$ref": "https://ace.local/protocol/v1/AutomationTrigger.json"
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "manual",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "schedule",
+              "type": "string"
+            },
+            "schedule": {
+              "$ref": "https://ace.local/protocol/v1/AgentAutomationSchedule.json"
+            }
+          },
+          "required": [
+            "kind",
+            "schedule"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "workspace": {
       "maxLength": 4096,

@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { accessSync, constants, readFileSync } from "node:fs";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
+import { appArmorSetupScript } from "@ace/browser/linux-sandbox";
 import type { SandboxNotice } from "../../shared/contract.ts";
 import {
   afterSetup,
@@ -12,25 +13,6 @@ import {
   profilesToInstall,
   type SandboxFacts,
 } from "./linux-sandbox.ts";
-
-/**
- * The root side of the setup, run through pkexec or run0 after the person's password: writes
- * each profile to /etc/apparmor.d and loads it. The text is fixed; profile names and contents
- * arrive as arguments, never through files the person's account could swap in between. A name
- * outside `ace-[a-z0-9-]` or a profile AppArmor can't parse stops it before anything is written.
- */
-export const setupScript = `set -eu
-while [ "$#" -ge 2 ]; do
-  name=$1; text=$2; shift 2
-  case "$name" in ace-?*) ;; *) exit 64 ;; esac
-  case "$name" in *[!abcdefghijklmnopqrstuvwxyz0123456789-]*) exit 64 ;; esac
-  tmp=$(mktemp)
-  printf '%s' "$text" > "$tmp"
-  if ! apparmor_parser --skip-kernel-load --skip-cache "$tmp"; then rm -f "$tmp"; exit 65; fi
-  install -m 0644 "$tmp" "/etc/apparmor.d/$name"
-  rm -f "$tmp"
-  apparmor_parser --replace --write-cache "/etc/apparmor.d/$name"
-done`;
 
 /** A way to run the setup as root that asks the person through their desktop's prompt. */
 export interface Elevation {
@@ -62,7 +44,7 @@ export const runElevated: ElevatedRun = (elevation, args) =>
   new Promise((done) => {
     execFile(
       elevation.path,
-      ["/bin/sh", "-c", setupScript, "ace-sandbox-setup", ...args],
+      ["/bin/sh", "-c", appArmorSetupScript, "ace-sandbox-setup", ...args],
       { timeout: 10 * 60_000, maxBuffer: 1024 * 1024 },
       (error) => {
         if (!error) return done(0);

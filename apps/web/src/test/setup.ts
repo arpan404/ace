@@ -1,5 +1,8 @@
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach } from "vitest";
+
+// Lazy routes may need their first transform before their controls can appear.
+configure({ asyncUtilTimeout: 10_000 });
 
 /*
  * jsdom has no layout. The transcript virtualizer reads offsetHeight, so give its viewport a

@@ -325,8 +325,8 @@ export class AccountManagement {
       return changed(instanceId);
     }
     if (request.type === "accounts.rename") {
+      // A label and badge are ace's own words for the account, ACP agents' included.
       const instance = this.account(request.instanceId);
-      if (instance.provider === "acp") throw new Error("Account is immutable");
       registry.rename(instance.id, request.label, request);
       return changed(instance.id);
     }
