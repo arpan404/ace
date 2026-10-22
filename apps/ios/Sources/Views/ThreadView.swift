@@ -76,14 +76,14 @@ struct ThreadView: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
             }
             .toolbar {
-                ThreadToolbar(title: metadata?.title ?? "Thread", project: metadata?.project ?? "", badge: metadata?.badge, status: metadata?.status,
+                ThreadToolbar(title: metadata?.title ?? "Thread", project: metadata?.project ?? "", badge: metadata?.badge, status: model.headerStatus(of: thread),
                               menu: ThreadMenu(model: model, thread: thread, archived: archived, activityRow: activityRow,
                                                open: open, problem: { activityProblem = $0 }, leave: { dismiss() }))
             }
             .navigationTitle(metadata?.title ?? "Thread")
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
-                if typeSize.isAccessibilitySize, let status = metadata?.status {
+                if typeSize.isAccessibilitySize, let status = model.headerStatus(of: thread) {
                     StateLabel(status: status)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.sm)

@@ -12,6 +12,9 @@ import QuartzCore
     let id: String
     var epoch = 0
     var metadata: ThreadRow?
+    /// Whether `metadata` came from this visit. A reopened thread keeps its last metadata for
+    /// the title, but not its word on status until the current snapshot arrives.
+    var metadataCurrent = false
     var items: [String: ItemModel] = [:]
     var order: [String] = []
     var interactions: [String: ApprovalRow] = [:]
@@ -256,7 +259,7 @@ import QuartzCore
                     else { thread.items[itemId] = ItemModel(row); reorder = true }
                     if let index = row.index, thread.positions[itemId] != index { thread.positions[itemId] = index; reorder = true }
                 } else { thread.items.removeValue(forKey: itemId); thread.positions.removeValue(forKey: itemId); reorder = true }
-            case .metadata(let id, let epoch, let row): if thread?.id == id, thread?.epoch == epoch { thread?.metadata = row }
+            case .metadata(let id, let epoch, let row): if thread?.id == id, thread?.epoch == epoch { thread?.metadata = row; thread?.metadataCurrent = true }
             case .interaction(let id, let epoch, let interactionId, let row):
                 if thread?.id == id, thread?.epoch == epoch {
                     thread?.interactions[interactionId] = row
@@ -312,6 +315,7 @@ import QuartzCore
         if let current = thread, current.id != id { shelf.keep(current) }
         let opened = kept ?? ThreadModel(id: id)
         opened.epoch = generation
+        opened.metadataCurrent = false
         if kept != nil { opened.screen.revisit() }
         ThreadOpenTrace.shared.open(id, warm: kept != nil)
         ThreadOpenTrace.shared.showing(true)
