@@ -4,9 +4,12 @@ import SwiftUI
 private final class TranscriptScrollIntent {
     var active = false
     var consumed = false
+    /// The room under the rows when the content height was last seen: a change of room scrolls
+    /// itself, with the keyboard's or the composer's motion.
+    var room: CGFloat = 0
     var direction = 0
-    var metrics = Metrics(y: 0, top: 0, bottom: 0, viewport: 0, topInset: 0, bottomInset: 0)
-    struct Metrics: Equatable { let y: CGFloat; let top: CGFloat; let bottom: CGFloat; let viewport: CGFloat; let topInset: CGFloat; let bottomInset: CGFloat }
+    var metrics = Metrics(y: 0, top: 0, bottom: 0, viewport: 0, topInset: 0, bottomInset: 0, height: 0)
+    struct Metrics: Equatable { let y: CGFloat; let top: CGFloat; let bottom: CGFloat; let viewport: CGFloat; let topInset: CGFloat; let bottomInset: CGFloat; let height: CGFloat }
     func begin() { active = true; consumed = false; direction = 0 }
 }
 
@@ -112,9 +115,10 @@ struct ConversationFeed: View {
             return TranscriptScrollIntent.Metrics(y: geometry.contentOffset.y,
                 top: geometry.contentOffset.y + insets.top,
                 bottom: geometry.contentSize.height + insets.bottom - geometry.contentOffset.y - frame,
-                viewport: frame, topInset: insets.top, bottomInset: insets.bottom)
+                viewport: frame, topInset: insets.top, bottomInset: insets.bottom, height: geometry.contentSize.height)
         } action: { old, new in
             intent.metrics = new
+            keepEnd(old: old, new: new, proxy: proxy)
             if thread.loaded, new.bottom <= 1 { ThreadOpenTrace.shared.settled(thread.id) }
             if intent.active {
                 // Scrolling up only stops following: the live list stays in place until the
@@ -189,6 +193,16 @@ struct ConversationFeed: View {
         withAnimation(motion) { toEnd(proxy) }
     }
     private func toEnd(_ proxy: ScrollViewProxy) { proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
+    /// Following the end, the end stays in place as rows change height: older history filling in
+    /// above, rows measured on the way down after a jump. The person's own scroll wins, and a
+    /// change of room has its own animated scroll.
+    private func keepEnd(old: TranscriptScrollIntent.Metrics, new: TranscriptScrollIntent.Metrics, proxy: ScrollViewProxy) {
+        let room = barHeight + keyboardLift
+        defer { intent.room = room }
+        guard pinned, !intent.active, !keyboardMoving, room == intent.room,
+              new.height != old.height, new.bottom > 1 else { return }
+        toEnd(proxy)
+    }
     private func pageIfNeeded(_ proxy: ScrollViewProxy) {
         guard intent.active, !intent.consumed, thread.loaded, !reading.loading, reading.problem == nil else { return }
         let ahead = max(AceTheme.Dimensions.touchTarget, intent.metrics.viewport * 1.5)
