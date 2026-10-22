@@ -41,6 +41,31 @@ const missing = (error: unknown) =>
   error instanceof Error && "code" in error && error.code === "ENOENT";
 
 /**
+ * The settings file inside a home ace made, once its `antigravity-acp` folder is known to be a
+ * real folder inside that home: a link there could point the write at the person's own settings.
+ * The home itself is validated by the caller first.
+ */
+export async function managedAntigravitySettingsFile(home: string): Promise<string> {
+  const folder = join(home, "antigravity-acp");
+  try {
+    await mkdir(folder, { mode: 0o700 }).catch((error: unknown) => {
+      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+    });
+    const found = await lstat(folder);
+    if (
+      !found.isDirectory() ||
+      found.isSymbolicLink() ||
+      (await realpath(folder)) !== join(await realpath(home), "antigravity-acp")
+    )
+      throw new ProviderLoginFailure(unwritable);
+  } catch (error) {
+    if (error instanceof ProviderLoginFailure) throw error;
+    throw new ProviderLoginFailure(unwritable);
+  }
+  return antigravitySettingsFile(home);
+}
+
+/**
  * Set `gcp.project` and `gcp.location` in a settings file. `followLinks` is for the person's own
  * home, where a linked file is theirs to keep; in a home ace made, a link is refused.
  */

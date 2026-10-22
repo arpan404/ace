@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -320,6 +320,27 @@ test("Gemini Enterprise on an added account writes only its project and location
       readFile(join(f.home, ".gemini", "antigravity-acp", "settings.json")),
     ).rejects.toThrow();
     expect(f.registry.summary(work.id, 1000)).toMatchObject({ antigravitySignIn: "enterprise" });
+  } finally {
+    await f.close();
+  }
+});
+
+test("an added account whose settings folder links to the person's own never rewrites their settings", async () => {
+  const f = await antigravity();
+  try {
+    const personal = join(f.home, ".gemini", "antigravity-acp");
+    await mkdir(personal, { recursive: true });
+    const before = JSON.stringify({ auth: { type: "oauth-personal" } });
+    await writeFile(join(personal, "settings.json"), before);
+    const work = await f.add("Work");
+    await symlink(personal, join(work.homeDir, "antigravity-acp"));
+
+    const session = await f.start({
+      instance: work.id,
+      signIn: { method: "enterprise", project: "acme-agents", location: "eu" },
+    });
+    expect(await f.sessions.completed("device", session)).toMatchObject({ state: "failed" });
+    expect(await readFile(join(personal, "settings.json"), "utf8")).toBe(before);
   } finally {
     await f.close();
   }

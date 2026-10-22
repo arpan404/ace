@@ -13,6 +13,7 @@ import {
 import {
   personalGeminiHome,
   antigravitySettingsFile,
+  managedAntigravitySettingsFile,
   writeAntigravityGcp,
 } from "../antigravity-settings.ts";
 import {
@@ -132,11 +133,13 @@ export async function prepareAgentLogin(
       ? {
           beforeSignIn: async () => {
             if (!settingsHome) throw new Error("Antigravity home unavailable");
-            // The home ace made is validated again: the file goes only inside it.
+            // In a home ace made, the home and every folder down to the file are checked again:
+            // the file goes only inside it.
             if (added) await registry.validateHome(added);
-            await writeAntigravityGcp(antigravitySettingsFile(settingsHome), gcp, {
-              followLinks: !added,
-            });
+            const file = added
+              ? await managedAntigravitySettingsFile(added.homeDir)
+              : antigravitySettingsFile(settingsHome);
+            await writeAntigravityGcp(file, gcp, { followLinks: !added });
           },
         }
       : {}),
