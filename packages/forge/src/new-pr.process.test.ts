@@ -145,3 +145,42 @@ test("branches list the default first, and options read labels, people and open 
     truncated: false,
   });
 });
+
+test("a branch name git wouldn't take never reaches GitHub", async () => {
+  const gh = await setup({});
+  for (const branch of ["a/../b", "..", "-x", "a b", "x.lock"]) {
+    await expect(
+      gh.forge.compare("main", { owner: "octo", branch }, 1, signal()),
+    ).rejects.toMatchObject({ kind: "unprocessable" });
+    await expect(
+      gh.forge.openPr({ branch, base: "main", title: "T", body: "", draft: false }, signal()),
+    ).rejects.toMatchObject({ kind: "unprocessable" });
+  }
+  await expect(
+    gh.forge.compare("../main", { owner: "octo", branch: "fix" }, 1, signal()),
+  ).rejects.toMatchObject({ kind: "unprocessable" });
+});
+
+test("a comparison GitHub cuts at 250 commits still names the branch's newest as its head", async () => {
+  // Without paging parameters GitHub lists 250 commits and the last is the comparison's newest.
+  const commits = Array.from({ length: 250 }, (_, i) => commit(i + 1));
+  const gh = await setup({
+    "repos/octo/ace/compare/main...big": [
+      {
+        body: {
+          status: "ahead",
+          ahead_by: 300,
+          behind_by: 0,
+          total_commits: 300,
+          merge_base_commit: { sha },
+          commits,
+          files: [],
+        },
+      },
+    ],
+  });
+  const result = await gh.forge.compare("main", { owner: "octo", branch: "big" }, 1, signal());
+  expect(result).toMatchObject({ headSha: commit(250).sha, truncated: true, totalCommits: 300 });
+  const [request] = await gh.requests();
+  expect(request?.path).not.toContain("page");
+});

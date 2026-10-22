@@ -12,6 +12,19 @@ const login = z
   .regex(/^[\w-]+$/)
   .max(100);
 const scope = { workspaceId: WorkspaceId, repository: ForgeRepository.optional() };
+/**
+ * A branch name a client may ask about, valid by git's own rules (`git check-ref-format
+ * --branch`): no `..`, `//`, `@{`, control characters, spaces or `~^:?*[\`; no part that starts
+ * with `.` or ends with `.lock`; not starting with `-` or `/`, not ending with `/` or `.`; not `@`.
+ * It reaches a URL path, so nothing else is admitted.
+ */
+export const ForgeBranchName = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(
+    /^(?!-)(?!\/)(?!.*\/$)(?!.*\.$)(?!.*\.\.)(?!.*\/\/)(?!.*@\{)(?!@$)(?!(?:.*\/)?\.)(?!.*\.lock(?:\/|$))[^\x00-\x20\x7f~^:?*[\\]+$/,
+  );
 
 /** A branch on GitHub and the commit it points at. */
 export const ForgeBranch = z.object({ name: branch, sha });
@@ -59,7 +72,7 @@ export const ForgeRepoPrOptions = z.object({
 export type ForgeRepoPrOptions = z.infer<typeof ForgeRepoPrOptions>;
 
 /** The head side of a comparison: a branch of the base repository, or of a fork of it. */
-export const ForgeCompareHead = z.object({ owner: login, branch });
+export const ForgeCompareHead = z.object({ owner: login, branch: ForgeBranchName });
 export type ForgeCompareHead = z.infer<typeof ForgeCompareHead>;
 
 /** Commits and changed files between two branches, as a pull request of them would show. */
@@ -89,7 +102,7 @@ export const ForgeNewPrOperations = [
   z.object({
     op: z.literal("forge.compare"),
     ...scope,
-    base: branch,
+    base: ForgeBranchName,
     head: ForgeCompareHead,
     page: z.number().int().min(1).max(12).default(1),
   }),
@@ -112,7 +125,7 @@ export const ForgeHostedPrCreateCommand = z.object({
   workspaceId: WorkspaceId,
   /** The repository it opens on, as the context read named it. */
   repository: ForgeRepository,
-  base: branch,
+  base: ForgeBranchName,
   head: ForgeCompareHead,
   title: z.string().min(1).max(256).regex(/\S/),
   body: text,

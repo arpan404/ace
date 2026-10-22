@@ -17,6 +17,7 @@ import { GitHubFileContent } from "./github-file-content.ts";
 import { GitHubNewPr } from "./github-new-pr.ts";
 import { ForgeGroupCounting, ForgePrSearch } from "@ace/protocol/forge-browser";
 import { ForgeMergeCommit } from "@ace/protocol/forge-merge-state";
+import { ForgeBranchName } from "@ace/protocol/forge-new-pr";
 import { readGroupCounts } from "./github-group-counts.ts";
 import { ForgeListCaches } from "./list-cache.ts";
 import { githubOpenWork } from "./github-open-work.ts";
@@ -366,7 +367,9 @@ export class GitHubForge implements Forge, ForgeBrowser {
     dispatch?: WriteDispatch,
   ): Promise<ForgePrRef> {
     z.string().min(1).max(100).parse(headOwner);
-    const branch = z.string().min(1).max(256).parse(input.branch);
+    const branch = input.branch;
+    if (!ForgeBranchName.safeParse(branch).success || !ForgeBranchName.safeParse(input.base).success)
+      throw new ForgeError("unprocessable");
     const response = await this.#api.request(
       `${this.#root}/pulls`,
       signal,
