@@ -95,6 +95,19 @@ test("the person's bubble carries its fenced code as its own run", async () => {
   });
 });
 
+test("a bubble with half an emoji pair reaches native repaired, as its row text does", async () => {
+  const fake = start("pair");
+  const words = "\udc00" + "b".repeat(10);
+  fake.apply("pair", [facts.message("root", "ask", "user", words)]);
+  open(connect(fake), "pair");
+  const row = await until(
+    () => rows("thread.item").find((item) => item.role === "user"),
+    "the bubble",
+  );
+  const segments = (row.bubble as { segments: { text: string }[] }).segments;
+  expect(segments.map((segment) => segment.text)).toEqual(["\ufffd" + "b".repeat(10)]);
+});
+
 test("an answer streams while its turn runs and stops when the turn ends", async () => {
   const fake = start("answer");
   fake.apply("answer", [
