@@ -7,10 +7,18 @@
 # Usage, from anywhere inside a Linux checkout after `bun install`:
 #   apps/desktop/scripts/linux-e2e.sh [vitest filters]   e.g. browser-video
 # Needs: Xvfb, openbox. Environment: ACE_E2E_DISPLAY (X display number, default 52),
-# ACE_E2E_APPARMOR_PROFILE (default ace-electron-e2e).
+# ACE_E2E_APPARMOR_PROFILE (default ace-electron-e2e), ACE_E2E_DESKTOP (openbox, the default;
+# kde-wayland or kde-x11 run the app on KDE Plasma 6 through
+# native/screen-helper-linux/tests/computer/kde-session.sh, which lists what KDE needs).
 set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 display=${ACE_E2E_DISPLAY:-52}
+desktop=${ACE_E2E_DESKTOP:-openbox}
+case $desktop in openbox | kde-wayland | kde-x11) ;; *)
+  echo "ACE_E2E_DESKTOP is openbox, kde-wayland or kde-x11" >&2
+  exit 2
+  ;;
+esac
 profile=${ACE_E2E_APPARMOR_PROFILE:-ace-electron-e2e}
 profile_path="/etc/apparmor.d/$profile"
 if [ -e "/tmp/.X11-unix/X$display" ]; then
@@ -42,6 +50,12 @@ if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || ec
   sudo apparmor_parser -r "$profile_path"
 fi
 
+if [ "$desktop" != openbox ]; then
+  cd "$root/apps/desktop"
+  ACE_KDE_DISPLAY=$display ACE_E2E_ELECTRON=1 "$root/native/screen-helper-linux/tests/computer/kde-session.sh" \
+    "${desktop#kde-}" node "$root/node_modules/vitest/vitest.mjs" run --config vitest.e2e.config.ts "$@"
+  exit $?
+fi
 Xvfb ":$display" -screen 0 1600x1000x24 -nolisten tcp >/dev/null 2>&1 &
 for _ in $(seq 100); do [ -e "/tmp/.X11-unix/X$display" ] && break; sleep 0.1; done
 DISPLAY=":$display" openbox >/dev/null 2>&1 &
