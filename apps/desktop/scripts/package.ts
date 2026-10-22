@@ -7,8 +7,17 @@ import { build, Platform, type Configuration } from "electron-builder";
 import { assertLinuxRuntimeFloor } from "@ace/release/glibc";
 // The canonical ace-chromium profile (PR #1221); the deb installs exactly what `ace doctor` prints.
 import { chromiumAppArmorProfile } from "@ace/browser/linux-sandbox";
-import { desktop, dist, electronVersion, installedElectronDist, targetArch } from "./common.ts";
+import {
+  appVersion,
+  desktop,
+  dist,
+  electronVersion,
+  installedElectronDist,
+  packagedAppVersion,
+  targetArch,
+} from "./common.ts";
 import { notaryCredentials } from "../src/packaging/release-signing.ts";
+import { writeLinuxTarball } from "./linux-tarball.ts";
 import { verifyNatives } from "./verify-natives.ts";
 
 /**
@@ -191,7 +200,7 @@ const config: Configuration = {
     target: [
       { target: "AppImage", arch: [arch] },
       { target: "deb", arch: [arch] },
-      { target: "tar.gz", arch: [arch] },
+      // The tar.gz is written after the build, with its launcher (linux-tarball.ts).
     ],
     // Debian requires a maintainer with an email address; the project has no mailbox.
     maintainer: "ace <arpan404@users.noreply.github.com>",
@@ -243,4 +252,15 @@ const targets =
       ? Platform.WINDOWS
       : Platform.LINUX;
 const outputs = await build({ targets: targets.createTarget(), config, publish: "never" });
+if (process.platform === "linux")
+  outputs.push(
+    await writeLinuxTarball({
+      unpacked: join(dist, "release", arch === "x64" ? "linux-unpacked" : `linux-${arch}-unpacked`),
+      launcher: join(desktop, "build/linux/launcher.sh"),
+      output: join(dist, "release"),
+      version: packagedAppVersion(process.env, appVersion()),
+      arch,
+      mtime: Number(process.env.SOURCE_DATE_EPOCH ?? 0) || 0,
+    }),
+  );
 for (const output of outputs) console.log(`[package] ${output}`);
