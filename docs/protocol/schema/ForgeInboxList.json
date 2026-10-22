@@ -24,6 +24,9 @@
       "minimum": 1,
       "type": "integer"
     },
+    "projectRepository": {
+      "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+    },
     "unchanged": {
       "type": "boolean"
     }

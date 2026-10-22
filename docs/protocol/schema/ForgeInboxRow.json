@@ -21,7 +21,6 @@
       "maximum": 9007199254740991,
       "type": "integer"
     },
-    "raw": {},
     "reason": {
       "$ref": "https://ace.local/protocol/v1/ForgeInboxReason.json"
     },
