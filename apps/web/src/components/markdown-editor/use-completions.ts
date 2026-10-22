@@ -130,10 +130,12 @@ export function useCompletions(
     } else if (event.key === "Escape") {
       dismissed.current = match?.from;
       setMatch(undefined);
-      // The list closes, not the dialog or panel around the editor.
-      event.nativeEvent.stopPropagation();
     } else return false;
+    // The key belongs to the list: a dialog or panel around the editor never sees it (Escape
+    // would close it too), whether it listens through React or on the document.
     event.preventDefault();
+    event.stopPropagation();
+    event.nativeEvent.stopPropagation();
     return true;
   };
   return {

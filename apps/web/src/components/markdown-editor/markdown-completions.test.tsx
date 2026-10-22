@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog.tsx";
 import { TooltipProvider } from "@/components/ui/tooltip.tsx";
 import { MarkdownCompletionsProvider, type MarkdownCompletions } from "./completion-source.ts";
 import { MarkdownEditor } from "./markdown-editor.tsx";
@@ -125,4 +126,32 @@ test("Enter still continues a list once the person is chosen", async () => {
   await user.keyboard("{Enter}");
   await user.keyboard("{Enter}");
   expect(field.value).toBe("- ask @mira \n- ");
+});
+
+test("Escape in a dialog closes only the suggestions, then the dialog", async () => {
+  const user = userEvent.setup();
+  function InDialog() {
+    const [text, setText] = useState("");
+    const [open, setOpen] = useState(true);
+    return (
+      <TooltipProvider delay={0}>
+        <MarkdownCompletionsProvider value={source}>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogContent>
+              <DialogTitle>Edit</DialogTitle>
+              <MarkdownEditor label="Description" value={text} onChange={setText} />
+            </DialogContent>
+          </Dialog>
+        </MarkdownCompletionsProvider>
+      </TooltipProvider>
+    );
+  }
+  render(<InDialog />);
+  await user.type(await screen.findByRole("textbox", { name: "Description" }), "@mi");
+  await options("People");
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("listbox")).toBeNull();
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 });
