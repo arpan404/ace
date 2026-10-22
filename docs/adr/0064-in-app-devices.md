@@ -393,3 +393,37 @@ HID tag 12, Indigo button source 0x3f0, what ⌘K sends; ⌘K itself on the scre
 after ace types it toggles the keyboard back 250 ms later unless the person hid it with that key.
 On Android it presses Alt+K, Gboard's "Show on-screen keyboard". The device view's rail has a
 Software keyboard button; sim_act takes the key.
+
+## Phones, network devices and Linux, 2026-10-21
+
+"Physical devices remain outside this first version" no longer holds. Every transport
+`adb devices -l` lists is a device ace shows and drives: emulators on this machine
+(`emulator-5554`), phones on USB, and devices on the network (`adb connect host:port`, or
+wireless debugging's `adb-…._adb-tls-connect._tcp` names). Live view (scrcpy's device-side
+H.264), input, screenshots, UI trees, logs and the agents' sim tools work on all of them;
+they only ever needed an adb serial.
+
+- **Identity.** An emulator is still its AVD name. A phone or network device is its hardware
+  serial (`ro.serialno`), so one phone keeps its id over USB, over Wi-Fi and across a new
+  wireless-debugging port; until that property reads (an unauthorized phone) it is named by its
+  adb serial, or by its USB port when adb can't read the serial. The id keeps to the characters
+  `AppDeviceId` allows (`192.168.1.5:5555` → `192.168.1.5_5555`). Before each operation ace reads
+  the serial behind the transport again and refuses when another device now answers there, as it
+  already did for an emulator console port reused by another AVD. A phone on USB and Wi-Fi at
+  once is one device; a usable transport wins, then USB.
+- **Blocked devices** list as `unauthorized` with one inventory issue per cause, saying what to
+  do: allow the "Allow USB debugging?" prompt (or pair first for wireless debugging), or, for
+  adb's `no permissions`, install the distribution's Android udev rules
+  (`android-udev-rules` on Debian/Ubuntu), join `plugdev` and replug.
+- **ace never powers phones off or on.** Shut down and boot are `not_supported` / `not_booted`
+  for them, with a hint, instead of `reboot -p`. Setting a location needs the emulator console,
+  so it is refused on a phone.
+- **Finding adb.** `findAndroidTools` (`@ace/devices/android-tools`) is the one place the devices
+  service and `ace doctor` look: an SDK holding both adb and the emulator wins; else the emulator
+  from the first SDK with one, and adb from the first SDK with it or from PATH, where
+  distributions install it (`/usr/bin/adb`). Phones need only adb.
+- **Linux arm64.** Google publishes the Android Emulator (and its Platform Tools) for x86-64
+  Linux only. On arm64 the distribution's adb (Debian/Ubuntu's `adb` package is built for arm64;
+  verified on Ubuntu 26.04, adb 34.0.5) drives phones and network devices, and the device list
+  says once, as an inventory note, that emulators aren't available there. The doctor's
+  `linux.kvm` check says the same and asks for /dev/kvm only when an emulator is installed.
