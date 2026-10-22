@@ -1,7 +1,10 @@
+import { ItemId } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { subagentDetail, subagentElapsed, subagentMeta, subagentSpan } from "./subagent-row.ts";
 
-const working = { status: { state: "working", activity: "tool", itemId: "i1" } } as const;
+const working = {
+  status: { state: "working", activity: "tool", itemId: ItemId.parse("i1") },
+} as const;
 
 test("a working subagent's second line names the step it runs, only while facts are fresh", () => {
   const entry = { state: "working", agentId: "a1" } as const;
