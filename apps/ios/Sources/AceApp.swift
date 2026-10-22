@@ -66,12 +66,15 @@ import QuartzCore
     let directory: URL
     let lock: AppLock
     private var machines: MachinesModel?
+    /// Each remembered machine's runtime evaluates the client bundle from the first moment.
+    private let warmup = RuntimeWarmup()
     private let network = NetworkMonitor()
 
     private init(directory: URL) {
         self.directory = directory
         let paired = FileManager.default.fileExists(atPath: Self.machineDirectory(in: directory).path)
         lock = AppLock(enabled: paired, now: { Date() }, defaults: .standard)
+        warmup.prepare(MachinesModel.rememberedCount(in: .standard))
     }
     static func make() -> ProductionApp? {
         guard !SpikeConfiguration.enabled, let directory = try? storageDirectory() else { return nil }
@@ -86,18 +89,19 @@ import QuartzCore
 
     /// Every paired machine, each runtime bound to notifications before it connects and released
     /// when the machine is removed. Background launches build their own.
-    static func machines(directory: URL, notifications: NotificationCoordinator,
+    static func machines(directory: URL, notifications: NotificationCoordinator, warmup: RuntimeWarmup? = nil,
                          now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 }) -> MachinesModel {
         let machines = MachinesModel(access: BridgeMachineAccess(directoryURL: machineDirectory(in: directory)),
                                      storage: directory.appendingPathComponent("machines", isDirectory: true), now: now,
-                                     makeClient: { ClientModel(now: now) })
+                                     makeClient: { warmup.map { ClientModel(now: now, makeRuntime: $0.makeRuntime) } ?? ClientModel(now: now) })
+        machines.afterLoad = { warmup?.releaseUnused() }
         machines.beforeConnect = { [weak notifications] model, target in await notifications?.attach(model, target: target) }
         machines.afterRemove = { [weak notifications] model, _ in notifications?.detach(model) }
         return machines
     }
 
     func root(notifications: NotificationCoordinator) -> some View {
-        let machines = self.machines ?? Self.machines(directory: directory, notifications: notifications)
+        let machines = self.machines ?? Self.machines(directory: directory, notifications: notifications, warmup: warmup)
         if self.machines == nil {
             self.machines = machines
             network.start { change in

@@ -2,13 +2,25 @@ import Foundation
 import JavaScriptCore
 import Security
 
+/// What a runtime serves: its daemon, its outbox database, its native services and where its
+/// patches go. A warm runtime (`RuntimeWarmup`) evaluates the client bundle before it has one.
+struct HostBinding: Sendable {
+    var target: ConnectionTarget?
+    var storageURL: URL?
+    var services: HostServices
+    var receive: @Sendable (Data) -> Void
+    static let unbound = HostBinding(target: nil, storageURL: nil, services: HostServices(), receive: { _ in })
+}
+
 /// All mutable dictionaries live on ClientRuntime's thread. Disk work has its own serial queue.
 final class NativeHost: @unchecked Sendable {
     private weak var runtime: ClientRuntime?
-    private let target: ConnectionTarget?
-    private let storageURL: URL?
-    private let services: HostServices
-    private let receive: @Sendable (Data) -> Void
+    /// Set at creation, or once on the VM thread before the bundle starts; never changed after.
+    private var binding: HostBinding
+    private var target: ConnectionTarget? { binding.target }
+    private var storageURL: URL? { binding.storageURL }
+    private var services: HostServices { binding.services }
+    private var receive: @Sendable (Data) -> Void { binding.receive }
     private let storageQueue = DispatchQueue(label: "ace.client.storage", qos: .userInitiated)
     /// Read snapshots have their own queue, so a large cache write never delays an outbox admission.
     private let snapshotQueue = DispatchQueue(label: "ace.client.snapshots", qos: .userInitiated)
@@ -17,10 +29,12 @@ final class NativeHost: @unchecked Sendable {
     private var sockets: [String: PinnedSocket] = [:]
     private var timers: [String: Timer] = [:]
 
-    init(runtime: ClientRuntime, target: ConnectionTarget?, storageURL: URL?, services: HostServices,
-         receive: @escaping @Sendable (Data) -> Void) {
-        self.runtime = runtime; self.target = target; self.storageURL = storageURL; self.services = services; self.receive = receive
+    init(runtime: ClientRuntime, binding: HostBinding) {
+        self.runtime = runtime; self.binding = binding
     }
+    /// A warm runtime's machine, on the VM thread before its entry runs: nothing has called the
+    /// host yet, and every later call (and the queues it dispatches to) reads this binding.
+    func bind(_ binding: HostBinding) { self.binding = binding }
     func install(in context: JSContext) {
         let call: @convention(block) (String, String, JSValue) -> Void = { [weak self] operation, json, value in
             self?.call(operation, json: json, callback: Callback(value))

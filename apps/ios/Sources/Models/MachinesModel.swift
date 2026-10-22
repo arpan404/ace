@@ -24,6 +24,8 @@ import Observation
     @ObservationIgnored var beforeConnect: ((ClientModel, ConnectionTarget) async -> Void)?
     /// Runs once a removed machine's runtime has stopped, so nothing keeps routing to it.
     @ObservationIgnored var afterRemove: ((ClientModel, String) -> Void)?
+    /// Runs once every listed machine has its runtime.
+    @ObservationIgnored var afterLoad: (() -> Void)?
 
     init(access: any MachineAccess, storage: URL, defaults: UserDefaults = .standard, itemLimit: Int = 200,
          now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
@@ -59,6 +61,11 @@ import Observation
         }
         loaded = true
         for entry in machines { await connect(entry) }
+        afterLoad?()
+    }
+    /// How many machines the next launch will connect at once, before anything is read.
+    nonisolated static func rememberedCount(in defaults: UserDefaults) -> Int {
+        (defaults.data(forKey: Keys.known)).flatMap { try? JSONDecoder().decode([MachineEntry].self, from: $0) }?.count ?? 0
     }
     /// The directory's answer replaces what this phone remembered.
     private func follow(_ listed: [MachineEntry]) async {
@@ -146,5 +153,5 @@ import Observation
         await beforeConnect?(client, target)
         await client.connect(target: target, directory: storage, itemLimit: itemLimit)
     }
-    private enum Keys { static let grants = "ace.machines.grants", known = "ace.machines.known" }
+    private nonisolated enum Keys { static let grants = "ace.machines.grants", known = "ace.machines.known" }
 }
