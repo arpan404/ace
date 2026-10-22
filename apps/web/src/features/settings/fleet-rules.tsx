@@ -9,7 +9,7 @@ import { AllMachinesScope } from "./all-machines-scope.tsx";
 import { settingKeys } from "./data/setting-keys.ts";
 import { useSettingControl } from "./data/use-settings.ts";
 import { DaemonSlot } from "./setting-control.tsx";
-import { ConfirmDialog, type Confirming } from "./confirm-dialog.tsx";
+import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { listNames } from "./data/list-names.ts";
 
 export const transportOptions = [
