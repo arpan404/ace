@@ -1,8 +1,20 @@
 import { expect, test } from "vitest";
-import { resolveShell } from "./shell.ts";
+import { mergeWindowsEnv, resolveShell } from "./shell.ts";
 import { resolveShell as resolveViaPty } from "./pty.ts";
 
 const WINDOWS_CMD = "C:\\Windows\\System32\\cmd.exe";
+
+test("Windows env merge lets overrides win regardless of spelling", () => {
+  expect(mergeWindowsEnv({ Path: "C:\\a" }, { PATH: "C:\\b" })).toEqual({ PATH: "C:\\b" });
+  expect(mergeWindowsEnv({ A: "1" }, {})).toEqual({ A: "1" });
+  expect(mergeWindowsEnv({}, undefined)).toEqual({});
+});
+
+test("Windows env undefined masks inherited keys case-insensitively", () => {
+  expect(mergeWindowsEnv({ NODE_OPTIONS: "--require x" }, { Node_Options: undefined })).toEqual({});
+  expect(mergeWindowsEnv({ Path: "C:\\a" }, { PATH: undefined })).toEqual({});
+  expect(mergeWindowsEnv({ A: "1" }, { B: undefined })).toEqual({ A: "1" });
+});
 
 test("an explicit shell wins on Windows without consulting the environment", () => {
   const shell = resolveShell("C:\\custom\\shell.exe", {
@@ -11,6 +23,40 @@ test("an explicit shell wins on Windows without consulting the environment", () 
     exists: () => false,
   });
   expect(shell).toBe("C:\\custom\\shell.exe");
+});
+
+test("Windows prefers pwsh over powershell and ComSpec", () => {
+  const shell = resolveShell(undefined, {
+    platform: "win32",
+    env: { ComSpec: WINDOWS_CMD },
+    exists: () => false,
+    findExecutable: (command) =>
+      command === "pwsh" ? "C:\\Program Files\\PowerShell\\7\\pwsh.exe" : undefined,
+  });
+  expect(shell).toBe("C:\\Program Files\\PowerShell\\7\\pwsh.exe");
+});
+
+test("Windows falls back to powershell when pwsh is missing", () => {
+  const shell = resolveShell(undefined, {
+    platform: "win32",
+    env: { ComSpec: WINDOWS_CMD },
+    exists: () => false,
+    findExecutable: (command) =>
+      command === "powershell"
+        ? "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        : undefined,
+  });
+  expect(shell).toBe("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+});
+
+test("Windows falls back to ComSpec when no PowerShell is found", () => {
+  const shell = resolveShell(undefined, {
+    platform: "win32",
+    env: { SHELL: "/bin/zsh", ComSpec: WINDOWS_CMD },
+    exists: () => false,
+    findExecutable: () => undefined,
+  });
+  expect(shell).toBe(WINDOWS_CMD);
 });
 
 test("Windows uses ComSpec and ignores POSIX SHELL", () => {
