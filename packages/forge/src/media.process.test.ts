@@ -117,3 +117,28 @@ test("text inside a URL can never pose as an item's marker", () => {
     { kind: "image", url: "https://camo.githubusercontent.com/other", expiresAt: undefined },
   ]);
 });
+
+test("only GitHub's own image emoji are kept from its emoji list; Unicode ones draw as text", async () => {
+  const icons = "https://github.githubassets.com/images/icons/emoji";
+  const f = await fakeGh({
+    emojis: [
+      {
+        body: {
+          tada: `${icons}/unicode/1f389.png?v8`,
+          octocat: `${icons}/octocat.png?v8`,
+          shipit: `${icons}/shipit.png?v8`,
+          "Bad Name": `${icons}/bad.png`,
+          plain: "http://example.com/plain.png",
+        },
+      },
+    ],
+  });
+  try {
+    expect(await f.forge.emojiImages(signal())).toEqual({
+      octocat: `${icons}/octocat.png?v8`,
+      shipit: `${icons}/shipit.png?v8`,
+    });
+  } finally {
+    await f.cleanup();
+  }
+});

@@ -19,6 +19,7 @@ export const media = {
   logoDark: "https://raw.githubusercontent.com/acme/ace/main/docs/logo-dark.svg",
   badge: "https://img.shields.io/badge/coverage-92%25-informational",
   notes: "https://example.com/release-notes",
+  octocat: "https://github.githubassets.com/images/icons/emoji/octocat.png?v8",
 };
 
 const svg = (width: number, height: number, body: string) =>
@@ -141,6 +142,20 @@ function entries(): Map<string, Entry> {
     [media.recording, { kind: "video", mimeType: "video/webm", bytes: decode(clipWebm) }],
     [media.missing, { state: "unavailable", reason: "not_found" }],
     [media.notes, { state: "none" }],
+    [
+      media.octocat,
+      {
+        kind: "image",
+        mimeType: "image/svg+xml",
+        bytes: svg(
+          64,
+          64,
+          `<circle cx="32" cy="32" r="30" fill="#24292f"/><circle cx="22" cy="28" r="5" fill="#fff"/><circle cx="42" cy="28" r="5" fill="#fff"/>`,
+        ),
+        width: 64,
+        height: 64,
+      },
+    ],
   ]);
   return table;
 }
@@ -176,3 +191,6 @@ export function fakeMediaBytes(sha256: string): Uint8Array | undefined {
   const entry = index >= 0 ? [...entries()][index]?.[1] : undefined;
   return entry && !("state" in entry) ? entry.bytes : undefined;
 }
+
+/** The forge's image-only emoji, as `forge.emoji.images` answers. */
+export const fakeEmojiImages: Record<string, string> = { octocat: media.octocat };

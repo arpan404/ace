@@ -1,4 +1,4 @@
-import { resolveFakeMedia } from "./catalog/forge-media.ts";
+import { fakeEmojiImages, resolveFakeMedia } from "./catalog/forge-media.ts";
 import { FakeSourceControlDrafts } from "./source-control-drafts.ts";
 import { FakeProjects } from "./projects.ts";
 import {
@@ -245,6 +245,12 @@ export class FakeWorkspaceWire {
           : { kind: "error", code: "forge_not_found" },
       });
     }
+    if (op.op === "forge.emoji.images" && !this.forgeReads.has(JSON.stringify(op)))
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: { kind: "forge", data: { resource: "emojiImages", images: fakeEmojiImages } },
+      });
     if (op.op === "forge.media.resolve" && !this.forgeReads.has(JSON.stringify(op)))
       return ServerMessage.parse({
         type: "workspace.result",
@@ -322,7 +328,10 @@ export class FakeWorkspaceWire {
       this.checkReruns.push(payload.action);
       return { ok: true };
     }
-    const merged = this.pullRequests.merge(payload) ?? this.pullRequests.mergeState(payload);
+    const merged =
+      this.pullRequests.merge(payload) ??
+      this.pullRequests.mergeState(payload) ??
+      this.pullRequests.edit(payload);
     if (merged) return merged;
     const project = this.projects.command(payload);
     if (project) return project;

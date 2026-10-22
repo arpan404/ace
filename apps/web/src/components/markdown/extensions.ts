@@ -23,6 +23,8 @@ export interface MarkdownExtensions {
   ): ReactNode | undefined;
   /** A paragraph; `standard` draws it as the renderer would. Undefined: the default. */
   paragraph(token: Tokens.Paragraph, standard: () => ReactNode): ReactNode | undefined;
+  /** A fenced code block; `standard` draws it as the renderer would. Undefined: the default. */
+  code(token: Tokens.Code, standard: () => ReactNode): ReactNode | undefined;
   /** A task list's checkbox. */
   checkbox(token: Tokens.Checkbox): ReactNode;
   /**

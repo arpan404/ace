@@ -111,4 +111,6 @@ export interface ForgeBrowser {
     items: readonly import("@ace/protocol/forge-media").ForgeMediaRequest[],
     signal: AbortSignal,
   ): Promise<import("./github-media.ts").RenderedMedia[]>;
+  /** The forge's image-only emoji, shortcode to image URL. */
+  emojiImages(signal: AbortSignal): Promise<Record<string, string>>;
 }

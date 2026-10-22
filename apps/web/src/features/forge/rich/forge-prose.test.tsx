@@ -327,3 +327,33 @@ test("code and link text stay as written; a raw video plays; outside media offer
   expect(container.querySelector("ol")?.className).toContain("lower-alpha");
   expect(await screen.findByRole("link", { name: "Open original" })).toBeTruthy();
 });
+
+test("commits, other repositories' references and GitHub's image emoji link and draw as on GitHub", async () => {
+  const daemon = await connected();
+  const sha = "4f2a9c1e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a39";
+  page(
+    daemon,
+    <ForgeProse
+      text={`See acme/billing-api#74, ${sha}, octo/tools@4f2a9c1 and deadbeef. Made with :octocat:.`}
+    />,
+  );
+  expect(
+    (await screen.findByRole("link", { name: "acme/billing-api#74" })).getAttribute("href"),
+  ).toBe("https://github.com/acme/billing-api/issues/74");
+  expect(screen.getByRole("link", { name: "4f2a9c1" }).getAttribute("href")).toBe(
+    `https://github.com/acme/ace/commit/${sha}`,
+  );
+  expect(screen.getByRole("link", { name: "octo/tools@4f2a9c1" }).getAttribute("href")).toBe(
+    "https://github.com/octo/tools/commit/4f2a9c1",
+  );
+  expect(screen.queryByRole("link", { name: "deadbeef" })).toBeNull();
+  const octocat = await screen.findByRole("img", { name: ":octocat:" });
+  expect(octocat.getAttribute("src")).toMatch(/^blob:/);
+});
+
+test("a mermaid block keeps its code when it can't be drawn as a diagram", async () => {
+  const daemon = await connected();
+  const { container } = page(daemon, <ForgeProse text={"```mermaid\nnot a diagram {{{\n```"} />);
+  await waitFor(() => expect(container.textContent).toContain("not a diagram {{{"));
+  expect(container.querySelector("img[data-diagram]")).toBeNull();
+});

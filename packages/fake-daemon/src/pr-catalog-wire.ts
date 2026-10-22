@@ -49,6 +49,64 @@ export class FakePrCatalog {
       return { ok: false, error: "forge_write_refused" };
     return { ok: true, pr: payload.pr, prStatus: this.markMerged(fixture).detail.status };
   }
+  /**
+   * Edits as GitHub takes them: a description edit (`forge.hosted.lifecycle`) only against the
+   * version it was chosen from, and a comment edit (`forge.hosted.review`) only while the
+   * comment still reads as the person last saw it. Every read shows the new text after.
+   */
+  edit(payload: CommandPayload): Omit<CommandResult, "commandId"> | undefined {
+    if (payload.type === "forge.hosted.lifecycle") {
+      const fixture = this.find(payload.pr);
+      if (!fixture) return { ok: false, error: "forge_not_found" };
+      const operation = payload.operation;
+      if (operation.kind !== "apply" || operation.action.kind !== "edit") return undefined;
+      const { snapshot } = fixture.lifecycle;
+      if (operation.expectedVersion !== snapshot.version)
+        return { ok: false, error: "forge_conflict" };
+      const changes = Object.fromEntries(
+        Object.entries(operation.action.changes).filter(([, value]) => value !== undefined),
+      );
+      const metadata: typeof snapshot.metadata = { ...snapshot.metadata, ...changes };
+      const version = (BigInt(`0x${snapshot.version}`) + 1n).toString(16).padStart(64, "0");
+      this.replace(fixture, {
+        ...fixture,
+        detail: {
+          ...fixture.detail,
+          body: metadata.body,
+          status: { ...fixture.detail.status, title: metadata.title },
+          labels: metadata.labels,
+        },
+        lifecycle: { ...fixture.lifecycle, snapshot: { ...snapshot, metadata, version } },
+      });
+      return {
+        ok: true,
+        forgeLifecycle: { outcome: "accepted", headSha: fixture.detail.status.headSha },
+      };
+    }
+    if (payload.type !== "forge.hosted.review" || payload.action.kind !== "comment.edit")
+      return undefined;
+    const fixture = this.find(payload.pr);
+    if (!fixture) return { ok: false, error: "forge_not_found" };
+    const action = payload.action;
+    const comments = fixture.detail.status.comments;
+    const comment = comments.find((entry) => entry.id === action.commentId);
+    if (!comment) return { ok: false, error: "forge_not_found" };
+    if (comment.body !== action.expectedBody) return { ok: false, error: "forge_conflict" };
+    this.replace(fixture, {
+      ...fixture,
+      detail: {
+        ...fixture.detail,
+        status: {
+          ...fixture.detail.status,
+          comments: comments.with(comments.indexOf(comment), { ...comment, body: action.body }),
+        },
+      },
+    });
+    return { ok: true };
+  }
+  private replace(fixture: PullRequestFixture, next: PullRequestFixture): void {
+    this.fixtures = this.fixtures.map((entry) => (entry === fixture ? next : entry));
+  }
   /** A catalog PR as merged, as a merge from anywhere (Verify's included) leaves it. */
   mergeNumber(number: number): void {
     const fixture = this.fixtures.find((entry) => entry.detail.status.ref.number === number);
