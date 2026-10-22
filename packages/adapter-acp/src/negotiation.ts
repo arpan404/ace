@@ -1,4 +1,5 @@
 import { bridgeSubagents } from "./bridge-negotiation.ts";
+import { object } from "./data.ts";
 import { z } from "zod";
 import type { Capabilities, AcpSessionSupport } from "@ace/protocol";
 import type { CompatibilityProfile, SelectorState } from "@ace/agent-registry";
@@ -29,6 +30,8 @@ const Initialize = z
   .passthrough();
 export type Negotiated = {
   capabilities: Capabilities;
+  /** The agent takes text appended to its system prompt (`_meta.antigravity.systemPrompt`). */
+  systemPromptAppend: boolean;
   httpMcp: boolean;
   sseMcp: boolean;
   subagentSessions: boolean;
@@ -57,6 +60,7 @@ export function negotiate(
   return {
     raw,
     subagentSessions,
+    systemPromptAppend: advertisesSystemPromptAppend(raw),
     httpMcp: !profile?.denyHttpMcp && advertised.mcpCapabilities?.http === true,
     sseMcp: !profile?.denyHttpMcp && advertised.mcpCapabilities?.sse === true,
     capabilities: {
@@ -75,6 +79,11 @@ export function negotiate(
       planMode: false,
     },
   };
+}
+/** Antigravity's own extension: `agentCapabilities._meta.antigravity.systemPrompt.append`. */
+function advertisesSystemPromptAppend(raw: unknown): boolean {
+  const meta = object(object(object(raw)["agentCapabilities"])["_meta"]);
+  return object(object(meta["antigravity"])["systemPrompt"])["append"] === true;
 }
 function boundedRaw(value: unknown): AcpSessionSupport["raw"] {
   const json = JSON.stringify(value);

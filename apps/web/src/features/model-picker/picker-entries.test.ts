@@ -90,3 +90,38 @@ test("the CLI's own login reads as the provider until it is renamed", () => {
   expect(names(cli("Your CLI login"))).toEqual(["Codex", "Codex · Team"]);
   expect(names(cli("Home"))).toEqual(["Codex · Home", "Codex · Team"]);
 });
+
+const antigravity = (id: string, label: string, home: "default_cli" | "managed") =>
+  accountView(
+    AccountSummary.parse({
+      id,
+      provider: "acp",
+      label,
+      acpAgentId: "official:antigravity-acp",
+      installationId: "antigravity-cli",
+      instanceId: id,
+      homeStrategy: home,
+      isDefault: home === "default_cli",
+      availability: "available",
+      quota: { auth: "logged_in", observedAt: 1, windows: {}, blockers: {}, usage: {} },
+    }),
+  );
+
+test("Antigravity's CLI login is Antigravity itself, and each added account gets its own named tab", () => {
+  const tabs = pickerEntries(
+    [{ provider: "antigravity", reason: undefined }],
+    [],
+    [
+      antigravity("account-work", "Work", "managed"),
+      antigravity("antigravity-cli-default", "Antigravity", "default_cli"),
+      // Another installation of the same agent is its own ACP agent, not Antigravity's account.
+      account("other", "acp", "Elsewhere", "official:antigravity-acp"),
+    ],
+    1,
+    () => "Limit reached",
+  ).filter((tab) => tab.provider === "antigravity");
+  expect(tabs.map((tab) => [tab.name, tab.instance])).toEqual([
+    ["Antigravity", "antigravity-cli-default"],
+    ["Antigravity · Work", "account-work"],
+  ]);
+});

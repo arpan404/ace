@@ -1,18 +1,19 @@
 import { z } from "zod";
 import {
   AccountSummary,
-  NativeAccountProvider,
+  ManagedAccountProvider,
   AccountId,
   AccountBadgeInput,
   AccountBadgeColor,
   AccountBadgeIcon,
 } from "./accounts.ts";
 import { ProviderLoginProgress } from "./provider-login.ts";
+import { AntigravitySignIn } from "./antigravity-sign-in.ts";
 
 import { AccountAuthMethod, ApiKeySupport } from "./account-auth.ts";
 export { AccountAuthMethod, ApiKeySupport } from "./account-auth.ts";
 const id = z.string().min(1).max(128);
-const target = { provider: NativeAccountProvider, instanceId: AccountId };
+const target = { provider: ManagedAccountProvider, instanceId: AccountId };
 const label = z.string().min(1).max(128).regex(/\S/);
 export const AccountLoginMethod = z.enum(["login", "api_key"]);
 export const ApiKeyUpstream = z.enum(["openai", "anthropic", "openrouter", "opencode"]);
@@ -20,16 +21,18 @@ export const ProviderAccountsRequest = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("provider.accounts.list"),
     requestId: id,
-    provider: NativeAccountProvider,
+    provider: ManagedAccountProvider,
   }),
   z.strictObject({
     type: z.literal("provider.accounts.add"),
     requestId: id,
-    provider: NativeAccountProvider,
+    provider: ManagedAccountProvider,
     label: label.optional(),
     shortLabel: AccountBadgeInput.optional(),
     method: AccountLoginMethod,
     upstream: ApiKeyUpstream.optional(),
+    /** Antigravity only: how the new account signs in. */
+    signIn: AntigravitySignIn.optional(),
   }),
   z.strictObject({
     type: z.literal("provider.accounts.rename"),
@@ -55,6 +58,8 @@ export const ProviderAccountsRequest = z.discriminatedUnion("type", [
     ...target,
     method: AccountLoginMethod.default("login"),
     upstream: ApiKeyUpstream.optional(),
+    /** Antigravity only: how the account signs in again. */
+    signIn: AntigravitySignIn.optional(),
   }),
 ]);
 export type ProviderAccountsRequest = z.infer<typeof ProviderAccountsRequest>;
