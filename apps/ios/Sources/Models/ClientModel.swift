@@ -124,11 +124,11 @@ import CryptoKit
     @discardableResult func receive(_ data: Data) -> Bool {
         largestFrame = max(largestFrame, data.count)
         if patchCount == 0 { LaunchTrace.mark("bridge.firstFrame") }
-        guard let patches = try? frames.decode(data) else {
+        guard let patches = HostTrace.measure("main.decode", bytes: data.count, { try? frames.decode(data) }) else {
             error = "Could not read a client update"
             return false
         }
-        apply(patches)
+        HostTrace.measure("main.apply") { apply(patches) }
         return true
     }
     private func apply(_ patches: [BridgePatch]) {

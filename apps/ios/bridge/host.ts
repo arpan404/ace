@@ -20,6 +20,10 @@ export interface NativeHost {
   base64(text: string, decode: boolean): string;
   /** Absolute URL parts as JSON, or "" when Foundation cannot parse it. */
   parseURL(text: string): string;
+  /** Set when the app was launched with `-ace-host-trace`. */
+  tracing?: boolean;
+  /** Adds a span the script timed itself to the host's totals. */
+  trace?(name: string, ms: number, bytes: number): void;
 }
 declare global {
   var aceHost: NativeHost;

@@ -133,6 +133,9 @@ export class PatchPump {
     const delivered: Delivery[] = [];
     let bytes = 2;
     const now = host.now();
+    const tracing = host.tracing === true;
+    let reading = 0;
+    let serializing = 0;
     outer: for (const queue of this.#queues) {
       for (const task of queue.values()) {
         if (task.parked || task.settled || task.readyAt > now) continue;
@@ -140,17 +143,21 @@ export class PatchPump {
         // Isolate a rejected row so its next attempt cannot reject unrelated valid updates.
         if (task.failures && frame.length) break outer;
         const read = task.read;
+        const readAt = tracing ? host.now() : 0;
         const original = read();
+        if (tracing) reading += host.now() - readAt;
         if (original === undefined) {
           queue.delete(task.key);
           continue;
         }
         const patch = task.degraded ? degradedPatch(original) : original;
         const sticky = task.degraded && patch.row != null;
+        const serializeAt = tracing ? host.now() : 0;
         const json = JSON.stringify(patch);
         const encoded = host.utf8Base64(json);
         const size =
           (encoded.length / 4) * 3 - (encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0);
+        if (tracing) serializing += host.now() - serializeAt;
         if (size > 32760) {
           if (frame.length) break outer;
           this.#fragment = {
@@ -179,7 +186,14 @@ export class PatchPump {
           for (const entry of delivered) this.#confirm(entry);
         },
       };
+      const emitAt = tracing ? host.now() : 0;
       host.emit(JSON.stringify(frame));
+      if (tracing) {
+        host.trace?.("pump.read", reading, 0);
+        host.trace?.("pump.serialize", serializing, bytes);
+        host.trace?.("pump.emit", host.now() - emitAt, 0);
+        host.trace?.("pump.flush", host.now() - now, frame.length);
+      }
     } else this.#schedule();
   }
   #emitFragment(): void {

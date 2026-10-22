@@ -1,6 +1,7 @@
 import Foundation
 import JavaScriptCore
 import Security
+import QuartzCore
 
 /// What a runtime serves: its daemon, its outbox database, its native services and where its
 /// patches go. A warm runtime (`RuntimeWarmup`) evaluates the client bundle before it has one.
@@ -40,7 +41,8 @@ final class NativeHost: @unchecked Sendable {
             self?.call(operation, json: json, callback: Callback(value))
         }
         let emit: @convention(block) (String) -> Void = { [weak self] json in
-            guard let data = json.data(using: .utf8), data.count <= 32768 else { return }
+            guard let data = HostTrace.measure("host.emit", { json.data(using: .utf8) }), data.count <= 32768 else { return }
+            HostTrace.add("host.emit.bytes", seconds: 0, bytes: data.count)
             self?.receive(data)
         }
         let socket: @convention(block) (String, String, String) -> Void = { [weak self] id, action, text in self?.socket(id, action: action, text: text) }
@@ -51,7 +53,7 @@ final class NativeHost: @unchecked Sendable {
         let now: @convention(block) () -> Double = { Date().timeIntervalSince1970 * 1000 }
         let uuid: @convention(block) () -> String = { UUID().uuidString.lowercased() }
         let random: @convention(block) () -> Double = { Double(UInt32.random(in: .min ... .max)) / 4294967296 }
-        let utf8Base64: @convention(block) (String) -> String = { Data($0.utf8).base64EncodedString() }
+        let utf8Base64: @convention(block) (String) -> String = { text in HostTrace.measure("host.utf8Base64") { Data(text.utf8).base64EncodedString() } }
         let previewHead: @convention(block) (String, Int) -> String = { DisplayText.head($0, limit: $1) }
         let previewTail: @convention(block) (String, Int) -> String = { DisplayText.tail($0, limit: $1) }
         let entropy: @convention(block) (Int) -> [UInt8] = { count in
@@ -75,13 +77,20 @@ final class NativeHost: @unchecked Sendable {
             guard let parsed = ParsedURL.parse(text), let data = try? JSONEncoder().encode(parsed) else { return "" }
             return String(decoding: data, as: UTF8.self)
         }
-        let functions: [String: Any] = ["parseURL": parseURL, "call": call, "emit": emit, "socket": socket, "timer": timer,
+        // Spans the script times itself (`trace(name, ms, bytes)`), totalled with the native ones.
+        let trace: @convention(block) (String, Double, Double) -> Void = { name, ms, bytes in
+            HostTrace.add("js:" + name, seconds: ms / 1000, bytes: Int(bytes))
+        }
+        let functions: [String: Any] = ["trace": trace, "parseURL": parseURL, "call": call, "emit": emit, "socket": socket, "timer": timer,
             "cancelTimer": cancel, "now": now, "uuid": uuid, "random": random,
             "randomBytes": entropy, "base64": base64, "utf8Base64": utf8Base64,
             "previewHead": previewHead, "previewTail": previewTail].merging(NativeBytes.functions()) { current, _ in current }
         context.setObject(functions, forKeyedSubscript: "aceHost" as NSString)
+        context.objectForKeyedSubscript("aceHost")?.setObject(HostTrace.enabled, forKeyedSubscript: "tracing" as NSString)
     }
     private func call(_ operation: String, json: String, callback: Callback) {
+        let began = CACurrentMediaTime()
+        let callback = HostTrace.enabled ? Callback(callback.value, traced: operation, began: began) : callback
         if operation == "http" { http(json, callback: callback); return }
         if operation.hasPrefix("snapshot.") { snapshot(operation, json: json, callback: callback); return }
         storageQueue.async { [self] in
@@ -101,12 +110,7 @@ final class NativeHost: @unchecked Sendable {
                 guard let store else { throw HostError.storage }
                 return try store.perform(operation, input: data)
             }
-            runtime?.execute { _ in
-                switch result {
-                case .success(let text): callback.value.call(withArguments: [NSNull(), text])
-                case .failure: callback.value.call(withArguments: ["Host operation failed", ""])
-                }
-            }
+            reply(result, to: callback)
         }
     }
     private func snapshot(_ operation: String, json: String, callback: Callback) {
@@ -121,12 +125,13 @@ final class NativeHost: @unchecked Sendable {
         }
     }
     private func reply(_ result: Result<String, Error>, to callback: Callback) {
-        runtime?.execute { _ in
+        callback.finish()
+        runtime?.execute { _ in HostTrace.measure("js.reply") {
             switch result {
             case .success(let text): callback.value.call(withArguments: [NSNull(), text])
             case .failure: callback.value.call(withArguments: ["Host operation failed", ""])
             }
-        }
+        } }
     }
     /// Pinned HTTPS to this runtime's own daemon. Refusals reach the bridge as their reason.
     private func http(_ json: String, callback: Callback) {
@@ -149,6 +154,7 @@ final class NativeHost: @unchecked Sendable {
         let tracing = LaunchTrace.begin("http", request.path)
         PinnedHTTP.send(origin: origin, pin: target.pin, request: request, now: services.now) { result in
             tracing.end()
+            callback.finish()
             reply(result)
         }
     }
@@ -166,7 +172,7 @@ final class NativeHost: @unchecked Sendable {
                     let payload: Any = type == "binary"
                         ? (Data(base64Encoded: value) ?? Data()).withUnsafeBytes { NativeBytes.makeArray($0, in: context) }
                         : value
-                    context.objectForKeyedSubscript("aceSocket")?.call(withArguments: [id, type, payload])
+                    HostTrace.measure("js.socket") { _ = context.objectForKeyedSubscript("aceSocket")?.call(withArguments: [id, type, payload]) }
                 }
             }
             sockets[id] = socket
@@ -180,7 +186,7 @@ final class NativeHost: @unchecked Sendable {
         guard delay.isFinite, delay >= 0, timers.count < 4096 else { return }
         let timer = Timer(timeInterval: delay / 1000, repeats: false) { [weak self] _ in
             self?.timers.removeValue(forKey: id)
-            callback.value.call(withArguments: [])
+            HostTrace.measure("js.timer") { _ = callback.value.call(withArguments: []) }
         }
         timers[id] = timer
         RunLoop.current.add(timer, forMode: .default)
