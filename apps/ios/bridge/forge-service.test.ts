@@ -20,15 +20,19 @@ afterEach(async () => {
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "ace" } as const;
 
 /** The fake daemon's `ace` repository on GitHub, read by a phone runtime. */
-async function connected(threads?: ThreadListEntry[]) {
+async function connected(threads?: ThreadListEntry[], stamp: () => string = () => "") {
   const { daemon, client } = sheetFixture();
   seedForgeBrowse(daemon, Date.parse("2026-10-20T00:00:00Z"));
   close = () => client.close();
   await client.start();
   await until(() => client.connectionState().getSnapshot() === "ready", "connected");
   const sent: CommandPayload[] = [];
+  const reads: unknown[] = [];
   const owner: ForgeOwner = {
-    request: client.request.bind(client),
+    request: (request, options) => {
+      reads.push(request);
+      return client.request(request, options);
+    },
     command: (payload) => {
       sent.push(payload);
       return client.command(payload);
@@ -44,10 +48,10 @@ async function connected(threads?: ThreadListEntry[]) {
           }) as unknown as ReturnType<ForgeOwner["threads"]>
       : () => client.threads(),
   };
-  const forge = new ForgeService(owner, plainPreview, () => 0);
+  const forge = new ForgeService(owner, plainPreview, () => 0, stamp);
   const ask = (request: Record<string, unknown>) =>
     forge.answer({ fresh: false, ...request } as ForgeRequest, new AbortController().signal);
-  return { daemon, client, sent, ask };
+  return { daemon, client, sent, reads, ask };
 }
 
 const numbers = (reply: PullsReply | IssuesReply) =>
@@ -233,6 +237,19 @@ test("an issue's page carries its conversation and what a thread started from it
   expect(issue.events.some((event) => event.comment && event.body)).toBe(true);
 });
 
+test("a remembered list is given again only until the kept forge reads go out of date", async () => {
+  let stamp = "0:0";
+  const { reads, ask } = await connected(undefined, () => stamp);
+  await ask({ type: "forge.pulls", project: "ace", search: {} });
+  const first = reads.length;
+  await ask({ type: "forge.pulls", project: "ace", search: {} });
+  expect(reads.length).toBe(first);
+  // A forge event or the connection coming back moves the stamp: the list is read again.
+  stamp = "0:1";
+  await ask({ type: "forge.pulls", project: "ace", search: {} });
+  expect(reads.length).toBeGreaterThan(first);
+});
+
 test("the phone asks for forge lists through its native service call and gets a refusal as a sentence", async () => {
   const { client } = await connected();
   const sink = new RecordingSink();
@@ -242,7 +259,12 @@ test("the phone asks for forge lists through its native service call and gets a 
     undefined,
     undefined,
     undefined,
-    new ForgeService(client, plainPreview, () => 0),
+    new ForgeService(
+      client,
+      plainPreview,
+      () => 0,
+      () => "",
+    ),
   );
   services.handle({
     type: "service",

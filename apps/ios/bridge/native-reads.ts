@@ -108,6 +108,14 @@ export class NativeReads implements NewThreadMemory {
     };
   }
 
+  /**
+   * Where a family's answers stand: it changes whenever they go out of date or the connection
+   * comes back. Memory kept elsewhere for the family is good only under the same stamp.
+   */
+  stamp(family: ReadFamily): string {
+    return `${this.#cache.generation(family)}:${this.#reconnects}`;
+  }
+
   /** The kept answer to give without asking the daemon. */
   fresh(read: ReadKey): unknown {
     return this.#cache.fresh(read.key);

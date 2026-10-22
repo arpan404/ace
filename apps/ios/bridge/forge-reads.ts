@@ -15,7 +15,8 @@ import { linkedWork, type LinkedThreads } from "@ace/ui-core";
  * The forge reads behind the phone's Pull requests and Issues, through the daemon's
  * `workspace.request` (the person's own `gh`, ADR 0002). A list page is kept half a minute, as
  * the web keeps it, so switching filters back or reopening a list doesn't ask GitHub again;
- * pulling to refresh reads afresh. Linked threads come from the threads this runtime holds.
+ * pulling to refresh reads afresh, and so does anything that puts the kept forge reads out of
+ * date (a forge event, a merge, the connection coming back). Linked threads come from the threads this runtime holds.
  */
 
 export type ForgeOwner = Pick<ClientCore, "request" | "command" | "threads">;
@@ -40,33 +41,54 @@ type Operation = ForgeBrowserOperation extends infer Each
 export const listFreshMs = 30_000;
 const keepAtMost = 200;
 
+/** A remembered forge answer and the kept-reads stamp it was asked under (`NativeReads.stamp`). */
+export interface ForgeMemory {
+  at: number;
+  stamp: string;
+  value: ForgeBrowserResult;
+}
+
 export class ForgeReads {
   #owner: ForgeOwner;
   #now: () => number;
   #signal: AbortSignal;
   #fresh: boolean;
-  #cache: Map<string, { at: number; value: ForgeBrowserResult }>;
+  #cache: Map<string, ForgeMemory>;
+  #stamp: string;
 
   constructor(
     owner: ForgeOwner,
     now: () => number,
-    cache: Map<string, { at: number; value: ForgeBrowserResult }>,
+    cache: Map<string, ForgeMemory>,
     signal: AbortSignal,
     /** Pull to refresh: read GitHub again rather than answer from memory. */
     fresh: boolean,
+    /**
+     * The forge reads' stamp when this request was asked: a forge event, write or reconnect
+     * changes it, and memory from another stamp is never given again.
+     */
+    stamp = "",
   ) {
     this.#owner = owner;
     this.#now = now;
     this.#cache = cache;
     this.#signal = signal;
     this.#fresh = fresh;
+    this.#stamp = stamp;
   }
 
   /** One read, answered from memory while fresh when `cached`. */
   async read(operation: Operation, cached: boolean): Promise<ForgeBrowserResult> {
     const key = JSON.stringify(operation);
     const hit = this.#cache.get(key);
-    if (cached && !this.#fresh && hit && this.#now() - hit.at < listFreshMs) return hit.value;
+    if (
+      cached &&
+      !this.#fresh &&
+      hit &&
+      hit.stamp === this.#stamp &&
+      this.#now() - hit.at < listFreshMs
+    )
+      return hit.value;
     const reply = await this.#owner.request(
       WorkspaceActionRequest.parse({
         type: "workspace.request",
@@ -79,7 +101,7 @@ export class ForgeReads {
     if (reply.result.kind !== "forge") throw new ForgeRefusal("forge_invalid_data");
     if (cached) {
       this.#cache.delete(key);
-      this.#cache.set(key, { at: this.#now(), value: reply.result.data });
+      this.#cache.set(key, { at: this.#now(), stamp: this.#stamp, value: reply.result.data });
       // The oldest entries go first once the memory holds enough lists.
       for (const old of this.#cache.keys()) {
         if (this.#cache.size <= keepAtMost) break;

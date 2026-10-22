@@ -289,3 +289,17 @@ test("an older answer landing after a newer one never replaces it", () => {
   expect(reads.answered(older, { providers: ["old"] })).toBe(false);
   expect(reads.fresh(newer)).toEqual({ providers: ["new"] });
 });
+
+test("a family's stamp moves with its events and with the connection coming back, not with others", () => {
+  const { owner, broadcast, connect } = fakeOwner();
+  const reads = new NativeReads(owner, new RecordingSink(), { now: () => 0, schedule: noSchedule });
+  const start = reads.stamp("forge");
+  broadcast({ type: "usage.updated" });
+  expect(reads.stamp("forge")).toBe(start);
+  broadcast({ type: "forge.pr.updated" });
+  const updated = reads.stamp("forge");
+  expect(updated).not.toBe(start);
+  connect("reconnecting");
+  connect("ready");
+  expect(reads.stamp("forge")).not.toBe(updated);
+});
