@@ -33,6 +33,7 @@ import ApplicationServices
 
     /// Puts back what the helper changed (a clipboard mid-paste, Chromium accessibility) and exits.
     func shutdown(_ code: Int32) -> Never {
+        overlay.hide()
         CUClipboard.restorePending()
         for session in sessions.values { session.close() }
         exit(code)
@@ -180,7 +181,7 @@ import ApplicationServices
         let check = checkpoint(id: id, session: session, acting: true)
         var actor = CUActor(session: session)
         let overlay = self.overlay
-        actor.indicate = { point in overlay.show(at: point) }
+        actor.indicate = { point in overlay.show(at: point, window: session.window) }
         actor.checkpoint = check.check
         var done: [String] = []
         var failure: CUObject?
@@ -206,6 +207,7 @@ import ApplicationServices
             }
         }
         session.endRequest()
+        if failure != nil { overlay.hide() }
         var result: CUObject = ["done": done]
         if let failure { result["error"] = failure }
         let cancelled = cancellations.isCancelled(id)

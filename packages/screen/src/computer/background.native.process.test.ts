@@ -1,5 +1,4 @@
 import { join } from "node:path";
-import { spawn } from "node:child_process";
 import { z } from "zod";
 import { expect, it, onTestFinished } from "vitest";
 import { probeOutput, spawnSupervised } from "@ace/provider-kit/process";
@@ -19,14 +18,16 @@ const fixtureReply = z.object({
 it.skipIf(!integration)(
   "background clicks and typing reach only the selected off-display window without activating the app",
   async (context) => {
-    for (const script of ["build.sh", "Tests/Fixture/build.sh"]) {
-      const build = await probeOutput("sh", [join(root, script)], { timeoutMs: 240_000 });
-      expect(build.code, build.stderr).toBe(0);
-    }
+    // Build the signed helper explicitly before this opt-in test. Test HOME is isolated
+    // and cannot access the person's signing keychain.
+    const build = await probeOutput("sh", [join(root, "Tests/Fixture/build.sh")], {
+      timeoutMs: 120_000,
+    });
+    expect(build.code, build.stderr).toBe(0);
+    const helper = join(root, "build/ace-screen-helper");
     const client = new ComputerClient({
-      helper: async () => join(root, "build/ace-screen-helper"),
+      helper: async () => helper,
       nextId: ids(),
-      spawnHelper: (command, args) => spawn(command, [...args, "--inherit-responsibility"]),
     });
     onTestFinished(() => client.close());
     if (!ComputerHello.parse(await client.request("hello", {})).accessibility) {

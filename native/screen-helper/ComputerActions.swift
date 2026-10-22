@@ -21,6 +21,9 @@ import ApplicationServices
         if let condition = try cuCondition(action["when"]) {
             guard cuConditionHolds(condition, nodes: session.refreshNodes()) else { return "skipped \(kind): condition not met" }
         }
+        if session.window?.onScreen == true, !cuScreenLocked(), let target = session.actionTarget, let point = visibleCenter(target) {
+            indicate(point)
+        }
         let copies = cuStepCopies(kind: kind, action: action)
         let clipboard = NSPasteboard.general.changeCount
         let line = try await dispatch(kind, action)
