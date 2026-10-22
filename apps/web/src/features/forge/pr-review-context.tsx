@@ -48,6 +48,9 @@ const Context = createContext<{
   /** The conversation is locked to this account: comments, reviews and reactions are refused. */
   commentsLocked: boolean;
 } | null>(null);
+/** Why the comment surfaces are off on a conversation locked to this account. */
+export const lockedText =
+  "This conversation is locked. Only collaborators who can push can comment.";
 /** What a locked conversation refuses from someone who can't push. */
 const lockedKinds: ReadonlySet<ForgeReviewAction["kind"]> = new Set([
   "conversation",
@@ -65,7 +68,7 @@ export function PrReviewWorkspace(props: {
   onRefresh(): void;
   disabled?: boolean;
   /** A locked conversation this account can't comment on. */
-  commentsLocked?: boolean;
+  commentsLocked?: boolean | undefined;
   header?: ReactNode;
   children: ReactNode;
 }) {
@@ -116,7 +119,7 @@ export function PrReviewWorkspace(props: {
     async (action: ForgeReviewAction) => {
       if (action.kind !== "reconcile" && (disabled || pending || !ready)) return false;
       if (commentsLocked && lockedKinds.has(action.kind)) {
-        setMessage("This conversation is locked. Only collaborators who can push can comment.");
+        setMessage(lockedText);
         return false;
       }
       setPending(true);

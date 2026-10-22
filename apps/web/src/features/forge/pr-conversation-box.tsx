@@ -4,7 +4,7 @@ import { draftKeys, useMarkdownDraft } from "@/components/markdown-editor/use-ma
 import { Button } from "@/components/ui/button.tsx";
 import { PrAvatar } from "./pr-presentation.tsx";
 import { appendTo, useQuotedInto } from "./pr-quote.tsx";
-import { usePrDetail, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
+import { lockedText, usePrDetail, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 import { useFocusAsk } from "./pr-ui-store.tsx";
 
 /** The viewer's avatar, borrowed from anything they wrote here (ace never asks GitHub for it). */
@@ -34,8 +34,10 @@ export function PrConversationBox() {
   });
   const viewer = review?.state?.viewer;
   const avatar = useViewerAvatar(viewer);
-  if (!review?.state?.canComment) return null;
-  const disabled = !review.ready || review.pending;
+  const locked = !!review?.commentsLocked;
+  // A locked conversation keeps the box, off, with GitHub's reason.
+  if (!review?.state || (!review.state.canComment && !locked)) return null;
+  const disabled = !review.ready || review.pending || locked;
   const send = () => {
     const body = draft.text;
     if (disabled || !body.trim()) return;
@@ -54,10 +56,16 @@ export function PrConversationBox() {
           placeholder="Leave a comment"
           maxLength={60_000}
           value={draft.text}
+          disabled={locked}
           onChange={draft.setText}
           onSubmit={send}
         />
-        <div className="flex justify-end">
+        <div className="flex items-center justify-end gap-2">
+          {locked && (
+            <p role="status" className="mr-auto text-xs text-muted-foreground">
+              {lockedText}
+            </p>
+          )}
           <Button variant="primary" disabled={disabled || !draft.text.trim()} onClick={send}>
             Comment
           </Button>

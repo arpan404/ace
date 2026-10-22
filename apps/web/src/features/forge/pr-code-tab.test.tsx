@@ -238,9 +238,14 @@ const twoChanges = changed(
   "@@ -1,2 +1,2 @@\n-a\n+b\n c\n@@ -20,2 +20,2 @@\n-x\n+y\n z",
 );
 
-const reviewed = (shown: Shown) => (
+const reviewed = (shown: Shown, commentsLocked = false) => (
   <PrUiProvider>
-    <PrReviewWorkspace workspaceId="api" detail={shown} onRefresh={() => {}}>
+    <PrReviewWorkspace
+      workspaceId="api"
+      detail={shown}
+      commentsLocked={commentsLocked}
+      onRefresh={() => {}}
+    >
       {codeTab(shown)}
     </PrReviewWorkspace>
   </PrUiProvider>
@@ -437,4 +442,28 @@ test("a pick on the old side in split view keeps its place in unified view, in a
   await userEvent.click(screen.getByRole("button", { name: "Stacked diff" }));
   await screen.findByText("Commenting on old line 2");
   expect(screen.getByRole("textbox", { name: "Line comment" })).toBeTruthy();
+});
+
+test("on a conversation locked to the viewer, a picked line's comment is off and says why", async () => {
+  const app = harness();
+  app.daemon.workspace.setForgeRead(page(1), filesPage([twoChanges]));
+  // GitHub reports a locked conversation as one the viewer can't comment on.
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.review-state", workspaceId, repository, number: 7 },
+    { resource: "prReviewState", value: reviewState({ canComment: false }) },
+  );
+  await mount(app, reviewed(detail, true));
+  await screen.findByText("y");
+  await pickLine("Comment on line 1");
+  const field = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Line comment" });
+  expect(field.disabled).toBe(true);
+  expect(
+    screen.getByText("This conversation is locked. Only collaborators who can push can comment."),
+  ).toBeTruthy();
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Start a review" }).disabled).toBe(
+    true,
+  );
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Add single comment" }).disabled,
+  ).toBe(true);
 });

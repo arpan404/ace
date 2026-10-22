@@ -102,6 +102,8 @@ export async function reviewHarness(options: {
   state: ForgeReviewState;
   ui: ReactNode;
   onConversation?: () => void;
+  /** The conversation is locked to this account. */
+  commentsLocked?: boolean;
 }) {
   const daemon = new FakeDaemon({ clock: () => 1_000 });
   const read = {
@@ -182,7 +184,12 @@ export async function reviewHarness(options: {
             <ToastProvider>
               <PrUiProvider>
                 <PrQuoteProvider onConversation={options.onConversation ?? (() => {})}>
-                  <PrReviewWorkspace workspaceId="api" detail={detail} onRefresh={() => {}}>
+                  <PrReviewWorkspace
+                    workspaceId="api"
+                    detail={detail}
+                    commentsLocked={options.commentsLocked}
+                    onRefresh={() => {}}
+                  >
                     {ui}
                   </PrReviewWorkspace>
                 </PrQuoteProvider>

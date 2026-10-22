@@ -6,8 +6,6 @@ export interface PrWorkspaceContext {
   workspaceId: string;
   detail: ForgePrDetail;
   disabled: boolean;
-  /** The conversation is locked and this account can't comment, review or react. */
-  commentsLocked?: boolean | undefined;
   refresh(): Promise<boolean>;
 }
 /** The exact hosted range displayed, including historical commit and its first parent. */

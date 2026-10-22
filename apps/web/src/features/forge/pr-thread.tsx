@@ -8,7 +8,7 @@ import { cn } from "@/lib/cn.ts";
 import { PrComment } from "./pr-comment.tsx";
 import { plural, previewOf, threadPlace } from "./pr-comment-model.ts";
 import { appendTo, useQuotedInto } from "./pr-quote.tsx";
-import { usePrIdentity, usePrReview } from "./pr-review-context.tsx";
+import { lockedText, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 import { useFocusAsk, useFold, useReplyOpen } from "./pr-ui-store.tsx";
 
 type ReviewThread = ForgePrStatus["reviewThreads"][number];
@@ -72,8 +72,22 @@ export function PrReplyField(props: {
     place === "thread",
   );
   const canComment = !!review?.state?.canComment;
-  const disabled = !review?.ready || review.pending || !canComment;
-  if (!review?.state || !canComment) return null;
+  const locked = !!review?.commentsLocked;
+  const disabled = !review?.ready || review.pending || !canComment || locked;
+  if (!review?.state || (!canComment && !locked)) return null;
+  // Under a locked conversation the reply line stays, off, with GitHub's reason.
+  if (locked && !typed)
+    return place === "thread" ? (
+      <p
+        role="status"
+        className={cn(
+          "flex min-h-8 w-full items-center rounded-md px-3 text-left text-xs text-subtle-foreground shadow-[inset_0_0_0_1px_var(--border-soft)]",
+          props.className,
+        )}
+      >
+        {lockedText}
+      </p>
+    ) : null;
   const close = () => setAsked(undefined);
   const send = () => {
     const body = draft.text;
@@ -105,9 +119,15 @@ export function PrReplyField(props: {
         placeholder="Reply"
         maxLength={60_000}
         value={draft.text}
+        disabled={locked}
         onChange={draft.setText}
         onSubmit={send}
       />
+      {locked && (
+        <p role="status" className="text-xs text-muted-foreground">
+          {lockedText}
+        </p>
+      )}
       <div className="flex justify-end gap-2">
         <Button
           variant="ghost"

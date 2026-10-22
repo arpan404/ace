@@ -85,7 +85,11 @@ export function PrFileReview(props: {
   );
   const placed = useMemo(() => placeComments(diff, threads, drafts), [diff, threads, drafts]);
   const canComment =
-    current && !!review?.state?.canComment && review.ready && !props.context.disabled;
+    current &&
+    // A locked conversation still opens the line composer, off, so it can say why.
+    (!!review?.state?.canComment || !!review?.commentsLocked) &&
+    review.ready &&
+    !props.context.disabled;
   const split = props.mode === "split";
   const view = split ? placed.split : placed.unified;
   // Under the picked line's row (in split view, its own side's line). A line from an opened

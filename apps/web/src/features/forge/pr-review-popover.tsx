@@ -7,7 +7,7 @@ import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/compone
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group.tsx";
 import { cn } from "@/lib/cn.ts";
 import { draftPlace } from "./pr-comment-model.ts";
-import { usePrDetail, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
+import { lockedText, usePrDetail, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 
 type Verdict = "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
 const verdicts: readonly { value: Verdict; label: string }[] = [
@@ -47,16 +47,18 @@ export function PrReviewButton() {
   if (!review || !detail || !state) return null;
   const drafts = state.drafts;
   const live = detail.status.state === "open" || detail.status.state === "draft";
-  if (!drafts.length && !(state.canComment && live)) return null;
+  const locked = review.commentsLocked;
+  if (!drafts.length && !((state.canComment || locked) && live)) return null;
   const headSha = detail.status.headSha;
   const outdated = drafts.filter((d) => d.anchor.commit !== headSha);
   const blocked = verdictBlocked(state, detail.author, live);
   const chosen = blocked && verdict !== "COMMENT" ? "COMMENT" : verdict;
   const disabled = !review.ready || review.pending;
+  const refused = locked || !state.canComment;
   const empty = chosen !== "APPROVE" && !draft.text.trim() && !drafts.length;
   const stale = state.headSha !== headSha;
   const submit = () => {
-    if (disabled || empty || outdated.length || stale || !state.canComment) return;
+    if (disabled || empty || outdated.length || stale || refused) return;
     const body = draft.text;
     void review
       .run({ kind: "submit", event: chosen, body, headSha, draftIds: drafts.map((d) => d.id) })
@@ -91,9 +93,15 @@ export function PrReviewButton() {
           placeholder="Leave a summary"
           maxLength={60_000}
           value={draft.text}
+          disabled={locked}
           onChange={draft.setText}
           onSubmit={submit}
         />
+        {locked && (
+          <p role="status" className="text-xs text-muted-foreground">
+            {lockedText}
+          </p>
+        )}
         <RadioGroup
           aria-label="Review verdict"
           value={chosen}
@@ -104,7 +112,7 @@ export function PrReviewButton() {
           className="gap-2"
         >
           {verdicts.map((v) => {
-            const off = v.value !== "COMMENT" && !!blocked;
+            const off = locked || (v.value !== "COMMENT" && !!blocked);
             return (
               <label
                 key={v.value}
@@ -162,7 +170,7 @@ export function PrReviewButton() {
           </Button>
           <Button
             variant="primary"
-            disabled={disabled || empty || outdated.length > 0 || stale || !state.canComment}
+            disabled={disabled || empty || outdated.length > 0 || stale || refused}
             onClick={submit}
           >
             Submit review

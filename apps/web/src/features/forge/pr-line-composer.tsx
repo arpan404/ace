@@ -10,7 +10,7 @@ import { PrClampedText } from "./pr-clamped.tsx";
 import { PrAvatar } from "./pr-presentation.tsx";
 import { linesLabel, suggestionBlock } from "./pr-comment-model.ts";
 import { appendTo } from "./pr-quote.tsx";
-import { usePrIdentity, usePrReview } from "./pr-review-context.tsx";
+import { lockedText, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 import { useEdit, useFocusAsk } from "./pr-ui-store.tsx";
 
 /** The review anchor for `range` of `path` at `headSha`. */
@@ -54,7 +54,8 @@ export function PrLineComposer(props: {
   const anchor = anchorOf(props.path, range, props.headSha);
   // Lines read from the whole file (an opened fold) aren't in GitHub's patch: it refuses them.
   const placeable = props.patch !== null && validHostedAnchor(props.patch, anchor);
-  const disabled = !review?.ready || review.pending || !draft.text.trim() || !placeable;
+  const locked = !!review?.commentsLocked;
+  const disabled = !review?.ready || review.pending || !draft.text.trim() || !placeable || locked;
   const done = (body: string) => (ok: boolean) => {
     if (ok && draft.clear(body)) props.onClose();
   };
@@ -94,7 +95,12 @@ export function PrLineComposer(props: {
       <p className="text-xs text-subtle-foreground">
         {`Commenting on ${linesLabel(range.side, range.start, range.end)}`}
       </p>
-      {!placeable && (
+      {locked && (
+        <p role="status" className="text-xs text-muted-foreground">
+          {lockedText}
+        </p>
+      )}
+      {!locked && !placeable && (
         <p role="status" className="text-xs text-muted-foreground">
           {props.patch === null
             ? "GitHub didn't send this file's changes, so it can't take a comment on its lines."
@@ -106,6 +112,7 @@ export function PrLineComposer(props: {
         placeholder="Leave a comment"
         maxLength={60_000}
         value={draft.text}
+        disabled={locked}
         onChange={draft.setText}
         onSubmit={save}
       />
@@ -114,7 +121,7 @@ export function PrLineComposer(props: {
           <Button
             type="button"
             variant="ghost"
-            disabled={!placeable}
+            disabled={!placeable || locked}
             onClick={() =>
               draft.setText(
                 appendTo(draft.text, suggestionBlock(props.diff.rows, range.start, range.end)),
