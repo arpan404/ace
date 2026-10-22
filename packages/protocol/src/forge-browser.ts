@@ -13,6 +13,7 @@ import { ForgeStackMembership, ForgeStackWorkspace } from "./forge-stacks.ts";
 import { ForgeReviewState } from "./forge-review.ts";
 import { ForgeCheckOperations, ForgeCheckResults } from "./forge-checks.ts";
 import { ForgeFileContentOperations, ForgeFileContentResults } from "./forge-file-content.ts";
+import { ForgePeopleOperations, ForgePeopleResults } from "./forge-people.ts";
 import { z } from "zod";
 import { ForgePrRef, ForgePrStatus, ForgeRepository } from "./forge.ts";
 import { WorkspaceId, ThreadId } from "./ids.ts";
@@ -225,6 +226,7 @@ export const ForgeBrowserOperations = [
   z.object({ op: z.literal("forge.pr.lifecycle"), ...scope, number: z.number().int().positive() }),
   ...ForgeIssueOperations,
   ...ForgeFileContentOperations,
+  ...ForgePeopleOperations,
   z.object({
     op: z.literal("forge.pr.merge-state"),
     ...scope,
@@ -279,6 +281,7 @@ export const ForgeBrowserResult = z.discriminatedUnion("resource", [
   z.object({ resource: z.literal("prLifecycle"), value: ForgeLifecycleState }),
   ...ForgeIssueResults,
   ...ForgeFileContentResults,
+  ...ForgePeopleResults,
   z.object({ resource: z.literal("prMergeState"), value: ForgeMergeState }),
   z.object({ resource: z.literal("prStack"), value: ForgeStackWorkspace }),
   z.object({

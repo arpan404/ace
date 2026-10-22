@@ -19,6 +19,7 @@
     "./forge-checks": "./src/forge-checks.ts",
     "./forge-browser": "./src/forge-browser.ts",
     "./forge-file-content": "./src/forge-file-content.ts",
+    "./forge-people": "./src/forge-people.ts",
     "./queue": "./src/queue.ts",
     "./context-meter": "./src/context-meter.ts",
     "./accounts": "./src/accounts.ts",

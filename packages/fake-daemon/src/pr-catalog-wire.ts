@@ -7,6 +7,7 @@ import type {
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
 import { catalogGroupCounts, catalogPrList } from "./forge-list-wire.ts";
 import { colors } from "./forge-list-rows.ts";
+import { FakePrPeople } from "./pr-people-wire.ts";
 
 /**
  * Whole pull requests the fake app can open in its PR panel: detail, merge state, lifecycle,
@@ -15,6 +16,7 @@ import { colors } from "./forge-list-rows.ts";
  */
 export class FakePrCatalog {
   private fixtures: PullRequestFixture[] = [];
+  private people = new FakePrPeople();
   seed(fixtures: readonly PullRequestFixture[]): void {
     // As GitHub answers: each label with its colour.
     this.fixtures = fixtures.map((fixture) => ({
@@ -100,6 +102,19 @@ export class FakePrCatalog {
     );
     return { ok: true, pr: payload.pr, prStatus: { ...fixture.detail.status, mergeState: next } };
   }
+  /** Reviewer requests, withdrawals and dismissals on a catalog PR (`forge.hosted.review`). */
+  review(payload: CommandPayload): Omit<CommandResult, "commandId"> | undefined {
+    return this.people.review(payload, (pr) => this.find(pr));
+  }
+  /** `@` people, `#` references and a catalog PR's reviewers; `issues` lists the repository's. */
+  peopleRead(
+    op: WorkspaceActionRequest["operation"],
+    issues: (state: "open" | "closed") => readonly { ref: { number: number }; title: string }[],
+  ): ForgeBrowserResult | undefined {
+    return this.people.read(op, this.fixtures, issues, (read) =>
+      "number" in read ? this.find(read) : undefined,
+    );
+  }
   /** Each list group's total, from these pull requests and the issues in `reads`. */
   groupCounts(
     op: WorkspaceActionRequest["operation"],
@@ -125,7 +140,10 @@ export class FakePrCatalog {
     if (!fixture) return undefined;
     switch (op.op) {
       case "forge.pr.detail":
-        return { resource: "prDetail", value: fixture.detail };
+        return {
+          resource: "prDetail",
+          value: { ...fixture.detail, reviewers: this.people.requestedLogins(fixture) },
+        };
       case "forge.pr.merge-state":
         return fixture.mergeState
           ? { resource: "prMergeState", value: fixture.mergeState }
