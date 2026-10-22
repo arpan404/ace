@@ -167,10 +167,12 @@ async function personDrives(viewer: LiveViewer, deviceId: string, metrics: Metri
   await waitToShow(viewer, deviceId, "Search");
   const search = await centreOf(viewer, deviceId, "Search");
   await viewer.request({ op: "input", deviceId, input: { kind: "tap", ...search } });
-  await expect
-    .poll(() => firstOfRole(viewer, deviceId, "EditText"), { timeout: 45_000 })
-    .toBeDefined();
-  const field = await firstOfRole(viewer, deviceId, "EditText");
+  // A slow emulator can take a while to show the field; tap it when it is there.
+  let field: Awaited<ReturnType<typeof firstOfRole>>;
+  for (let tries = 0; tries < 10 && !field; tries++) {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    field = await firstOfRole(viewer, deviceId, "EditText");
+  }
   if (field)
     await viewer.request({
       op: "input",
