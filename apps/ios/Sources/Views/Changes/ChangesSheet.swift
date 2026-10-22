@@ -188,7 +188,7 @@ struct ChangedFileHeader: View {
 struct FileStatusMark: View {
     let status: String
     var body: some View {
-        RoundedRectangle(cornerRadius: 6).stroke(colour, lineWidth: 1.5)
+        AceShape.glyph.stroke(colour, lineWidth: 1.5)
             .frame(width: 20, height: 20)
             .overlay {
                 if status == "modified" { Circle().fill(colour).frame(width: 6, height: 6) }
