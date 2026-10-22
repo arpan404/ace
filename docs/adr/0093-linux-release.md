@@ -208,9 +208,11 @@ and closed, the sandbox setup through run0 (the VM has no pkexec) then restart i
 renderer, the autostart entry and the `ace` command after quitting. In that VM every Vulkan
 client under KWin Wayland (on vgem, with only Mesa's software Vulkan) crashes in Mesa's
 device-select layer, `vulkaninfo` included: headless Chrome's GPU process dumps core there and
-falls back, and the GTK 4 fixture runs with `GSK_RENDERER=cairo`. One Vitest worker SIGSEGV
-in the KDE Wayland live-view suite was never reproduced (20 runs after it, Node 24.13.0); the
-daemon runner keeps core dumps so another one can be read. Arch with Hyprland
+falls back, and the GTK 4 fixture runs with `GSK_RENDERER=cairo`. Two Vitest workers running the
+daemon died (a SIGSEGV on KDE, a SIGTRAP on Hyprland, 1 in 30-odd runs); the kept core of the
+second is V8 13.6 aborting as it frees a tiered-up WebAssembly-to-JS wrapper whose code page a
+worker isolate already released (nodejs/node#66366, not yet fixed in Node 24). The daemon now
+keeps those wrappers generic for its whole process, and the e2e runner keeps core dumps. Arch with Hyprland
 (Omarchy) on x86 is still checked by hand before the first release: AT-SPI outline and
 actions, the real share picker, portal capture, and the AppImage.
 
