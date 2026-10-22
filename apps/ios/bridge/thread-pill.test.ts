@@ -130,6 +130,7 @@ test("a request card takes the pill's place while it is open, and the pill comes
             text: "Tabs or spaces?",
             multiSelect: false,
             allowOther: false,
+            secret: false,
             options: [{ id: "tabs", label: "Tabs" }],
           },
         ],
@@ -146,6 +147,9 @@ test("a request card takes the pill's place while it is open, and the pill comes
       resolution: { kind: "question", answers: { tabs: ["tabs"] } },
     },
   ]);
-  const back = await until(() => pill()?.segments.length && pill(), "the pill coming back");
+  const back = await until(
+    () => (pill()?.segments.length ? pill() : undefined),
+    "the pill coming back",
+  );
   expect(back?.segments.map((segment) => segment.kind)).toEqual(["goal"]);
 });
