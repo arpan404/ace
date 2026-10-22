@@ -1,4 +1,14 @@
-import { ForgePrSearch, type ForgePrRow } from "@ace/protocol";
+import {
+  ForgeIssueSearch,
+  ForgePrSearch,
+  type ForgeIssueRow,
+  type ForgePrRow,
+} from "@ace/protocol";
+
+/*
+ * The Pull requests and Issues lists, as both clients show them: the searches a list's filters
+ * make, its sorts, and its groups by who a row concerns. Pure.
+ */
 
 /** What the Pull requests list shows, as its address keeps it (`/pulls?state=merged&…`). */
 export interface PullsSearch {
@@ -94,4 +104,58 @@ export function groupPrs(
     { id: "reviewing", label: "Review requested", rows: reviewing },
     { id: "others", label: "Others", rows: others },
   ].filter((group) => group.rows.length > 0);
+}
+
+/** What the Issues list shows, as its address keeps it (`/issues?state=closed&…`). */
+export interface IssuesSearch {
+  project?: string | undefined;
+  who?: "all" | "assigned" | "created" | undefined;
+  state?: "open" | "closed" | undefined;
+  sort?: IssuesSort | undefined;
+  author?: string | undefined;
+  labels?: string[] | undefined;
+  q?: string | undefined;
+}
+export type IssuesSort = "updated" | "created" | "comments";
+
+export const issueSortLabels: Record<IssuesSort, string> = {
+  updated: "Recently updated",
+  created: "Newest",
+  comments: "Most commented",
+};
+
+export function issueQuery(search: IssuesSearch, page: number): ForgeIssueSearch {
+  return ForgeIssueSearch.parse({
+    state: search.state ?? "open",
+    search: search.q?.trim() ?? "",
+    author: search.who === "created" ? "@me" : (search.author ?? ""),
+    assignee: search.who === "assigned" ? "@me" : "",
+    labels: search.labels ?? [],
+    sort: search.sort ?? "updated",
+    page,
+  });
+}
+
+/** Assigned to you first, then the ones you opened, then the rest. */
+export function groupIssues(
+  rows: readonly ForgeIssueRow[],
+  viewer: string | undefined,
+): RowGroup<ForgeIssueRow>[] {
+  if (!viewer) return [{ id: "all", label: "Issues", rows: [...rows] }];
+  const me = viewer.toLowerCase();
+  const assigned = rows.filter((row) => row.assignees.some((a) => a.toLowerCase() === me));
+  const created = rows.filter((row) => !assigned.includes(row) && row.author.toLowerCase() === me);
+  const others = rows.filter((row) => !assigned.includes(row) && !created.includes(row));
+  return [
+    { id: "assigned", label: "Assigned to you", rows: assigned },
+    { id: "created", label: "Created by you", rows: created },
+    { id: "others", label: "Others", rows: others },
+  ].filter((group) => group.rows.length > 0);
+}
+
+/** The first message of a thread started from an issue: what to work on, its link and body. */
+export function issueSourceText(
+  issue: Pick<ForgeIssueRow, "ref" | "title" | "url"> & { body: string },
+): string {
+  return `Work on GitHub issue #${issue.ref.number}: ${issue.title}\n${issue.url}\n\n${issue.body}`;
 }

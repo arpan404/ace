@@ -1,4 +1,5 @@
 import { issueFromUrl } from "@ace/forge/pr-reference";
+import { issueSourceText } from "@ace/ui-core";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "@/lib/forge-read.ts";
 export function useIssueSource(workspaceId: string | undefined, url: string | undefined) {
@@ -31,9 +32,7 @@ export function useIssueSource(workspaceId: string | undefined, url: string | un
   });
   return {
     ref: query.data?.ref,
-    text: query.data
-      ? `Work on GitHub issue #${query.data.ref.number}: ${query.data.title}\n${query.data.url}\n\n${query.data.body}`
-      : undefined,
+    text: query.data ? issueSourceText(query.data) : undefined,
     problem:
       url && !issue
         ? "The issue URL is invalid."
