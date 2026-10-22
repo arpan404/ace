@@ -22,6 +22,8 @@ import { threadOutcome } from "./results.ts";
 import {
   agentStep,
   clip,
+  heldFor,
+  holdStep,
   elapsedSeconds,
   lastLine,
   requestPrompt,
@@ -151,7 +153,7 @@ export class AgentMonitor {
       const state = this.state(thread.id);
       counts[state]++;
       const needs = state === "needs_you" ? this.needs(thread) : [];
-      const step = state === "working" ? this.step(thread) : undefined;
+      const step = state === "working" || state === "needs_you" ? this.step(thread) : undefined;
       const last = state === "working" ? this.lastOutput(thread, 100) : undefined;
       children.push({
         id: thread.id,
@@ -287,6 +289,8 @@ export class AgentMonitor {
     };
   }
   private step(thread: Thread): string | undefined {
+    const held = heldFor(thread, this.deps.journal.get(thread.id));
+    if (held) return holdStep(held);
     const root = thread.rootAgentId && this.deps.store.getMcpAgent(thread.id, thread.rootAgentId);
     return root ? agentStep(root.status) : undefined;
   }

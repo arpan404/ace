@@ -4,7 +4,9 @@ import Security
 enum TrustFailure: Error, Equatable { case mismatch, expired, malformed }
 
 /// The only trust decision for ace's HTTPS and WSS: the QR-confirmed SHA-256 DER SPKI pin and
-/// the certificate's validity window. There is no CA, hostname or system-trust fallback.
+/// the certificate's validity window. One exception (ADR 0097): a Tailscale `*.ts.net` host may
+/// present the publicly trusted certificate Tailscale issues for that exact name, whose key
+/// changes on every renewal. No other host ever falls back to system trust.
 enum PinnedTrust {
     static func verify(certificate: Data, pin: String, now: Date) throws(TrustFailure) {
         let actual: String
@@ -24,12 +26,28 @@ enum PinnedTrust {
               let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let leaf = chain.first else {
             return .failure(.malformed)
         }
-        guard let pin else { return .failure(.mismatch) }
         do throws(TrustFailure) {
-            try verify(certificate: SecCertificateCopyData(leaf) as Data, pin: pin, now: now)
+            try decide(certificate: SecCertificateCopyData(leaf) as Data, pin: pin, host: host, now: now) {
+                SecTrustSetPolicies(trust, SecPolicyCreateSSL(true, host as CFString))
+                return SecTrustEvaluateWithError(trust, nil)
+            }
         } catch { return .failure(error) }
-        // The exact public key authenticates the daemon's self-signed certificate.
         return .success(URLCredential(trust: trust))
+    }
+    /// The exact pinned key authenticates ace's self-signed certificate. When it doesn't match,
+    /// only a ts.net host may still pass, and only if the system trusts its chain for that name.
+    static func decide(certificate: Data, pin: String?, host: String, now: Date, systemTrusts: () -> Bool) throws(TrustFailure) {
+        do throws(TrustFailure) {
+            try verify(certificate: certificate, pin: pin ?? "", now: now)
+        } catch {
+            guard error == .mismatch, isTailnetName(host), systemTrusts() else { throw error }
+        }
+    }
+    /// A Tailscale MagicDNS name: only that machine can get a public certificate for it.
+    static func isTailnetName(_ host: String) -> Bool {
+        var name = host.lowercased()
+        if name.hasSuffix(".") { name.removeLast() }
+        return name.hasSuffix(".ts.net") && name.count > ".ts.net".count
     }
     static func isPin(_ value: String) -> Bool {
         value.utf8.count == 64 && value.utf8.allSatisfy { ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66) }
