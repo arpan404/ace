@@ -56,9 +56,10 @@ To include standalone CLI archives (`ace update` on installs from `install.sh`),
 
 ## What people see
 
-- An update button sits beside the Settings gear. Clicking it checks for updates. The app
-  also checks 15 seconds after launch and every 30 minutes; **Check for Updates…** in the
-  app menu checks now.
+- An update button appears beside the Settings gear once a newer release is found. The app
+  checks 15 seconds after launch and then every 60–90 seconds; **Check for Updates…** in
+  the app menu and **Settings › General › Updates** check now. The Settings row also
+  downloads the update and restarts into it.
 - When a newer release exists, the button shows a download icon with a dot. Hovering it
   shows what changed in every release since the installed one. Clicking downloads it, with
   progress around the icon. "Update downloaded" says when it's ready.

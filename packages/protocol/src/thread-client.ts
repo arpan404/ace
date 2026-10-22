@@ -49,6 +49,11 @@ export const ThreadOrganization = z.object({
    * thread is done; any other outcome (failed, a question for the person) drops the request.
    */
   settleWhenDone: z.literal(true).optional(),
+  /**
+   * The linked pull request whose merge or close already settled this thread by itself. It
+   * never settles it again: a thread the person reopens after that stays open.
+   */
+  prSettled: z.number().int().positive().optional(),
 });
 export type ThreadOrganization = z.infer<typeof ThreadOrganization>;
 export const ThreadDetails = z.object({
@@ -208,6 +213,7 @@ export const ThreadClientUpdated = z.object({
     autoSettleAt: Timestamp.nullable().optional(),
     autoSettle: z.literal(false).nullable().optional(),
     settleWhenDone: z.literal(true).nullable().optional(),
+    prSettled: z.number().int().positive().nullable().optional(),
   }),
 });
 export type ThreadClientUpdated = z.infer<typeof ThreadClientUpdated>;

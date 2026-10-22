@@ -121,7 +121,7 @@ test.each(["provider", "account"])(
         args: ["logout"],
         env: {
           CODEX_HOME: instance.homeDir,
-          HOME: join(instance.homeDir, "user"),
+          HOME: f.normalHome,
           OPENAI_API_KEY: null,
         },
       });

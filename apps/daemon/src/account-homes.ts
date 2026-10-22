@@ -52,8 +52,9 @@ export async function createManagedHome(
     throw new Error("Unsafe account home root");
   const homeDir = join(parent, id);
   await mkdir(homeDir, { mode: 0o700 });
-  // Restrict even incidental CLI writes such as caches and browser helpers to this home.
-  await mkdir(join(homeDir, "user"), { mode: 0o700 });
+  // Cursor's SDK is the one CLI that still runs with a private HOME (its login follows
+  // os.homedir()); every other account uses the person's own home.
+  if (provider === "cursor") await mkdir(join(homeDir, "user"), { mode: 0o700 });
   return { ...createInstance({ id, provider, label, homeDir }), managed: true };
 }
 

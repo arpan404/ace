@@ -1111,7 +1111,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"diagnostics.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| operation | yes | ["doctor","toolchains"] |  |
+| operation | yes | ["doctor","toolchains","fix"] |  |
 
 Example:
 

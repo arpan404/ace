@@ -155,8 +155,9 @@ test.each([
         .parse(launch);
       expect(record.args).toEqual(args);
       expect(record.env[selector]).toBe(provider === "opencode" ? join(home, "data") : home);
-      expect(record.env.HOME).toBe(join(home, "user"));
-      expect(record.env.TMPDIR).toBe(home);
+      // Only the CLI's login selector moves; the person's home and temp folder stay theirs.
+      expect(record.env.HOME).toBe(f.normalHome);
+      expect(record.env.TMPDIR).toBe(process.env.TMPDIR ?? null);
       expect(record.env.OPENAI_API_KEY).toBeNull();
       // Completion and refresh finish before account changes are admitted again.
       await poll(async () => {
@@ -311,11 +312,11 @@ createInterface({input:process.stdin}).on('line', requestLine => {
       .parse(launch);
     expect(record.env).toMatchObject({
       HOME: join(home, "user"),
-      TMPDIR: home,
       OPENAI_API_KEY: null,
       CURSOR_CONFIG_DIR: null,
       AGENT_CLI_CREDENTIAL_STORE: null,
     });
+    expect(record.env.TMPDIR).not.toBe(home);
     expect(record.args).not.toContain("login");
     await writeFile(join(home, "user", "fixture-authorized"), "browser approved");
     do {

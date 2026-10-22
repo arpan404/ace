@@ -11,6 +11,7 @@
     "./access-modes": "./src/access-modes.ts",
     "./payload": "./src/payload.ts",
     "./process": "./src/process.ts",
+    "./user-tool-paths": "./src/user-tool-paths.ts",
     "./sdk": "./src/sdk.ts",
     "./ipc": "./src/ipc.ts",
     "./jsonrpc": "./src/jsonrpc.ts",

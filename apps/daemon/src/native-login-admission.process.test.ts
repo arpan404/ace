@@ -15,7 +15,7 @@ test.each(cases)(
   async ({ phase, change }) => {
     const f = await nativeLoginHarness(phase === "API key" ? "codex" : "opencode");
     try {
-      const home = join(f.instance.homeDir, "user");
+      const home = f.credentialHome;
       const session = await f.start(phase === "upstream choice" ? "login" : "api_key");
       await f.wait(phase === "upstream choice" ? "awaiting_input" : "awaiting_api_key");
       const request = {
@@ -68,7 +68,7 @@ test("an unchanged native API-key login hands the key to its configured executab
       apiKey: "opaque-synthetic-control",
     });
     expect((await f.sessions.completed("owner", session)).state).toBe("succeeded");
-    expect(await readFile(join(f.instance.homeDir, "user", "cli-credential"), "utf8")).toBe(
+    expect(await readFile(join(f.credentialHome, "cli-credential"), "utf8")).toBe(
       "opaque-synthetic-control",
     );
     expect(f.f.registry.summary(f.instance.id, 100)?.quota.auth).toBe("logged_in");

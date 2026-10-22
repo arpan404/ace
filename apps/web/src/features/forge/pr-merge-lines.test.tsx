@@ -107,6 +107,7 @@ async function openSeeded(hosted: ForgePrDetail, state: ForgeMergeState) {
   );
   await openPullRequest(app, { project: "relay", number: 42 });
   await screen.findByRole("article", { name: "Pull request #42" }, { timeout: 10_000 });
+  return app;
 }
 
 test("a merge held by branch rules names them without repeating the gates", async () => {
@@ -123,9 +124,9 @@ test("a merge held by branch rules names them without repeating the gates", asyn
   expect(panel().queryByText("Checks: FAILURE.")).toBeNull();
 });
 
-test("a queued PR shows its queue state and opens a deployment in the browser", async () => {
+test("a queued PR shows its queue state and opens a deployment in the thread's browser", async () => {
   const launched = vi.spyOn(window, "open").mockImplementation(() => null);
-  await openSeeded(
+  const app = await openSeeded(
     detail({ ci: "success", checks: [] }),
     mergeState({
       mergeState: "CLEAN",
@@ -149,11 +150,10 @@ test("a queued PR shows its queue state and opens a deployment in the browser", 
   expect(panel().queryByRole("button", { name: /production/ })).toBeNull();
   await userEvent.click(panel().getByRole("button", { name: "staging · Success" }));
   await waitFor(() =>
-    expect(launched).toHaveBeenCalledWith(
+    expect(app.daemon.browser.tabsList("thread-retry-budget").map((page) => page.url)).toContain(
       "https://acme.example/staging",
-      "_blank",
-      "noopener,noreferrer",
     ),
   );
+  expect(launched).not.toHaveBeenCalled();
   launched.mockRestore();
 });

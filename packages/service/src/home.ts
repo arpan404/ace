@@ -13,6 +13,7 @@ export {
   OldAceRunningError,
   NewerDataError,
   formatName,
+  markerVersion,
 } from "./home-format.ts";
 export { prepareDaemonHome, type FreshStartPorts, type PreparedHome } from "./home-fresh-start.ts";
 export { claimHome, processAlive, type HomeClaim } from "./home-claim.ts";

@@ -9,7 +9,7 @@ test("Run checks shows results and a next step for an agent needing attention", 
   await userEvent.click(await screen.findByRole("button", { name: "Run checks" }));
   const results = await screen.findByRole("list", { name: "Check results" });
   expect(within(results).getAllByText("Passed")).toHaveLength(3);
-  expect(within(results).getByText("Gemini CLI")).toBeTruthy();
+  expect(await within(results).findByText("Gemini CLI")).toBeTruthy();
   const cursor = within(results).getByText("Cursor").closest("li");
   if (!cursor) throw new Error("Missing Cursor result");
   await userEvent.click(within(cursor).getByRole("link", { name: "Open Providers" }));

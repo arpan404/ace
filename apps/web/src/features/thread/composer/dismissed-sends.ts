@@ -3,4 +3,5 @@ export {
   dismissedSends,
   loadDismissed,
   resetDismissed,
+  restoreSend,
 } from "@/lib/dismissed-sends.ts";

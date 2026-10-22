@@ -4,7 +4,7 @@ import type { ForgePrRow } from "@ace/protocol";
 import type { LocalCheckResult } from "@ace/ui-core";
 import { DiffStat } from "@/components/diff-stat.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { openExternal } from "@/boot/open-external.ts";
+import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { LinkedThread } from "./linked-threads.ts";
 import { LabelPill } from "@/components/forge-marks.tsx";
@@ -55,6 +55,7 @@ export function PrRow(props: {
   const { row, step } = props;
   const navigate = useNavigate();
   const toast = useToast();
+  const openWeb = useOpenWebAddress();
   const people = [...new Set([...(row.reviewers ?? []), ...(row.assignees ?? [])])];
   const action = step?.action;
   // Space on a selectable row toggles it, as its Merge button does.
@@ -157,7 +158,7 @@ export function PrRow(props: {
           void navigate({ to: "/new", search: { project: props.project, pullRequest: row.url } })
         }
         onOpenExternal={() =>
-          void openExternal(row.url).catch(() => toast.error({ title: "Couldn't open GitHub" }))
+          void openWeb(row.url).catch(() => toast.error({ title: "Couldn't open GitHub" }))
         }
       />
     </li>

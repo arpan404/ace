@@ -14,6 +14,13 @@ test("published images read their own authenticated attachment and cannot be fet
   close = () => client.close();
   const threadId = ThreadId.parse("picture");
   daemon.createThread({ id: threadId, workspaceId: "ace", provider: "codex", title: "Picture" });
+  const foreignThreadId = ThreadId.parse("foreign");
+  daemon.createThread({
+    id: foreignThreadId,
+    workspaceId: "ace",
+    provider: "codex",
+    title: "Other",
+  });
   daemon.apply(threadId, [
     facts.rootAgent("codex"),
     {
@@ -56,7 +63,7 @@ test("published images read their own authenticated attachment and cannot be fet
   await expect(
     readNativeMedia(
       client,
-      { ...request, threadId: ThreadId.parse("foreign") },
+      { ...request, threadId: foreignThreadId },
       new AbortController().signal,
     ),
   ).rejects.toThrow("Media unavailable");

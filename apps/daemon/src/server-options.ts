@@ -125,6 +125,10 @@ export interface ServerOptions {
   health?: () => Promise<DiagnosticsHealth>;
   doctor?: () => Promise<import("@ace/protocol").DiagnosticReport>;
   toolchains?: () => Promise<import("@ace/protocol").Toolchain[]>;
+  doctorFix?: (assertAuthorized: () => void) => Promise<{
+    report: import("@ace/protocol").DiagnosticReport;
+    repairs: import("@ace/protocol").DiagnosticRepair[];
+  }>;
   supportFiles?: FilesService;
   context?: {
     downloadAttachment?: import("@ace/context").ContextService["downloadAttachment"];

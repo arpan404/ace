@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { ForgeIssueRow } from "@ace/protocol";
 import { useToast } from "@/components/ui/toast.tsx";
-import { openExternal } from "@/boot/open-external.ts";
+import { useOpenWebAddress } from "@/components/web-link.tsx";
 import type { LinkedThread } from "./linked-threads.ts";
 import { LabelPill } from "@/components/forge-marks.tsx";
 import { Avatars, IssueStateGlyph } from "./marks.tsx";
@@ -18,6 +18,7 @@ export function IssueRow(props: {
   const { row } = props;
   const navigate = useNavigate();
   const toast = useToast();
+  const openWeb = useOpenWebAddress();
   return (
     <li className="group/row relative border-b border-border last:border-b-0">
       <Link
@@ -81,7 +82,7 @@ export function IssueRow(props: {
           void navigate({ to: "/new", search: { project: props.project, issue: row.url } })
         }
         onOpenExternal={() =>
-          void openExternal(row.url).catch(() => toast.error({ title: "Couldn't open GitHub" }))
+          void openWeb(row.url).catch(() => toast.error({ title: "Couldn't open GitHub" }))
         }
       />
     </li>
