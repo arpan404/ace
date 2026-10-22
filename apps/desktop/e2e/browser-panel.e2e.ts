@@ -344,30 +344,35 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect.poll(async () => !!(await geometry()).native?.visible).toBe(false);
       // The person kept agents out of the tab, so only the person can close it.
       await s.daemon.browser.closeThread(s.thread.id, { kind: "human", connectionId: "e2e" });
-      for (const thread of [s.thread, s.other]) {
-        await s.daemon.browser.open({
-          threadId: thread.id,
-          workspaceId: thread.workspaceId,
-          profile: "persistent",
+      const reopen = async () => {
+        for (const thread of [s.thread, s.other]) {
+          await s.daemon.browser.open({
+            threadId: thread.id,
+            workspaceId: thread.workspaceId,
+            profile: "persistent",
+          });
+          await s.daemon.browser.execute(thread.id, { action: "navigate", url: s.url });
+        }
+      };
+      const cookies = (threadId: string) =>
+        s.daemon.browser.execute(threadId, { action: "evaluate", expression: "document.cookie" });
+      const setCookie = (value: string) =>
+        s.daemon.browser.execute(s.thread.id, {
+          action: "evaluate",
+          expression: `document.cookie="${value}; path=/"`,
         });
-        await s.daemon.browser.execute(thread.id, { action: "navigate", url: s.url });
-      }
-      await s.daemon.browser.execute(s.thread.id, {
-        action: "evaluate",
-        expression: 'document.cookie="native-isolation=one; path=/"',
-      });
-      expect(
-        await s.daemon.browser.execute(s.thread.id, {
-          action: "evaluate",
-          expression: "document.cookie",
-        }),
-      ).toContain("native-isolation=one");
-      expect(
-        await s.daemon.browser.execute(s.other.id, {
-          action: "evaluate",
-          expression: "document.cookie",
-        }),
-      ).toBe("");
+      // By default every thread shares one kept profile: a sign-in in one is there in all.
+      await reopen();
+      await setCookie("native-shared=one");
+      expect(await cookies(s.other.id)).toContain("native-shared=one");
+      // With a profile per thread, another thread's page never sees this one's cookies.
+      for (const thread of [s.thread, s.other])
+        await s.daemon.browser.closeThread(thread.id, { kind: "human", connectionId: "e2e" });
+      s.useProfileScope("thread");
+      await reopen();
+      await setCookie("native-isolation=one");
+      expect(await cookies(s.thread.id)).toContain("native-isolation=one");
+      expect(await cookies(s.other.id)).toBe("");
     } catch (error) {
       console.error("Browser panel scenario failed", error);
       await s.page.screenshot({ path: "/tmp/ace-panel-ui.png" });
