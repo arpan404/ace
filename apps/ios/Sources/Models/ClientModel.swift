@@ -103,10 +103,13 @@ import CryptoKit
         await closing?.value
         guard connectionEpoch == epoch, !Task.isCancelled else { return }
         shutdown = nil
+        // Frames are decoded where they arrive, on the runtime's thread; the main thread applies them.
+        let decoder = FrameDecoder()
         let runtime = makeRuntime(target, database, { [weak self] data in
+            let patches = decoder.decode(data)
             Task { @MainActor in
                 guard let self, self.connectionEpoch == epoch else { return }
-                let accepted = self.receive(data)
+                let accepted = self.accept(patches, bytes: data.count)
                 self.runtime?.acknowledge(accepted: accepted)
             }
         }, { [weak self] message in Task { @MainActor in
@@ -121,10 +124,15 @@ import CryptoKit
         let scope = SHA256.hash(data: Data("\(hostId)\u{0}\(deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
         return directory.appendingPathComponent(scope + ".sqlite")
     }
+    /// Decodes and applies one frame on the main thread, as tests deliver them.
     @discardableResult func receive(_ data: Data) -> Bool {
-        largestFrame = max(largestFrame, data.count)
+        accept(try? frames.decode(data), bytes: data.count)
+    }
+    /// Applies one decoded frame; nil is a frame that could not be read.
+    func accept(_ patches: [BridgePatch]?, bytes: Int) -> Bool {
+        largestFrame = max(largestFrame, bytes)
         if patchCount == 0 { LaunchTrace.mark("bridge.firstFrame") }
-        guard let patches = HostTrace.measure("main.decode", bytes: data.count, { try? frames.decode(data) }) else {
+        guard let patches else {
             error = "Could not read a client update"
             return false
         }
