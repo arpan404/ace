@@ -25,7 +25,6 @@ struct ConversationFeed: View {
     @State private var initialScroll = false
     @State private var intent = TranscriptScrollIntent()
     @State private var anchor = TranscriptReadingAnchor()
-    @State private var rows = TranscriptFeedRowsCache()
     /// How far the keyboard reaches above the feed's bottom edge.
     @State private var keyboardLift: CGFloat = 0
     /// While the keyboard moves, the live tail doesn't jump to the end on each delta: the
@@ -50,14 +49,7 @@ struct ConversationFeed: View {
                         .frame(minHeight: AceTheme.Dimensions.touchTarget)
                 }
                 if ready {
-                    ForEach(rows.rows(shown)) { row in
-                        TranscriptFeedRowView(row: row, thread: shown, links: links).id(row.id)
-                            .onAppear { ThreadOpenTrace.shared.painted(thread.id) }
-                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("transcript.viewport")) } action: { frame in
-                                anchor.frames[row.id] = frame
-                            }
-                            .onDisappear { anchor.frames[row.id] = nil }
-                    }
+                    FeedRows(live: thread, shown: shown, links: links, anchor: anchor)
                 } else { ConversationSkeleton().padding(AceTheme.Spacing.xl) }
                 if reading.thread == nil || reading.joined {
                     ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id < $1.id }) { row in
@@ -198,6 +190,35 @@ struct ConversationFeed: View {
                 reading.live(model: model, thread: thread); following = true; position.scrollTo(edge: .bottom)
             } else if reading.hasNewer { reading.read("newer", model: model, live: thread) }
             else { intent.consumed = false }
+        }
+    }
+}
+
+/// The transcript's rows, apart from the feed's scroll state. Following the end writes the scroll
+/// position on every streamed delta, which runs the feed's body again; equal here, the rows are
+/// neither rebuilt nor diffed then, and only the row whose text changed draws again. `links`'
+/// closures are the thread screen's own, the same whenever its thread and generation are, so
+/// they are compared by what can differ. (Not wrapped in `.equatable()`: that makes the rows one
+/// child of the lazy stack.)
+private struct FeedRows: View, Equatable {
+    let live: ThreadModel
+    let shown: ThreadModel
+    let links: TranscriptLinks
+    let anchor: TranscriptReadingAnchor
+    var body: some View {
+        ForEach(TranscriptFeedRow.rows(shown)) { row in
+            TranscriptFeedRowView(row: row, thread: shown, links: links).id(row.id)
+                .onAppear { ThreadOpenTrace.shared.painted(live.id) }
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("transcript.viewport")) } action: { frame in
+                    anchor.frames[row.id] = frame
+                }
+                .onDisappear { anchor.frames[row.id] = nil }
+        }
+    }
+    nonisolated static func == (a: FeedRows, b: FeedRows) -> Bool {
+        MainActor.assumeIsolated {
+            a.live === b.live && a.shown === b.shown && a.anchor === b.anchor && a.links.live == b.links.live
+                && a.links.steps?.screen === b.links.steps?.screen && a.links.steps?.epoch == b.links.steps?.epoch
         }
     }
 }

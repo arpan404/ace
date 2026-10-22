@@ -14,8 +14,6 @@ import Observation
 @MainActor @Observable final class ThreadScreenModel {
     var blocks: [String: BlockModel] = [:]
     var blockOrder: [String] = []
-    /// Counts changes to any block's room, so the feed can keep its rows while only text changes.
-    private(set) var rooms = 0
     var controls: ControlsRow?
     var hasOlder = false
     var loadingOlder = false
@@ -73,12 +71,7 @@ import Observation
         switch patch {
         case .block(_, _, let id, let row):
             if let row {
-                if let block = blocks[id] {
-                    if block.row != row {
-                        if block.room != row.room { rooms &+= 1 }
-                        block.row = row
-                    }
-                }
+                if let block = blocks[id] { if block.row != row { block.row = row } }
                 else { blocks[id] = BlockModel(id: id, row: row); reorder = true }
                 if let index = row.index, positions[id] != index { positions[id] = index; reorder = true }
             } else if blocks.removeValue(forKey: id) != nil {

@@ -16,23 +16,6 @@ struct TranscriptFeedRow: Identifiable {
         }
     }
 }
-/// The feed's rows, built again only when the blocks' order or rooms change. Following the end
-/// writes the feed's scroll position on every streamed delta, which runs its body again; without
-/// this each delta read every block and rebuilt a row for each.
-@MainActor final class TranscriptFeedRowsCache {
-    private var screen: ObjectIdentifier?
-    private var order: [String] = []
-    private var rooms = -1
-    private var rows: [TranscriptFeedRow] = []
-    func rows(_ thread: ThreadModel) -> [TranscriptFeedRow] {
-        let screen = thread.screen
-        let order = screen.blockOrder, rooms = screen.rooms
-        if self.screen == ObjectIdentifier(screen), self.rooms == rooms, self.order == order { return rows }
-        self.screen = ObjectIdentifier(screen); self.order = order; self.rooms = rooms
-        rows = TranscriptFeedRow.rows(thread)
-        return rows
-    }
-}
 struct TranscriptFeedRowView: View {
     let row: TranscriptFeedRow
     let thread: ThreadModel
