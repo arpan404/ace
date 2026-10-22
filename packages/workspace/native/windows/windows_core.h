@@ -1,6 +1,6 @@
 // Bounded Windows workspace handle core (W04 first cut) — shared declarations.
 //
-// Scope: pinned opens, exclusive file creation, metadata, enumeration and
+// Scope: pinned opens, exclusive file/directory creation, metadata, enumeration and
 // lossless FileIdInfo identity. No ACL or pipe yet. HANDLEs never cross NAPI;
 // every returned handle is converted with uv_open_osfhandle before NAPI
 // carries it, so NAPI carries only CRT fds. Each call borrows parent HANDLEs
@@ -83,6 +83,7 @@ const char *wcore_open_file_at(int parent_fd, const char *name, int *out_fd);
 // Exclusively create a regular file. Existing files, links and directories
 // are never overwritten. The writable fd remains owned by Node.
 const char *wcore_create_file_at(int parent_fd, const char *name, int *out_fd);
+const char *wcore_mkdir_at(int parent_fd, const char *name);
 
 // Lossless identity of an open fd: VolumeSerialNumber as 16 lowercase hex
 // chars plus the 128-bit FileId as 32 lowercase hex chars (raw identifier

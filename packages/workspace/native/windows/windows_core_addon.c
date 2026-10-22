@@ -4,6 +4,7 @@
 // openDirectoryAt(parentFd, name) -> fd
 // openFileAt(parentFd, name) -> fd
 // createFileAt(parentFd, name) -> writable fd, exclusive create
+// mkdirAt(parentFd, name) -> void, exclusive directory creation
 // identityOf(fd) -> { vol: string, id: string }
 // statAt(parentFd, name) -> { vol, id, mode, size, mtimeMs, attrs }
 // names(dirFd, cap) -> string[] (at most cap, no "." / "..")
@@ -206,6 +207,22 @@ static napi_value do_create_file_at(napi_env env, napi_callback_info info) {
   return open_child_at(env, info, "createFileAt", wcore_create_file_at);
 }
 
+static napi_value do_mkdir_at(napi_env env, napi_callback_info info) {
+  napi_value args[2], result = NULL;
+  size_t count = 2;
+  int32_t parent = -1;
+  char name[1025];
+  if (napi_get_cb_info(env, info, &count, args, NULL, NULL) != napi_ok ||
+      count != 2 || !read_fd(env, args[0], &parent) ||
+      !read_string(env, args[1], name, sizeof(name), NULL))
+    return fail_for(env, "mkdirAt", "EINVAL", NULL);
+  const char *code = wcore_mkdir_at(parent, name);
+  if (code != NULL) return fail_for(env, "mkdirAt", code, name);
+  if (napi_get_undefined(env, &result) != napi_ok)
+    return throw_binding_error(env, "mkdirAt");
+  return result;
+}
+
 static napi_value do_identity_of(napi_env env, napi_callback_info info) {
   napi_value args[1];
   napi_value result = NULL;
@@ -338,6 +355,7 @@ static napi_value init(napi_env env, napi_value exports) {
     {"openDirectoryAt", NULL, do_open_directory_at, NULL, NULL, NULL, napi_default, NULL},
     {"openFileAt", NULL, do_open_file_at, NULL, NULL, NULL, napi_default, NULL},
     {"createFileAt", NULL, do_create_file_at, NULL, NULL, NULL, napi_default, NULL},
+    {"mkdirAt", NULL, do_mkdir_at, NULL, NULL, NULL, napi_default, NULL},
     {"identityOf", NULL, do_identity_of, NULL, NULL, NULL, napi_default, NULL},
     {"statAt", NULL, do_stat_at, NULL, NULL, NULL, napi_default, NULL},
     {"names", NULL, do_names, NULL, NULL, NULL, napi_default, NULL},

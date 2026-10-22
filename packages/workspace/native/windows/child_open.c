@@ -19,6 +19,7 @@
 #include <windows.h>
 #include "windows_core.h"
 #include <string.h>
+#include <io.h>
 
 static const char *bridge_to_fd(HANDLE handle, int *out_fd) {
   // uv_open_osfhandle consumes the HANDLE; Node close releases it via the
@@ -97,5 +98,14 @@ const char *wcore_create_file_at(int parent_fd, const char *name, int *out_fd) {
   return open_child(parent_fd, name, WCORE_OPTS_FILE,
       GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE, 0,
       wcore_nt_create_new_child, out_fd);
+}
+
+const char *wcore_mkdir_at(int parent_fd, const char *name) {
+  int fd = -1;
+  const char *code = open_child(parent_fd, name, WCORE_OPTS_DIR,
+      FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | SYNCHRONIZE, 1,
+      wcore_nt_create_new_child, &fd);
+  if (code != NULL) return code;
+  return _close(fd) == 0 ? NULL : "EIO";
 }
 #endif

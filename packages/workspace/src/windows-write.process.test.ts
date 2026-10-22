@@ -10,12 +10,51 @@ const require = createRequire(import.meta.url);
 const Binding = z.object({
   openRoot: z.function({ input: [z.string()], output: z.number().int() }),
   createFileAt: z.function({ input: [z.number().int(), z.string()], output: z.number().int() }),
+  mkdirAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
+  openDirectoryAt: z.function({ input: [z.number().int(), z.string()], output: z.number().int() }),
   identityOf: z.function({
     input: [z.number().int()],
     output: z.object({ vol: z.string(), id: z.string() }),
   }),
 });
 const win = test.runIf(process.platform === "win32");
+
+win(
+  "creates a pinned Unicode directory and writes a file inside it",
+  async ({ onTestFinished }) => {
+    const core = Binding.parse(require("../dist/windows-core.node"));
+    const root = await mkdtemp(join(tmpdir(), "ace-wmkdir-"));
+    onTestFinished(() => rm(root, { recursive: true, force: true }));
+    const parent = core.openRoot(root);
+    try {
+      core.mkdirAt(parent, "données-日本語");
+      const directory = core.openDirectoryAt(parent, "données-日本語");
+      try {
+        const fd = core.createFileAt(directory, "nested.txt");
+        try {
+          writeSync(fd, "nested bytes");
+          fsyncSync(fd);
+        } finally {
+          closeSync(fd);
+        }
+      } finally {
+        closeSync(directory);
+      }
+      expect(await readFile(join(root, "données-日本語", "nested.txt"), "utf8")).toBe(
+        "nested bytes",
+      );
+      for (const name of ["données-日本語", "existing.txt"]) {
+        if (name === "existing.txt") await writeFile(join(root, name), "keep file");
+        expect(() => core.mkdirAt(parent, name)).toThrowError(
+          expect.objectContaining({ code: "EEXIST" }),
+        );
+      }
+      expect(await readFile(join(root, "existing.txt"), "utf8")).toBe("keep file");
+    } finally {
+      closeSync(parent);
+    }
+  },
+);
 
 win(
   "writes and flushes an exclusively created Unicode file through Node",
