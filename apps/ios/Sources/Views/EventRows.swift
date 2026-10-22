@@ -77,7 +77,7 @@ struct SystemRow: View {
             if opens {
                 Button { open.toggle() } label: { row }
                     .buttonStyle(.plain)
-                    .background(open ? AceTheme.Colours.fill : .clear, in: RoundedRectangle(cornerRadius: AceTheme.Radii.md, style: .continuous))
+                    .background(open ? AceTheme.Colours.fill : .clear, in: RoundedRectangle(cornerRadius: AceTheme.Radii.lg, style: .continuous))
                     .accessibilityValue(open ? "Expanded" : "Collapsed")
             } else {
                 row
