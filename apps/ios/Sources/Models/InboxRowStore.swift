@@ -40,7 +40,6 @@ import Observation
     var ids: [String] { _ = membership; return Array(slots.keys) }
     /// Every row, read row by row: a view reading this redraws when any row changes.
     var values: [ThreadRow] { ids.compactMap { self[$0] } }
-    var dictionary: [String: ThreadRow] { Dictionary(uniqueKeysWithValues: ids.compactMap { id in self[id].map { (id, $0) } }) }
     func removeAll() {
         guard !slots.isEmpty else { return }
         for slot in slots.values { slot.row = nil }
