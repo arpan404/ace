@@ -135,6 +135,7 @@ export { ProviderConfiguration, ProviderConfigurations } from "./provider-config
 export * from "./interaction-measurement.ts";
 
 export * from "./provider-login.ts";
+export * from "./antigravity-sign-in.ts";
 
 export * from "./provider-accounts.ts";
 export * from "./provider-install.ts";

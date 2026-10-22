@@ -52,6 +52,18 @@
         "code"
       ],
       "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "returnUrl": {
+          "$ref": "https://ace.local/protocol/v1/ProviderSignInReturnUrl.json"
+        }
+      },
+      "required": [
+        "returnUrl"
+      ],
+      "type": "object"
     }
   ]
 }
