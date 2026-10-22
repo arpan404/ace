@@ -5,6 +5,7 @@ import { DeviceId, HostId } from "@ace/protocol";
 import { agentName } from "@ace/ui-core";
 import { call, scheduler } from "./host.ts";
 import { PatchPump, followThread } from "./patches.ts";
+import { LedgerShelf } from "./native-ledger.ts";
 import { followInbox, inboxAction, makeActivityGeneration } from "./inbox.ts";
 import { ArchiveBrowser } from "./archive.ts";
 import { dispatchCommand } from "./commands.ts";
@@ -36,7 +37,8 @@ const Config = z.object({
   paired: z.strictObject({ secretKey: z.string().min(1).max(1024) }).optional(),
 });
 const Action = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("open"), threadId: z.string().min(1) }),
+  /** `warm`: native kept its copy of the thread from an earlier visit (`native-ledger.ts`). */
+  z.object({ type: z.literal("open"), threadId: z.string().min(1), warm: z.boolean().optional() }),
   z.object({ type: z.literal("back") }),
   z.object({ type: z.literal("network"), online: z.boolean() }),
   z.object({
@@ -83,6 +85,11 @@ let browser: BrowserLive | undefined;
 let devices: NativeDevices | undefined;
 let screen: NativeScreen | undefined;
 const pump = new PatchPump();
+/**
+ * Native keeps the open thread and the last six it showed (`ThreadShelf.swift`); ledgers past
+ * 4 Mi UTF-16 units go too, the oldest first.
+ */
+const ledgers = new LedgerShelf(7, 4 * 1024 * 1024);
 const trust = new TrustMonitor();
 const sheets = new Sheets(pump, preview);
 let openThreadId: string | undefined;
@@ -293,7 +300,11 @@ function action(json: string): void {
         openThreadId = value.threadId;
         lease = client.thread(value.threadId);
         session?.dispose();
-        stopThread = followThread(lease.store, value.threadId, ++epoch, pump);
+        {
+          const ledger = ledgers.open(value.threadId, value.warm ?? false);
+          pump.bind(ledger, ++epoch);
+          stopThread = followThread(lease.store, value.threadId, epoch, pump, ledger);
+        }
         session = new ThreadSession(
           client,
           lease.store,
@@ -316,6 +327,8 @@ function action(json: string): void {
       case "back":
         services?.transcript.close();
         epoch++;
+        pump.bind(undefined, epoch);
+        ledgers.trim();
         historyAbort?.abort();
         session?.dispose();
         session = undefined;

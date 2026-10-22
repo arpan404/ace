@@ -33,7 +33,7 @@ struct ThreadView: View {
     @State private var barHeight: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
-    private var metadata: ThreadRow? { thread.metadata ?? thread.placeholder?.metadata ?? model.inbox[thread.id] }
+    private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
     /// Starting prefers the inbox's current row (confirmed or not, so an unconfirmed start
     /// still reads Syncing); without one it falls back conservatively as unconfirmed.
     private var activityRow: ThreadRow? {
@@ -43,21 +43,18 @@ struct ThreadView: View {
         fallback.generation = nil
         return fallback
     }
-    /// A reopened parent keeps drawing what it last showed (the transcript does the same) until
-    /// its own session is ready, so the composer and its strip don't blank out on the way back.
-    private var drawn: ThreadModel { thread.loaded ? thread : thread.placeholder ?? thread }
-    private var screen: ThreadScreenModel { drawn.screen }
+    private var screen: ThreadScreenModel { thread.screen }
     /// An archived thread opens read-only (from the archive browser) until it's unarchived.
     private var archived: Bool { (model.inbox[thread.id] ?? metadata)?.archivedAt != nil }
     private var queued: Int { screen.queue?.messages.count ?? 0 }
     /// The composer's one strip: a request (a question too, the composer staying under it), the
     /// queue, or what the main agent waits on.
     private var slot: StripSlot {
-        StripSlot.pick(request: !drawn.approvals.isEmpty, queue: queued > 0, waiting: screen.activity?.wait != nil, picked: stripPick)
+        StripSlot.pick(request: !thread.approvals.isEmpty, queue: queued > 0, waiting: screen.activity?.wait != nil, picked: stripPick)
     }
     /// The question on the strip, whose card the composer's words may answer.
     private var asking: ApprovalRow? {
-        guard slot.shown == .request, let request = drawn.approvals.first, request.kind == "question" else { return nil }
+        guard slot.shown == .request, let request = thread.approvals.first, request.kind == "question" else { return nil }
         return request
     }
     private var subtitle: String {
@@ -145,7 +142,7 @@ struct ThreadView: View {
     /// question included, the queue, or what the main agent waits on). Nothing renders below
     /// the composer.
     @ViewBuilder private var bottomBar: some View {
-        let request = drawn.approvals.first
+        let request = thread.approvals.first
         let slot = slot
         VStack(spacing: AceTheme.Spacing.none) {
             Group {
@@ -191,7 +188,7 @@ struct ThreadView: View {
             }
         }
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: slot)
-        .onChange(of: drawn.approvals.first?.id) { _, id in
+        .onChange(of: thread.approvals.first?.id) { _, id in
             questionDraft = QuestionDraftState()
             if id != nil { stripPick = nil }
         }
