@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import type { Answer } from "./answer.ts";
-import { draftAnswers, isAnswered, otherAnswer, type QuestionDraft } from "./question-draft.ts";
+import { draftAnswers, isAnswered, otherAnswer, type QuestionDraft } from "@ace/ui-core";
 import { questionDrafts, useQuestionDraft } from "./question-drafts.ts";
 import { QuestionField } from "./question-field.tsx";
 
