@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { CaretRightIcon } from "@phosphor-icons/react";
 import type { ForgePrStatus } from "@ace/protocol";
 import { useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrComment } from "./pr-comment.tsx";
 import { plural, threadPlace } from "./pr-comment-model.ts";
-import { appendTo, useQuotedInto } from "./pr-quote.tsx";
+import { appendTo, focusEnd, useQuotedInto } from "./pr-quote.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
 
 type ReviewThread = ForgePrStatus["reviewThreads"][number];
@@ -36,9 +36,11 @@ export function PrReplyField(props: {
     review ? replyDraftKey(review.workspaceId, prKey, props.threadId) : undefined,
   );
   const [open, setOpen] = useState(() => !!props.startOpen || draft.text.trim() !== "");
+  const box = useRef<HTMLDivElement>(null);
   useQuotedInto(`thread:${props.threadId}`, (text) => {
     draft.setText(appendTo(draft.text, text));
     setOpen(true);
+    focusEnd(box);
   });
   const canComment = !!review?.state?.canComment;
   const disabled = !review?.ready || review.pending || !canComment;
@@ -67,7 +69,7 @@ export function PrReplyField(props: {
       </button>
     );
   return (
-    <div className={cn("space-y-2", props.className)}>
+    <div ref={box} className={cn("space-y-2", props.className)}>
       <MarkdownEditor
         autoFocus
         label="Reply"
