@@ -18,6 +18,7 @@ import {
 } from "@ace/protocol";
 import type { ServiceContext } from "../services/types.ts";
 import type { DelegationService } from "./delegations.ts";
+import { ownerThreadExecutor } from "./owner-thread-executor.ts";
 import type { ExtensionOperation } from "./tools.ts";
 
 const owner = z.object({ thread_id: ThreadId, agent_id: AgentId });
@@ -35,15 +36,6 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
         .get(automationId);
       return row ? owner.parse(row) : undefined;
     });
-  const attribution = (automationId: string): McpAttribution => {
-    const identity = lookup(automationId);
-    if (!identity) throw new Error("Automation owner missing");
-    return {
-      sessionId: `automation:${automationId}`,
-      threadId: identity.thread_id,
-      agentId: identity.agent_id,
-    };
-  };
   const automationStore = new AutomationStore(join(config.dataDir, "agent-automations.sqlite"));
   resources.own(() => automationStore.close());
   const clock = context.options.engine?.clock;
@@ -66,48 +58,7 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
             })(),
     },
     onError: (error) => log.log("error", "Agent automation failed", logError(error)),
-    executor: {
-      async execute(input, signal) {
-        await store.writable();
-        const caller = attribution(input.automationId);
-        if (input.worktree) throw new Error("Use thread.handoff for worktrees");
-        const request = {
-          requestId: input.idempotencyKey,
-          task: input.prompt,
-          role: `automation: ${input.automationId}`,
-          provider: input.provider,
-          ...(input.model ? { model: input.model } : {}),
-          ...(input.effort ? { effort: input.effort } : {}),
-          ...(input.instance && input.provider !== "acp" ? { accountId: input.instance } : {}),
-          wait: false,
-          estimatedLoad: 0,
-        };
-        const model = await delegations.prepareModels(caller, request);
-        signal.throwIfAborted();
-        const child = delegations.delegate(caller, request, model);
-        const result = await delegations.wait(caller, child.childId, signal);
-        return {
-          threadId: child.childId,
-          status: result.outcome === "completed" ? "succeeded" : "failed",
-          result: result.result,
-        };
-      },
-      async recover(key, signal) {
-        // The durable automation run selects the owner, not any agent-supplied attribution.
-        await store.writable();
-        const active = automationStore.active().find((entry) => entry.input.idempotencyKey === key);
-        if (!active) return undefined;
-        const caller = attribution(active.input.automationId);
-        const edge = delegations.journal.receipt(caller.threadId, key);
-        if (!edge) return undefined;
-        const result = await delegations.wait(caller, edge.childId, signal);
-        return {
-          threadId: edge.childId,
-          status: result.outcome === "completed" ? "succeeded" : "failed",
-          result: result.result,
-        };
-      },
-    },
+    executor: ownerThreadExecutor(context, (automationId) => lookup(automationId)?.thread_id),
   });
   resources.own(() => automations.stop());
   resources.onShutdown(() => automations.stop());

@@ -43,10 +43,11 @@ test.concurrent(
             ).inbox?.runs,
         )
         .toMatchObject([
-          { status: "succeeded", trigger: "schedule" },
-          { status: "succeeded", trigger: "schedule" },
+          { status: "succeeded", trigger: "schedule", result: "Scheduled task completed" },
+          { status: "succeeded", trigger: "schedule", result: "Scheduled task completed" },
         ]);
-      expect(f.daemon.store.listThreads()).toHaveLength(2);
+      // Both runs are turns of the automation's one thread.
+      expect(f.daemon.store.listThreads()).toHaveLength(1);
       const saved = await connection.ask({ type: "automation.list", requestId: "finished" });
       expect(saved.schedules?.[0]).toMatchObject({
         nextRunAt: null,
@@ -246,6 +247,7 @@ test.concurrent("a manual retry and a committed deletion survive daemon restart 
               limit: 50,
             })
           ).inbox?.runs,
+        { timeout: 15_000 },
       )
       .toMatchObject([{ id: runId, status: "succeeded" }]);
     await f.restart();

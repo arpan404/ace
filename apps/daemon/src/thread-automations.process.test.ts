@@ -145,7 +145,7 @@ test("an automation leaves the app's list once the thread that made it is delete
   }
 });
 
-test("a thread automation run from the app carries the person's note and the saved effort", async () => {
+test("a thread automation run from the app goes into its own thread with the person's note and the saved effort", async () => {
   const f = await daemonFixture();
   const app = await connectAutomations(f, "thread-run");
   try {
@@ -164,13 +164,12 @@ test("a thread automation run from the app carries the person's note and the sav
     const admitted = await ask();
     expect(admitted).toMatchObject({ ok: true, run: { status: "running" } });
     const runId = z.string().parse(admitted.run?.id);
-    const child = () => f.controls.delegations.journal.receipt(f.caller.threadId, runId)?.childId;
-    await expect.poll(child).toBeDefined();
-    const childId = ThreadId.parse(child());
+    // The run is one more message in the thread that made it, not a thread of its own.
+    const owner = f.caller.threadId;
     await expect
-      .poll(() => f.h.inputs.get(childId)?.join("\n"))
+      .poll(() => f.h.inputs.get(owner)?.join("\n"))
       .toContain("Check the build\n\nOnly the checkout tests");
-    expect(f.h.contexts.get(childId)?.options).toMatchObject({ effort: "high" });
+    expect(f.h.contexts.get(owner)?.options).toMatchObject({ effort: "high" });
     expect((await ask()).run?.id).toBe(runId);
     const history = await app.ask({
       type: "automation.inbox",
