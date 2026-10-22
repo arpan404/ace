@@ -348,7 +348,8 @@ it("background checks ask the feed after launch settles and then periodically, e
       },
     },
     () => draws.shift() ?? 0,
-    { firstMs: 10_000, everyMs: 1_800_000, spread: 0.5 },
+    () => 0,
+    { firstMs: 10_000, everyMs: 1_800_000, spread: 0.5, openGapMs: 30_000 },
   );
   expect(pending.map((timer) => timer.delayMs)).toEqual([10_000]);
   expect(app.feedRequests()).toBe(0);
@@ -359,4 +360,57 @@ it("background checks ask the feed after launch settles and then periodically, e
   expect(app.feedRequests()).toBe(2);
   // Each wait is its base plus up to half again, by the random draw.
   expect(pending.map((timer) => timer.delayMs)).toEqual([10_000, 2_250_000, 2_700_000]);
+});
+
+/** Scheduled checks on fake timers and a fake clock, for opening the app. */
+function openingApp() {
+  const app = setup();
+  let clock = 0;
+  const pending = new Set<{ delayMs: number; callback: () => void }>();
+  const schedule = scheduleChecks(
+    app.controller,
+    {
+      set(delayMs, callback) {
+        const timer = { delayMs, callback };
+        pending.add(timer);
+        return () => pending.delete(timer);
+      },
+    },
+    () => 0,
+    () => clock,
+    { firstMs: 15_000, everyMs: 60_000, spread: 0.5, openGapMs: 30_000 },
+  );
+  return {
+    app,
+    schedule,
+    advance: (ms: number) => (clock += ms),
+    waits: () => [...pending].map((timer) => timer.delayMs),
+  };
+}
+
+it("opening the app checks for an update at once, without waiting for launch's first check", async () => {
+  const { app, schedule, waits } = openingApp();
+  expect(app.feedRequests()).toBe(0);
+
+  schedule.opened();
+  await settle();
+
+  expect(app.feedRequests()).toBe(1);
+  // The launch timer is replaced: the next check is a full period after this one.
+  expect(waits()).toEqual([60_000]);
+});
+
+it("opening the app again right after a check asks the feed only once", async () => {
+  const { app, schedule, advance } = openingApp();
+  schedule.opened();
+  await settle();
+  advance(5_000);
+  schedule.opened();
+  await settle();
+  expect(app.feedRequests()).toBe(1);
+
+  advance(30_000);
+  schedule.opened();
+  await settle();
+  expect(app.feedRequests()).toBe(2);
 });

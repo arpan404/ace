@@ -3,7 +3,6 @@ import { basename, dirname, join } from "node:path";
 import { renderLauncher } from "@ace/service/home";
 import {
   cliShimLocation,
-  onPath,
   planCliShim,
   renderCliShim,
   transientAppPath,
@@ -21,8 +20,6 @@ export interface CliShimInstall {
   /** The bundled Node runtime and daemon CLI, as `appPaths` resolves them. */
   node: string;
   entry: string;
-  /** The login shell's PATH, for whether a terminal finds `ace`. */
-  loginPath(): Promise<string>;
 }
 
 /**
@@ -54,8 +51,7 @@ export async function installCliShim(options: CliShimInstall): Promise<CliShimRe
     if (plan === "foreign") return { state: "foreign", file };
     if (plan !== "unchanged") await writeShim(directory, file, content);
     const state = plan === "create" ? "created" : plan === "replace" ? "replaced" : "unchanged";
-    const found = onPath(directory, await options.loginPath(), options.platform);
-    return { state, file, directory, onPath: found };
+    return { state, file, directory };
   } catch (error) {
     return { state: "failed", file, message: message(error) };
   }
