@@ -36,7 +36,9 @@ async function environment(records: Fixtures) {
   const runtime = new WorkspaceRuntime(store, root, () => 1000, {
     forgeRunner: () => (request) => gh.runner({ ...request, command: gh.executable }),
   });
-  const create = (extra: Partial<Extract<CommandPayload, { type: "forge.hosted.pr.create" }>> = {}) =>
+  const create = (
+    extra: Partial<Extract<CommandPayload, { type: "forge.hosted.pr.create" }>> = {},
+  ) =>
     runtime.execute(
       Command.parse({
         id: `create-${Math.random()}`,
@@ -68,9 +70,7 @@ async function environment(records: Fixtures) {
   };
 }
 const sent = async (gh: Awaited<ReturnType<typeof fakeGh>>, path: string) =>
-  (await gh.requests()).filter(
-    (request) => request.path === path && !request.args.includes("GET"),
-  );
+  (await gh.requests()).filter((request) => request.path === path && !request.args.includes("GET"));
 
 test("a PR opened from the Pull requests page takes its labels, milestone and reviewers", async () => {
   const env = await environment({
@@ -146,7 +146,12 @@ test("a fork's new PR reads its parent's branches and opens there from fork-owne
     "repos/octo/ace": [metadata({ owner: "acme", name: "ace" })],
     "repos/acme/ace/branches?per_page=100": [{ body: [{ name: "main", commit: { sha } }] }],
     "repos/octo/ace/branches?per_page=100": [
-      { body: [{ name: "main", commit: { sha } }, { name: "feature/card", commit: { sha } }] },
+      {
+        body: [
+          { name: "main", commit: { sha } },
+          { name: "feature/card", commit: { sha } },
+        ],
+      },
     ],
     "graphql:pullRequestTemplates": [
       {

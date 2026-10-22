@@ -11,10 +11,7 @@ import { ForgePrRef, type ForgeRepository } from "@ace/protocol/forge";
 import { GhApi } from "./http.ts";
 import { ForgeError, ForgeQueryRefused } from "./errors.ts";
 import { mapLifecycleExtras } from "./github-lifecycle-extras.ts";
-import {
-  GitHubLifecycleWrites,
-  isExtraLifecycleAction,
-} from "./github-lifecycle-writes.ts";
+import { GitHubLifecycleWrites, isExtraLifecycleAction } from "./github-lifecycle-writes.ts";
 import {
   lifecycleCapabilities,
   assertLifecycleAction,
@@ -36,6 +33,10 @@ function decode<T>(schema: z.ZodType<T>, body: unknown): T {
   if (!result.success) throw new ForgeError("invalid_data");
   return result.data;
 }
+/** The snapshot query, with the milestone, lock, branch and closing-issue fields or without. */
+function snapshotDocument(extended: boolean) {
+  return `query AceLifecycleSnapshot($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){isArchived viewerPermission ${extended ? lifecycleExtraRepositoryFields : ""} pullRequest(number:$number){${lifecyclePrFields} ${extended ? lifecycleExtraPrFields : ""}}} mutationType:__type(name:"Mutation"){fields{name}}}`;
+}
 export function lifecycleWriteMarker(operationId: string) {
   return `<!-- ace-revert:${createHash("sha256").update(operationId).digest("hex")} -->`;
 }
@@ -52,18 +53,22 @@ export class GitHubLifecycle {
     this.#writes = new GitHubLifecycleWrites(api, repository);
   }
   async #snapshotQuery(number: number, signal: AbortSignal) {
-    const document = (extended: boolean) =>
-      `query AceLifecycleSnapshot($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){isArchived viewerPermission ${extended ? lifecycleExtraRepositoryFields : ""} pullRequest(number:$number){${lifecyclePrFields} ${extended ? lifecycleExtraPrFields : ""}}} mutationType:__type(name:"Mutation"){fields{name}}}`;
     const variables = { owner: this.#repository.owner, name: this.#repository.name, number };
     if (this.#extended)
       try {
-        return { response: await this.#graphql(document(true), variables, signal), extended: true };
+        return {
+          response: await this.#graphql(snapshotDocument(true), variables, signal),
+          extended: true,
+        };
       } catch (error) {
         // A host without these fields refuses the document itself, and will again.
         if (!(error instanceof ForgeQueryRefused)) throw error;
         this.#extended = false;
       }
-    return { response: await this.#graphql(document(false), variables, signal), extended: false };
+    return {
+      response: await this.#graphql(snapshotDocument(false), variables, signal),
+      extended: false,
+    };
   }
   async #graphql(
     query: string,
@@ -217,28 +222,46 @@ export class GitHubLifecycle {
     const snapshot = await this.snapshot(number, signal);
     assertLifecycleAction(snapshot, expectedVersion, action);
     if (isExtraLifecycleAction(action))
-      return this.#send(number, expectedVersion, action, snapshot, operationId, signal, allowed, () =>
-        this.#writes.prepare(snapshot, action, operationId, signal),
-      dispatch);
+      return this.#send(
+        number,
+        expectedVersion,
+        action,
+        snapshot,
+        operationId,
+        signal,
+        allowed,
+        () => this.#writes.prepare(snapshot, action, operationId, signal),
+        dispatch,
+      );
     if (action.kind === "edit" && action.changes.milestone !== undefined)
-      return this.#send(number, expectedVersion, action, snapshot, operationId, signal, allowed, async () => {
-        // GitHub sets a milestone through the issue behind the PR, which takes these fields too.
-        const { milestone, baseBranch, ...rest } = action.changes;
-        if (baseBranch !== undefined) throw new ForgeError("invalid_data");
-        const body = { ...rest, milestone };
-        return (writeDispatch: WriteDispatch) =>
-          this.#api
-            .request(
-              `repos/${this.#repository.owner}/${this.#repository.name}/issues/${number}`,
-              signal,
-              body,
-              "PATCH",
-              writeDispatch,
-            )
-            .then((response) => {
-              if (response.identityChanged) throw new ForgeMutationOutcome({ dispatched: true });
-            });
-      }, dispatch);
+      return this.#send(
+        number,
+        expectedVersion,
+        action,
+        snapshot,
+        operationId,
+        signal,
+        allowed,
+        async () => {
+          // GitHub sets a milestone through the issue behind the PR, which takes these fields too.
+          const { milestone, baseBranch, ...rest } = action.changes;
+          if (baseBranch !== undefined) throw new ForgeError("invalid_data");
+          const body = { ...rest, milestone };
+          return (writeDispatch: WriteDispatch) =>
+            this.#api
+              .request(
+                `repos/${this.#repository.owner}/${this.#repository.name}/issues/${number}`,
+                signal,
+                body,
+                "PATCH",
+                writeDispatch,
+              )
+              .then((response) => {
+                if (response.identityChanged) throw new ForgeMutationOutcome({ dispatched: true });
+              });
+        },
+        dispatch,
+      );
     let mutation: string;
     let input: Record<string, unknown> = {
       pullRequestId: snapshot.id,

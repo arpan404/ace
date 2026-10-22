@@ -42,12 +42,22 @@ test("a comparison lists its commits oldest first and its files a page at a time
       },
     ],
   });
-  const first = await gh.forge.compare("main", { owner: "octo", branch: "feature/card" }, 1, signal());
+  const first = await gh.forge.compare(
+    "main",
+    { owner: "octo", branch: "feature/card" },
+    1,
+    signal(),
+  );
   expect(first.commits.map((c) => c.message)).toEqual(["Commit 1", "Commit 2"]);
   expect(first.headSha).toBe(commit(2).sha);
   expect(first.files).toHaveLength(25);
   expect(first).toMatchObject({ totalFiles: 30, nextPage: 2, truncated: false, aheadBy: 2 });
-  const second = await gh.forge.compare("main", { owner: "octo", branch: "feature/card" }, 2, signal());
+  const second = await gh.forge.compare(
+    "main",
+    { owner: "octo", branch: "feature/card" },
+    2,
+    signal(),
+  );
   expect(second.files.map((f) => f.path)).toEqual(files.slice(25).map((f) => f.filename));
   expect(second.nextPage).toBeUndefined();
 });
@@ -72,10 +82,11 @@ test("a fork's branch is compared as owner:branch", async () => {
   expect(result).toMatchObject({ status: "identical", headSha: nextSha, totalCommits: 0 });
 });
 
+const templates = (list: unknown[] | null) => ({
+  body: { data: { repository: { pullRequestTemplates: list } } },
+});
+
 test("the repository's default template is chosen when it has several, and none when it has none", async () => {
-  const templates = (list: unknown[] | null) => ({
-    body: { data: { repository: { pullRequestTemplates: list } } },
-  });
   const gh = await setup({
     "graphql:pullRequestTemplates": [
       templates([
@@ -107,7 +118,12 @@ test("branches list the default first, and options read labels, people and open 
       },
     ],
     "repos/octo/ace/labels?per_page=100": [
-      { body: [{ name: "bug", color: "d73a4a", description: "Broken" }, { name: "x", color: "zz" }] },
+      {
+        body: [
+          { name: "bug", color: "d73a4a", description: "Broken" },
+          { name: "x", color: "zz" },
+        ],
+      },
     ],
     "repos/octo/ace/assignees?per_page=100": [{ body: [{ login: "octo", avatar_url: "a" }] }],
     "repos/octo/ace/milestones?state=open&sort=due_on&direction=asc&per_page=100": [

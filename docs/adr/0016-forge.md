@@ -125,3 +125,56 @@ remote matching treats the PR's own host as known, so Enterprise remotes match.
 422 refusals map to `no_commits`, `pr_exists`, `head_missing`, `base_missing`, `conflict`
 (an existing name) or `unprocessable`. Work on PR reports `head_moved` and
 `fork_deleted` instead of `conflict` and `not_found`.
+
+## PR management from the PR page (2026-10-22)
+
+The lifecycle snapshot also reads, in its one GraphQL query, the PR's milestone, lock
+(`locked`, `activeLockReason`), head branch (`headRef`, `headRefName`, `isCrossRepository`,
+`viewerCanDeleteHeadRef`), the repository's `deleteBranchOnMerge` and default branch, and
+`closingIssuesReferences` (all, and `userLinkedOnly` to tell hand-made links from body
+keywords). A host that refuses those fields gets the base document, as merge state does, and
+offers none of their controls. They join the snapshot version, so a write chosen before any of
+them changed is refused.
+
+New lifecycle writes share the lifecycle journal, version check, last-moment recheck and
+uncertain-write handling:
+
+- Milestone: `PATCH /repos/{o}/{r}/issues/{n}` with `milestone` (a number, or null to clear),
+  for anyone who triages. The same request carries title, description, labels and assignees
+  when they change with it; a base change can't, so the editor saves the base first and then the
+  milestone against the version after it. Open milestones come from
+  `GET /repos/{o}/{r}/milestones?state=open`.
+- Lock and unlock: `PUT` and `DELETE /repos/{o}/{r}/issues/{n}/lock` with GitHub's reasons.
+  Locked, the PR page's composer and review actions refuse comments from accounts that can't
+  push.
+- Delete branch: `DELETE /repos/{o}/{r}/git/refs/heads/{branch}`, offered after a merge or close
+  for a branch in the same repository that isn't the default and still exists, and not after a
+  merge when the repository deletes merged branches itself. The ref is read first: a branch
+  that moved past the PR's head keeps commits the PR doesn't, so it is refused (`head_moved`).
+- Restore branch: `POST /repos/{o}/{r}/git/refs` at the PR's head commit, when the branch is
+  gone and nothing else took its name.
+- Link and unlink an issue: GraphQL `addCloseIssueReferences` and `removeCloseIssueReferences`.
+
+Linked issues use GitHub's own linking mutation rather than a `Closes #n` line in the body.
+`addCloseIssueReferences` makes the same manual link as GitHub's Development field, so the
+description stays as written, the link can be removed again, and GitHub closes the issue when
+the PR merges into the default branch. A keyword link lives in the body: it is shown but only
+the description edit removes it.
+
+Merge and squash take an edited commit: REST merge's `commit_title` and `commit_message`, and
+`enablePullRequestAutoMerge`'s `commitHeadline` and `commitBody`. Rebase writes no commit and
+sends neither. The merge-state read prefills them from GitHub's
+`viewerMergeHeadlineText`/`viewerMergeBodyText` for `MERGE` and `SQUASH`, which follow the
+repository's commit message settings.
+
+A project-level `forge.hosted.pr.create` opens a PR from any branch without a thread. It
+resolves its target as the thread path does (a fork's parent, `fork-owner:branch`), looks for an
+open PR of the same head and base first and returns it instead of opening another, then opens
+the PR through the same `openPr` request the thread path uses. Labels, assignees and the
+milestone follow in one issue `PATCH`, reviewers in one review request; a refusal there leaves the
+PR open and returns `forge_pr_details_incomplete`. The page reads branches
+(`GET /repos/{o}/{r}/branches`, ten pages of 100 at most), the repository's PR template (GraphQL
+`pullRequestTemplates`, the default one when there are several), labels and assignable people
+(`GET /repos/{o}/{r}/labels` and `/assignees`), and the comparison
+(`GET /repos/{o}/{r}/compare/{base}...{head}`: up to 250 commits and 300 files, served 25 files a
+page from one cached read).

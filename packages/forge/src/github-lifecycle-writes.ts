@@ -160,7 +160,14 @@ export class GitHubLifecycleWrites {
         signal,
       );
       return (dispatch) =>
-        this.#closing("addCloseIssueReferences", issueId, snapshot.id, operationId, signal, dispatch);
+        this.#closing(
+          "addCloseIssueReferences",
+          issueId,
+          snapshot.id,
+          operationId,
+          signal,
+          dispatch,
+        );
     }
     const target = action.issue;
     const linked = snapshot.closingIssues?.find(
@@ -178,7 +185,14 @@ export class GitHubLifecycleWrites {
       signal,
     );
     return (dispatch) =>
-      this.#closing("removeCloseIssueReferences", issueId, snapshot.id, operationId, signal, dispatch);
+      this.#closing(
+        "removeCloseIssueReferences",
+        issueId,
+        snapshot.id,
+        operationId,
+        signal,
+        dispatch,
+      );
   }
   async #rest(
     path: string,

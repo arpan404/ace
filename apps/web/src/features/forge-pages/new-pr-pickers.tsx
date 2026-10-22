@@ -83,7 +83,11 @@ export function ChoicePicker(props: {
           }}
           className="mb-1"
         />
-        <ul role="listbox" aria-multiselectable={props.multiple} className="max-h-72 overflow-y-auto">
+        <ul
+          role="listbox"
+          aria-multiselectable={props.multiple}
+          className="max-h-72 overflow-y-auto"
+        >
           {shown.map((choice) => {
             const selected = props.picked.includes(choice.value);
             return (

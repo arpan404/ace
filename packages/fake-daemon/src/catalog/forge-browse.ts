@@ -267,7 +267,12 @@ function managedSketch(fixture: PullRequestFixture): PullRequestFixture {
       lifecycle: withManagement(fixture.lifecycle, {
         milestone: catalogMilestones[0] ?? null,
         closingIssues: [
-          closingIssue(ref.repository, 240, "Sidebar loses its scroll position after archiving", false),
+          closingIssue(
+            ref.repository,
+            240,
+            "Sidebar loses its scroll position after archiving",
+            false,
+          ),
         ],
       }),
     };

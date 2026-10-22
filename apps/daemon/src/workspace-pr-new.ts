@@ -59,7 +59,10 @@ export class WorkspaceNewPr {
     // The branch lives in the pushed repository (a fork) or the target itself.
     const owners = [target.headOwner, target.repository.owner].map((owner) => owner.toLowerCase());
     if (!owners.includes(p.head.owner.toLowerCase())) throw new Error("repository_mismatch");
-    if (p.head.owner.toLowerCase() === target.repository.owner.toLowerCase() && p.head.branch === p.base)
+    if (
+      p.head.owner.toLowerCase() === target.repository.owner.toLowerCase() &&
+      p.head.branch === p.base
+    )
       throw new ForgeError("no_commits");
     const found = await backend.findPr(p.head.branch, p.base, signal, p.head.owner);
     if (found) return this.result(backend, found.number, { prExisting: true });
@@ -74,7 +77,8 @@ export class WorkspaceNewPr {
       );
     } catch (error) {
       // GitHub may have opened it: the next attempt finds it rather than opening another.
-      if (error instanceof ForgeMutationOutcome) return { ok: false, error: "forge_write_uncertain" };
+      if (error instanceof ForgeMutationOutcome)
+        return { ok: false, error: "forge_write_uncertain" };
       throw error;
     }
     // The pull request exists now. What follows only adds to it; a refusal is reported, and

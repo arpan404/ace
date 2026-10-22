@@ -66,7 +66,11 @@ function capabilities(snapshot: Snapshot, canPush: boolean): Pick<Snapshot, "act
   if (snapshot.conversation) actions.push(snapshot.conversation.locked ? "unlock" : "lock");
   const branch = snapshot.headBranch;
   if (!active && branch?.sameRepository && canPush) {
-    if (branch.exists && !branch.isDefault && !(snapshot.state === "merged" && branch.deleteOnMerge))
+    if (
+      branch.exists &&
+      !branch.isDefault &&
+      !(snapshot.state === "merged" && branch.deleteOnMerge)
+    )
       actions.push("branch.delete");
     if (!branch.exists) actions.push("branch.restore");
   }
@@ -177,5 +181,8 @@ export function applyManagement(
     next = { ...snapshot, closingIssues: issues.filter((issue) => issue !== linked) };
   } else return "forge_unsupported";
   next = { ...next, version: revision.toString(16).padStart(64, "c") };
-  return ForgeLifecycleState.parse({ ...state, snapshot: { ...next, ...capabilities(next, true) } });
+  return ForgeLifecycleState.parse({
+    ...state,
+    snapshot: { ...next, ...capabilities(next, true) },
+  });
 }

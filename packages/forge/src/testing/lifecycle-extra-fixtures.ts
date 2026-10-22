@@ -76,7 +76,9 @@ export function extraFixtures(
 export function headRef(branch: string, at: string | null = sha) {
   return {
     [`repos/octo/ace/git/ref/heads/${branch}`]: [
-      at === null ? { status: 404, body: { message: "Not Found" } } : { body: { object: { sha: at } } },
+      at === null
+        ? { status: 404, body: { message: "Not Found" } }
+        : { body: { object: { sha: at } } },
     ],
   };
 }

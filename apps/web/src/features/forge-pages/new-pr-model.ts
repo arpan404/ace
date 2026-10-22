@@ -46,9 +46,10 @@ export function compareBlocker(
   return undefined;
 }
 
+const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
+
 /** "3 commits · 4 files · +202 −1" for an open comparison. */
 export function compareSummary(compare: ForgeCompare): string {
-  const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
   const added = compare.files.reduce((sum, file) => sum + file.additions, 0);
   const removed = compare.files.reduce((sum, file) => sum + file.deletions, 0);
   const lines = compare.nextPage ? "" : ` · +${added} −${removed}`;

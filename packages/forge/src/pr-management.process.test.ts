@@ -239,7 +239,10 @@ test("an issue linked by a keyword in the body can't be unlinked here: nothing i
     const issue = snapshot.closingIssues?.[0];
     expect(issue?.manual).toBe(false);
     await expect(
-      apply(f, { kind: "issue.unlink", issue: issue?.ref ?? { repository: snapshot.pr.repository, number: 5 } }),
+      apply(f, {
+        kind: "issue.unlink",
+        issue: issue?.ref ?? { repository: snapshot.pr.repository, number: 5 },
+      }),
     ).rejects.toMatchObject({ kind: "forbidden" });
     expect(await writes(f)).toEqual([]);
   } finally {

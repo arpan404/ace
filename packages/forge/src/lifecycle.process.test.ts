@@ -449,7 +449,9 @@ test("an acknowledged lifecycle write retains uncertainty after the transport re
 
 test("a milestone change with a base change is refused before anything is sent", async () => {
   const f = await fakeGh(
-    extraFixtures([extraRecord({ milestone: { number: 1, title: "v1", state: "OPEN", dueOn: null } })]),
+    extraFixtures([
+      extraRecord({ milestone: { number: 1, title: "v1", state: "OPEN", dueOn: null } }),
+    ]),
   );
   try {
     const state = await f.forge.lifecycle.snapshot(7, signal());

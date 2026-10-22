@@ -266,3 +266,21 @@ test("newest-first lists the same groups in reverse order, keeping their identit
   ]);
   expect(newest).toEqual(oldest.toReversed());
 });
+
+const said = (name: string, subject?: string) =>
+  eventText({
+    id: name,
+    event: name,
+    actor: "octo",
+    at: null,
+    raw: {},
+    ...(subject ? { subject } : {}),
+  });
+
+test("branch, lock and milestone events read as what happened, with the lock's reason", () => {
+  expect(said("locked", "too heated")).toBe("locked the conversation as too heated");
+  expect(said("locked")).toBe("locked the conversation");
+  expect(said("head_ref_restored")).toBe("restored the branch");
+  expect(said("milestoned", "October polish")).toBe("added this to the milestone October polish");
+  expect(said("connected")).toBe("linked an issue");
+});

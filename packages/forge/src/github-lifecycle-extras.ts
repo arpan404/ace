@@ -17,6 +17,10 @@ const reasons: Record<string, ForgeLockReason> = {
   SPAM: "spam",
 };
 
+/** An issue's identity whatever the case of its repository's name. */
+const issueKey = (owner: string, name: string, number: number) =>
+  `${owner.toLowerCase()}/${name.toLowerCase()}#${number}`;
+
 /** The milestone, lock, head branch and closing issues a newer host reports, as ace shows them. */
 export function mapLifecycleExtras(
   repository: ForgeRepository,
@@ -24,11 +28,9 @@ export function mapLifecycleExtras(
   permission: string | null,
 ): { fields: Mapped; facts: LifecycleExtraFacts } {
   const pr = extras.pullRequest;
-  const key = (owner: string, name: string, number: number) =>
-    `${owner.toLowerCase()}/${name.toLowerCase()}#${number}`;
   const manual = new Set(
     pr.manualClosingIssues.nodes.flatMap((node) =>
-      node ? [key(node.repository.owner.login, node.repository.name, node.number)] : [],
+      node ? [issueKey(node.repository.owner.login, node.repository.name, node.number)] : [],
     ),
   );
   const closingIssues = pr.closingIssuesReferences.nodes.flatMap((node) =>
@@ -46,7 +48,9 @@ export function mapLifecycleExtras(
             title: node.title,
             state: node.state === "CLOSED" ? ("closed" as const) : ("open" as const),
             url: node.url,
-            manual: manual.has(key(node.repository.owner.login, node.repository.name, node.number)),
+            manual: manual.has(
+              issueKey(node.repository.owner.login, node.repository.name, node.number),
+            ),
           },
         ]
       : [],

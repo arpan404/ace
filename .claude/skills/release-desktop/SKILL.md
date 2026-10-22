@@ -52,7 +52,7 @@ Earlier notes broke all three rules: the install line took the first slot, every
 
 ### Collect the changes
 
-1. **Range.** `base` is the latest *published* release, read before your draft exists: `gh release list -R arpan404/ace --exclude-drafts --exclude-pre-releases -L 1 --json tagName -q '.[0].tagName'`. Don't use the previous git tag: a tag that never became a published release (v0.0.3, for example) shipped nothing to users. `head` is `commit` in `dist/releases/v<version>/release.json`, the commit that was built. `main` may have moved since the build.
+1. **Range.** `base` is the latest _published_ release, read before your draft exists: `gh release list -R arpan404/ace --exclude-drafts --exclude-pre-releases -L 1 --json tagName -q '.[0].tagName'`. Don't use the previous git tag: a tag that never became a published release (v0.0.3, for example) shipped nothing to users. `head` is `commit` in `dist/releases/v<version>/release.json`, the commit that was built. `main` may have moved since the build.
 2. **Pull requests.** PRs land as merge commits or as squash commits, so read the first-parent history, not just `--merges`:
    ```sh
    git log --first-parent --format='%h %s' <base>..<head> \
@@ -66,6 +66,7 @@ Earlier notes broke all three rules: the install line took the first slot, every
 ### Decide what goes in
 
 Leave out:
+
 - Version bumps, release tooling, CI, tests, ADRs and docs, refactors, lint and format changes, and dev-only changes.
 - iOS-only changes. The iPhone app ships on its own.
 - Fixes for something added in this same release. Users never saw the bug, so describe the finished feature instead.
@@ -97,7 +98,7 @@ macOS, Apple silicon. Download `ace-<version>-arm64.dmg`, open it and drag ace t
 - **Order by importance across the whole note.** The first 8 lines are all most users see. Lead with the most important new feature. Keep the total to about 6–12 lines. A small release can be 3 lines.
 - **One line per change, under 200 characters.** Start with a short bold phrase that says what the user gets, then one plain sentence with the detail. No sub-bullets and no paragraphs between bullets.
 - **Write for someone who uses ace but has never seen the code.** Say what they can do now or what looks different, and where to find it in the app. Don't use internal names (daemon, socket, settle, lease, worktree internals, service or module names) or commit-message wording.
-- **Fixed lines say what used to go wrong**, in the user's terms: "Images no longer get stuck on *Image unavailable*," not "Retry image chunks across reconnects."
+- **Fixed lines say what used to go wrong**, in the user's terms: "Images no longer get stuck on _Image unavailable_," not "Retry image chunks across reconnects."
 - **Install goes last.** It only matters to new users downloading from the release page. Put a step users must take once (such as installing by hand from an old version) at the top, as one line, only when it applies.
 - Don't add text the parser counts as a line, such as a summary paragraph, a "Full Changelog" link at the top, or `---`.
 

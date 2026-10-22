@@ -93,10 +93,10 @@ export function PrComposer(props: {
           <PopoverTitle className="sr-only">Comment on pull request</PopoverTitle>
           <div className="flex items-center justify-between">
             {props.context.commentsLocked ? (
-            <p role="status" className="text-ui text-muted-foreground">
-              This conversation is locked. Only collaborators who can push can comment.
-            </p>
-          ) : hostedOnly ? (
+              <p role="status" className="text-ui text-muted-foreground">
+                This conversation is locked. Only collaborators who can push can comment.
+              </p>
+            ) : hostedOnly ? (
               <Tabs
                 value={native ? nativeMode : "review"}
                 onValueChange={(value) => {

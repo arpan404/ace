@@ -100,12 +100,14 @@ const query = wrap(
 
 type Source = z.infer<typeof source>;
 
+/** One commit's prefill, when GitHub gave it a title. */
+const prefillCommit = (title: string | null | undefined, message: string | null | undefined) =>
+  title?.trim() ? { title: title.slice(0, 1_024), message: message ?? "" } : undefined;
+
 /** GitHub's own title and message for this account's merge and squash commits. */
 function commitMessages(pr: Source) {
-  const commit = (title: string | null | undefined, message: string | null | undefined) =>
-    title?.trim() ? { title: title.slice(0, 1_024), message: message ?? "" } : undefined;
-  const merge = commit(pr.mergeHeadline, pr.mergeBody);
-  const squash = commit(pr.squashHeadline, pr.squashBody);
+  const merge = prefillCommit(pr.mergeHeadline, pr.mergeBody);
+  const squash = prefillCommit(pr.squashHeadline, pr.squashBody);
   return merge || squash
     ? { ...(merge ? { merge } : {}), ...(squash ? { squash } : {}) }
     : undefined;

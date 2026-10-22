@@ -86,12 +86,16 @@ async function environment(records: Fixtures, linkedThread?: string) {
       forgeRunner: () => (request) => gh.runner({ ...request, command: gh.executable }),
     });
   let runtime = create();
-  const merge = (method: "merge" | "squash" | "rebase" = "squash"): CommandPayload => ({
+  const merge = (
+    method: "merge" | "squash" | "rebase" = "squash",
+    commit?: { title: string; message: string },
+  ): CommandPayload => ({
     type: "forge.hosted.merge",
     workspaceId,
     pr: ref,
     headSha: sha,
     method,
+    ...(commit ? { commit } : {}),
   });
   return {
     gh,
@@ -201,10 +205,13 @@ test("a squash from the PR page writes the commit title and message the person e
   const app = await environment(records);
   try {
     expect(
-      await app.command("edited", {
-        ...app.merge("squash"),
-        commit: { title: "Fix the build (#7)", message: "* Fix build\n\nCo-authored-by: A <a@x>" },
-      }),
+      await app.command(
+        "edited",
+        app.merge("squash", {
+          title: "Fix the build (#7)",
+          message: "* Fix build\n\nCo-authored-by: A <a@x>",
+        }),
+      ),
     ).toMatchObject({ ok: true, prStatus: { state: "merged" } });
     expect(await merges(app.gh)).toEqual([
       expect.objectContaining({
