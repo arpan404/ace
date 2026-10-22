@@ -112,6 +112,8 @@ const copy: Record<string, string> = {
     "Source control settings changed during this action. Rescan this computer and retry with the intended account.",
   forge_forbidden:
     "GitHub denied access: check your permissions on the repository, or run `gh auth login`.",
+  forge_notifications_unavailable:
+    "Your gh sign-in can't read GitHub notifications: run `gh auth refresh -s notifications`, then retry.",
   forge_rate_limit: "GitHub's rate limit was reached: wait a few minutes, then retry.",
   forge_unsupported:
     "This forge or GitHub feature isn't supported here: open the pull request on its website.",

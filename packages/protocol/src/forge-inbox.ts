@@ -102,6 +102,7 @@ export const ForgeInboxCommands = [
     input: ForgeInboxWrite,
   }),
 ] as const;
+export type ForgeInboxCommand = z.infer<(typeof ForgeInboxCommands)[number]>;
 export const ForgeInboxResults = [
   z.object({ resource: z.literal("inboxList"), value: ForgeInboxList }),
 ] as const;

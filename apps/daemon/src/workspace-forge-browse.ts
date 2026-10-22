@@ -28,6 +28,11 @@ export class WorkspaceForgeBrowse {
     operation: import("@ace/protocol").ForgeBrowserOperation,
     signal: AbortSignal,
   ): Promise<import("@ace/protocol").ForgeBrowserResult> {
+    if (operation.op === "forge.inbox.list")
+      return {
+        resource: "inboxList",
+        value: await (await this.ctx.backends.inbox(cwd, operation.host)).list(operation.query, signal),
+      };
     const repository = operation.repository ?? (await this.ctx.backends.repository(cwd));
     signal.throwIfAborted();
     const backend = await this.ctx.backends.backend(cwd, repository);
