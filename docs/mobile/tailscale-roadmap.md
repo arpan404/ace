@@ -70,9 +70,12 @@ key seen by the client. Prefer the existing direct Tailscale listener; a raw TCP
 forwarder is a separate deployment option documented in
 [remote access](../daemon/remote-access.md).
 
-Tailscale assigns stable IP addresses and optional MagicDNS names. Use the address
-advertised by the host's pairing link; a hostname is not the authenticated ace
-host identity. Sources: [connect to devices](https://tailscale.com/docs/how-to/connect-to-devices),
+Tailscale assigns stable IP addresses and optional MagicDNS names. Pairing links name
+the machine's ts.net host, and the 100.x address only when MagicDNS is off. Use the
+address the link advertises; a hostname is not the authenticated ace host identity.
+A ts.net host may present Tailscale's publicly trusted certificate in place of the
+pinned key; clients accept it only for that exact name
+([ADR 0097](../adr/0097-tailscale-https-certificates.md)). Sources: [connect to devices](https://tailscale.com/docs/how-to/connect-to-devices),
 [MagicDNS](https://tailscale.com/docs/features/magicdns).
 
 ## Work remaining before remote pairing
