@@ -33,6 +33,8 @@ import { applicationMenu } from "./menu.ts";
 import { cliShimCheck, cliShimLog, runningAppImage, type CliShimResult } from "./os/cli-shim.ts";
 import { installCliShim } from "./os/cli-shim-install.ts";
 import { linuxAutostart, nodeAutostartFiles } from "./os/autostart.ts";
+import { linuxInstall, relaunchCommand } from "./os/linux-sandbox.ts";
+import { findElevation, LinuxSandboxSetup, readSandboxFacts } from "./os/linux-sandbox-setup.ts";
 import { backgroundArgument, startHidden } from "./os/login.ts";
 import { enableFeatures, linuxFeatures } from "./os/chromium-features.ts";
 import { settingsEffects } from "./os/settings-effects.ts";
@@ -225,6 +227,28 @@ function main(target: DaemonTarget, crashDumps: string): void {
     log: logger("updates"),
   });
 
+  // Chromium's sandbox on an AppImage or tar.gz under Ubuntu's AppArmor restriction.
+  const install = linuxInstall(process.env, process.execPath);
+  const sandbox =
+    process.platform === "linux" && app.isPackaged
+      ? new LinuxSandboxSetup({
+          facts: readSandboxFacts({
+            env: process.env,
+            execPath: process.execPath,
+            noSandbox: app.commandLine.hasSwitch("no-sandbox"),
+            uid: process.getuid?.() ?? 0,
+            home: homedir(),
+            dataDir:
+              target.kind === "managed" || target.kind === "attach" ? target.home : undefined,
+          }),
+          elevation: findElevation(process.env.PATH),
+          report: (notice) => emit(contents(), "sandbox.status", notice),
+          log: (message) => log("info", message),
+        })
+      : undefined;
+  /** Set by the sandbox notice's Restart; used only once the quit goes ahead. */
+  let relaunch: { execPath: string; args: string[] } | undefined;
+
   /** Show the window (creating it if needed) and follow a deep link. */
   function open(link?: DeepLink): void {
     if (!app.isReady()) {
@@ -359,12 +383,18 @@ function main(target: DaemonTarget, crashDumps: string): void {
         message: "Agents are using the browser",
         detail: "Quitting closes the pages they are working in, and they stop where they are.",
       });
-      if (choice !== 0) return;
+      if (choice !== 0) {
+        relaunch = undefined;
+        return;
+      }
     }
     quitting = true;
     void shutDown()
       .catch((error: unknown) => log("error", String(error)))
-      .finally(() => app.quit());
+      .finally(() => {
+        if (relaunch) app.relaunch(relaunch);
+        app.quit();
+      });
   });
   // Background decides when a windowless app quits (os/lifetime.ts): never while an agent
   // works or a thread has a browser page. Listening here stops Electron quitting on its own.
@@ -427,6 +457,15 @@ function main(target: DaemonTarget, crashDumps: string): void {
       },
       openVisualization: (request) => void openVisualizationWindow(request),
       updates,
+      sandbox: {
+        current: () => sandbox?.current() ?? { state: "hidden" },
+        setup: () => sandbox?.setup() ?? Promise.resolve({ state: "hidden" }),
+        hide: () => sandbox?.hide() ?? { state: "hidden" },
+        restart: () => {
+          relaunch = relaunchCommand(install, process.argv);
+          if (relaunch) app.quit();
+        },
+      },
       setWindowBackground: (value) => {
         if (!backgrounds.set(value).changed || !window || window.isDestroyed()) return;
         window.setBackgroundColor(windowBackground(value, nativeTheme.shouldUseDarkColors));

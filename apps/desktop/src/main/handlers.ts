@@ -23,6 +23,7 @@ import type { Background } from "./background.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
 import type { Handlers } from "./ipc.ts";
 import type { AppUpdates } from "./os/app-updates.ts";
+import type { SandboxNotice } from "../shared/contract.ts";
 import { writeClipboardImage } from "./os/clipboard.ts";
 import { openInEditor, reveal } from "./os/editor.ts";
 import { appIdentities, systemApplication, systemApplicationIcon } from "./os/app-identity.ts";
@@ -65,6 +66,13 @@ export function createHandlers(options: {
   /** A chat visualization in its own window, in the locked visualization session. */
   openVisualization(request: VisualizationWindow): void;
   updates: AppUpdates;
+  /** Chromium's sandbox setup on a Linux AppImage or tar.gz (os/linux-sandbox-setup.ts). */
+  sandbox: {
+    current(): SandboxNotice;
+    setup(): Promise<SandboxNotice>;
+    hide(): SandboxNotice;
+    restart(): void;
+  };
 }): Handlers {
   const { runtime, settings, background } = options;
   const editorIcon = editorIcons(
@@ -214,5 +222,12 @@ export function createHandlers(options: {
     "updates.download": () => options.updates.download(),
     "updates.install": () => options.updates.install(),
     "updates.busy": async () => (await options.updates.busy()) ?? null,
+    "sandbox.current": () => options.sandbox.current(),
+    "sandbox.setup": () => options.sandbox.setup(),
+    "sandbox.hide": () => options.sandbox.hide(),
+    "sandbox.restart": () => {
+      options.sandbox.restart();
+      return undefined;
+    },
   };
 }

@@ -29,6 +29,7 @@ import {
   WindowBackground,
   VisualizationWindow,
   SocketUrl,
+  SandboxNotice,
   UpdateStatus,
   WindowAction,
   WindowState,
@@ -112,6 +113,14 @@ export const requests = {
   "updates.install": { request: None, result: UpdateStatus },
   /** How many agents Restart would stop; null when the daemon could not say. */
   "updates.busy": { request: None, result: z.number().int().min(0).nullable() },
+  /** Chromium's sandbox setup on a Linux AppImage or tar.gz, for a page that loaded late. */
+  "sandbox.current": { request: None, result: SandboxNotice },
+  /** Run the one-time setup; resolves once the person answered the password prompt. */
+  "sandbox.setup": { request: None, result: SandboxNotice },
+  /** Hide the notice until the app starts again. */
+  "sandbox.hide": { request: None, result: SandboxNotice },
+  /** Start the app again through its launcher, so its sandbox turns on. */
+  "sandbox.restart": { request: None, result: None },
 } as const;
 export type RequestChannel = keyof typeof requests;
 export type RequestOf<C extends RequestChannel> = z.input<(typeof requests)[C]["request"]>;
@@ -135,6 +144,7 @@ export const events = {
   "updates.status": UpdateStatus,
   /** The outcome of the menu's Check for Updates…, for the page to answer with a toast. */
   "updates.checked": UpdateStatus,
+  "sandbox.status": SandboxNotice,
   /** The machine woke up; the renderer should reconnect now rather than wait for backoff. */
   "system.resumed": None,
 } as const;
