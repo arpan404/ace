@@ -11,30 +11,31 @@ struct RequestCardFrame: ViewModifier {
     }
 }
 
-/// The composer's frame: the dock's glass at `rounded-xl`, inset from the screen's edges. The
+/// The composer's frame: the dock's glass as a capsule that stops rounding once it wraps, inset from the screen's edges. The
 /// composer, a question in its place, and the notes that replace it share it.
 struct ComposerFrame: ViewModifier {
     var padding = EdgeInsets()
     func body(content: Content) -> some View {
         content
             .padding(padding)
-            .aceGlass(in: RoundedRectangle(cornerRadius: StripMetrics.radius, style: .continuous))
+            .aceContainerShape(AceShape.field)
+            .aceGlass(in: AceShape.field)
             .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.sm)
     }
 }
 
 /// The inset surface inside a request card (a command, a plan, a choice): the page colour in
 /// dark, where the card is lighter than the page, and the faint grey in light, where both are white.
+/// Its corners are concentric with the strip or composer around it.
 private struct RequestInset: ViewModifier {
     @Environment(\.colorScheme) private var colourScheme
-    let cornerRadius: CGFloat
     func body(content: Content) -> some View {
-        content.background(colourScheme == .dark ? AceTheme.Colours.background : AceTheme.Colours.secondaryBackground,
-                           in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        content.aceConcentricBackground(colourScheme == .dark ? AceTheme.Colours.background : AceTheme.Colours.secondaryBackground,
+                                        minimum: StripMetrics.insetRadius)
     }
 }
 extension View {
-    func requestInset(cornerRadius: CGFloat) -> some View { modifier(RequestInset(cornerRadius: cornerRadius)) }
+    func requestInset() -> some View { modifier(RequestInset()) }
 }
 
 /// The request's title (500) and one muted line under it.
@@ -108,13 +109,13 @@ struct PlanReviewCard: View {
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: planHeight)
-            .padding(AceTheme.Spacing.md).requestInset(cornerRadius: AceTheme.Radii.lg)
+            .padding(AceTheme.Spacing.md).requestInset()
             .accessibilityIdentifier("plan.body")
             if revising {
                 TextField("What should change?", text: $feedback, axis: .vertical)
                     .aceFont(AceTheme.Typography.body, relativeTo: .body).lineLimit(2...5)
                     .padding(AceTheme.Spacing.md).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                    .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.md))
+                    .background(AceTheme.Colours.fill, in: AceShape.field)
                     .accessibilityIdentifier("plan.feedback")
             }
             HStack(spacing: AceTheme.Spacing.sm) {
@@ -181,7 +182,7 @@ struct FormRequestCard: View {
                     .keyboardType(field.type == "string" ? .default : field.type == "integer" ? .numberPad : .decimalPad)
                     .aceFont(AceTheme.Typography.body, relativeTo: .body)
                     .padding(AceTheme.Spacing.md).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                    .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.md))
+                    .background(AceTheme.Colours.fill, in: AceShape.capsule)
             } else {
                 Picker(field.title, selection: value) {
                     Text("Choose…").tag("")
