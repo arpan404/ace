@@ -9,8 +9,11 @@ final class NativeHost: @unchecked Sendable {
     private let storageURL: URL?
     private let services: HostServices
     private let receive: @Sendable (Data) -> Void
-    private let storageQueue = DispatchQueue(label: "ace.client.storage", qos: .utility)
+    private let storageQueue = DispatchQueue(label: "ace.client.storage", qos: .userInitiated)
+    /// Read snapshots have their own queue, so a large cache write never delays an outbox admission.
+    private let snapshotQueue = DispatchQueue(label: "ace.client.snapshots", qos: .userInitiated)
     private var store: DurableStore?
+    private var snapshots: SnapshotStore?
     private var sockets: [String: PinnedSocket] = [:]
     private var timers: [String: Timer] = [:]
 
@@ -74,6 +77,7 @@ final class NativeHost: @unchecked Sendable {
     }
     private func call(_ operation: String, json: String, callback: Callback) {
         if operation == "http" { http(json, callback: callback); return }
+        if operation.hasPrefix("snapshot.") { snapshot(operation, json: json, callback: callback); return }
         storageQueue.async { [self] in
             let result: Result<String, Error> = Result {
                 guard let data = json.data(using: .utf8), data.count <= 9 * 1024 * 1024 else { throw HostError.storage }
@@ -96,6 +100,25 @@ final class NativeHost: @unchecked Sendable {
                 case .success(let text): callback.value.call(withArguments: [NSNull(), text])
                 case .failure: callback.value.call(withArguments: ["Host operation failed", ""])
                 }
+            }
+        }
+    }
+    private func snapshot(_ operation: String, json: String, callback: Callback) {
+        snapshotQueue.async { [self] in
+            let result: Result<String, Error> = Result {
+                guard let storageURL, let data = json.data(using: .utf8), data.count <= 9 * 1024 * 1024 else { throw HostError.storage }
+                if snapshots == nil { snapshots = try SnapshotStore(database: storageURL, now: services.now) }
+                guard let value = try snapshots?.perform(operation, input: data) else { throw HostError.unsupported }
+                return value
+            }
+            reply(result, to: callback)
+        }
+    }
+    private func reply(_ result: Result<String, Error>, to callback: Callback) {
+        runtime?.execute { _ in
+            switch result {
+            case .success(let text): callback.value.call(withArguments: [NSNull(), text])
+            case .failure: callback.value.call(withArguments: ["Host operation failed", ""])
             }
         }
     }
