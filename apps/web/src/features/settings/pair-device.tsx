@@ -351,6 +351,7 @@ export function PairDevice(props: { machine?: string }) {
       <Button
         ref={trigger}
         id="remote.pair"
+        data-flash={flashing || undefined}
         size="sm"
         variant="ghost"
         className={cn(flashing && "bg-accent")}

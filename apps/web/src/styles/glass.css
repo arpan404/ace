@@ -128,6 +128,15 @@
   }
 
   /*
+   * A short glass confirmation (`.ace-modal-thin`): only a sentence and buttons, so it takes the
+   * Translucency tint and no blur of its own: the page its backdrop blurred shows through. A
+   * second blur over that one would wash it to a flat colour and read as solid.
+   */
+  :root[data-surface="translucent"] :is(.ace-floating, .glass).ace-modal.ace-modal-thin {
+    background: var(--glass-tint);
+  }
+
+  /*
    * What sits behind a modal. Solid: a light neutral scrim. Translucent: the page blurred once,
    * with only a faint tint and no dark dim. It fades in through opacity; the blur radius is fixed
    * and never animates.

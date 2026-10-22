@@ -32,6 +32,8 @@ export interface UpdatePorts {
    * remains at the deadline.
    */
   drain(waiting: (count: number) => void): Promise<boolean>;
+  /** Threads still at work in the daemon this app started; 0 when the app runs none. */
+  busy(): Promise<number>;
   /** Stops the browser backend and the daemon this app started: the app quits next. */
   prepareQuit(): Promise<void>;
   /** Quits without installing, when the installer refused after `prepareQuit`. */
@@ -48,8 +50,10 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 /**
  * The app's update, from check to restart (ADR 0091). Checks run in the background and on
  * request; a found update waits for the person to download it, and a downloaded one for
- * their Restart, which never cuts off running agents: it drains them first and stays
- * downloaded if work remains. `apply` (the CLI's `ace update apply`) runs every step.
+ * their Restart. The person confirms that Restart knowing how many agents it stops, so it
+ * stops them at once: the daemon's shutdown interrupts each turn and keeps its progress.
+ * `apply` (the CLI's `ace update apply`) asks nobody, so it drains running agents first and
+ * stays downloaded if work remains.
  */
 export class UpdateController {
   private ports: UpdatePorts;
@@ -121,13 +125,35 @@ export class UpdateController {
       });
     }
     this.set({ ...offer, state: "downloaded", percent: 100, error: null });
-    if (this.installWhenReady) return this.install();
+    if (this.installWhenReady) return this.installWhenIdle();
     return this.status;
   }
 
-  /** Restart into the downloaded update once running agents finish. */
+  /**
+   * How many agents the person's Restart would stop: those working in the daemon this app
+   * started. Undefined when that daemon could not say.
+   */
+  async busy(): Promise<number | undefined> {
+    try {
+      return await this.ports.busy();
+    } catch (error) {
+      this.ports.log("warn", `Counting running agents failed: ${message(error)}`);
+      return undefined;
+    }
+  }
+
+  /** The person's confirmed Restart: stop running agents now and restart into the update. */
   async install(): Promise<UpdateStatus> {
-    // A pending check must finish before the drain can change the update's state.
+    // A pending check must finish before the restart can change the update's state.
+    if (this.checking) await this.checking;
+    if (this.status.state !== "downloaded") return this.status;
+    this.installWhenReady = false;
+    this.set({ ...this.status, state: "installing", waiting: 0, error: null });
+    return this.restart();
+  }
+
+  /** Restart into the downloaded update once running agents finish (`ace update apply`). */
+  private async installWhenIdle(): Promise<UpdateStatus> {
     if (this.checking) await this.checking;
     if (this.status.state === "downloading") this.installWhenReady = true;
     if (this.status.state !== "downloaded") return this.status;
@@ -145,6 +171,11 @@ export class UpdateController {
     }
     if (!drained)
       return this.set({ ...ready, error: { during: "install", message: stalledMessage } });
+    return this.restart();
+  }
+
+  /** Stops the browser backend and the daemon (its shutdown interrupts turns), then installs. */
+  private async restart(): Promise<UpdateStatus> {
     try {
       await this.ports.prepareQuit();
     } catch (error) {
@@ -163,11 +194,11 @@ export class UpdateController {
   /** `ace update apply`: check, download and restart into the newest release. */
   async apply(): Promise<UpdateStatus> {
     this.installWhenReady = true;
-    if (this.status.state === "downloaded") return this.install();
+    if (this.status.state === "downloaded") return this.installWhenIdle();
     if (this.status.state === "downloading") return this.status;
     const found = this.status.state === "available" ? this.status : await this.check("person");
     if (found.state === "available" && found.inPlace) return this.download();
-    if (found.state === "downloaded") return this.install();
+    if (found.state === "downloaded") return this.installWhenIdle();
     this.installWhenReady = false;
     return found;
   }

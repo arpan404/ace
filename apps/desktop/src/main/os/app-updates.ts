@@ -9,7 +9,7 @@ import {
   type UpdateEngine,
 } from "./update-controller.ts";
 
-/** How long Restart waits for running agents before the update stays ready (ADR 0041). */
+/** How long `ace update apply` waits for running agents before the update stays ready (ADR 0041). */
 export const updateDrainMs = 5 * 60_000;
 
 export interface AppUpdatesOptions {
@@ -24,6 +24,8 @@ export interface AppUpdatesOptions {
   random(): number;
   report(status: UpdateStatus): void;
   drain(deadlineMs: number, waiting: (count: number) => void): Promise<boolean>;
+  /** Threads still at work in the daemon this app started; 0 when it runs none. */
+  busy(): Promise<number>;
   prepareQuit(): Promise<void>;
   quit(): void;
   log(level: "info" | "warn", message: string): void;
@@ -35,6 +37,8 @@ export interface AppUpdates {
   apply(): Promise<UpdateStatus>;
   download(): Promise<UpdateStatus>;
   install(): Promise<UpdateStatus>;
+  /** How many agents Restart would stop; undefined when the daemon could not say. */
+  busy(): Promise<number | undefined>;
   /** Background checks, for a build that has a feed. */
   start(): void;
 }
@@ -73,6 +77,7 @@ export function appUpdates(options: AppUpdatesOptions): AppUpdates {
     enabled,
     releaseUrl: (version) => `${repositoryUrl}/releases/tag/v${version}`,
     drain: (waiting) => options.drain(updateDrainMs, waiting),
+    busy: options.busy,
     prepareQuit: options.prepareQuit,
     quit: options.quit,
     report: options.report,
@@ -84,6 +89,7 @@ export function appUpdates(options: AppUpdatesOptions): AppUpdates {
     apply: () => controller.apply(),
     download: () => controller.download(),
     install: () => controller.install(),
+    busy: () => controller.busy(),
     start() {
       if (enabled) scheduleChecks(controller, options.timers, options.random);
     },

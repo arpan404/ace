@@ -19,11 +19,11 @@ import {
 const rowClass =
   "group flex h-8 items-center gap-2.5 rounded-md px-2.5 text-ui text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-ring-inset";
 
-const groupOrder: readonly SettingsGroup[] = ["machine", "device", "network"];
+const groupOrder: readonly SettingsGroup[] = ["device", "machine", "network"];
 
 /**
- * Settings' pages as links, the current one marked: the pages a machine keeps, then under
- * "This device" the pages this screen keeps, then Fleet. Also the phone's
+ * Settings' pages as links, the current one marked: under "This device" the pages this screen
+ * keeps, then under "Environment" the pages a machine keeps, then Fleet. Also the phone's
  * Settings page.
  */
 export function SettingsPageLinks(props: { pages?: readonly SettingsPath[] }) {
@@ -40,10 +40,7 @@ export function SettingsPageLinks(props: { pages?: readonly SettingsPath[] }) {
         if (!inGroup.length) return null;
         const title = settingsGroupTitles[group];
         return (
-          <section
-            key={group}
-            aria-label={title ?? (group === "machine" ? "Environment" : "Network")}
-          >
+          <section key={group} aria-label={title ?? "Network"}>
             {title && (
               <h3 className="flex h-6 items-center px-2.5 text-xs font-medium text-subtle-foreground">
                 {title}
