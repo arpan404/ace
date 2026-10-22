@@ -5,6 +5,7 @@ import { rootRunOf } from "@ace/ui-core";
 import { scheduler } from "./host.ts";
 import { itemRow, preview } from "./presentation.ts";
 import { itemDetail } from "./thread-rows.ts";
+import { turnThoughts } from "./thread-messages.ts";
 
 /*
  * A finished turn's full steps, read from the daemon (`turn.steps`, the SDK's bounded cache) only
@@ -33,8 +34,8 @@ interface Open {
   again: boolean;
 }
 
-function stepRow(item: Parameters<typeof itemRow>[0]) {
-  const row = { ...itemRow(item), ...itemDetail(item) };
+function stepRow(item: Parameters<typeof itemRow>[0], thought: string | null) {
+  const row = { ...itemRow(item), ...itemDetail(item), thought };
   // Steps read as one line each; a long thought or command keeps a bounded head.
   return { ...row, text: preview(row.text, 1024) };
 }
@@ -165,6 +166,10 @@ export class StepsFollower {
       (step) =>
         (owner === undefined || step.item.agentId === owner) && !slot.answers.has(step.item.id),
     );
+    const thoughts = turnThoughts(
+      this.#store,
+      (entry?.steps ?? []).map((step) => step.item),
+    );
     const pages = Math.ceil(steps.length / pageSize);
     const changed = entry !== slot.entry;
     slot.entry = entry;
@@ -177,7 +182,7 @@ export class StepsFollower {
         type: "thread.stepsPage",
         ordinal,
         page,
-        rows: part.map((step) => stepRow(step.item)),
+        rows: part.map((step) => stepRow(step.item, thoughts(step.item))),
       }));
     }
     slot.pages.length = Math.min(slot.pages.length, pages);

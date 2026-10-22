@@ -172,3 +172,18 @@ export function messageBlock(store: ThreadSource, kind: string, itemId: string |
   if (kind === "message") return { streaming: streamingOf(store, store.item(itemId)) };
   return { event: eventRow(store, kind, itemId) };
 }
+
+/**
+ * Thought headers for a settled turn's steps as the daemon read them: a thought ends where the
+ * turn's next item began, else where its turn ended.
+ */
+export function turnThoughts(store: ThreadSource, items: readonly Item[]) {
+  const byId = new Map<string, Item>(items.map((item) => [item.id, item]));
+  const reader = {
+    order: items.map((item) => item.id),
+    item: (id: string) => byId.get(id),
+    run: (id: string) => store.run(id),
+  };
+  return (item: Item): string | null =>
+    item.type === "reasoning" ? thoughtLabel(true, thoughtMs(reader, item.id)) : null;
+}
