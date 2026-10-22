@@ -113,6 +113,57 @@ it("automations round-trip through list, save and remove; only remove is destruc
   expect(await ids()).toEqual([]);
 });
 
+it("an agent saves a schedule by its rule alone, sees when it runs next, and pauses and resumes it", async () => {
+  world = await evalWorld({ browser: false });
+  const { agent } = await world.agent({});
+  await world.daemon.settings.set("automations.enabled", true, { kind: "global" });
+  const saved = await agent.call("automation_put", {
+    id: "morning-check",
+    title: "Morning check",
+    prompt: "Check last night's CI and summarise failures",
+    schedule: { kind: "rrule", expression: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0" },
+  });
+  expect(saved.failed, saved.text).toBe(false);
+  const Entry = z.object({
+    id: z.string(),
+    enabled: z.boolean(),
+    nextRunAt: z.number().nullable(),
+    trigger: z.object({
+      kind: z.literal("schedule"),
+      schedule: z.object({ timezone: z.string(), startAt: z.number() }),
+    }),
+  });
+  const entry = z.object({ automation: Entry }).parse(data(saved)).automation;
+  // The daemon filled in the zone and the start, and the schedule is armed.
+  expect(entry.trigger.schedule.timezone).toBe(
+    new Intl.DateTimeFormat().resolvedOptions().timeZone,
+  );
+  expect(entry.trigger.schedule.startAt % 60_000).toBe(0);
+  expect(entry.nextRunAt).toBeGreaterThan(0);
+
+  // The run lands in the agent's own thread, so the thread's provider decides; none can be named.
+  const named = await agent.call("automation_put", {
+    id: "other-provider",
+    title: "Other provider",
+    prompt: "Anything",
+    provider: "codex",
+  });
+  expect(named.failed).toBe(true);
+
+  const listed = async () =>
+    z
+      .object({ automations: z.array(Entry) })
+      .parse(data(await agent.call("automations_list", {})))
+      .automations.find((candidate) => candidate.id === "morning-check");
+  expect((await agent.call("automation_pause", { id: "morning-check" })).failed).toBe(false);
+  expect(await listed()).toMatchObject({ enabled: false, nextRunAt: null });
+  expect(
+    (await agent.call("automation_pause", { id: "morning-check", paused: false })).failed,
+  ).toBe(false);
+  expect((await listed())?.enabled).toBe(true);
+  expect((await listed())?.nextRunAt).toBeGreaterThan(0);
+});
+
 it("guide returns its family's schemas inline only to a client whose list never grows", async () => {
   world = await evalWorld({ browser: false });
   const { agent: full, connection } = await world.agent({});

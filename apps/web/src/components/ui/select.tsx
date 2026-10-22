@@ -5,6 +5,12 @@ import { cn } from "@/lib/cn.ts";
 import { useFloatingMaterial } from "./floating-material.tsx";
 import { layers, menuItem, popupFrame } from "./menu-styles.ts";
 
+/** The quiet filled control every picker opens from: Select, DatePicker, TimePicker. */
+export const selectTrigger = cn(
+  "relative inline-flex h-8 items-center justify-between gap-2 rounded-md bg-secondary pr-2 pl-2.5 text-ui text-foreground transition-[background-color,box-shadow] duration-(--motion-fast) focus-ring touch-hit",
+  "hover:bg-[color-mix(in_oklab,var(--secondary),var(--foreground)_5%)] data-popup-open:bg-[color-mix(in_oklab,var(--secondary),var(--foreground)_5%)] disabled:opacity-50",
+);
+
 export interface SelectOption<T extends string> {
   value: T;
   label: string;
@@ -47,8 +53,7 @@ function Select<T extends string>(props: {
         aria-invalid={props["aria-invalid"] || undefined}
         aria-describedby={props["aria-describedby"]}
         className={cn(
-          "relative inline-flex h-8 items-center justify-between gap-2 rounded-md bg-secondary pr-2 pl-2.5 text-ui text-foreground transition-[background-color,box-shadow] duration-(--motion-fast) focus-ring touch-hit",
-          "hover:bg-[color-mix(in_oklab,var(--secondary),var(--foreground)_5%)] data-popup-open:bg-[color-mix(in_oklab,var(--secondary),var(--foreground)_5%)] disabled:opacity-50",
+          selectTrigger,
           // A minimum only for the default size: a Select given a width follows its column.
           props.className ?? "min-w-36",
         )}

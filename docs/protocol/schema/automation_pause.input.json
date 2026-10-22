@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/automation_pause.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "description": "The automation's id, as you named it in automation_put.",
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "paused": {
+      "default": true,
+      "description": "true pauses it; false resumes it.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "type": "object"
+}

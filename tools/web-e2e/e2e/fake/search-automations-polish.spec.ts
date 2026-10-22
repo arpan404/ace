@@ -28,36 +28,28 @@ test("phone search keeps Project and Date usable beside the kind filters", async
   await expect(results.getByText("Bump Codex app-server to 0.48", { exact: true })).toBeVisible();
 });
 
-test("phone file triggers can be created and Edit, Run now and run output remain reachable", async ({
+test("phone file triggers can be created, and a run's answer and thread stay reachable", async ({
   page,
 }) => {
   await page.goto("/automations/new");
-  await page.getByRole("textbox", { name: "Name", exact: true }).fill("Watch test changes");
-  await page
-    .getByRole("textbox", { name: "What should the agent do?" })
-    .fill("Review changed tests.");
-  await page.getByRole("combobox", { name: "When it runs" }).click();
-  await expect(page.getByRole("option", { name: "By hand", exact: true })).toBeVisible();
-  await page.getByRole("option", { name: "On file change", exact: true }).click();
-  await page.getByRole("textbox", { name: "File globs, one per line" }).fill("src/**/*.test.ts");
-  await page.getByRole("button", { name: "Create automation", exact: true }).click();
+  await page.getByRole("button", { name: /^When: / }).click();
+  const when = page.getByRole("dialog", { name: "When it runs" });
+  await when.getByRole("radio", { name: "When files change", exact: true }).click();
+  await when.getByRole("textbox", { name: "Files, one glob per line" }).fill("src/**/*.test.ts");
+  await page.keyboard.press("Escape");
+  const prompt = page.getByRole("combobox", { name: "What the agent does each time" });
+  await prompt.fill("Watch test changes. Review each changed test.");
+  await prompt.press("Enter");
   await expect(
     page.getByRole("heading", { level: 2, name: "Watch test changes", exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole("link", { name: "Edit", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Run now", exact: true }).click();
-  await expect(
-    page.getByRole("list", { name: "Recent runs" }).getByText("Running…", { exact: true }),
-  ).toBeVisible();
+  await page.getByRole("button", { name: "More actions", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Run now", exact: true }).click();
+  await expect(page.getByRole("main").getByText(/^Working for /)).toBeVisible();
   await page.goto("/automations/auto-pr-review");
-  await page
-    .getByRole("button", { name: "Open the run #212 · approved with 1 note", exact: true })
-    .click();
-  await expect(page.getByRole("region", { name: "Run output" })).toContainText(
-    "#212 · approved with 1 note",
-  );
-  await expect(page.getByRole("button", { name: "Close", exact: true })).toHaveCount(1);
-  await page.getByRole("link", { name: "Open thread", exact: true }).click();
+  const run = page.getByRole("article").filter({ hasText: "Approved #212 with one note" });
+  await expect(run).toBeVisible();
+  await run.getByRole("link", { name: "Open run", exact: true }).click();
   await expect(
     page.getByRole("heading", { level: 1, name: "Bump Codex app-server to 0.48", exact: true }),
   ).toBeVisible();

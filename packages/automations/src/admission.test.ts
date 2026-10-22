@@ -2,19 +2,66 @@ import { expect, it } from "vitest";
 import { harness, definition, start } from "./service-test-support.ts";
 it("caps active executions across automations at 256", async () => {
   const h = harness();
-  for (let i = 0; i < 9; i++) h.service.put(definition({ id: `job-${i}`, concurrency: 32 }));
+  for (let i = 0; i < 257; i++) h.service.put(definition({ id: `job-${i}` }));
   try {
     for (let i = 0; i < 256; i++)
       expect(
-        h.service.trigger(`job-${Math.floor(i / 32)}`, {
-          key: `event-${i}`,
-          variables: { subject: "issues" },
-        }).status,
+        h.service.trigger(`job-${i}`, { key: "event", variables: { subject: "issues" } }).status,
       ).toBe("running");
     expect(
-      h.service.trigger("job-8", { key: "overflow", variables: { subject: "issues" } }).status,
+      h.service.trigger("job-256", { key: "overflow", variables: { subject: "issues" } }).status,
     ).toBe("skipped");
     expect(h.inputs).toHaveLength(256);
+  } finally {
+    for (const completion of h.completions)
+      completion.resolve({ threadId: "thread", status: "succeeded", result: "done" });
+    await h.service.settled();
+  }
+});
+it("a waiting run held by the running limit starts once room frees anywhere", async () => {
+  const h = harness();
+  for (let i = 0; i < 257; i++) h.service.put(definition({ id: `job-${i}` }));
+  try {
+    h.service.trigger("job-0", { key: "first", variables: { subject: "first" } });
+    expect(
+      h.service.trigger("job-0", { key: "second", variables: { subject: "second" } }).status,
+    ).toBe("queued");
+    for (let i = 1; i < 256; i++)
+      h.service.trigger(`job-${i}`, { key: "event", variables: { subject: "issues" } });
+    expect(h.inputs).toHaveLength(256);
+    // job-0's own run ends while ace is still full: its waiting run starts in the room it left.
+    h.completions[0]?.resolve({ threadId: "thread", status: "succeeded", result: "done" });
+    expect((await h.nextExecution(256)).prompt).toBe("Triage second");
+    expect(h.store.active()).toHaveLength(256);
+  } finally {
+    for (const completion of h.completions)
+      completion.resolve({ threadId: "thread", status: "succeeded", result: "done" });
+    await h.service.settled();
+  }
+});
+it("a waiting run never starts past the running limit, and starts when another run frees room", async () => {
+  const h = harness();
+  for (let i = 0; i < 257; i++) h.service.put(definition({ id: `job-${i}` }));
+  try {
+    h.service.trigger("job-0", { key: "first", variables: { subject: "first" } });
+    h.service.trigger("job-0", { key: "second", variables: { subject: "second" } });
+    for (let i = 1; i < 256; i++)
+      h.service.trigger(`job-${i}`, { key: "event", variables: { subject: "issues" } });
+    // Another automation fires in the moment job-0's run ends, taking the room it left.
+    const published = h.deps.onRun;
+    h.deps.onRun = (run) => {
+      published?.(run);
+      if (run.automationId === "job-0" && run.status === "succeeded")
+        h.service.trigger("job-256", { key: "event", variables: { subject: "late" } });
+    };
+    h.completions[0]?.resolve({ threadId: "thread", status: "succeeded", result: "done" });
+    await expect.poll(() => h.inputs.at(-1)?.prompt).toBe("Triage late");
+    expect(h.store.active()).toHaveLength(256);
+    expect(h.inputs.some((input) => input.prompt === "Triage second")).toBe(false);
+    // Another automation's run ends: the waiting one takes its room, never more.
+    h.completions[100]?.resolve({ threadId: "thread", status: "succeeded", result: "done" });
+    await expect.poll(() => h.inputs.at(-1)?.prompt).toBe("Triage second");
+    expect(h.store.active()).toHaveLength(256);
   } finally {
     for (const completion of h.completions)
       completion.resolve({ threadId: "thread", status: "succeeded", result: "done" });
