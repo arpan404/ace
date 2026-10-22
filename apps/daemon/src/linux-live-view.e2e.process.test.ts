@@ -15,7 +15,11 @@ import { ScreenInventory, ScreenState, type ScreenTarget } from "@ace/protocol";
 import { evalWorld, type EvalWorld } from "./evals/world.ts";
 import { at, changed, decodeH264 } from "./testing/decode-h264.ts";
 import { LiveViewer, type ViewerFrame } from "./testing/live-viewer.ts";
-import { answerChooser, leaveChooserUnanswered, scriptedChooser } from "./testing/portal-chooser.ts";
+import {
+  answerChooser,
+  leaveChooserUnanswered,
+  scriptedChooser,
+} from "./testing/portal-chooser.ts";
 
 const session = process.env.ACE_LINUX_DESKTOP_E2E;
 const helper = process.env.ACE_SCREEN_HELPER;
@@ -166,7 +170,12 @@ describe.skipIf(!enabled)(`Linux live view (${session ?? "off"})`, () => {
       const { target } = await calculatorWindow(ace, viewer);
       const state = ScreenState.parse(await viewer.request({ op: "start", target }));
       await viewer.request({ op: "subscribe", sessionId: state.sessionId });
-      expect(await viewer.frames(state.sessionId, { count: 1 })).toHaveLength(1);
+      await viewer.request({
+        op: "stream.configure",
+        sessionId: state.sessionId,
+        settings: { codec: "h264", maxWidth: 1920, maxHeight: 1200, fps: 30, bitrate: 4_000_000 },
+      });
+      expect(await viewer.frames(state.sessionId, { keyframes: 1, count: 1 })).toHaveLength(1);
       await viewer.request({ op: "controller", sessionId: state.sessionId, controller: "human" });
       const click = viewer.request({
         op: "input",
