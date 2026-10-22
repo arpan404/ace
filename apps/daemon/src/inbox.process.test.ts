@@ -49,7 +49,11 @@ async function environment(
       return runtime.read({
         type: "workspace.request",
         requestId: "inbox",
-        operation: { op: "forge.inbox.list", workspaceId, query: {} },
+        operation: {
+          op: "forge.inbox.list",
+          workspaceId,
+          query: { all: false, participating: false, page: 1 },
+        },
       });
     },
     write(id: string, input: ForgeInboxWrite, allowed: () => boolean = () => true) {

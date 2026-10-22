@@ -2,7 +2,10 @@ import { z } from "zod";
 import { ForgeRepository } from "@ace/protocol/forge";
 import type { ForgeInboxRow, ForgeInboxSubjectState } from "@ace/protocol/forge-inbox";
 
-const name = z.string().regex(/^[\w.-]+$/).max(256);
+const name = z
+  .string()
+  .regex(/^[\w.-]+$/)
+  .max(256);
 /** One notification thread as GitHub's REST API sends it; unknown fields are kept. */
 export const GitHubNotification = z.looseObject({
   id: z.union([z.string().regex(/^\d{1,32}$/), z.number().int().nonnegative()]),
@@ -36,7 +39,9 @@ function subjectPath(url: string | null | undefined): { kind: string; rest: stri
     return undefined;
   }
   const match = /^(?:\/api\/v3)?\/repos\/[^/]+\/[^/]+\/([a-z-]+)\/([^/?#]+)/.exec(parsed.pathname);
-  return match?.[1] && match[2] ? { kind: match[1], rest: decodeURIComponent(match[2]) } : undefined;
+  return match?.[1] && match[2]
+    ? { kind: match[1], rest: decodeURIComponent(match[2]) }
+    : undefined;
 }
 
 /** A pull request's or issue's number from the subject's address (`…/pulls/229`, `…/issues/31`). */
@@ -63,7 +68,8 @@ export function subjectWebUrl(
   const number = subjectNumber(url);
   if (type === "PullRequest" && number) return `${root}/pull/${number}`;
   if (type === "Issue" && number) return `${root}/issues/${number}`;
-  if (type === "Discussion") return number ? `${root}/discussions/${number}` : `${root}/discussions`;
+  if (type === "Discussion")
+    return number ? `${root}/discussions/${number}` : `${root}/discussions`;
   if (type === "Commit" && path?.kind === "commits" && /^[0-9a-f]{7,64}$/i.test(path.rest))
     return `${root}/commit/${path.rest}`;
   if (type === "Release") return `${root}/releases`;
@@ -130,6 +136,7 @@ export function subjectState(node: unknown): ForgeInboxSubjectState | undefined 
     if (state === "OPEN") return isDraft ? "draft" : "open";
     return undefined;
   }
-  if (__typename === "Issue") return state === "CLOSED" ? "closed" : state === "OPEN" ? "open" : undefined;
+  if (__typename === "Issue")
+    return state === "CLOSED" ? "closed" : state === "OPEN" ? "open" : undefined;
   return undefined;
 }

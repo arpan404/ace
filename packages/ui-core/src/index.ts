@@ -20,6 +20,7 @@ export * from "./elicitation-form.ts";
 export * from "./catalog-ids.ts";
 export * from "./checkout.ts";
 export * from "./action-errors.ts";
+export * from "./inbox-words.ts";
 export * from "./pull-request.ts";
 export * from "./pr-next-step.ts";
 export * from "./worktree-base.ts";

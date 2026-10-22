@@ -18,6 +18,7 @@ import { Route as SkillsRouteImport } from "./routes/skills"
 import { Route as UsageRouteImport } from "./routes/usage"
 import { Route as HomeIndexRouteImport } from "./routes/_home.index"
 import { Route as HomeArchivedRouteImport } from "./routes/_home.archived"
+import { Route as HomeInboxRouteImport } from "./routes/_home.inbox"
 import { Route as HomeIssuesRouteImport } from "./routes/_home.issues"
 import { Route as HomeNewRouteImport } from "./routes/_home.new"
 import { Route as HomePullsRouteImport } from "./routes/_home.pulls"
@@ -93,6 +94,11 @@ const HomeIndexRoute = HomeIndexRouteImport.update({
 const HomeArchivedRoute = HomeArchivedRouteImport.update({
   id: "/archived",
   path: "/archived",
+  getParentRoute: () => HomeRoute,
+} as any)
+const HomeInboxRoute = HomeInboxRouteImport.update({
+  id: "/inbox",
+  path: "/inbox",
   getParentRoute: () => HomeRoute,
 } as any)
 const HomeIssuesRoute = HomeIssuesRouteImport.update({
@@ -269,6 +275,7 @@ export interface FileRoutesByFullPath {
   "/skills": typeof SkillsRouteWithChildren
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
+  "/inbox": typeof HomeInboxRoute
   "/issues": typeof HomeIssuesRoute
   "/new": typeof HomeNewRoute
   "/pulls": typeof HomePullsRoute
@@ -307,6 +314,7 @@ export interface FileRoutesByTo {
   "/setup": typeof SetupRoute
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
+  "/inbox": typeof HomeInboxRoute
   "/issues": typeof HomeIssuesRoute
   "/new": typeof HomeNewRoute
   "/pulls": typeof HomePullsRoute
@@ -351,6 +359,7 @@ export interface FileRoutesById {
   "/skills": typeof SkillsRouteWithChildren
   "/usage": typeof UsageRoute
   "/_home/archived": typeof HomeArchivedRoute
+  "/_home/inbox": typeof HomeInboxRoute
   "/_home/issues": typeof HomeIssuesRoute
   "/_home/new": typeof HomeNewRoute
   "/_home/pulls": typeof HomePullsRoute
@@ -396,6 +405,7 @@ export interface FileRouteTypes {
     | "/skills"
     | "/usage"
     | "/archived"
+    | "/inbox"
     | "/issues"
     | "/new"
     | "/pulls"
@@ -434,6 +444,7 @@ export interface FileRouteTypes {
     | "/setup"
     | "/usage"
     | "/archived"
+    | "/inbox"
     | "/issues"
     | "/new"
     | "/pulls"
@@ -477,6 +488,7 @@ export interface FileRouteTypes {
     | "/skills"
     | "/usage"
     | "/_home/archived"
+    | "/_home/inbox"
     | "/_home/issues"
     | "/_home/new"
     | "/_home/pulls"
@@ -585,6 +597,13 @@ declare module "@tanstack/react-router" {
       path: "/archived"
       fullPath: "/archived"
       preLoaderRoute: typeof HomeArchivedRouteImport
+      parentRoute: typeof HomeRoute
+    }
+    "/_home/inbox": {
+      id: "/_home/inbox"
+      path: "/inbox"
+      fullPath: "/inbox"
+      preLoaderRoute: typeof HomeInboxRouteImport
       parentRoute: typeof HomeRoute
     }
     "/_home/issues": {
@@ -816,6 +835,7 @@ declare module "@tanstack/react-router" {
 
 interface HomeRouteChildren {
   HomeArchivedRoute: typeof HomeArchivedRoute
+  HomeInboxRoute: typeof HomeInboxRoute
   HomeIssuesRoute: typeof HomeIssuesRoute
   HomeNewRoute: typeof HomeNewRoute
   HomePullsRoute: typeof HomePullsRoute
@@ -830,6 +850,7 @@ interface HomeRouteChildren {
 
 const HomeRouteChildren: HomeRouteChildren = {
   HomeArchivedRoute: HomeArchivedRoute,
+  HomeInboxRoute: HomeInboxRoute,
   HomeIssuesRoute: HomeIssuesRoute,
   HomeNewRoute: HomeNewRoute,
   HomePullsRoute: HomePullsRoute,
