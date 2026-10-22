@@ -23,22 +23,33 @@ test.runIf(process.platform === "win32")(
         `
       const { spawn } = require('node:child_process');
       process.stdin.once('data', () => {
-        const descendant = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000)'], { stdio: 'ignore' });
-        descendant.once('spawn', () => { descendant.unref(); process.exit(0); });
+        const descendant = spawn(process.execPath,
+          ['-e', 'console.log("descendant-ready"); setInterval(() => {}, 60000)'],
+          { detached: true, stdio: ['ignore', 'pipe', 'inherit'] });
+        descendant.once('error', (error) => { console.error(error); process.exit(1); });
+        descendant.stdout.once('data', () => {
+          descendant.stdout.destroy();
+          descendant.unref();
+          process.stdout.write('descendant-ready', () => process.exit(0));
+        });
       });
     `,
       ],
-      { stdio: ["pipe", "ignore", "ignore"], windowsHide: true },
+      { stdio: ["pipe", "pipe", "pipe"], windowsHide: true },
     );
     onTestFinished(() => {
       child.kill();
     });
     const closed = once(child, "close");
+    const output: Buffer[] = [];
+    child.stdout.on("data", (chunk: Buffer) => output.push(chunk));
     await once(child, "spawn");
     if (child.pid === undefined) throw new Error("Launcher did not start");
     job.assign(child.pid);
+    expect(job.activeCount()).toBe(1);
     child.stdin.end("launch");
-    await closed;
+    expect(await closed).toEqual([0, null]);
+    expect(Buffer.concat(output).toString("utf8")).toBe("descendant-ready");
     expect(job.activeCount()).toBeGreaterThan(0);
     job.terminate();
     for (let attempt = 0; attempt < 200 && job.activeCount() > 0; attempt++) await delay(25);
