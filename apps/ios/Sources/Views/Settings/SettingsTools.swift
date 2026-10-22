@@ -18,17 +18,17 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .devices: "Simulators and devices"
         }
     }
-    var symbol: String {
+    var icon: AceIcon.Name {
         switch self {
-        case .projects: "folder"
-        case .automations: "clock.arrow.circlepath"
-        case .usage: "chart.bar"
-        case .skills: "book"
-        case .providers: "person.crop.circle"
-        case .sourceControl: "arrow.triangle.branch"
-        case .prompts: "text.alignleft"
-        case .computer: "macwindow"
-        case .devices: "iphone"
+        case .projects: .folder
+        case .automations: .clockCounterClockwise
+        case .usage: .chartBar
+        case .skills: .bookOpen
+        case .providers: .terminalWindow
+        case .sourceControl: .gitBranch
+        case .prompts: .notePencil
+        case .computer: .appWindow
+        case .devices: .deviceMobile
         }
     }
     /// Kept from the old Browse sheet so automation finds the same rows.
@@ -68,26 +68,23 @@ struct SettingsTools: View {
         if !inbox.sessions.isEmpty {
             Section {
                 if inbox.sessions.count > 1 {
-                    InsetRow(systemImage: "desktopcomputer", title: "Machine") {
+                    HStack {
+                        SettingsLinkLabel(title: "Machine", icon: .desktop)
                         Picker("Machine", selection: Binding(get: { hostId }, set: { machine = $0 })) {
                             ForEach(inbox.sessions) { Text(inbox.name($0.hostId)).tag($0.hostId) }
                         }
-                        .labelsHidden().pickerStyle(.menu)
+                        .labelsHidden().pickerStyle(.menu).tint(AceTheme.Colours.mutedForeground)
                     }
                     .accessibilityIdentifier("settings.tools.machine")
                 }
                 ForEach(SettingsTool.allCases, id: \.self) { tool in
-                    NavigationLink(value: SettingsRoute.tool(tool, machine: hostId)) { InsetRow(tool.title, systemImage: tool.symbol) }
+                    NavigationLink(value: SettingsRoute.tool(tool, machine: hostId)) { SettingsLinkLabel(title: tool.title, icon: tool.icon) }
                         .accessibilityIdentifier(tool.identifier)
                 }
             } header: {
-                HStack {
-                    InsetHeader("Tools")
-                    Spacer()
-                    if inbox.client(hostId)?.connection != "ready" { InsetHeader("Offline") }
-                }
+                SettingsHeader("Tools", note: inbox.client(hostId)?.connection != "ready" ? "Offline. These open once this phone reaches it." : nil)
             }
-            .insetRowBackground()
+            .settingsRow()
         }
     }
 }

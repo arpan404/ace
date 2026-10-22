@@ -36,46 +36,42 @@ struct SettingsSheet: View {
         NavigationStack(path: $path) {
             List {
                 Section {
-                    link(.machines, "Machines", "laptopcomputer", value: inbox.sessions.count.formatted(), id: "settings.machines")
+                    link(.machines, "Machines", .laptop, value: inbox.sessions.count.formatted(), id: "settings.machines")
                     if notifications != nil {
-                        link(.notifications, "Notifications", "bell", value: notifications?.delivering == true ? "On" : "Off", id: "settings.notifications")
+                        link(.notifications, "Notifications", .bell, value: notifications?.delivering == true ? "On" : "Off", id: "settings.notifications")
                     }
-                    if let lock { link(.lock, "Face ID", "lock", value: lock.enabled ? "On" : "Off", id: "settings.lock") }
-                } header: { InsetHeader("Connections") }
-                .insetRowBackground()
+                    if let lock { link(.lock, "Face ID", .scanSmiley, value: lock.enabled ? "On" : "Off", id: "settings.lock") }
+                } header: { SettingsHeader("Connections") }
+                .settingsRow()
                 Section {
-                    link(.appearance, "Appearance", "paintpalette", value: PhoneAppearance.label(appearance), id: "settings.appearance")
-                    InsetRow(systemImage: "keyboard", title: "Send with Return") {
-                        Toggle("Send with Return", isOn: $returnSends).labelsHidden()
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("settings.returnSends")
-                } header: { InsetHeader("Interface") }
-                .insetRowBackground()
+                    link(.appearance, "Appearance", .palette, value: PhoneAppearance.label(appearance), id: "settings.appearance")
+                    Toggle(isOn: $returnSends) { SettingsLinkLabel(title: "Send with Return", icon: .keyboard) }
+                        .accessibilityIdentifier("settings.returnSends")
+                } header: { SettingsHeader("This phone") }
+                .settingsRow()
                 Section {
-                    link(.archive, "Archived", "archivebox", id: "settings.archive")
-                    link(.profiles, "Task profiles", "person.text.rectangle", id: "settings.profiles")
-                } header: { InsetHeader("Threads") }
-                .insetRowBackground()
+                    link(.archive, "Archived", .archive, id: "settings.archive")
+                    link(.profiles, "Task profiles", .identificationCard, id: "settings.profiles")
+                } header: { SettingsHeader("Threads") }
+                .settingsRow()
                 SettingsTools(inbox: inbox, machine: $toolsMachine)
                 Section {
-                    InsetRow("About", systemImage: "info.circle", value: "\(app.version) (\(app.build))")
+                    SettingsLinkLabel(title: "About", icon: .info, value: "\(app.version) (\(app.build))")
                         .accessibilityElement(children: .combine)
-                    link(.licences, "Licences", "doc.text", id: "settings.licences")
+                    link(.licences, "Licences", .fileText, id: "settings.licences")
                     ShareLink(item: report.json, preview: SharePreview("ace diagnostics")) {
-                        InsetRow("Send diagnostics", systemImage: "square.and.arrow.up")
+                        SettingsLinkLabel(title: "Send diagnostics", icon: .export)
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("settings.diagnostics")
-                } header: { InsetHeader("App") }
-                .insetRowBackground()
+                } header: { SettingsHeader("App") }
+                .settingsRow()
             }
-            .insetGroupedList()
-            .sensoryFeedback(.selection, trigger: returnSends)
+            .settingsList()
             .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                    Button { dismiss() } label: { AceIcon(.x, size: 18) }
                         .accessibilityLabel("Close").accessibilityIdentifier("settings.close")
                 }
             }
@@ -88,8 +84,8 @@ struct SettingsSheet: View {
         .onDisappear { closeMachineViews() }
     }
 
-    private func link(_ route: SettingsRoute, _ title: String, _ symbol: String, value: String? = nil, id: String) -> some View {
-        NavigationLink(value: route) { InsetRow(title, systemImage: symbol, value: value) }
+    private func link(_ route: SettingsRoute, _ title: String, _ icon: AceIcon.Name, value: String? = nil, id: String) -> some View {
+        NavigationLink(value: route) { SettingsLinkLabel(title: title, icon: icon, value: value) }
             .accessibilityIdentifier(id)
     }
 

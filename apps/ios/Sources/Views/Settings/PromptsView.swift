@@ -17,36 +17,41 @@ private struct PromptsReply: Decodable {
     }
     let result: Result
 }
+/// Settings › Prompts: the machine's saved prompt files, each opening its editor, and a new one.
 struct PromptsView: View {
     let model: ClientModel
     @State private var files: [PromptFileRow] = []
     @State private var problem: String?
     @State private var adding = false
+    @State private var loaded = false
     var body: some View {
         List {
-            ServiceProblem(message: problem).listRowBackground(Color.clear)
-            if !files.isEmpty {
-                Section {
-                    ForEach(files) { file in
-                        NavigationLink { PromptEditor(model: model, file: file) } label: {
-                            InsetRow(systemImage: nil, title: file.title.isEmpty ? file.name : file.title,
-                                     subtitle: file.description.isEmpty ? nil : file.description) { EmptyView() }
-                        }
-                    }
-                }
-                .insetRowBackground()
+            if loaded && files.isEmpty && problem == nil {
+                EmptyState(icon: .notePencil, title: "No prompts yet", line: "Save reusable instructions as prompts.")
+                    .padding(.top, AceTheme.Spacing.xxxl).listRowBackground(Color.clear).listRowSeparator(.hidden)
             }
             Section {
-                NavigationLink { PromptEditor(model: model, file: nil) } label: { InsetRow("New prompt", systemImage: "plus") }
-                    .disabled(!model.canOperate)
-            }
-            .insetRowBackground()
+                ServiceProblem(message: problem)
+                ForEach(files) { file in
+                    NavigationLink { PromptEditor(model: model, file: file) } label: {
+                        SettingsRow(title: file.title.isEmpty ? file.name : file.title,
+                                    description: file.description.isEmpty ? nil : file.description) { EmptyView() }
+                            .lineLimit(2)
+                    }
+                }
+                NavigationLink { PromptEditor(model: model, file: nil) } label: {
+                    SettingsRow(title: "New prompt") { AceIcon(.plus, size: 16).foregroundStyle(AceTheme.Colours.subtleForeground) }
+                }
+                .disabled(!model.canOperate)
+            } header: { SettingsHeader("Prompts", note: "Reusable instructions saved on this machine.") }
+            .settingsRow()
         }
-        .insetGroupedList()
+        .settingsList()
         .navigationTitle("Prompts").navigationBarTitleDisplayMode(.inline)
         .task { await read() }.refreshable { await read() }
     }
     private func read() async {
+        defer { loaded = true }
         do {
             let reply = try await model.service(["type": "prompts.request", "operation": ["op": "list"]], as: PromptsReply.self)
             guard reply.result.kind == "list" else { throw ServiceFailure(message: reply.result.message ?? "Couldn't read prompts") }
@@ -64,19 +69,34 @@ private struct PromptEditor: View {
     @State private var busy = false
     @State private var problem: String?
     @State private var saved = false
+    @Environment(\.colorScheme) private var scheme
     var body: some View {
-        Form {
-            Group {
-                if file == nil { TextField("filename.md", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled() }
-                TextEditor(text: $text).frame(minHeight: AceTheme.Dimensions.touchTarget * 5).scrollContentBackground(.hidden)
-                    .accessibilityLabel("Prompt instructions")
-                ServiceProblem(message: problem)
-                Button(saved ? "Saved" : "Save prompt") { Task { await save() } }
-                    .disabled(!loaded || busy || !model.canOperate || name.isEmpty)
+        let cannotSave = !loaded || busy || !model.canOperate || name.isEmpty
+        List {
+            if file == nil {
+                Section {
+                    TextField("filename.md", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .aceFont(SettingsStyle.label, relativeTo: .body)
+                } header: { SettingsHeader("File name") }
+                .settingsRow()
             }
-            .insetRowBackground()
+            Section {
+                TextEditor(text: $text)
+                    .aceFont(SettingsStyle.label, relativeTo: .body)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: AceTheme.Dimensions.touchTarget * 5).accessibilityLabel("Prompt instructions")
+                ServiceProblem(message: problem)
+            } header: { SettingsHeader("Instructions") }
+            .settingsRow()
+            Section {
+                Button { Task { await save() } } label: { SettingsRow(title: saved ? "Saved" : "Save prompt") { EmptyView() } }
+                    .buttonStyle(.plain)
+                    .disabled(cannotSave)
+                    .opacity(cannotSave ? AceTheme.Opacity.disabled(scheme) : 1)
+            }
+            .settingsRow()
         }
-        .insetGroupedList()
+        .settingsList()
         .navigationTitle(file?.title ?? "New prompt").navigationBarTitleDisplayMode(.inline)
         .task { await read() }
         .onChange(of: text) { saved = false }
