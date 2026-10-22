@@ -103,8 +103,11 @@ export function PairingCode(props: {
               aria-label={`Pairing code ${pairing.code}`}
               className="grid w-44 grid-cols-4 justify-items-center font-mono text-xs leading-5 text-muted-foreground tabular-nums"
             >
-              {pairing.code.match(/.{1,4}/g)?.map((group, index) => (
-                <span key={index}>{group}</span>
+              {Array.from(
+                { length: Math.ceil(pairing.code.length / 4) },
+                (_, group) => group * 4,
+              ).map((at) => (
+                <span key={at}>{pairing.code.slice(at, at + 4)}</span>
               ))}
             </p>
           ) : (
