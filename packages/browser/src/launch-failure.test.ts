@@ -18,6 +18,39 @@ const ldd = [
   "\tlibasound.so.2 => not found",
   "\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000ffff)",
 ].join("\n");
+/** `/etc/os-release` and `ldd chrome` (153.0.8010.12 linux-arm64) on a base Arch Linux ARM system. */
+const archLinuxArm =
+  'NAME="Arch Linux ARM"\nPRETTY_NAME="Arch Linux ARM"\nID=archarm\nID_LIKE=arch\nBUILD_ID=rolling\n';
+const archBaseLdd = `	linux-vdso.so.1 (0x0000f25a199cc000)
+	libdl.so.2 => /usr/lib/libdl.so.2 (0x0000f25a085a0000)
+	libglib-2.0.so.0 => /usr/lib/libglib-2.0.so.0 (0x0000f25a083d0000)
+	libnspr4.so => not found
+	libnss3.so => not found
+	libnssutil3.so => not found
+	libsmime3.so => not found
+	libgio-2.0.so.0 => /usr/lib/libgio-2.0.so.0 (0x0000f25a080e0000)
+	libatk-1.0.so.0 => not found
+	libatk-bridge-2.0.so.0 => not found
+	libdbus-1.so.3 => /usr/lib/libdbus-1.so.3 (0x0000f25a08060000)
+	libcups.so.2 => not found
+	libexpat.so.1 => /usr/lib/libexpat.so.1 (0x0000f25a08010000)
+	libxcb.so.1 => not found
+	libxkbcommon.so.0 => not found
+	libasound.so.2 => not found
+	libgbm.so.1 => not found
+	libX11.so.6 => not found
+	libXext.so.6 => not found
+	libcairo.so.2 => not found
+	libpango-1.0.so.0 => not found
+	libudev.so.1 => /usr/lib/libudev.so.1 (0x0000f25a07f80000)
+	libXcomposite.so.1 => not found
+	libXdamage.so.1 => not found
+	libXfixes.so.3 => not found
+	libXrandr.so.2 => not found
+	libatspi.so.0 => not found
+	libc.so.6 => /usr/lib/libc.so.6 (0x0000f25a07c90000)
+	/lib/ld-linux-aarch64.so.1 => /usr/lib/ld-linux-aarch64.so.1 (0x0000f25a19990000)
+`;
 const noSandbox =
   "[43829:43829:1020/191750.273993:FATAL:content/browser/zygote_host/zygote_host_impl_linux.cc:129] No usable sandbox! If you are running on Ubuntu 23.10+ or another Linux distro that has disabled unprivileged user namespaces with AppArmor, see https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md.\n#0 0xbf1ff402abcc\n[end of stack trace]\n";
 const asRoot =
@@ -81,6 +114,37 @@ describe("Chrome start failures on Linux", () => {
     expect(await detail(tumbleweed)).toMatch(/sudo zypper install -y mozilla-nss libasound2$/);
   });
 
+  it("installs what a base Arch Linux ARM system lacks, by Arch's own package names", async () => {
+    const host: LinuxMachine = {
+      ...machine({ "/etc/os-release": archLinuxArm }),
+      ldd: async () => archBaseLdd,
+    };
+    const seen = await agentSees(loaderError, host);
+    expect(seen.code).toBe("browser_missing_libraries");
+    // Checked against `pacman -F` on Arch Linux ARM and x86_64 Arch: with these installed,
+    // `ldd` finds every library and Chrome starts.
+    const command = "Run: sudo pacman -S --needed ";
+    expect(seen.detail?.startsWith(command)).toBe(true);
+    expect(seen.detail?.slice(command.length).split(" ").toSorted()).toEqual([
+      "alsa-lib",
+      "at-spi2-core",
+      "cairo",
+      "libcups",
+      "libx11",
+      "libxcb",
+      "libxcomposite",
+      "libxdamage",
+      "libxext",
+      "libxfixes",
+      "libxkbcommon",
+      "libxrandr",
+      "mesa",
+      "nspr",
+      "nss",
+      "pango",
+    ]);
+  });
+
   it("never hands the agent a cut-off install command for a bare machine", async () => {
     const bare = [
       "libglib-2.0.so.0",
@@ -142,6 +206,17 @@ describe("Chrome start failures on Linux", () => {
     );
     expect(seen.code).toBe("browser_sandbox_blocked");
     expect(seen.detail).toMatch(/kernel\.unprivileged_userns_clone=1/);
+  });
+
+  it("never points at AppArmor on a kernel without its user-namespace restriction", async () => {
+    // Arch's kernel: the clone switch exists and allows user namespaces; no AppArmor sysctl.
+    const seen = await agentSees(
+      noSandbox,
+      machine({ "/etc/os-release": arch, "/proc/sys/kernel/unprivileged_userns_clone": "1\n" }),
+    );
+    expect(seen.code).toBe("browser_sandbox_blocked");
+    expect(seen.detail).not.toMatch(/AppArmor|apparmor/);
+    expect(seen.detail).toMatch(/ace doctor/);
   });
 
   it("tells the person ace runs as root rather than blaming the sandbox setup", async () => {
