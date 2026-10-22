@@ -22,7 +22,7 @@ wayland_socket() { # <name>
 # Omarchy starts them; they must never reach an agent), and the test's GTK and Qt apps.
 wlroots_desktop() {
   dbus-update-activation-environment WAYLAND_DISPLAY XDG_RUNTIME_DIR XDG_SESSION_TYPE \
-    XDG_CURRENT_DESKTOP GDK_BACKEND GSK_RENDERER QT_QPA_PLATFORM XDG_DATA_DIRS XDG_CONFIG_HOME \
+    XDG_CURRENT_DESKTOP GDK_BACKEND GSK_RENDERER QT_QPA_PLATFORM XDG_DATA_DIRS XDG_CONFIG_HOME XDG_DATA_HOME \
     HYPRLAND_INSTANCE_SIGNATURE SWAYSOCK ACE_E2E_PICKER_CHOICE >/dev/null 2>&1 || true
   /usr/libexec/at-spi-bus-launcher --launch-immediately >"$logs/at-spi.log" 2>&1 &
   sleep 1
