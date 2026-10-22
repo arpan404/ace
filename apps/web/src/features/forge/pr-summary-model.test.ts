@@ -53,6 +53,16 @@ test("a reviewer's latest verdict wins over earlier ones", () => {
   expect(outcomes.has("lee")).toBe(false);
 });
 
+test("a comment-only review after a verdict leaves the verdict standing, as GitHub counts it", () => {
+  const outcomes = reviewerOutcomes([
+    comment(1, "mira", "2026-01-01", { kind: "review", reviewState: "APPROVED" }),
+    comment(2, "mira", "2026-01-02", { kind: "review", reviewState: "COMMENTED" }),
+    comment(3, "sam", "2026-01-01", { kind: "review", reviewState: "COMMENTED" }),
+  ]);
+  expect(outcomes.get("mira")).toBe("approved");
+  expect(outcomes.get("sam")).toBe("commented");
+});
+
 test("inline comments held by a review thread are listed once, as the thread", () => {
   const inline = comment(5, "mira", "2026-01-02", { kind: "inline", file: "src/a.ts", line: 3 });
   const view = conversation(

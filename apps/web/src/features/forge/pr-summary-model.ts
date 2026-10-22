@@ -19,7 +19,11 @@ const outcomes: Record<string, ReviewOutcome> = {
 const time = (comment: Pick<ForgeComment, "createdAt" | "updatedAt">) =>
   comment.createdAt ?? comment.updatedAt;
 
-/** Each reviewer's most recent review verdict, by login. */
+/**
+ * Each reviewer's standing review, by login, as GitHub counts it: their latest verdict
+ * (approved, changes requested, dismissed), which a later comment-only review leaves in force;
+ * their latest comment only when they gave no verdict.
+ */
 export function reviewerOutcomes(comments: readonly ForgeComment[]): Map<string, ReviewOutcome> {
   const latest = new Map<string, { at: string; outcome: ReviewOutcome }>();
   for (const comment of comments) {
@@ -27,7 +31,9 @@ export function reviewerOutcomes(comments: readonly ForgeComment[]): Map<string,
     const outcome = outcomes[comment.reviewState.toUpperCase()];
     if (!outcome) continue;
     const seen = latest.get(comment.author);
-    if (!seen || time(comment) >= seen.at)
+    const verdict = outcome !== "commented";
+    const seenVerdict = seen !== undefined && seen.outcome !== "commented";
+    if (!seen || (verdict === seenVerdict ? time(comment) >= seen.at : verdict))
       latest.set(comment.author, { at: time(comment), outcome });
   }
   return new Map([...latest].map(([author, value]) => [author, value.outcome]));

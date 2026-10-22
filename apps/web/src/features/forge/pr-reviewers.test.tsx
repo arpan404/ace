@@ -1,7 +1,9 @@
 import { expect, test } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
+import { focusManager } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { pullRequestDetails, workbench } from "@ace/fake-daemon";
+import { WorkspaceId } from "@ace/protocol";
 import { harness } from "@/test/harness.tsx";
 import { openPullRequest } from "./test-support.ts";
 
@@ -79,4 +81,27 @@ test("the request picker offers GitHub's suggestions and Enter asks the ones pic
       "jonas, Awaiting review; docs, Awaiting review",
     ),
   );
+}, 30_000);
+
+test("the reviewers are read once, not again each time the window regains focus", async () => {
+  const app = await openInstallPage();
+  const read = {
+    op: "forge.pr.reviewers" as const,
+    workspaceId: WorkspaceId.parse("api"),
+    repository: { ...repository },
+    number: 31,
+  };
+  await waitFor(async () =>
+    expect((await reviewers()).getAttribute("aria-label")).toContain("mira, Changes requested"),
+  );
+  const before = app.daemon.workspace.forgeReadCount(read);
+  expect(before).toBe(1);
+  for (let i = 0; i < 3; i++)
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(app.daemon.workspace.forgeReadCount(read)).toBe(before);
+  focusManager.setFocused(undefined);
 }, 30_000);

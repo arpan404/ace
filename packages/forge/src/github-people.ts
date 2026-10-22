@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ForgeRepository } from "@ace/protocol/forge";
 import type {
+  ForgeLatestReview,
   ForgePerson,
   ForgePrReviewers,
   ForgeReference,
@@ -53,6 +54,20 @@ const ReviewStates = [
   "DISMISSED",
   "PENDING",
 ] as const;
+const LatestReviews = z.object({
+  nodes: z
+    .array(
+      z
+        .looseObject({
+          databaseId: z.number().int().positive().nullable(),
+          state: text,
+          submittedAt: text.nullable(),
+          author: Person.nullable(),
+        })
+        .nullable(),
+    )
+    .max(100),
+});
 const Reviewers = z.object({
   data: z.object({
     repository: z.object({
@@ -64,20 +79,8 @@ const Reviewers = z.object({
         reviewRequests: z.object({
           nodes: z.array(z.object({ requestedReviewer: Requested.nullable() }).nullable()).max(100),
         }),
-        latestReviews: z.object({
-          nodes: z
-            .array(
-              z
-                .looseObject({
-                  databaseId: z.number().int().positive().nullable(),
-                  state: text,
-                  submittedAt: text.nullable(),
-                  author: Person.nullable(),
-                })
-                .nullable(),
-            )
-            .max(100),
-        }),
+        latestReviews: LatestReviews,
+        latestOpinionatedReviews: LatestReviews,
         suggestedReviewers: z
           .array(
             z
@@ -120,6 +123,40 @@ function reference(node: z.infer<typeof Found> | null | undefined): ForgeReferen
             ? "draft"
             : "open",
   };
+}
+
+function latestReview(r: z.infer<typeof LatestReviews>["nodes"][number]): ForgeLatestReview[] {
+  const state = ReviewStates.find((s) => s === r?.state);
+  if (!r?.databaseId || !r.author || !state) return [];
+  return [
+    {
+      id: r.databaseId,
+      login: r.author.login,
+      ...(r.author.avatarUrl ? { avatarUrl: r.author.avatarUrl } : {}),
+      state,
+      submittedAt: r.submittedAt,
+    },
+  ];
+}
+
+/**
+ * Each reviewer's standing review as GitHub counts it: a comment-only review after an approval
+ * or change request leaves that verdict in force, so the latest verdict (its state and the id a
+ * dismissal names) wins, and the latest review of any kind stands only for people who gave
+ * none. Ordered as GitHub lists the latest reviews.
+ */
+function latestVerdicts(
+  latest: z.infer<typeof LatestReviews>,
+  opinionated: z.infer<typeof LatestReviews>,
+): ForgeLatestReview[] {
+  const verdicts = new Map(
+    opinionated.nodes.flatMap(latestReview).map((r) => [r.login.toLowerCase(), r]),
+  );
+  const reviews = latest.nodes
+    .flatMap(latestReview)
+    .map((r) => verdicts.get(r.login.toLowerCase()) ?? r);
+  const listed = new Set(reviews.map((r) => r.login.toLowerCase()));
+  return [...reviews, ...[...verdicts.values()].filter((r) => !listed.has(r.login.toLowerCase()))];
 }
 
 /** Search words with GitHub's qualifier syntax taken out, so a query stays in this repository. */
@@ -180,8 +217,9 @@ export class GitHubPeople {
   async reviewers(number: number, signal: AbortSignal): Promise<ForgePrReviewers> {
     const { owner, name } = this.#repository;
     const user = "login avatarUrl";
+    const review = "nodes { databaseId state submittedAt author { login avatarUrl } }";
     const response = await this.#api.request("graphql", signal, {
-      query: `query AcePrReviewers($owner:String!,$name:String!,$number:Int!){ repository(owner:$owner,name:$name){ viewerPermission pullRequest(number:$number){ state viewerCanUpdate author { login } reviewRequests(first:100){ nodes { requestedReviewer { kind:__typename ... on User { ${user} } ... on Bot { ${user} } ... on Mannequin { ${user} } ... on Team { slug name } } } } latestReviews(first:100){ nodes { databaseId state submittedAt author { login avatarUrl } } } suggestedReviewers { isAuthor isCommenter reviewer { login name avatarUrl } } } } }`,
+      query: `query AcePrReviewers($owner:String!,$name:String!,$number:Int!){ repository(owner:$owner,name:$name){ viewerPermission pullRequest(number:$number){ state viewerCanUpdate author { login } reviewRequests(first:100){ nodes { requestedReviewer { kind:__typename ... on User { ${user} } ... on Bot { ${user} } ... on Mannequin { ${user} } ... on Team { slug name } } } } latestReviews(first:100){ ${review} } latestOpinionatedReviews(first:100){ ${review} } suggestedReviewers { isAuthor isCommenter reviewer { login name avatarUrl } } } } }`,
       variables: { owner, name, number },
     });
     const repository = decode(Reviewers, response.body).data.repository;
@@ -195,19 +233,7 @@ export class GitHubPeople {
         ? [{ kind: "user", login: r.login, ...(r.avatarUrl ? { avatarUrl: r.avatarUrl } : {}) }]
         : [];
     });
-    const reviews = pr.latestReviews.nodes.flatMap((r) => {
-      const state = ReviewStates.find((s) => s === r?.state);
-      if (!r?.databaseId || !r.author || !state) return [];
-      return [
-        {
-          id: r.databaseId,
-          login: r.author.login,
-          ...(r.author.avatarUrl ? { avatarUrl: r.author.avatarUrl } : {}),
-          state,
-          submittedAt: r.submittedAt,
-        },
-      ];
-    });
+    const reviews = latestVerdicts(pr.latestReviews, pr.latestOpinionatedReviews);
     const write = ["ADMIN", "MAINTAIN", "WRITE"].includes(repository.viewerPermission ?? "");
     const open = pr.state === "OPEN";
     return {
