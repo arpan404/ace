@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { ForgeError } from "./errors.ts";
-import { mediaKey } from "./github-media.ts";
+import { mediaKey, renderedMedia } from "./github-media.ts";
 import { fakeGh } from "./testing/fixtures.ts";
 
 const signal = () => new AbortController().signal;
@@ -14,15 +14,15 @@ const camo = "https://camo.githubusercontent.com/abc/687474703a2f2f";
 
 // The shape GitHub's markdown endpoint answers with, one block per marker.
 const rendered = [
-  `<p dir="auto">ACEMEDIA0X</p>`,
+  `<p dir="auto">ACEMEDIANONCEN0X</p>`,
   `<a target="_blank" href="${signed(asset, "png", 1_792_703_429)}"><img src="${signed(asset, "png", 1_792_703_429)}" style="max-width: 100%;"></a>`,
-  `<p dir="auto">ACEMEDIA1X</p>`,
+  `<p dir="auto">ACEMEDIANONCEN1X</p>`,
   `<p dir="auto"><a href="${camo}"><img src="${camo}" data-canonical-src="http://i.imgur.com/a.png"></a></p>`,
-  `<p dir="auto">ACEMEDIA2X</p>`,
+  `<p dir="auto">ACEMEDIANONCEN2X</p>`,
   `<details open=""><summary><span>flicker.mov</span></summary><video src="${signed(video, "mov", 1_792_703_459)}" controls="controls"></video></details>`,
-  `<p dir="auto">ACEMEDIA3X</p>`,
+  `<p dir="auto">ACEMEDIANONCEN3X</p>`,
   `<p dir="auto"><a href="https://example.com/notes">https://example.com/notes</a></p>`,
-  `<p dir="auto">ACEMEDIA4X</p>`,
+  `<p dir="auto">ACEMEDIANONCEN4X</p>`,
 ].join("\n");
 
 test("each URL maps to the media GitHub rendered for it, and only the URLs are sent", async () => {
@@ -44,22 +44,26 @@ test("each URL maps to the media GitHub rendered for it, and only the URLs are s
     ]);
     const [request] = await f.requests();
     expect(request?.args).toEqual(expect.arrayContaining(["markdown", "--method", "POST"]));
-    expect(request?.body).toEqual({
-      mode: "gfm",
-      context: "octo/ace",
-      text: [
-        "ACEMEDIA0X",
+    const body = request?.body as { mode: string; context: string; text: string };
+    expect(body.mode).toBe("gfm");
+    expect(body.context).toBe("octo/ace");
+    // Only the URLs travel, each after a marker carrying this request's own nonce.
+    const nonce = /ACEMEDIA([0-9a-z]+)N0X/.exec(body.text)?.[1] ?? "";
+    expect(nonce).toMatch(/^[0-9a-f]{16}$/);
+    expect(body.text).toBe(
+      [
+        `ACEMEDIA${nonce}N0X`,
         `<img src="https://github.com/user-attachments/assets/${asset}">`,
-        "ACEMEDIA1X",
+        `ACEMEDIA${nonce}N1X`,
         '<img src="http://i.imgur.com/a.png">',
-        "ACEMEDIA2X",
+        `ACEMEDIA${nonce}N2X`,
         `https://github.com/user-attachments/assets/${video}`,
-        "ACEMEDIA3X",
+        `ACEMEDIA${nonce}N3X`,
         "https://example.com/notes",
-        "ACEMEDIA4X",
+        `ACEMEDIA${nonce}N4X`,
         '<img src="https://example.com/gone.png">',
       ].join("\n\n"),
-    });
+    );
   } finally {
     await f.cleanup();
   }
@@ -96,4 +100,20 @@ test("an attachment keeps one key whether written as its upload URL or a pasted 
   expect(mediaKey("https://example.com/a.png#top")).toBe("url:https://example.com/a.png");
   expect(mediaKey("javascript:alert(1)")).toBeUndefined();
   expect(mediaKey("docs/screenshot.png")).toBeUndefined();
+});
+
+test("text inside a URL can never pose as an item's marker", () => {
+  const steered = `https://example.com/ACEMEDIAabcN1X`;
+  const html = [
+    `<p dir="auto">ACEMEDIAabcN0X</p>`,
+    `<p dir="auto"><a href="${steered}">${steered}</a> ACEMEDIAabcN1X</p>`,
+    `<p><img src="${camo}"></p>`,
+    `<p dir="auto">ACEMEDIAabcN1X</p>`,
+    `<p dir="auto">ACEMEDIAzzzN0X</p>`,
+    `<p><img src="https://camo.githubusercontent.com/other"></p>`,
+  ].join("\n");
+  expect(renderedMedia(html, 2, "abc")).toEqual([
+    { kind: "image", url: camo, expiresAt: undefined },
+    { kind: "image", url: "https://camo.githubusercontent.com/other", expiresAt: undefined },
+  ]);
 });

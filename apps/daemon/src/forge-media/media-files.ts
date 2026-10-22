@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { FileError, FilesService } from "@ace/files";
 import type { FileOperation } from "@ace/protocol";
 import { forgeMediaRoot } from "./media-cache.ts";
+import { ForgeMediaGrants } from "./media-grants.ts";
 
 type MediaDownload = Extract<FileOperation, { op: "forge.media.download" }>;
 
@@ -13,14 +14,20 @@ type MediaDownload = Extract<FileOperation, { op: "forge.media.download" }>;
  * same pull channel, relays included, as every other download.
  */
 export class ForgeMediaFiles {
+  /** Which project may download which hash; written by the media service's resolves. */
+  readonly grants = new ForgeMediaGrants();
   private readonly context: { dataDir: string; now(): number; id(): string };
   private service: Promise<FilesService> | undefined;
   private closed = false;
   constructor(context: { dataDir: string; now(): number; id(): string }) {
     this.context = context;
   }
-  /** `readable` is the caller's live read grant and that the project is still registered. */
+  /**
+   * `readable` is the caller's live read grant and that the project is still registered. Only a
+   * hash a resolve under this project answered with is served.
+   */
   async bind(
+    workspaceId: string,
     operation: MediaDownload,
     readable: () => boolean,
   ): Promise<{
@@ -29,6 +36,9 @@ export class ForgeMediaFiles {
     operation: FileOperation;
   }> {
     if (!readable()) throw new FileError("FORBIDDEN", "File access denied");
+    // As for media that isn't there: the page resolves again, through this project's access.
+    if (!this.grants.allows(workspaceId, operation.sha256))
+      throw new FileError("NOT_FOUND", "Media unavailable");
     return {
       service: await this.files(),
       allowed: (access) => access === "read" && readable(),

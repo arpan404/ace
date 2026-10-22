@@ -6,6 +6,7 @@ import {
   type ForgeMediaUnavailable,
 } from "@ace/protocol";
 import type { ForgeMediaCache } from "./media-cache.ts";
+import type { ForgeMediaGrants } from "./media-grants.ts";
 import { fetchMedia, mediaHostAllowed, type FetchedMedia } from "./media-fetch.ts";
 
 /*
@@ -30,12 +31,23 @@ export interface ForgeMediaServiceOptions {
   fetch?(url: string, temporary: string, signal: AbortSignal): Promise<FetchedMedia>;
   /** Fetches at once; more wait their turn. */
   concurrency?: number;
-  /** How long a settled miss is remembered, and a passing failure. */
+  /** How long a settled miss is remembered, and a passing failure at first. */
   missMs?: number;
   failureMs?: number;
+  /** Records which project may download what it resolved. */
+  grants?: ForgeMediaGrants;
 }
 
-type Remembered = { result: ForgeMediaResult; until: number };
+type Remembered = { result: ForgeMediaResult; until: number; failures: number };
+type Wanted = { index: number; item: ForgeMediaRequest; key: string; slot: string };
+
+/** Who asks: the forge host, the repository whose text it is, and the project asking. */
+export interface MediaScope {
+  host: string;
+  /** `host/owner/name`. */
+  repository: string;
+  workspaceId: string;
+}
 const unavailable = (reason: ForgeMediaUnavailable): ForgeMediaResult => ({
   state: "unavailable",
   reason,
@@ -63,51 +75,65 @@ export class ForgeMediaService {
     this.options = options;
   }
 
-  /** One result per item, in order. `host` is the forge's host; `render` asks it to render. */
+  /**
+   * One result per item, in order. `scope` names the forge host, the repository whose text it
+   * is (`host/owner/name`, which keys the cache) and the project asking (granted what it gets);
+   * `render` asks the forge to render. The batch runs on its own: one requester going away
+   * never fails it for others waiting on the same media.
+   */
   async resolve(
-    host: string,
+    scope: MediaScope,
     render: MediaRender,
     items: readonly ForgeMediaRequest[],
-    signal: AbortSignal,
   ): Promise<ForgeMediaResult[]> {
     const now = this.options.now();
     const results: (ForgeMediaResult | Promise<ForgeMediaResult>)[] = [];
-    const wanted: { index: number; item: ForgeMediaRequest; key: string; slot: string }[] = [];
+    const wanted: Wanted[] = [];
+    const refresh: Wanted[] = [];
     for (const [index, item] of items.entries()) {
-      const key = mediaKey(item.url);
-      if (!key) {
+      const media = mediaKey(item.url);
+      if (!media) {
         results[index] = unavailable("not_found");
         continue;
       }
+      // Kept per repository: what one repository's text resolved never answers another's.
+      const key = `${scope.repository} ${media}`;
       const slot = `${item.role}|${key}`;
       const cached = this.options.cache.lookup(key, now);
       const remembered = this.misses.get(slot);
       const flying = this.flying.get(slot);
-      if (cached?.fresh) results[index] = { state: "ready", ...cached.media };
-      else if (remembered && remembered.until > now) results[index] = remembered.result;
-      else if (flying) results[index] = flying;
+      if (cached) {
+        // Cached bytes answer at once, fresh or not; old ones are refreshed behind them.
+        results[index] = this.granted(scope, { state: "ready", ...cached.media });
+        if (!cached.fresh && !flying && !(remembered && remembered.until > now))
+          refresh.push({ index, item, key, slot });
+      } else if (remembered && remembered.until > now) results[index] = remembered.result;
+      else if (flying) results[index] = flying.then((result) => this.granted(scope, result));
       else wanted.push({ index, item, key, slot });
     }
-    if (wanted.length) {
-      const batch = this.batch(host, render, wanted, signal);
-      for (const [position, entry] of wanted.entries()) {
+    const batched = [...wanted, ...refresh];
+    if (batched.length) {
+      const batch = this.batch(scope.host, render, batched);
+      for (const [position, entry] of batched.entries()) {
         const result = batch.then((all) => all[position] ?? unavailable("failed"));
         this.flying.set(entry.slot, result);
         void result.finally(() => {
           if (this.flying.get(entry.slot) === result) this.flying.delete(entry.slot);
         });
-        results[entry.index] = result;
+        if (position < wanted.length)
+          results[entry.index] = result.then((answer) => this.granted(scope, answer));
       }
     }
     return Promise.all(results);
   }
 
-  private async batch(
-    host: string,
-    render: MediaRender,
-    wanted: { item: ForgeMediaRequest; key: string; slot: string }[],
-    signal: AbortSignal,
-  ): Promise<ForgeMediaResult[]> {
+  private granted(scope: MediaScope, result: ForgeMediaResult): ForgeMediaResult {
+    if (result.state === "ready") this.options.grants?.grant(scope.workspaceId, result.sha256);
+    return result;
+  }
+
+  private async batch(host: string, render: MediaRender, wanted: Wanted[]) {
+    const signal = new AbortController().signal;
     let rendered: RenderedMedia[];
     try {
       rendered = await render(
@@ -116,29 +142,31 @@ export class ForgeMediaService {
       );
     } catch (error) {
       const result = unavailable(forgeFailure(error));
-      return wanted.map((entry) => {
-        this.remember(entry.slot, result);
-        const stale = this.options.cache.lookup(entry.key, this.options.now());
-        return stale ? { state: "ready" as const, ...stale.media } : result;
-      });
+      return wanted.map((entry) => this.settle(entry, result));
     }
     return Promise.all(
-      wanted.map(async (entry, index) => {
-        const result = await this.obtain(host, render, entry, rendered[index] ?? null, signal);
-        if (result.state === "ready") return result;
-        this.remember(entry.slot, result);
-        // Bytes past their week still stand for a URL that can't be fetched again now.
-        const stale = this.options.cache.lookup(entry.key, this.options.now());
-        return stale ? { state: "ready" as const, ...stale.media } : result;
-      }),
+      wanted.map(async (entry, index) =>
+        this.settle(entry, await this.obtain(host, render, entry, rendered[index] ?? null, signal)),
+      ),
     );
+  }
+
+  /** A batch's answer for one item: kept bytes beat a failure to fetch them again. */
+  private settle(entry: Wanted, result: ForgeMediaResult): ForgeMediaResult {
+    if (result.state === "ready") {
+      this.misses.delete(entry.slot);
+      return result;
+    }
+    this.remember(entry.slot, result);
+    const stale = this.options.cache.lookup(entry.key, this.options.now());
+    return stale ? { state: "ready", ...stale.media } : result;
   }
 
   /** Fetch rendered media into the cache; a signed URL that fails is rendered once more. */
   private async obtain(
     host: string,
     render: MediaRender,
-    entry: { item: ForgeMediaRequest; key: string },
+    entry: Wanted,
     rendered: RenderedMedia,
     signal: AbortSignal,
   ): Promise<ForgeMediaResult> {
@@ -176,7 +204,7 @@ export class ForgeMediaService {
       const temporary = cache.temporary();
       const fetched = await (this.options.fetch
         ? this.options.fetch(url, temporary, signal)
-        : fetchMedia(url, temporary, { maxBytes: forgeMediaMaxBytes }));
+        : fetchMedia(url, temporary, { maxBytes: forgeMediaMaxBytes, forgeHost: host }));
       if (fetched.kind !== "ok") return fetched;
       const media = {
         sha256: fetched.sha256,
@@ -194,12 +222,20 @@ export class ForgeMediaService {
     }
   }
 
+  /**
+   * Remember a miss. A settled one (not found, not media, too large, not a video) for a while;
+   * a passing failure briefly at first, then longer each time it fails again (15 s doubling to
+   * 30 minutes), so a large video that a slow link can't finish isn't fetched over and over.
+   */
   private remember(slot: string, result: ForgeMediaResult): void {
     const lasting =
       result.state === "none" || (result.state === "unavailable" && settled.has(result.reason));
-    const ms = lasting ? (this.options.missMs ?? 10 * 60_000) : (this.options.failureMs ?? 15_000);
+    const failures = lasting ? 0 : (this.misses.get(slot)?.failures ?? 0) + 1;
+    const ms = lasting
+      ? (this.options.missMs ?? 10 * 60_000)
+      : Math.min((this.options.failureMs ?? 15_000) * 2 ** (failures - 1), 30 * 60_000);
     this.misses.delete(slot);
-    this.misses.set(slot, { result, until: this.options.now() + ms });
+    this.misses.set(slot, { result, until: this.options.now() + ms, failures });
     for (const oldest of this.misses.keys()) {
       if (this.misses.size <= missEntries) break;
       this.misses.delete(oldest);

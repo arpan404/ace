@@ -121,10 +121,13 @@ export class WorkspaceForgeBrowse {
       return {
         resource: "media",
         items: await media.resolve(
-          repository.host,
+          {
+            host: repository.host,
+            repository: `${repository.host}/${repository.owner}/${repository.name}`,
+            workspaceId: operation.workspaceId,
+          },
           (items, abort) => backend.renderMedia(items, abort),
           operation.items,
-          signal,
         ),
       };
     }

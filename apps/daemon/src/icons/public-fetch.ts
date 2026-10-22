@@ -60,8 +60,11 @@ export function isPublicAddress(address: string): boolean {
   return family === 4 ? !blockedV4.check(address, "ipv4") : !blockedV6.check(address, "ipv6");
 }
 
-/** Where a request may connect. The default: public addresses on the standard web ports. */
-export type AddressPolicy = (address: string, port: number) => boolean;
+/**
+ * Where a request may connect: an address, its port and the host name it was looked up for.
+ * The default: public addresses on the standard web ports.
+ */
+export type AddressPolicy = (address: string, port: number, host: string) => boolean;
 const publicWeb: AddressPolicy = (address, port) =>
   isPublicAddress(address) && (port === 80 || port === 443);
 
@@ -73,6 +76,13 @@ export interface PublicFetchOptions {
   maxBytes?: number;
   maxRedirects?: number;
   accept?: string;
+  /** Whether each URL in the chain, the first and every redirect, may be fetched at all. */
+  hop?: (url: URL) => boolean;
+  /**
+   * When the whole fetch, body included, gives up. By default `timeoutMs` per hop; `timeoutMs`
+   * is then also how long the connection may sit idle.
+   */
+  deadlineMs?: number;
 }
 
 export type PublicResponse =
@@ -100,7 +110,7 @@ function pinnedLookup(
     resolve(hostname).then(
       (addresses) => {
         // A host that also names a private address is refused outright (DNS rebinding).
-        if (!addresses.length || !addresses.every((address) => allowed(address, port))) {
+        if (!addresses.length || !addresses.every((address) => allowed(address, port, hostname))) {
           callback(new Refused(`refused ${hostname}`), "", 4);
           return;
         }
@@ -120,7 +130,8 @@ function once(
 ): Promise<IncomingMessage> {
   const port = portOf(url);
   const literal = isIP(url.hostname.replace(/^\[|\]$/g, ""));
-  if (literal && !options.allowed(url.hostname.replace(/^\[|\]$/g, ""), port))
+  const bare = url.hostname.replace(/^\[|\]$/g, "");
+  if (literal && !options.allowed(bare, port, bare))
     return Promise.reject(new Refused(`refused ${url.hostname}`));
   const request = url.protocol === "https:" ? httpsRequest : httpRequest;
   return new Promise((resolve, reject) => {
@@ -178,6 +189,8 @@ function withDefaults(input: PublicFetchOptions): Required<PublicFetchOptions> {
     maxBytes: 256 * 1024,
     maxRedirects: 3,
     accept: "image/*",
+    hop: () => true,
+    deadlineMs: (input.timeoutMs ?? 3000) * ((input.maxRedirects ?? 3) + 1),
     ...input,
   };
 }
@@ -199,11 +212,12 @@ export async function publicResponse(
   } catch {
     return { kind: "missing" };
   }
-  const deadline = AbortSignal.timeout(options.timeoutMs * (options.maxRedirects + 1));
+  const deadline = AbortSignal.timeout(options.deadlineMs);
   for (let hop = 0; hop <= options.maxRedirects; hop++) {
     if (deadline.aborted) return { kind: "failed" };
     if (current.protocol !== "https:" && current.protocol !== "http:") return { kind: "refused" };
     if (current.username || current.password) return { kind: "refused" };
+    if (!options.hop(current)) return { kind: "refused" };
     let response: IncomingMessage;
     try {
       response = await once(current, options, deadline);

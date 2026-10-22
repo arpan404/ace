@@ -33,7 +33,7 @@ export async function projectFilesBinding(
       }
     };
     if (!registered()) throw new FileError("NOT_FOUND", "Project unavailable");
-    return files.forgeMedia.bind(operation, () => readable() && registered());
+    return files.forgeMedia.bind(workspaceId, operation, () => readable() && registered());
   }
   if (!operation || !reads.has(operation.op))
     throw new FileError("FORBIDDEN", "A project's files are read-only before a thread exists");
