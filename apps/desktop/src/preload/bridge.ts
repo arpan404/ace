@@ -185,6 +185,14 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       onChecked: (listener: (value: EventOf<"updates.checked">) => void) =>
         subscribe("updates.checked", listener),
     },
+    sandbox: {
+      current: () => call("sandbox.current"),
+      setup: () => call("sandbox.setup"),
+      hide: () => call("sandbox.hide"),
+      restart: () => call("sandbox.restart"),
+      onStatus: (listener: (value: EventOf<"sandbox.status">) => void) =>
+        subscribe("sandbox.status", listener),
+    },
     diagnostics: {
       /**
        * Writes one event to the desktop log (component `renderer`). Fire-and-forget: a report

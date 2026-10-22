@@ -9,16 +9,20 @@ import { createRedactor } from "@ace/redaction";
 import { checkBrowserEngine } from "@ace/browser/engine-check";
 import { DiagnosticReport } from "@ace/protocol";
 import { homedir } from "node:os";
+import { cursorSandboxChecks } from "./cursor-sandbox-check.ts";
 import { remoteDoctorChecks } from "./doctor.ts";
 import type { Config } from "./config.ts";
 
-/** The CLI and authenticated app run the same bounded, read-only probes. */
-export async function collectDoctorReport(
+/**
+ * The doctor's findings as they are, for the person's own terminal only (`ace doctor fix`):
+ * fixes here are commands with this machine's paths in them.
+ */
+export async function collectRawDoctorReport(
   config: Config,
   env: NodeJS.ProcessEnv,
   now: () => number,
-) {
-  const report = await runDoctor(
+): Promise<DiagnosticReport> {
+  return runDoctor(
     [
       ...createDoctorChecks(
         createSystemProbes({
@@ -30,14 +34,48 @@ export async function collectDoctorReport(
         }),
       ),
       ...(process.platform === "linux" ? linuxHostChecks(linuxHost(env, process.arch)) : []),
+      ...(process.platform === "linux"
+        ? cursorSandboxChecks({ dataDir: config.dataDir, home: homedir() })
+        : []),
       ...remoteDoctorChecks(config, env),
     ],
     // A real Chrome start (version, then a headless launch) needs more than the 5 s default.
     { now, timeoutMs: 25_000 },
   );
-  return DiagnosticReport.parse(
-    JSON.parse(createRedactor({ home: homedir(), env })(JSON.stringify(report))),
+}
+
+/**
+ * The report people share, show in the app and put in support bundles: home, environment
+ * values and anything record-shaped redacted. A fix the redaction changed would no longer run
+ * (an AppArmor glob `{x64,arm64}` reads as a record, `ACE_HOME` becomes `<ENV>`), so it points
+ * at `ace doctor fix <id>` instead. Check ids are ace's own and stay as written.
+ */
+export function redactDoctorReport(
+  raw: DiagnosticReport,
+  env: NodeJS.ProcessEnv,
+  home: string = homedir(),
+): DiagnosticReport {
+  const redacted = DiagnosticReport.parse(
+    JSON.parse(createRedactor({ home, env })(JSON.stringify(raw))),
   );
+  // The parsed copy is this function's own, so its checks are corrected in place.
+  for (const [index, check] of redacted.checks.entries()) {
+    const original = raw.checks[index];
+    if (!original) continue;
+    if (check.fix !== original.fix)
+      check.fix = `Run \`ace doctor fix ${original.id}\` to print the fix for this machine.`;
+    check.id = original.id;
+  }
+  return redacted;
+}
+
+/** The CLI and authenticated app run the same bounded, read-only probes. */
+export async function collectDoctorReport(
+  config: Config,
+  env: NodeJS.ProcessEnv,
+  now: () => number,
+): Promise<DiagnosticReport> {
+  return redactDoctorReport(await collectRawDoctorReport(config, env, now), env);
 }
 
 export async function connectedDoctorReport(

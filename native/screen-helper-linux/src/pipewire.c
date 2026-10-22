@@ -1,7 +1,12 @@
 /* Fresh ABI shell around the installed PipeWire library; no executable subprocesses. */
 #include <pipewire/pipewire.h>
 #include <spa/param/video/format-utils.h>
+/* PipeWire 0.3.19 (Debian 11, the release build's floor) keeps the buffers params in param.h. */
+#if __has_include(<spa/param/buffers.h>)
 #include <spa/param/buffers.h>
+#else
+#include <spa/param/param.h>
+#endif
 #include <spa/buffer/meta.h>
 #include <dlfcn.h>
 #include <unistd.h>

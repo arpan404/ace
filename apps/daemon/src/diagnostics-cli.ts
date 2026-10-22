@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { formatDoctor, writeSupportBundle, recentThreadEvents } from "@ace/diagnostics";
-import { collectDoctorReport } from "./diagnostics-report.ts";
+import { collectRawDoctorReport, redactDoctorReport } from "./diagnostics-report.ts";
 import type { Config } from "./config.ts";
 export async function diagnosticsCli(
   args: string[],
@@ -17,10 +17,20 @@ export async function diagnosticsCli(
   if (args[0] !== "doctor" && args[0] !== "support-bundle") return false;
   const context = { home: homedir(), env: process.env };
   const redact = createDiagnosticRedactor(context);
-  const report = await collectDoctorReport(config, process.env, Date.now);
+  const raw = await collectRawDoctorReport(config, process.env, Date.now);
+  if (args[0] === "doctor" && args[1] === "fix") {
+    // One check's fix as it is, for this person to run here; never shared or bundled.
+    const id = args[2];
+    if (!id || args.length > 3) throw new Error("Usage: ace doctor fix ID");
+    const check = raw.checks.find((candidate) => candidate.id === id);
+    if (!check) throw new Error(`ace doctor has no check ${id}`);
+    write(check.status === "ok" ? `${id} passes; nothing to fix.\n` : `${check.fix}\n`);
+    return true;
+  }
+  const report = redactDoctorReport(raw, process.env);
   if (args[0] === "doctor") {
     if (args.slice(1).some((arg) => arg !== "--json"))
-      throw new Error("Usage: ace doctor [--json]");
+      throw new Error("Usage: ace doctor [--json] | ace doctor fix ID");
     write(redact(args.includes("--json") ? JSON.stringify(report) : formatDoctor(report)) + "\n");
     process.exitCode = report.checks.some((check) => check.status === "fail") ? 1 : 0;
     return true;

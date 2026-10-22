@@ -403,5 +403,23 @@ export const UpdateStatus = z.object({
 });
 export type UpdateStatus = z.infer<typeof UpdateStatus>;
 
+/**
+ * Chromium's sandbox on a Linux AppImage or tar.gz under Ubuntu's AppArmor restriction
+ * (ADR 0093). `hidden`: nothing to do. `offer`: one sentence on what is off; the person may run
+ * the one-time setup, which asks for their password. `working`: waiting on that prompt.
+ * `commands`: the same setup as terminal commands, where no prompt is available or it failed.
+ * `restart`: set up; the app's own sandbox turns on when it starts again.
+ */
+export const SandboxNotice = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("hidden") }),
+  z.object({ state: z.enum(["offer", "working", "restart"]), sentence: z.string().max(400) }),
+  z.object({
+    state: z.literal("commands"),
+    sentence: z.string().max(400),
+    commands: z.string().max(20_000),
+  }),
+]);
+export type SandboxNotice = z.infer<typeof SandboxNotice>;
+
 export const BrowserPlacementReceipt = z.enum(["shown", "hidden", "unavailable", "superseded"]);
 export type BrowserPlacementReceipt = z.infer<typeof BrowserPlacementReceipt>;

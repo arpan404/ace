@@ -34,7 +34,7 @@ ace start|status|token|devices list|revoke ID
 ace pair [SCOPES] [--label NAME] [--ttl 5m|1h|24h|7d] [--device-ttl 1d|7d|30d]
 ace service install|uninstall|start|stop|status
 ace accounts add|list|status|discover
-ace doctor|support-bundle PATH
+ace doctor [fix ID]|support-bundle PATH
 ace stop|kill-all [--thread ID|--provider PROVIDER|--project ID]
 ace mcp enroll --scope read|operate --ttl DURATION [--project ID]
 ace mcp list|revoke ID

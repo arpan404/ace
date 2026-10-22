@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { backgroundArgument } from "./login.ts";
 
 /** The file operations an XDG autostart entry needs: the real `node:fs` in the app, a temp dir in tests. */
@@ -37,7 +37,13 @@ export function linuxAutostart(options: AutostartOptions): {
   setEnabled(on: boolean): void;
 } {
   const path = join(configHome(options.env, options.home), "autostart", `${options.appId}.desktop`);
-  const executable = options.env.APPIMAGE || options.execPath;
+  // A tar.gz starts Electron (`ace-desktop-bin`) through its launcher, which keeps the app
+  // starting where Chromium's sandbox is blocked (build/linux/launcher.sh).
+  const executable =
+    options.env.APPIMAGE ||
+    (basename(options.execPath) === "ace-desktop-bin"
+      ? join(dirname(options.execPath), "ace-desktop")
+      : options.execPath);
   let entry: string | undefined;
   try {
     entry = desktopEntry(executable);

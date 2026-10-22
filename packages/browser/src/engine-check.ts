@@ -16,9 +16,7 @@ import { chromeLogText, classifyChromeLaunch, type ChromeLaunchProblem } from ".
 import {
   chromiumAppArmorInstall,
   chromiumAppArmorProfile,
-  chromiumAttachmentFor,
-  chromiumAttachmentForExecutable,
-  defaultChromiumAttachment,
+  chromiumAttachmentForEngine,
 } from "./linux-sandbox.ts";
 
 /** A doctor verdict on ace's browser engine. */
@@ -261,11 +259,11 @@ export async function checkBrowserEngine(options: EngineCheckOptions): Promise<E
   const sandbox = options.env.ACE_CHROMIUM_NO_SANDBOX !== "1";
   const sandboxFix = chromiumAppArmorInstall(
     chromiumAppArmorProfile(
-      !engine.pinned
-        ? chromiumAttachmentForExecutable(engine.path)
-        : resolve(options.dataDir) === join(options.home ?? homedir(), ".ace")
-          ? defaultChromiumAttachment
-          : chromiumAttachmentFor(resolve(options.dataDir)),
+      chromiumAttachmentForEngine({
+        dataDir: resolve(options.dataDir),
+        home: options.home ?? homedir(),
+        ...(engine.pinned ? {} : { chromiumPath: engine.path }),
+      }),
     ),
   );
   const diagnose = async (stderr: string) =>

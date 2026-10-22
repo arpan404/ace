@@ -83,6 +83,15 @@ test("under an AppImage the entry starts the AppImage file, not its temporary mo
   );
 });
 
+test("from a tar.gz the entry starts its launcher, which works where the sandbox is blocked", () => {
+  const root = home();
+  const { item } = loginItem({ home: root, execPath: "/home/me/ace-1.0.0-x64/ace-desktop-bin" });
+  item.setEnabled(true);
+  expect(execLine(join(root, ".config", "autostart", "dev.ace.app.desktop"))).toBe(
+    'Exec="/home/me/ace-1.0.0-x64/ace-desktop" --background',
+  );
+});
+
 test("an entry left by an AppImage that has since moved is rewritten with the new path", () => {
   const root = home();
   const entry = join(root, ".config", "autostart", "dev.ace.app.desktop");
