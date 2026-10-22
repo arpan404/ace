@@ -101,7 +101,7 @@ struct TargetChip: View {
         Group {
             if path, let slash {
                 HStack(spacing: AceTheme.Spacing.none) {
-                    Text(target[...slash]).truncationMode(.head)
+                    Text(target[...slash]).truncationMode(.tail)
                     Text(target[target.index(after: slash)...]).layoutPriority(1)
                 }
             } else {

@@ -118,8 +118,15 @@ only, and the bridge builds `thread.send`, `thread.interrupt`, `interaction.reso
 the shared Allow once / Always allow / Deny verbs by option index, so large option sets are
 sent once with exact canonical ids.
 
+A work log reaches Swift as the web draws it (`bridge/work-log.ts`, over the shared
+`@ace/ui-core/work-log-reading`): sentence groups with their icon and failures, the live group
+titled by its step in flight, thoughts with their time, background commands as one group, ace's
+audits folded away. Each step's own line (glyph, verb, target, stat, note, bounded detail from
+`bridge/step-detail.ts`) travels on its item row, so streaming touches that row alone. Turn
+endings and changed-file chips come from `bridge/turn-ending.ts`.
+
 SwiftUI renders blocks with native Markdown (`Models/Markdown.swift`, SF Mono code blocks),
-collapsible work logs, inline subagent rows (a delegated child thread pushes; a native
+work logs on a step rail, inline subagent rows (a delegated child thread pushes; a native
 subagent's lane opens a sheet), question and approval cards above the composer, a model
 sheet and the header menu (Stop all agents, Snooze, Archive). The fixture's thread scenarios
 live in `scripts/thread-scenarios.ts`. `ACE_IOS_SPIKE_PORT` moves the fixture, and the app's
@@ -130,7 +137,7 @@ behavior tests run with `bunx vitest run apps/ios/bridge/thread-*.test.ts` (shar
 Plan reviews, MCP forms and browser requests answer on their own cards
 (`bridge/thread-requests.ts`, validated with the shared `@ace/ui-core` form rules). An opened
 settled "Worked for" log reads its turn's full steps (`turn.steps` through the SDK's bounded
-`TurnStepsCache`), sent in 25-step page patches. While the log is open, a change to one of the
+`TurnStepsCache`), sent in 25-step page patches, its groups in the steps header. While the log is open, a change to one of the
 turn's own items reads the turn's summary (`turns.page`) and holds the turn with its `endSeq`, so
 the cache reads it again only when its copy is older, as the web does. The effort and speed chip follows the web's
 capability rules (`threadTuning`, `followUpTurnOptions` in `@ace/ui-core`); a pick goes with the next
