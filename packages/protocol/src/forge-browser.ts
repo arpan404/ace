@@ -13,6 +13,7 @@ import { ForgeStackMembership, ForgeStackWorkspace } from "./forge-stacks.ts";
 import { ForgeReviewState } from "./forge-review.ts";
 import { ForgeCheckOperations, ForgeCheckResults } from "./forge-checks.ts";
 import { ForgeFileContentOperations, ForgeFileContentResults } from "./forge-file-content.ts";
+import { ForgeMediaOperations, ForgeMediaResults } from "./forge-media.ts";
 import { z } from "zod";
 import { ForgePrRef, ForgePrStatus, ForgeRepository } from "./forge.ts";
 import { WorkspaceId, ThreadId } from "./ids.ts";
@@ -274,6 +275,7 @@ export const ForgeBrowserOperations = [
     commit: sha.optional(),
   }),
   ...ForgeCheckOperations,
+  ...ForgeMediaOperations,
 ] as const;
 export const ForgeBrowserResult = z.discriminatedUnion("resource", [
   z.object({ resource: z.literal("prLifecycle"), value: ForgeLifecycleState }),
@@ -319,6 +321,7 @@ export const ForgeBrowserResult = z.discriminatedUnion("resource", [
   }),
   z.object({ resource: z.literal("prFiles"), value: ForgePrFiles }),
   ...ForgeCheckResults,
+  ...ForgeMediaResults,
 ]);
 export type ForgeBrowserResult = z.infer<typeof ForgeBrowserResult>;
 export type ForgeBrowserOperation = z.infer<(typeof ForgeBrowserOperations)[number]>;
