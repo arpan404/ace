@@ -6,6 +6,7 @@ import {
   mouseMove,
   type PointerAt,
   type TouchEffect,
+  wheelScroll,
 } from "./pointer-input.ts";
 
 /** A point on screen; the page is drawn at half size, so page pixels are twice the screen's. */
@@ -174,5 +175,37 @@ describe("touch gestures", () => {
     for (let finger = 0; finger < 10; finger++) gestures.down(finger, at(finger, finger), 0);
     expect(gestures.down(10, at(50, 50), 0)).toEqual([]);
     expect(gestures.active).toBe(10);
+  });
+});
+
+describe("wheel scroll", () => {
+  const page = { width: 800, height: 600 };
+
+  it("passes a trackpad's pixel steps through unrounded, so small steps still scroll", () => {
+    expect(wheelScroll({ deltaX: 0.4, deltaY: -2.75, deltaMode: 0 }, 1, page)).toEqual({
+      deltaX: 0.4,
+      deltaY: -2.75,
+    });
+  });
+
+  it("scales pixel steps to the page's pixels when the page is drawn smaller", () => {
+    expect(wheelScroll({ deltaX: 0, deltaY: 50, deltaMode: 0 }, 2, page)).toEqual({
+      deltaX: 0,
+      deltaY: 100,
+    });
+  });
+
+  it("turns a mouse wheel's line and page steps into pixels", () => {
+    expect(wheelScroll({ deltaX: 0, deltaY: 3, deltaMode: 1 }, 2, page).deltaY).toBeGreaterThan(60);
+    expect(wheelScroll({ deltaX: 1, deltaY: -1, deltaMode: 2 }, 2, page)).toEqual({
+      deltaX: 800,
+      deltaY: -600,
+    });
+  });
+
+  it("never sends a delta the daemon would refuse", () => {
+    const huge = wheelScroll({ deltaX: Number.NaN, deltaY: 1e9, deltaMode: 0 }, 1, page);
+    expect(huge.deltaX).toBe(0);
+    expect(huge.deltaY).toBeLessThanOrEqual(100_000);
   });
 });
