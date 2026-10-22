@@ -70,6 +70,10 @@ simulator screenshots.
 - `bridge/` imports only package public exports. `ClientCore` owns protocol decoding,
   reconnect, snapshot/replay, history admission and the durable outbox. Its pending-send
   states and canonical daemon statuses drive the native UI.
+- The bridge reaches the platform only through the host contract (`@ace/native-host`,
+  [ADR 0096](../../docs/adr/0096-native-host-contract.md)): `HostContract.swift` and
+  `NativeHost.swift` implement it, and bridge tests run on its Node host. Launch with
+  `-ace-host-trace` to log the time each host function and the script take.
 - `Sources/Bridge/` owns a VM and run loop. Swift callbacks return to that thread;
   SwiftUI receives decoded, owned data. A single acknowledged frame carries at most
   32 patches and 32 KiB. Pending changes retain keys and readers, not transcript copies.
