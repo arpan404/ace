@@ -166,6 +166,32 @@ export class Recovery {
     this.repo.queue.set(id, { continuation: null, trigger: null }, this.clock.now());
     this.sync(id);
   }
+  /**
+   * A settled thread is finished for the person, so a turn a Stop or a restart left on hold is
+   * over: its "continue" and the hold go, and the thread reads done instead of waiting forever
+   * (every restart re-held it). Messages the person queued keep their hold for when they return.
+   */
+  closeSettled(id: ThreadId): void {
+    if (this.repo.store.getThread(id)?.settledAt === undefined) return;
+    const queue = this.repo.queue.get(id);
+    if (!queue.paused || queue.limited) return;
+    if (queue.reason !== "restart" && queue.reason !== "stopped") return;
+    if (this.repo.queue.count(id) > 0) return;
+    if (this.repo.queue.hasUncertain(id) || this.repo.pending.recovering(id)) return;
+    this.repo.pending.finishContinuation(id);
+    this.repo.queue.set(
+      id,
+      {
+        paused: false,
+        reason: null,
+        continuation: null,
+        trigger: null,
+        holdToken: queue.holdToken + 1,
+      },
+      this.clock.now(),
+    );
+    this.sync(id);
+  }
   discard(id: ThreadId): void {
     this.repo.store.atomic(() => {
       const queue = this.repo.queue.get(id);
