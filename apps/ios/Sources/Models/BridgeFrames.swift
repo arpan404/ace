@@ -51,3 +51,14 @@ struct BridgeFrames {
     private mutating func reset() { transferId = nil; nextIndex = 0; assembly = Data() }
 }
 private enum FrameError: Error { case budget, order }
+
+/// Decodes a runtime's frames on the thread that emits them, so the main thread only applies the
+/// result. One frame is in flight at a time; the lock only guards against misuse.
+final class FrameDecoder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var frames = BridgeFrames()
+    /// The frame's complete patches, or nil when it could not be read (the assembly resets).
+    func decode(_ data: Data) -> [BridgePatch]? {
+        lock.withLock { HostTrace.measure("host.decodeFrame", bytes: data.count) { try? frames.decode(data) } }
+    }
+}
