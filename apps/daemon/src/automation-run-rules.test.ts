@@ -22,7 +22,7 @@ const facts = (patch: Partial<RunFacts>): RunFacts => ({
   tree: "ok",
   ...patch,
 });
-const idle: OpenWork = { tasks: 0, agentRuns: 0, questions: 0, reservations: 0 };
+const idle: OpenWork = { tasks: 0, agentRuns: 0, questions: 0, reservations: 0, unowned: 0 };
 const none = CliTree.parse([]);
 const child = (state: "working" | "done", cancelled = false) =>
   CliTree.parse([
@@ -119,6 +119,12 @@ test("with nothing open, a run's own stop ends its turn, while a person's Stop w
       cancelling: false,
     }),
   ).toBe("failed");
+});
+
+test("live delegated work nobody can say is the run's holds it open as uncertain", () => {
+  expect(
+    runTreeState({ root: root(), work: { ...idle, unowned: 1 }, children: none, cancelling: true }),
+  ).toBe("uncertain");
 });
 
 test("a run whose delegated thread still works is not over, even after its root turn ended", () => {

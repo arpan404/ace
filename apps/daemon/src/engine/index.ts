@@ -1116,6 +1116,10 @@ export class Engine {
   sessionMetadata(id: ThreadId) {
     return this.repo.session(id);
   }
+  /** Why an admitted command failed when the engine delivered it, if it did. */
+  commandFailure(commandId: import("@ace/protocol").CommandId): string | undefined {
+    return this.repo.pending.failure(commandId);
+  }
   commandExecution(commandId: import("@ace/protocol").CommandId) {
     return this.repo.pending.commandStatus(commandId);
   }

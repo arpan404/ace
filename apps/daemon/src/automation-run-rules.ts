@@ -24,6 +24,8 @@ export interface OpenWork {
   questions: number;
   /** Delegations it asked for whose threads are still being prepared. */
   reservations: number;
+  /** Live delegated work in the thread whose owner can't be established: maybe the run's. */
+  unowned: number;
 }
 
 /**
@@ -44,6 +46,7 @@ export function runTreeState(facts: {
   const { work } = facts;
   const states: TreeState[] = [rootState(facts.root, facts.cancelling), childState(facts.children)];
   if (work.questions > 0) states.push("needs-human");
+  if (work.unowned > 0) states.push("uncertain");
   if (work.tasks > 0 || work.agentRuns > 0 || work.reservations > 0) states.push("working");
   for (const state of ["uncertain", "needs-human", "working", "failed"] as const)
     if (states.includes(state)) return state;
@@ -91,6 +94,8 @@ export interface RunFacts {
   cancel: "requested" | "sent" | undefined;
   /** Whether a stop of the run's cancellation reached its work, not only asked for. */
   stopReached: boolean;
+  /** Why part of the run's work could not be stopped, once its stops ran out of tries. */
+  stopError?: string | undefined;
   /** Facts of the run's turn, once an engine run took the message. */
   turn: TurnFacts | undefined;
   tree: TreeState | undefined;
@@ -143,6 +148,8 @@ function settled(facts: RunFacts, stopped: boolean): RunDecision {
   if (!turn || turn.active || tree === undefined) return { kind: "wait" };
   if (tree === "working" || tree === "needs-human" || tree === "uncertain") return { kind: "wait" };
   // Its work was cut short by its own stop, though the turn itself may have completed.
+  if (facts.stopError !== undefined)
+    return settleFailed(`Stopped, but part of its work could not be stopped: ${facts.stopError}`);
   if (facts.stopReached) return settleFailed("Stopped before it finished.");
   if (tree === "ok" && turn.last === "completed")
     return { kind: "settle", status: "succeeded", fallback: "Finished without a written answer." };

@@ -34,6 +34,8 @@ import type { DelegationJournal } from "./agent-control/journal.ts";
 
 /** A check now and then in case a change came without an event the monitor listens for. */
 const reconcileMs = 5_000;
+/** How many times a stop whose delivery fails is sent before the run says it can't be stopped. */
+const stopTries = 5;
 
 /**
  * How the host stops a run's work in the delegation service, when there is one: a Stop of the
@@ -204,7 +206,11 @@ async function inspect(
   if (turn && !turn.facts.active) {
     const journal = options.hostStop()?.journal;
     const open = readOpenWork(context, journal, threadId, turn, thread.rootAgentId);
-    for (const child of open?.delegations.children ?? []) members.add(child);
+    for (const child of [
+      ...(open?.delegations.children ?? []),
+      ...(open?.delegations.uncertain ?? []),
+    ])
+      members.add(child);
     tree =
       open === undefined
         ? "uncertain"
@@ -215,6 +221,7 @@ async function inspect(
               agentRuns: open.work.agentRuns.length,
               questions: open.work.questions,
               reservations: open.delegations.reservations.length,
+              unowned: open.delegations.uncertain.length,
             },
             children: readTreeMembers(context, open.delegations.children, journal),
             cancelling: record.cancel !== undefined,
@@ -232,7 +239,9 @@ async function inspect(
     fate,
     boundRun: runId,
     cancel: latest.cancel === "acknowledged" ? undefined : latest.cancel,
-    stopReached: latest.cancel !== undefined && latest.stopTarget !== undefined,
+    stopReached:
+      latest.cancel !== undefined && (latest.stopTarget !== undefined || latest.stopAttempts > 0),
+    stopError: latest.stopError,
     turn: turn?.facts,
     tree,
   });
@@ -268,6 +277,22 @@ async function reconcileStop(
     if (!record?.threadId || !record.inputCommand || !engine) return false;
     if (record.cancel !== "requested" && record.cancel !== "sent") return false;
     const threadId = record.threadId;
+    // Admitted is not delivered: a stop the engine failed to deliver is sent again, as a new
+    // command after a backoff, until it gets through or the tries run out.
+    const failure = record.stopCommands
+      .map((id) => engine.commandFailure(id))
+      .find((error) => error !== undefined);
+    if (failure !== undefined) {
+      const attempts = record.stopAttempts + 1;
+      options.records.stopFailed(
+        commandId,
+        failure,
+        attempts < stopTries ? context.now() + Math.min(60_000, 1000 * 2 ** attempts) : undefined,
+      );
+      return false;
+    }
+    if (record.stopError !== undefined) return false;
+    if (record.stopRetryAt !== undefined && context.now() < record.stopRetryAt) return false;
     const fate = engine.inputFate(threadId, record.inputCommand);
     const bound = (fate.state === "delivered" ? fate.runId : undefined) ?? record.engineRun;
     const turn =
@@ -300,8 +325,9 @@ async function reconcileStop(
     const stopId = CommandId.parse(
       `automation-stop-${createHash("sha256").update(`${commandId}:${record.version}`).digest("hex")}`,
     );
-    const accepted = sendStop(context, options, threadId, record, plan, stopId);
-    if (accepted) options.records.stopSent(commandId, target);
+    const sent: CommandId[] = [];
+    const accepted = sendStop(context, options, threadId, record, plan, stopId, sent);
+    if (accepted) options.records.stopSent(commandId, target, sent);
     else options.records.stopRefused(commandId);
     // A refused stop changed nothing: the next change in the thread, or the slow check, retries.
     return accepted;
@@ -355,11 +381,13 @@ function sendStop(
   record: RunRecord,
   plan: Exclude<StopPlan, { kind: "wait" | "none" }>,
   stopId: CommandId,
+  sent: CommandId[],
 ): boolean {
   const { store, services } = context;
   const handle = services.engine?.internalHandler ?? services.handler;
   if (!handle) throw new Error("engine_unavailable");
   const send = (id: CommandId, payload: CommandPayload) => {
+    sent.push(id);
     const command = Command.parse({ id, deviceId: options.deviceId, payload });
     return store.recordCommand(command.id, command.deviceId, () =>
       handle.handle(command, commandContext(store)),
@@ -377,6 +405,7 @@ function sendStop(
       }).ok;
     }
     case "interrupt":
+      sent.push(stopId);
       return hostInterrupt(context, options, threadId, stopId, { runId: plan.runId });
     case "stop-work": {
       const part = (name: string) =>
@@ -391,9 +420,11 @@ function sendStop(
               taskId: BackgroundTaskId.parse(taskId),
             }).ok,
         ),
-        ...plan.agentRuns.map((run) =>
-          hostInterrupt(context, options, threadId, part(`run:${run.runId}`), run),
-        ),
+        ...plan.agentRuns.map((run) => {
+          const id = part(`run:${run.runId}`);
+          sent.push(id);
+          return hostInterrupt(context, options, threadId, id, run);
+        }),
       ];
       if (plan.children.length || plan.reservations.length) {
         const host = options.hostStop();

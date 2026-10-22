@@ -19,6 +19,10 @@ const Row = z.object({
   disposition: z.string(),
   cancel: z.enum(["requested", "sent", "acknowledged"]).nullable(),
   stop_target: z.string().nullable(),
+  stop_commands: z.string().nullable(),
+  stop_attempts: z.number().int().nonnegative(),
+  stop_retry_at: z.number().nullable(),
+  stop_error: z.string().nullable(),
 });
 
 export interface RunRecord {
@@ -33,6 +37,12 @@ export interface RunRecord {
   cancel: "requested" | "sent" | "acknowledged" | undefined;
   /** What the last stop was aimed at, so the same stop is never sent twice. */
   stopTarget: string | undefined;
+  /** The commands that stop sent, whose delivery the monitor checks. */
+  stopCommands: CommandId[];
+  /** Stops whose delivery failed so far, the next try's time, and why it gave up, if it did. */
+  stopAttempts: number;
+  stopRetryAt: number | undefined;
+  stopError: string | undefined;
 }
 
 export class RunRecords {
@@ -48,6 +58,22 @@ export class RunRecords {
       DROP TABLE IF EXISTS automation_run_threads;
       DROP TABLE IF EXISTS agent_automation_run_threads;`),
     );
+    store.atomic((db) => {
+      const columns = new Set(
+        db
+          .prepare("PRAGMA table_info(automation_executions)")
+          .all()
+          .map((row) => String(row.name)),
+      );
+      for (const [name, definition] of [
+        ["stop_commands", "TEXT"],
+        ["stop_attempts", "INTEGER NOT NULL DEFAULT 0"],
+        ["stop_retry_at", "INTEGER"],
+        ["stop_error", "TEXT"],
+      ] as const)
+        if (!columns.has(name))
+          db.exec(`ALTER TABLE automation_executions ADD COLUMN ${name} ${definition}`);
+    });
   }
   get(commandId: CommandId): RunRecord | undefined {
     const row = this.store
@@ -66,6 +92,12 @@ export class RunRecords {
       disposition: value.disposition,
       cancel: value.cancel ?? undefined,
       stopTarget: value.stop_target ?? undefined,
+      stopCommands: value.stop_commands
+        ? z.array(CommandId).parse(JSON.parse(value.stop_commands))
+        : [],
+      stopAttempts: value.stop_attempts,
+      stopRetryAt: value.stop_retry_at ?? undefined,
+      stopError: value.stop_error ?? undefined,
     };
   }
   /** The run's message went to `threadId` as command `commandId`. */
@@ -114,13 +146,32 @@ export class RunRecords {
       )
       .run(replacement, commandId);
   }
-  /** A stop aimed at `target` was sent (or nothing was left to stop, with no target). */
-  stopSent(commandId: CommandId, target: string | undefined): void {
+  /**
+   * A stop aimed at `target` was admitted as `commands` (or nothing was left to stop, with no
+   * target). Admitted is not delivered: the monitor checks each command's delivery.
+   */
+  stopSent(
+    commandId: CommandId,
+    target: string | undefined,
+    commands: readonly CommandId[] = [],
+  ): void {
     this.store
       .statement(
-        "UPDATE automation_executions SET cancel='sent',stop_target=?,version=version+1 WHERE command_id=?",
+        "UPDATE automation_executions SET cancel='sent',stop_target=?,stop_commands=?,version=version+1 WHERE command_id=?",
       )
-      .run(target ?? null, commandId);
+      .run(target ?? null, JSON.stringify(commands), commandId);
+  }
+  /**
+   * The stop's delivery failed: it is sent again as a new command from `retryAt`, or, with no
+   * `retryAt`, given up on with `error`, which the run's result then says.
+   */
+  stopFailed(commandId: CommandId, error: string, retryAt: number | undefined): void {
+    this.store
+      .statement(
+        `UPDATE automation_executions SET stop_target=NULL,stop_commands=NULL,stop_attempts=stop_attempts+1,
+        stop_retry_at=?,stop_error=?,version=version+1 WHERE command_id=?`,
+      )
+      .run(retryAt ?? null, retryAt === undefined ? error : null, commandId);
   }
   /** A stop was refused (the queue or turn moved on): the next attempt is a new command. */
   stopRefused(commandId: CommandId): void {

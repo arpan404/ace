@@ -128,15 +128,21 @@ export interface TurnWork {
 }
 
 const TaskValue = z.object({
+  agentId: z.string(),
   status: z.string(),
   ambient: z.boolean().optional(),
   stoppable: z.boolean().optional(),
 });
 const RunValue = z.object({ agentId: z.string(), state: z.string() });
+const OwnedValue = z.object({ agentId: z.string() });
+const AgentValue = z.object({ parentId: z.string().nullable().optional() });
 
 /**
- * The turn's open native work: entities created from the turn's first root run until the
- * thread's next turn began (event order, never time), read through the active-entity index.
+ * The turn's open native work, by cause rather than by when it appeared. A native subagent
+ * the turn's root started belongs to the turn, and so does everything it and its own
+ * subagents do afterwards, even once a later turn began. The root's own background work and
+ * questions belong to the turn they were made in. Reads the thread's open entities through the
+ * active-entity index, and only the agents created since the turn began.
  */
 export function readTurnWork(
   store: Store,
@@ -145,48 +151,78 @@ export function readTurnWork(
   rootAgentId: string | undefined,
 ): TurnWork {
   return store.atomic((db) => {
-    const statement = db.prepare(`SELECT e.id,e.value FROM view_entity_windows w
-      JOIN view_entities e ON e.thread_id=w.thread_id AND e.collection=w.collection AND e.id=w.id
-      WHERE w.thread_id=? AND w.collection=? AND w.active=1 AND w.created_seq>=? AND w.created_seq<?`);
-    const read = (collection: string) =>
-      statement
-        .all(threadId, collection, turn.start.seq, turn.later?.seq ?? Number.MAX_SAFE_INTEGER)
+    const end = turn.later?.seq ?? Number.MAX_SAFE_INTEGER;
+    const inTurn = (seq: number) => seq >= turn.start.seq && seq < end;
+    // Agents the turn's root started, and the agents those started in turn.
+    const owned = new Set<string>();
+    const agents = db
+      .prepare(`SELECT e.id,e.value,w.created_seq AS seq FROM view_entity_windows w
+        JOIN view_entities e ON e.thread_id=w.thread_id AND e.collection=w.collection AND e.id=w.id
+        WHERE w.thread_id=? AND w.collection='agents' AND w.created_seq>=? ORDER BY w.created_seq`)
+      .all(threadId, turn.start.seq)
+      .map((row) => ({
+        id: z.string().parse(row.id),
+        parent: AgentValue.safeParse(JSON.parse(z.string().parse(row.value))).data?.parentId,
+        seq: Number(row.seq),
+      }));
+    for (const agent of agents)
+      if (agent.id !== rootAgentId)
+        if (agent.parent === rootAgentId ? inTurn(agent.seq) : owned.has(agent.parent ?? ""))
+          owned.add(agent.id);
+    const open = (collection: string) =>
+      db
+        .prepare(`SELECT e.id,e.value,w.created_seq AS seq FROM view_entity_windows w
+          JOIN view_entities e ON e.thread_id=w.thread_id AND e.collection=w.collection AND e.id=w.id
+          WHERE w.thread_id=? AND w.collection=? AND w.active=1`)
+        .all(threadId, collection)
         .map((row) => ({
           id: z.string().parse(row.id),
           value: JSON.parse(z.string().parse(row.value)),
+          seq: Number(row.seq),
         }));
-    const tasks = read("backgroundTasks").flatMap(({ id, value }) => {
+    const ours = (agentId: string, seq: number) =>
+      owned.has(agentId) || (agentId === rootAgentId && inTurn(seq));
+    const tasks = open("backgroundTasks").flatMap(({ id, value, seq }) => {
       const task = TaskValue.safeParse(value);
-      return task.success && task.data.status === "running" && !task.data.ambient
+      return task.success &&
+        task.data.status === "running" &&
+        !task.data.ambient &&
+        ours(task.data.agentId, seq)
         ? [{ id, stoppable: task.data.stoppable === true }]
         : [];
     });
-    const agentRuns = read("runs").flatMap(({ id, value }) => {
+    const agentRuns = open("runs").flatMap(({ id, value }) => {
       const run = RunValue.safeParse(value);
-      return run.success && run.data.state === "active" && run.data.agentId !== rootAgentId
+      return run.success && run.data.state === "active" && owned.has(run.data.agentId)
         ? [{ agentId: run.data.agentId, runId: id }]
         : [];
     });
-    return { tasks, agentRuns, questions: read("interactions").length };
+    const questions = open("interactions").filter(({ value, seq }) => {
+      const owner = OwnedValue.safeParse(value);
+      return owner.success && ours(owner.data.agentId, seq);
+    }).length;
+    return { tasks, agentRuns, questions };
   });
 }
 
 /**
  * The delegated work the turn began: children whose current generation one of the turn's runs
- * asked for (`DelegationOrigins`), with their own live descendants, and reservations still
- * preparing a child for it. Delegations made before origins were kept fall back to the time
- * window of the turn. Undefined while delegated children can't be read.
+ * asked for (`DelegationOrigins`), settled or not, with their whole subtrees, so a child that
+ * failed still counts in how the run went; and reservations still preparing a child for it.
+ * `uncertain` are the thread's live children whose owner nobody can establish (work from before
+ * owners were kept): they hold the run open and are never stopped for it. Undefined while
+ * delegated children can't be read.
  */
 export function turnDelegations(
   store: Store,
   journal: DelegationJournal | undefined,
   threadId: ThreadId,
   turn: TurnRead,
-): { children: ThreadId[]; reservations: ThreadId[] } | undefined {
+): { children: ThreadId[]; reservations: ThreadId[]; uncertain: ThreadId[] } | undefined {
   if (!journal)
     return delegatedChildPersisted(store, threadId)
       ? undefined
-      : { children: [], reservations: [] };
+      : { children: [], reservations: [], uncertain: [] };
   const direct = new Set<ThreadId>();
   const reservations: ThreadId[] = [];
   for (const { child, generation } of journal.origins.byRuns(threadId, turn.runIds)) {
@@ -194,17 +230,15 @@ export function turnDelegations(
     if (edge?.generation === generation) direct.add(child);
     else if (!edge && generation === 0 && journal.reservationOf(child)) reservations.push(child);
   }
-  for (const edge of journal.liveChildren(threadId))
-    if (
-      !journal.origins.known(edge.childId) &&
-      edge.createdAt >= turn.start.at &&
-      (turn.later === undefined || edge.createdAt < turn.later.at)
-    )
-      direct.add(edge.childId);
+  const uncertain = journal
+    .liveChildren(threadId)
+    .filter((edge) => !direct.has(edge.childId))
+    .filter((edge) => journal.origins.uncertain(edge.childId, edge.generation))
+    .map((edge) => edge.childId);
   const children = new Set<ThreadId>(direct);
   for (const child of direct)
-    for (const edge of journal.liveDescendants(child)) children.add(edge.childId);
-  return { children: [...children], reservations };
+    for (const edge of journal.descendants(child)) children.add(edge.childId);
+  return { children: [...children], reservations, uncertain };
 }
 
 /**

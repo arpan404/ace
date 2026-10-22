@@ -26,8 +26,12 @@ export function delegationCommandPolicy(deps: {
     const fail = (error: string) => ({ commandId: command.id, ok: false, error });
     if (p.type === "thread.interrupt") {
       const accepted = accept();
+      // Stopping one of the thread's own agents leaves its delegated threads alone.
+      const oneAgent =
+        p.agentId !== undefined && deps.store.getThread(p.threadId)?.rootAgentId !== p.agentId;
       if (
         accepted.ok &&
+        !oneAgent &&
         p.cascade &&
         !deps.suspending?.(p.threadId) &&
         deps.journal.get(p.threadId)?.phase !== "cancelling"
@@ -76,7 +80,13 @@ export function delegationCommandPolicy(deps: {
     const accepted = accept();
     if (!accepted.ok) return accepted;
     if (explicit) deps.journal.resumeMember(p.threadId, deps.now());
-    if (edge.phase === "settled") deps.journal.reopen(edge, deps.now());
+    // Only the parent agent's own message makes the new work its turn's; the person's is theirs.
+    if (edge.phase === "settled")
+      deps.journal.reopen(
+        edge,
+        deps.now(),
+        p.type === "thread.send" && p.trigger === "parent_agent",
+      );
     else if (edge.phase === "created") {
       edge.phase = "running";
       deps.journal.save(edge);

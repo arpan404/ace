@@ -112,6 +112,13 @@ export class IntentStore {
         }
       : undefined;
   }
+  /** Why command `commandId` failed after it was admitted, if it did. */
+  failure(commandId: CommandId): string | undefined {
+    const row = this.sql(
+      "SELECT error FROM intents WHERE command_id=? AND status='failed' LIMIT 1",
+    ).get(commandId);
+    return row ? (typeof row.error === "string" ? row.error : "Not delivered") : undefined;
+  }
   commandStatus(commandId: CommandId) {
     const row = this.sql("SELECT status FROM intents WHERE command_id=? LIMIT 1").get(commandId);
     return row ? Header.shape.status.parse(row.status) : undefined;

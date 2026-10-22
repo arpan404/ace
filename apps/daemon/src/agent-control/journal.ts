@@ -6,7 +6,7 @@ import type { StatementSync } from "node:sqlite";
 import { z } from "zod";
 import { DelegationRecord, ThreadId, type DelegationOutcome, type Event } from "@ace/protocol";
 import type { Store } from "../store.ts";
-import { DelegationOrigins } from "./delegation-origins.ts";
+import { DelegationOrigins, type OriginOwner } from "./delegation-origins.ts";
 import { hasStoppedAncestor } from "./ancestor-stop.ts";
 
 export const DelegationReservation = z.object({
@@ -83,6 +83,15 @@ export class DelegationJournal {
       );
     `),
     );
+    // Owners of delegations made before they were kept, once (`DelegationOrigins.backfill`).
+    if (!this.origins.backfilled())
+      this.origins.backfill([
+        ...this.sql("SELECT record FROM delegated_threads")
+          .all()
+          .map((row) => this.decode(row.record))
+          .map((edge) => ({ ...edge, live: edge.phase !== "settled" })),
+        ...this.reservations().map((reservation) => ({ ...reservation.record, live: true })),
+      ]);
   }
   private sql(query: string) {
     let statement = this.statements.get(query);
@@ -198,7 +207,7 @@ export class DelegationJournal {
   reserve(reservation: DelegationReservation) {
     this.assertCapacity();
     const r = reservation.record;
-    this.origins.note(r.childId, r.generation, r.parentId);
+    this.origins.note(r.childId, r.generation, r.parentId, { kind: "parent-turn" });
     this.sql("INSERT INTO delegation_reservations VALUES (?,?,?,?,?)").run(
       r.childId,
       r.parentId,
@@ -221,7 +230,7 @@ export class DelegationJournal {
     if (!reservation || reservation.record.childId !== record.childId)
       throw new Error("Missing reservation");
     this.sql("DELETE FROM delegation_reservations WHERE child_id=?").run(record.childId);
-    this.origins.note(record.childId, record.generation, record.parentId);
+    this.origins.note(record.childId, record.generation, record.parentId, { kind: "parent-turn" });
     this.sql(
       "INSERT INTO delegated_threads(child_id,parent_id,root_id,request_id,record,phase) VALUES (?,?,?,?,?,?)",
     ).run(
@@ -323,21 +332,31 @@ export class DelegationJournal {
       this.ancestorStopped(thread)
     );
   }
-  reopen(record: DelegationRecord, now: number) {
+  /** New input reopens a settled child: `byParent` when its parent agent sent it. */
+  reopen(record: DelegationRecord, now: number, byParent: boolean) {
     this.sql("DELETE FROM delegation_subtree_stops WHERE thread_id=?").run(record.childId);
     this.sql("DELETE FROM delegation_member_stops WHERE thread_id=?").run(record.childId);
     this.sql("UPDATE delegated_threads SET wake_suppressed=0 WHERE child_id=?").run(record.childId);
-    this.revive(record);
+    this.revive(record, byParent ? { kind: "parent-turn" } : { kind: "independent" });
     this.rearm(record.childId, now);
   }
-  /** Native work must be counted even when Stop still owns its cancellation. */
-  revive(record: DelegationRecord) {
+  /**
+   * Native work must be counted even when Stop still owns its cancellation. The new generation
+   * belongs to `owner`; a native revival carries on the generation before it.
+   */
+  revive(record: DelegationRecord, owner?: OriginOwner) {
     if (record.phase !== "settled") return;
+    const previous = record.generation;
     record.phase = "running";
     record.generation++;
     delete record.outcome;
     this.save(record);
-    this.origins.note(record.childId, record.generation, record.parentId);
+    this.origins.note(
+      record.childId,
+      record.generation,
+      record.parentId,
+      owner ?? { kind: "same-as", generation: previous },
+    );
     this.sql("UPDATE delegation_trees SET active=active+1 WHERE root_id=?").run(record.rootId);
     this.sql("UPDATE delegated_threads SET result_pending=0 WHERE child_id=?").run(record.childId);
     this.sql(

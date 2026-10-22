@@ -162,8 +162,11 @@ export function setup(
             },
             async interrupt(target) {
               await session.interrupt(target);
+              // Claude ends the turn of the agent it was asked to stop.
               if (provider === "claude")
-                ctx.onFrame(frames.frame({ ...end, outcome: "interrupted" }));
+                ctx.onFrame(
+                  frames.frame({ ...end, agent: target.agent ?? "root", outcome: "interrupted" }),
+                );
             },
             async stopTask(task) {
               await session.stopTask(task);
