@@ -30,6 +30,7 @@ import {
 import { dateLabel } from "@/components/ui/date-grid.ts";
 import { DateTimePicker, type DateTime } from "@/components/ui/date-time-picker.tsx";
 import { displayTime, TimePicker } from "@/components/ui/time-picker.tsx";
+import { cityOf } from "@/components/ui/zone-search.tsx";
 
 /*
  * When an automation runs, as the strip's first control: a list of the four kinds, then the
@@ -97,7 +98,6 @@ function nextQuarter(now: number, timezone: string): string {
     hourCycle: "h23",
   });
 }
-const cityOf = (zone: string) => (zone.split("/").pop() ?? zone).replaceAll("_", " ");
 /** "Oct 25, 9:30 AM", with the zone's city when it isn't this computer's. */
 function momentText(moment: { date: string; time: string }, today: string, timezone: string) {
   const zone = timezone === localTimeZone() ? "" : ` · ${cityOf(timezone)}`;
@@ -309,10 +309,12 @@ function ScheduleFields(props: {
   now: number;
 }) {
   const { form, onChange, errors } = props;
-  const zones = useMemo(
-    () => timeZones(form.timezone).map((value) => ({ value, label: value.replaceAll("_", " ") })),
-    [form.timezone],
-  );
+  // This computer's zone leads the list; the rest stay in order.
+  const zones = useMemo(() => {
+    const local = localTimeZone();
+    const all = timeZones(form.timezone);
+    return all.includes(local) ? [local, ...all.filter((zone) => zone !== local)] : all;
+  }, [form.timezone]);
   const timed =
     form.cadence === "daily" || form.cadence === "weekdays" || form.cadence === "weekly";
   const today = dateIn(props.now, form.timezone);
@@ -476,7 +478,7 @@ function StartsField(props: {
   error: string | undefined;
   now: number;
   today: string;
-  zones: { value: string; label: string }[];
+  zones: readonly string[];
 }) {
   const { form, today } = props;
   const [date = "", time = nextQuarter(props.now, form.timezone)] = form.startsAt.split("T");

@@ -1,12 +1,13 @@
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { cn } from "@/lib/cn.ts";
 import { Calendar } from "./calendar.tsx";
 import type { DateKey } from "./date-grid.ts";
 import { Input } from "./input.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover.tsx";
-import { Select, selectTrigger, type SelectOption } from "./select.tsx";
+import { selectTrigger } from "./select.tsx";
 import { displayTime, readTime } from "./time-picker.tsx";
+import { cityOf, ZoneSearch } from "./zone-search.tsx";
 
 export interface DateTime {
   /** "2026-10-24", or "" when none is chosen. */
@@ -19,7 +20,8 @@ export interface DateTime {
 
 /**
  * One moment, picked in one panel: a month calendar, an exact time and the zone it's read in.
- * Picking a day keeps the panel open so the time and zone can follow. `text` is the trigger's
+ * Picking a day keeps the panel open so the time and zone can follow. The zone is searched in
+ * place of the calendar, so the panel never stacks another popup on top. `text` is the trigger's
  * words, which the caller owns ("Now", "Oct 25, 9:00 AM"). With `onClear`, the panel offers a
  * way back to no date ("Start now").
  */
@@ -30,7 +32,7 @@ export function DateTimePicker(props: {
   text: string;
   today: DateKey;
   min?: DateKey | undefined;
-  zones: SelectOption<string>[];
+  zones: readonly string[];
   onChange(patch: Partial<DateTime>): void;
   clearLabel?: string;
   onClear?: (() => void) | undefined;
@@ -39,8 +41,15 @@ export function DateTimePicker(props: {
   "aria-describedby"?: string | undefined;
 }) {
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState<"moment" | "zone">("moment");
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (next) setView("moment");
+        setOpen(next);
+      }}
+    >
       <PopoverTrigger
         id={props.id}
         aria-label={`${props.label}: ${props.text}`}
@@ -58,43 +67,63 @@ export function DateTimePicker(props: {
         aria-label={props.label}
         className="flex w-64 flex-col gap-2 p-2"
       >
-        <Calendar
-          value={props.value.date || undefined}
-          today={props.today}
-          min={props.min}
-          onPick={(date) => props.onChange({ date })}
-        />
-        <div className="flex flex-col gap-1 border-t border-border pt-2">
-          <Row label="Time" htmlFor={`${props.id ?? "date-time"}-clock`}>
-            <ClockInput
-              // A new value from outside replaces whatever was half typed.
-              key={props.value.time}
-              id={`${props.id ?? "date-time"}-clock`}
-              value={props.value.time}
-              onCommit={(time) => props.onChange({ time })}
-            />
-          </Row>
-          <Row label="Zone">
-            <Select
-              label="Time zone"
-              value={props.value.timezone}
-              options={props.zones}
-              onValueChange={(timezone) => props.onChange({ timezone })}
-              className="h-7 w-full min-w-0"
-            />
-          </Row>
-        </div>
-        {props.onClear && props.value.date && (
-          <button
-            type="button"
-            onClick={() => {
-              props.onClear?.();
-              setOpen(false);
+        {view === "zone" ? (
+          <ZoneSearch
+            value={props.value.timezone}
+            zones={props.zones}
+            onPick={(timezone) => {
+              props.onChange({ timezone });
+              setView("moment");
             }}
-            className="self-start rounded-xs px-1 text-ui text-muted-foreground focus-ring hover:text-foreground hover:underline"
-          >
-            {props.clearLabel ?? "Clear"}
-          </button>
+            onBack={() => setView("moment")}
+          />
+        ) : (
+          <>
+            <Calendar
+              value={props.value.date || undefined}
+              today={props.today}
+              min={props.min}
+              onPick={(date) => props.onChange({ date })}
+            />
+            <div className="flex flex-col gap-1 border-t border-border pt-2">
+              <Row label="Time" htmlFor={`${props.id ?? "date-time"}-clock`}>
+                <ClockInput
+                  // A new value from outside replaces whatever was half typed.
+                  key={props.value.time}
+                  id={`${props.id ?? "date-time"}-clock`}
+                  value={props.value.time}
+                  onCommit={(time) => props.onChange({ time })}
+                />
+              </Row>
+              <Row label="Zone">
+                <button
+                  type="button"
+                  aria-label={`Time zone: ${props.value.timezone}`}
+                  onClick={() => setView("zone")}
+                  className={cn(selectTrigger, "h-7 w-full min-w-0")}
+                >
+                  <span className="truncate">{cityOf(props.value.timezone)}</span>
+                  <CaretRightIcon
+                    aria-hidden
+                    size={12}
+                    className="shrink-0 text-subtle-foreground"
+                  />
+                </button>
+              </Row>
+            </div>
+            {props.onClear && props.value.date && (
+              <button
+                type="button"
+                onClick={() => {
+                  props.onClear?.();
+                  setOpen(false);
+                }}
+                className="self-start rounded-xs px-1 text-ui text-muted-foreground focus-ring hover:text-foreground hover:underline"
+              >
+                {props.clearLabel ?? "Clear"}
+              </button>
+            )}
+          </>
         )}
       </PopoverContent>
     </Popover>
