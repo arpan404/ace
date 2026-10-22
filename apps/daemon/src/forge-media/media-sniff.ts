@@ -7,8 +7,8 @@
 
 export type SniffedMedia = { kind: "image" | "video"; mimeType: string };
 
-/** How many leading bytes `sniffMedia` looks at. */
-export const sniffBytes = 4096;
+/** How many leading bytes `sniffMedia` and `mediaDimensions` look at. */
+export const sniffBytes = 65_536;
 
 const startsWith = (bytes: Uint8Array, signature: readonly number[], at = 0) =>
   bytes.length >= at + signature.length && signature.every((byte, i) => bytes[at + i] === byte);
@@ -57,4 +57,54 @@ export function sniffMedia(head: Uint8Array): SniffedMedia | undefined {
   if (iso) return iso;
   if (isSvg(head)) return { kind: "image", mimeType: "image/svg+xml" };
   return undefined;
+}
+
+/**
+ * An image's pixel size from its header, so a page can reserve its space before the bytes
+ * arrive: PNG, GIF, WebP and baseline or progressive JPEG (whose frame header may sit behind
+ * metadata; past the bytes given, undefined). Implausible sizes are dropped.
+ */
+export function mediaDimensions(
+  head: Uint8Array,
+  mimeType: string,
+): { width: number; height: number } | undefined {
+  const view = new DataView(head.buffer, head.byteOffset, head.byteLength);
+  const fits = (at: number, bytes: number) => head.length >= at + bytes;
+  let size: { width: number; height: number } | undefined;
+  if (mimeType === "image/png" && fits(16, 8))
+    size = { width: view.getUint32(16), height: view.getUint32(20) };
+  else if (mimeType === "image/gif" && fits(6, 4))
+    size = { width: view.getUint16(6, true), height: view.getUint16(8, true) };
+  else if (mimeType === "image/webp" && fits(12, 18)) {
+    const chunk = ascii(head, 12, 16);
+    if (chunk === "VP8X")
+      size = {
+        width: 1 + (view.getUint32(24, true) & 0xffffff),
+        height: 1 + (view.getUint32(27, true) & 0xffffff),
+      };
+    else if (chunk === "VP8 " && fits(26, 4))
+      size = {
+        width: view.getUint16(26, true) & 0x3fff,
+        height: view.getUint16(28, true) & 0x3fff,
+      };
+    else if (chunk === "VP8L") {
+      const bits = view.getUint32(21, true);
+      size = { width: 1 + (bits & 0x3fff), height: 1 + ((bits >> 14) & 0x3fff) };
+    }
+  } else if (mimeType === "image/jpeg") {
+    for (let at = 2; fits(at, 9);) {
+      if (head[at] !== 0xff) break;
+      const marker = head[at + 1] ?? 0;
+      const length = view.getUint16(at + 2);
+      // Start-of-frame markers, except DHT (C4), JPG (C8) and DAC (CC).
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+        size = { width: view.getUint16(at + 7), height: view.getUint16(at + 5) };
+        break;
+      }
+      at += 2 + length;
+    }
+  }
+  if (!size || size.width < 1 || size.height < 1 || size.width > 65_535 || size.height > 65_535)
+    return undefined;
+  return size;
 }

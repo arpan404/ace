@@ -17,6 +17,8 @@ export function PrDescription(props: {
   extensions?: PrWorkspaceExtensions | undefined;
   onOpen(number: number): void;
   onEdit: (() => void) | undefined;
+  /** Saves the description with one task box ticked, when the viewer may edit it. */
+  onTasks?: ((body: string) => Promise<boolean>) | undefined;
 }) {
   const body = props.context.detail.body;
   const [expanded, setExpanded] = useState(false);
@@ -67,6 +69,7 @@ export function PrDescription(props: {
               context={props.context}
               extensions={props.extensions}
               onOpen={props.onOpen}
+              tasks={props.onTasks}
               text={body}
             />
           </div>

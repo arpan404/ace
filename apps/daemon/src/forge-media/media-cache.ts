@@ -20,6 +20,8 @@ const Entry = z.object({
   mimeType: z.string().min(1).max(64),
   kind: z.enum(["image", "video"]),
   bytes: z.number().int().positive(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
 });
 export type CachedMedia = z.infer<typeof Entry>;
 const Index = z.object({

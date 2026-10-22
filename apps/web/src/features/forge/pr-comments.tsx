@@ -56,7 +56,12 @@ function CommentCard(props: { comment: ForgeComment; open: boolean; onToggle(): 
       </CardHeader>
       {comment.body.trim() && (
         <div className="space-y-2 px-2.5 py-2">
-          <PrClampedText text={comment.body} open={props.open} onToggle={props.onToggle} />
+          <PrClampedText
+            text={comment.body}
+            comment={comment}
+            open={props.open}
+            onToggle={props.onToggle}
+          />
           <PrSuggestionActions comment={comment} outdated={comment.line === null} />
           {comment.kind !== "review" && (
             <PrReactions subject={{ kind: comment.kind, commentId: comment.id }} />
@@ -112,6 +117,7 @@ function ThreadCard(props: {
               </p>
               <PrClampedText
                 text={comment.body}
+                comment={comment}
                 open={props.isOpen(`${thread.id}:${comment.id}`)}
                 onToggle={() => props.onToggle(`${thread.id}:${comment.id}`)}
               />

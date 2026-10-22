@@ -85,7 +85,7 @@ function signedExpiry(url: URL): number | undefined {
   }
 }
 
-function media(kind: "image" | "video", src: string | undefined): RenderedMedia {
+function mediaAt(kind: "image" | "video", src: string | undefined): RenderedMedia {
   if (!src) return null;
   let url: URL;
   try {
@@ -113,8 +113,9 @@ export function renderedMedia(html: string, count: number): RenderedMedia[] {
       }
       if (!("tagName" in node)) continue;
       if (current !== undefined && current < count && found[current] === null) {
-        if (node.tagName === "img") found[current] = media("image", attribute(node, "src"));
-        else if (node.tagName === "video") found[current] = media("video", attribute(node, "src"));
+        if (node.tagName === "img") found[current] = mediaAt("image", attribute(node, "src"));
+        else if (node.tagName === "video")
+          found[current] = mediaAt("video", attribute(node, "src"));
       }
       walk(node.childNodes);
     }

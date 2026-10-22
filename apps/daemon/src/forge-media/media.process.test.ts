@@ -20,7 +20,7 @@ import { ForgeMediaService } from "./media-service.ts";
 const execute = promisify(execFile);
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
-  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
 const asset = "98705180-e07b-4a5d-b44e-2941ed073508";

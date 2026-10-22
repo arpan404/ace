@@ -1,18 +1,24 @@
 import { useMemo, type ReactNode } from "react";
 import { GithubLogoIcon } from "@phosphor-icons/react";
-import { Prose } from "@/components/markdown/prose.tsx";
 import type { MarkdownLinks } from "@/components/markdown/link-options.ts";
 import { PullRequestLink, pullRequestAt } from "@/components/pull-request-link.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { WebLink } from "@/components/web-link.tsx";
+import { ForgeProse } from "./rich/forge-prose.tsx";
+import { ForgeContentScope } from "./rich/scope.ts";
 
 type Props = {
   text: string;
   context: PrWorkspaceContext;
   extensions?: PrWorkspaceExtensions | undefined;
   onOpen(number: number): void;
+  /** Saves the text with one task box ticked, when the viewer may edit it. */
+  tasks?: ((next: string) => Promise<boolean>) | undefined;
 };
-function forgeLinks(props: Props): MarkdownLinks {
+function forgeLinks(props: Props): {
+  reference(number: number, children: ReactNode): ReactNode;
+  link: MarkdownLinks["link"];
+} {
   const repository = props.context.detail.status.ref.repository;
   const reference = (number: number, children: ReactNode) => {
     const known = number === props.context.detail.status.ref.number;
@@ -35,17 +41,7 @@ function forgeLinks(props: Props): MarkdownLinks {
     );
   };
   return {
-    text(text) {
-      const nodes: ReactNode[] = [];
-      let end = 0;
-      for (const match of text.matchAll(/(?<![\w/#])#([1-9]\d*)\b/g)) {
-        nodes.push(text.slice(end, match.index));
-        nodes.push(<span key={match.index}>{reference(Number(match[1]), match[0])}</span>);
-        end = match.index + match[0].length;
-      }
-      nodes.push(text.slice(end));
-      return nodes;
-    },
+    reference,
     link(href, children) {
       let url: URL;
       try {
@@ -91,13 +87,21 @@ function forgeLinks(props: Props): MarkdownLinks {
     },
   };
 }
+/** PR text (description, check output): forge text whose own PRs and references open in place. */
 export function PrMarkdown(props: Props) {
   const links = useMemo(() => forgeLinks(props), [props]);
+  const { detail, workspaceId } = props.context;
+  const repository = detail.status.ref.repository;
+  const scope = useMemo(() => ({ workspaceId, repository }), [workspaceId, repository]);
   return (
-    <Prose
-      text={props.text}
-      links={links}
-      className="text-ui leading-normal text-muted-foreground"
-    />
+    <ForgeContentScope value={scope}>
+      <ForgeProse
+        text={props.text}
+        link={links.link}
+        reference={links.reference}
+        tasks={props.tasks}
+        className="text-ui leading-normal text-muted-foreground"
+      />
+    </ForgeContentScope>
   );
 }

@@ -1,6 +1,7 @@
 import { useSyncExternalStore, type ReactNode } from "react";
 import { DeferredLoadError } from "@/lib/deferred-component.tsx";
 import type { MarkdownLinks } from "./link-options.ts";
+import type { MarkdownExtensions } from "./extensions.ts";
 import { loadMarkdown } from "./load.ts";
 import { scheduleMathWarmup } from "./math-warm.ts";
 import { MarkdownLoading } from "./loading.tsx";
@@ -70,6 +71,8 @@ export function Prose(props: {
   className?: string;
   tail?: ReactNode;
   thread?: { threadId: string; cwd?: string; itemId?: string };
+  /** What a feature draws instead of the defaults (forge text); none for agent prose. */
+  extensions?: MarkdownExtensions | undefined;
 }) {
   // The renderer is module state that changes once, when its code arrives.
   "use no memo";
@@ -92,6 +95,7 @@ export function Prose(props: {
       streaming={props.streaming}
       className={props.className}
       tail={props.tail}
+      extensions={props.extensions}
     />
   );
 }

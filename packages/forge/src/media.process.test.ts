@@ -65,6 +65,12 @@ test("each URL maps to the media GitHub rendered for it, and only the URLs are s
   }
 });
 
+const kind = (promise: Promise<unknown>) =>
+  promise.then(
+    () => "ok",
+    (error: unknown) => (error instanceof ForgeError ? error.kind : "other"),
+  );
+
 test("a render GitHub refuses or rate-limits fails with its fixed category", async () => {
   const f = await fakeGh({
     markdown: [
@@ -74,11 +80,6 @@ test("a render GitHub refuses or rate-limits fails with its fixed category", asy
     ],
   });
   const items = [{ url: "https://example.com/a.png", role: "image" as const }];
-  const kind = (promise: Promise<unknown>) =>
-    promise.then(
-      () => "ok",
-      (error: unknown) => (error instanceof ForgeError ? error.kind : "other"),
-    );
   try {
     expect(await kind(f.forge.renderMedia(items, signal()))).toBe("forbidden");
     expect(await kind(f.forge.renderMedia(items, signal()))).toBe("rate_limit");

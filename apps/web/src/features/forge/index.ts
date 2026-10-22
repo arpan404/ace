@@ -14,3 +14,6 @@ export type {
   PrDiffContext,
   PrListExtensions,
 } from "./pr-extensions.ts";
+/** People's PR and issue text drawn as GitHub draws it (ADR 0096), and the page scope it reads. */
+export { ForgeProse } from "./rich/forge-prose.tsx";
+export { ForgeContentScope } from "./rich/scope.ts";

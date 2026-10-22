@@ -183,6 +183,7 @@ export class ForgeMediaService {
         mimeType: fetched.media.mimeType,
         kind: fetched.media.kind,
         bytes: fetched.bytes,
+        ...fetched.dimensions,
       };
       await cache.adopt(key, temporary, media, this.options.now());
       return { kind: "ok", result: { state: "ready", ...media } };
