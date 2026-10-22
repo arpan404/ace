@@ -81,7 +81,10 @@ export class WorkspaceForge {
       replyReceipts: new ForgeReplyReceipts(store),
       signal: this.lifetime.signal,
     });
-    this.stopPreferences = sourceControl?.listen(() => this.backends.clear());
+    this.stopPreferences = sourceControl?.listen(() => {
+      this.backends.clear();
+      this.newPr.clear();
+    });
     const context: WorkspaceForgeContext = {
       store,
       owner,

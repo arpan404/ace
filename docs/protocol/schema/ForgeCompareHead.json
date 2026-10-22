@@ -6,9 +6,7 @@
       "$ref": "https://ace.local/protocol/v1/ForgeBranchName.json"
     },
     "name": {
-      "maxLength": 100,
-      "pattern": "^[\\w.-]+$",
-      "type": "string"
+      "$ref": "https://ace.local/protocol/v1/ForgeRepositoryName.json"
     },
     "owner": {
       "maxLength": 100,

@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ForgeRepository } from "@ace/protocol/forge";
 import {
   ForgeBranchName,
+  ForgeRepositoryName,
   ForgeCompare,
   ForgeRepoPrOptions,
   type ForgeBranch,
@@ -205,9 +206,16 @@ export class GitHubNewPr {
     head: ForgeCompareHead,
     page: number,
     signal: AbortSignal,
+    /** The head commit page 1 compared, which later pages keep to. */
+    pinned?: string,
   ): Promise<ForgeCompare> {
-    // Both names reach the URL path: only names git itself would take are sent.
-    if (!ForgeBranchName.safeParse(base).success || !ForgeBranchName.safeParse(head.branch).success)
+    // Every name reaches the URL path: only names git and GitHub themselves would take are sent.
+    if (
+      !ForgeBranchName.safeParse(base).success ||
+      !ForgeBranchName.safeParse(head.branch).success ||
+      !ForgeRepositoryName.safeParse(head.name).success ||
+      (pinned !== undefined && !sha.safeParse(pinned).success)
+    )
       throw new ForgeError("unprocessable");
     const sameOwner = head.owner.toLowerCase() === this.#repository.owner.toLowerCase();
     const sameName = head.name.toLowerCase() === this.#repository.name.toLowerCase();
@@ -215,11 +223,12 @@ export class GitHubNewPr {
     // owner can't be named that way, so it is compared by the commit its branch points at,
     // read from the fork itself: GitHub compares commits across a repository network.
     const headRef =
-      sameOwner && sameName
+      pinned ??
+      (sameOwner && sameName
         ? branchPath(head.branch)
         : sameOwner
           ? await this.#forkHead(head, signal)
-          : `${head.owner}:${branchPath(head.branch)}`;
+          : `${head.owner}:${branchPath(head.branch)}`);
     // No paging parameters: GitHub then lists up to 250 commits and documents the last one as
     // the newest of the whole comparison, which is what `headSha` names.
     const response = await this.#api.request(

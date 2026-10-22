@@ -37,13 +37,13 @@ export class WorkspaceForgeBrowse {
       (operation.op === "forge.repo.pr-options" || operation.op === "forge.compare") &&
       operation.repository === undefined
     ) {
+      if (operation.op === "forge.compare")
+        return {
+          resource: "compare",
+          value: await this.parts.newPr.compare(cwd, operation, signal),
+        };
       const target = await this.parts.newPr.targetBackend(cwd);
-      return operation.op === "forge.compare"
-        ? {
-            resource: "compare",
-            value: await target.compare(operation.base, operation.head, operation.page, signal),
-          }
-        : { resource: "repoPrOptions", value: await target.prOptions(signal) };
+      return { resource: "repoPrOptions", value: await target.prOptions(signal) };
     }
     const repository = operation.repository ?? (await this.ctx.backends.repository(cwd));
     signal.throwIfAborted();
@@ -63,11 +63,26 @@ export class WorkspaceForgeBrowse {
       return { resource: "repoPrOptions", value: await backend.prOptions(signal) };
     if (operation.op === "forge.repo.milestones")
       return { resource: "repoMilestones", value: await backend.milestones(signal) };
-    if (operation.op === "forge.compare")
+    if (operation.op === "forge.compare") {
+      // Named by repository, a comparison is of two of its own branches: a fork's go through
+      // the project's create target above, as a create would.
+      const head = operation.head;
+      if (
+        head.owner.toLowerCase() !== repository.owner.toLowerCase() ||
+        head.name.toLowerCase() !== repository.name.toLowerCase()
+      )
+        throw new Error("repository_mismatch");
       return {
         resource: "compare",
-        value: await backend.compare(operation.base, operation.head, operation.page, signal),
+        value: await backend.compare(
+          operation.base,
+          head,
+          operation.page,
+          signal,
+          operation.headSha,
+        ),
       };
+    }
     if (operation.op === "forge.issue.list")
       return { resource: "issueList", value: await backend.listIssues(operation.query, signal) };
     if (operation.op === "forge.issue.timeline")

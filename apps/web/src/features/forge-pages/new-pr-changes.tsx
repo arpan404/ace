@@ -48,7 +48,7 @@ export function NewPrChanges(props: {
         </h2>
         <PrCompareFiles files={first.files} />
         {Array.from({ length: pages - 1 }, (_, index) => (
-          <FilePage key={index + 2} {...props} page={index + 2} />
+          <FilePage key={index + 2} {...props} page={index + 2} headSha={first.headSha} />
         ))}
         <MoreFiles {...props} pages={pages} onMore={() => setPages(pages + 1)} />
       </section>
@@ -84,8 +84,16 @@ function FilePage(props: {
   head: ForgeCompareHead;
   page: number;
   sameRepository: boolean;
+  headSha: string;
 }) {
-  const page = useCompare(props.project, props.base, props.head, props.page, props.sameRepository);
+  const page = useCompare(
+    props.project,
+    props.base,
+    props.head,
+    props.page,
+    props.sameRepository,
+    props.headSha,
+  );
   if (page.error)
     return <p className="mt-2 text-ui text-muted-foreground">{readFailureText(page.error)}</p>;
   return page.data ? (
@@ -105,7 +113,15 @@ function MoreFiles(props: {
   sameRepository: boolean;
   onMore(): void;
 }) {
-  const last = useCompare(props.project, props.base, props.head, props.pages, props.sameRepository);
+  const last = useCompare(
+    props.project,
+    props.base,
+    props.head,
+    props.pages,
+    props.sameRepository,
+    // Page 1 is `first` itself; later pages keep to its head commit.
+    props.pages === 1 ? undefined : props.first.headSha,
+  );
   const next = props.pages === 1 ? props.first.nextPage : last.data?.nextPage;
   if (!next) return null;
   const shown = Math.min(props.pages * 25, props.first.totalFiles);

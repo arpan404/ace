@@ -183,6 +183,11 @@ test("a branch name git wouldn't take never reaches GitHub", async () => {
   await expect(
     gh.forge.compare("../main", { owner: "octo", name: "ace", branch: "fix" }, 1, signal()),
   ).rejects.toMatchObject({ kind: "unprocessable" });
+  // Nor does a repository name of `.` or `..`, which would climb the URL path.
+  for (const name of [".", ".."])
+    await expect(
+      gh.forge.compare("main", { owner: "octo", name, branch: "fix" }, 1, signal()),
+    ).rejects.toMatchObject({ kind: "unprocessable" });
 });
 
 test("a comparison GitHub cuts at 250 commits still names the branch's newest as its head", async () => {
@@ -245,4 +250,32 @@ test("a fork with the parent's owner is compared at its own branch's commit, rea
   expect(
     (await gh.requests()).some((request) => request.path.endsWith("/compare/main...card")),
   ).toBe(false);
+});
+
+test("a later page compares page 1's head commit, never the branch read again", async () => {
+  const pinned = "d".repeat(40);
+  const gh = await setup({
+    [`repos/octo/ace/compare/main...${pinned}`]: [
+      {
+        body: {
+          status: "ahead",
+          ahead_by: 1,
+          behind_by: 0,
+          total_commits: 1,
+          merge_base_commit: { sha },
+          commits: [commit(1)],
+          files: Array.from({ length: 30 }, (_, i) => file(i)),
+        },
+      },
+    ],
+  });
+  const second = await gh.forge.compare(
+    "main",
+    { owner: "octo", name: "ace-fork", branch: "card" },
+    2,
+    signal(),
+    pinned,
+  );
+  expect(second.files).toHaveLength(5);
+  expect((await gh.requests()).some((request) => request.path.includes("/git/ref/"))).toBe(false);
 });

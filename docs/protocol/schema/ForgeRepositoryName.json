@@ -1,0 +1,8 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeRepositoryName.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "maxLength": 100,
+  "minLength": 1,
+  "pattern": "^(?!\\.{1,2}$)[\\w.-]+$",
+  "type": "string"
+}

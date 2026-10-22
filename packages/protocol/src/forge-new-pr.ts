@@ -12,6 +12,12 @@ const login = z
   .regex(/^[\w-]+$/)
   .max(100);
 const scope = { workspaceId: WorkspaceId, repository: ForgeRepository.optional() };
+/** A repository's name as GitHub allows it: letters, digits, `-`, `_` and `.`, never `.` or `..`. */
+export const ForgeRepositoryName = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^(?!\.{1,2}$)[\w.-]+$/);
 /**
  * A branch name a client may ask about, valid by git's own rules (`git check-ref-format
  * --branch`): no `..`, `//`, `@{`, control characters, spaces or `~^:?*[\`; no part that starts
@@ -78,10 +84,7 @@ export type ForgeRepoPrOptions = z.infer<typeof ForgeRepoPrOptions>;
  */
 export const ForgeCompareHead = z.object({
   owner: login,
-  name: z
-    .string()
-    .regex(/^[\w.-]+$/)
-    .max(100),
+  name: ForgeRepositoryName,
   branch: ForgeBranchName,
 });
 export type ForgeCompareHead = z.infer<typeof ForgeCompareHead>;
@@ -120,6 +123,8 @@ export const ForgeNewPrOperations = [
     base: ForgeBranchName,
     head: ForgeCompareHead,
     page: z.number().int().min(1).max(12).default(1),
+    /** Page 1's head commit, so every page compares the same commits even if the branch moves. */
+    headSha: sha.optional(),
   }),
 ] as const;
 export const ForgeNewPrResults = [
