@@ -21,6 +21,7 @@ import { FakePrCatalog } from "./pr-catalog-wire.ts";
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
 import { fakeOpenWork } from "./open-work-wire.ts";
 import { emptyIssueList, FakeIssueWire } from "./issue-wire.ts";
+import { FakeInboxWire } from "./inbox-wire.ts";
 import { catalogIssueList } from "./forge-list-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import { FakeGitStates } from "./git-states.ts";
@@ -63,6 +64,8 @@ export class FakeWorkspaceWire {
     this.issues = new FakeIssueWire(this.forgeReads, () => context.now());
   }
   private forgeReads = new Map<string, ForgeBrowserResult>();
+  /** GitHub notifications (`forge.inbox.list`, `forge.inbox.write`); empty until seeded. */
+  readonly inbox = new FakeInboxWire();
   private issues: FakeIssueWire;
   setIssueOutcome(
     outcome: "succeeded" | "uncertain" | "unsent" | "busy" | "unauthorized" | "invalid" | "unknown",
@@ -250,6 +253,15 @@ export class FakeWorkspaceWire {
         requestId: request.requestId,
         result: { kind: "forge", data: fakeOpenWork(op, (list) => this.seededRead(list)) },
       });
+    const inbox = this.inbox.read(op);
+    if (inbox) await this.inbox.gate();
+    if (inbox)
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result:
+          "error" in inbox ? { kind: "error", code: inbox.error } : { kind: "forge", data: inbox },
+      });
     if (op.op.startsWith("forge.")) {
       const data = this.seededRead(op);
       return ServerMessage.parse({
@@ -323,6 +335,8 @@ export class FakeWorkspaceWire {
     if (forge) return forge;
     const issue = this.issues.command(payload, commandId);
     if (issue) return issue;
+    const inboxWrite = this.inbox.command(payload, commandId);
+    if (inboxWrite) return inboxWrite;
     if (!("threadId" in payload) || !payload.threadId) return undefined;
     const thread = this.context.thread(payload.threadId)?.thread;
     if (

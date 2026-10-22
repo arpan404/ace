@@ -412,6 +412,7 @@ export class WorkspaceRuntime {
     if (
       op.op === "forge.pr.lifecycle" ||
       op.op === "forge.issue.list" ||
+      op.op === "forge.inbox.list" ||
       op.op === "forge.issue.detail" ||
       op.op === "forge.issue.timeline" ||
       op.op === "forge.issue.actions" ||
@@ -612,6 +613,11 @@ export class WorkspaceRuntime {
         const cwd = this.store.getWorkspacePath(p.workspaceId);
         if (!cwd) return { ok: false, error: "workspace_not_found" };
         return this.forge.hostedLifecycle({ ...command, payload: p }, cwd, allowed);
+      }
+      if (p.type === "forge.inbox.write") {
+        const cwd = this.store.getWorkspacePath(p.workspaceId);
+        if (!cwd) return commandNotDispatched(command, "workspace_not_found");
+        return this.forge.inboxCommand({ ...command, payload: p }, cwd, allowed);
       }
       if (p.type === "forge.issue.write" || p.type === "forge.issue.reconcile") {
         const cwd = this.store.getWorkspacePath(p.workspaceId);

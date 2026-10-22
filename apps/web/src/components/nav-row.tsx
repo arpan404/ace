@@ -8,7 +8,7 @@ import { cn } from "@/lib/cn.ts";
  * of what is open there. The open page's row takes the selected fill.
  */
 export function NavRow(props: {
-  to: "/pulls";
+  to: "/pulls" | "/inbox";
   icon: IconGlyph;
   label: string;
   active: boolean;
@@ -22,7 +22,7 @@ export function NavRow(props: {
     waiting > 0
       ? `${props.label}, ${waiting} ${waiting === 1 ? "needs" : "need"} you`
       : props.open
-        ? `${props.label}, ${props.open} open`
+        ? `${props.label}, ${props.open} ${props.to === "/inbox" ? "unread" : "open"}`
         : props.label;
   return (
     <Link

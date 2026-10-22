@@ -1439,6 +1439,9 @@
         "health": {
           "$ref": "https://ace.local/protocol/v1/DiagnosticsHealth.json"
         },
+        "inboxAction": {
+          "$ref": "https://ace.local/protocol/v1/ForgeInboxAction.json"
+        },
         "inspection": {
           "$ref": "https://ace.local/protocol/v1/ProjectInspection.json"
         },

@@ -135,6 +135,31 @@
         },
         {
           "properties": {
+            "host": {
+              "maxLength": 253,
+              "pattern": "^[a-zA-Z0-9.-]+$",
+              "type": "string"
+            },
+            "op": {
+              "const": "forge.inbox.list",
+              "type": "string"
+            },
+            "query": {
+              "$ref": "https://ace.local/protocol/v1/ForgeInboxQuery.json"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "image": {
               "$ref": "https://ace.local/protocol/v1/ForgeImageType.json"
             },

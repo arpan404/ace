@@ -6,7 +6,8 @@ import { IssuePages } from "@/components/forge-links.tsx";
 import { PullRequestOpener } from "@/components/pull-request-link.tsx";
 import { loadPrDetail, PrPageSkeleton } from "@/features/forge/index.ts";
 import { Screen } from "@/features/shell/index.ts";
-import { useBackToList } from "./back-to-list.ts";
+import { BackLabel } from "@/components/back-label.tsx";
+import { backLabel, useBackToList } from "./back-to-list.ts";
 import { cachedRow } from "./lists.ts";
 import { useProjectChoice } from "./project-choice.ts";
 import { repositoryFromParam, repositoryParam } from "@/lib/pull-request-route.ts";
@@ -63,39 +64,41 @@ export function PullRequestPage(props: {
     });
   return (
     <Screen title={`#${props.number}`} crumb={choice.name(project)}>
-      <PullRequestOpener value={(pr: ForgePrRef) => open(pr.number, pr.repository)}>
-        <IssuePages project={project}>
-          <Suspense
-            fallback={
-              <div className="h-full bg-panel [--forge-gutter:1rem] sm:[--forge-gutter:2rem]">
-                <PrPageSkeleton
-                  number={props.number}
-                  seed={seed}
-                  onBack={back}
-                  readable="mx-auto w-full max-w-[64rem]"
-                />
-              </div>
-            }
-          >
-            <PrDetail
-              key={`${project}:${props.repo ?? ""}#${props.number}`}
-              workspaceId={project}
-              repository={repositoryFromParam(props.repo)}
-              number={props.number}
-              seed={seed}
-              tab={props.tab ?? "summary"}
-              onTab={(tab) => {
-                const next = tabs.find((known) => known === tab) ?? "summary";
-                props.onTab(next === "summary" ? undefined : next);
-              }}
-              onState={onState}
-              onOpen={(number) => open(number)}
-              onBack={back}
-              page
-            />
-          </Suspense>
-        </IssuePages>
-      </PullRequestOpener>
+      <BackLabel value={backLabel(props.back, "Pull requests")}>
+        <PullRequestOpener value={(pr: ForgePrRef) => open(pr.number, pr.repository)}>
+          <IssuePages project={project}>
+            <Suspense
+              fallback={
+                <div className="h-full bg-panel [--forge-gutter:1rem] sm:[--forge-gutter:2rem]">
+                  <PrPageSkeleton
+                    number={props.number}
+                    seed={seed}
+                    onBack={back}
+                    readable="mx-auto w-full max-w-[64rem]"
+                  />
+                </div>
+              }
+            >
+              <PrDetail
+                key={`${project}:${props.repo ?? ""}#${props.number}`}
+                workspaceId={project}
+                repository={repositoryFromParam(props.repo)}
+                number={props.number}
+                seed={seed}
+                tab={props.tab ?? "summary"}
+                onTab={(tab) => {
+                  const next = tabs.find((known) => known === tab) ?? "summary";
+                  props.onTab(next === "summary" ? undefined : next);
+                }}
+                onState={onState}
+                onOpen={(number) => open(number)}
+                onBack={back}
+                page
+              />
+            </Suspense>
+          </IssuePages>
+        </PullRequestOpener>
+      </BackLabel>
     </Screen>
   );
 }

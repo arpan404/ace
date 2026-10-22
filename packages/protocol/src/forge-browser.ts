@@ -8,6 +8,7 @@ import {
   ForgeLabelColors,
   ForgeAvatars,
 } from "./forge-issues.ts";
+import { ForgeInboxOperations, ForgeInboxResults } from "./forge-inbox.ts";
 import { ForgeMergeState } from "./forge-merge-state.ts";
 import { ForgeStackMembership, ForgeStackWorkspace } from "./forge-stacks.ts";
 import { ForgeReviewState } from "./forge-review.ts";
@@ -224,6 +225,7 @@ const scope = { workspaceId: WorkspaceId, repository: ForgeRepository.optional()
 export const ForgeBrowserOperations = [
   z.object({ op: z.literal("forge.pr.lifecycle"), ...scope, number: z.number().int().positive() }),
   ...ForgeIssueOperations,
+  ...ForgeInboxOperations,
   ...ForgeFileContentOperations,
   z.object({
     op: z.literal("forge.pr.merge-state"),
@@ -278,6 +280,7 @@ export const ForgeBrowserOperations = [
 export const ForgeBrowserResult = z.discriminatedUnion("resource", [
   z.object({ resource: z.literal("prLifecycle"), value: ForgeLifecycleState }),
   ...ForgeIssueResults,
+  ...ForgeInboxResults,
   ...ForgeFileContentResults,
   z.object({ resource: z.literal("prMergeState"), value: ForgeMergeState }),
   z.object({ resource: z.literal("prStack"), value: ForgeStackWorkspace }),

@@ -175,3 +175,4 @@ export * from "./storage.ts";
 
 export * from "./html.ts";
 export * from "./image-share.ts";
+export * from "./forge-inbox.ts";

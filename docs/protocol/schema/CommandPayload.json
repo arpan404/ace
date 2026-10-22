@@ -1632,6 +1632,31 @@
     },
     {
       "properties": {
+        "host": {
+          "maxLength": 253,
+          "pattern": "^[a-zA-Z0-9.-]+$",
+          "type": "string"
+        },
+        "input": {
+          "$ref": "https://ace.local/protocol/v1/ForgeInboxWrite.json"
+        },
+        "type": {
+          "const": "forge.inbox.write",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "source": {
           "$ref": "https://ace.local/protocol/v1/ReviewSource.json"
         },
