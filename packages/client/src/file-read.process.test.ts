@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { chunkFilesChannel, FilesService } from "@ace/files";
 import { FILE_READ_PART, ThreadId, type FilesServerMessage } from "@ace/protocol";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -9,6 +9,7 @@ import { readFile, type FileReader } from "./file-read.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
+  vi.unstubAllGlobals();
   for (const step of cleanup.splice(0)) await step();
 });
 
@@ -90,6 +91,18 @@ test("a source file larger than one part arrives whole and compressed on the wir
     0,
   );
   expect(sent).toBeLessThan(text.length / 3);
+});
+
+test("a platform that can't expand gzip is sent the file's plain bytes", async () => {
+  vi.stubGlobal("DecompressionStream", undefined);
+  const c = await checkout();
+  const text = "export const line = 1;\n".repeat(20_000);
+  await writeFile(join(c.root, "plain.ts"), text);
+  const result = await read(c.client, "plain.ts");
+  expect(result.kind === "file" && new TextDecoder().decode(result.bytes)).toBe(text);
+  const encodings = c.seen.map((m) => (m.type === "files.result" ? m.value.encoding : undefined));
+  expect(encodings.length).toBeGreaterThan(1);
+  expect(encodings.every((encoding) => encoding !== "gzip")).toBe(true);
 });
 
 test("missing files, folders and files over the limit come back without bytes", async () => {

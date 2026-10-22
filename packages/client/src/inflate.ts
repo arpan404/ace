@@ -1,18 +1,44 @@
+/*
+ * Expanding compressed bytes from the daemon with the platform's own decompressor
+ * (`DecompressionStream`: browsers, Node, and the iPhone bridge, which backs it with native zlib).
+ * Checked on every use, not at load, so a host that installs its decompressor after this module
+ * loads is still seen. A platform without one is never sent compressed bytes.
+ */
+
+/** Formats the daemon may compress with. */
+export type Compression = "gzip" | "deflate-raw";
+
+/** Whether this platform can expand what the daemon compresses. */
+export function canInflate(): boolean {
+  return typeof DecompressionStream === "function";
+}
+
 /** The compression a relayed channel asks the daemon for, when this platform can undo it. */
 export function relayCompression(): string[] {
-  return typeof DecompressionStream === "function" ? ["deflate-raw"] : [];
+  return canInflate() ? ["deflate-raw"] : [];
+}
+
+/** Thrown when compressed bytes would expand past the caller's limit. */
+export class InflateLimitError extends Error {
+  constructor() {
+    super("Inflate limit");
+  }
 }
 
 /**
- * Inflates one deflated relay message with the platform's own decompressor, refusing output
- * past `limit` bytes so a small message can't expand without bound.
+ * Expands `compressed`, refusing output past `limit` bytes so a small input can't expand
+ * without bound. Corrupt input rejects.
  */
-export async function inflateRaw(deflated: Uint8Array, limit: number): Promise<Uint8Array> {
-  const stream = new DecompressionStream("deflate-raw");
+export async function inflate(
+  format: Compression,
+  compressed: Uint8Array,
+  limit: number,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const stream = new DecompressionStream(format);
   const writer = stream.writable.getWriter();
-  // A corrupt message fails the read below too; this rejection carries nothing new.
+  // A corrupt input fails the read below too; this rejection carries nothing new.
   void writer
-    .write(new Uint8Array(deflated))
+    .write(new Uint8Array(compressed))
     .then(() => writer.close())
     .catch(() => {});
   const reader = stream.readable.getReader();
@@ -24,7 +50,7 @@ export async function inflateRaw(deflated: Uint8Array, limit: number): Promise<U
     total += value.length;
     if (total > limit) {
       await reader.cancel().catch(() => {});
-      throw new Error("Relay message limit");
+      throw new InflateLimitError();
     }
     chunks.push(value);
   }

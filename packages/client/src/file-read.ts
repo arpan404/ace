@@ -1,6 +1,7 @@
 import { FILE_READ_PART, FileReadResult, type ThreadId, type WorkspaceId } from "@ace/protocol";
 import type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
 import { decodeBase64 } from "./base64.ts";
+import { canInflate, inflate } from "./inflate.ts";
 import { ClientError, type RequestOptions } from "./types.ts";
 
 export interface FileReadInput {
@@ -19,12 +20,6 @@ export type FileReadOutcome =
 
 /** Parts of a big file asked for at once; the daemon admits eight requests per connection. */
 const inFlight = 4;
-const gzip = typeof DecompressionStream === "function";
-
-async function gunzip(bytes: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
 
 type FilesRequest = Extract<ServiceRequest, { type: "files.request" }>;
 /** What reading needs of a client: `ClientApi` has it. */
@@ -51,7 +46,7 @@ async function part(
         offset,
         length: FILE_READ_PART,
         maxSize: input.maxSize,
-        encodings: gzip ? ["gzip"] : [],
+        encodings: canInflate() ? ["gzip"] : [],
         ...(validator ? { validator } : {}),
       },
     },
@@ -64,7 +59,13 @@ async function part(
   const result = parsed.data;
   if (result.data === undefined) return { result, bytes: undefined };
   const raw = decodeBase64(result.data, FILE_READ_PART);
-  const bytes = result.encoding === "gzip" ? await gunzip(raw) : raw;
+  // A part never expands past its own size: anything more is a broken reply.
+  const bytes =
+    result.encoding === "gzip"
+      ? await inflate("gzip", raw, FILE_READ_PART).catch(() => {
+          throw new ClientError("protocol");
+        })
+      : raw;
   if (bytes.length > FILE_READ_PART || result.offset !== offset) throw new ClientError("protocol");
   return { result, bytes };
 }
