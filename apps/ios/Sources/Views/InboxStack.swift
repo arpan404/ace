@@ -34,11 +34,16 @@ struct InboxStack<Destination: View>: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            Group {
-                if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    InboxList(inbox: inbox, includes: includes, pulls: pulls, shelves: $shelves, actions: actions, compose: nil)
-                        .refreshable { await refresh() }
-                } else {
+            // The list stays mounted under the results, so it keeps its place while the person
+            // searches and is back where it was when they cancel.
+            ZStack {
+                let results = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                InboxList(inbox: inbox, includes: includes, pulls: pulls, shelves: $shelves, actions: actions, compose: nil)
+                    .refreshable { await refresh() }
+                    .opacity(results ? 0 : 1)
+                    .allowsHitTesting(!results)
+                    .accessibilityHidden(results)
+                if results {
                     InboxSearchList(inbox: inbox, query: query, includes: includes, open: actions.open)
                 }
             }
@@ -64,7 +69,7 @@ struct InboxStack<Destination: View>: View {
         ToolbarItem(placement: .topBarTrailing) { settings }
         if #available(iOS 26, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
         ToolbarItem(placement: .topBarTrailing) {
-            Button { searching = true } label: { Image(systemName: "magnifyingglass") }
+            Button { withAnimation(.smooth) { searching = true } } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Search").accessibilityIdentifier("inbox.search")
         }
     }
@@ -86,22 +91,25 @@ struct InboxStack<Destination: View>: View {
 }
 
 /// The system search field, shown only once the Search button asks for it and gone again when
-/// the person cancels, so the inbox opens on its rows rather than an empty field.
+/// the person cancels, so the inbox opens on its rows rather than an empty field. The field hangs
+/// off a carrier behind the list, so showing it never rebuilds the list.
 private struct InboxSearchField: ViewModifier {
     @Binding var query: String
     @Binding var searching: Bool
     @State private var shown = false
 
     func body(content: Content) -> some View {
-        Group {
-            if shown {
-                content.searchable(text: $query, isPresented: $searching, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search threads and messages")
-            } else {
-                content
+        content
+            .background {
+                if shown {
+                    Color.clear
+                        .searchable(text: $query, isPresented: $searching, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search threads and messages")
+                        .accessibilityHidden(true)
+                }
             }
-        }
-        .onChange(of: searching) { _, now in
-            if now { shown = true } else { query = ""; shown = false }
-        }
+            .onChange(of: searching) { _, now in
+                // The field joins the bar in the same animation the system uses to focus it.
+            if now { withAnimation(.smooth) { shown = true } } else { query = ""; shown = false }
+            }
     }
 }
