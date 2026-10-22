@@ -123,8 +123,6 @@ func describeAutomationTrigger(_ trigger: ServiceValue) -> String {
         return "Configured trigger"
     }
 }
-/// Settings › Automations: each automation is a section headed by its name and trigger, with its
-/// switch, details and actions as rows, then the machine's recent runs.
 struct AutomationsView: View {
     let model: ClientModel
     @State private var rows: [AutomationRow] = []
@@ -137,38 +135,61 @@ struct AutomationsView: View {
     @State private var unavailable = false
     var body: some View {
         List {
-            if loading || problem != nil || !model.canOperate {
+            Group {
+                if loading { HStack { Spacer(); ProgressView().accessibilityLabel("Reading automations"); Spacer() } }
+                ServiceProblem(message: problem)
+                if !model.canOperate {
+                    ViewOnlyNote(message: "View only. To change automations from this phone, pair it again with View and act.")
+                }
+                if !loading && rows.isEmpty && problem == nil { ContentUnavailableView("No automations", systemImage: "clock.arrow.circlepath") }
+            }
+            .listRowBackground(Color.clear)
+            ForEach(rows) { row in
                 Section {
-                    if loading {
-                        HStack(spacing: AceTheme.Spacing.sm) { ProgressView().controlSize(.mini); Text("Reading automations…") }
+                    Toggle("Enabled", isOn: Binding(get: { row.enabled }, set: { enabled in
+                        var changed = row; changed.enabled = enabled
+                        if let automation = changed.payload { perform(["type": "automation.put", "automation": automation]) }
+                    }))
+                    Text(describeAutomationTrigger(row.trigger))
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    if !row.enabled {
+                        Text("Paused. Resume to schedule runs.")
                             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                             .foregroundStyle(AceTheme.Colours.mutedForeground)
                     }
-                    ServiceProblem(message: problem)
-                    if !model.canOperate {
-                        ViewOnlyNote(message: "View only. To change automations from this phone, pair it again with View and act.")
+                    Text(row.prompt).lineLimit(4)
+                    LabeledContent("Provider", value: row.provider.capitalized)
+                    Text(row.workspace).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
+                    Button("Edit", systemImage: "pencil") { editing = row }
+                    Button("Delete", role: .destructive) { removing = row }
+                    Button("Run now", systemImage: "play") {
+                        perform(["type": "automation.run", "id": row.id, "variables": [String: String]()])
                     }
+                    .disabled(!row.enabled)
+                } header: {
+                    InsetHeader(row.title.isEmpty ? "Untitled automation" : row.title)
                 }
-                .settingsRow()
+                .insetRowBackground()
+                .disabled(!model.canOperate || busy)
             }
-            if !loading && rows.isEmpty && problem == nil {
-                EmptyState(icon: .clockCounterClockwise, title: "No automations on this machine",
-                           line: "An automation runs a prompt by hand, on a schedule or when something changes.")
-                    .padding(.top, AceTheme.Spacing.xxxl).listRowBackground(Color.clear).listRowSeparator(.hidden)
-            }
-            ForEach(rows) { row in automation(row) }
             if !runs.isEmpty {
                 Section {
-                    ForEach(runs) { run in RunRow(run: run) }
-                } header: { SettingsHeader("Recent runs") }
-                .settingsRow()
+                    ForEach(runs) { run in
+                        VStack(alignment: .leading) {
+                            LabeledContent(run.title, value: run.status.capitalized)
+                            if let result = run.result { Text(result).lineLimit(3).foregroundStyle(AceTheme.Colours.mutedForeground) }
+                        }
+                    }
+                } header: { InsetHeader("Recent runs") }
+                .insetRowBackground()
             }
         }
-        .settingsList()
+        .insetGroupedList()
         .navigationTitle("Automations").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("New automation", ace: .plus) {
+                Button("New automation", systemImage: "plus") {
                     editing = AutomationRow(id: UUID().uuidString, title: "", enabled: true, workspace: "", provider: model.providers?.providers.first?.provider ?? "codex", prompt: "", trigger: .object(["kind": .string("manual")]), worktree: false, missedRun: "skip", concurrency: 1, jitterMs: 0, model: nil, access: nil)
                 }.disabled(!model.canOperate || unavailable)
             }
@@ -185,41 +206,6 @@ struct AutomationsView: View {
             Text("Its run history stays on this machine.")
         }
         .task { await read() }.refreshable { await read() }
-    }
-    /// One automation: its name over the trigger, then its switch, task, agent, project and actions.
-    private func automation(_ row: AutomationRow) -> some View {
-        Section {
-            Toggle(isOn: Binding(get: { row.enabled }, set: { enabled in
-                var changed = row; changed.enabled = enabled
-                if let automation = changed.payload { perform(["type": "automation.put", "automation": automation]) }
-            })) {
-                SettingsRow(title: "Enabled", description: row.enabled ? nil : "Paused. Resume to schedule runs.") { EmptyView() }
-            }
-            Text(row.prompt).lineLimit(4)
-                .aceFont(SettingsStyle.value, relativeTo: .body)
-                .foregroundStyle(AceTheme.Colours.foreground)
-            SettingsRow("Coding agent", value: row.provider.capitalized)
-                .accessibilityElement(children: .combine)
-            SettingsRow(title: "Project") {
-                Text(row.workspace).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .lineLimit(1).truncationMode(.head)
-            }
-            .accessibilityElement(children: .combine)
-            Button {
-                perform(["type": "automation.run", "id": row.id, "variables": [String: String]()])
-            } label: { SettingsActionLabel(title: "Run now") }
-            .buttonStyle(.plain)
-            .disabled(!row.enabled)
-            Button { editing = row } label: { SettingsActionLabel(title: "Edit") }
-                .buttonStyle(.plain)
-            Button(role: .destructive) { removing = row } label: { SettingsActionLabel(title: "Delete", destructive: true) }
-                .buttonStyle(.plain)
-        } header: {
-            SettingsHeader(row.title.isEmpty ? "Untitled automation" : row.title, note: describeAutomationTrigger(row.trigger))
-        }
-        .settingsRow()
-        .disabled(!model.canOperate || busy)
     }
     private func read() async {
         defer { loading = false }
@@ -248,31 +234,6 @@ struct AutomationsView: View {
                 guard reply.ok else { throw ServiceFailure(message: friendlyAutomationError(reply.error, fallback: "Couldn't save or run this automation. Check its project and agent, then try again.")) }
                 await read()
             } catch { problem = error.localizedDescription }
-        }
-    }
-}
-
-/// A recent run: its title with the run's state at the right, then the start of its result.
-private struct RunRow: View {
-    let run: AutomationReply.Inbox.Run
-    var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            SettingsRow(title: run.title) { StateLabel(status: StatusDisplay(label: run.status.capitalized, token: token)) }
-            if let result = run.result {
-                Text(result).lineLimit(3)
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
-        }
-        .accessibilityElement(children: .combine)
-    }
-    /// The daemon's run states (running, succeeded, failed, skipped) in the shared status tones.
-    private var token: String {
-        switch run.status {
-        case "running": "working"
-        case "succeeded": "done"
-        case "failed": "failed"
-        default: "idle"
         }
     }
 }

@@ -57,7 +57,7 @@ struct GitMessageSheet: View {
                         }
                         .accessibilityIdentifier("changes.cancelDraft")
                     } else {
-                        Button { drafting = model.draftGitText(for: kind); requested = drafting } label: { Label("Draft with AI", ace: .sparkle) }
+                        Button { drafting = model.draftGitText(for: kind); requested = drafting } label: { Label("Draft with AI", systemImage: "sparkles") }
                             .accessibilityIdentifier("changes.draft")
                     }
                 }

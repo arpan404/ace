@@ -5,8 +5,6 @@ private struct ProjectHomeReply: Decodable {
     let result: Result
 }
 
-/// A new or cloned project on the connected machine: where it goes, optional Git setup, then the
-/// request, which keeps running if this screen closes.
 struct CreateProjectView: View {
     let model: ClientModel
     let cloning: Bool
@@ -23,54 +21,37 @@ struct CreateProjectView: View {
         _drafts = State(initialValue: ProjectCreationDraftModel(hostId: model.hostId ?? "unpaired", cloning: cloning))
     }
     var body: some View {
-        List {
-            if model.connection != "ready" {
-                InboxConnectionBanner(connection: model.connection, retry: model.retry)
-                    .listRowBackground(Color.clear).listRowSeparator(.hidden)
-            }
-            Section {
-                if cloning {
-                    TextField("Repository URL", text: field(\.url)).aceMonospace(SettingsStyle.value, relativeTo: .body)
-                        .accessibilityIdentifier("project.clone.url")
-                }
-                TextField("Project name", text: field(\.name)).aceFont(SettingsStyle.label, relativeTo: .body)
-                    .accessibilityIdentifier("project.create.name")
-                TextField("Parent folder on Mac", text: field(\.parent)).aceMonospace(SettingsStyle.value, relativeTo: .body)
-                    .accessibilityIdentifier("project.create.parent")
-            } header: {
-                SettingsHeader(cloning ? "Repository" : "Project", note: "Created on your connected machine. The folder and repository are kept there.")
-            }
-            .settingsRow()
-            if !cloning {
+        Form {
+            Group {
+                if model.connection != "ready" { InboxConnectionBanner(connection: model.connection, retry: model.retry) }
                 Section {
-                    Toggle(isOn: Binding(get: { draft.git }, set: { value in drafts.edit { $0.git = value } })) {
-                        SettingsRow(title: "Initialise a Git repository") { EmptyView() }
-                    }
-                    if draft.git {
-                        TextField("Initial branch (\(initialBranch))", text: field(\.branch))
-                            .aceMonospace(SettingsStyle.value, relativeTo: .body)
-                        TextField(".gitignore contents", text: field(\.gitignore), axis: .vertical).lineLimit(3...8)
-                            .aceMonospace(SettingsStyle.value, relativeTo: .body)
-                    }
-                } header: { SettingsHeader("Git") }
-                .settingsRow()
-            }
-            Section {
-                if let message = problem ?? drafts.problem { ServiceProblem(message: message) }
+                    if cloning { TextField("Repository URL", text: field(\.url)).accessibilityIdentifier("project.clone.url") }
+                    TextField("Project name", text: field(\.name)).accessibilityIdentifier("project.create.name")
+                    TextField("Parent folder on Mac", text: field(\.parent)).accessibilityIdentifier("project.create.parent")
+                } footer: { Text("Created on your connected machine. The folder and repository are kept there.") }
+                if !cloning {
+                    Section {
+                        Toggle("Initialise a Git repository", isOn: Binding(get: { draft.git }, set: { value in drafts.edit { $0.git = value } }))
+                        if draft.git {
+                            TextField("Initial branch (\(initialBranch))", text: field(\.branch))
+                            TextField(".gitignore contents", text: field(\.gitignore), axis: .vertical).lineLimit(3...8)
+                        }
+                    } header: { InsetHeader("Git") }
+                }
+                ServiceProblem(message: problem ?? drafts.problem)
                 if busy {
                     if cloning, let progress = model.compose.clone, progress.id == draft.commandId {
                         if let percent = progress.percent { ProgressView(progress.label, value: percent, total: 100) }
                         else { ProgressView(progress.label) }
                     } else { ProgressView(cloning ? "Cloning repository…" : "Creating project…") }
                 }
-                Button { submission = Task { await submit() } } label: { SettingsActionLabel(title: cloning ? "Clone repository" : "Create project") }
-                    .buttonStyle(.plain)
+                Button(cloning ? "Clone repository" : "Create project") { submission = Task { await submit() } }
                     .disabled(!ready || busy || !model.canOperate || model.connection != "ready")
                     .accessibilityIdentifier("project.create.submit")
             }
-            .settingsRow()
+            .insetRowBackground()
         }
-        .settingsList()
+        .insetGroupedList()
         .textInputAutocapitalization(.never).autocorrectionDisabled()
         .disabled(busy)
         .navigationTitle(cloning ? "Clone repository" : "New project").navigationBarTitleDisplayMode(.inline)
@@ -127,4 +108,3 @@ struct CreateProjectView: View {
         } catch { if !Task.isCancelled { problem = error.localizedDescription } }
     }
 }
-

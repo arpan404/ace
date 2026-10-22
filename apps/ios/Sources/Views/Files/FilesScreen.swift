@@ -69,15 +69,13 @@ struct FilesScreen: View {
     @ViewBuilder private var treeRows: some View {
         if let tree {
             if tree.rows.isEmpty {
-                EmptyState(icon: .folder, title: "No files").padding(.top, AceTheme.Spacing.xxxl)
-                    .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
+                ContentUnavailableView("No files", systemImage: "folder").listRowSeparator(.hidden)
             }
             ForEach(visible) { row in
                 Button { tap(row) } label: { FileTreeRowView(row: row, open: open.contains(row.path)) }
                     .buttonStyle(.plain)
                     .listRowInsets(EdgeInsets(top: 0, leading: AceTheme.Spacing.xl, bottom: 0, trailing: AceTheme.Spacing.xl))
                     .listRowBackground(AceTheme.Colours.background)
-                    .listRowSeparator(.hidden)
                     .contextMenu { rowMenu(path: row.path, folder: row.folder) }
                     .swipeActions(edge: .trailing) {
                         if actions.canChange, row.mark != "D" {
@@ -93,11 +91,11 @@ struct FilesScreen: View {
                     .accessibilityIdentifier("files.more")
             }
         } else if let failure {
-            EmptyState(icon: nil, title: "Couldn't read the files", line: failure, failed: true) {
+            ContentUnavailableView {
+                Label("Couldn't read the files", systemImage: "exclamationmark.triangle")
+            } description: { Text(failure) } actions: {
                 Button("Try again") { Task { await load() } }
             }
-            .padding(.top, AceTheme.Spacing.xxxl)
-            .listRowBackground(AceTheme.Colours.background)
             .listRowSeparator(.hidden)
         } else {
             HStack { Spacer(); ProgressView(); Spacer() }.listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
@@ -141,7 +139,7 @@ struct FilesScreen: View {
                 Button { pick(row) } label: { FileSearchRowView(row: row) }
                     .buttonStyle(.plain)
                     .listRowInsets(EdgeInsets(top: 0, leading: AceTheme.Spacing.xl, bottom: 0, trailing: AceTheme.Spacing.xl))
-                    .listRowBackground(AceTheme.Colours.background).listRowSeparator(.hidden)
+                    .listRowBackground(AceTheme.Colours.background)
                     .contextMenu { rowMenu(path: row.path, folder: row.isFolder) }
                     .accessibilityIdentifier("search.\(row.path)")
             }
@@ -202,32 +200,32 @@ struct FilesScreen: View {
 
     private var manageMenu: some View {
         Menu {
-            Button("New file", ace: .filePlus) { actions.ask(.create(folder: "")) }
+            Button("New file", systemImage: "doc.badge.plus") { actions.ask(.create(folder: "")) }
                 .accessibilityIdentifier("files.newFile")
-            Button("New folder", ace: .folderPlus) { actions.ask(.mkdir(folder: "")) }
+            Button("New folder", systemImage: "folder.badge.plus") { actions.ask(.mkdir(folder: "")) }
                 .accessibilityIdentifier("files.newFolder")
             Divider()
-            Button("Recently deleted", ace: .trash) { showTrash = true }
+            Button("Recently deleted", systemImage: "trash") { showTrash = true }
                 .accessibilityIdentifier("files.trash")
         } label: {
-            Label("Manage files", ace: .dotsThree)
+            Label("Manage files", systemImage: "ellipsis")
         }
         .accessibilityIdentifier("files.manage")
     }
 
     @ViewBuilder private func rowMenu(path: String, folder: Bool) -> some View {
         if folder, actions.canChange {
-            Button("New file here", ace: .filePlus) { actions.ask(.create(folder: path)) }
-            Button("New folder here", ace: .folderPlus) { actions.ask(.mkdir(folder: path)) }
+            Button("New file here", systemImage: "doc.badge.plus") { actions.ask(.create(folder: path)) }
+            Button("New folder here", systemImage: "folder.badge.plus") { actions.ask(.mkdir(folder: path)) }
         }
         if !folder, let mention {
-            Button("Mention in message", ace: .at) { mention(path) }
+            Button("Mention in message", systemImage: "at") { mention(path) }
         }
-        Button("Copy path", ace: .copy) { UIPasteboard.general.string = path }
+        Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
         if actions.canChange {
-            Button("Rename", ace: .pencilSimple) { actions.ask(.rename(path: path)) }
-            Button("Move", ace: .folder) { actions.ask(.move(path: path)) }
-            Button("Delete", ace: .trash, role: .destructive) { actions.ask(.delete(path: path)) }
+            Button("Rename", systemImage: "pencil") { actions.ask(.rename(path: path)) }
+            Button("Move", systemImage: "folder") { actions.ask(.move(path: path)) }
+            Button("Delete", systemImage: "trash", role: .destructive) { actions.ask(.delete(path: path)) }
         }
     }
 
@@ -257,12 +255,13 @@ struct FileTreeRowView: View {
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
             Color.clear.frame(width: CGFloat(row.depth) * 18, height: 1)
-            AceIcon(.caretRight, size: 11)
+            Image(systemName: "chevron.right").font(.caption2.weight(.semibold))
                 .rotationEffect(.degrees(open ? 90 : 0))
                 .animation(reduceMotion ? nil : .easeOut(duration: AceTheme.Motion.standard), value: open)
                 .foregroundStyle(AceTheme.Colours.decoration)
                 .frame(width: 10).opacity(row.folder ? 1 : 0)
-            AceIcon(row.folder ? .folder : .file, size: 16).foregroundStyle(AceTheme.Colours.subtleForeground).frame(width: 22)
+            Image(systemName: row.folder ? "folder" : "doc")
+                .font(.subheadline).foregroundStyle(AceTheme.Colours.mutedForeground).frame(width: 22)
             Text(row.name).aceFont(AceTheme.Typography.body, relativeTo: .body)
                 .foregroundStyle(row.mark == "D" ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                 .strikethrough(row.mark == "D", color: AceTheme.Colours.mutedForeground)
@@ -285,7 +284,8 @@ struct FileSearchRowView: View {
     let row: FileSearchRow
     var body: some View {
         HStack(spacing: AceTheme.Spacing.md) {
-            AceIcon(row.isFolder ? .folder : .file, size: 16).foregroundStyle(AceTheme.Colours.subtleForeground).frame(width: 22)
+            Image(systemName: row.isFolder ? "folder" : "doc")
+                .font(.subheadline).foregroundStyle(AceTheme.Colours.mutedForeground).frame(width: 22)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 Text(name).aceFont(AceTheme.Typography.body, relativeTo: .body).lineLimit(1)
                 if !row.folder.isEmpty {

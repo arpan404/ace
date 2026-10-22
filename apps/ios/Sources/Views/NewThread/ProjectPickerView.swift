@@ -1,5 +1,35 @@
 import SwiftUI
 
+/// New thread's project picker as its own full sheet: X leaves the choice as it was, Add project
+/// pushes inside it, and choosing or adding a project closes it.
+struct ProjectPickerSheet: View {
+    let client: ClientModel
+    let selected: String?
+    let choose: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var adding = false
+
+    var body: some View {
+        NavigationStack {
+            ProjectPickerView(compose: client.compose, selected: selected, canAdd: client.canOperate,
+                              reload: { client.composeAction(["kind": "projects"]) }, addProject: { adding = true }) { id in
+                choose(id); dismiss()
+            }
+            .navigationDestination(isPresented: $adding) {
+                AddProjectView(client: client) { id in choose(id); dismiss() }
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("Close").accessibilityIdentifier("projects.close")
+                }
+            }
+        }
+        .tint(AceTheme.Colours.foreground)
+        .presentationDetents([.large]).presentationDragIndicator(.visible)
+    }
+}
+
 /// The machine's projects, recent ones first, with search; adding a folder from the computer
 /// when this phone may, otherwise how to add one there.
 struct ProjectPickerView: View {
@@ -19,38 +49,41 @@ struct ProjectPickerView: View {
         List {
             switch compose.projectsState {
             case "failed":
-                EmptyState(icon: nil, title: "Couldn't read projects", line: "Your computer didn't answer. Try again in a moment.", failed: true) {
-                    Button("Try again", action: reload)
-                }
-                .padding(.top, AceTheme.Spacing.xxxl).listRowBackground(Color.clear).listRowSeparator(.hidden)
+                ContentUnavailableView {
+                    Label("Couldn't read projects", systemImage: "wifi.exclamationmark")
+                } description: { Text("Your computer didn't answer.") } actions: { Button("Try again", action: reload) }
+                .listRowBackground(Color.clear)
             case "ready":
                 let recent = matches.filter(\.recent)
                 let rest = matches.filter { !$0.recent }
                 if matches.isEmpty {
-                    EmptyState(icon: .folder, title: query.isEmpty ? "No projects yet" : "No projects match",
-                               line: query.isEmpty ? "Add a folder from your computer to start." : nil)
-                        .padding(.top, AceTheme.Spacing.xxxl).listRowBackground(Color.clear).listRowSeparator(.hidden)
+                    ContentUnavailableView(query.isEmpty ? "No projects yet" : "No projects match", systemImage: "folder",
+                                           description: Text(query.isEmpty ? "Add a folder from your computer to start." : ""))
+                        .listRowBackground(Color.clear)
                 }
-                if !recent.isEmpty { Section { ForEach(recent) { row($0) } } header: { SettingsHeader("Recent") }.settingsRow() }
+                if !recent.isEmpty {
+                    Section { ForEach(recent) { row($0) } } header: { InsetHeader("Recent") }.insetRowBackground()
+                }
                 if !rest.isEmpty {
-                    Section { ForEach(rest) { row($0) } } header: { SettingsHeader(recent.isEmpty ? "Projects" : "Other projects") }.settingsRow()
+                    Section { ForEach(rest) { row($0) } } header: { InsetHeader(recent.isEmpty ? "Projects" : "Other projects") }
+                        .insetRowBackground()
                 }
             default:
-                Section { ForEach(0..<4, id: \.self) { _ in SettingsSkeletonRow() } }.settingsRow()
+                HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear)
             }
             Section {
                 if canAdd {
-                    Button(action: addProject) { SettingsRow(title: "Add a folder from your computer") { AceIcon(.plus, size: 16).foregroundStyle(AceTheme.Colours.subtleForeground) } }
+                    Button(action: addProject) { InsetRow("Add project", systemImage: "folder.badge.plus") }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("projects.add")
-                } else {
-                    Text("To add a project, open ace on your computer and choose Add project.")
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
+            } footer: {
+                if !canAdd { Text("To add a project, open ace on your computer and choose Add project.") }
             }
-            .settingsRow()
+            .insetRowBackground()
         }
-        .settingsList()
+        .insetGroupedList()
+        .searchBarEdge()
         .searchable(text: $query, prompt: "Search projects")
         .navigationTitle("Project").navigationBarTitleDisplayMode(.inline)
         .refreshable { reload() }
@@ -58,15 +91,15 @@ struct ProjectPickerView: View {
     private func row(_ project: ComposeProject) -> some View {
         Button { choose(project.id) } label: {
             HStack(spacing: AceTheme.Spacing.md) {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                    Text(project.name).aceFont(SettingsStyle.label, relativeTo: .body).fontWeight(project.id == selected ? .medium : .regular)
-                        .foregroundStyle(AceTheme.Colours.foreground)
-                    Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1).truncationMode(.middle)
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                    Text(project.name).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                    Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
                 }
                 Spacer(minLength: AceTheme.Spacing.none)
-                if project.id == selected { AceIcon(.check, size: 16).foregroundStyle(AceTheme.Colours.foreground) }
+                if project.id == selected { Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(AceTheme.Colours.foreground) }
             }
-            .contentShape(Rectangle())
+            .padding(.vertical, AceTheme.Spacing.xs).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(project.id == selected ? .isSelected : [])
@@ -87,41 +120,51 @@ struct AddProjectView: View {
         List {
             if client.canOperate {
                 Section {
-                    NavigationLink { CreateProjectView(model: client, cloning: false, added: added) } label: { Label("New project", ace: .folderPlus) }
-                    NavigationLink { CreateProjectView(model: client, cloning: true, added: added) } label: { Label("Clone repository", ace: .fileArrowDown) }
+                    NavigationLink { CreateProjectView(model: client, cloning: false, added: added) } label: { InsetRow("New project", systemImage: "folder.badge.plus") }
+                    NavigationLink { CreateProjectView(model: client, cloning: true, added: added) } label: { InsetRow("Clone repository", systemImage: "arrow.down.doc") }
                 }
+                .insetRowBackground()
             }
-            if let failure { Text(failure).foregroundStyle(AceTheme.StatusText.failed).aceFont(AceTheme.Typography.caption, relativeTo: .footnote) }
+            if let failure {
+                Text(failure).foregroundStyle(AceTheme.StatusText.failed).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .listRowBackground(Color.clear)
+            }
             switch folders?.state {
             case "ready":
-                if folders?.folders.isEmpty == true { ContentUnavailableView.search(text: query) }
-                ForEach(folders?.folders ?? []) { folder in
-                    Button { add(folder) } label: {
-                        HStack(spacing: AceTheme.Spacing.md) {
-                            AceIcon(folder.git ? .gitBranch : .folder, size: 16).foregroundStyle(AceTheme.Colours.faintForeground)
-                            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                                Text(folder.name).aceFont(AceTheme.Typography.body, relativeTo: .body)
-                                Text(folder.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1).truncationMode(.middle)
+                if folders?.folders.isEmpty == true { ContentUnavailableView.search(text: query).listRowBackground(Color.clear) }
+                Section {
+                    ForEach(folders?.folders ?? []) { folder in
+                        Button { add(folder) } label: {
+                            HStack(spacing: AceTheme.Spacing.md + AceTheme.Spacing.xxs) {
+                                Image(systemName: folder.git ? "arrow.triangle.branch" : "folder").font(.system(size: 19))
+                                    .foregroundStyle(AceTheme.Colours.foreground).frame(width: 24)
+                                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                                    Text(folder.name).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                                    Text(folder.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
+                                }
+                                Spacer(minLength: AceTheme.Spacing.none)
+                                if adding == folder.path { ProgressView() } else if folder.project { InsetValue(text: "Added") }
                             }
-                            Spacer(minLength: AceTheme.Spacing.none)
-                            if adding == folder.path { ProgressView() } else if folder.project { Text("Added").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
+                            .padding(.vertical, AceTheme.Spacing.xs).contentShape(Rectangle())
                         }
-                        .frame(minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
+                        .buttonStyle(.plain).disabled(adding != nil || folder.project)
+                        .accessibilityIdentifier("folder.\(folder.name)")
                     }
-                    .buttonStyle(.plain).disabled(adding != nil || folder.project)
-                    .accessibilityIdentifier("folder.\(folder.name)")
                 }
+                .insetRowBackground()
             case "forbidden":
-                EmptyState(icon: .desktop, title: "Add it on your computer",
-                           line: "This computer doesn't let this phone browse its folders. In ace on your computer, choose Add project.")
-                    .padding(.top, AceTheme.Spacing.xxxl).listRowSeparator(.hidden)
+                ContentUnavailableView("Add it on your computer", systemImage: "desktopcomputer",
+                                       description: Text("This computer doesn't let this phone browse its folders. In ace on your computer, choose Add project."))
+                    .listRowBackground(Color.clear)
             case "failed":
-                EmptyState(icon: nil, title: "Couldn't search folders", line: "Check the connection and try again.", failed: true)
-                    .padding(.top, AceTheme.Spacing.xxxl).listRowSeparator(.hidden)
+                ContentUnavailableView("Couldn't search folders", systemImage: "wifi.exclamationmark", description: Text("Check the connection and try again."))
+                    .listRowBackground(Color.clear)
             default:
-                HStack { Spacer(); ProgressView(); Spacer() }.listRowSeparator(.hidden)
+                HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear)
             }
         }
+        .insetGroupedList()
+        .searchBarEdge()
         .searchable(text: $query, prompt: "Search folders on your computer")
         .navigationTitle("Add project").navigationBarTitleDisplayMode(.inline)
         .task(id: query) {

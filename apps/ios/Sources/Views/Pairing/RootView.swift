@@ -28,8 +28,8 @@ struct RootView: View {
         } else if machines.machines.isEmpty {
             NavigationStack {
                 VStack(spacing: AceTheme.Spacing.none) {
-                    EmptyState(icon: .graph, title: "Your agents, with you",
-                               line: "Pair this phone with ace on your own computer, over your network or Tailscale.")
+                    ContentUnavailableView("Your agents, with you", systemImage: "point.3.connected.trianglepath.dotted",
+                                           description: Text("Pair this phone with ace on your own computer, over your network or Tailscale."))
                         .frame(maxHeight: 260)
                     PairingView(machines: machines)
                 }
@@ -46,7 +46,7 @@ struct LockView: View {
     let lock: AppLock
     var body: some View {
         VStack(spacing: AceTheme.Spacing.lg) {
-            AceIcon(.lock, size: 32, relativeTo: .largeTitle)
+            Image(systemName: "lock.fill").aceFont(AceTheme.Typography.title, relativeTo: .largeTitle)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
             Text("ace is locked").aceFont(AceTheme.Typography.title, relativeTo: .title2).foregroundStyle(AceTheme.Colours.foreground)
             if lock.failed {
@@ -67,6 +67,6 @@ struct LockView: View {
 struct PrivacyCover: View {
     var body: some View {
         AceTheme.Colours.background.ignoresSafeArea()
-            .overlay { AceIcon(.lock).foregroundStyle(AceTheme.Colours.faintForeground) }
+            .overlay { Image(systemName: "lock.fill").foregroundStyle(AceTheme.Colours.decoration) }
     }
 }

@@ -59,8 +59,6 @@ private struct UsageLimitsReply: Decodable {
     let quiet: [String]
 }
 
-/// Settings › Usage: what is left of each account's limits, or the tokens spent per provider over
-/// a period. Cardless: a provider heading over hairline rows, values muted at the right edge.
 struct UsageView: View {
     private enum Tab: Hashable { case limits, tokens }
     let model: ClientModel
@@ -80,14 +78,17 @@ struct UsageView: View {
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("usage.view")
-            .usageBareRow()
-            if tab == .tokens {
-                tokens
-            } else {
-                limitsView
+            .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
+            Group {
+                if tab == .tokens {
+                    tokens
+                } else {
+                    limitsView
+                }
             }
+            .insetRowBackground()
         }
-        .settingsList()
+        .insetGroupedList()
         .navigationTitle("Usage").navigationBarTitleDisplayMode(.inline)
         .task(id: tab) {
             if tab == .limits { await readLimits() } else { await readTokens() }
@@ -98,72 +99,53 @@ struct UsageView: View {
         }
     }
     @ViewBuilder private var tokens: some View {
-        Section {
-            SettingsRow(title: "Period") {
-                Picker("Period", selection: $days) { Text("7 days").tag(7); Text("30 days").tag(30); Text("90 days").tag(90) }
-                    .labelsHidden().pickerStyle(.menu).tint(AceTheme.Colours.mutedForeground)
-            }
-        } header: { SettingsHeader("Period", note: tokensNote) }
-        .settingsRow()
-        if let problem { ServiceProblem(message: problem).usageBareRow() }
+        Picker("Period", selection: $days) { Text("7 days").tag(7); Text("30 days").tag(30); Text("90 days").tag(90) }
+            .pickerStyle(.segmented)
+            .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
+        if loading { HStack { Spacer(); ProgressView().accessibilityLabel("Reading usage"); Spacer() }.listRowBackground(Color.clear) }
+        ServiceProblem(message: problem)
         if let result {
-            if result.rows.isEmpty, !loading {
-                EmptyState(icon: .chartBar, title: "No recorded usage", line: "Nothing was recorded in this period.")
-                    .padding(.top, AceTheme.Spacing.xxxl).listRowBackground(Color.clear).listRowSeparator(.hidden)
-            }
+            if result.rows.isEmpty { ContentUnavailableView("No usage in this period", systemImage: "chart.bar").listRowBackground(Color.clear) }
             ForEach(Array(result.rows.enumerated()), id: \.offset) { _, row in
-                let key: String? = row.dimensions["provider"]?.flatMap { $0 }
                 Section {
-                    tokenRows(loading ? nil : row.totals)
-                } header: {
-                    if let key { UsageProviderHeading(provider: key, title: key.capitalized) } else { SettingsHeader("Usage") }
-                }
-                .settingsRow()
+                    LabeledContent("Input tokens", value: row.totals.inputTokens.formatted())
+                    LabeledContent("Output tokens", value: row.totals.outputTokens.formatted())
+                    LabeledContent("Cached input", value: row.totals.cachedInputTokens.formatted())
+                    LabeledContent("Reported cost", value: row.totals.providerReportedUsd.formatted(.currency(code: "USD")))
+                    LabeledContent("Estimated cost", value: row.totals.estimatedUsd.formatted(.currency(code: "USD")))
+                } header: { InsetHeader(row.dimensions["provider"]?.flatMap { $0 }?.capitalized ?? "Usage") }
             }
-        } else if loading {
-            Section { tokenRows(nil) } header: { SettingsHeader("Usage") }
-                .settingsRow()
+            if result.truncated || result.omittedEvents > 0 { Text("Some records are outside the retained window.") }
+            Text("Dates use \(result.timezone). CLI token counts and estimated cost may differ from billing.")
+                .foregroundStyle(AceTheme.Colours.mutedForeground).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
         }
     }
-    /// The period's caveats, once, under its heading.
-    private var tokensNote: String? {
-        guard let result else { return nil }
-        let retained = result.truncated || result.omittedEvents > 0 ? "Some records are outside the retained window. " : ""
-        return retained + "Dates use \(result.timezone). CLI token counts and estimated cost may differ from billing."
-    }
-    /// One provider's totals; nil while they are being read, which draws skeleton values.
-    @ViewBuilder private func tokenRows(_ totals: UsageReply.Result.Row.Totals?) -> some View {
-        UsageTokenRow(title: "Input tokens", value: totals?.inputTokens.formatted())
-        UsageTokenRow(title: "Output tokens", value: totals?.outputTokens.formatted())
-        UsageTokenRow(title: "Cached input", value: totals?.cachedInputTokens.formatted())
-        UsageTokenRow(title: "Reported cost", value: totals?.providerReportedUsd.formatted(.currency(code: "USD")))
-        UsageTokenRow(title: "Estimated cost", value: totals?.estimatedUsd.formatted(.currency(code: "USD")))
-    }
     @ViewBuilder private var limitsView: some View {
-        if let limitsProblem { ServiceProblem(message: limitsProblem).usageBareRow() }
+        if limitsLoading, limits == nil {
+            HStack { Spacer(); ProgressView().accessibilityLabel("Reading limits"); Spacer() }.listRowBackground(Color.clear)
+        }
+        ServiceProblem(message: limitsProblem)
         if let limits {
             if limits.providers.isEmpty, limits.quiet.isEmpty {
-                EmptyState(icon: .chartBar, title: "No accounts yet", line: "Add an account to see its limits.")
-                    .padding(.top, AceTheme.Spacing.xxxl).listRowBackground(Color.clear).listRowSeparator(.hidden)
+                ContentUnavailableView("No accounts yet", systemImage: "chart.bar", description: Text("Add an account to see its limits."))
+                    .listRowBackground(Color.clear)
             }
             ForEach(limits.providers, id: \.key) { provider in
                 Section {
                     ForEach(provider.accounts, id: \.key) { account in
                         LimitAccountRow(account: account)
                     }
-                } header: { UsageProviderHeading(provider: provider.provider, title: provider.providerLabel) }
-                .settingsRow()
+                } header: {
+                    HStack(spacing: AceTheme.Spacing.sm) {
+                        ProviderMark(provider: provider.provider, size: 16)
+                        InsetHeader(provider.providerLabel)
+                    }
+                }
             }
             if !limits.quiet.isEmpty {
                 Text("No limits reported · \(limits.quiet.joined(separator: ", "))")
                     .foregroundStyle(AceTheme.Colours.mutedForeground).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .usageBareRow()
             }
-        } else if limitsLoading {
-            Section {
-                ForEach(0..<2, id: \.self) { _ in UsageSkeletonRow() }
-            }
-            .settingsRow()
         }
     }
     private func readTokens() async {
@@ -186,83 +168,19 @@ struct UsageView: View {
     }
 }
 
-private extension View {
-    /// A line on the page between sections: no hairline, no fill, at the page margins.
-    func usageBareRow() -> some View {
-        self.listRowBackground(Color.clear).listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: AceTheme.Spacing.sm, leading: SettingsStyle.margin,
-                                      bottom: AceTheme.Spacing.sm, trailing: SettingsStyle.margin))
-    }
-}
-
-/// A section heading led by the provider's mark, in the same type and insets as `SettingsHeader`.
-private struct UsageProviderHeading: View {
-    let provider: String
-    let title: String
-    var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
-            ProviderMark(provider: provider, size: 16)
-            Text(title).aceFont(SettingsStyle.heading, relativeTo: .headline)
-                .foregroundStyle(AceTheme.Colours.foreground)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
-        .textCase(nil)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: SettingsStyle.margin,
-                                  bottom: AceTheme.Spacing.sm, trailing: SettingsStyle.margin))
-    }
-}
-
-/// "Input tokens ─ 12,345"; a skeleton bar holds the value's place while it is read. The label
-/// stays one accessible text found by its name, with the number as its value.
-private struct UsageTokenRow: View {
-    let title: String
-    let value: String?
-    var body: some View {
-        SettingsRow(title: title) {
-            if let value {
-                SettingsValue(text: value).monospacedDigit()
-            } else {
-                UsageSkeletonBar(width: 64)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
-        .accessibilityValue(value ?? "Reading")
-        .accessibilityAddTraits(.isStaticText)
-    }
-}
-
-private struct UsageSkeletonBar: View {
-    let width: CGFloat
-    var body: some View {
-        Capsule().fill(AceTheme.Colours.fill).frame(width: width, height: 10)
-    }
-}
-
-/// An account row's place while limits are read.
-private struct UsageSkeletonRow: View {
-    var body: some View {
-        HStack {
-            UsageSkeletonBar(width: 120)
-            Spacer(minLength: AceTheme.Spacing.sm)
-            UsageSkeletonBar(width: 64)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Reading limits")
-    }
-}
-
 /// One account's windows with what is left, as the Mac Usage page's Limits view reads them.
 private struct LimitAccountRow: View {
     let account: UsageLimitsReply.Account
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             Text(account.label)
-                .aceFont(SettingsStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-            if let detail {
-                Text(detail)
+                .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+            if let plan = account.plan {
+                Text(String(plan.prefix(1)).uppercased() + String(plan.dropFirst()))
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+            }
+            if let banked = account.bankedResets.map(Int.init), banked > 0 {
+                Text(bankedLine(count: banked, expiresAt: account.bankedExpiresAt))
                     .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
             }
             ForEach(account.windows, id: \.self) { window in
@@ -280,16 +198,6 @@ private struct LimitAccountRow: View {
         .padding(.vertical, AceTheme.Spacing.xxs)
         .accessibilityElement(children: .combine)
     }
-    /// "Plus · 1 banked reset · next expires 3 Nov": the plan and banked resets on one muted line.
-    private var detail: String? {
-        let plan: String? = account.plan.map { String($0.prefix(1)).uppercased() + String($0.dropFirst()) }
-        var banked: String?
-        if let count = account.bankedResets.map(Int.init), count > 0 {
-            banked = bankedLine(count: count, expiresAt: account.bankedExpiresAt)
-        }
-        let parts = [plan, banked].compactMap { $0 }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
     private func bankedLine(count: Int, expiresAt: Double?) -> String {
         let resets = count == 1 ? "1 banked reset" : "\(count) banked resets"
         guard let expiresAt else { return resets }
@@ -298,48 +206,42 @@ private struct LimitAccountRow: View {
     }
 }
 
-/// "5h ─ 62% left", then when it resets, with the pace at the right. Muted throughout; an
-/// exhausted window reads as failed and a pace that needs the person keeps its tone.
 private struct LimitWindowRow: View {
     let window: UsageLimitsReply.Window
-    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
-        // At accessibility sizes each value sits under its label.
-        let stacked = typeSize.isAccessibilitySize
-        let line = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.xxs))
-                           : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm))
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            line {
+            HStack(alignment: .firstTextBaseline) {
                 Text(window.label)
-                if !stacked { Spacer(minLength: AceTheme.Spacing.sm) }
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                Spacer(minLength: AceTheme.Spacing.sm)
                 if window.stale {
-                    Text("—").monospacedDigit()
+                    Text("—").foregroundStyle(AceTheme.Colours.mutedForeground).monospacedDigit()
                 } else {
                     Text("\(Int(window.leftPercent))% left")
                         .monospacedDigit()
-                        .foregroundStyle(window.leftPercent == 0 ? StateStyle.text("failed") : AceTheme.Colours.mutedForeground)
+                        .foregroundStyle(window.leftPercent == 0 ? StateStyle.text("failed") : AceTheme.Colours.foreground)
                 }
             }
-            .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-            line {
-                Text(when).monospacedDigit()
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                if let pace = window.pace, !window.stale {
-                    if !stacked { Spacer(minLength: AceTheme.Spacing.sm) }
+            if window.stale {
+                if let resetsAt = window.resetsAt {
+                    Text("Reset \(relative(resetsAt))")
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                }
+                Text("Read \(relative(window.observedAt))")
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+            } else {
+                if let pace = window.pace {
                     StateLabel(status: StatusDisplay(label: pace.label, token: pace.token))
+                }
+                Text(window.resets ?? "Reset not reported")
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                if window.old {
+                    Text("As of \(relative(window.observedAt))")
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
             }
         }
         .accessibilityElement(children: .combine)
-    }
-    /// "Resets in 2h · As of 5 min ago"; for a stale reading, when it reset and when it was read.
-    private var when: String {
-        if window.stale {
-            let parts: [String?] = [window.resetsAt.map { "Reset \(relative($0))" }, "Read \(relative(window.observedAt))"]
-            return parts.compactMap { $0 }.joined(separator: " · ")
-        }
-        let resets = window.resets ?? "Reset not reported"
-        return window.old ? "\(resets) · As of \(relative(window.observedAt))" : resets
     }
     private func relative(_ epochMs: Double) -> String {
         Date(timeIntervalSince1970: epochMs / 1000).formatted(.relative(presentation: .named))

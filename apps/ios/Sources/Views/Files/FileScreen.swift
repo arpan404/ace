@@ -78,7 +78,7 @@ struct FileScreen: View {
             switch content.kind {
             case "missing":
                 ContentUnavailableView {
-                    Label("Not in the checkout", ace: .fileDashed)
+                    Label("Not in the checkout", systemImage: "doc.questionmark")
                 } description: {
                     Text("Nothing is at \(path) in this thread's checkout. It may have been moved or deleted.")
                 } actions: {
@@ -86,13 +86,13 @@ struct FileScreen: View {
                 }
             case "large":
                 ContentUnavailableView {
-                    Label("Too large to show here", ace: .fileText)
+                    Label("Too large to show here", systemImage: "doc.text")
                 } description: {
                     Text("\(name) is \(size(content.size)). Files over 2 MB open as a download.")
                 } actions: { Button("Share") { shareFile() } }
             case "binary":
                 ContentUnavailableView {
-                    Label("Binary file", ace: .file)
+                    Label("Binary file", systemImage: "doc")
                 } description: {
                     Text("\(name) (\(size(content.size))) isn't text, so there's nothing to read here.")
                 } actions: { Button("Share") { shareFile() } }
@@ -111,7 +111,7 @@ struct FileScreen: View {
             }
         } else if let failure {
             ContentUnavailableView {
-                Label("Couldn't open \(name)", ace: .warning)
+                Label("Couldn't open \(name)", systemImage: "exclamationmark.triangle")
             } description: { Text(failure) } actions: {
                 Button("Try again") { self.failure = nil; Task { await load() } }
             }
@@ -143,30 +143,30 @@ struct FileScreen: View {
     @ToolbarContentBuilder private var viewToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
             if text != nil, !markdownPreview {
-                Button("Find in file", ace: .magnifyingGlass) { handle.find() }.accessibilityIdentifier("file.find")
+                Button("Find in file", systemImage: "magnifyingglass") { handle.find() }.accessibilityIdentifier("file.find")
             }
             if canEdit {
-                Button("Edit", ace: .pencilSimple) { editing = true }.accessibilityIdentifier("file.edit")
+                Button("Edit", systemImage: "pencil") { editing = true }.accessibilityIdentifier("file.edit")
             }
-            Menu { fileMenu } label: { Label("File options", ace: .dotsThree) }
+            Menu { fileMenu } label: { Label("File options", systemImage: "ellipsis") }
                 .accessibilityIdentifier("file.menu")
         }
     }
 
     @ViewBuilder private var fileMenu: some View {
-        if text != nil, !markdownPreview { Toggle(isOn: $wrap) { Label("Wrap lines", ace: .textAlignJustify) } }
+        if text != nil, !markdownPreview { Toggle(isOn: $wrap) { Label("Wrap lines", systemImage: "text.word.spacing") } }
         if content?.markdown == true {
-            Button(source ? "View preview" : "View source", ace: source ? .eye : .code) { source.toggle() }
+            Button(source ? "View preview" : "View source", systemImage: source ? "eye" : "chevron.left.forwardslash.chevron.right") { source.toggle() }
         }
-        if hasChanges { Button("Show changes", ace: .plusMinus) { showChanges = true }.accessibilityIdentifier("file.changes") }
-        if let mention { Button("Mention in message", ace: .at) { mention(path) }.accessibilityIdentifier("preview.mention") }
-        Button("Copy path", ace: .copy) { UIPasteboard.general.string = path }
-        if content != nil, content?.kind != "missing" { Button("Share", ace: .export) { shareFile() } }
+        if hasChanges { Button("Show changes", systemImage: "plusminus") { showChanges = true }.accessibilityIdentifier("file.changes") }
+        if let mention { Button("Mention in message", systemImage: "at") { mention(path) }.accessibilityIdentifier("preview.mention") }
+        Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
+        if content != nil, content?.kind != "missing" { Button("Share", systemImage: "square.and.arrow.up") { shareFile() } }
         if actions.canChange, content?.kind != "missing" {
             Divider()
-            Button("Rename", ace: .pencilSimple) { actions.ask(.rename(path: path)) }
-            Button("Move", ace: .folder) { actions.ask(.move(path: path)) }
-            Button("Delete", ace: .trash, role: .destructive) { actions.ask(.delete(path: path)) }
+            Button("Rename", systemImage: "pencil") { actions.ask(.rename(path: path)) }
+            Button("Move", systemImage: "folder") { actions.ask(.move(path: path)) }
+            Button("Delete", systemImage: "trash", role: .destructive) { actions.ask(.delete(path: path)) }
         }
     }
 
@@ -180,7 +180,7 @@ struct FileScreen: View {
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
         }
         ToolbarItem(placement: .topBarTrailing) {
-            Button("Find", ace: .magnifyingGlass) { handle.find() }
+            Button("Find", systemImage: "magnifyingglass") { handle.find() }
         }
         ToolbarItem(placement: .confirmationAction) {
             Button(saving ? "Saving…" : "Save") { save() }.fontWeight(.semibold).disabled(!dirty || saving)
