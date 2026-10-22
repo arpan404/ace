@@ -19,7 +19,7 @@ struct SkillsLibraryView: View {
     var body: some View {
         List {
             Section {
-                NavigationLink { SkillDiscoveryView(model: model) } label: { SettingsLinkLabel(title: "Available CLI skills", icon: .binoculars) }
+                NavigationLink { SkillDiscoveryView(model: model) } label: { SettingsRow("Available CLI skills") }
                     .accessibilityIdentifier("skills.discovery")
                 if model.canOperate {
                     Button { installing = true } label: {
