@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useClient } from "@ace/client-react";
 import {
   ForgeHostedPrCreateCommand,
@@ -36,10 +36,12 @@ export function useCompare(
   base: string,
   head: { owner: string; branch: string } | undefined,
   page: number,
+  /** The head is in the base's repository, where a branch can't compare with itself. */
+  sameRepository = true,
 ) {
   return useDaemonQuery<ForgeCompare>({
     queryKey: ["forge", project, "new-pr", "compare", base, head?.owner, head?.branch, page],
-    enabled: head !== undefined && head.branch !== base,
+    enabled: head !== undefined && !(sameRepository && head.branch === base),
     retry: false,
     staleTime: 15_000,
     read: async (reader, signal) => {
@@ -63,11 +65,15 @@ export function useCreatePr(project: string) {
   const client = useClient();
   const toast = useToast();
   const [pending, setPending] = useState(false);
+  // State lags a render behind: two submits in one tick both see "not pending". This doesn't.
+  const inFlight = useRef(false);
   return {
     pending,
     async run(
       input: Omit<ForgeHostedPrCreateCommand, "type" | "workspaceId">,
     ): Promise<ForgePrRef | undefined> {
+      if (inFlight.current) return undefined;
+      inFlight.current = true;
       setPending(true);
       try {
         const result = await runCommand(
@@ -94,6 +100,7 @@ export function useCreatePr(project: string) {
         });
         return undefined;
       } finally {
+        inFlight.current = false;
         setPending(false);
       }
     },

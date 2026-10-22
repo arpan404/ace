@@ -12,6 +12,7 @@ import { WorkHeading } from "@/components/work-heading.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { readFailureText, useRepoPrOptions } from "@/features/forge/index.ts";
 import { applePlatform } from "@/lib/keymap.ts";
+import { repositoryParam } from "@/lib/pull-request-route.ts";
 import { useBackToList } from "./back-to-list.ts";
 import { readable } from "./issue-page.tsx";
 import { useProjectChoice } from "./project-choice.ts";
@@ -36,14 +37,19 @@ export function NewPullRequestPage(props: {
   const choice = useProjectChoice(project);
   const back = useBackToList("/pulls", project, props.back);
   const context = useNewPrContext(project);
+  // Who reviews it and how it is filed stay while branches are switched; each branch keeps its
+  // own title and description.
+  const [details, setDetails] = useState<PrDetailsDraft>(noDetails);
   return (
     <Screen title="New pull request" crumb={choice.name(project)}>
       <article aria-label="New pull request" className="h-full overflow-y-auto">
         <div className={`${readable} pt-6 pb-16`}>
           {context.data ? (
             <NewPrForm
-              key={context.data.base.repository.name}
+              key={`${context.data.base.repository.name}:${props.head ?? ""}`}
               project={project}
+              details={details}
+              onDetails={setDetails}
               context={context.data}
               base={props.base}
               head={props.head}
@@ -78,8 +84,26 @@ export function NewPullRequestPage(props: {
   );
 }
 
+/** What a new PR is given besides its text. */
+interface PrDetailsDraft {
+  reviewers: string[];
+  assignees: string[];
+  labels: string[];
+  milestone: number | undefined;
+  draft: boolean;
+}
+const noDetails: PrDetailsDraft = {
+  reviewers: [],
+  assignees: [],
+  labels: [],
+  milestone: undefined,
+  draft: false,
+};
+
 function NewPrForm(props: {
   project: string;
+  details: PrDetailsDraft;
+  onDetails(next: PrDetailsDraft): void;
   context: ForgeNewPrContext;
   base: string | undefined;
   head: string | undefined;
@@ -101,8 +125,9 @@ function NewPrForm(props: {
       replace: true,
     });
   const headRef = head ? { owner: context.head.repository.owner, branch: head } : undefined;
-  const compare = useCompare(project, base, headRef, 1);
-  const blocker = compareBlocker(base, head, compare.data);
+  const fork = context.head.repository.owner !== context.base.repository.owner;
+  const compare = useCompare(project, base, headRef, 1, !fork);
+  const blocker = compareBlocker(base, head, compare.data, !fork);
   const ready = compare.data && !blocker ? compare.data : undefined;
   const draftKey = `pr:${project}:new:${head ?? ""}`;
   const title = useMarkdownDraft(head ? `${draftKey}:title` : undefined);
@@ -117,14 +142,22 @@ function NewPrForm(props: {
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- once per comparison read.
   }, [filled?.title, filled?.body]);
   const options = useRepoPrOptions(project, undefined, true);
-  const [reviewers, setReviewers] = useState<string[]>([]);
-  const [assignees, setAssignees] = useState<string[]>([]);
-  const [labels, setLabels] = useState<string[]>([]);
-  const [milestone, setMilestone] = useState<number>();
-  const [draft, setDraft] = useState(false);
+  const { reviewers, assignees, labels, milestone, draft } = props.details;
+  const set = (patch: Partial<PrDetailsDraft>) => props.onDetails({ ...props.details, ...patch });
+  const setReviewers = (next: string[]) => set({ reviewers: next });
+  const setAssignees = (next: string[]) => set({ assignees: next });
+  const setLabels = (next: string[]) => set({ labels: next });
+  const setMilestone = (next: number | undefined) => set({ milestone: next });
+  const setDraft = (next: boolean) => set({ draft: next });
   const create = useCreatePr(project);
-  const fork = context.head.repository.owner !== context.base.repository.owner;
-  const canCreate = !!ready && !!title.text.trim() && !create.pending;
+  const existing = ready?.existingPr;
+  const canCreate = !!ready && !existing && !!title.text.trim() && !create.pending;
+  const openExisting = (number: number) =>
+    void navigate({
+      to: "/pulls/$project/$number",
+      params: { project, number: String(number) },
+      search: { repo: repositoryParam(context.base.repository), back: props.back },
+    });
   const submit = async () => {
     if (!canCreate || !head) return;
     const pr = await create.run({
@@ -224,6 +257,18 @@ function NewPrForm(props: {
             {ready ? (
               <span className="ml-1.5 text-subtle-foreground tabular-nums">
                 {compareSummary(ready)}
+                {existing && (
+                  <>
+                    {" · "}
+                    <button
+                      type="button"
+                      onClick={() => openExisting(existing)}
+                      className="rounded-xs text-ring-text focus-ring hover:underline"
+                    >
+                      {`#${existing} is already open`}
+                    </button>
+                  </>
+                )}
               </span>
             ) : compare.error ? (
               <span className="ml-1.5 text-muted-foreground">{readFailureText(compare.error)}</span>
@@ -335,13 +380,26 @@ function NewPrForm(props: {
         <Button type="button" variant="ghost" onClick={props.onBack}>
           Cancel
         </Button>
-        <Button type="submit" variant="primary" disabled={!canCreate}>
-          {draft ? "Create draft pull request" : "Create pull request"}
-          <Kbd aria-hidden variant="on-primary" resolve={false} keys="mod+enter" />
-        </Button>
+        {existing ? (
+          // GitHub takes one open PR per head and base: this pair already has it.
+          <Button type="button" variant="primary" onClick={() => openExisting(existing)}>
+            {`Open pull request #${existing}`}
+          </Button>
+        ) : (
+          <Button type="submit" variant="primary" disabled={!canCreate}>
+            {draft ? "Create draft pull request" : "Create pull request"}
+            <Kbd aria-hidden variant="on-primary" resolve={false} keys="mod+enter" />
+          </Button>
+        )}
       </div>
       {headRef && ready && (
-        <NewPrChanges project={project} base={base} head={headRef} first={ready} />
+        <NewPrChanges
+          project={project}
+          base={base}
+          head={headRef}
+          first={ready}
+          sameRepository={!fork}
+        />
       )}
     </form>
   );

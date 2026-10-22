@@ -44,3 +44,8 @@ test("a pull request needs two different branches and a commit the base lacks", 
   expect(compareBlocker("main", "fix/x", compare([], 0))).toBe("fix/x and main are the same.");
   expect(compareBlocker("main", "fix/x", compare(["One"]))).toBeUndefined();
 });
+
+test("a fork's branch may share its name with the parent's base", () => {
+  expect(compareBlocker("main", "main", undefined, false)).toBeUndefined();
+  expect(compareBlocker("main", "main", compare(["Fork work"]), false)).toBeUndefined();
+});
