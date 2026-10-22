@@ -152,16 +152,20 @@ restart/reconnect and errors where applicable.
 
 ## Evidence ledger
 
-| Slice                  | Implementation commit | Review                     | Verification                                                                                                                                                                                                    |
-| ---------------------- | --------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Execution plan         | `b4595adf2`           | Reviewed                   | Pushed; reconciled with PR #1315 in this update                                                                                                                                                                 |
-| W01 filesystem design  | Uncommitted           | In progress                | Native ABI and integration evidence pending                                                                                                                                                                     |
-| W02 shell selection    | `f7cb073d8`           | Two reviewers passed       | Formatting, lint and terminal typecheck passed; PowerShell preference and Windows execution pending                                                                                                             |
-| W03 process identity   | `ce7e13f9b`           | Two final reviewers passed | Formatting, lint, incremental typecheck and size checks passed; native marshalling and recovery pending                                                                                                         |
-| Windows lexical policy | `20f57c084`           | Two final reviewers passed | Formatting, lint and incremental typecheck passed; behavioral execution pending                                                                                                                                 |
-| W04 descriptor core    | Uncommitted           | Pending                    | Worker reports static checks; addon compilation and Windows execution pending                                                                                                                                   |
-| W07 runtime staging    | `7eea3fbed`           | Two reviewers passed       | Formatting, lint, incremental typecheck and size checks passed; behavioral execution, ConPTY closure and native packaging pending                                                                               |
-| W00 VM                 | Provisioning          | N/A                        | Official ARM64 ISO checksum verified; encrypted VM and virtual TPM configured. Windows installation is running; guest tooling pending. PR #1315 describes an older VM, which has not been located on this host. |
+| Slice                  | Implementation commit | Review                     | Verification                                                                                                                      |
+| ---------------------- | --------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Execution plan         | `b4595adf2`           | Reviewed                   | Pushed; reconciled with PR #1315 in this update                                                                                   |
+| W01 filesystem design  | Uncommitted           | In progress                | Native ABI and integration evidence pending                                                                                       |
+| W02 shell selection    | `f7cb073d8`           | Two reviewers passed       | Formatting, lint and terminal typecheck passed; PowerShell preference and Windows execution pending                               |
+| W03 process identity   | `ce7e13f9b`           | Two final reviewers passed | Formatting, lint, incremental typecheck and size checks passed; native marshalling and recovery pending                           |
+| Windows lexical policy | `20f57c084`           | Two final reviewers passed | Formatting, lint and incremental typecheck passed; behavioral execution pending                                                   |
+| W04 descriptor core    | Uncommitted           | Pending                    | Worker reports static checks; addon compilation and Windows execution pending                                                     |
+| W07 runtime staging    | `7eea3fbed`           | Two reviewers passed       | Formatting, lint, incremental typecheck and size checks passed; behavioral execution, ConPTY closure and native packaging pending |
+| W00 VM                 | Provisioning          | N/A                        | Windows 11 ARM64 reached the desktop; guest provisioning is running. SSH, compiler access and native checks remain pending.       |
+
+The VM uses encryption and a virtual TPM. After Windows booted from its disk,
+the used installer images were removed, recovering about 8 GiB. The older VM
+from PR #1315 has not been located.
 
 Related contracts: [desktop shell](adr/0054-desktop-shell.md),
 [distribution](adr/0041-packaging-and-distribution.md),
