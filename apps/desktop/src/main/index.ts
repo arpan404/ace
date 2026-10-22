@@ -212,6 +212,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
     env: process.env,
     timers,
     random: Math.random,
+    now: Date.now,
     report: (status) => emit(contents(), "updates.status", status),
     drain: (deadlineMs, waiting) => runtime.drainForUpdate(deadlineMs, waiting),
     busy: () => runtime.busyForUpdate(),
@@ -234,6 +235,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
     if (window?.isMinimized()) window.restore();
     window?.show();
     window?.focus();
+    // A window already on screen emits no "show"; the dock icon or a second launch still asks.
+    updates.opened();
     if (link) {
       if (window?.webContents.isLoading()) pending.push(link);
       else emit(contents(), "deep-link", link);
@@ -275,6 +278,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
     });
     renderer.on("render-process-gone", forget);
     renderer.on("destroyed", forget);
+    // Opening the app (launch, reopening its window, showing it again) asks for an update.
+    window.on("show", () => updates.opened());
     const closing = window;
     // Browser views move to the parking window before the window (and its views) go.
     closing.on("close", () => background.windowClosing(closing));
@@ -518,6 +523,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
     });
     powerMonitor.on("resume", () => {
       background.wake();
+      // Timers stall while the Mac sleeps; a wake is an opening too.
+      updates.opened();
       emit(contents(), "system.resumed", undefined);
     });
 
