@@ -10,27 +10,30 @@ import { themes, withAccent, type Palette, type Scheme, type ThemeId } from "./p
 export const accentIds = [
   "theme",
   "blue",
-  "violet",
   "teal",
   "green",
-  "amber",
-  "rose",
+  "orange",
+  "magenta",
   "ink",
   "custom",
 ] as const;
 export type AccentId = (typeof accentIds)[number];
 
-/** The curated colours, before fitting. Each sits clear of the status colours it neighbours. */
+/**
+ * The curated colours: one hue drawn twice, deep for light schemes and bright for dark ones, so
+ * the same choice reads as the same colour in both. Each pair already passes the fitting
+ * (`accent-fit.ts`) on every theme and sits clear of the status hues (working blue, needs amber,
+ * done green-teal, failed red, waiting violet, not-responding pink), so fitting never turns it.
+ */
 export const curatedAccents: Record<
   Exclude<AccentId, "theme" | "ink" | "custom">,
-  { name: string; colour: string }
+  { name: string; colour: Record<Scheme, string> }
 > = {
-  blue: { name: "Blue", colour: "#3D9BFF" },
-  violet: { name: "Violet", colour: "#8E4FE0" },
-  teal: { name: "Teal", colour: "#0F9488" },
-  green: { name: "Green", colour: "#5E9E1F" },
-  amber: { name: "Amber", colour: "#E0A21A" },
-  rose: { name: "Rose", colour: "#E0446A" },
+  blue: { name: "Blue", colour: { light: "#0A7CA6", dark: "#4FB6F5" } },
+  teal: { name: "Teal", colour: { light: "#00676A", dark: "#56E0DD" } },
+  green: { name: "Green", colour: { light: "#2F6E12", dark: "#84CF5E" } },
+  orange: { name: "Orange", colour: { light: "#C2410C", dark: "#F5925A" } },
+  magenta: { name: "Magenta", colour: { light: "#A0289F", dark: "#FCA1FE" } },
 };
 
 export const accentNames: Record<AccentId, string> = {
@@ -60,7 +63,7 @@ export function accentColour(id: ThemeId, scheme: Scheme, choice: AccentChoice):
     case "custom":
       return parseOpaqueColor(choice.customAccent) ? choice.customAccent : theme.accent[scheme];
     default:
-      return curatedAccents[choice.accent].colour;
+      return curatedAccents[choice.accent].colour[scheme];
   }
 }
 

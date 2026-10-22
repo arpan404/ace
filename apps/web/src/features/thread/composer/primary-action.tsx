@@ -116,7 +116,7 @@ export const StopAction = memo(function StopAction(props: { stopping: boolean; o
         onClick={props.onStop}
         className={cn(
           iconControl,
-          "bg-foreground text-background hover:bg-foreground/85 hover:text-background focus-visible:bg-foreground/85 focus-visible:text-background",
+          "bg-danger text-danger-foreground hover:bg-danger-hover hover:text-danger-foreground focus-visible:bg-danger-hover focus-visible:text-danger-foreground active:bg-danger-pressed",
         )}
       >
         <StopIcon aria-hidden size={12} weight="fill" />
