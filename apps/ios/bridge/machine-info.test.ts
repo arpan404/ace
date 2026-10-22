@@ -49,9 +49,10 @@ test("the daemon saying its CLIs changed reads them again, and a failed read kee
   expect(first.problem).toBeNull();
   daemon.failRequests("providers.request");
   broadcast({ type: "providers.changed", providers: [] });
-  const after = await until(
-    () => latest("machine.providers")?.problem && latest("machine.providers"),
-  );
+  const after = await until(() => {
+    const patch = latest("machine.providers");
+    return patch?.problem ? patch : undefined;
+  });
   expect(after.providers).toEqual(first.providers);
   providers.dispose();
 });
