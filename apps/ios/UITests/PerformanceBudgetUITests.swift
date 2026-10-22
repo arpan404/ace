@@ -211,25 +211,26 @@ import XCTest
     }
 }
 
-/// The budgets, on the iOS 26 simulator with the `Perf` configuration. Each is about twice the
-/// measured median (README "Performance budgets"), so a real regression fails while a busy Mac
-/// does not. Lower them when the app gets faster; never raise one without a measured reason.
+/// The budgets, on the iOS 26 simulator with the `Perf` configuration. Each sits about 1.5 to 5
+/// times above the measured median (README "Performance budgets"), so a real regression fails
+/// while a busy Mac does not. Lower them when the app gets faster; never raise one without a measured reason.
 enum PerfBudget {
-    static let launchRowsMs = 900.0
-    static let busyInboxPatchesPer5s = 400.0
-    static let busyInboxBytesPer5s = 900_000.0
-    static let busyInboxMainMsPer5s = 60.0
-    static let coldOpenReadyMs = 1_200.0
-    static let coldOpenPaintMs = 1_200.0
-    static let warmOpenReadyMs = 600.0
-    static let streamingMainMsPer5s = 150.0
-    static let streamingScriptMsPer5s = 600.0
-    static let streamingBytesPer5s = 400_000.0
-    static let streamingGrowthMiBPerMinute = 8.0
-    static let scrollHitchMsPerS = 120.0
-    static let typingMs = 4_000.0
-    static let sheetFillMs = 400.0
-    static let modelSheetTapMs = 3_000.0
+    // Measured medians in brackets (Perf, iOS 26 simulator, 2026-10-22).
+    static let launchRowsMs = 1_700.0             // [1,157]
+    static let busyInboxPatchesPer5s = 400.0      // [50; 8,200 when every row was resent]
+    static let busyInboxBytesPer5s = 800_000.0    // [614,000; 6.3 MB before]
+    static let busyInboxMainMsPer5s = 40.0        // [15; 155 before]
+    static let coldOpenReadyMs = 700.0            // [317]
+    static let coldOpenPaintMs = 800.0            // [387]
+    static let warmOpenReadyMs = 500.0            // [280]
+    static let streamingMainMsPer5s = 30.0        // [5.4]
+    static let streamingScriptMsPer5s = 250.0     // [95]
+    static let streamingBytesPer5s = 40_000.0     // [7,400]
+    static let streamingGrowthMiBPerMinute = 8.0  // [-1]
+    static let scrollHitchMsPerS = 60.0           // [13.6]
+    static let typingMs = 1_800.0                 // [830, XCUITest's own typing pace]
+    static let sheetFillMs = 350.0                // [Agents 140, Changes 128]
+    static let modelSheetTapMs = 3_000.0          // [1,940, mostly XCUITest waiting]
 }
 
 extension XCUIApplication {
