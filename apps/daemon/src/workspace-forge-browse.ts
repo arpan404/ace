@@ -131,6 +131,8 @@ export class WorkspaceForgeBrowse {
         ),
       };
     }
+    if (operation.op === "forge.emoji.images")
+      return { resource: "emojiImages", images: await backend.emojiImages(signal) };
     if (operation.op === "forge.file.content")
       return { resource: "fileContent", value: await backend.fileContent(operation, signal) };
     const ref = { repository, number: operation.number };

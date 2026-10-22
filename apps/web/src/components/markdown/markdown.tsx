@@ -309,8 +309,8 @@ function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode
         </Tag>
       );
     }
-    case "code":
-      return (
+    case "code": {
+      const standard = () => (
         <CodeBlock
           code={token.text}
           lang={token.lang}
@@ -318,6 +318,9 @@ function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode
           {...(props.code ? { tokens: props.code } : writing ? { plain: true } : {})}
         />
       );
+      const custom = extensions?.code(token, standard);
+      return custom === undefined ? standard() : custom;
+    }
     case "blockquote": {
       const custom = extensions?.blockquote(token, (tokens) => <Blocks tokens={tokens} />);
       if (custom !== undefined) return custom;

@@ -12,6 +12,7 @@ import { ForgeImage, ForgeLinkMedia } from "./forge-media.tsx";
 import { htmlPieces } from "./html-pieces.ts";
 import { safeImage } from "./html-policy.ts";
 import { HtmlNodes } from "./html-render.tsx";
+import { MermaidDiagram } from "./mermaid-diagram.tsx";
 import { htmlTree, type RunEntry } from "./html-tree.ts";
 import { taskMarks, type TaskMark } from "./source-marks.ts";
 
@@ -84,6 +85,10 @@ export function forgeExtensions(input: {
       }
       return undefined;
     },
+    code: (token, standard) =>
+      token.lang?.trim().toLowerCase() === "mermaid" ? (
+        <MermaidDiagram source={token.text} code={standard()} />
+      ) : undefined,
     checkbox: (token) => (
       <TaskBox checked={token.checked} mark={marks.get(token)} control={input.tasks} />
     ),

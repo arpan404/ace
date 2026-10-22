@@ -73,6 +73,12 @@ export const ForgeMediaOperations = [
     repository: ForgeRepository.optional(),
     items: z.array(ForgeMediaRequest).min(1).max(forgeMediaBatch),
   }),
+  /** The forge's image-only emoji (`:octocat:`): shortcode to image URL, resolved as media. */
+  z.object({
+    op: z.literal("forge.emoji.images"),
+    workspaceId: WorkspaceId,
+    repository: ForgeRepository.optional(),
+  }),
 ] as const;
 
 export const ForgeMediaResults = [
@@ -80,5 +86,17 @@ export const ForgeMediaResults = [
     resource: z.literal("media"),
     /** One per requested item, in order. */
     items: z.array(ForgeMediaResult).max(forgeMediaBatch),
+  }),
+  z.object({
+    resource: z.literal("emojiImages"),
+    images: z
+      .record(
+        z.string().regex(/^[a-z0-9_+-]{1,64}$/),
+        z
+          .string()
+          .max(512)
+          .regex(/^https:\/\//),
+      )
+      .refine((images) => Object.keys(images).length <= 256),
   }),
 ] as const;

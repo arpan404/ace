@@ -450,7 +450,8 @@ export class WorkspaceRuntime {
       op.op === "forge.pr.files" ||
       op.op === "forge.pr.check" ||
       op.op === "forge.file.content" ||
-      op.op === "forge.media.resolve"
+      op.op === "forge.media.resolve" ||
+      op.op === "forge.emoji.images"
     ) {
       if (
         op.op === "forge.pr.stack" &&
