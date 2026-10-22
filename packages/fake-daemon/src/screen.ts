@@ -9,6 +9,7 @@ import {
   type ScreenAgentScope,
   type ScreenError,
   type ScreenStreamSettings,
+  type ScreenChooserPick,
 } from "@ace/protocol";
 import type { ScreenTransport } from "@ace/client/screen-stream";
 import type { FakeServiceContext } from "./service-context.ts";
@@ -26,6 +27,8 @@ type Session = {
   codec?: "jpeg" | "h264";
   scope?: ScreenAgentScope | undefined;
   owner?: Channel | undefined;
+  /** A sharing-dialog start still waiting: settles it with the person's answer. */
+  answer?: ((answer: ScreenChooserPick | "declined" | "cancelled") => void) | undefined;
 };
 export interface FakeScreenOptions {
   host: FakeServiceContext;
@@ -57,6 +60,11 @@ export class FakeScreen {
   private messageIds = 0;
   /** The person's computer use switch. */
   enabled = false;
+  /**
+   * Set to be a Linux desktop on Wayland: `targets` lists nothing and says the machine's own
+   * sharing dialog picks, and a `chooser` start waits until `answerSharingDialog`.
+   */
+  sharingDialog = false;
   private readonly options: FakeScreenOptions;
   private readonly sessions = new Map<string, Session>();
   private readonly channels = new Set<Channel>();
@@ -194,6 +202,41 @@ export class FakeScreen {
     this.publish(session);
     for (const channel of this.channels) channel.subscriptions.delete(session.state.sessionId);
   }
+  /** A start the machine's sharing dialog decides: starting until the person answers there. */
+  private async choose(
+    target: Extract<ScreenState["target"], { kind: "chooser" }>,
+    scope: ScreenAgentScope | undefined,
+  ): Promise<ScreenState> {
+    const session: Session = {
+      scope,
+      state: ScreenState.parse({
+        sessionId: this.options.id(),
+        lifecycle: "starting",
+        controller: "none",
+        mode: "background",
+        indicator: false,
+        target,
+        permissions: { ...this.permissions },
+      }),
+    };
+    this.sessions.set(session.state.sessionId, session);
+    this.publish(session);
+    const answer = await new Promise<ScreenChooserPick | "declined" | "cancelled">((resolve) => {
+      session.answer = resolve;
+    });
+    session.answer = undefined;
+    if (answer === "cancelled") throw new FakeScreenError("internal", "Screen start cancelled");
+    if (answer === "declined") {
+      this.stop(session);
+      throw new FakeScreenError("denied", "Sharing was declined in the sharing dialog.");
+    }
+    session.state = { ...session.state, lifecycle: "live", target: { ...target, picked: answer } };
+    return this.publish(session);
+  }
+  /** The person at the machine answers its sharing dialog: what they picked, or declined. */
+  answerSharingDialog(answer: ScreenChooserPick | "declined"): void {
+    for (const session of this.sessions.values()) session.answer?.(answer);
+  }
   enable(enabled: boolean): void {
     const changed = this.enabled !== enabled;
     this.enabled = enabled;
@@ -234,6 +277,12 @@ export class FakeScreen {
         return;
       }
       case "targets":
+        if (this.sharingDialog)
+          return ScreenInventory.parse({
+            displays: [],
+            windows: [],
+            chooser: { windows: true, displays: true },
+          });
         return ScreenInventory.parse({
           displays: [],
           windows: [
@@ -265,6 +314,7 @@ export class FakeScreen {
               },
             );
         if (this.sessions.size >= 8) throw new FakeScreenError("busy", "Screen target limit (8)");
+        if (op.target.kind === "chooser") return this.choose(op.target, scope);
         const session: Session = {
           scope,
           state: ScreenState.parse({
@@ -289,6 +339,7 @@ export class FakeScreen {
     }
     const session = this.live(op.sessionId);
     if (op.op === "stop") {
+      session.answer?.("cancelled");
       this.stop(session);
       return;
     }

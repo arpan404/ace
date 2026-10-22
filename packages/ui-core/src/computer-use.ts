@@ -65,6 +65,16 @@ export function chooserWaitingCopy(machine: string | undefined): string {
   return `Waiting for approval on ${machine || "that computer"} — choose the window in the sharing dialog there`;
 }
 
+/**
+ * Why a sharing-dialog start ended without a live view, as one sentence: the machine's own
+ * words for a decline or no answer, else the usual problem.
+ */
+export function chooserFailure(code: string | undefined, message: string): string {
+  if ((code === "denied" || code === "timeout") && message.endsWith(".")) return message;
+  const problem = screenProblem(code, message);
+  return `${problem.title}. ${problem.hint ?? "Try again."}`;
+}
+
 /** One session in words. `agentLabel` names a holder (the agent's name, from its thread). */
 export function screenSession(
   state: ScreenState,
