@@ -30,6 +30,7 @@ struct ThreadView: View {
     /// The question card's picks and page, kept here so a reply typed below keeps them.
     @State private var questionDraft = QuestionDraftState()
     @State private var height: CGFloat = 0
+    @State private var barHeight: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
     private var metadata: ThreadRow? { thread.metadata ?? thread.placeholder?.metadata ?? model.inbox[thread.id] }
@@ -69,8 +70,9 @@ struct ThreadView: View {
         ConversationFeed(model: model, thread: thread, acceptedSend: acceptedSend,
                          links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: thread.screen, epoch: thread.epoch),
                                                 openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { fullMessage = $0 },
-                                                openAgents: { showAgents = true }, threadStatus: { model.inbox[$0]?.status }, live: true))
-            .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { bottomBar }
+                                                openAgents: { showAgents = true }, threadStatus: { model.inbox[$0]?.status }, live: true),
+                         barHeight: barHeight)
+            .modifier(FloatingBar(height: $barHeight) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
                 Color.clear.ignoresSafeArea()
@@ -243,5 +245,18 @@ struct ThreadView: View {
     private var browserFollow: Int? {
         guard scenePhase == .active, screen.controls?.busy == true, !model.threadHasBrowser else { return nil }
         return thread.epoch
+    }
+}
+
+/// The composer floats over the feed and rides the keyboard, while the feed keeps its size under
+/// the keyboard and makes room for the bar, strip included, at its end.
+private struct FloatingBar<Bar: View>: ViewModifier {
+    @Binding var height: CGFloat
+    @ViewBuilder let bar: () -> Bar
+    func body(content: Content) -> some View {
+        ZStack(alignment: .bottom) {
+            content.ignoresSafeArea(.keyboard, edges: .bottom)
+            bar().onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+        }
     }
 }
