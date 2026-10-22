@@ -27,7 +27,7 @@ struct BlockView: View {
         let row = block.row
         switch row.kind {
         case "work": WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps, openMessage: links.openMessage)
-        case "subagents": if let agents = row.agents { SubagentGroupView(agents: agents, items: row.items, thread: thread, open: open, openAll: links.openAgents) }
+        case "subagents": if let agents = row.agents { SubagentGroupView(agents: agents, items: row.items, thread: thread, blockId: block.id, open: open, openAll: links.openAgents) }
         case "live": if links.live { LiveLine(activity: thread.screen.activity) }
         case "end": if let ending = row.ending { EndingLine(ending: ending) }
         case "files":
