@@ -95,12 +95,26 @@ jobs:
           bun -e "console.log(JSON.stringify({ bunArch: process.arch, platform: process.platform }))"
           Write-Host "Native evidence = Node arch above. A Bun x64 binary under emulation does not count."
 
+      - name: Restore Bun download cache
+        id: bun-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ matrix.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+
       - name: Staging install (ignore-scripts; NOT the W06 clean-install gate)
         run: |
           $ErrorActionPreference = "Stop"
           Write-Host "STAGING ONLY: dependency staging with --ignore-scripts so no postinstall runs yet."
           Write-Host "This step is explicitly NOT the W06 clean `bun install` validation."
           bun install --frozen-lockfile --ignore-scripts --os=win32 --cpu=${{ matrix.bun_cpu }}
+
+      - name: Save verified dependency downloads before native checks
+        if: steps.bun-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ steps.bun-cache.outputs.cache-primary-key }}
 
       - name: Fetch official Node headers + node.lib and verify SHASUMS256
         id: headers
