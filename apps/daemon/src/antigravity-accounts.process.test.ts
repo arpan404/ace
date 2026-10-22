@@ -25,6 +25,7 @@ import { prepareAgentLogin } from "./services/provider-login-agent.ts";
 import { accountTransitions } from "./services/thread-transitions.ts";
 import { Resources } from "./services/resources.ts";
 import type { ServiceContext } from "./services/types.ts";
+import type { SessionContext } from "@ace/engine-api";
 import { Store } from "./store.ts";
 
 /**
@@ -47,9 +48,13 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     method: request.method,
     home: process.env.GEMINI_HOME ?? null,
     fileStore: process.env.AGY_ACP_FORCE_FILE_STORAGE ?? null,
+    mcp: (request.params?.mcpServers ?? []).map((server) => server.name + ' ' + server.type),
+    systemPrompt: request.params?._meta?.antigravity?.systemPrompt?.append ?? null,
   }) + '\\n');
   const result = request.method === 'initialize'
     ? { protocolVersion: 1, agentInfo: { name: 'antigravity-acp', version: '1.4.1' },
+        agentCapabilities: { mcpCapabilities: { http: true },
+          _meta: { antigravity: { systemPrompt: { append: true } } } },
         authMethods: [{ id: 'oauth-personal', name: 'Log in with Google' }] }
     : request.method === 'session/new' ? { sessionId: 'native' } : {};
   if (request.id !== undefined) console.log(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }));
@@ -109,12 +114,13 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     registry,
     accounts,
     /** Open a thread's Antigravity session on an account; exits are what its thread hears. */
-    open(instanceId?: string, exits: { deliberate: boolean }[] = []) {
+    open(instanceId?: string, exits: { deliberate: boolean }[] = [], mcp?: SessionContext["mcp"]) {
       return adapter.openSession({
         threadId: ThreadId.parse("thread-antigravity"),
         cwd: home,
         env,
         ...(instanceId ? { instanceId } : {}),
+        ...(mcp ? { mcp } : {}),
         signal: new AbortController().signal,
         onFrame() {},
         onExit(exit) {
@@ -161,6 +167,18 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       });
       if (!result.result.ok || !("progress" in result.result)) throw new Error("Login rejected");
       return sessions.completed("device", result.result.progress.session);
+    },
+    /** The ace MCP servers and system prompt each new session was handed. */
+    async sessions() {
+      return (await readFile(seen, "utf8"))
+        .trim()
+        .split("\n")
+        .map(
+          (line) =>
+            JSON.parse(line) as { method: string; mcp: string[]; systemPrompt: string | null },
+        )
+        .filter((entry) => entry.method === "session/new")
+        .map(({ mcp, systemPrompt }) => ({ mcp, systemPrompt }));
     },
     async seen(method: string) {
       return (await readFile(seen, "utf8"))
@@ -376,6 +394,29 @@ test("signing Antigravity's CLI login in again stops its running threads first",
     expect(await f.seen("session/new")).toEqual([
       { home: null, fileStore: null },
       { home: null, fileStore: null },
+    ]);
+  } finally {
+    await f.close();
+  }
+});
+
+test("ace's tools and guidance reach Antigravity sessions on the CLI login and on added accounts alike", async () => {
+  const f = await antigravity();
+  try {
+    const work = await f.add("Work");
+    const mcp = {
+      httpServers: [
+        { name: "ace", type: "http" as const, url: "http://127.0.0.1:1/mcp", headers: [] },
+      ],
+      secrets: [],
+      instructions: "ace's guidance for Antigravity",
+      end() {},
+    };
+    await (await f.open(work.id, [], mcp)).close("shutdown");
+    await (await f.open(antigravityIdentity.instanceId, [], mcp)).close("shutdown");
+    expect(await f.sessions()).toEqual([
+      { mcp: ["ace http"], systemPrompt: "ace's guidance for Antigravity" },
+      { mcp: ["ace http"], systemPrompt: "ace's guidance for Antigravity" },
     ]);
   } finally {
     await f.close();
