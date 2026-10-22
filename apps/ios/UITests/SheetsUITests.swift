@@ -34,7 +34,8 @@ import XCTest
         screenshot("changes-diff")
         app.buttons["changes.file.apps/daemon/src/cli/kill-all.fixtures.ts"].tap()
         let truncated = app.descendants(matching: .any)["diff.truncated"]
-        for _ in 0..<40 where !truncated.exists { app.swipeUp(velocity: .fast) }
+        // 1,500 diff lines before the note; each fast swipe moves about thirty of them.
+        for _ in 0..<90 where !truncated.exists { app.swipeUp(velocity: .fast) }
         XCTAssertTrue(truncated.exists)
         screenshot("changes-diff-truncated")
     }

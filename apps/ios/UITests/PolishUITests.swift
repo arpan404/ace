@@ -5,6 +5,9 @@ import XCTest
 /// `TEST_RUNNER_ACE_IOS_TEXT_SIZE` (a UIContentSizeCategory name) runs them at another text size.
 @MainActor final class PolishUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
+    /// A test that stops on a failure skips its own `defer`; the fixture must not stay offline
+    /// for the tests after it.
+    override func tearDown() { try? control(online: true) }
     private var port: String { ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841" }
 
     func testSettingsHoldPerMachineNotificationsLicencesAndDiagnostics() throws {
@@ -41,7 +44,10 @@ import XCTest
         // Rows are three lines tall: fast swipes coast past the row and the lazy list drops it again.
         app.bringToMiddle(older, attempts: 40)
         XCTAssertTrue(older.isHittable)
-        older.tap()
+        // Let the list settle after the drags, then tap the row's body (an element tap here was
+        // taken as the end of the scroll and opened nothing).
+        sleep(1)
+        older.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()
         XCTAssertTrue(app.descendants(matching: .any)["thread.archived"].waitForExistence(timeout: 15))
         XCTAssertFalse(app.buttons["composer.send"].exists)
         screenshot("archive-thread")
