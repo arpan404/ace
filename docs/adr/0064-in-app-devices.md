@@ -435,14 +435,14 @@ udev rule, no GPU), Android Emulator 37.2.12, an API 34 `google_apis` x86_64 AVD
 avdmanager. Each run boots the shut-down AVD through ace (`-no-window -no-boot-anim`), streams
 scrcpy H.264 to a viewer and decodes it, taps, types, screenshots, and reads the UI tree through
 an agent's sim tools (`apps/daemon/src/linux-android.e2e.process.test.ts`). Two runs per mode
-(four for `auto`: two asked for by name, two as ace's default);
+(seven for `auto`: two asked for by name, five as ace's shipped default);
 first picture is from `start` to the first keyframe at the viewer; frame rate and emulator CPU
 are over 8 back-and-forth swipes on the Settings list.
 
 | `-gpu`                 | Guest GLES renderer             | Boot (s)  | First picture (s) | Scroll fps | Emulator CPU |
 | ---------------------- | ------------------------------- | --------- | ----------------- | ---------- | ------------ |
 | none (AVD's `auto`)    | SwiftShader GLES 3.0            | 39.9–40.4 | 5.8–6.1           | 4.0–13.6   | 272–351%     |
-| `auto` (ace's default) | SwiftShader GLES 3.0            | 36.2–39.5 | 4.6–8.0           | 3.3–5.5    | 343–388%     |
+| `auto` (ace's default) | SwiftShader GLES 3.0            | 31.9–40.7 | 4.6–8.0           | 2.5–10.8   | 272–388%     |
 | `swiftshader_indirect` | SwiftShader GLES 3.0            | 29.7–40.7 | 4.9–5.5           | 2.3–2.9    | 355–374%     |
 | `swangle_indirect`     | ANGLE on SwiftShader Vulkan 3.1 | 26.3–37.5 | 5.6–7.3           | 2.8–5.1    | 368–378%     |
 | `guest`                | SwiftShader GLES 3.0            | 27.5–39.4 | 6.1–6.6           | 4.2–5.4    | 352–365%     |
