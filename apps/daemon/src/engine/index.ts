@@ -297,6 +297,14 @@ export class Engine {
       for (const event of events) {
         const request = releaseRequest(event.payload);
         if (request) this.requestRelease(event.threadId, request);
+        // Settling ends a turn a Stop or restart left on hold (startup does it for the rest).
+        if (
+          request === "release" &&
+          this.readyState &&
+          !this.closing &&
+          this.repo.state(event.threadId)
+        )
+          store.atomic(() => this.recovery.closeSettled(event.threadId));
       }
     });
     // Live output the store had to drop stops only that thread's session, visibly.
