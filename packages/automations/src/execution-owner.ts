@@ -4,6 +4,7 @@ import type { AutomationStore } from "./store.ts";
 import { observe } from "./observation.ts";
 
 type Outcome = ExecutionResult | { status: "failed"; result: string };
+const stoppedBeforeStart: Outcome = { status: "failed", result: "Stopped before it started." };
 
 /**
  * One cancellable monitor per durable run. Cancellation never stops the thread, and a run has no
@@ -37,7 +38,12 @@ export class ExecutionOwner {
     return this.pending.size > 0;
   }
   launch(run: AutomationRun, input: ExecutionInput): void {
-    this.monitor(run, (signal) => this.deps.executor.execute(input, signal));
+    // A run paused or deleted before it reached the executor is never sent.
+    this.monitor(run, (signal) =>
+      this.store.cancellation(run.id) === undefined
+        ? this.deps.executor.execute(input, signal)
+        : stoppedBeforeStart,
+    );
   }
   restore(run: AutomationRun, input: ExecutionInput): void {
     this.recover(run, input, 0);
@@ -46,7 +52,10 @@ export class ExecutionOwner {
     this.monitor(run, async (signal) => {
       let recovered: ExecutionResult | undefined;
       try {
-        recovered = await observe(this.deps.executor.recover(input.idempotencyKey, signal), signal);
+        recovered = await observe(
+          this.deps.executor.recover(input.idempotencyKey, signal, input),
+          signal,
+        );
       } catch (error) {
         if (!signal.aborted) {
           this.report(error);
@@ -55,7 +64,11 @@ export class ExecutionOwner {
         return undefined;
       }
       if (signal.aborted) return undefined;
-      return recovered ?? this.deps.executor.execute(input, signal);
+      if (recovered) return recovered;
+      // Nothing was sent before the restart: a cancelled run stays unsent.
+      return this.store.cancellation(run.id) === undefined
+        ? this.deps.executor.execute(input, signal)
+        : stoppedBeforeStart;
     });
   }
   nextDeadline(): number | undefined {
@@ -124,13 +137,13 @@ export class ExecutionOwner {
   }
   private monitor(
     run: AutomationRun,
-    execute: (signal: AbortSignal) => Promise<ExecutionResult | undefined>,
+    execute: (signal: AbortSignal) => Promise<Outcome | undefined> | Outcome,
   ): void {
     if (this.monitors.has(run.id)) return;
     if (this.monitors.size >= 256) throw new Error("Execution monitor limit reached");
     const controller = new AbortController();
     this.monitors.set(run.id, controller);
-    let request: Promise<ExecutionResult | undefined>;
+    let request: Promise<Outcome | undefined>;
     try {
       request = Promise.resolve(execute(controller.signal));
     } catch (error) {
@@ -139,10 +152,8 @@ export class ExecutionOwner {
     const operation = async () => {
       try {
         const result = await observe(request, controller.signal);
-        if (result !== undefined && !controller.signal.aborted) {
-          const outcome = ExecutionResult.parse(result);
-          this.complete(run.id, outcome);
-        }
+        if (result !== undefined && !controller.signal.aborted)
+          this.complete(run.id, "threadId" in result ? ExecutionResult.parse(result) : result);
       } catch (error) {
         if (!controller.signal.aborted) {
           this.complete(run.id, {

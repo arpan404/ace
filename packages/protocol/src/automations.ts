@@ -42,10 +42,18 @@ export const Automation = z.object({
   provider: ProviderKind,
   access: AccessMode.optional(),
   model: text.optional(),
+  /** The model's effort, as the composer's model chip sets it. Omitted: the model's default. */
+  effort: z.string().min(1).max(64).optional(),
+  /** The provider account instance to run on, as the chip's account rail picks it. */
+  instance: text.optional(),
   prompt: MessageText,
   worktree: z.boolean(),
   trigger: AutomationTrigger,
   missedRun: z.enum(["skip", "run_once"]),
+  /**
+   * Kept for stored definitions. Every run goes into the automation's one thread, so one runs
+   * at a time whatever this says: a fire meanwhile waits behind it.
+   */
   concurrency: z.number().int().min(1).max(32),
   jitterMs: z.number().int().min(0).max(3_600_000),
 });
@@ -72,7 +80,11 @@ export const AutomationRun = z.object({
   title: text,
   eventKey: z.string().max(512),
   trigger: z.enum(["schedule", "github", "file", "manual"]),
-  status: z.enum(["running", "succeeded", "failed", "skipped"]),
+  /**
+   * `queued` waits for the run before it to finish, then starts; an automation sends one message
+   * at a time into its thread. `startedAt` is when it fired until it starts, then when it started.
+   */
+  status: z.enum(["queued", "running", "succeeded", "failed", "skipped"]),
   startedAt: instant,
   finishedAt: instant.optional(),
   threadId: text.optional(),
@@ -80,6 +92,12 @@ export const AutomationRun = z.object({
 });
 export type AutomationRun = z.infer<typeof AutomationRun>;
 export const AutomationRevision = z.number().int().positive();
+/**
+ * Which store a request addresses: the person's automations (the default) or the ones agents
+ * made from a thread, which belong to that thread.
+ */
+export const AutomationSource = z.enum(["person", "thread"]);
+export type AutomationSource = z.infer<typeof AutomationSource>;
 export type AutomationRevision = z.infer<typeof AutomationRevision>;
 export const AutomationInbox = z.object({
   runs: z.array(AutomationRun).max(100),
@@ -98,20 +116,30 @@ export const AutomationRequest = z.discriminatedUnion("type", [
     requestId: text,
     id: text,
     expectedRevision: AutomationRevision.nullable().optional(),
+    source: AutomationSource.optional(),
   }),
   z.object({
     type: z.literal("automation.run"),
     requestId: text,
     id: text,
     variables: TriggerVariables,
+    /** Extra instructions for this run only, added after the saved prompt. */
+    message: MessageText.optional(),
+    source: AutomationSource.optional(),
   }),
-  z.object({ type: z.literal("automation.list"), requestId: text }),
+  z.object({
+    type: z.literal("automation.list"),
+    requestId: text,
+    /** Also list automations agents made from threads, in `threadAutomations`. */
+    includeThreads: z.boolean().optional(),
+  }),
   z.object({
     type: z.literal("automation.inbox"),
     requestId: text,
     before: z.number().int().positive().optional(),
     automationId: text.optional(),
     limit: z.number().int().min(1).max(100),
+    source: AutomationSource.optional(),
   }),
   z.object({
     type: z.literal("automation.setEnabled"),
@@ -119,6 +147,7 @@ export const AutomationRequest = z.discriminatedUnion("type", [
     id: text,
     enabled: z.boolean(),
     expectedRevision: AutomationRevision.optional(),
+    source: AutomationSource.optional(),
   }),
   z.object({
     type: z.literal("automation.retry"),
@@ -159,5 +188,19 @@ export const AutomationResponse = z.object({
     .optional(),
   inbox: AutomationInbox.optional(),
   run: AutomationRun.optional(),
+  /** With `includeThreads`: automations agents made from threads, with the thread that owns each. */
+  threadAutomations: z
+    .array(
+      z.object({
+        automation: Automation,
+        threadId: text,
+        nextRunAt: instant.nullable(),
+        revision: AutomationRevision.optional(),
+        triggerError: AutomationTriggerError.optional(),
+        lastRun: AutomationRun.optional(),
+      }),
+    )
+    .max(1000)
+    .optional(),
 });
 export type AutomationResponse = z.infer<typeof AutomationResponse>;

@@ -146,13 +146,7 @@ try {
       await expect(page.getByRole("option", { name: /Gemini CLI/ })).toBeVisible();
       await shot("registry");
       await page.goto(`${base}/automations/auto-dependency-audit`);
-      await page
-        .getByRole("button", {
-          name: "Open the run 2 advisories · opened a thread in ace",
-          exact: true,
-        })
-        .click();
-      await expect(page.getByRole("link", { name: "Open thread", exact: true })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Open run", exact: true })).toBeVisible();
       await shot("automation");
       await page.goto(`${base}/settings/computer-use?fakeWorld=computer-use`);
       await expect(page.getByRole("list", { name: "Live sessions" })).toBeVisible();

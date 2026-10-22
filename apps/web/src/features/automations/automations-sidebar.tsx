@@ -1,124 +1,146 @@
-import type { Automation } from "@ace/protocol";
-import {
-  ArrowsClockwiseIcon,
-  CalendarBlankIcon,
-  ClockIcon,
-  FileIcon,
-  GitPullRequestIcon,
-  HandPointingIcon,
-  PlusIcon,
-  WarningIcon,
-  type Icon as PhosphorIcon,
-} from "@phosphor-icons/react";
+import { MagnifyingGlassIcon, PlusIcon } from "@phosphor-icons/react";
 import { Link, useParams } from "@tanstack/react-router";
-import { cn } from "@/lib/cn.ts";
-import { StatusLabel } from "@/components/status-label.tsx";
+import { useState } from "react";
 import { Icon } from "@/components/icon.tsx";
-import { buttonVariants } from "@/components/ui/button.tsx";
+import { SearchField } from "@/components/search-field.tsx";
+import { Button } from "@/components/ui/button.tsx";
+import { EmptyState } from "@/components/ui/empty.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
-import { Tip } from "@/components/ui/tooltip.tsx";
-import { ViewSidebarError, useViewListKeys } from "@/components/ui/view-row.tsx";
+import {
+  compactViewRowClass,
+  ViewRowSection,
+  ViewSidebarError,
+  useViewListKeys,
+} from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
-import { describeTrigger } from "./schedule.ts";
-import { useAutomations } from "./use-automations.ts";
-import { sidebarNeedsAttention } from "./trigger-health.ts";
-import { useProjectName } from "@/lib/projects.ts";
+import { useNow } from "@/lib/time.ts";
+import { localTimeZone } from "@/features/automation-schedule/index.ts";
+import { sidebarGroups, type SidebarRow } from "./sidebar-rows.ts";
+import { useAutomationLists } from "@/features/automation-data/index.ts";
 
-const triggerIcons: Record<Automation["trigger"]["kind"], PhosphorIcon> = {
-  schedule: ClockIcon,
-  github: GitPullRequestIcon,
-  file: FileIcon,
-  manual: HandPointingIcon,
-};
-
-/** The glyph says how it fires: a clock daily, arrows every few hours, a calendar weekly. */
-function triggerIcon(trigger: Automation["trigger"]): PhosphorIcon {
-  if (trigger.kind !== "schedule") return triggerIcons[trigger.kind];
-  const expression = trigger.schedule.expression.toUpperCase();
-  if (/FREQ=(HOURLY|MINUTELY)/.test(expression)) return ArrowsClockwiseIcon;
-  const weekly =
-    expression.includes("FREQ=WEEKLY") ||
-    (trigger.schedule.kind === "cron" && !expression.trim().endsWith("*"));
-  return weekly ? CalendarBlankIcon : ClockIcon;
-}
-
-/** The trigger and project live in the row's tooltip; pauses and failures stay visible. */
+/**
+ * Automations as a list of conversations: New automation, then Upcoming (soonest first), Paused,
+ * and the ones agents made in threads. Each row is its title over one line of when it runs next,
+ * or a status word when it needs a look.
+ */
 export function AutomationsSidebar() {
-  const list = useAutomations();
-  const automations = list.data;
+  const list = useAutomationLists();
   const selected = useParams({ strict: false }).automationId;
-  const projectName = useProjectName();
-  const keys = useViewListKeys<HTMLUListElement>();
+  const now = useNow();
+  const keys = useViewListKeys<HTMLElement>();
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState("");
+  const groups = list.data ? sidebarGroups(list.data, now, localTimeZone(), query) : undefined;
+  const any = !!list.data && list.data.person.length + list.data.threads.length > 0;
   return (
     <ViewSidebar
       title="Automations"
       actions={
-        automations?.length ? (
-          <Tip label="New automation">
-            <Link
-              to="/automations/new"
-              aria-label="New automation"
-              className={cn(buttonVariants({ variant: "ghost" }), "size-[30px] px-0")}
-            >
-              <Icon icon={PlusIcon} size={16} />
-            </Link>
-          </Tip>
+        any ? (
+          <IconButton
+            icon={MagnifyingGlassIcon}
+            label="Search automations"
+            size="sm"
+            aria-pressed={searching}
+            onClick={() => {
+              if (searching) setQuery("");
+              setSearching(!searching);
+            }}
+          />
         ) : undefined
       }
+      toolbar={
+        <div className="flex shrink-0 flex-col gap-1 px-2 pb-1">
+          {searching && (
+            <SearchField
+              label="Search automations"
+              placeholder="Search automations"
+              value={query}
+              autoFocus
+              onValueChange={setQuery}
+              onKeyDown={(event) => {
+                if (event.key === "Escape" && !query) setSearching(false);
+              }}
+              className="bg-sidebar-accent"
+            />
+          )}
+          <Link
+            to="/automations/new"
+            activeOptions={{ exact: true }}
+            activeProps={{ "aria-current": "page" }}
+            className={compactViewRowClass}
+          >
+            <Icon icon={PlusIcon} size={16} className="shrink-0 text-muted-foreground" />
+            New automation
+          </Link>
+        </div>
+      }
     >
-      {!automations && list.isError ? (
+      {!list.data && list.isError ? (
         <ViewSidebarError onRetry={() => void list.refetch()} />
-      ) : !automations ? (
+      ) : !groups ? (
         <ListSkeleton label="automations" shape="row" rows={4} />
-      ) : !automations.length ? null : (
-        <ul {...keys} aria-label="Automations" className="flex flex-col gap-px">
-          {automations.map(({ automation, lastPollError, triggerError, lastRun }) => (
-            <li key={automation.id}>
-              <Tip
-                label={`${describeTrigger(automation.trigger)} · ${projectName(automation.workspace)}`}
-              >
-                <Link
-                  to="/automations/$automationId"
-                  params={{ automationId: automation.id }}
-                  aria-current={selected === automation.id ? "page" : undefined}
-                  data-view-row=""
-                  className="flex h-9 items-center gap-2 rounded-md px-2.5 text-ui hover:bg-sidebar-accent focus-ring-inset aria-[current=page]:bg-sidebar-accent"
-                >
-                  <Icon
-                    icon={triggerIcon(automation.trigger)}
-                    size={14}
-                    className="shrink-0 text-muted-foreground"
-                  />
-                  <span data-view-row-title="" className="min-w-0 flex-1 truncate">
-                    {automation.title}
-                  </span>
-                  <RowMarks
-                    paused={!automation.enabled}
-                    failed={sidebarNeedsAttention({
-                      triggerError,
-                      lastPollError,
-                      lastRun,
-                      enabled: automation.enabled,
-                    })}
-                  />
-                </Link>
-              </Tip>
-            </li>
+      ) : !groups.length && query.trim() ? (
+        <EmptyState
+          variant="inline"
+          title="No matching automations"
+          description={`Nothing matches "${query.trim()}".`}
+          action={
+            <Button size="sm" variant="ghost" onClick={() => setQuery("")}>
+              Clear search
+            </Button>
+          }
+        />
+      ) : (
+        <nav {...keys} aria-label="Automation list">
+          {groups.map((group) => (
+            <ViewRowSection key={group.label} label={group.label}>
+              {group.rows.map((row) => (
+                <li key={`${row.owner ?? ""}:${row.id}`}>
+                  <AutomationRow row={row} selected={selected === row.id} />
+                </li>
+              ))}
+            </ViewRowSection>
           ))}
-        </ul>
+        </nav>
       )}
     </ViewSidebar>
   );
 }
 
-function RowMarks(props: { paused: boolean; failed: boolean }) {
-  if (!props.paused && !props.failed) return null;
+function AutomationRow(props: { row: SidebarRow; selected: boolean }) {
+  const { row } = props;
   return (
-    <span className="inline-flex items-center gap-1">
-      {props.failed && (
-        <Icon icon={WarningIcon} size={12} label="Needs attention" className="text-status-failed" />
-      )}
-      {props.paused && <StatusLabel tone="idle" label="Paused" />}
-    </span>
+    <Link
+      to="/automations/$automationId"
+      params={{ automationId: row.id }}
+      aria-current={props.selected ? "page" : undefined}
+      data-view-row=""
+      className="flex min-h-11 flex-col justify-center gap-0.5 rounded-md px-2.5 py-1.5 transition-colors duration-(--motion-fast) hover:bg-sidebar-accent focus-ring-inset aria-[current=page]:bg-sidebar-accent"
+    >
+      <span
+        data-view-row-title=""
+        className={
+          row.paused
+            ? "min-w-0 truncate text-md text-muted-foreground"
+            : "min-w-0 truncate text-md text-foreground"
+        }
+      >
+        {row.title}
+      </span>
+      <span className="min-w-0 truncate text-meta text-muted-foreground">
+        {row.status &&
+          (row.status.tone === "idle" ? (
+            row.status.word
+          ) : (
+            <span data-tone={row.status.tone} className="font-medium text-(--tone-text)">
+              {row.status.word}
+            </span>
+          ))}
+        {row.status && " · "}
+        {row.detail}
+      </span>
+    </Link>
   );
 }

@@ -8,6 +8,10 @@ export interface ExecutionInput {
   title?: string | undefined;
   provider: Automation["provider"];
   model?: string | undefined;
+  /** The model's effort; absent keeps the model's default. */
+  effort?: string | undefined;
+  /** The provider account instance the run starts on; absent uses the provider's default. */
+  instance?: string | undefined;
   access?: Automation["access"] | undefined;
   workspace: string;
   prompt: string;
@@ -22,8 +26,20 @@ export type ExecutionResult = z.infer<typeof ExecutionResult>;
 export interface AutomationExecutor {
   /** Resolve after the whole tree settles. Abort only unsubscribes this observer. */
   execute(input: ExecutionInput, signal: AbortSignal): Promise<ExecutionResult>;
-  /** Resume monitoring existing work; undefined means no thread was created. */
-  recover(idempotencyKey: string, signal: AbortSignal): Promise<ExecutionResult | undefined>;
+  /**
+   * Resume monitoring existing work; undefined means nothing was sent. `input` is the run's
+   * stored input, for executors that need more than its key.
+   */
+  recover(
+    idempotencyKey: string,
+    signal: AbortSignal,
+    input?: ExecutionInput,
+  ): Promise<ExecutionResult | undefined>;
+  /**
+   * Stop the run, when its automation is paused or deleted. Resolves once the executor holds
+   * the stop durably; it carries it out and the run's monitor settles the run as failed.
+   */
+  interrupt?(input: ExecutionInput): Promise<void>;
 }
 export interface TimerDriver {
   arm(delayMs: number, callback: () => void | Promise<void>): () => void;

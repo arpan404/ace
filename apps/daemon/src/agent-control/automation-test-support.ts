@@ -1,18 +1,29 @@
+import { randomUUID } from "node:crypto";
 import { SettingsService } from "@ace/settings";
 import { createLogger } from "@ace/diagnostics";
-import type { McpAttribution } from "@ace/protocol";
+import {
+  AgentAutomation,
+  AutomationInbox,
+  AutomationResponse,
+  type McpAttribution,
+} from "@ace/protocol";
 import { readConfig } from "../config.ts";
 import { end } from "../engine/test-support.ts";
 import { Resources } from "../services/resources.ts";
 import type { ServiceContext } from "../services/types.ts";
 import { createAgentOwners } from "./owners.ts";
+import { ownerThreadExecutor } from "./owner-thread-executor.ts";
 import type { ExtensionOperation } from "./tools.ts";
 import { setup } from "./test-support.ts";
 
-/** Real ownership, settings, delegation and SQLite; only the provider CLI is scripted. */
-export async function automationFixture() {
-  const h = setup();
-  const caller = await h.parent();
+/**
+ * Real ownership, settings, delegation and SQLite; only the provider CLI is scripted. With
+ * `claude`, the automations' thread is a Claude thread: each turn stays open until the test
+ * answers it (`answer`), where a Codex turn ends as soon as it starts.
+ */
+export async function automationFixture(provider: "codex" | "claude" = "codex") {
+  let h = setup();
+  const caller = provider === "claude" ? await claudeThread(h) : await h.parent();
   let sequence = 0;
   const open = async () => {
     const resources = new Resources();
@@ -35,17 +46,136 @@ export async function automationFixture() {
       id: () => `automation-${++sequence}`,
       resources,
       log,
-      services: { settings },
+      // Runs go into the agent's own thread through the engine, as in the daemon.
+      services: { settings, engine: h.engine },
       onListen,
     } satisfies ServiceContext;
     const owners = createAgentOwners(context, h.service);
     for (const listen of onListen) await listen();
-    return { resources, settings, owners };
+    return { resources, settings, owners, context };
   };
   let owner = await open();
   return {
-    h,
+    get h() {
+      return h;
+    },
     caller,
+    /**
+     * Restart everything as after a crash: the automations, the delegation service, the engine
+     * and the store are closed and opened again on the same database and data directory.
+     */
+    async restartDaemon() {
+      const now = h.clock.now();
+      await owner.resources.close();
+      await h.close();
+      h = setup({}, h.dbPath);
+      h.clock.advance(now);
+      await h.engine.flush();
+      owner = await open();
+    },
+    /** The agent saves a manual automation `id` that sends `prompt` into its thread. */
+    async save(id: string, prompt: string) {
+      const result = await owner.owners.execute(
+        caller,
+        {
+          op: "automation.manage",
+          request: {
+            type: "automation.put",
+            requestId: `put-${id}`,
+            automation: AgentAutomation.parse({
+              id,
+              title: id,
+              enabled: true,
+              workspace: h.home,
+              provider,
+              prompt,
+              worktree: false,
+              trigger: { kind: "manual" },
+            }),
+          },
+        },
+        new AbortController().signal,
+      );
+      if (!result.ok) throw new Error(`Could not save ${id}`);
+    },
+    /** Run automation `id` now, as the agent's tool does. */
+    async run(id: string, requestId: string) {
+      return AutomationResponse.parse(
+        (
+          await owner.owners.execute(
+            caller,
+            {
+              op: "automation.manage",
+              request: { type: "automation.run", requestId, id, variables: {} },
+            },
+            new AbortController().signal,
+          )
+        ).data,
+      );
+    },
+    /** Automation `id`'s newest run. */
+    async latest(id: string) {
+      const inbox = AutomationInbox.parse(
+        (
+          await owner.owners.execute(
+            caller,
+            {
+              op: "automation.manage",
+              request: { type: "automation.inbox", requestId: "inbox", limit: 50 },
+            },
+            new AbortController().signal,
+          )
+        ).data,
+      );
+      return inbox.runs.find((entry) => entry.automationId === id);
+    },
+    /** Pause or resume automation `id`. */
+    setEnabled(id: string, enabled: boolean) {
+      return owner.owners.execute(
+        caller,
+        {
+          op: "automation.manage",
+          request: {
+            type: "automation.setEnabled",
+            requestId: `enabled-${id}-${enabled}`,
+            id,
+            enabled,
+          },
+        },
+        new AbortController().signal,
+      );
+    },
+    /** Where the agent automations' own store lives. */
+    get dataDir() {
+      return owner.context.config.dataDir;
+    },
+    /** An executor for automations made from the fixture's thread, driven directly. */
+    executor() {
+      return ownerThreadExecutor(owner.context, h.service, () => ({
+        thread_id: caller.threadId,
+        agent_id: caller.agentId,
+      }));
+    },
+    /** The agent ends the thread's open turn with `text`, once it has taken `turn` inputs. */
+    async answer(turn: number, item: string, text: string) {
+      for (let i = 0; i < 200 && (h.inputs.get(caller.threadId)?.length ?? 0) < turn; i++)
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      await h.emit(
+        caller.threadId,
+        {
+          type: "item.upsert",
+          agent: "root",
+          item,
+          draft: {
+            type: "message",
+            role: "assistant",
+            parts: [{ type: "text", text }],
+            complete: true,
+          },
+        },
+        end,
+      );
+    },
     get settings() {
       return owner.settings;
     },
@@ -63,4 +193,24 @@ export async function automationFixture() {
       await h.close();
     },
   };
+}
+
+/** A Claude thread for automations to run in, in the harness's workspace. */
+async function claudeThread(h: ReturnType<typeof setup>): Promise<McpAttribution> {
+  const codex = await h.parent();
+  const workspaceId = h.store.getThread(codex.threadId)?.workspaceId;
+  if (!workspaceId) throw new Error("Missing workspace");
+  const result = h.service.command(randomUUID(), {
+    type: "thread.create",
+    workspaceId,
+    provider: "claude",
+    access: "full-access",
+    input: [{ type: "text", text: "plan" }],
+  });
+  if (!result.ok || !result.threadId) throw new Error(result.error ?? "Creation failed");
+  await h.engine.flush();
+  for (let i = 0; i < 200 && !h.inputs.get(result.threadId)?.length; i++)
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  await h.complete(result.threadId, "Planned");
+  return h.caller(result.threadId);
 }

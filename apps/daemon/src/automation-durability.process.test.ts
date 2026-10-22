@@ -1,34 +1,10 @@
-import { once } from "node:events";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { expect, test } from "vitest";
-import { Automation, DeviceId, ThreadId, type AutomationRequest } from "@ace/protocol";
+import { Automation, ThreadId } from "@ace/protocol";
 import { z } from "zod";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
-import { Client } from "./socket-test-support.ts";
+import { connectAutomations } from "./automation-socket-test-support.ts";
 
-async function connect(f: Awaited<ReturnType<typeof daemonFixture>>, device: string) {
-  const client = new Client(f.daemon.url);
-  await once(client.socket, "open");
-  client.send({
-    type: "hello",
-    protocolVersion: 1,
-    deviceId: DeviceId.parse(device),
-    token: await readFile(join(f.h.home, "daemon", "daemon-token"), "utf8"),
-  });
-  expect((await client.next()).type).toBe("welcome");
-  return {
-    client,
-    async ask(request: AutomationRequest) {
-      client.send(request);
-      for (;;) {
-        const response = await client.next();
-        if (response.type === "automation.result" && response.requestId === request.requestId)
-          return response;
-      }
-    },
-  };
-}
+const connect = connectAutomations;
 
 const definition = (workspace: string) =>
   Automation.parse({
@@ -119,6 +95,8 @@ test("committed deletion survives reconnect and restoring its definition retains
     await expect.poll(admittedThread).toBeDefined();
     const threadId = ThreadId.parse(admittedThread());
     await expect.poll(() => f.h.contexts.has(threadId)).toBe(true);
+    // The provider answers the turn once it has taken the run's message, never before.
+    await expect.poll(() => f.h.inputs.get(threadId)?.length ?? 0).toBeGreaterThan(0);
     await f.h.complete(threadId, "Reviewed");
     await f.daemon.engine?.flush();
     f.h.clock.advance(f.h.clock.now() + 1000);

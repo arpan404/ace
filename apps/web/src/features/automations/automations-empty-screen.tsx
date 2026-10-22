@@ -4,15 +4,15 @@ import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Screen, ViewListPage } from "@/features/shell/index.ts";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
-import { useAutomations } from "./use-automations.ts";
+import { useAutomationLists } from "@/features/automation-data/index.ts";
 
 /**
  * Automations opens on the first one in the list; with none yet, the main pane alone says how
  * to make one (the sidebar keeps one quiet line).
  */
 export function AutomationsEmptyScreen() {
-  const list = useAutomations();
-  const first = list.data?.[0];
+  const list = useAutomationLists();
+  const first = list.data?.person[0] ?? list.data?.threads[0];
   // A narrow window shows the list as the page; a wide one opens the first automation.
   if (first)
     return (
@@ -50,11 +50,11 @@ export function AutomationsEmptyScreen() {
         icon={ClockIcon}
         heading
         title="No automations yet"
-        description="Run a prompt on a schedule, on a GitHub event, or by hand. Results land in the automation's history."
+        description="Run a prompt on a schedule, when a pull request changes, or when files change."
         action={
           <Link
             to="/automations/new"
-            className={buttonVariants({ variant: "primary", size: "sm" })}
+            className={buttonVariants({ variant: "secondary", size: "sm" })}
           >
             New automation
           </Link>

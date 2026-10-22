@@ -13,7 +13,7 @@ import {
   summaryPullRequests,
   turnAgentFiles,
 } from "@ace/ui-core";
-import { useProjectAutomations, WorkAutomations } from "@/features/automations/index.ts";
+import { useProjectAutomations, WorkAutomations } from "@/features/automation-data/index.ts";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useLatestTurn } from "@/lib/latest-turn.ts";
 import { useServerQueue } from "@/lib/server-queue.ts";

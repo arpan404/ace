@@ -1,7 +1,12 @@
 import { savedTranscripts } from "../catalog/history.ts";
 import { aceToolThreadIds } from "./ace-tool-results.ts";
 import { postedImageThreadId, publishedPages } from "./visualization.ts";
-import { automationList, automationRuns } from "../catalog/automations.ts";
+import {
+  automationList,
+  automationRuns,
+  threadAutomationList,
+  threadAutomationRuns,
+} from "../catalog/automations.ts";
 import { pluginCatalog } from "../catalog/plugins.ts";
 import { pullRequests } from "../catalog/pull-requests.ts";
 import type { ServicesSeed } from "../services-wire.ts";
@@ -45,6 +50,11 @@ export function workbenchServices(now: number, timeZone = "UTC"): ServicesSeed {
       timeZone,
     ),
     runs: automationRuns(now, timeZone),
+    threadAutomations: threadAutomationList(
+      Math.max(0, Math.floor(now / 60_000) * 60_000 - 30 * 86_400_000),
+      timeZone,
+    ),
+    threadRuns: threadAutomationRuns(now),
     plugins: pluginCatalog(now),
     pullRequests: pullRequests(now),
     // The design's machine runs its automations, so schedules show their next run.

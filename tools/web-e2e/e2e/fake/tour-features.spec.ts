@@ -107,12 +107,11 @@ for (const { theme, width } of cases) {
     await expect(page.getByRole("option", { name: /^engineering:code-review / })).toBeVisible();
     await shot(page, "21-slash-catalog", suffix);
     await page.goto("/automations/auto-dependency-audit");
-    const runs = page.getByRole("list", { name: "Recent runs" });
-    await expect(runs.getByText(/02:00/)).toHaveCount(4);
-    await runs.getByRole("button", { name: /Open the run 2 advisories/ }).click();
-    const details = page.getByRole("region", { name: "Run details for Nightly dependency audit" });
-    await expect(details).toContainText("Scheduled · 4 min");
-    await expect(details).not.toContainText(/\d+\/\d+\/\d{4}/);
+    // Runs read as turns of the automation's conversation, dated the way people say it.
+    const main = page.getByRole("main");
+    await expect(main.getByRole("article", { name: /^Run, / })).not.toHaveCount(0);
+    await expect(main.getByText(/^Worked for /).first()).toBeVisible();
+    await expect(main).not.toContainText(/\d+\/\d+\/\d{4}/);
     await shot(page, "35-automation-times", suffix);
   });
   test(`a fresh first thread finishes in ${suffix}`, async ({ page }) => {

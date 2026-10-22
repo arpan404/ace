@@ -477,6 +477,9 @@
           "minLength": 1,
           "type": "string"
         },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/AutomationSource.json"
+        },
         "type": {
           "const": "automation.remove",
           "type": "string"
@@ -496,10 +499,16 @@
           "minLength": 1,
           "type": "string"
         },
+        "message": {
+          "$ref": "https://ace.local/protocol/v1/MessageText.json"
+        },
         "requestId": {
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
+        },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/AutomationSource.json"
         },
         "type": {
           "const": "automation.run",
@@ -519,6 +528,9 @@
     },
     {
       "properties": {
+        "includeThreads": {
+          "type": "boolean"
+        },
         "requestId": {
           "maxLength": 256,
           "minLength": 1,
@@ -557,6 +569,9 @@
           "minLength": 1,
           "type": "string"
         },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/AutomationSource.json"
+        },
         "type": {
           "const": "automation.inbox",
           "type": "string"
@@ -586,6 +601,9 @@
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
+        },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/AutomationSource.json"
         },
         "type": {
           "const": "automation.setEnabled",
