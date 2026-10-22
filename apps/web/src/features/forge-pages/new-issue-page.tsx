@@ -1,3 +1,4 @@
+import { issueQuery } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { draftKeys, useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
@@ -10,7 +11,6 @@ import { applePlatform } from "@/lib/keymap.ts";
 import { useBackToList } from "./back-to-list.ts";
 import { readable } from "./issue-page.tsx";
 import { useIssueWrites } from "./issue-writes.ts";
-import { issueQuery } from "./issues-model.ts";
 import { useIssuePages } from "./lists.ts";
 import { useProjectChoice } from "./project-choice.ts";
 

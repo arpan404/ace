@@ -1,10 +1,10 @@
 import { ForgePrSearch, type ForgePrList } from "@ace/protocol";
-import { prQuery, type PullsSearch } from "./pulls-model.ts";
+import { prQuery, type PullsSearch } from "./forge-lists.ts";
 
 /*
  * "Ready to merge": every open pull request, read across the whole repository rather than the
  * pages already read, readiest first, so the ones closest to merging show without paging. The
- * list then groups them by what each needs next (`next-steps.ts`).
+ * list then groups them by what each needs next (`pr-row-steps.ts`).
  */
 
 /**
@@ -30,7 +30,7 @@ export function readinessQueries(search: PullsSearch): ForgePrSearch[] {
 }
 
 /** One page read for the ranking: which search, and which of its pages. */
-export interface Step {
+export interface ReadyRead {
   query: number;
   page: number;
 }
@@ -39,11 +39,11 @@ export interface Step {
  * What to read after `steps`, given the answers so far: the next page of the current search,
  * else the first page of the next search; none once every search is exhausted.
  */
-export function nextStep(
-  steps: readonly Step[],
+export function nextReadyRead(
+  steps: readonly ReadyRead[],
   answers: readonly (ForgePrList | undefined)[],
   queries: number,
-): Step | undefined {
+): ReadyRead | undefined {
   const last = steps[steps.length - 1];
   if (!last) return queries > 0 ? { query: 0, page: 1 } : undefined;
   const answer = answers[steps.length - 1];

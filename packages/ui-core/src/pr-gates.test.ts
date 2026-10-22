@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import { ForgeMergeState, type ForgeCheck } from "@ace/protocol";
-import { mergeBlockers, prGates, type GateFacts } from "./pr-gates.ts";
+import { ForgeComment, ForgeMergeState, type ForgeCheck } from "@ace/protocol";
+import { mergeBlockers, prGates, reviewerOutcomes, type GateFacts } from "./pr-gates.ts";
 
 const check = (name: string, status: ForgeCheck["status"]): ForgeCheck => ({
   id: name,
@@ -147,4 +147,30 @@ test("only failing checks and requested changes block a merge", () => {
     ),
   ).toEqual(["Checks: 1 failing · 1 ok", "Reviews: Changes requested"]);
   expect(mergeBlockers(prGates(facts({ reviewDecision: "REVIEW_REQUIRED" })))).toEqual([]);
+});
+
+const review = (id: number, author: string, at: string, reviewState?: string): ForgeComment =>
+  ForgeComment.parse({
+    kind: reviewState ? "review" : "issue",
+    id,
+    author,
+    body: `comment ${id}`,
+    file: null,
+    line: null,
+    replyTo: null,
+    createdAt: at,
+    updatedAt: at,
+    ...(reviewState ? { reviewState } : {}),
+  });
+
+test("a reviewer's latest verdict wins over earlier ones", () => {
+  const outcomes = reviewerOutcomes([
+    review(1, "mira", "2026-01-01", "CHANGES_REQUESTED"),
+    review(2, "mira", "2026-01-03", "APPROVED"),
+    review(3, "sam", "2026-01-02", "CHANGES_REQUESTED"),
+    review(4, "lee", "2026-01-02"),
+  ]);
+  expect(outcomes.get("mira")).toBe("approved");
+  expect(outcomes.get("sam")).toBe("changes");
+  expect(outcomes.has("lee")).toBe(false);
 });
