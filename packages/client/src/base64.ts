@@ -5,11 +5,35 @@ function digit(code: number): number {
   if (code >= 48 && code <= 57) return code + 4;
   return code === 43 ? 62 : code === 47 ? 63 : -1;
 }
-/** Decode bounded wire chunks without Buffer or platform-specific globals. */
+/** The platform's own base64 decoder (ES2026), where it has one. */
+interface NativeBase64 {
+  fromBase64?: (text: string, options: { lastChunkHandling: "strict" }) => Uint8Array<ArrayBuffer>;
+}
+const platform: NativeBase64 = Uint8Array;
+
+/**
+ * Decode bounded wire chunks without Buffer: natively where the platform can (JavaScriptCore
+ * without a JIT takes ~30 ms for a 256 KiB part in JavaScript, well under 1 ms natively).
+ */
 export function decodeBase64(text: string, limit: number): Uint8Array<ArrayBuffer> {
   const padding = text.endsWith("==") ? 2 : text.endsWith("=") ? 1 : 0;
   const length = (text.length / 4) * 3 - padding;
   if (text.length % 4 || length > limit || length < 0) throw new ClientError("protocol");
+  if (platform.fromBase64) {
+    let bytes: Uint8Array<ArrayBuffer>;
+    try {
+      bytes = platform.fromBase64(text, { lastChunkHandling: "strict" });
+    } catch {
+      throw new ClientError("protocol");
+    }
+    // The native decoder skips whitespace, which the wire never carries: the length shows it.
+    if (bytes.length !== length) throw new ClientError("protocol");
+    return bytes;
+  }
+  return decodeInScript(text, length, padding);
+}
+
+function decodeInScript(text: string, length: number, padding: number): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(length);
   let index = 0;
   for (let i = 0; i < text.length; i += 4) {

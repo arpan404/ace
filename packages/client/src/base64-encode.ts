@@ -4,6 +4,9 @@ import { ClientError } from "./types.ts";
 /** Encode one bounded byte chunk without building an unbounded intermediate string. */
 export function encodeBase64(bytes: Uint8Array): string {
   if (bytes.length > 65536) throw new ClientError("limit");
+  // The platform's own encoder (ES2026) where it has one; much faster without a JIT.
+  const native: { toBase64?: () => string } = bytes;
+  if (native.toBase64) return native.toBase64();
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   let result = "";
   for (let i = 0; i < bytes.length; i += 3) {

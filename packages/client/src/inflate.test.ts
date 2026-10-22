@@ -24,7 +24,9 @@ it("a small message that would inflate past the limit is refused", async () => {
 });
 
 it("a corrupt message is refused", async () => {
-  await expect(inflate("deflate-raw", new Uint8Array([0xff, 0xff, 0xff, 0x00]), 1024)).rejects.toThrow();
+  await expect(
+    inflate("deflate-raw", new Uint8Array([0xff, 0xff, 0xff, 0x00]), 1024),
+  ).rejects.toThrow();
   await expect(inflate("gzip", new Uint8Array([0x1f, 0x8b, 8, 0, 0, 0]), 1024)).rejects.toThrow();
 });
 
