@@ -1,0 +1,80 @@
+name: Deploy sites
+
+# Deploys app.acehq.dev (apps/web) and acehq.dev (apps/marketing) to Cloudflare.
+# Wrangler uploads only files that changed, so deploying both on each run is cheap.
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/web/**
+      - apps/marketing/**
+      - packages/**
+      - bun.lock
+      - package.json
+      - .github/workflows/deploy-sites.yml
+  # The marketing site's download links point at the latest release, read at build time.
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-sites
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: 7d4f0020b4776eb86cf81f5a5e47cae0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Read required Node major
+        id: node
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          const { engines } = JSON.parse(readFileSync('package.json', 'utf8'));
+          const major = engines.node.match(/\d+/)[0];
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${major}.x\n`);
+          NODE
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ steps.node.outputs.version }}
+          package-manager-cache: false
+
+      - name: Install Bun
+        id: bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Cache Bun installs
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Deploy app.acehq.dev
+        run: bun run --cwd apps/web deploy
+
+      - name: Deploy acehq.dev
+        run: bun run --cwd apps/marketing deploy
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
