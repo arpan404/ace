@@ -286,7 +286,9 @@ test("the subagent card deduplicates a launch and its spawn call and opens the c
   for (const thread of delegatedDocs()) app.play(thread).runUntilBlocked();
   await app.open(`/t/${delegatedDocsIds.parent}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const tree = await within(feed).findByRole("list", { name: "Subagents" });
+  const card = await within(feed).findByRole("region", { name: "1 subagent ran" });
+  await userEvent.click(within(card).getByRole("button", { name: "1 subagent ran" }));
+  const tree = within(card).getByRole("list", { name: "Subagents" });
   expect(within(tree).getAllByRole("listitem")).toHaveLength(1);
   expect(within(tree).getByText("Relay protocol reference")).toBeTruthy();
   // Its status word stays beside the name.

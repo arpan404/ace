@@ -1,5 +1,6 @@
 import type { AgentStatus, ThreadStatus } from "@ace/protocol";
 import { agentRuns, type RunAgent } from "./agent-runs.ts";
+import { pluralCount } from "./counts.ts";
 
 export type SubagentState =
   | "working"
@@ -123,6 +124,24 @@ export function subagentStatusLine(states: readonly SubagentState[]): string {
   return subagentStatusCounts(states)
     .map((part) => `${part.count} ${part.word}`)
     .join(" · ");
+}
+
+/**
+ * A launch's heading in the transcript: "2 subagents" while any of them works or waits, and
+ * "2 subagents ran" once every one has ended, whatever its outcome.
+ */
+export function subagentGroupTitle(states: readonly SubagentState[]): string {
+  const count = pluralCount(states.length, "subagent");
+  return states.length && states.every(subagentTerminal) ? `${count} ran` : count;
+}
+
+/**
+ * The counts beside that heading, worst first: every state while the launch runs; once all have
+ * ended, only the ones that didn't finish (failed, cancelled), since "ran" already says the rest.
+ */
+export function subagentGroupCounts(states: readonly SubagentState[]) {
+  const counts = subagentStatusCounts(states);
+  return states.every(subagentTerminal) ? counts.filter((part) => part.state !== "done") : counts;
 }
 
 /** The status line's parts, worst first, so each count can take its own status tone. */
