@@ -193,3 +193,30 @@ test("a thread's merge waits on the page's unconfirmed merge of the same PR", as
     await app.close();
   }
 });
+
+test("a squash from the PR page writes the commit title and message the person edited", async () => {
+  const records = fixtures();
+  records[mergePath] = [{ body: { merged: true } }];
+  records[path] = [{ body: merged }];
+  const app = await environment(records);
+  try {
+    expect(
+      await app.command("edited", {
+        ...app.merge("squash"),
+        commit: { title: "Fix the build (#7)", message: "* Fix build\n\nCo-authored-by: A <a@x>" },
+      }),
+    ).toMatchObject({ ok: true, prStatus: { state: "merged" } });
+    expect(await merges(app.gh)).toEqual([
+      expect.objectContaining({
+        body: {
+          sha,
+          merge_method: "squash",
+          commit_title: "Fix the build (#7)",
+          commit_message: "* Fix build\n\nCo-authored-by: A <a@x>",
+        },
+      }),
+    ]);
+  } finally {
+    await app.close();
+  }
+});

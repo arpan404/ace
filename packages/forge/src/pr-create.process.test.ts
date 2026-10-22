@@ -130,3 +130,21 @@ for (const [message, errors, kind] of [
       dispatched: false,
     });
   });
+
+test("a PR written by hand keeps its text exactly, placeholders included", async () => {
+  const gh = await setup({ "repos/octo/ace/pulls": [{ status: 201, body: created(13) }] });
+  expect(
+    await gh.forge.openPr(
+      { branch: "work/card", base: "main", title: "Card {{x}}", body: "Body {{y}}", draft: true },
+      signal(),
+    ),
+  ).toMatchObject({ number: 13 });
+  const post = (await gh.requests()).find((request) => request.path === "repos/octo/ace/pulls");
+  expect(post?.body).toEqual({
+    head: "work/card",
+    base: "main",
+    title: "Card {{x}}",
+    body: "Body {{y}}",
+    draft: true,
+  });
+});

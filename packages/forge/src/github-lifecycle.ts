@@ -86,10 +86,12 @@ export class GitHubLifecycle {
     // The host's mutations come in the same query: one round trip, not two in a row.
     const { response, extended } = await this.#snapshotQuery(number, signal);
     const repository = decode(LifecycleHost, response.body).data.repository;
-    const extras = extended
+    // These facts only add controls: an answer without them leaves those controls out.
+    const extraFacts = extended ? LifecycleExtras.safeParse(response.body) : undefined;
+    const extras = extraFacts?.success
       ? mapLifecycleExtras(
           this.#repository,
-          decode(LifecycleExtras, response.body).data.repository,
+          extraFacts.data.data.repository,
           repository.viewerPermission,
         )
       : undefined;
