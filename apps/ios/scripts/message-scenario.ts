@@ -4,7 +4,7 @@ import type { Fact } from "@ace/core";
 /*
  * A thread of message rows for the spike daemon, matching what the web's demo threads show: a
  * steered, long bubble with code, a thought with its time, a Markdown answer (headings, a list,
- * a table, inline code, a long code block, a link), a repeated failure, a compaction and a
+ * inline code, a long code block, a link), a repeated failure, a compaction and a
  * provider handoff. Facts are dated in the past. No provider process runs.
  */
 
@@ -39,11 +39,6 @@ The budget now lives in the daemon's \`retry-state.json\`, so a restart reads it
 1. \`RetryBudget\` loads its spent count on start.
 2. A restart no longer calls \`reset()\`.
 3. The test restarts the server three times.
-
-| Case | Before | After |
-| --- | --- | --- |
-| Restart | Reset to 5 | Kept |
-| Clean exit | Reset to 5 | Reset to 5 |
 
 \`\`\`ts
 ${code}
