@@ -315,9 +315,12 @@ test("after a push the picked lines are dropped, and the text waits for the next
   serveReview(app, pushedHead);
   rerender(reviewed(pushed));
   await screen.findByText("pushed");
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  // Lines take comments once the new head's review state is in: only then could a stale pick
+  // show again.
+  const line = await screen.findByRole("button", { name: "Comment on line 1" });
   expect(screen.queryByRole("textbox", { name: "Line comment" })).toBeNull();
-  await pickLine("Comment on line 1");
+  line.focus();
+  await userEvent.keyboard("{Enter}");
   expect(
     (await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Line comment" })).value,
   ).toBe("Keep me");
@@ -363,4 +366,75 @@ test("in split view a comment on the old side of an unchanged line sits in the l
   const after = screen.getByRole("region", { name: "src/first.ts after" });
   expect(within(before).getByText("Note 6")).toBeTruthy();
   expect(within(after).queryByText("Note 6")).toBeNull();
+});
+
+test("a pick made on All commits doesn't show on one commit, and is back on All commits", async () => {
+  const app = harness();
+  const commit = "c".repeat(40);
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.commits", workspaceId, repository, number: 7, headSha: detail.status.headSha },
+    {
+      resource: "prCommits",
+      commits: [
+        {
+          sha: commit,
+          author: "octo",
+          message: "One commit",
+          date: "2026-10-11T11:00:00Z",
+          url: `https://github.com/acme/ace/commit/${commit}`,
+        },
+      ],
+      truncated: false,
+    },
+  );
+  app.daemon.workspace.setForgeRead(
+    { ...page(1), commit },
+    {
+      resource: "prFiles",
+      value: { ...filesPage([twoChanges]).value, baseSha: "d".repeat(40), headSha: commit, commit },
+    },
+  );
+  await reviewing(app);
+  await screen.findByText("y");
+  await pickLine("Comment on line 1");
+  await userEvent.type(await screen.findByRole("textbox", { name: "Line comment" }), "Mine");
+  await userEvent.click(screen.getByRole("combobox", { name: "Commit range" }));
+  await userEvent.click(await screen.findByRole("option", { name: /One commit/ }));
+  await screen.findByText("y");
+  expect(screen.queryByRole("textbox", { name: "Line comment" })).toBeNull();
+  await userEvent.click(screen.getByRole("combobox", { name: "Commit range" }));
+  await userEvent.click(await screen.findByRole("option", { name: "All commits" }));
+  expect(
+    (await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Line comment" })).value,
+  ).toBe("Mine");
+});
+
+test("a pick on the old side in split view keeps its place in unified view, in an opened fold too", async () => {
+  const app = harness();
+  const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+  const after = lines.map((line, i) => (i === 15 ? "changed 16" : line));
+  app.daemon.workspace.setForgeRead(
+    page(1),
+    filesPage([{ ...changed("src/split.ts", ""), patch: null, truncated: true }]),
+  );
+  for (const [sha, text] of [
+    [detail.baseSha, `${lines.join("\n")}\n`],
+    [detail.status.headSha, `${after.join("\n")}\n`],
+  ] as const)
+    app.daemon.workspace.setForgeRead(
+      { op: "forge.file.content", workspaceId, repository, sha, path: "src/split.ts", page: 1 },
+      { resource: "fileContent", value: { kind: "text", text, size: text.length } },
+    );
+  serveReview(app);
+  await mount(app, reviewed(detail));
+  await screen.findByText("changed 16");
+  await userEvent.click(screen.getByRole("button", { name: "Split diff" }));
+  await userEvent.click(
+    (await screen.findAllByRole("button", { name: /\d+ unchanged lines/ }))[0]!,
+  );
+  await pickLine("Comment on old line 2");
+  await screen.findByText("Commenting on old line 2");
+  await userEvent.click(screen.getByRole("button", { name: "Stacked diff" }));
+  await screen.findByText("Commenting on old line 2");
+  expect(screen.getByRole("textbox", { name: "Line comment" })).toBeTruthy();
 });

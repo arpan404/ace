@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import type { ForgeFile } from "@ace/protocol";
 import type { FileDiff } from "@ace/ui-core";
 import type { LineRange, LineTarget } from "@/features/panels/index.ts";
-import { lineKeyOf, placeComments, type LineKey } from "./pr-code-comments.ts";
+import { placeComments, placePick, type LineKey } from "./pr-code-comments.ts";
 import type { PrDiffContext } from "./pr-extensions.ts";
 import { PrLineComposer, PrPendingComment } from "./pr-line-composer.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
@@ -88,23 +88,20 @@ export function PrFileReview(props: {
     current && !!review?.state?.canComment && review.ready && !props.context.disabled;
   const split = props.mode === "split";
   const view = split ? placed.split : placed.unified;
-  // Under the picked line's row; a line from an opened fold has no row of the patch's, so the
-  // composer sits under the line itself (and says GitHub can't take a comment there).
-  const writingKey: LineKey | undefined =
-    writing &&
-    ((split ? undefined : lineKeyOf(diff, writing.side, writing.end)) ??
-      `${writing.side}:${writing.end}`);
+  // Under the picked line's row (in split view, its own side's line). A line from an opened
+  // fold has no row of the patch's, so the composer sits under the line itself and says GitHub
+  // can't take a comment there.
+  const writingAt = useMemo(
+    () => (writing ? placePick(diff, writing, props.mode) : undefined),
+    [diff, writing, props.mode],
+  );
   const pick = (lines: LineRange) => {
     setPicked({ headSha: range.headSha, commit: range.commit ?? "", range: lines });
     askFocus(lineComposerFocus(path));
   };
   return props.children({
     highlighted: (target) =>
-      placed.covered.has(keyOf(target)) ||
-      (!!writing &&
-        writing.side === target.side &&
-        target.line >= writing.start &&
-        target.line <= writing.end),
+      placed.covered.has(keyOf(target)) || !!writingAt?.marked.has(keyOf(target)),
     selection: writing,
     onComment: canComment ? pick : undefined,
     onExtend: canComment ? pick : undefined,
@@ -112,7 +109,7 @@ export function PrFileReview(props: {
       const key = keyOf(target);
       const here = view.threads.get(key) ?? none;
       const pending = view.drafts.get(key) ?? none;
-      const composing = writing && writingKey === key;
+      const composing = writingAt?.end === key;
       if (!here.length && !pending.length && !composing) return null;
       return (
         <div className="sticky left-0 w-[100cqw] max-w-full min-w-0 space-y-4 border-y border-border bg-background px-4 py-3 font-sans text-ui whitespace-normal">

@@ -8,6 +8,7 @@ import {
   type ForgeReviewState,
 } from "@ace/protocol";
 import { FakeDaemon, fakeTransport, pullRequestDetails } from "./index.ts";
+import { FakePrCatalog } from "./pr-catalog-wire.ts";
 
 const workspaceId = WorkspaceId.parse("workspace");
 const docs: ForgeRepository = {
@@ -228,4 +229,49 @@ test("a push moves the sample PR to a new head, its added-side conversations dow
   } finally {
     await f.client.close();
   }
+});
+
+/** Each hunk's header counts against the lines under it, per side. */
+function hunkCounts(patch: string) {
+  return patch
+    .split(/^(?=@@)/m)
+    .filter((hunk) => hunk.startsWith("@@"))
+    .map((hunk) => {
+      const [header = "", ...lines] = hunk.replace(/\n$/, "").split("\n");
+      const said = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(header);
+      const left = lines.filter((line) => !line.startsWith("+")).length;
+      const right = lines.filter((line) => !line.startsWith("-")).length;
+      return {
+        said: [Number(said?.[1] ?? 1), Number(said?.[3] ?? 1)],
+        counted: [left, right],
+        start: Number(said?.[2]),
+      };
+    });
+}
+
+test("a push's diff adds the lines it moves everything down by", () => {
+  const catalog = new FakePrCatalog();
+  catalog.seed(pullRequestDetails(1_000_000));
+  catalog.push(31);
+  const read = catalog.read({
+    op: "forge.pr.files",
+    workspaceId,
+    repository: docs,
+    number: 31,
+    page: 1,
+    headSha: "x".repeat(40),
+    baseSha: "y".repeat(40),
+  });
+  if (read?.resource !== "prFiles") throw new Error("No files");
+  for (const file of read.value.files) {
+    const counts = hunkCounts(file.patch ?? "");
+    for (const hunk of counts) expect(hunk.counted).toEqual(hunk.said);
+    // The ten pushed lines lead the first change on the new side.
+    const lines = (file.patch ?? "").split("\n");
+    expect(lines.slice(1, 11)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `+pushed line ${i + 1}`),
+    );
+  }
+  const sidebar = read.value.files.find((file) => file.path === "sidebar.json");
+  expect(hunkCounts(sidebar?.patch ?? "").map((hunk) => hunk.start)).toEqual([1, 30]);
 });

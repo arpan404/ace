@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { SparkleIcon } from "@phosphor-icons/react";
 import type { ForgePrDetail } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
+import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import { PrSection } from "./pr-section.tsx";
@@ -75,6 +76,14 @@ export function PrAttention(props: {
     () => new Map(detail.status.reviewThreads.map((t) => [`thread:${t.id}`, t])),
     [detail.status.reviewThreads],
   );
+  // Until GitHub's hidden state is known (while the review state loads, after each push, or
+  // when it can't be read) a review comment might be hidden: its text stays out of the row and
+  // out of any agent's request.
+  const hiddenKnown = Array.isArray(state?.hidden);
+  const unknownReason =
+    state?.hidden === null
+      ? "GitHub's hidden comments couldn't be read, so this comment may be hidden."
+      : "Checking whether this comment is hidden on GitHub.";
   const agent = useFixWithAgent(props);
   const fetchRun = useFetchCheckRun(props.workspaceId, detail.status.ref);
   // A failing check's request carries its log excerpt and annotations, read as the panel would.
@@ -93,7 +102,8 @@ export function PrAttention(props: {
         {items.map((item) => {
           const thread = item.kind === "thread" ? threads.get(item.key) : undefined;
           const root = thread?.comments[0];
-          const title = item.title;
+          const masked = item.kind === "thread" && !hiddenKnown;
+          const title = masked ? `Review comment on ${item.detail}` : item.title;
           return (
             <li key={item.key} className="py-2">
               <div className="flex items-start gap-2.5">
@@ -108,7 +118,14 @@ export function PrAttention(props: {
                   }
                 />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-ui text-foreground">{title}</p>
+                  <p
+                    className={cn(
+                      "truncate text-ui",
+                      masked ? "text-subtle-foreground" : "text-foreground",
+                    )}
+                  >
+                    {masked ? "Review comment" : title}
+                  </p>
                   <p className="flex min-w-0 items-center gap-1.5 text-xs text-subtle-foreground">
                     <span className={cn("truncate", item.kind === "thread" && "font-mono")}>
                       {item.kind === "check" ? "Check failed" : item.detail}
@@ -123,17 +140,19 @@ export function PrAttention(props: {
                 </div>
                 {thread && root && <AttentionReplyButton threadId={thread.id} title={title} />}
                 {open && (
-                  <Button
-                    size="xs"
-                    variant="secondary"
-                    className="shrink-0"
-                    disabled={props.disabled}
-                    aria-label={`Fix with agent: ${title}`}
-                    onClick={() => void fix(item)}
-                  >
-                    <SparkleIcon aria-hidden size={12} />
-                    <span className="@max-[30rem]/pr:sr-only">Fix with agent</span>
-                  </Button>
+                  <DisabledReason reason={masked ? unknownReason : undefined}>
+                    <Button
+                      size="xs"
+                      variant="secondary"
+                      className="shrink-0"
+                      disabled={props.disabled || masked}
+                      aria-label={`Fix with agent: ${title}`}
+                      onClick={() => void fix(item)}
+                    >
+                      <SparkleIcon aria-hidden size={12} />
+                      <span className="@max-[30rem]/pr:sr-only">Fix with agent</span>
+                    </Button>
+                  </DisabledReason>
                 )}
               </div>
               {thread && root && (
