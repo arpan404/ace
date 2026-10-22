@@ -19,6 +19,7 @@
     "@ace/client": "workspace:*",
     "@ace/design-tokens": "workspace:*",
     "@ace/html": "workspace:*",
+    "@ace/native-host": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/ui-core": "workspace:*",

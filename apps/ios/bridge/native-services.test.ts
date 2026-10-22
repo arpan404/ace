@@ -1,3 +1,4 @@
+import "./test-host.ts";
 import { afterEach, expect, test } from "vitest";
 import { NativeServices } from "./native-services.ts";
 import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";

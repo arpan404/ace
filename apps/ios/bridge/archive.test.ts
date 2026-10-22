@@ -1,15 +1,8 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-vi.hoisted(() => {
-  let next = 0;
-  Object.assign(globalThis, {
-    aceHost: {
-      now: () => Date.now(),
-      uuid: () => `id-${++next}`,
-      previewHead: (text: string, limit: number) => text.slice(0, limit),
-      previewTail: (text: string, limit: number) => text.slice(-limit),
-    },
-  });
+await vi.hoisted(async () => {
+  const { createNodeHost } = await import("@ace/native-host/node");
+  Object.assign(globalThis, { aceHost: createNodeHost() });
 });
 
 import type { FakeDaemon } from "@ace/fake-daemon";

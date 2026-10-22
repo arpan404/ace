@@ -1,46 +1,14 @@
-/** Native functions are installed before this bundle is evaluated. Every callback stays on the JSC run loop. */
-export interface NativeHost {
-  call(operation: string, input: string, done: (error: string | null, value: string) => void): void;
-  emit(patch: string): void;
-  socket(id: string, action: string, value: string): void;
-  timer(id: string, delay: number, callback: () => void): void;
-  cancelTimer(id: string): void;
-  now(): number;
-  uuid(): string;
-  random(): number;
-  /** UTF-8 bytes of `text`. */
-  encode(text: string): Uint8Array;
-  utf8Base64(text: string): string;
-  previewHead(text: string, limit: number): string;
-  previewTail(text: string, limit: number): string;
-  decode(bytes: Uint8Array, encoding: string, fatal: boolean): string;
-  /** One whole `gzip`, `deflate` or `deflate-raw` input expanded natively; null when it can't be. */
-  inflate(bytes: Uint8Array, format: string): Uint8Array | null;
-  randomBytes(count: number): number[];
-  base64(text: string, decode: boolean): string;
-  /** Absolute URL parts as JSON, or "" when Foundation cannot parse it. */
-  parseURL(text: string): string;
-  /** Set when the app was launched with `-ace-host-trace`. */
-  tracing?: boolean;
-  /** Adds a span the script timed itself to the host's totals. */
-  trace?(name: string, ms: number, bytes: number): void;
-}
+import { connectHost, hostScheduler, requester, type NativeHost } from "@ace/native-host";
+
+/*
+ * The phone's native host (`@ace/native-host`, ADR 0096): Swift installs it as `aceHost` before
+ * this bundle runs, and every callback stays on the script's run loop. This module is the
+ * bridge's only way to the platform.
+ */
 declare global {
   var aceHost: NativeHost;
 }
-export const host = globalThis.aceHost;
-export function call(operation: string, input: unknown = null): Promise<string> {
-  return new Promise((resolve, reject) => {
-    host.call(operation, JSON.stringify(input), (error, value) => {
-      if (error) reject(new Error(error));
-      else resolve(value);
-    });
-  });
-}
-export const scheduler = {
-  set(delay: number, callback: () => void): () => void {
-    const id = host.uuid();
-    host.timer(id, delay, callback);
-    return () => host.cancelTimer(id);
-  },
-};
+export const host = connectHost(globalThis.aceHost);
+/** Typed async platform operations; failures reject with `HostCallError`. */
+export const call = requester(host);
+export const scheduler = hostScheduler(host);
