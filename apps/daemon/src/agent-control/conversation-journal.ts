@@ -57,6 +57,23 @@ export class ConversationJournal {
       );
     });
   }
+  /** Conversations `owner` started that are waiting, not working or finished, at most 256. */
+  waitingOwnedBy(owner: ThreadId): ThreadId[] {
+    return this.store
+      .atomic((db) =>
+        db
+          .prepare(
+            `SELECT c.thread_id FROM agent_conversations c JOIN threads t ON t.id=c.thread_id
+          WHERE c.owner_thread=? AND json_extract(t.status,'$.state')='waiting'
+          AND json_extract(t.client,'$.deletedAt') IS NULL ORDER BY c.thread_id LIMIT 256`,
+          )
+          .all(owner),
+      )
+      .map(
+        (row) =>
+          z.object({ thread_id: AgentConversationRecord.shape.threadId }).parse(row).thread_id,
+      );
+  }
   /** Started conversations still recorded as untouched drafts, which the sidebar leaves out. */
   unlisted(): ThreadId[] {
     return this.store
