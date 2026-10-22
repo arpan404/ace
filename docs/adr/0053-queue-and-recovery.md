@@ -274,3 +274,16 @@ settled, never working or waiting on work nobody can reach.
   shutdown capture and a provider-exit hold both skip a queue held by `stopped`, so nothing waits
   for Resume after a Stop. Startup drops a restart continuation that earlier builds saved behind a
   Stop, so such threads (and the delegated children a parent cancelled) settle on the next start.
+
+## Amendment: resuming a parent resumes the children a restart stopped
+
+Date: 2026-10-22. A daemon restart holds a parent and every delegated child that was working.
+The person resumed the parent, which went back to waiting on its children, but the children
+stayed held, so the parent waited forever.
+
+The person's Resume of a thread, or their next message to it (a parent agent's message to its
+child counts the same), now also resumes each of its running delegated children held with the
+`restart` reason. Each child's resume goes through the same path, so grandchildren follow.
+A child the person stopped keeps its stop, and a child with uncertain delivery stays held for
+review. ace still never continues interrupted work by itself: only the person's action on the
+tree carries it on.

@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { backup, type DatabaseSync } from "node:sqlite";
 import { expect, test } from "vitest";
 import { setup, wakes } from "./test-support.ts";
+import { start } from "../engine/test-support.ts";
 
 test("durable pending results survive service restart and are consumed exactly once", async () => {
   const h = setup();
@@ -66,4 +67,73 @@ test("daemon crash holds a live delegation until explicit native recovery withou
   const outcome = await recovered.service.wait(parent, edge.childId, new AbortController().signal);
   expect(outcome.outcome).toBe("completed");
   expect(wakes(recovered.events, parent.threadId)).toHaveLength(1);
+});
+
+/** Crashes `h` mid-work and reopens its database as a fresh daemon. */
+async function crash(h: ReturnType<typeof setup>, name: string) {
+  const snapshot = join(h.home, `${name}.sqlite`);
+  let sourceDb: DatabaseSync | undefined;
+  h.store.atomic((db) => {
+    sourceDb = db;
+  });
+  if (!sourceDb) throw new Error("Missing snapshot source");
+  await backup(sourceDb, snapshot);
+  await h.close();
+  const recovered = setup({}, snapshot);
+  recovered.clock.advance(1050);
+  await recovered.engine.flush();
+  return recovered;
+}
+
+test("resuming a parent after a daemon crash resumes the delegated children the crash stopped", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  // The parent is mid-turn, waiting on its child, when the daemon dies.
+  await h.emit(parent.threadId, start);
+  const edge = h.delegate(parent, "held-child");
+  await h.engine.flush();
+  const recovered = await crash(h, "held-child");
+  expect(recovered.engine.queue(parent.threadId)).toMatchObject({
+    paused: true,
+    reason: "restart",
+  });
+  expect(recovered.engine.queue(edge.childId)).toMatchObject({ paused: true, reason: "restart" });
+  expect(
+    recovered.service.command("resume-parent", {
+      type: "thread.resume",
+      threadId: parent.threadId,
+      expectedRevision: recovered.engine.queue(parent.threadId).revision,
+    }).ok,
+  ).toBe(true);
+  await recovered.engine.flush();
+  expect(recovered.inputs.get(edge.childId)).toEqual(["Continue where you left off."]);
+  expect(recovered.engine.queue(edge.childId).paused).toBe(false);
+  await recovered.complete(edge.childId, "finished after restart");
+  const outcome = await recovered.service.wait(parent, edge.childId, new AbortController().signal);
+  expect(outcome.outcome).toBe("completed");
+});
+
+test("resuming a parent after a daemon crash leaves a child the person stopped held", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  await h.emit(parent.threadId, start);
+  const kept = h.delegate(parent, "kept-child");
+  const stopped = h.delegate(parent, "stopped-child");
+  await h.engine.flush();
+  const recovered = await crash(h, "stopped-child");
+  recovered.service.journal.stopMember(stopped.childId);
+  expect(
+    recovered.service.command("resume-parent", {
+      type: "thread.resume",
+      threadId: parent.threadId,
+      expectedRevision: recovered.engine.queue(parent.threadId).revision,
+    }).ok,
+  ).toBe(true);
+  await recovered.engine.flush();
+  expect(recovered.inputs.get(kept.childId)).toEqual(["Continue where you left off."]);
+  expect(recovered.inputs.get(stopped.childId)).toBeUndefined();
+  expect(recovered.engine.queue(stopped.childId)).toMatchObject({
+    paused: true,
+    reason: "restart",
+  });
 });
