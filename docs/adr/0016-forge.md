@@ -135,17 +135,26 @@ each one GraphQL request through `gh`:
   issue's own people (author, reviewers or assignees, commenters) first and fill in from
   this. Answers are reused per query for five minutes; writes never change them.
 - `forge.references`: two aliased `search(type: ISSUE)` queries (open, then any state,
-  10 each, newest activity first) plus `repository.issueOrPullRequest` when the query is
-  a number, so an exact number leads. Query text is reduced to words, dots and dashes,
-  so a typed qualifier can't point the search at another repository. Reused for one
-  minute and dropped on any write.
-- `forge.pr.reviewers`: `reviewRequests` (people and teams), `latestReviews`,
-  `suggestedReviewers`, `viewerCanUpdate` and `repository.viewerPermission`. Not cached.
+  10 each, newest activity first, words matched `in:title` only) plus
+  `repository.issueOrPullRequest` when the query is a number, so an exact number leads.
+  Reused for one minute and dropped on any write.
+- `forge.pr.reviewers`: `reviewRequests` (people and teams), `latestOpinionatedReviews`
+  and `latestReviews`, `suggestedReviewers`, `viewerCanUpdate` and
+  `repository.viewerPermission`. Each reviewer's standing review is their latest verdict
+  (approved, changes requested, dismissed), which a later comment-only review leaves in
+  force; their latest comment stands only when they gave no verdict. Its state and id
+  (the one a dismissal names) come from that review. Not cached in the daemon; the web
+  client shares one read across views, reads it again after a write and whenever the PR
+  changes (from the PR view, mounted on every tab, so gates never lag), and not on focus.
   Requests are offered when the PR is open and the viewer can update it; dismissal when
   it is open and the viewer has write, maintain or admin permission. A branch rule that
   restricts dismissal still refuses on GitHub and shows as `forbidden`.
 
-Unknown review states, request kinds and search node types are skipped, not fatal.
+`ForgeCompletionQuery` is the rule for `@` and `#` text: words, digits, dots, dashes and
+spaces, at most 100 characters. The client turns anything else into spaces before the
+wire, and the forge refuses a query outside the rule, so a search qualifier (`repo:`,
+quotes) never reaches GitHub. Unknown review states, request kinds and search node types
+are skipped, not fatal.
 
 Three hosted review actions go through `forge.hosted.review` like the others: identity
 check before dispatch, the write journal and its uncertainty fence, no automatic retry.
@@ -155,7 +164,9 @@ check before dispatch, the write journal and its uncertainty fence, no automatic
 - `reviewers.remove`: `DELETE /pulls/{n}/requested_reviewers` with people and teams.
   Confirmed when none of them is asked.
 - `review.dismiss`: reads the review first and refuses (`conflict`) unless it is
-  `APPROVED` or `CHANGES_REQUESTED`, then `PUT /pulls/{n}/reviews/{id}/dismissals` with
-  the required message. Confirmed when the review reads `DISMISSED`.
+  `APPROVED` or `CHANGES_REQUESTED` and is still that reviewer's latest verdict among the
+  PR's reviews (an approval since replaced by a change request is never dismissed), then
+  `PUT /pulls/{n}/reviews/{id}/dismissals` with the required message. Confirmed when the
+  review reads `DISMISSED`.
 
 All three refuse with `conflict` on a PR that is not open.

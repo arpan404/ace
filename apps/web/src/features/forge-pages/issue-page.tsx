@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback } from "react";
 import {
   ArrowSquareOutIcon,
   ChatsCircleIcon,
@@ -19,7 +19,7 @@ import { Screen } from "@/features/shell/index.ts";
 import { useBackToList } from "./back-to-list.ts";
 import { IssueActionsStrip } from "./issue-actions-strip.tsx";
 import { IssueComposer } from "./issue-composer.tsx";
-import { IssueTimeline, useTimelinePage } from "./issue-timeline.tsx";
+import { IssueTimeline, timelineSpeakers } from "./issue-timeline.tsx";
 import { ForgeCompletions, issueParticipants } from "@/features/forge/index.ts";
 import { IssuePageSkeleton } from "./issue-skeletons.tsx";
 import { useIssueWrites } from "./issue-writes.ts";
@@ -138,15 +138,12 @@ function IssueBody(props: {
 }) {
   const { issue } = props;
   const writes = useIssueWrites(props.project, issue.ref.repository);
-  // The conversation's first page is the one the timeline shows; its speakers rank first.
-  const firstPage = useTimelinePage(props.project, props.repository, issue.ref.number, 1).data;
-  const participants = useMemo(
-    () =>
-      issueParticipants(
-        issue,
-        (firstPage?.events ?? []).flatMap((e) => (e.kind === "issue_comment" ? [e.actor] : [])),
-      ),
-    [issue, firstPage],
+  // Read when a search runs: everyone who has spoken on the pages read so far, latest first.
+  const cache = useQueryClient();
+  const { project, repository } = props;
+  const participants = useCallback(
+    () => issueParticipants(issue, timelineSpeakers(cache, project, repository, issue.ref.number)),
+    [cache, project, repository, issue],
   );
   return (
     <ForgeCompletions

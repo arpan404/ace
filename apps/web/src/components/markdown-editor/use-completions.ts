@@ -13,6 +13,17 @@ export type CompletionItem =
   | { id: string; insert: string; kind: "person"; person: CompletionPerson }
   | { id: string; insert: string; kind: "reference"; reference: CompletionReference };
 
+/** A reference row whose title holds every word of `query`. */
+function titleHas(item: CompletionItem, query: string): boolean {
+  if (item.kind !== "reference") return true;
+  const title = item.reference.title.toLowerCase();
+  return query
+    .toLowerCase()
+    .split(" ")
+    .filter(Boolean)
+    .every((word) => title.includes(word));
+}
+
 function items(
   match: CompletionMatch,
   people: readonly CompletionPerson[],
@@ -44,7 +55,7 @@ export function useCompletions(
 ) {
   const [match, setMatch] = useState<CompletionMatch>();
   // The highlighted row, for the answer it was moved in; a new answer starts at its first row.
-  const [highlight, setHighlight] = useState({ answer: "", index: 0 });
+  const [highlight, setHighlight] = useState({ answer: "", index: 0, moved: false });
   // Escape closes the list for that word until the caret leaves it.
   const dismissed = useRef<number | undefined>(undefined);
   const searchable = (m: CompletionMatch | undefined) =>
@@ -80,15 +91,26 @@ export function useCompletions(
       : items(match, [], (await source?.references?.(match.query, signal)) ?? []);
   });
   // While the next search is on its way, the same word's earlier matches stay up rather than
-  // flicker.
-  const list = word && found?.key.startsWith(word) ? (found.value ?? []) : [];
+  // flicker; a title phrase keeps only the rows whose title holds every word typed so far, so
+  // ordinary prose after a `#` closes the list.
+  const kept = word && found?.key.startsWith(word) ? (found.value ?? []) : [];
+  const phrase = match?.kind === "reference" && match.query.includes(" ");
+  const list = phrase && match ? kept.filter((item) => titleHas(item, match.query)) : kept;
   const open = list.length > 0;
   const answer = found?.key ?? "";
-  const active = Math.min(
-    highlight.answer === answer ? highlight.index : 0,
-    Math.max(list.length - 1, 0),
+  const current = highlight.answer === answer;
+  const active = Math.min(current ? highlight.index : 0, Math.max(list.length - 1, 0));
+  const setActive = useCallback(
+    (index: number) => setHighlight({ answer, index, moved: true }),
+    [answer],
   );
-  const setActive = useCallback((index: number) => setHighlight({ answer, index }), [answer]);
+  /**
+   * Whether Enter or Tab may take the highlighted row: only from the answer to what is typed
+   * now (an older answer's rows may not match it), and after a title phrase only once the
+   * person has moved the highlight, since Enter there is as likely the end of a sentence.
+   */
+  const pickable = (enter: boolean) =>
+    found?.key === key && !(enter && phrase && !(current && highlight.moved));
   const close = useCallback(() => {
     setMatch(undefined);
   }, []);
@@ -103,14 +125,17 @@ export function useCompletions(
   );
   /** Handles the key when the list is open; true when it did. */
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
-    if (!open || event.nativeEvent.isComposing) return false;
+    // Safari confirms an IME composition with an Enter whose isComposing is false: keyCode 229.
+    if (!open || event.nativeEvent.isComposing || event.keyCode === 229) return false;
     if (event.metaKey || event.ctrlKey || event.altKey) return false;
     const move = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
     if (move) {
       setActive((active + move + list.length) % list.length);
     } else if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
       const item = list[active];
-      if (item) choose(item);
+      // Not this answer's to take: the key does what it would without the list.
+      if (!item || !pickable(event.key === "Enter")) return false;
+      choose(item);
     } else if (event.key === "Escape") {
       dismissed.current = match?.from;
       setMatch(undefined);

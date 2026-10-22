@@ -16,7 +16,7 @@ import { useIssuePages } from "./lists.ts";
 import { useProjectChoice } from "./project-choice.ts";
 
 /** A new issue has no conversation yet: everyone comes from the repository. */
-const noParticipants: never[] = [];
+const noParticipants = (): never[] => [];
 
 /**
  * A new issue as a page in the main column, laid out as the issue it becomes: back to the

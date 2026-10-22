@@ -16,7 +16,13 @@ const Requested = z.looseObject({
     .max(1_000)
     .optional(),
 });
-const Review = z.looseObject({ id: z.number().int().positive(), state: text });
+const Review = z.looseObject({
+  id: z.number().int().positive(),
+  state: text,
+  user: z.looseObject({ login: text }).nullable().optional(),
+});
+/** A review that stands as a verdict until the next one; comments and drafts don't. */
+const verdicts = new Set(["APPROVED", "CHANGES_REQUESTED", "DISMISSED"]);
 /** Only a verdict can be dismissed: comments and pending reviews have nothing to take back. */
 const dismissible = new Set(["APPROVED", "CHANGES_REQUESTED"]);
 const asked = (name: string, set: Set<string>) => set.has(name.toLowerCase());
@@ -73,6 +79,18 @@ export class GitHubReviewerWrites {
     if (action.kind === "review.dismiss") {
       const review = await this.#review(number, action.reviewId, signal);
       if (!dismissible.has(review.state)) throw new ForgeError("conflict");
+      // Only the reviewer's standing verdict is dismissed: one they have since replaced (an
+      // approval followed by a change request) would be taken back while the new one stands.
+      const login = review.user?.login.toLowerCase();
+      const theirs = (
+        await this.#io.records(
+          `${this.#io.root}/pulls/${number}/reviews?per_page=100`,
+          Review,
+          signal,
+        )
+      ).filter((r) => login !== undefined && r.user?.login.toLowerCase() === login);
+      if (theirs.findLast((r) => verdicts.has(r.state))?.id !== action.reviewId)
+        throw new ForgeError("conflict");
       if (signal.aborted || !allowed()) throw new ForgeError("cancelled");
       const response = await this.#io.request(
         `${this.#io.root}/pulls/${number}/reviews/${action.reviewId}/dismissals`,

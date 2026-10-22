@@ -13,6 +13,11 @@ import { FormatToolbar } from "./format-toolbar.tsx";
 import { linkOnPaste } from "./inline.ts";
 import { continueList, indentList } from "./lists.ts";
 
+function suggestionsSaid(kind: "mention" | "reference", count: number): string {
+  if (kind === "mention") return count === 1 ? "1 person" : `${count} people`;
+  return count === 1 ? "1 issue or pull request" : `${count} issues and pull requests`;
+}
+
 const heights = {
   /** A comment or review: four lines to start. */
   comment: "min-h-24 max-h-[50vh]",
@@ -47,7 +52,8 @@ export function MarkdownEditor(props: {
   const field = useRef<HTMLTextAreaElement>(null);
   const [tab, setTab] = useState<"write" | "preview">("write");
   const pageCompletions = useMarkdownCompletions();
-  const suggest = useCompletions(field, props.completions ?? pageCompletions);
+  const completions = props.completions ?? pageCompletions;
+  const suggest = useCompletions(field, completions);
   const listId = useId();
   const run = (command: FormatCommand) => {
     const target = field.current;
@@ -55,7 +61,8 @@ export function MarkdownEditor(props: {
     applyChange(target, command.run(selectionOf(target)));
   };
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    // Safari confirms an IME composition with an Enter whose isComposing is false: keyCode 229.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (suggest.onKeyDown(event)) return;
     const target = event.currentTarget;
     const mod = applePlatform ? event.metaKey : event.ctrlKey;
@@ -119,7 +126,7 @@ export function MarkdownEditor(props: {
         autoFocus={props.autoFocus}
         // A text box that suggests (ARIA's textbox with aria-autocomplete): it keeps its own
         // role, and names the open list and its highlighted row.
-        aria-autocomplete={suggest.match ? "list" : undefined}
+        aria-autocomplete={completions ? "list" : undefined}
         aria-controls={suggest.match ? listId : undefined}
         aria-activedescendant={suggest.match ? `${listId}-${suggest.active}` : undefined}
         onChange={(event) => {
@@ -143,6 +150,10 @@ export function MarkdownEditor(props: {
           heights[props.size ?? "comment"],
         )}
       />
+      {/* Said once when suggestions appear, for people who can't see the list open. */}
+      <span aria-live="polite" aria-atomic="true" className="sr-only">
+        {writing && suggest.match ? suggestionsSaid(suggest.match.kind, suggest.items.length) : ""}
+      </span>
       {writing && suggest.match && (
         <CompletionList
           id={listId}

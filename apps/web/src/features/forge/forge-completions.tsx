@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import { useClient } from "@ace/client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import type { ForgeIssueDetail, ForgePrDetail, ForgeRepository } from "@ace/protocol";
 import {
   MarkdownCompletionsProvider,
@@ -14,8 +14,18 @@ const peopleFreshMs = 5 * 60_000;
 const referencesFreshMs = 60_000;
 const most = 8;
 
-/** Searches go to GitHub with what its search accepts; anything else is left out. */
-const searchable = (query: string) => query.replace(/[^\w .-]/g, "").slice(0, 100);
+/**
+ * A search as the protocol accepts it (`ForgeCompletionQuery`): anything else becomes a space,
+ * so `acme/docs` searches `acme docs` and no search qualifier reaches GitHub. The one sanitizer
+ * before the wire.
+ */
+export function searchable(query: string): string {
+  return query
+    .replace(/[^\w .-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+}
 
 function matches(person: CompletionPerson, query: string): boolean {
   const q = query.toLowerCase();
@@ -56,13 +66,37 @@ export function rankPeople(
 }
 
 /**
+ * A cached read that stops when `signal` does: a search the editor has moved past is cancelled
+ * in the daemon too, not left to finish unread.
+ */
+async function fetchUntil<T>(
+  cache: QueryClient,
+  signal: AbortSignal,
+  options: {
+    queryKey: QueryKey;
+    staleTime: number;
+    queryFn(context: { signal: AbortSignal }): Promise<T>;
+  },
+): Promise<T> {
+  signal.throwIfAborted();
+  const cancel = () => void cache.cancelQueries({ queryKey: options.queryKey, exact: true });
+  signal.addEventListener("abort", cancel, { once: true });
+  try {
+    return await cache.fetchQuery(options);
+  } finally {
+    signal.removeEventListener("abort", cancel);
+  }
+}
+
+/**
  * `@` and `#` for every Markdown editor inside: people and references of `repository` (the
- * project's own when not given), with `participants` (the PR's or issue's people) first.
+ * project's own when not given), with `participants` (the PR's or issue's people, read when a
+ * search runs, so they are as current as the page) first.
  */
 export function ForgeCompletions(props: {
   workspaceId: string;
   repository?: ForgeRepository | undefined;
-  participants: readonly CompletionPerson[];
+  participants(): readonly CompletionPerson[];
   children: ReactNode;
 }) {
   const client = useClient();
@@ -72,35 +106,35 @@ export function ForgeCompletions(props: {
   const value = useMemo((): MarkdownCompletions => {
     const scope = { workspaceId, ...(repository ? { repository } : {}) };
     return {
-      async people(query) {
+      async people(query, signal) {
         const q = searchable(query);
-        const found = await cache
-          .fetchQuery({
-            queryKey: ["forge", workspaceId, repositoryKey, "people", q.toLowerCase()],
-            staleTime: peopleFreshMs,
-            queryFn: async ({ signal }) => {
-              const result = await readForge(
-                client,
-                { op: "forge.people", ...scope, query: q },
-                signal,
-              );
-              return result.resource === "people" ? result.people : [];
-            },
-          })
+        const found = await fetchUntil(cache, signal, {
+          queryKey: ["forge", workspaceId, repositoryKey, "people", q.toLowerCase()],
+          staleTime: peopleFreshMs,
+          queryFn: async ({ signal: reading }) => {
+            const result = await readForge(
+              client,
+              { op: "forge.people", ...scope, query: q },
+              reading,
+            );
+            return result.resource === "people" ? result.people : [];
+          },
+        })
           // Participants still answer when the repository's people can't be read.
           .catch(() => []);
-        return rankPeople(participants, found, q);
+        signal.throwIfAborted();
+        return rankPeople(participants(), found, q);
       },
-      async references(query) {
+      async references(query, signal) {
         const q = searchable(query);
-        return cache.fetchQuery({
+        return fetchUntil(cache, signal, {
           queryKey: ["forge", workspaceId, repositoryKey, "references", q.toLowerCase()],
           staleTime: referencesFreshMs,
-          queryFn: async ({ signal }) => {
+          queryFn: async ({ signal: reading }) => {
             const result = await readForge(
               client,
               { op: "forge.references", ...scope, query: q },
-              signal,
+              reading,
             );
             return result.resource === "references" ? result.references : [];
           },

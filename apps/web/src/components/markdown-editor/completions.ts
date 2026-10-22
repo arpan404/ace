@@ -21,17 +21,63 @@ const queryChars = {
   reference: /^(?:\d+|[A-Za-z_.-][\w.-]*(?: [\w.-]+)* ?)?$/,
 };
 
-/** Inside a fenced code block: an odd number of fence lines before `at`. */
-function inFence(value: string, at: number): boolean {
-  let fences = 0;
-  for (const line of value.slice(0, at).split("\n").slice(0, -1))
-    if (/^\s{0,3}(```|~~~)/.test(line)) fences++;
-  return fences % 2 === 1;
+const listItem = /^\s*(?:[-*+]|\d+[.)])\s/;
+const indented = /^(?: {4}|\t)/;
+
+/**
+ * Whether the line `at` is on is code as CommonMark reads it: inside a fence (``` or ~~~, at
+ * any indent so fences inside list items count, closed only by a fence of the same character at
+ * least as long), or an indented code block (four spaces or a tab after a blank line, outside a
+ * list, where indentation continues the item instead).
+ */
+function inCodeBlock(value: string, at: number): boolean {
+  const lines = value.slice(0, at).split("\n");
+  const current = lines.pop() ?? "";
+  let fence: { char: string; length: number } | undefined;
+  let afterBlank = true;
+  let inList = false;
+  let indentedCode = false;
+  for (const line of lines) {
+    const marker = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence) {
+      const closes =
+        marker?.[1] &&
+        marker[1][0] === fence.char &&
+        marker[1].length >= fence.length &&
+        !marker[2]?.trim();
+      if (closes) fence = undefined;
+      continue;
+    }
+    if (marker?.[1]) {
+      fence = { char: marker[1][0] ?? "`", length: marker[1].length };
+      continue;
+    }
+    const blank = !line.trim();
+    indentedCode = !blank && indented.test(line) && !inList && (afterBlank || indentedCode);
+    if (!blank && !indented.test(line)) inList = listItem.test(line);
+    afterBlank = blank;
+  }
+  if (fence) return true;
+  return indented.test(current) && !inList && (afterBlank || indentedCode);
 }
 
-/** Inside an inline code span on the caret's line: an odd number of backticks before it. */
+/**
+ * Inside an inline code span on the caret's line: an opening run of backticks (not escaped)
+ * with no closing run of the same length before `at`.
+ */
 function inCodeSpan(value: string, lineStart: number, at: number): boolean {
-  return (value.slice(lineStart, at).match(/`/g)?.length ?? 0) % 2 === 1;
+  const text = value.slice(lineStart, at);
+  let open = 0;
+  for (const run of text.matchAll(/(\\*)(`+)/g)) {
+    const ticks = run[2]?.length ?? 0;
+    // An odd number of backslashes escapes the first backtick of the run.
+    const escaped = (run[1]?.length ?? 0) % 2 === 1;
+    const length = escaped ? ticks - 1 : ticks;
+    if (!length) continue;
+    if (!open) open = length;
+    else if (length === open) open = 0;
+  }
+  return open > 0;
 }
 
 /**
@@ -60,21 +106,26 @@ export function completionAt(selection: Selection): CompletionMatch | undefined 
     if (query === "" || before.slice(0, at).trim() !== "") return undefined;
   }
   const from = lineStart + at;
-  if (inFence(value, from) || inCodeSpan(value, lineStart, from)) return undefined;
+  if (inCodeBlock(value, from) || inCodeSpan(value, lineStart, from)) return undefined;
   return { kind, query, from, to: start };
 }
 
 /**
- * Replace the typed trigger word with `text` and a space, leaving the caret after the space. A
- * space already following the caret is reused rather than doubled.
+ * Replace the whole trigger word with `text` and a space, leaving the caret after the space:
+ * picked with the caret mid-word (`@mi|ra`), the rest of the word goes too. A space already
+ * following the word is reused rather than doubled.
  */
 export function completionChange(
   selection: Selection,
   match: CompletionMatch,
   text: string,
 ): Change {
-  const spaced = /^\s/.test(selection.value.slice(match.to, match.to + 1));
+  const tail = (match.kind === "mention" ? /^[\w-]*/ : /^[\w.-]*/).exec(
+    selection.value.slice(match.to),
+  );
+  const to = match.to + (tail?.[0].length ?? 0);
+  const spaced = /^\s/.test(selection.value.slice(to, to + 1));
   const insert = spaced ? text : `${text} `;
   const caret = match.from + insert.length + (spaced ? 1 : 0);
-  return { from: match.from, to: match.to, insert, select: [caret, caret] };
+  return { from: match.from, to, insert, select: [caret, caret] };
 }

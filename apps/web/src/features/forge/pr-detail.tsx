@@ -1,7 +1,7 @@
 import {
   useEffect,
+  useCallback,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -296,7 +296,7 @@ function PrDetailLoaded(props: {
     />
   );
   const canRequestReview = detail.status.state === "open";
-  const participants = useMemo(() => prParticipants(detail), [detail]);
+  const participants = useCallback(() => prParticipants(detail), [detail]);
   return (
     // Shortcuts work anywhere in the panel; `contents` keeps the layout the article's. On a
     // page it is the page's one scroller instead.

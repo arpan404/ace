@@ -61,8 +61,11 @@ export const ForgePrReviewers = z.object({
 });
 export type ForgePrReviewers = z.infer<typeof ForgePrReviewers>;
 
-/** What a `@` or `#` search may hold: words, numbers, dots and dashes. */
-const completionQuery = z
+/**
+ * What a `@` or `#` search may hold: words, numbers, dots, dashes and spaces. Nothing GitHub's
+ * search reads as a qualifier (`repo:`, quotes) can pass, so a search stays in its repository.
+ */
+export const ForgeCompletionQuery = z
   .string()
   .max(100)
   .regex(/^[\w .-]*$/)
@@ -70,9 +73,9 @@ const completionQuery = z
 const scope = { workspaceId: WorkspaceId, repository: ForgeRepository.optional() };
 export const ForgePeopleOperations = [
   /** The repository's mentionable people whose login or name matches `query`; 20 at most. */
-  z.object({ op: z.literal("forge.people"), ...scope, query: completionQuery }),
+  z.object({ op: z.literal("forge.people"), ...scope, query: ForgeCompletionQuery }),
   /** Issues and PRs matching a number or title words: open ones first, then recent. */
-  z.object({ op: z.literal("forge.references"), ...scope, query: completionQuery }),
+  z.object({ op: z.literal("forge.references"), ...scope, query: ForgeCompletionQuery }),
   z.object({ op: z.literal("forge.pr.reviewers"), ...scope, number: z.number().int().positive() }),
 ] as const;
 export const ForgePeopleResults = [

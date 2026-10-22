@@ -173,17 +173,24 @@ test("asking a team to review sends it as a team reviewer and confirms it is ask
 
 test("dismissing takes back an approval with its reason, and refuses a review with no verdict", async () => {
   const fixtures = reviewFixtures();
+  const approval = { id: 31, state: "APPROVED", user: { login: "mira" } };
   fixtures["repos/octo/ace/pulls/7/reviews/31"] = [
-    { body: { id: 31, state: "APPROVED" } },
-    { body: { id: 31, state: "DISMISSED" } },
+    { body: approval },
+    { body: { ...approval, state: "DISMISSED" } },
+  ];
+  fixtures["repos/octo/ace/pulls/7/reviews?per_page=100"] = [
+    { body: [approval, { id: 33, state: "COMMENTED", user: { login: "mira" } }] },
   ];
   fixtures["repos/octo/ace/pulls/7/reviews/31/dismissals"] = [
     { body: { id: 31, state: "DISMISSED" } },
   ];
-  fixtures["repos/octo/ace/pulls/7/reviews/32"] = [{ body: { id: 32, state: "COMMENTED" } }];
+  fixtures["repos/octo/ace/pulls/7/reviews/32"] = [
+    { body: { id: 32, state: "COMMENTED", user: { login: "dana" } } },
+  ];
   const f = await fakeGh(fixtures);
   const dismiss = { kind: "review.dismiss", reviewId: 31, message: "Out of date" } as const;
   try {
+    // A comment after the approval leaves the approval standing: it can be dismissed.
     await f.forge.reviews.write(7, dismiss, [], "dismiss", signal(), allowed);
     const write = (await f.requests()).find((r) => r.path.endsWith("/dismissals"));
     expect(write?.args).toContain("PUT");
@@ -194,6 +201,34 @@ test("dismissing takes back an approval with its reason, and refuses a review wi
       new ForgeError("conflict"),
     );
     expect((await f.requests()).filter((r) => r.path.endsWith("/dismissals"))).toHaveLength(1);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("an approval the reviewer has since replaced with a change request is not dismissed", async () => {
+  const fixtures = reviewFixtures();
+  const approval = { id: 40, state: "APPROVED", user: { login: "mira" } };
+  fixtures["repos/octo/ace/pulls/7/reviews/40"] = [{ body: approval }];
+  fixtures["repos/octo/ace/pulls/7/reviews?per_page=100"] = [
+    { body: [approval, { id: 44, state: "CHANGES_REQUESTED", user: { login: "Mira" } }] },
+  ];
+  fixtures["repos/octo/ace/pulls/7/reviews/40/dismissals"] = [
+    { body: { id: 40, state: "DISMISSED" } },
+  ];
+  const f = await fakeGh(fixtures);
+  try {
+    await expect(
+      f.forge.reviews.write(
+        7,
+        { kind: "review.dismiss", reviewId: 40, message: "Stale" },
+        [],
+        "stale",
+        signal(),
+        allowed,
+      ),
+    ).rejects.toEqual(new ForgeError("conflict"));
+    expect((await f.requests()).some((r) => r.path.endsWith("/dismissals"))).toBe(false);
   } finally {
     await f.cleanup();
   }
@@ -228,7 +263,7 @@ const node = (number: number, kind: string, state: string, isDraft = false) => (
   ...(kind === "PullRequest" ? { isDraft } : {}),
 });
 
-test("references put an exact number first, then open, then recent, each once, and keep searches in the repository", async () => {
+test("references put an exact number first, then open, then recent, each once, search titles only and stay in the repository", async () => {
   const f = await fakeGh({
     "graphql:query AceReferences": [
       {
@@ -254,8 +289,12 @@ test("references put an exact number first, then open, then recent, each once, a
       { number: 12, title: "Item 12", kind: "pr", state: "draft" },
       { number: 3, title: "Item 3", kind: "issue", state: "open" },
     ]);
-    await f.forge.references("repo:other/x fix", signal());
-    const [exact, words] = (await f.requests()).map(
+    // A qualifier can't point the search at another repository: it never reaches GitHub.
+    await expect(f.forge.references("repo:other/x fix", signal())).rejects.toEqual(
+      new ForgeError("invalid_data"),
+    );
+    await f.forge.references("crash on wake", signal());
+    const [exact, words, ...rest] = (await f.requests()).map(
       (r) => (r.body as { variables: Record<string, unknown> }).variables,
     );
     expect(exact).toMatchObject({
@@ -263,11 +302,13 @@ test("references put an exact number first, then open, then recent, each once, a
       exact: true,
       open: "repo:octo/ace sort:updated-desc is:open",
     });
-    // A qualifier typed in the search can't point it at another repository.
+    // Words are searched in titles only: prose in issue bodies never keeps `#` open.
     expect(words).toMatchObject({
       exact: false,
-      recent: "repo:octo/ace sort:updated-desc repo other x fix",
+      open: "repo:octo/ace sort:updated-desc is:open in:title crash on wake",
+      recent: "repo:octo/ace sort:updated-desc in:title crash on wake",
     });
+    expect(rest).toEqual([]);
   } finally {
     await f.cleanup();
   }
