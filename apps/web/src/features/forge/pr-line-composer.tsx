@@ -6,6 +6,7 @@ import { useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draf
 import { Button } from "@/components/ui/button.tsx";
 import type { LineRange } from "@/features/panels/index.ts";
 import { PrClampedText } from "./pr-clamped.tsx";
+import { PrAvatar } from "./pr-presentation.tsx";
 import { linesLabel, suggestionBlock } from "./pr-comment-model.ts";
 import { appendTo } from "./pr-quote.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
@@ -26,7 +27,8 @@ export function anchorOf(path: string, range: LineRange, headSha: string): Forge
  * A new comment under the lines it is about. With no review started it posts on its own (Add
  * single comment) or starts one (Start a review); once comments are pending it joins them (Add
  * review comment). Suggest changes starts a suggestion from the lines as they read now. ⌘↵
- * does the main action; unsent text is kept on this device per line range.
+ * does the main action; unsent text is kept on this device, one per file, so picking other
+ * lines keeps it.
  */
 export function PrLineComposer(props: {
   path: string;
@@ -39,9 +41,7 @@ export function PrLineComposer(props: {
   const { range } = props;
   const prKey = JSON.stringify(review?.detail.status.ref ?? null);
   const draft = useMarkdownDraft(
-    review
-      ? `pr:${review.workspaceId}:${prKey}:line:${props.path}:${range.side}:${range.start}-${range.end}`
-      : undefined,
+    review ? `pr:${review.workspaceId}:${prKey}:line:${props.path}` : undefined,
   );
   const [id] = useState(() => crypto.randomUUID());
   const pending = review?.state?.drafts.length ?? 0;
@@ -76,7 +76,7 @@ export function PrLineComposer(props: {
       }}
       onKeyDown={(event) => {
         if (event.key === "Escape" && !event.defaultPrevented) {
-          // Esc puts the comment away; its text waits for these lines to be picked again.
+          // Esc puts the comment away; its text waits for lines of this file to be picked again.
           event.preventDefault();
           props.onClose();
         }
@@ -142,7 +142,8 @@ export function PrPendingComment(props: { draft: ForgeReviewDraft }) {
   };
   return (
     <div className="min-w-0 space-y-1.5">
-      <p className="flex items-center gap-1.5 text-ui text-muted-foreground">
+      <p className="flex min-h-6 items-center gap-1.5 text-ui text-muted-foreground">
+        <PrAvatar name={review?.state?.viewer ?? ""} />
         <span className="font-medium text-foreground">{review?.state?.viewer}</span>
         <span className="text-xs text-status-needs-you">Pending</span>
         <span className="ml-auto flex gap-1">
@@ -168,9 +169,11 @@ export function PrPendingComment(props: { draft: ForgeReviewDraft }) {
         </span>
       </p>
       {edit === undefined ? (
-        <PrClampedText text={draft.body} open={open} onToggle={() => setOpen(!open)} />
+        <div className="pl-[26px]">
+          <PrClampedText text={draft.body} open={open} onToggle={() => setOpen(!open)} />
+        </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-2 pl-[26px]">
           <MarkdownEditor
             autoFocus
             label="Edit pending comment"

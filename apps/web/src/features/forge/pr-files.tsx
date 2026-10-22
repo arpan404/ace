@@ -23,6 +23,7 @@ import { usePrFilePages } from "./pr-file-pages.ts";
 import { PrMoreFiles } from "./pr-more-files.tsx";
 import { PrOffDiffThreads } from "./pr-off-diff-threads.tsx";
 import { usePrViewedMarks } from "./pr-viewed-marks.ts";
+import { usePrReview } from "./pr-review-context.tsx";
 
 // The diff renderer loads with this view, not with the app's first paint (`preloadPrFiles`).
 const FileTree = DeferredFileTree.Component;
@@ -96,8 +97,18 @@ function PrCodeRange(
       setWanted((previous) => (previous.has(path) ? previous : new Set(previous).add(path))),
     [],
   );
-  // Markdown and notebooks draw rendered; these paths show their source diff instead.
-  const [sources, setSources] = useState<ReadonlySet<string>>(noPaths);
+  // Markdown and notebooks draw rendered, except where conversations sit on their lines (and in
+  // the review being written): those show their source diff. These paths are switched from that.
+  const [switched, setSwitched] = useState<ReadonlySet<string>>(noPaths);
+  const review = usePrReview();
+  const discussed = useMemo(
+    () =>
+      new Set([
+        ...props.detail.status.reviewThreads.filter((t) => !t.outdated).map((t) => t.file),
+        ...(review?.state?.drafts ?? []).map((d) => d.anchor.path),
+      ]),
+    [props.detail.status.reviewThreads, review?.state?.drafts],
+  );
   const read = usePrFileSides({
     workspaceId: props.workspaceId,
     repository: props.repository,
@@ -161,11 +172,11 @@ function PrCodeRange(
   const readOf = (file: ForgeFile): HostedFileRead => ({
     show: hostedFileShow(file),
     rendered: renderedKind(file.path),
-    source: sources.has(file.path),
+    source: discussed.has(file.path) !== switched.has(file.path),
     onSource: (source) =>
-      setSources((previous) => {
+      setSwitched((previous) => {
         const next = new Set(previous);
-        if (source) next.add(file.path);
+        if (source !== discussed.has(file.path)) next.add(file.path);
         else next.delete(file.path);
         return next;
       }),
