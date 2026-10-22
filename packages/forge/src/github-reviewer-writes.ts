@@ -19,6 +19,7 @@ const Requested = z.looseObject({
 const Review = z.looseObject({ id: z.number().int().positive(), state: text });
 /** Only a verdict can be dismissed: comments and pending reviews have nothing to take back. */
 const dismissible = new Set(["APPROVED", "CHANGES_REQUESTED"]);
+const asked = (name: string, set: Set<string>) => set.has(name.toLowerCase());
 
 export function isReviewerAction(action: ForgeReviewAction): action is ReviewerAction {
   return (
@@ -54,7 +55,6 @@ export class GitHubReviewerWrites {
     if (action.kind === "review.dismiss")
       return (await this.#review(number, action.reviewId, signal)).state === "DISMISSED";
     const { users, teams } = await this.#requested(number, signal);
-    const asked = (name: string, set: Set<string>) => set.has(name.toLowerCase());
     const want = action.kind === "reviewers.request";
     return (
       action.reviewers.every((name) => asked(name, users) === want) &&

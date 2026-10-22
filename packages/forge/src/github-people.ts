@@ -25,7 +25,7 @@ const People = z.object({
 });
 // Search can return other kinds of node (discussions); those have no `number` and are skipped.
 const Found = z.looseObject({
-  __typename: text.optional(),
+  kind: text.optional(),
   number: z.number().int().positive().optional(),
   title: text.optional(),
   state: text.optional(),
@@ -40,7 +40,7 @@ const References = z.object({
   }),
 });
 const Requested = z.looseObject({
-  __typename: text,
+  kind: text,
   login: login.optional(),
   avatarUrl: text.nullable().optional(),
   slug: login.optional(),
@@ -91,7 +91,7 @@ const Reviewers = z.object({
   }),
 });
 
-const fields = "__typename number title state";
+const fields = "kind:__typename number title state";
 const issueFields = `... on Issue { ${fields} } ... on PullRequest { ${fields} isDraft }`;
 
 function person(p: z.infer<typeof Person>): ForgePerson {
@@ -104,8 +104,8 @@ function person(p: z.infer<typeof Person>): ForgePerson {
 
 function reference(node: z.infer<typeof Found> | null | undefined): ForgeReference | undefined {
   if (!node?.number || node.title === undefined) return undefined;
-  const pr = node.__typename === "PullRequest";
-  if (!pr && node.__typename !== "Issue") return undefined;
+  const pr = node.kind === "PullRequest";
+  if (!pr && node.kind !== "Issue") return undefined;
   const state = node.state?.toUpperCase();
   return {
     number: node.number,
@@ -181,7 +181,7 @@ export class GitHubPeople {
     const { owner, name } = this.#repository;
     const user = "login avatarUrl";
     const response = await this.#api.request("graphql", signal, {
-      query: `query AcePrReviewers($owner:String!,$name:String!,$number:Int!){ repository(owner:$owner,name:$name){ viewerPermission pullRequest(number:$number){ state viewerCanUpdate author { login } reviewRequests(first:100){ nodes { requestedReviewer { __typename ... on User { ${user} } ... on Bot { ${user} } ... on Mannequin { ${user} } ... on Team { slug name } } } } latestReviews(first:100){ nodes { databaseId state submittedAt author { login avatarUrl } } } suggestedReviewers { isAuthor isCommenter reviewer { login name avatarUrl } } } } }`,
+      query: `query AcePrReviewers($owner:String!,$name:String!,$number:Int!){ repository(owner:$owner,name:$name){ viewerPermission pullRequest(number:$number){ state viewerCanUpdate author { login } reviewRequests(first:100){ nodes { requestedReviewer { kind:__typename ... on User { ${user} } ... on Bot { ${user} } ... on Mannequin { ${user} } ... on Team { slug name } } } } latestReviews(first:100){ nodes { databaseId state submittedAt author { login avatarUrl } } } suggestedReviewers { isAuthor isCommenter reviewer { login name avatarUrl } } } } }`,
       variables: { owner, name, number },
     });
     const repository = decode(Reviewers, response.body).data.repository;
@@ -189,7 +189,7 @@ export class GitHubPeople {
     const requested = pr.reviewRequests.nodes.flatMap((node): ForgeRequestedReviewer[] => {
       const r = node?.requestedReviewer;
       if (!r) return [];
-      if (r.__typename === "Team")
+      if (r.kind === "Team")
         return r.slug ? [{ kind: "team", slug: r.slug, name: r.name ?? r.slug }] : [];
       return r.login
         ? [{ kind: "user", login: r.login, ...(r.avatarUrl ? { avatarUrl: r.avatarUrl } : {}) }]

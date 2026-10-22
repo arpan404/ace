@@ -4,6 +4,7 @@ import {
   mergeGate,
   parsePrReference,
   parseReviewers,
+  parseReviewRequest,
   prOverview,
   prPollInterval,
 } from "./pull-request.ts";
@@ -196,4 +197,14 @@ test("configured Enterprise PR addresses are accepted and other hosts stay rejec
       "git.example.com",
     ]),
   ).toHaveProperty("error");
+});
+
+test("a review request names people by login and teams as org/team", () => {
+  expect(parseReviewRequest("@mira, acme/client-core sam @acme/docs mira")).toEqual({
+    reviewers: ["mira", "sam"],
+    teams: ["client-core", "docs"],
+  });
+  expect(parseReviewRequest("mira, a/b/c")).toEqual({
+    error: "“a/b/c” isn't a GitHub username or team",
+  });
 });
