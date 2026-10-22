@@ -60,8 +60,7 @@ export function ownerThreadExecutor(
           delivery: "queue",
           trigger: "schedule",
           origin: { kind: "automation", role: input.automationId },
-          ...(input.model ? { model: input.model } : {}),
-          ...(input.effort ? { options: { effort: input.effort } } : {}),
+          // The agent's own thread keeps its own model and effort.
           input: [{ type: "text", text: input.prompt }],
         },
       });

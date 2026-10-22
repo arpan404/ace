@@ -145,7 +145,7 @@ test("an automation leaves the app's list once the thread that made it is delete
   }
 });
 
-test("a thread automation run from the app goes into its own thread with the person's note and the saved effort", async () => {
+test("a thread automation run from the app goes into its own thread with the person's note, keeping the thread's effort", async () => {
   const f = await daemonFixture();
   const app = await connectAutomations(f, "thread-run");
   try {
@@ -169,7 +169,8 @@ test("a thread automation run from the app goes into its own thread with the per
     await expect
       .poll(() => f.h.inputs.get(owner)?.join("\n"))
       .toContain("Check the build\n\nOnly the checkout tests");
-    expect(f.h.contexts.get(owner)?.options).toMatchObject({ effort: "high" });
+    // The agent's thread keeps the effort it runs at, not the automation's saved one.
+    expect(f.h.contexts.get(owner)?.options?.effort).not.toBe("high");
     expect((await ask()).run?.id).toBe(runId);
     const history = await app.ask({
       type: "automation.inbox",

@@ -18,7 +18,7 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
   const { store, services } = context;
   store.atomic((db) =>
     db.exec(`CREATE TABLE IF NOT EXISTS automation_threads(
-      automation_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL
+      automation_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, settings TEXT
     ); CREATE TABLE IF NOT EXISTS automation_run_threads(
       command_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL
     );`),
@@ -36,6 +36,15 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
     return thread && thread.deletedAt === undefined && thread.archivedAt === undefined
       ? thread.id
       : undefined;
+  };
+  /** The model and effort last given to the automation's thread, as `settingsKey` wrote them. */
+  const appliedSettings = (automationId: string): string | undefined => {
+    const row = store.atomic((db) =>
+      db.prepare("SELECT settings FROM automation_threads WHERE automation_id=?").get(automationId),
+    );
+    return (
+      z.object({ settings: z.string().nullable() }).optional().parse(row)?.settings ?? undefined
+    );
   };
   /** The thread a run's command went to, kept beside its receipt. */
   const runThread = (commandId: string): ThreadId | undefined => {
@@ -67,6 +76,11 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
         // A retried run finds its first command's receipt and thread unchanged.
         const sent = runThread(commandId);
         const existing = sent ?? ownThread(input.automationId);
+        // The thread keeps whatever model and effort it has, unless the automation's own
+        // changed since they were last given to it: then the run carries the new ones.
+        const settings = settingsKey(input);
+        const changed = appliedSettings(input.automationId) !== settings;
+        const carried = runSettings(input, appliedSettings(input.automationId));
         const command = Command.parse({
           id: commandId,
           deviceId,
@@ -77,8 +91,7 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
                 delivery: "queue",
                 trigger: "schedule",
                 origin: { kind: "automation", role: input.automationId },
-                ...(input.model ? { model: input.model } : {}),
-                ...(input.effort ? { options: { effort: input.effort } } : {}),
+                ...carried,
                 input: [{ type: "text", text: input.prompt }],
               }
             : {
@@ -105,10 +118,10 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
           commandId,
           target,
         );
-        if (!existing)
+        if (!existing || changed)
           db.prepare(
-            "INSERT INTO automation_threads VALUES (?,?) ON CONFLICT(automation_id) DO UPDATE SET thread_id=excluded.thread_id",
-          ).run(input.automationId, target);
+            "INSERT INTO automation_threads VALUES (?,?,?) ON CONFLICT(automation_id) DO UPDATE SET thread_id=excluded.thread_id, settings=excluded.settings",
+          ).run(input.automationId, target, settings);
         return target;
       });
       return followRun(context, threadId, commandId, signal, {
@@ -139,6 +152,26 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
         deviceId,
       );
     },
+  };
+}
+
+/** The automation's model and effort as one comparable value. */
+const settingsKey = (input: Pick<ExecutionInput, "model" | "effort">) =>
+  JSON.stringify({ model: input.model ?? null, effort: input.effort ?? null });
+
+/**
+ * The model and effort a run sends into the automation's existing thread. The thread keeps
+ * whatever the person picked there, so a run sends nothing, unless the automation's own
+ * settings changed since `applied` (what was last given to the thread): then it sends them.
+ */
+export function runSettings(
+  input: Pick<ExecutionInput, "model" | "effort">,
+  applied: string | undefined,
+): { model?: string; options?: { effort: string } } {
+  if (applied === settingsKey(input)) return {};
+  return {
+    ...(input.model ? { model: input.model } : {}),
+    ...(input.effort ? { options: { effort: input.effort } } : {}),
   };
 }
 
