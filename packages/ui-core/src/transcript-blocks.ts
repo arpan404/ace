@@ -704,6 +704,13 @@ export function buildBlocks(source: BlockSource): Block[] {
         case "delegation.started":
           group("subagents", id);
           break;
+        case "delegation.settled":
+          // Each launch row turns into its child's outcome and result in place, so a receipt
+          // whose children all launched in view would show them twice. One whose launch isn't
+          // loaded (paged out, another agent's) keeps its row.
+          if (!item.results.every((result) => launched.has(result.threadId)))
+            push({ kind: "item", key: id, itemId: id }, false);
+          break;
         case "notice": {
           // A measurement, or the daemon's audit of a computer-use action: both are steps of the
           // work, and the log folds an audit into the call it records.
