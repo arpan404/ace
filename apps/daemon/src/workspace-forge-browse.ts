@@ -61,6 +61,8 @@ export class WorkspaceForgeBrowse {
     }
     if (operation.op === "forge.repo.pr-options")
       return { resource: "repoPrOptions", value: await backend.prOptions(signal) };
+    if (operation.op === "forge.repo.milestones")
+      return { resource: "repoMilestones", value: await backend.milestones(signal) };
     if (operation.op === "forge.compare")
       return {
         resource: "compare",

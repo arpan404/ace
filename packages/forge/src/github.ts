@@ -416,6 +416,10 @@ export class GitHubForge implements Forge, ForgeBrowser {
   prTemplate(signal: AbortSignal) {
     return this.#newPr.template(signal);
   }
+  /** The repository's open milestones alone. */
+  milestones(signal: AbortSignal) {
+    return this.#newPr.milestones(signal);
+  }
   /** Labels, assignable people and open milestones. */
   prOptions(signal: AbortSignal) {
     return this.#newPr.options(signal);

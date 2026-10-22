@@ -101,6 +101,8 @@ export type ForgeCompare = z.infer<typeof ForgeCompare>;
 export const ForgeNewPrOperations = [
   z.object({ op: z.literal("forge.pr.new-context"), workspaceId: WorkspaceId }),
   z.object({ op: z.literal("forge.repo.pr-options"), ...scope }),
+  /** The repository's open milestones alone, for a PR's milestone picker. */
+  z.object({ op: z.literal("forge.repo.milestones"), ...scope }),
   z.object({
     op: z.literal("forge.compare"),
     ...scope,
@@ -112,6 +114,7 @@ export const ForgeNewPrOperations = [
 export const ForgeNewPrResults = [
   z.object({ resource: z.literal("newPrContext"), value: ForgeNewPrContext }),
   z.object({ resource: z.literal("repoPrOptions"), value: ForgeRepoPrOptions }),
+  z.object({ resource: z.literal("repoMilestones"), value: z.array(ForgeMilestone).max(100) }),
   z.object({ resource: z.literal("compare"), value: ForgeCompare }),
 ] as const;
 

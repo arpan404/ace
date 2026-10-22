@@ -375,7 +375,8 @@ function merged(now: number): PullRequestFixture {
     ForgeActivity.parse({ id, event: name, actor, at: iso(at), raw: {} });
   return {
     detail,
-    lifecycle: lifecycle(detail, ["revert"]),
+    // Its branch also heads another open PR, so GitHub would close that one with it.
+    lifecycle: withManagement(lifecycle(detail, ["revert"]), { usedBy: [233] }),
     review: review(headSha, false),
     files: [
       file("apps/daemon/src/providers/codex/app-server.ts", 212, 180),

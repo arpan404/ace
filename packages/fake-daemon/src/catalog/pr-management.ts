@@ -69,7 +69,8 @@ function capabilities(snapshot: Snapshot, canPush: boolean): Pick<Snapshot, "act
     if (
       branch.exists &&
       !branch.isDefault &&
-      !(snapshot.state === "merged" && branch.deleteOnMerge)
+      !(snapshot.state === "merged" && branch.deleteOnMerge) &&
+      !branch.usedBy?.length
     )
       actions.push("branch.delete");
     if (!branch.exists) actions.push("branch.restore");
@@ -86,6 +87,8 @@ export function withManagement(
     closingIssues?: ForgeClosingIssue[];
     locked?: { reason: NonNullable<Snapshot["conversation"]>["reason"]; viewerCanComment: boolean };
     canPush?: boolean;
+    /** Other open PRs from the same head branch. */
+    usedBy?: number[];
   } = {},
 ): ForgeLifecycleState {
   const snapshot = state.snapshot;
@@ -108,6 +111,7 @@ export function withManagement(
       isDefault: false,
       deleteOnMerge: false,
       ...snapshot.headBranch,
+      ...(facts.usedBy ? { usedBy: facts.usedBy } : {}),
     },
     closingIssues: facts.closingIssues ?? snapshot.closingIssues ?? [],
   };

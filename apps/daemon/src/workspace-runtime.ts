@@ -430,6 +430,7 @@ export class WorkspaceRuntime {
       op.op === "forge.file.content" ||
       op.op === "forge.pr.new-context" ||
       op.op === "forge.repo.pr-options" ||
+      op.op === "forge.repo.milestones" ||
       op.op === "forge.compare"
     ) {
       if (
