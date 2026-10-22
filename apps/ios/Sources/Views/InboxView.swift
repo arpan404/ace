@@ -37,6 +37,10 @@ struct InboxView: View {
     @State private var snoozing: InboxKey?
     @State private var undo: InboxUndo?
     @State private var settles = 0
+    /// The thread on screen when the app last ran: a relaunch opens it again, as the web reopens
+    /// its URL, whether the system ended the app in the background or it was killed.
+    @AppStorage("ace.inbox.openThread") private var lastPlace = ""
+    @State private var placeRestored = false
 
     private var current: ClientModel? { openMachine.flatMap(inbox.client) }
 
@@ -84,7 +88,22 @@ struct InboxView: View {
             tab = old == .compose ? .threads : old
             if !inbox.sessions.isEmpty { composing = true }
         }
-        .onChange(of: threadsPath) { old, new in pathChanged(.threads, old: old, new: new) }
+        .onChange(of: threadsPath) { old, new in
+            pathChanged(.threads, old: old, new: new)
+            // Any navigation, the restore's own included, settles where the app is.
+            placeRestored = true
+            lastPlace = InboxRoute.threads(new).last?.place ?? ""
+        }
+        .task(id: restorable) {
+            // Once the restored thread's row is back (from this phone's copy or its machine).
+            guard !placeRestored, let key = InboxKey(place: lastPlace) else { placeRestored = true; return }
+            guard restorable else { return }
+            placeRestored = true
+            // Cleared first and written back once it shows, so a thread that cannot open sends
+            // the next launch to the inbox instead of into the same failure.
+            lastPlace = ""
+            if threadsPath.isEmpty { openThread(key) }
+        }
         .onChange(of: pullsPath) { old, new in pathChanged(.pulls, old: old, new: new) }
         .sensoryFeedback(.success, trigger: settles)
         .overlay(alignment: .bottom) { toast }
@@ -97,6 +116,12 @@ struct InboxView: View {
         }
     }
 
+    /// The thread to reopen is known to its machine. A machine that never lists it again (the
+    /// thread was archived or the machine removed) leaves the person on the inbox.
+    private var restorable: Bool {
+        guard let key = InboxKey(place: lastPlace) else { return false }
+        return inbox.client(key.machineId)?.inbox[key.id] != nil
+    }
     /// The first machine with an error to show; each machine's error is its own.
     private var failing: MachineSession? { inbox.sessions.first { $0.client.error != nil } }
 
