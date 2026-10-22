@@ -113,6 +113,32 @@ The session tools stay for the person's live view and remain the fallback on Win
 
 ### Desktop
 
+**Chromium's sandbox without a package.** Ubuntu 23.10+ grants user namespaces only under an
+AppArmor profile with `userns` (Ubuntu's 24.04 notes and Chromium's
+`docs/security/apparmor-userns-restrictions.md` recommend an `unconfined` profile for this).
+The deb installs one; an AppImage and an extracted tar.gz have no installer. The setuid
+`chrome-sandbox` can't help them: a FUSE mount is `nosuid`, and Chromium ignores
+`CHROME_DEVEL_SANDBOX` while a `chrome-sandbox` sits beside the executable
+(`setuid_sandbox_host.cc`). So:
+
+- Their launchers keep the app starting: the AppImage's AppRun and the tar.gz's own
+  `ace-desktop` launcher (Electron is `ace-desktop-bin` beside it) probe `unshare -Ur` and add
+  `--no-sandbox` only where it fails. Without the launcher Electron aborts at start there.
+- The app then says in one sentence what is off and offers **Set up sandbox**: pkexec (or
+  systemd's run0) runs a fixed root script that writes and loads a per-user profile attached
+  to this copy, plus `ace-chromium` exactly as `ace doctor` prints it. An AppImage's profile
+  attaches to the AppImage file; everything it starts keeps that profile (an unconfined
+  profile's children stay in it unless another attaches, `security/apparmor/domain.c`), so
+  AppRun's probe passes. A versioned file name also covers `ace-*.AppImage` in its folder,
+  the names electron-updater gives updates. A tar.gz's profile attaches to its launcher and
+  Electron. After a restart (asked like an update's) the sandbox is on. Without a prompt, or
+  if it fails, the same setup is offered as commands to copy. ace never disables the kernel
+  restriction and never runs without the sandbox silently.
+- Trade-off: these attachments are paths the person's account can write, so code running as
+  that person could gain user namespaces by placing an executable there. Chromium's own
+  guidance accepts the same for builds in a home folder; the alternative, a root-owned copy,
+  would break the AppImage's self-update. The deb stays the strongest option on Ubuntu.
+
 Login launch writes an XDG autostart entry. The tray uses a colour icon on Linux. The global
 shortcut uses the GlobalShortcuts portal on Wayland. The `ace` CLI shim detects AppImage and
 points at the stable AppImage path, not its temporary mount.
