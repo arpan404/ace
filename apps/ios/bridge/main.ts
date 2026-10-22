@@ -27,6 +27,7 @@ import { BrowserLive } from "./browser-live.ts";
 import { nativeChunks } from "./thread-attachments.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
+import { nativeReadSnapshots } from "./read-snapshots.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -130,6 +131,8 @@ async function start(json: string): Promise<void> {
         },
       },
     },
+    // The inbox and opened threads paint from what this phone read last time (ADR 0030).
+    readSnapshots: nativeReadSnapshots(call),
     scheduler,
     id: () => host.uuid(),
     random: () => host.random(),
