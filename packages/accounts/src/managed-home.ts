@@ -3,11 +3,13 @@ import { basename, dirname, join, resolve } from "node:path";
 import { AccountEnvKey, ProviderInstance } from "@ace/protocol/accounts";
 import { canonicalHome } from "./paths.ts";
 import { createInstance } from "./instances.ts";
+import { managedAcpSelectors } from "./acp-managed-home.ts";
 
 /** Validate directory identities without inspecting any provider credential files. */
 async function assertHomeIdentity(input: ProviderInstance): Promise<void> {
   const instance = ProviderInstance.parse(input);
-  const expected = createInstance(instance).env;
+  const expected =
+    instance.provider === "acp" ? managedAcpSelectors(instance) : createInstance(instance).env;
   if (AccountEnvKey.options.some((key) => expected[key] !== instance.env[key]))
     throw new Error("Managed home selectors cannot change");
   const directories = new Set([
