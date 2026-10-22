@@ -25,7 +25,7 @@ const { pumpFrames, pumpTimers } = vi.hoisted(() => {
   return { pumpFrames: frames, pumpTimers: timers };
 });
 
-import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
+import { CommandId, DeviceId, InteractionRequest, ThreadId } from "@ace/protocol";
 import { Client } from "@ace/client";
 import { FakeDaemon, facts } from "@ace/fake-daemon";
 import { followInbox, inboxAction, type InboxClock } from "./inbox.ts";
@@ -217,6 +217,100 @@ describe("inbox snooze expiry", () => {
     stop();
     // Only the open follower's timer remains.
     expect(clock.armed).toEqual([start + 10 * minute]);
+  });
+});
+
+describe("inbox attention", () => {
+  type Look = {
+    level: string;
+    word: string | null;
+    tone: string;
+    muted: boolean;
+    glyph: string | null;
+  };
+  const look = (sink: RecordingSink, id: string) =>
+    (sink.read(`inbox:${id}`) as { row: { look: Look } } | undefined)?.row.look;
+
+  test("only the row asking for the person is loud; working recedes and a seen result shows its age", async () => {
+    const { sink } = await following((daemon) => {
+      finished(daemon, "notes", "Notes");
+      daemon.createThread({ id: "busy", workspaceId: "ace", title: "Busy", provider: "codex" });
+      daemon.apply("busy", [facts.rootAgent("codex"), facts.turn("root")]);
+      daemon.createThread({ id: "asks", workspaceId: "ace", title: "Asks", provider: "claude" });
+      daemon.apply("asks", [
+        facts.rootAgent("claude"),
+        facts.turn("root"),
+        {
+          type: "interaction.opened",
+          agent: "root",
+          interaction: "ask",
+          blocking: true,
+          request: InteractionRequest.parse({
+            kind: "approval",
+            title: "Run the tests",
+            options: [{ id: "allow", label: "Allow", kind: "allow_once" }],
+          }),
+        },
+      ]);
+    });
+    await until(() => look(sink, "asks")?.level === "needs-you", "the request");
+    expect(look(sink, "asks")).toEqual({
+      level: "needs-you",
+      word: "Approve",
+      tone: "needs-you",
+      muted: false,
+      glyph: "needs-you",
+      since: null,
+      settled: false,
+      subagents: 0,
+    });
+    await until(() => look(sink, "busy")?.level === "active", "the working row");
+    expect(look(sink, "busy")).toMatchObject({
+      word: "Working",
+      tone: "working",
+      muted: true,
+      glyph: "working",
+    });
+    // Finished before the phone started following: read, so it claims no word, only its age.
+    expect(look(sink, "notes")).toMatchObject({
+      level: "quiet",
+      word: null,
+      muted: true,
+      glyph: null,
+    });
+  });
+});
+
+const account = (sink: RecordingSink, id: string) =>
+  (sink.read(`inbox:${id}`) as { row: { account: string | null } } | undefined)?.row.account;
+const execution = (instanceId: string) => ({
+  provider: "codex" as const,
+  model: "gpt-5.5",
+  instanceId,
+  options: {},
+});
+
+describe("inbox provider accounts", () => {
+  test("a row on one of several accounts wears that account's mark; the CLI's own login stays plain", async () => {
+    const { sink } = await following((daemon) => {
+      daemon.createThread({
+        id: "team",
+        workspaceId: "ace",
+        title: "Team",
+        provider: "codex",
+        execution: execution("codex-team"),
+      });
+      daemon.createThread({
+        id: "plain",
+        workspaceId: "ace",
+        title: "Plain",
+        provider: "codex",
+        execution: execution("codex-cli-default"),
+      });
+    });
+    await until(() => account(sink, "team") != null, "the account bubble");
+    expect(account(sink, "team")).toBe("T");
+    expect(account(sink, "plain")).toBeNull();
   });
 });
 

@@ -241,18 +241,18 @@ struct DeviceScreen: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .bottomBar) {
-            Button("Home", systemImage: "house") { key("home") }.disabled(!canDrive).accessibilityIdentifier("devices.home")
+            Button("Home", ace: .house) { key("home") }.disabled(!canDrive).accessibilityIdentifier("devices.home")
             if info?.platform == "android" {
-                Button("Back", systemImage: "arrow.uturn.backward") { key("back") }.disabled(!canDrive)
+                Button("Back", ace: .arrowUUpLeft) { key("back") }.disabled(!canDrive)
             }
             if let buttons = info?.buttons, !buttons.isEmpty {
                 Menu {
                     ForEach(buttons) { button in Button(button.label) { key(button.key) } }
-                } label: { Label("Side buttons", systemImage: "button.vertical.right.press") }
+                } label: { Label("Side buttons", ace: .handTap) }
                 .disabled(!canDrive)
             }
             Spacer()
-            Button("Type", systemImage: "keyboard") {
+            Button("Type", ace: .keyboard) {
                 typing.toggle()
                 fieldFocused = typing
             }

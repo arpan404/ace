@@ -15,4 +15,9 @@ import Testing
         #expect(ActivityTime.elapsed(since: now.addingTimeInterval(-3 * 3600 - 59 * 60), now: now, locale: english) == "3h")
         #expect(ActivityTime.elapsed(since: now.addingTimeInterval(-2 * 86_400 - 3600), now: now, locale: english) == "2d")
     }
+    @Test func aRowAtRestReadsNowThenItsAgeThenItsDateAfterAWeek() {
+        #expect(ActivityTime.age(since: now.addingTimeInterval(-20), now: now, locale: english) == "now")
+        #expect(ActivityTime.age(since: now.addingTimeInterval(-9 * 60), now: now, locale: english) == "9m")
+        #expect(ActivityTime.age(since: now.addingTimeInterval(-8 * 86_400), now: now, locale: english) == "Jan 4")
+    }
 }

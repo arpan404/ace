@@ -13,6 +13,8 @@ import { ThreadId, type CommandPayload } from "@ace/protocol";
 import { z } from "zod";
 import { host } from "./host.ts";
 import { preview, threadRow } from "./presentation.ts";
+import { inboxLook } from "./inbox-look.ts";
+import { followAccounts, rowAccount } from "./inbox-accounts.ts";
 import { dispatchCommand } from "./commands.ts";
 import type { PatchSink } from "./agents.ts";
 
@@ -77,6 +79,8 @@ export function followInbox(
   const sends = owner.pendingSends();
   const connection = owner.connectionState();
   const online = () => connection.getSnapshot() === "ready";
+  // Results that finished before this phone started following count as seen.
+  const baseline = clock.now();
   const row = (id: string) =>
     pump.put(`inbox:${id}`, () => {
       const thread = inboxThread(store, machineId, id);
@@ -88,6 +92,8 @@ export function followInbox(
               ...threadRow(thread.entry),
               machineId,
               status: inboxStatus(thread, clock.now()),
+              look: inboxLook(thread, baseline, clock.now()),
+              account: rowAccount(accounts.views(), thread.entry),
               activityAt: thread.entry.activityAt ?? thread.entry.updatedAt,
               archivedAt: thread.entry.archivedAt ?? null,
               confirmed: isConfirmed(store, online()),
@@ -96,6 +102,10 @@ export function followInbox(
           : null,
       };
     });
+  // A fresh account list re-issues every row, so provider marks gain or lose their bubble.
+  const accounts = followAccounts(owner, () => {
+    for (const id of store.ids) row(id);
+  });
   // A snooze runs out on this phone's clock even while its machine is offline (and so can't
   // wake it): at the soonest end, the rows it ends say so and the sections regroup.
   let wake: { at: number; cancel: () => void } | undefined;
@@ -180,6 +190,7 @@ export function followInbox(
     sections();
   };
   const stops = [
+    accounts.stop,
     store.observe(change),
     owner.observePendingSends((id) => {
       pending(id);

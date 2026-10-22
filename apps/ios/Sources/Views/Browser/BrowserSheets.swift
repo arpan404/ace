@@ -36,7 +36,7 @@ struct SheetClose: ToolbarContent {
     @Environment(\.dismiss) private var dismiss
     var body: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
-            Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("Close")
+            Button { dismiss() } label: { AceIcon(.x) }.accessibilityLabel("Close")
         }
     }
 }
@@ -73,7 +73,7 @@ struct BrowserTabsSheet: View {
             .scrollContentBackground(.hidden)
             .background(AceTheme.Colours.background)
             .overlay {
-                if state?.tabs.isEmpty ?? true { ContentUnavailableView("No tabs open", systemImage: "square.on.square") }
+                if state?.tabs.isEmpty ?? true { EmptyState(icon: .browsers, title: "No tabs open") }
             }
             .navigationTitle(tabCount)
             .navigationBarTitleDisplayMode(.inline)
@@ -81,7 +81,7 @@ struct BrowserTabsSheet: View {
                 SheetClose()
                 if model.canOperate {
                     ToolbarItem(placement: .primaryAction) {
-                        Button("New tab", systemImage: "plus") {
+                        Button("New tab", ace: .plus) {
                             model.browserNewTab()
                             dismiss()
                         }
@@ -100,8 +100,7 @@ struct BrowserTabsSheet: View {
     }
     private func row(_ tab: BrowserViewInfo.Tab) -> some View {
         HStack(spacing: AceTheme.Spacing.md) {
-            Image(systemName: tab.agent != nil ? "cursorarrow" : tab.private == true ? "hand.raised" : "globe")
-                .font(.system(size: 17))
+            AceIcon(tab.agent != nil ? .cursor : tab.private == true ? .hand : .globe, size: 17, relativeTo: .subheadline)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
@@ -113,7 +112,8 @@ struct BrowserTabsSheet: View {
             Spacer(minLength: AceTheme.Spacing.sm)
             if tab.loading == true { ProgressView().controlSize(.small) }
             if tab.id == state?.activeTabId {
-                Image(systemName: "checkmark").foregroundStyle(AceTheme.Colours.foreground).accessibilityLabel("Shown")
+                AceIcon(.check).foregroundStyle(AceTheme.Colours.foreground)
+                    .accessibilityElement(children: .ignore).accessibilityLabel("Shown")
             }
         }
         .frame(minHeight: InsetStyle.rowHeight)
@@ -135,7 +135,7 @@ struct BrowserDownloadsSheet: View {
         NavigationStack {
             List(downloads) { download in
                 HStack(spacing: AceTheme.Spacing.md) {
-                    Image(systemName: "doc").font(.system(size: 19)).foregroundStyle(AceTheme.Colours.mutedForeground).frame(width: 24)
+                    AceIcon(.file, size: 19).foregroundStyle(AceTheme.Colours.mutedForeground).frame(width: 24)
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                         Text(download.filename).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).lineLimit(1)
                         Text(detail(download)).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
@@ -149,7 +149,7 @@ struct BrowserDownloadsSheet: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(AceTheme.Colours.background)
-            .overlay { if downloads.isEmpty { ContentUnavailableView("Nothing downloaded yet", systemImage: "arrow.down.circle") } }
+            .overlay { if downloads.isEmpty { EmptyState(icon: .arrowCircleDown, title: "Nothing downloaded yet") } }
             .navigationTitle("Downloads").navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetClose() }
         }
@@ -198,7 +198,7 @@ struct BrowserHistorySheet: View {
             .searchable(text: $query, prompt: "Search history")
             .overlay {
                 if found.isEmpty {
-                    ContentUnavailableView(model.browser.visitCount == 0 ? "No history yet" : "No matches", systemImage: "clock.arrow.circlepath")
+                    EmptyState(icon: .clockCounterClockwise, title: model.browser.visitCount == 0 ? "No history yet" : "No matches")
                 }
             }
             .navigationTitle("History").navigationBarTitleDisplayMode(.inline)
