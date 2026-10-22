@@ -200,6 +200,42 @@ import Testing
         #expect(relaunched.lastSeen("studio") == 4_000)
     }
 
+    @Test func aRelaunchConnectsTheMachinesItKnewBeforeTheDirectoryAnswers() async throws {
+        let first = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
+        defer { first.cleanUp() }
+        await first.model.load()
+        // The next launch: the directory's own runtime has not answered yet.
+        let relaunch = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")], defaults: first.defaults)
+        relaunch.access.holdList()
+        let loading = Task { await relaunch.model.load() }
+        for _ in 0..<50 where relaunch.sessions.started.count < 2 { await Task.yield() }
+        #expect(relaunch.model.loaded)
+        #expect(relaunch.sessions.started.map(\.target.hostId) == ["studio", "laptop"])
+        relaunch.access.releaseList()
+        await loading.value
+        // The directory agreed: nothing restarts.
+        #expect(relaunch.sessions.started.count == 2)
+        #expect(relaunch.sessions.started.allSatisfy { !$0.stopped })
+    }
+
+    @Test func aMachineTheDirectoryNoLongerListsStopsAfterARelaunchAndANewOneConnects() async throws {
+        let first = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
+        defer { first.cleanUp() }
+        await first.model.load()
+        let relaunch = try Fixture(machines: [machine("studio", device: "phone-1"), machine("desk", device: "phone-3")], defaults: first.defaults)
+        var removed: [String] = []
+        relaunch.model.afterRemove = { _, host in removed.append(host) }
+        let loading = Task { await relaunch.model.load() }
+        for _ in 0..<50 where relaunch.sessions.started.count < 2 { await Task.yield() }
+        let laptop = try #require(relaunch.sessions.started.first { $0.target.hostId == "laptop" })
+        for _ in 0..<50 where !laptop.stopped { await Task.yield() }
+        laptop.finishShutdown()
+        await loading.value
+        #expect(removed == ["laptop"])
+        #expect(relaunch.model.inbox.sessions.map(\.hostId) == ["studio", "desk"])
+        #expect(relaunch.model.machines.map(\.hostId) == ["studio", "desk"])
+    }
+
     private func machine(_ host: String, device: String) -> MachineEntry {
         MachineEntry(hostId: host, displayName: host.capitalized, icon: nil,
                      target: .init(kind: "direct", url: "wss://100.64.0.7:4243/", fingerprint: DaemonCertificate.pin), deviceId: device)
@@ -218,12 +254,14 @@ import Testing
     let access: FakeAccess
     let storage: URL
     let defaults: UserDefaults
-    let suite = "ace.tests.\(UUID().uuidString)"
+    let suite: String
     let model: MachinesModel
-    init(machines: [MachineEntry]) throws {
+    /// `defaults` from an earlier fixture plays the same phone relaunched.
+    init(machines: [MachineEntry], defaults shared: UserDefaults? = nil) throws {
         access = FakeAccess(machines)
         storage = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defaults = try #require(UserDefaults(suiteName: suite))
+        suite = "ace.tests.\(UUID().uuidString)"
+        defaults = try shared ?? #require(UserDefaults(suiteName: suite))
         let sessions = self.sessions
         model = MachinesModel(access: access, storage: storage, defaults: defaults, now: { 5_000 },
                               makeClient: { ClientModel(now: { 0 }, makeRuntime: sessions.make) })
@@ -242,9 +280,14 @@ private final class FakeAccess: MachineAccess, @unchecked Sendable {
     var removal: Result<Void, ProblemNotice> = .success(())
     private(set) var removed: [String] = []
     private(set) var renamed: [String] = []
+    private let listGate = Gate()
     init(_ machines: [MachineEntry]) { self.machines = machines }
+    /// The directory's runtime answers only once released.
+    func holdList() { listGate.close() }
+    func releaseList() { listGate.open() }
     func perform(_ request: AccessRequest) async -> Result<AccessOutcome, ProblemNotice> {
-        lock.withLock {
+        if case .list = request { await listGate.wait() }
+        return lock.withLock {
             switch request {
             case .list: return .success(AccessOutcome(ok: true, machines: machines, paired: nil, problem: nil))
             case .remove(let host):
@@ -264,6 +307,23 @@ private final class FakeAccess: MachineAccess, @unchecked Sendable {
                     return .success(AccessOutcome(ok: true, machines: machines, paired: .init(hostId: entry.hostId, scopes: scopes), problem: nil))
                 }
             }
+        }
+    }
+}
+
+private final class Gate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var closed = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    func close() { lock.withLock { closed = true } }
+    func open() {
+        let resumed = lock.withLock { closed = false; let all = waiters; waiters = []; return all }
+        for waiter in resumed { waiter.resume() }
+    }
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let ready = lock.withLock { if closed { waiters.append(continuation); return false }; return true }
+            if ready { continuation.resume() }
         }
     }
 }
