@@ -39,6 +39,13 @@ async function canonicalInstance(input: ProviderInstance): Promise<ProviderInsta
   return ProviderInstance.parse({ ...parsed, homeDir, env });
 }
 
+/**
+ * ACP accounts on the agent's default home all share the person's own; managed ones, like native
+ * accounts, each need a home of their own.
+ */
+const sharedDefault = (account: ProviderInstance) =>
+  account.provider === "acp" && account.homeStrategy !== "managed";
+
 /** ACP agents each keep their own default account. */
 const acpSelectionKey = (acpAgentId: string) => `provider:acp:${acpAgentId}`;
 
@@ -287,10 +294,6 @@ export class AccountRegistry {
             throw new Error("An instance identity cannot change homes or agents");
           continue;
         }
-        // ACP accounts on the agent's default home all share the person's own; managed ones,
-        // like native accounts, each need a home of their own.
-        const sharedDefault = (account: ProviderInstance) =>
-          account.provider === "acp" && account.homeStrategy !== "managed";
         if (
           other.instance.implicit ||
           instance.implicit ||

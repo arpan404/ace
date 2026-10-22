@@ -1,5 +1,6 @@
 import type { FakeAuthTerminal } from "../auth-terminal-output.ts";
 import { fakeProviderAccounts } from "./provider-accounts.ts";
+import { addedAccountIdentity, ofManagedProvider } from "./managed-accounts.ts";
 import { fakeApiKeySupport } from "../provider-auth-support.ts";
 import { FakeProviderInstalls, fakeLatestVersions } from "../provider-install.ts";
 import { onboardingChecklist } from "@ace/core";
@@ -531,9 +532,10 @@ export class FakeServices {
           ? this.accounts.find((entry) => entry.id === request.instanceId)
           : undefined;
       if (request.type === "accounts.add") {
+        const id = `account-fake-${++this.accountCounter}`;
         account = {
-          id: `account-fake-${++this.accountCounter}`,
-          provider: request.provider,
+          id,
+          ...addedAccountIdentity(request.provider, id),
           label: request.label,
           shortLabel: request.shortLabel,
           implicit: false,
@@ -559,9 +561,10 @@ export class FakeServices {
           this.host.broadcast?.({ type: "usage.limits_changed", account });
         }
         if (request.type === "accounts.setDefault") {
-          if (account.provider !== request.provider) return fail();
+          const provider = request.provider;
+          if (!ofManagedProvider(account, provider)) return fail();
           for (const entry of this.accounts)
-            if (entry.provider === request.provider) entry.isDefault = entry.id === account.id;
+            if (ofManagedProvider(entry, provider)) entry.isDefault = entry.id === account.id;
         }
         if (request.type === "accounts.remove") {
           this.accounts = this.accounts.filter((entry) => entry !== account);

@@ -4,7 +4,7 @@ import type { ProviderKind } from "@ace/protocol";
 import type { AccountQuota, AccountSummary } from "@ace/protocol/accounts";
 import type { z } from "zod";
 import type { ReadinessTone } from "./provider-readiness.ts";
-import { providerDisplayName } from "./providers.ts";
+import { antigravityIdentity, providerDisplayName } from "./providers.ts";
 
 type Summary = z.infer<typeof AccountSummary>;
 
@@ -25,6 +25,10 @@ export interface AccountView {
   provider: ProviderKind;
   /** The ACP registry agent behind an `acp` account. */
   acpAgentId?: string | undefined;
+  /** The agent installation behind an `acp` account. */
+  installationId?: string | undefined;
+  /** An `acp` account on the agent CLI's own login, or one ace added in its own home. */
+  acpHome?: "default_cli" | "managed" | undefined;
   /** "Claude Code"; for an ACP agent, its registry name or id. */
   providerLabel: string;
   /** CLI version discovery reported, if any. */
@@ -159,6 +163,8 @@ export function accountView(summary: Summary): AccountView {
     id: summary.id,
     provider: summary.provider,
     acpAgentId: summary.acpAgentId,
+    ...(summary.installationId ? { installationId: summary.installationId } : {}),
+    ...(summary.homeStrategy ? { acpHome: summary.homeStrategy } : {}),
     providerLabel: providerDisplayName(summary.provider, summary.acpAgentId),
     version: summary.installationVersion,
     label: accountDisplayName(summary),
@@ -231,11 +237,39 @@ export function isPlainCliLogin(account: {
   /** The short label is only the name's initial, not one the person chose. */
   badgeUsesInitial?: boolean | undefined;
   badgeIcon?: unknown;
+  /** Antigravity's CLI login, ace's built-in Antigravity, keeps its name until renamed. */
+  acpAgentId?: string | undefined;
+  acpHome?: "default_cli" | "managed" | undefined;
+  providerLabel?: string | undefined;
 }): boolean {
-  return (
-    account.implicit === true &&
-    cliLoginLabels.has(account.label) &&
-    (!account.shortLabel || account.badgeUsesInitial === true) &&
-    !account.badgeIcon
+  const named =
+    account.implicit === true
+      ? cliLoginLabels.has(account.label)
+      : account.acpAgentId === antigravityIdentity.acpAgentId &&
+        account.acpHome === "default_cli" &&
+        account.label === account.providerLabel;
+  return named && (!account.shortLabel || account.badgeUsesInitial === true) && !account.badgeIcon;
+}
+
+/**
+ * The accounts a provider's page and the model picker list. ace runs Antigravity through its ACP
+ * agent, so Antigravity's are the ACP accounts of its own installation: its CLI login and the
+ * accounts added to it, never another installation of the same agent.
+ */
+export function providerAccountViews(
+  accounts: readonly AccountView[],
+  provider: ProviderKind,
+  acpAgentId?: string,
+): AccountView[] {
+  return accounts.filter((account) =>
+    provider === "antigravity"
+      ? account.provider === "acp" &&
+        account.acpAgentId === antigravityIdentity.acpAgentId &&
+        account.installationId === antigravityIdentity.installationId
+      : account.provider === provider && (provider !== "acp" || account.acpAgentId === acpAgentId),
   );
 }
+
+/** An account ace added for an agent, in its own home: it can be removed, unlike the CLI login. */
+export const isAddedAgentAccount = (account: Pick<AccountView, "provider" | "acpHome">) =>
+  account.provider === "acp" && account.acpHome === "managed";

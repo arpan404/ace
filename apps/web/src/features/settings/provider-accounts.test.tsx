@@ -326,7 +326,8 @@ test("an ACP agent's one account can sign in again, sign out and be renamed, but
   expect(await screen.findByRole("dialog", { name: "Sign in to Gemini CLI" })).toBeTruthy();
 }, 30_000);
 
-test("Antigravity's page lists its sign-in, which ace keeps as its agent's account", async () => {
+/** Antigravity installed and signed in, with its CLI login as the daemon keeps it. */
+async function antigravityPage() {
   const app = harness();
   const services = app.daemon.services;
   services.installed.add("antigravity");
@@ -341,18 +342,73 @@ test("Antigravity's page lists its sign-in, which ace keeps as its agent's accou
     acpAgentId: "official:antigravity-acp",
     installationId: "antigravity-cli",
     instanceId: "antigravity-cli-default",
+    homeStrategy: "default_cli",
     label: "Antigravity",
+    isDefault: true,
   });
   await app.open("/settings/providers");
   await userEvent.click(
     await screen.findByRole("link", { name: "Antigravity" }, { timeout: 10_000 }),
   );
   const list = await screen.findByRole("list", { name: "Antigravity accounts" });
-  const row = (await within(list).findByText("Antigravity")).closest("li");
-  if (!row) throw new Error("No Antigravity row");
+  const row = async (name: string) => {
+    const found = (await within(list).findByText(name)).closest("li");
+    if (!found) throw new Error(`No ${name} row`);
+    return found;
+  };
+  const listed = async () =>
+    (await app.client.request({ type: "accounts.list" })).accounts.filter(
+      (entry) => entry.acpAgentId === "official:antigravity-acp",
+    );
+  return { app, list, row, listed };
+}
+
+test("Antigravity's page lists its sign-in, which ace keeps as its agent's account", async () => {
+  const { list, row } = await antigravityPage();
   // Only Antigravity's own sign-in: the Gemini CLI agent's account belongs to its own page.
   expect(within(list).queryByText("Google")).toBeNull();
-  await userEvent.click(within(row).getByRole("button", { name: "Manage Antigravity" }));
+  const cli = await row("Antigravity");
+  await userEvent.click(within(cli).getByRole("button", { name: "Manage Antigravity" }));
+  // Its CLI login can't be removed, only signed in and out.
+  expect(screen.queryByRole("menuitem", { name: "Remove" })).toBeNull();
   await userEvent.click(await screen.findByRole("menuitem", { name: "Sign in again" }));
   expect(await screen.findByRole("dialog", { name: "Sign in to Antigravity" })).toBeTruthy();
+}, 30_000);
+
+test("an Antigravity account added in Settings signs in on its own, beside the CLI login, and can become the default or be removed", async () => {
+  const { app, list, row, listed } = await antigravityPage();
+  await userEvent.click(within(list).getByRole("button", { name: "Add account" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Add an Antigravity account" }));
+  await userEvent.type(dialog.getByRole("textbox", { name: "Account name" }), "Work");
+  await userEvent.click(dialog.getByRole("button", { name: "Add and sign in" }));
+  await dialog.findByText("Waiting for you to finish signing in…", {}, { timeout: 10_000 });
+  // Nothing is added until its own sign-in finishes.
+  expect((await listed()).map((entry) => entry.label)).not.toContain("Work");
+  app.daemon.services.providerLogin.complete("fake-login-1");
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Add an Antigravity account" })).toBeNull(),
+  );
+  const work = await row("Work");
+  expect(await row("Antigravity")).toBeTruthy();
+  expect((await listed()).find((entry) => entry.label === "Work")).toMatchObject({
+    provider: "acp",
+    homeStrategy: "managed",
+    installationId: "antigravity-cli",
+  });
+  expect(screen.queryByText(/keeps one sign-in/)).toBeNull();
+
+  await userEvent.click(within(work).getByRole("button", { name: "Manage Work" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Make default" }));
+  await waitFor(async () =>
+    expect((await listed()).filter((entry) => entry.isDefault).map((entry) => entry.label)).toEqual(
+      ["Work"],
+    ),
+  );
+
+  await userEvent.click(within(await row("Work")).getByRole("button", { name: "Manage Work" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
+  const confirm = within(await screen.findByRole("dialog", { name: "Remove Work?" }));
+  await userEvent.click(confirm.getByRole("button", { name: "Remove" }));
+  await waitFor(() => expect(within(list).queryByText("Work")).toBeNull());
+  expect((await listed()).map((entry) => entry.label)).toEqual(["Antigravity"]);
 }, 30_000);

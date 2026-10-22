@@ -1,5 +1,11 @@
 import type { AccountView, PickerModel, PickerProvider } from "@ace/ui-core";
-import { accountLimit, isPlainCliLogin, providerDisplayName, providerNames } from "@ace/ui-core";
+import {
+  accountLimit,
+  isPlainCliLogin,
+  providerAccountViews,
+  providerDisplayName,
+  providerNames,
+} from "@ace/ui-core";
 import type { ProviderKind } from "@ace/protocol";
 
 export interface PickerEntry {
@@ -31,9 +37,12 @@ export function pickerEntries(
   return [
     { id: "favorites", name: "Favorites" },
     ...providers.flatMap((entry): PickerEntry[] => {
-      const own = accounts
-        .filter((account) => account.provider === entry.provider)
-        .toSorted((a, b) => Number(!!b.isDefault) - Number(!!a.isDefault));
+      // Antigravity's accounts are ACP accounts of its own installation (`providerAccountViews`).
+      const own = (
+        entry.provider === "antigravity"
+          ? providerAccountViews(accounts, "antigravity")
+          : accounts.filter((account) => account.provider === entry.provider)
+      ).toSorted((a, b) => Number(!!b.isDefault) - Number(!!a.isDefault));
       const listed = new Set(
         models
           .filter((model) => model.provider === entry.provider)

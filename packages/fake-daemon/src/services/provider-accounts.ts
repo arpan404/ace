@@ -9,6 +9,7 @@ import type { AccountSummary } from "@ace/protocol/accounts";
 import type { FakeProviderLogin } from "../provider-login.ts";
 
 import { fakeApiKeySupport } from "../provider-auth-support.ts";
+import { addedAccountIdentity, ofManagedProvider } from "./managed-accounts.ts";
 export function fakeProviderAccounts(
   message: ClientMessage,
   options: {
@@ -44,7 +45,7 @@ export function fakeProviderAccounts(
     instanceId = options.id();
     accounts.push({
       id: instanceId,
-      provider: request.provider,
+      ...addedAccountIdentity(request.provider, instanceId),
       label: request.label ?? "New account",
       shortLabel: request.shortLabel,
       implicit: false,
@@ -61,7 +62,7 @@ export function fakeProviderAccounts(
     });
   }
   const account = accounts.find(
-    (row) => row.id === instanceId && row.provider === request.provider,
+    (row) => row.id === instanceId && ofManagedProvider(row, request.provider),
   );
   if (request.type !== "provider.accounts.list" && !account) {
     fail("not_found");
@@ -111,7 +112,7 @@ export function fakeProviderAccounts(
   }
   if (request.type === "provider.accounts.setDefault" && account)
     for (const row of accounts)
-      if (row.provider === request.provider) row.isDefault = row === account;
+      if (ofManagedProvider(row, request.provider)) row.isDefault = row === account;
   if (request.type === "provider.accounts.remove" && account) {
     if (options.login.scenarios[request.provider] === "failure") {
       fail("failed");
@@ -128,9 +129,14 @@ export function fakeProviderAccounts(
     }
     options.replace(accounts.filter((row) => row !== account));
     if (account.isDefault) {
+      // The CLI's own login takes over: implicit, or an agent's default home.
       const fallback = options
         .accounts()
-        .find((row) => row.provider === request.provider && row.implicit);
+        .find(
+          (row) =>
+            ofManagedProvider(row, request.provider) &&
+            (row.implicit || row.homeStrategy === "default_cli"),
+        );
       if (fallback) fallback.isDefault = true;
     }
   }
@@ -143,7 +149,7 @@ export function fakeProviderAccounts(
   function rows() {
     return options
       .accounts()
-      .filter((row) => row.provider === request.provider)
+      .filter((row) => ofManagedProvider(row, request.provider))
       .map((row) =>
         ProviderAccountSummary.parse({
           ...row,
