@@ -102,7 +102,7 @@ struct ChangedFilesRow: View {
                     .aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
                     .padding(.horizontal, AceTheme.Spacing.sm)
                     .frame(minHeight: AceTheme.Spacing.xxl + AceTheme.Spacing.xs)
-                    .background(AceTheme.Colours.fill, in: Capsule(style: .continuous))
+                    .background(AceTheme.Colours.fill, in: AceShape.capsule)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
