@@ -69,12 +69,17 @@ export function PrReviewButton() {
   };
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger render={<Button variant="secondary" />}>
+      <PopoverTrigger
+        render={<Button variant="secondary" />}
+        aria-label={drafts.length ? `Review · ${drafts.length} pending` : undefined}
+      >
         Review
         {drafts.length > 0 && " "}
         {drafts.length > 0 && (
           <span className="font-normal text-muted-foreground tabular-nums">
-            {`· ${drafts.length} pending`}
+            {/* A narrow page keeps the count and drops the word; the label still says it. */}
+            {`· ${drafts.length}`}
+            <span className="@max-[30rem]/pr:hidden"> pending</span>
           </span>
         )}
       </PopoverTrigger>
