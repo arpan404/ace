@@ -32,6 +32,7 @@ struct ForgeIssuePageView: View {
                     Text("Start thread").fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
                 .tint(AceTheme.Colours.foreground)
                 .foregroundStyle(AceTheme.Colours.background)
                 .padding(.horizontal, AceTheme.Spacing.lg)

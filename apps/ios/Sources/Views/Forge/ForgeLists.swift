@@ -143,7 +143,7 @@ private struct ForgeSkeleton: View {
         .accessibilityLabel("Loading")
     }
     private func pill(width: CGFloat, height: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: AceTheme.Radii.xs, style: .continuous).fill(AceTheme.Colours.fill).frame(width: width, height: height)
+        Capsule(style: .continuous).fill(AceTheme.Colours.fill).frame(width: width, height: height)
     }
 }
 
