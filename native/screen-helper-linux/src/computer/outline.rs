@@ -25,6 +25,26 @@ pub struct States {
     pub selectable: bool,
 }
 
+/// How strongly a focused element claims the keyboard focus.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FocusClaim {
+    /// It takes typed text.
+    pub text_input: bool,
+    /// It has an outline line (not a folded wrapper).
+    pub line: bool,
+    pub depth: usize,
+}
+
+/// Whether `new` is the element with the focus rather than `current`, both reported focused.
+/// Qt reports every widget whose focus proxy has the focus as focused too (KTextEditor's
+/// status-bar buttons proxy the editor), so several elements claim it: a text input beats
+/// anything else, a line beats a folded wrapper, an element inside the other wins, and
+/// otherwise the first in document order stays.
+pub fn focus_outranks(new: FocusClaim, current: FocusClaim) -> bool {
+    let rank = |claim: FocusClaim| (claim.text_input, claim.line);
+    rank(new) > rank(current) || rank(new) == rank(current) && new.depth > current.depth
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Rect {
     pub x: f64,
