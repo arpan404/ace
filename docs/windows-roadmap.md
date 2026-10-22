@@ -1,0 +1,138 @@
+# Windows desktop roadmap
+
+Owner: Luseefor. Started 2026-10-22. Target: the complete local Windows app,
+with the same user workflows as macOS. Source implementation and native runtime
+verification are tracked separately. This document is the delivery checklist;
+an unchecked item is unfinished even when adjacent work has landed.
+
+## Delivery order
+
+Build complete functional workflows first, using the shared web renderer and
+existing design system throughout. Fix UI problems that block a workflow in
+the same slice. After the functional gate passes, run a dedicated macOS/Windows
+visual and interaction comparison. This avoids maintaining a second Windows UI
+while the runtime is still changing.
+
+Ship Windows x64 and ARM64. The available Mac is Apple Silicon with VMware
+Fusion 25.0.1, so local live testing uses Windows 11 ARM64. x64 needs its own
+native CI build and process tests; ARM64 emulation is not x64 native evidence.
+
+## Review and commit loop
+
+1. Assign one bounded behavior and explicit owned paths to a Muse Spark 1.3
+   Contributor worker at xhigh, in the implementation worktree.
+2. Inspect its diff. Two independent reviewers check correctness/security and
+   integration/regressions against the public behavior and repo rules.
+3. Resolve findings, run the applicable checks, then commit that behavior alone.
+   Review fixes can be their own small commits. Commit messages describe the
+   changed behavior in plain language, following the existing Arpan history.
+4. Verify effective author and committer are
+   `Luseefor <sapanakosansar18@gmail.com>` before every commit. Keep assistant
+   credits out of commits and PR text.
+5. Record the commit and verification evidence here. Keep native verification
+   pending until the matching Windows execution actually passes.
+
+Workers write behavior tests and run static checks during development, following
+the repository's documented policy. The owner explicitly requested live Windows
+tests in VMware. The full repository `bun run check` remains the merge gate.
+No recorder runs are included in this work.
+
+## Foundation and build
+
+- [ ] W00: reclaim rebuildable caches, download and verify an official Windows
+      11 ARM64 ISO, create an isolated Fusion VM, install guest tooling and
+      establish a repeatable command and screenshot path. Preserve personal data.
+- [ ] W01: document the Windows filesystem design against primary Win32 sources.
+- [ ] W02: select Windows shells without inheriting a POSIX `SHELL`.
+- [ ] W03: read Windows kernel process creation identity and distinguish absence
+      from permission failure. Preserve PID-reuse safety.
+- [ ] W04: add the Windows descriptor build and native read/metadata operations,
+      preserving root confinement against junctions, links, path aliases and races.
+- [ ] W05: add directory enumeration, mutations, permissions, flush and error
+      semantics. Update consumers only where Windows requires a different contract.
+- [ ] W06: clean `bun install` succeeds on both Windows architectures without
+      skipping descriptor.node, node-pty/ConPTY, koffi or SQLite. Document the
+      native build prerequisites. The parent owns interim Windows checks until CI
+      takes over in W08.
+- [ ] W07: stage pinned Windows Node, complete node-pty/ConPTY assets and runtime
+      package closure; keep archive/update schema changes separate from desktop
+      runtime staging. Build NSIS installers on matching native runners.
+- [ ] W08: add bounded Windows CI checks, native tests and installer smoke checks.
+
+Dependencies: W04/W05 follow W01; W06 follows W04/W05; W07 follows W06 and
+the terminal backend. CI can begin with an explicit foundational scope, expanding
+as those dependencies land. A partial CI job is not the Windows release gate.
+
+## Local execution and recovery
+
+- [ ] W09: ConPTY backend behind the existing terminal interface, with input,
+      resize, Unicode output, scrollback and completion semantics.
+- [ ] W10: terminal process ownership, graceful stop, forced stop, close retry,
+      detached descendants and daemon-death cleanup. Exercise actual Windows
+      process trees, including PowerShell, cmd and npm wrappers.
+- [ ] W11: safe Windows process inventory recovery and Job Object assignment;
+      preserve permissions and PID identity, handle denied joins and crash races.
+      Cover `provider-kit/src/process-inventory.ts` alive/kill and
+      `daemon/src/builtin-skill-processes.ts` groupGone/owner checks explicitly.
+- [ ] W12: daemon startup/adoption, token/home paths, locks, logs, SQLite workers,
+      child runtime, readiness and shutdown work locally. Enable Windows managed
+      targets only after the dependencies pass.
+- [ ] W13: per-user background startup/service lifecycle, installed `ace.cmd`,
+      PATH discovery and restart/reconnect. No administrator-only app requirement.
+
+Dependencies: W09 follows W02; W11 follows W03; W12 follows W05, W07, W10,
+W11. W13 follows W12.
+
+## Complete feature workflows
+
+Each row needs Windows evidence for creation, normal operation, cancellation,
+restart/reconnect and errors where applicable.
+
+| Workflow                        | Acceptance gate                                                                                                                                                                                                                  |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Providers and accounts          | Installed CLI discovery, login, model/effort selection, account isolation, streaming, approvals, stop and recovery for every supported Windows provider. Resolve Cursor SDK support explicitly rather than silently enabling it. |
+| Threads and delegation          | New thread, worktree, queue, steer, questions, subagents, background tasks, whole-tree status, history/replay, archive and search.                                                                                               |
+| Projects, files and attachments | Drive paths, Unicode, long paths, case aliases, reserved names, UNC policy, listing, search, edit, upload/download, safe replace, trash and Git-ignore behavior.                                                                 |
+| Git and forge                   | Worktrees, status, diffs, checkpoints, restore, commit, push, PR flows, conflicts, cancellation and orphan cleanup using the person's installed Git/gh.                                                                          |
+| Terminal                        | cmd and PowerShell with streamed I/O, resize, reconnect, retained output and safe tree shutdown.                                                                                                                                 |
+| Browser                         | Embedded and installed browser integration, navigation, tabs, auth dialogs, uploads/downloads, screenshots, input, video, crash recovery and extension/native-host installation.                                                 |
+| Computer use                    | Signed Rust helper, capture, UI Automation, input, approval/takeover, DPI/multiple displays, secure desktop refusal, recordings and helper crash recovery.                                                                       |
+| Automation and Offshift         | Durable scheduling, sleep/restart recovery, delegated work, cancellation, evidence and notification behavior.                                                                                                                    |
+| Remote and Fleet                | Pair/revoke, Tailscale/LAN policy, pinned connections, reconnect, cross-machine delegation and phone/web clients attached to the Windows daemon.                                                                                 |
+| Desktop integration             | Notifications/actions, tray, background mode, login, deep links, Explorer folder entry, clipboard, drag/drop, editor launch, diagnostics and support export.                                                                     |
+| Devices                         | Supported Windows Android/device tools work; macOS-only iOS simulator/Xcode actions remain available through a paired Mac with explicit capability reporting.                                                                    |
+| Plugins and visualizations      | Install/discovery, skills, MCP, scoped tools, sandboxed visualizations and artifact persistence.                                                                                                                                 |
+| Distribution                    | Clean install, repair/uninstall, data preservation, Authenticode, update download/drain/install, rollback/error reporting and both architectures.                                                                                |
+
+- [ ] W14: feature-by-feature audit turns every remaining platform assumption
+      into a bounded fix with a named test or manual acceptance step.
+- [ ] W15: all applicable workflow gates above pass in a clean Windows VM and
+      matching x64 CI, with macOS/Linux regression checks passing.
+
+## UI parity and release
+
+- [ ] W16: compare macOS and Windows at matched viewport sizes and content in
+      light/dark themes. Check title-bar overlap, drag regions, system caption
+      buttons, menus, shortcuts, file dialogs, terminal fonts, accessibility,
+      100/125/150/200 percent scaling and multiple displays.
+- [ ] W17: verify the full workflow in the signed installed app, not only the
+      dev renderer. Capture bounded performance evidence for idle CPU/RSS,
+      transcript streaming, history, browser video and computer-use capture.
+- [ ] W18: run the full repository gate, complete the release checklist and
+      publish a ready-for-review PR with accurate native evidence and limitations.
+
+## Evidence ledger
+
+| Slice                 | Implementation commit | Review  | Verification                                                       |
+| --------------------- | --------------------- | ------- | ------------------------------------------------------------------ |
+| Roadmap               | Pending               | Pending | Plan only                                                          |
+| W01 filesystem design | Pending               | Pending | Primary-source review pending                                      |
+| W02 shell selection   | Worker diff ready     | Pending | Worker reports static checks; parent verification pending          |
+| W03 process identity  | Worker diff ready     | Pending | Worker reports static checks; Windows execution pending            |
+| W00 VM                | Not started           | N/A     | Fusion installed; disk space must be reclaimed before provisioning |
+
+Related contracts: [desktop shell](adr/0054-desktop-shell.md),
+[distribution](adr/0041-packaging-and-distribution.md),
+[Windows process launch](adr/0091-windows-process-launch.md),
+[screen helper](adr/0048-windows-screen-helper.md),
+[launch acceptance checklist](verification/windows-launch-checklist.md).
