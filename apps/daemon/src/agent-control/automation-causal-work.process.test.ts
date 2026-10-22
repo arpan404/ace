@@ -144,7 +144,7 @@ test("a stop of leftover work that fails to reach the provider is sent again unt
   }
 });
 
-test("a child the person reopens is theirs, and a native revival keeps its first owner", async () => {
+test("a child the person reopens is theirs, not the turn running in its parent", async () => {
   const f = await setUp();
   try {
     await alphaTurn(f);
@@ -165,18 +165,76 @@ test("a child the person reopens is theirs, and a native revival keeps its first
       .poll(() => f.latest("beta"))
       .toMatchObject({ status: "succeeded", result: "Beta done." });
     expect(f.h.store.getThread(child)?.status.state).toBe("working");
-    await f.h.complete(child, "Looked.");
+  } finally {
+    await f.close();
+  }
+});
+
+test("a run whose background work ends stays open for the turn the provider says is coming, and takes its answer", async () => {
+  const f = await setUp();
+  try {
+    await alphaTurn(f);
+    await f.h.emit(f.caller.threadId, shell("root", "shell"), end);
     await settle(f);
-    // The child carries on by itself during another turn of beta: still alpha's helper, not beta's.
-    await f.run("beta", "beta-2");
-    await expect.poll(() => f.h.inputs.get(f.caller.threadId)).toHaveLength(4);
+    // The shell ends; the provider says the agent wakes to read it in a moment.
+    await f.h.emit(
+      f.caller.threadId,
+      { type: "background.ended", task: "shell", status: "completed" },
+      { type: "wake.expected", agent: "root", until: f.h.clock.now() + 5_000 },
+    );
+    await settle(f);
+    expect((await f.latest("alpha"))?.status).toBe("running");
+    // The follow-up turn starts, answers, and ends: that is the run's answer.
+    await f.h.emit(
+      f.caller.threadId,
+      { type: "turn.started", agent: "root", trigger: "background_completion" },
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: "follow-up",
+        draft: {
+          type: "message",
+          role: "assistant",
+          parts: [{ type: "text", text: "The build passed." }],
+          complete: true,
+        },
+      },
+      end,
+    );
+    await expect
+      .poll(() => f.latest("alpha"))
+      .toMatchObject({ status: "succeeded", result: "The build passed." });
+  } finally {
+    await f.close();
+  }
+});
+
+test("a child that carries on by itself during a later turn stays the run that asked for it", async () => {
+  const f = await setUp();
+  try {
+    await alphaTurn(f);
+    const child = ThreadId.parse(f.h.delegate(f.caller, "helper-child").childId);
+    await settle(f);
+    await f.h.complete(child, "First pass.");
+    // Alpha's root ends while its subagent still works, so alpha stays open.
+    await f.h.emit(f.caller.threadId, ...subagent, end);
+    await settle(f);
+    // A later turn of the thread starts, and only then does alpha's child carry on by itself.
+    await f.h.emit(f.caller.threadId, { type: "turn.started", agent: "root", trigger: "user" });
     await f.h.emit(child, start);
     await settle(f);
     expect(f.h.store.getThread(child)?.status.state).toBe("working");
-    await f.answer(4, "beta-answer-2", "Beta again.");
-    await expect
-      .poll(() => f.latest("beta"))
-      .toMatchObject({ status: "succeeded", result: "Beta again." });
+    // The subagent finishes: alpha is still open, for its revived child.
+    await f.h.emit(f.caller.threadId, {
+      type: "turn.ended",
+      agent: "helper",
+      outcome: "completed",
+    });
+    await settle(f);
+    expect((await f.latest("alpha"))?.status).toBe("running");
+    await f.setEnabled("alpha", false);
+    await expect.poll(() => f.h.service.journal.get(child)?.phase).not.toBe("running");
+    await expect.poll(async () => (await f.latest("alpha"))?.status).toBe("failed");
   } finally {
     await f.close();
   }

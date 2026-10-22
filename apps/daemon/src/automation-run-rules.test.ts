@@ -132,6 +132,17 @@ test("with nothing open, a run's own stop ends its turn, while a person's Stop w
   ).toBe("failed");
 });
 
+test("a turn the provider says is coming for the run's work keeps the run open", () => {
+  expect(
+    runTreeState({
+      root: root(),
+      work: { ...idle, continuing: true },
+      children: none,
+      cancelling: false,
+    }),
+  ).toBe("working");
+});
+
 test("live delegated work nobody can say is the run's holds it open as uncertain", () => {
   expect(
     runTreeState({ root: root(), work: { ...idle, unowned: 1 }, children: none, cancelling: true }),
