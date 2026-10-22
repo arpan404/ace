@@ -33,7 +33,8 @@ loopback port 9841, invokes no provider CLIs and spends no provider quota. It se
 2,000 items, streams 20 deltas per second, opens a shell approval and keeps a child
 working after its root finishes. Restart the fixture before independent screenshot
 or performance runs. Contract sends deliberately add inputs to its history. The
-streaming thread's turn never ends, so a queued follow-up waits in the daemon queue,
+streaming thread's turn never ends (`ACE_IOS_SPIKE_STREAMED=650000` starts it as if it had
+streamed that many deltas, about nine hours, to check that a long-running thread opens at once), so a queued follow-up waits in the daemon queue,
 outside the transcript, as it would on a real daemon; `GET /queue?thread=ID` lists it.
 
 XcodeGen output, generated `Resources/client.js`, build products and xcresult bundles
@@ -70,6 +71,10 @@ simulator screenshots.
 - `bridge/` imports only package public exports. `ClientCore` owns protocol decoding,
   reconnect, snapshot/replay, history admission and the durable outbox. Its pending-send
   states and canonical daemon statuses drive the native UI.
+- The bridge reaches the platform only through the host contract (`@ace/native-host`,
+  [ADR 0096](../../docs/adr/0096-native-host-contract.md)): `HostContract.swift` and
+  `NativeHost.swift` implement it, and bridge tests run on its Node host. Launch with
+  `-ace-host-trace` to log the time each host function and the script take.
 - `Sources/Bridge/` owns a VM and run loop. Swift callbacks return to that thread;
   SwiftUI receives decoded, owned data. A single acknowledged frame carries at most
   32 patches and 32 KiB. A backlog of a full frame, or a fragmented patch, goes frame after
@@ -95,6 +100,10 @@ simulator screenshots.
   (`bridge/thread-history.ts`), one page at a time once native has the one before. Rows keep
   their sort numbers while older pages land above them (`bridge/anchored-positions.ts`).
 - Composer drafts clear after `ClientCore.enqueue()` confirms local persistence.
+  Unsent words are kept per machine and thread in `thread-drafts.json` (`ThreadDrafts`, the
+  web's limits: 50 drafts, 100,000 characters), saved once typing pauses and at once when the
+  composer empties, so leaving a thread or a relaunch gives them back and a sent message never
+  returns. `--spike` launches start without them unless `--spike-keep-state` is passed.
   Failure preserves the input. Approval controls recover through correlated
   admission/receipt results; canonical interaction updates close the card.
 - Large-approval contracts use 300 distinct action IDs over 32 KiB, real SDK
@@ -388,6 +397,11 @@ leave the link; the code goes in the `/v1/pair` POST body.
   and drops archive and snooze for that machine's rows. `ClientModel` submits no commands
   for that machine; the others are unaffected.
   `NWPathMonitor` reports network changes to the SDK, which owns reconnect.
+- Back from the background, every machine's runtime calls the SDK's `wake()`: a ready socket
+  must answer a ping within five seconds or is replaced, and a reconnect waiting out its backoff
+  runs at once. Screens that read through native services (Files, pull requests and issues,
+  Usage, Automations, Prompts, terminal and others) read again each time their machine's
+  connection becomes ready (`readWhenConnected`, counted by `ClientModel.readyCount`).
 
 `bun run e2e:pairing` starts a real daemon with its LAN TLS listener advertised on
 loopback, plus a redirect trap that holds the daemon's own key. It writes

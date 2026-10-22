@@ -85,7 +85,7 @@ private struct PromptEditor: View {
         }
         .insetGroupedList()
         .navigationTitle(file?.title ?? "New prompt").navigationBarTitleDisplayMode(.inline)
-        .task { await read() }
+        .readWhenConnected(model) { await read() }
         .onChange(of: text) { saved = false }
     }
     private var scope: Any {

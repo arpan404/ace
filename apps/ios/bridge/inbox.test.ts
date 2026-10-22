@@ -1,25 +1,25 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-const { pumpFrames, pumpTimers } = vi.hoisted(() => {
-  let next = 0;
+const { pumpFrames, pumpTimers } = await vi.hoisted(async () => {
+  const { createNodeHost } = await import("@ace/native-host/node");
   const frames: Record<string, unknown>[][] = [];
   const timers = new Map<string, () => void>();
+  const host = createNodeHost({
+    now: () => 0,
+    emit: (frame) => {
+      frames.push(JSON.parse(frame) as Record<string, unknown>[]);
+    },
+  });
   Object.assign(globalThis, {
     aceHost: {
-      now: () => 0,
-      uuid: () => `id-${++next}`,
-      previewHead: (text: string, limit: number) => text.slice(0, limit),
-      previewTail: (text: string, limit: number) => text.slice(-limit),
-      emit: (frame: string) => {
-        frames.push(JSON.parse(frame) as Record<string, unknown>[]);
-      },
+      ...host,
+      // The tests run the pump's timers by hand.
       timer: (id: string, _delay: number, callback: () => void) => {
         timers.set(id, callback);
       },
       cancelTimer: (id: string) => {
         timers.delete(id);
       },
-      utf8Base64: (text: string) => Buffer.from(text, "utf8").toString("base64"),
     },
   });
   return { pumpFrames: frames, pumpTimers: timers };

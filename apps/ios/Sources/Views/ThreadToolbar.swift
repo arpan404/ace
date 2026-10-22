@@ -97,8 +97,9 @@ struct ThreadMenu: View {
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .frame(width: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm, height: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
                 .contentShape(Rectangle())
-                .accessibilityLabel("Thread options")
         }
+        // On the menu itself: a label on its icon leaves the button VoiceOver reads unnamed.
+        .accessibilityLabel("Thread options")
         .accessibilityIdentifier("thread.menu")
     }
 }

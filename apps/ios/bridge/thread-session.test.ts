@@ -429,3 +429,34 @@ test("a simulator step opens its device and a computer-use step opens computer u
   const opens = steps.map((row) => (row.step as { opens: string } | null)?.opens);
   expect(opens).toEqual([`device:${simId}`, "computer"]);
 });
+
+test("a thread stays shown when the daemon's snapshot replaces the one kept from the last launch", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "long", workspaceId: "ace", title: "Long", provider: "codex" });
+  fake.apply("long", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Summarise the log."),
+    facts.endTurn("root"),
+  ]);
+  const kept = new Map<string, unknown>();
+  const storage = {
+    get: async (key: string) => kept.get(key),
+    set: async (key: string, value: unknown) => void kept.set(key, value),
+  };
+  // An earlier launch keeps the thread's snapshot.
+  open(connect(fake, { readSnapshots: storage }), "long");
+  await until(() => latest("thread.ready"), "the transcript shown");
+  await until(() => kept.size > 0, "a kept snapshot");
+  await reset();
+  // This launch paints the kept snapshot first; the daemon's snapshot then clears every queued
+  // thread patch, ready included. The transcript must show again rather than load forever.
+  let release = () => {};
+  const network = new Promise<void>((resolve) => (release = resolve));
+  open(connect(fake, { readSnapshots: storage, held: network }), "long");
+  await until(() => latest("thread.ready"), "the kept transcript shown");
+  native.frames.length = 0;
+  release();
+  await until(() => latest("thread.reset"), "the daemon's snapshot");
+  await until(() => latest("thread.ready"), "the transcript shown after the daemon's snapshot");
+}, 20_000);

@@ -30,6 +30,8 @@ export function sameConnectionInfo(a: ConnectionInfo, b: ConnectionInfo): boolea
 
 /** A server frame this build's schemas reject: the daemon is another version. */
 const heartbeatMissed = "Heartbeat missed";
+/** How long a woken app waits for the daemon to answer before it treats the socket as dead. */
+const wakeProbeMs = 5000;
 
 const versionMismatch = () =>
   new ClientError("version_mismatch", "The daemon sent a message this app can't read");
@@ -114,6 +116,16 @@ export class Connection {
   reconnectNow(): void {
     if (!this.#active || !this.#retry) return;
     this.#connect();
+  }
+  /**
+   * The app came back to the foreground. A socket that sat suspended may be dead without having
+   * closed, and a reconnect may be waiting out a long backoff: a ready socket must answer a ping
+   * within a few seconds or is replaced, and a waiting reconnect runs now.
+   */
+  wake(): void {
+    if (!this.#active) return;
+    if (this.state === "ready") this.#heartbeat.probe(wakeProbeMs);
+    else this.reconnectNow();
   }
   info(): ConnectionInfo {
     return {

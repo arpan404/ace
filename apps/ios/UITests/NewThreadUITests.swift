@@ -164,7 +164,7 @@ import XCTest
         XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
         // Done rows stay in the list until they are settled.
         for _ in 0..<10 where !app.buttons["thread.ios-done"].isHittable { app.swipeUp() }
-        XCTAssertTrue(app.buttons["thread.ios-done"].waitForExistence(timeout: 25))
+        app.revealRow("thread.ios-done")
         app.buttons["thread.ios-done"].tap()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 15))
         app.buttons["thread.menu"].tap()

@@ -2,7 +2,8 @@ import { fileCapability } from "./access.ts";
 import { createExclusiveRename, type ExclusiveRename } from "./exclusive-rename.ts";
 import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { SafeRoot, GitIgnore, listWorkspace } from "@ace/workspace";
+import { SafeRoot, GitIgnore } from "@ace/workspace";
+import { breadthFirstPaths } from "./breadth-list.ts";
 import { FileOperation, type WorkspaceFileChange } from "@ace/protocol";
 import { ArtifactRecord, Catalog, TrashRecord, UploadRecord } from "./catalog.ts";
 import { ArchivePreviews } from "./archive-previews.ts";
@@ -175,18 +176,14 @@ export class FilesService {
     const capability = fileCapability(operation);
     this.authorize(device, capability);
     if (operation.op === "list") {
-      const page = await listWorkspace(this.safe, await GitIgnore.create(this.safe), {
-        dir: operation.path,
-        depth: 100,
-        limit: operation.limit,
-      });
+      const listing = await breadthFirstPaths(
+        this.safe,
+        await GitIgnore.create(this.safe),
+        operation.path,
+        operation.limit,
+      );
       guard();
-      return {
-        paths: page.entries
-          .filter((entry) => entry.type === "file" || entry.type === "directory")
-          .map((entry) => entry.path + (entry.type === "directory" ? "/" : "")),
-        truncated: page.truncated,
-      };
+      return listing;
     }
     if (operation.op === "read") return readPart(this.safe, operation);
     if (operation.op === "stat") {

@@ -54,7 +54,7 @@ struct FilesScreen: View {
         .toolbar {
             if actions.canChange { ToolbarItem(placement: .topBarTrailing) { manageMenu } }
         }
-        .task(id: model.files.revision) { await load() }
+        .readWhenConnected(model, id: model.files.revision) { await load() }
         .task(id: query) { await search() }
         .navigationDestination(item: $opened) { target in
             FileScreen(model: model, scope: scope, target: target, mention: mention, deleted: { actions.strip = $0 })

@@ -1,6 +1,8 @@
 import { host, scheduler } from "./host.ts";
 import { degradedPatch } from "./degraded-patch.ts";
+import { base64 } from "./bytes.ts";
 import { keptKey, ledgerText, type NativeLedger } from "./native-ledger.ts";
+import { itemPatch } from "./text-edit.ts";
 
 type Reader = () => Record<string, unknown> | undefined;
 interface Task {
@@ -28,6 +30,11 @@ interface Fragment extends Delivery {
   index: number;
 }
 
+/**
+ * While content waits, status may fill at most this many of a frame's 32 patches. Status still
+ * leads each frame, but a stream of status changes (a busy inbox) can't starve a transcript.
+ */
+const statusShare = 24;
 /** ADR 0074: a frame carries at most 32 patches and 32 KiB. */
 const framePatches = 32;
 
@@ -49,6 +56,8 @@ export class PatchPump {
     new Map(),
   ];
   #fragment: Fragment | undefined;
+  /** The last frame was full, so what remains is backlog rather than a fresh change. */
+  #backlog = false;
   #drained: (() => void)[] = [];
   /** The open thread's ledger and navigation generation, while native keeps that thread. */
   #bound: { ledger: NativeLedger; epoch: number } | undefined;
@@ -143,7 +152,8 @@ export class PatchPump {
       for (const resolve of this.#drained.splice(0)) resolve();
       return;
     }
-    const at = ready >= framePatches ? now : Math.max(now + 8, next);
+    // The rest of a backlog that filled the last frame is coalesced already: it goes at once too.
+    const at = ready >= framePatches || this.#backlog ? now : Math.max(now + 8, next);
     if (this.#timer && this.#timer.at <= at) return;
     this.#timer?.cancel();
     this.#timer = {
@@ -165,17 +175,30 @@ export class PatchPump {
       for (const [key, read] of bound.ledger.close(bound.epoch))
         if (!this.#queue(key).has(key)) this.put(key, read);
     const frame: Record<string, unknown>[] = [];
+    /** Each patch's JSON, made once to measure it and reused for the frame. */
+    const texts: string[] = [];
+    /** Whether this frame filled up, leaving a backlog behind it. */
+    let full = false;
     const delivered: Delivery[] = [];
     let bytes = 2;
     const now = host.now();
-    outer: for (const queue of this.#queues) {
+    const tracing = host.tracing === true;
+    let reading = 0;
+    let serializing = 0;
+    const contentWaits = this.#waiting(2, now);
+    outer: for (const [level, queue] of this.#queues.entries()) {
+      let taken = 0;
       for (const task of queue.values()) {
+        // A quarter of the frame, by count and by bytes, stays for waiting content.
+        if (level === 1 && contentWaits && (taken >= statusShare || bytes >= 24576)) break;
         if (task.parked || task.settled || task.readyAt > now) continue;
         if (this.#blocked(task)) continue;
         // Isolate a rejected row so its next attempt cannot reject unrelated valid updates.
         if (task.failures && frame.length) break outer;
         const read = task.read;
+        const readAt = tracing ? host.now() : 0;
         const original = read();
+        if (tracing) reading += host.now() - readAt;
         if (original === undefined) {
           queue.delete(task.key);
           continue;
@@ -187,10 +210,14 @@ export class PatchPump {
           queue.delete(task.key); // Native already shows exactly this.
           continue;
         }
-        const json = JSON.stringify(patch);
-        const encoded = host.utf8Base64(json);
-        const size =
-          (encoded.length / 4) * 3 - (encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0);
+        const serializeAt = tracing ? host.now() : 0;
+        // Streaming text crosses as an edit of what native confirmed holding (`text-edit.ts`).
+        const sent = record
+          ? itemPatch(patch, record.ledger.streaming(task.key), host.utf8Length)
+          : patch;
+        const json = JSON.stringify(sent);
+        const size = host.utf8Length(json);
+        if (tracing) serializing += host.now() - serializeAt;
         if (size > 32760) {
           if (frame.length) break outer;
           this.#fragment = {
@@ -199,20 +226,26 @@ export class PatchPump {
             sticky,
             record,
             id: host.uuid(),
-            data: encoded,
+            data: base64(host.encode(json)),
             offset: 0,
             index: 0,
           };
           this.#emitFragment();
           return;
         }
-        if (bytes + size + 1 > 32768 || frame.length >= framePatches) break outer;
+        if (bytes + size + 1 > 32768 || frame.length >= framePatches) {
+          full = true;
+          break outer;
+        }
         delivered.push({ task, read, sticky, record });
-        frame.push(patch);
+        frame.push(sent);
+        texts.push(json);
         bytes += size + 1;
+        taken++;
         if (task.failures) break outer;
       }
     }
+    this.#backlog = full;
     if (frame.length) {
       this.#inFlight = {
         delivered,
@@ -220,8 +253,21 @@ export class PatchPump {
           for (const entry of delivered) this.#confirm(entry);
         },
       };
-      host.emit(JSON.stringify(frame));
+      const emitAt = tracing ? host.now() : 0;
+      host.emit(`[${texts.join(",")}]`);
+      if (tracing) {
+        host.trace?.("pump.read", reading, 0);
+        host.trace?.("pump.serialize", serializing, bytes);
+        host.trace?.("pump.emit", host.now() - emitAt, 0);
+        host.trace?.("pump.flush", host.now() - now, frame.length);
+      }
     } else this.#schedule();
+  }
+  /** Whether the queue at `level` holds a patch that could go now. */
+  #waiting(level: 0 | 1 | 2, now: number): boolean {
+    for (const task of this.#queues[level].values())
+      if (!task.parked && !task.settled && task.readyAt <= now && !this.#blocked(task)) return true;
+    return false;
   }
   #emitFragment(): void {
     const fragment = this.#fragment;
@@ -270,7 +316,9 @@ export class PatchPump {
       queue.set(task.key, task);
     }
   }
-  #reject({ task, read }: Delivery): void {
+  #reject({ task, read, record }: Delivery): void {
+    // Native's copy may no longer match what it last confirmed: the retry goes whole.
+    record?.ledger.forget(task.key);
     const queue = this.#queue(task.key);
     if (queue.get(task.key) !== task) return;
     task.failures++;

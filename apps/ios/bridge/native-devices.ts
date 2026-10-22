@@ -71,6 +71,8 @@ export const NativeDeviceControl = z.discriminatedUnion("type", [
 type ViewWatch = Extract<z.infer<typeof NativeDeviceControl>, { type: "native.devices.view" }>;
 
 const noop = () => {};
+/** The machine's answers that say the channel may not be used at all, not that it failed. */
+const refusals = new Set(["permission_denied", "not_supported"]);
 
 /** A failed device request in a person's words, with the macOS permission it lacks if any. */
 export function deviceFailure(error: unknown): DeviceProblem {
@@ -107,6 +109,9 @@ export interface NativeDevicesOptions {
 }
 
 /** The shared authenticated devices channel. Input is never queued or replayed. */
+/** How long a Devices screen waits before trying an unreachable channel again. */
+const retryMs = 10_000;
+
 export class NativeDevices {
   readonly client: DeviceClient;
   readonly connection: NativeFeatureConnection;
@@ -115,11 +120,16 @@ export class NativeDevices {
   #view: ViewWatch | undefined;
   #stopView: (() => void) | undefined;
   #closed = false;
+  /** The last open failed; a retry is scheduled while the screen stays open. */
+  #unreachable = false;
+  #retry: (() => void) | undefined;
   #leaseTimer: (() => void) | undefined;
   /** The agent each device was taken from, for Hand back. */
   #previous = new Map<string, Holder>();
   #logs: { deviceId: string; filter: string; tail: LogTail; release: () => void } | undefined;
   #claim: Promise<unknown> | undefined;
+  /** Why the machine refused this screen's first reads. */
+  #refused: DeviceProblem | undefined;
   constructor(config: NativeFeatureConfig, options?: NativeDevicesOptions) {
     this.options = options;
     this.client = new DeviceClient({
@@ -259,17 +269,39 @@ export class NativeDevices {
   /** Read the inventory and states each time the screen opens or asks again. */
   async #load(): Promise<void> {
     const signal = new AbortController().signal;
+    this.#retry?.();
+    this.#retry = undefined;
     try {
       await this.connection.ready(signal);
       await this.client.request({ op: "inventory.watch", watching: true });
       await this.client.request({ op: "list" });
       await this.client.request({ op: "states" });
-    } catch {
-      // The snapshot carries the channel's failure; the view says it.
+      this.#unreachable = false;
+      this.#refused = undefined;
+    } catch (error) {
+      // The snapshot carries the channel's failure. A refusal arrives only as this answer, and
+      // trying again won't change it: keep it so the screen says why instead of loading.
+      this.#refused =
+        error instanceof DeviceClientError && refusals.has(error.code)
+          ? deviceFailure(error)
+          : undefined;
+      // A channel that never opened or never answered has no refusal, so the view would spin
+      // forever. Say so, and try again while the screen stays open.
+      const snapshot = this.client.getSnapshot();
+      if (!this.#refused && this.#view && (!snapshot.connected || !snapshot.inventoryLoaded)) {
+        this.#unreachable = true;
+        this.#retry = scheduler.set(retryMs, () => {
+          this.#retry = undefined;
+          if (this.#view) void this.#load();
+        });
+      }
     }
     this.#putView();
   }
   #closeView(): void {
+    this.#retry?.();
+    this.#retry = undefined;
+    this.#unreachable = false;
     this.#stopView?.();
     this.#stopView = undefined;
     this.#view = undefined;
@@ -301,6 +333,10 @@ export class NativeDevices {
         view: phoneDevicesView({
           snapshot: this.client.getSnapshot(),
           closed: this.#closed,
+          refused: this.#refused,
+          unreachable:
+            this.#unreachable &&
+            (!this.client.getSnapshot().connected || !this.client.getSnapshot().inventoryLoaded),
           threadId: current.threadId,
           deviceId: current.deviceId,
           query: current.query,

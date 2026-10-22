@@ -32,8 +32,13 @@ import Observation
         decoded[key] = (kept.revision, value)
         return value
     }
-    /// Moves when the kept answer for `key` goes out of date.
-    func generation(_ key: String) -> Int { values[key].map { generations[$0.family] ?? 0 } ?? 0 }
+    /// How many times the machine came back (`reconnectsKey` in `bridge/native-reads.ts`): the
+    /// one signal screens whose reads aren't kept read again on.
+    var reconnects: Int { generations["reconnects"] ?? 0 }
+    /// Moves when the kept answer for `key` goes out of date. With nothing kept yet (a first read
+    /// that failed while the machine was away) it moves when the machine comes back, so that
+    /// screen reads again too.
+    func generation(_ key: String) -> Int { values[key].map { generations[$0.family] ?? 0 } ?? reconnects }
 
     /// A request's name in the bridge's cache: its JSON with sorted keys. Pull to refresh
     /// (`fresh`) asks for the same answer, so it names the same read.

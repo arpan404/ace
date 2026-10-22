@@ -1,4 +1,4 @@
-import { latest, native, until } from "./test-native.ts";
+import { latest, native, until } from "./test-host.ts";
 import { afterEach, expect, test } from "vitest";
 import type { ServerMessage } from "@ace/protocol";
 import { MachineProviders, type ProvidersOwner } from "./machine-info.ts";

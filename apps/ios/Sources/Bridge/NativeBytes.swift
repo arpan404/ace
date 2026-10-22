@@ -11,7 +11,7 @@ enum NativeBytes {
 
     /// `decode(bytes, encoding, fatal)`, `encode(text)` and `inflate(bytes, format)` for `aceHost`.
     static func functions() -> [String: Any] {
-        let decode: @convention(block) (JSValue, String, Bool) -> String = { value, encoding, fatal in
+        let decode: @convention(block) (JSValue, String, Bool) -> String = { value, encoding, fatal in HostTrace.measure("host.decode") {
             let selected: String.Encoding = encoding.lowercased() == "utf-16le" ? .utf16LittleEndian : .utf8
             let text = withBytes(of: value) { bytes -> String? in
                 if let text = String(bytes: bytes, encoding: selected) { return text }
@@ -22,16 +22,16 @@ enum NativeBytes {
                 return ""
             }
             return text
-        }
+        } }
         let encode: @convention(block) (String) -> JSValue = { text in
             guard let context = JSContext.current() else { return JSValue() }
             var text = text
-            return text.withUTF8 { makeArray(UnsafeRawBufferPointer($0), in: context) }
+            return HostTrace.measure("host.encode") { text.withUTF8 { makeArray(UnsafeRawBufferPointer($0), in: context) } }
         }
         let inflate: @convention(block) (JSValue, String) -> JSValue = { value, format in
             guard let context = JSContext.current() else { return JSValue() }
             guard let bits = windowBits(format),
-                  let output = withBytes(of: value, { expand($0, windowBits: bits, limit: inflateCeiling) }) ?? nil else {
+                  let output = HostTrace.measure("host.inflate", { withBytes(of: value, { expand($0, windowBits: bits, limit: inflateCeiling) }) }) ?? nil else {
                 return JSValue(nullIn: context)
             }
             return output.withUnsafeBytes { makeArray($0, in: context) }
