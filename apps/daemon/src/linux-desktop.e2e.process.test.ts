@@ -158,8 +158,15 @@ describe.skipIf(!enabled)(`Linux desktop end to end (${session ?? "off"})`, () =
       );
       const outline = words(look);
       // X11 captures the window. On Wayland the first look opens the screen-sharing dialog
-      // and asks the person to approve it; a remembered approval captures directly.
-      if (session === "x11" || scriptedChooser) expect(look.images, outline).toBe(1);
+      // and asks the person to approve it; a remembered approval captures directly. Hyprland
+      // sends a window's picture only when its screen redraws, so an idle desktop may have
+      // sent none yet: the look says so, and the stream stays open for the next look.
+      if (session === "x11") expect(look.images, outline).toBe(1);
+      else if (scriptedChooser)
+        expect(
+          look.images === 1 || /nothing on that screen has redrawn/.test(outline),
+          outline,
+        ).toBe(true);
       else
         expect(
           look.images === 1 || /No screenshot: .*approve screen sharing/i.test(outline),
@@ -175,9 +182,15 @@ describe.skipIf(!enabled)(`Linux desktop end to end (${session ?? "off"})`, () =
         }),
         "screen_act",
       );
-      const after = words(
-        ok(await model.call("screen_state", { app: "org.gnome.TextEditor" }), "screen_state"),
+      // Where sharing was approved in the first look, typing redrew the editor, so this look
+      // has its picture.
+      const pictured = session === "x11" || scriptedChooser;
+      const next = ok(
+        await model.call("screen_state", { app: "org.gnome.TextEditor", screenshot: pictured }),
+        "screen_state",
       );
+      const after = words(next);
+      if (pictured) expect(next.images, after).toBe(1);
       expect(after).toContain("Changes since your last look");
       expect(after).toContain(typed);
     },

@@ -1,10 +1,13 @@
-//! One frame from a portal PipeWire stream, then the stream closes: computer use never keeps
-//! a capture running. Uses the C shell in `pipewire.c`.
+//! Pictures from a portal PipeWire stream, read through the C shell in `pipewire.c`. A
+//! `Watch` reads the stream on its own thread and always holds the latest frame, so a look
+//! can take the picture the desktop last sent even when it sent it before the look began.
 use crate::computer::image::Rgb;
 use std::ffi::c_void;
 use std::os::fd::{IntoRawFd, OwnedFd};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-
 unsafe extern "C" {
     fn ace_pw_open(
         fd: i32,
@@ -21,11 +24,110 @@ unsafe extern "C" {
 /// The stream opened but sent no picture before the deadline.
 pub const NO_FRAME: &str = "no frame arrived in time";
 
-struct Grab {
-    frame: Option<Rgb>,
+/// The newest frame as the producer sent it; converted to RGB only when a look takes it.
+struct Raw {
+    bytes: Vec<u8>,
+    width: u32,
+    height: u32,
+    stride: usize,
+    format: u32,
+    crop: Option<(i32, i32, u32, u32)>,
+}
+
+impl Raw {
+    fn picture(&self) -> Result<Rgb, String> {
+        let frame = to_rgb(&self.bytes, self.width, self.height, self.stride, self.format)?;
+        Ok(match self.crop {
+            Some((x, y, w, h)) => crop(frame, x, y, w, h),
+            None => frame,
+        })
+    }
+}
+
+#[derive(Default)]
+struct State {
+    latest: Option<Raw>,
     failed: Option<String>,
-    /// The open stream, to read the frame's crop region from.
+    ended: bool,
+}
+
+struct Shared {
+    state: Mutex<State>,
+    changed: Condvar,
+    stop: AtomicBool,
+    /// The stream ends once this passes without a look; each look moves it on.
+    idle_until: Mutex<Instant>,
+    idle: Duration,
+}
+
+/// What the stream thread hands the C callback.
+struct Pump {
+    shared: Arc<Shared>,
     capture: *mut c_void,
+}
+
+/// A portal stream read on its own thread until dropped or left unused for `idle`.
+pub struct Watch {
+    shared: Arc<Shared>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl Watch {
+    pub fn start(remote: OwnedFd, node: u32, idle: Duration) -> Self {
+        let shared = Arc::new(Shared {
+            state: Mutex::new(State::default()),
+            changed: Condvar::new(),
+            stop: AtomicBool::new(false),
+            idle_until: Mutex::new(Instant::now() + idle),
+            idle,
+        });
+        let pump = shared.clone();
+        let thread = std::thread::Builder::new()
+            .name("ace-screencast".into())
+            .spawn(move || run(remote, node, pump));
+        let thread = match thread {
+            Ok(thread) => Some(thread),
+            Err(_) => {
+                finish(&shared, Some("no thread for the stream".into()));
+                None
+            }
+        };
+        Self { shared, thread }
+    }
+
+    /// The desktop's latest picture, waiting up to `timeout` for a first one. `Err(NO_FRAME)`:
+    /// none has come yet and the stream is still open.
+    pub fn latest(&self, timeout: Duration) -> Result<Rgb, String> {
+        if let Ok(mut until) = self.shared.idle_until.lock() {
+            *until = Instant::now() + self.shared.idle;
+        }
+        let state = self.shared.state.lock().map_err(|_| "the stream failed".to_owned())?;
+        let (state, _) = self
+            .shared
+            .changed
+            .wait_timeout_while(state, timeout, |s| s.latest.is_none() && s.failed.is_none() && !s.ended)
+            .map_err(|_| "the stream failed".to_owned())?;
+        match (&state.latest, &state.failed) {
+            (Some(raw), _) => raw.picture(),
+            (None, Some(error)) => Err(error.clone()),
+            (None, None) if state.ended => Err("the stream ended".into()),
+            (None, None) => Err(NO_FRAME.into()),
+        }
+    }
+
+    /// The stream closed (failed, or unused for too long); a later look needs a new one.
+    pub fn ended(&self) -> bool {
+        self.shared.state.lock().map_or(true, |s| s.ended)
+    }
+}
+
+impl Drop for Watch {
+    fn drop(&mut self) {
+        self.shared.stop.store(true, Ordering::Relaxed);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
 }
 
 /// The part of a frame the producer marked valid (a window inside a monitor-sized buffer),
@@ -68,75 +170,77 @@ pub fn to_rgb(source: &[u8], w: u32, h: u32, stride: usize, format: u32) -> Resu
     })
 }
 
-unsafe extern "C" fn on_frame(user: *mut c_void, bytes: *const u8, w: u32, h: u32, stride: i32, format: u32) {
-    // SAFETY: the C shell passes our Grab and a buffer it validated, synchronously on this thread.
-    let grab = unsafe { &mut *user.cast::<Grab>() };
-    if grab.frame.is_some() || grab.failed.is_some() || stride <= 0 || h == 0 {
-        return;
-    }
-    let source = unsafe { std::slice::from_raw_parts(bytes, stride as usize * (h as usize - 1) + w as usize * 4) };
-    match to_rgb(source, w, h, stride as usize, format) {
-        Ok(frame) => {
-            let (mut x, mut y, mut cw, mut ch) = (0, 0, 0, 0);
-            // SAFETY: the stream is open; the crop belongs to the buffer being delivered.
-            let cropped = unsafe { ace_pw_crop(grab.capture, &mut x, &mut y, &mut cw, &mut ch) } == 1;
-            grab.frame = Some(if cropped { crop(frame, x, y, cw, ch) } else { frame });
+fn finish(shared: &Shared, failed: Option<String>) {
+    if let Ok(mut state) = shared.state.lock() {
+        if state.failed.is_none() {
+            state.failed = failed;
         }
-        Err(error) => grab.failed = Some(error),
+        state.ended = true;
     }
+    shared.changed.notify_all();
 }
 
-/// Connects to the portal's PipeWire remote, waits for the first frame and closes the stream.
-pub fn grab(remote: OwnedFd, node: u32, timeout: Duration) -> Result<Rgb, String> {
+unsafe extern "C" fn on_frame(user: *mut c_void, bytes: *const u8, w: u32, h: u32, stride: i32, format: u32) {
+    // SAFETY: the C shell passes our Pump and a buffer it validated, synchronously on the
+    // stream thread, while `run` keeps the Pump alive.
+    let pump = unsafe { &*user.cast::<Pump>() };
+    if stride <= 0 || h == 0 || w == 0 {
+        return;
+    }
+    let length = stride as usize * (h as usize - 1) + w as usize * 4;
+    let source = unsafe { std::slice::from_raw_parts(bytes, length) };
+    let (mut x, mut y, mut cw, mut ch) = (0, 0, 0, 0);
+    // SAFETY: the stream is open; the crop belongs to the buffer being delivered.
+    let cropped = unsafe { ace_pw_crop(pump.capture, &mut x, &mut y, &mut cw, &mut ch) } == 1;
+    let raw = Raw {
+        bytes: source.to_vec(),
+        width: w,
+        height: h,
+        stride: stride as usize,
+        format,
+        crop: cropped.then_some((x, y, cw, ch)),
+    };
+    if let Ok(mut state) = pump.shared.state.lock() {
+        state.latest = Some(raw);
+    }
+    pump.shared.changed.notify_all();
+}
+
+/// The stream thread: connects to the portal's PipeWire remote and reads it until stopped,
+/// failed, or left unused.
+fn run(remote: OwnedFd, node: u32, shared: Arc<Shared>) {
     let mut pipe = [0i32; 2];
     // SAFETY: pipe fills two fds; both are closed below.
     if unsafe { libc::pipe(pipe.as_mut_ptr()) } != 0 {
-        return Err("no pipe".into());
+        finish(&shared, Some("no pipe".into()));
+        return;
     }
-    let mut grab = Grab {
-        frame: None,
-        failed: None,
+    let mut pump = Pump {
+        shared: shared.clone(),
         capture: std::ptr::null_mut(),
     };
-    let capture = unsafe {
-        ace_pw_open(
-            remote.into_raw_fd(),
-            node,
-            pipe[0],
-            on_frame,
-            (&mut grab as *mut Grab).cast(),
-        )
-    };
-    grab.capture = capture;
-    let result = if capture.is_null() {
-        Err("PipeWire is not available (install libpipewire-0.3)".to_owned())
+    let capture = unsafe { ace_pw_open(remote.into_raw_fd(), node, pipe[0], on_frame, (&mut pump as *mut Pump).cast()) };
+    pump.capture = capture;
+    let failed = if capture.is_null() {
+        Some("PipeWire is not available (install libpipewire-0.3)".to_owned())
     } else {
-        let deadline = Instant::now() + timeout;
-        loop {
-            if grab.frame.is_some() || grab.failed.is_some() {
-                break;
-            }
-            if Instant::now() > deadline {
-                grab.failed = Some(NO_FRAME.into());
-                break;
-            }
+        let mut failed = None;
+        while !shared.stop.load(Ordering::Relaxed)
+            && shared.idle_until.lock().map_or(false, |until| Instant::now() < *until)
+        {
             if unsafe { ace_pw_step(capture, 100) } < 0 {
-                grab.failed = Some("the stream failed".into());
+                failed = Some("the stream failed".to_owned());
                 break;
             }
         }
         unsafe { ace_pw_destroy(capture) };
-        match (grab.frame.take(), grab.failed.take()) {
-            (Some(frame), _) => Ok(frame),
-            (None, Some(error)) => Err(error),
-            (None, None) => Err("no frame".into()),
-        }
+        failed
     };
     unsafe {
         libc::close(pipe[0]);
         libc::close(pipe[1]);
     }
-    result
+    finish(&shared, failed);
 }
 
 #[cfg(test)]

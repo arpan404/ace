@@ -119,7 +119,7 @@ Omarchy (Arch with Hyprland) runs xdg-desktop-portal-hyprland (XDPH 1.4.x on Arc
 Ubuntu 26.04); Sway runs xdg-desktop-portal-wlr. Both offer ScreenCast and Screenshot: XDPH
 advertises monitors and windows, xdg-desktop-portal-wlr monitors only, so on Sway a screenshot
 shares the whole monitor and carries no id marks. Neither offers
-RemoteDesktop: XDPH 1.4 adds InputCapture, which hands input *out of* the desktop (Barrier-style)
+RemoteDesktop: XDPH 1.4 adds InputCapture, which hands input _out of_ the desktop (Barrier-style)
 and is no way to send it in. So on these desktops:
 
 - Semantic steps (AT-SPI) work as on GNOME, in the background. Raw clicks, keys and wheel steps
@@ -133,9 +133,12 @@ and is no way to send it in. So on these desktops:
   than Start and serves one request at a time, so the helper waits on both the same way and
   never waits on Close (a backend still showing its chooser can't answer it). Restore tokens
   (`persist_mode=2`, ScreenCast v4+) restore silently afterwards.
-- XDPH copies a window's picture only when its monitor next redraws. A screenshot of an
-  unchanged desktop, or one whose display is asleep, can find the stream empty; the error says so
-  and the next look after any change gets the picture.
+- XDPH asks Hyprland for a window's picture with `ignore_damage` off (1.3.11 through current
+  master), and Hyprland hands it over on that monitor's next redraw, which can be never on an
+  idle desktop. When a new session's stream sends nothing within three seconds, the look says
+  so and the session stays open (two minutes after the last look), always holding the picture
+  from the latest redraw: the agent's next action redraws the app, so the next look has it.
+  Desktops that send a picture at once (GNOME, KDE) still close the session after each look.
 - XDPH 1.3 marks its shared-memory buffers mappable but not readable, so PipeWire's own mapping
   can't be read; the helper maps such a buffer read-only itself, after checking its size.
 
@@ -184,7 +187,8 @@ Calculator, Mousepad, xterm, xdotool):
   in `apps/daemon/scripts/linux-e2e/run.sh hyprland|sway` with a scripted chooser
   (`portal-picker.sh`), on arm64 with a virtual display; a real x86 Omarchy machine is still to
   be checked by hand.
-- Each Wayland screenshot opens and closes a portal session (about half a second).
+- Each Wayland screenshot opens and closes a portal session (about half a second), except on
+  desktops that send pictures only on redraw (see Hyprland above).
 - GTK4 apps have no menu bar; their menus are buttons in the window, so `menu` paths fail with
   `no_menu_bar` and the agent clicks the menu button and item by id.
 - XTest pointer input is checked against the active window before each step, not before each
