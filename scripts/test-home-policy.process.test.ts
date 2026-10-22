@@ -61,6 +61,7 @@ test("an Android run that boots an AVD reaches the runner's AVD folder and its g
       ACE_ANDROID_E2E_SDK: "/tmp/ace-android-sdk.abc",
       ACE_ANDROID_E2E_BOOT_AVD: "ace_ci",
       ACE_ANDROID_EMULATOR_GPU: "swiftshader_indirect",
+      ANDROID_AVD_HOME: "/tmp/ace-avd",
     },
     home,
     "/home/person",
@@ -68,7 +69,8 @@ test("an Android run that boots an AVD reaches the runner's AVD folder and its g
   expect(env).toMatchObject({
     ACE_ANDROID_E2E_BOOT_AVD: "ace_ci",
     ACE_ANDROID_EMULATOR_GPU: "swiftshader_indirect",
-    ANDROID_AVD_HOME: "/home/person/.android/avd",
+    ANDROID_AVD_HOME: "/tmp/ace-avd",
+    ANDROID_USER_HOME: join(home, ".android"),
     HOME: home,
   });
 });

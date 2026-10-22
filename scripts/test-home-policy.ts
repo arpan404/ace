@@ -70,7 +70,7 @@ export function isolatedTestEnvironment(
     ...(ambient.ACE_COMPUTER_LIVE === "1" ? { ACE_COMPUTER_LIVE: "1" } : {}),
     ...(ambient.ACE_DEVICE_LIVE === "1" ? { ACE_DEVICE_LIVE: "1" } : {}),
     ...linuxDesktopSession(ambient),
-    ...androidDevice(ambient, realHome),
+    ...androidDevice(ambient),
     // `bun run eval:mcp` names where the MCP eval harness writes its report.
     ...(ambient.ACE_EVAL_REPORT !== undefined ? { ACE_EVAL_REPORT: ambient.ACE_EVAL_REPORT } : {}),
     ...(ambient.ACE_EVAL_LABEL !== undefined ? { ACE_EVAL_LABEL: ambient.ACE_EVAL_LABEL } : {}),
@@ -122,10 +122,11 @@ function linuxDesktopSession(ambient: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 
 /**
  * The Android end-to-end suite (`ACE_ANDROID_E2E_SDK`) drives a device its runner booted, through
- * that SDK's adb, or an AVD it asks ace to boot (`ACE_ANDROID_E2E_BOOT_AVD`), which lives in the
- * runner's AVD folder. Only those are kept; the other homes stay isolated.
+ * that SDK's adb, or an AVD it asks ace to boot (`ACE_ANDROID_E2E_BOOT_AVD`) from the AVD folder
+ * the runner names (`ANDROID_AVD_HOME`, outside the real home: the home guard still applies).
+ * Only those are kept; the homes stay isolated.
  */
-function androidDevice(ambient: NodeJS.ProcessEnv, realHome: string): NodeJS.ProcessEnv {
+function androidDevice(ambient: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const sdk = ambient.ACE_ANDROID_E2E_SDK;
   if (!sdk) return {};
   const kept: NodeJS.ProcessEnv = { ACE_ANDROID_E2E_SDK: sdk };
@@ -138,10 +139,8 @@ function androidDevice(ambient: NodeJS.ProcessEnv, realHome: string): NodeJS.Pro
     const value = ambient[key];
     if (value) kept[key] = value;
   }
-  if (kept.ACE_ANDROID_E2E_BOOT_AVD) {
-    kept.ANDROID_USER_HOME = ambient.ANDROID_USER_HOME ?? join(realHome, ".android");
-    kept.ANDROID_AVD_HOME = ambient.ANDROID_AVD_HOME ?? join(realHome, ".android/avd");
-  }
+  if (kept.ACE_ANDROID_E2E_BOOT_AVD && ambient.ANDROID_AVD_HOME)
+    kept.ANDROID_AVD_HOME = ambient.ANDROID_AVD_HOME;
   return kept;
 }
 
