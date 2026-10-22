@@ -293,6 +293,9 @@ would ask for deflate the same way. Native text decoding read bytes as an array 
 already had per-message deflate: `URLSessionWebSocketTask` negotiates it with the daemon's
 remote listener, and a thread opens with 16 to 25 percent of its JSON size on the wire.
 
+The bridge's way to Swift is now one versioned, typed contract shared with Android
+([ADR 0096](0096-native-host-contract.md)); frames are decoded off the main thread.
+
 ## Phase 1 status, 2026-10-18
 
 Phase 1 is built on `ace/ios-mvp`; [the app's README](../../apps/ios/README.md) describes each
