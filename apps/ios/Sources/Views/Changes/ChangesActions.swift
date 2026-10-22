@@ -111,7 +111,7 @@ private struct ChangesActions: ViewModifier {
             }
             .aceFont(AceTheme.Typography.label, relativeTo: .footnote)
             .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
-            .aceGlass(in: Capsule())
+            .aceGlass(in: AceShape.capsule)
             .padding(.bottom, AceTheme.Spacing.sm)
             .frame(maxWidth: .infinity)
             .accessibilityIdentifier(outcome != nil ? "changes.outcome" : model.canOperate ? "changes.running" : "changes.readOnly")

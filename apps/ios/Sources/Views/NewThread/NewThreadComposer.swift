@@ -59,8 +59,8 @@ struct NewThreadWorktreeChips: View {
         .foregroundStyle(AceTheme.Colours.foreground)
         .padding(.horizontal, AceTheme.Spacing.md + AceTheme.Spacing.xxs)
         .frame(minHeight: 38)
-        .background(AceTheme.Colours.fill, in: Capsule())
-        .contentShape(Capsule())
+        .background(AceTheme.Colours.fill, in: AceShape.capsule)
+        .contentShape(AceShape.capsule)
     }
 }
 
