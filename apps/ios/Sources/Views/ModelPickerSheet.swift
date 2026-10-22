@@ -149,7 +149,7 @@ private struct ThreadSpeedOptions: View {
                 .disabled(!tune.speedReason.isEmpty)
                 .accessibilityIdentifier("composer.fast")
             } else {
-                ModelOptionMenu(systemImage: "bolt", title: "Speed", value: tune.speeds.first { $0.speed == tune.speed }?.label ?? "") {
+                ModelOptionMenu(icon: .lightning, title: "Speed", value: tune.speeds.first { $0.speed == tune.speed }?.label ?? "") {
                     ForEach(tune.speeds) { tier in
                         Button { Task { _ = await model.setSpeed(tier.speed) } } label: {
                             if tier.speed == tune.speed { Label(tier.label, ace: .check) } else { Text(tier.label) }
