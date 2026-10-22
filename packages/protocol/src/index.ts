@@ -162,6 +162,7 @@ export * from "./utility-model.ts";
 
 export * from "./forge-worktree.ts";
 export * from "./forge-issues.ts";
+export * from "./forge-inbox.ts";
 export * from "./forge-merge-state.ts";
 export * from "./forge-stacks.ts";
 export * from "./forge-review.ts";

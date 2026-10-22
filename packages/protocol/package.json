@@ -13,6 +13,7 @@
     "./forge-worktree": "./src/forge-worktree.ts",
     "./forge-lifecycle": "./src/forge-lifecycle.ts",
     "./forge-issues": "./src/forge-issues.ts",
+    "./forge-inbox": "./src/forge-inbox.ts",
     "./forge-merge-state": "./src/forge-merge-state.ts",
     "./forge-stacks": "./src/forge-stacks.ts",
     "./forge-review": "./src/forge-review.ts",

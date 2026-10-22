@@ -12,6 +12,8 @@
  * - `head_moved`: a PR's head commit changed after it was selected.
  * - `fork_deleted`: the PR's head repository (usually a fork) no longer exists.
  * - `conflict`: the resource changed under a guarded write (stale SHA, 409, stale read).
+ * - `notifications_unavailable`: gh's sign-in can't read or change notifications (a token
+ *   without the `notifications` or `repo` scope, a fine-grained token, an app token).
  */
 export type ForgeErrorKind =
   | "not_found"
@@ -32,7 +34,8 @@ export type ForgeErrorKind =
   | "head_moved"
   | "fork_deleted"
   | "outcome_uncertain"
-  | "preferences_changed";
+  | "preferences_changed"
+  | "notifications_unavailable";
 export class ForgeError extends Error {
   readonly kind: ForgeErrorKind;
   readonly retryAt: number | undefined;
