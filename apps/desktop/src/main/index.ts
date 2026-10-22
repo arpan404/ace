@@ -1,6 +1,6 @@
 import { deliverAfterLoads } from "./deep-link-delivery.ts";
 import { existsSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { desktopUpdateArgument } from "@ace/service/desktop-update-argument";
@@ -31,8 +31,10 @@ import { appearance, createHandlers } from "./handlers.ts";
 import { emit, registerHandlers } from "./ipc.ts";
 import { claimKeychainName } from "./keychain.ts";
 import { applicationMenu } from "./menu.ts";
+import { terminalCommand, terminalCommandCheck } from "./os/cli-command.ts";
 import { cliShimCheck, cliShimLog, type CliShimResult } from "./os/cli-shim.ts";
 import { installCliShim } from "./os/cli-shim-install.ts";
+import { loginShellPath } from "./daemon/login-path.ts";
 import { backgroundArgument, startHidden } from "./os/login.ts";
 import { settingsEffects } from "./os/settings-effects.ts";
 import { appUpdates } from "./os/app-updates.ts";
@@ -406,6 +408,44 @@ function main(target: DaemonTarget, crashDumps: string): void {
       const opened = await Promise.all(folders.map((path) => shell.openPath(path)));
       return opened.some((error) => error === "");
     };
+    // The `ace` command belongs to the installed app; development builds never write one. It
+    // goes in the managed daemon's home, which `desktopTarget` already prepared: after a fresh
+    // start it lands in the new home, never in the backup. Then it goes on the terminal's PATH.
+    const shim =
+      app.isPackaged && target.kind === "managed"
+        ? installCliShim({
+            dataHome: target.home,
+            platform: process.platform,
+            node: paths.node,
+            entry: paths.daemonEntry,
+          }).then((result) => {
+            cliShim = result;
+            const line = cliShimLog(result);
+            const problem = result.state === "foreign" || result.state === "failed";
+            if (line) log(problem ? "warn" : "info", line);
+            return result;
+          })
+        : undefined;
+    const terminal = terminalCommand({
+      shim,
+      enabled: () => settings.get().terminalCommand,
+      save: async (on) => void (await settings.update({ terminalCommand: on })),
+      target: {
+        platform: process.platform,
+        home: homedir(),
+        env: {
+          SHELL: process.env.SHELL || (process.platform === "win32" ? "" : userInfo().shell) || "",
+          ZDOTDIR: process.env.ZDOTDIR,
+          XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+        },
+      },
+      launchPath: () => runtime.loginPath(),
+      // The GUI's own PATH could hold folders the shell no longer adds; ask the shell afresh.
+      freshPath: () => loginShellPath({ ...process.env, PATH: "/usr/bin:/bin" }),
+      log: (line) => log("info", line),
+    });
+    let terminalStatus: Awaited<ReturnType<typeof terminal.status>> | undefined;
+    void terminal.status().then((status) => (terminalStatus = status));
     let bindings: Readonly<Record<string, string>> | undefined;
     const handlers = createHandlers({
       info,
@@ -420,9 +460,13 @@ function main(target: DaemonTarget, crashDumps: string): void {
       reload,
       showLogs,
       reportDiagnostic: rendererReports({ log: logger("renderer"), now: Date.now }),
-      desktopChecks: () => {
-        const check = cliShim && cliShimCheck(cliShim);
-        return check ? [check] : [];
+      desktopChecks: () =>
+        [cliShim && cliShimCheck(cliShim), terminalCommandCheck(terminalStatus)].filter(
+          (check) => check !== undefined,
+        ),
+      terminalCommand: {
+        status: () => terminal.status(),
+        set: async (on) => (terminalStatus = await terminal.set(on)),
       },
       openVisualization: (request) => void openVisualizationWindow(request),
       updates,
@@ -500,21 +544,5 @@ function main(target: DaemonTarget, crashDumps: string): void {
     }
     // Launched by `ace update apply` from the bundled CLI.
     if (process.argv.includes(desktopUpdateArgument)) void updates.apply();
-    // The `ace` command belongs to the installed app; development builds never write one. It
-    // goes in the managed daemon's home, which `desktopTarget` already prepared: after a fresh
-    // start it lands in the new home, never in the backup.
-    if (app.isPackaged && target.kind === "managed")
-      void installCliShim({
-        dataHome: target.home,
-        platform: process.platform,
-        node: paths.node,
-        entry: paths.daemonEntry,
-        loginPath: () => runtime.loginPath(),
-      }).then((result) => {
-        cliShim = result;
-        const line = cliShimLog(result);
-        const problem = result.state === "foreign" || result.state === "failed";
-        if (line) log(problem ? "warn" : "info", line);
-      });
   });
 }
