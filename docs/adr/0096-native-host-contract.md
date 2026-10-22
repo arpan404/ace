@@ -93,7 +93,38 @@ Patch hand-off as structured data instead of JSON was measured and rejected: con
 0.017 ms for `JSON.stringify` (native in JavaScriptCore, JIT or not) with the parse on the frames
 queue. A binary format would need an encoder in script, slower still without a JIT.
 
-## What stays in JS
+## Streaming text crosses as edits
+
+Each text delta re-sent its whole item, up to 8 KiB, about 20 times a second on the fixture.
+Patches now have a delta form, `thread.item.text`: the row's other fields whole, its text empty,
+and an edit `{base, cut, append}` meaning "native's text is `base` UTF-8 bytes; drop `cut` bytes
+from the front, then add `append`". The front drop covers the sliding 8,192-unit window of a long
+answer. JavaScript decides the edit (`bridge/text-edit.ts`) against the text the native ledger
+records native confirmed for items still streaming; without a confirmed base, or when an edit
+would be most of the text, the row goes whole.
+
+Guarantees stay the pump's: one acknowledged frame in flight, keys and readers retained until
+confirmed, ordering and identities unchanged. `ClientModel` checks every edit in a frame against
+the row it shows before applying anything (a length mismatch or a cut inside a character turns
+the whole frame down, unapplied); the pump then forgets that ledger entry, so its retry goes
+whole. An edit for another thread or an older generation is dropped like its whole row would be.
+
+Measured on the fixture's streaming thread (Debug build, which `--spike` needs; 30 s, 584 deltas;
+main-thread busy from a 10 s `sample` of the app):
+
+|                                 | Before (two runs)      | After                        |
+| ------------------------------- | ---------------------- | ---------------------------- |
+| Bytes across the bridge         | 3,769 KB / 3,769 KB    | 367 KB / 372 KB (−90%)       |
+| Main thread: edit check + apply | 32.0 / 32.2 ms         | 13 + 27–30 ms                |
+| Main thread busy (10 s sample)  | 1,953 / 1,956 of 7,620 | 1,664 / 1,922 of 7,230–7,640 |
+| Frame decode, frames queue      | 51.8 / 53.6 ms         | 51.1–54.2 ms                 |
+| Script: pump serialize          | 11.0 / 12.0 ms         | 19.3 / 20.4 ms               |
+| Process CPU per 30 s            | 9.06 / 9.18 s          | 8.52 / 8.83 s                |
+
+The bytes fall by nine tenths; main-thread time is unchanged within noise because rendering the
+re-laid-out text dominates it (about a quarter of the main thread while streaming), not the
+bridge. An edit counted in UTF-16 first cost the main thread 118 ms for the same run, since Swift
+transcodes to count UTF-16; counting UTF-8 bytes brought it to 13 ms.
 
 Everything the profile shows as script time is logic: the SDK's socket handling, replay and
 snapshots (`js.socket`, `js.reply`), and the bridge's shaping of rows (`pump.read`, about 30 ms of
@@ -129,7 +160,9 @@ A Kotlin host implements the same contract; nothing else changes in the shared c
    redirects, 1 MiB body cap), staged attachment chunks as base64.
 9. Errors answer with a `HostErrorCode`.
 10. `emit`: accept frames up to 32 KiB, decode them off the UI thread, apply on it, then call
-    `aceAck(accepted)`; reassemble `fragment` patches as `BridgeFrames.swift` does.
+    `aceAck(accepted)`; reassemble `fragment` patches as `BridgeFrames.swift` does. Apply
+    `thread.item.text` edits in UTF-8 bytes, checking every edit in a frame before applying any,
+    and turn the frame down on a mismatch.
 11. `socket`: pinned WSS, binary messages handed over as bytes, `trust` with `pin` on a pin
     mismatch, `close` with the code.
 12. Pass the shared contract tests: `packages/native-host/src/contract.test.ts` describes each
