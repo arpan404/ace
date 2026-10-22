@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { androidSdkRoots } from "@ace/devices/sdk-roots";
+import { findAndroidTools } from "@ace/devices/android-tools";
 import { findExecutable } from "@ace/provider-kit/discovery";
 import type { Check, Verdict } from "./doctor.ts";
 
@@ -31,7 +31,7 @@ const kvmFix =
   "Add yourself to the kvm group: sudo usermod -aG kvm $USER, then sign out and back in. If /dev/kvm is missing, enable virtualization (VT-x/AMD-V) in firmware.";
 
 const noArmEmulatorFix =
-  "Use Android devices from a Mac or an x86-64 Linux machine; Linux on arm64 can't run them.";
+  "Use Android phones on USB or devices on the network through your distribution's adb (Debian/Ubuntu: sudo apt install adb). For emulators, use a Mac or an x86-64 Linux machine.";
 
 const verdict = (status: Verdict["status"], message: string, fix: string): Verdict => ({
   status,
@@ -42,7 +42,7 @@ const verdict = (status: Verdict["status"], message: string, fix: string): Verdi
 /**
  * Linux-only doctor checks: the inotify watch budget (workspace watching), `xdg-open` (opening
  * links and sign-in pages), a systemd user session (the background service), and `/dev/kvm`
- * access when an Android SDK is installed (hardware-accelerated emulators). Each reads a few
+ * access when the Android Emulator is installed (hardware-accelerated emulators). Each reads a few
  * small files or PATH entries, so all stay well inside the doctor's per-check timeout.
  */
 export function linuxHostChecks(host: LinuxHost): Check[] {
@@ -94,21 +94,24 @@ export function linuxHostChecks(host: LinuxHost): Check[] {
       id: "linux.kvm",
       fix: kvmFix,
       run: async () => {
-        const sdk = await installedSdk(host);
-        if (!sdk) return verdict("ok", "Android SDK not installed; /dev/kvm not needed", kvmFix);
-        // Google's SDK repository has the emulator and platform-tools for x86-64 Linux only.
+        // The same adb and emulator the devices service finds.
+        const tools = await findAndroidTools({
+          env: host.env,
+          home: host.env.HOME,
+          find: async (path) =>
+            path.includes("/") ? ((await host.exists(path)) ? path : undefined) : host.which(path),
+        });
+        // Google publishes the Android Emulator for x86-64 Linux only.
         if (host.arch === "arm64")
           return verdict(
-            "warn",
-            "Android emulators can't run here: Google publishes the Android Emulator and Platform Tools for x86-64 Linux only",
+            "ok",
+            tools.adb
+              ? "Android emulators aren't available on Linux arm64; phones and network devices work through adb"
+              : "Android emulators aren't available on Linux arm64; /dev/kvm not needed",
             noArmEmulatorFix,
           );
-        if (!sdk.emulator)
-          return verdict(
-            "ok",
-            "No Android Emulator in the Android SDK; /dev/kvm not needed",
-            kvmFix,
-          );
+        if (!tools.emulator)
+          return verdict("ok", "No Android Emulator installed; /dev/kvm not needed", kvmFix);
         if (!(await host.exists("/dev/kvm")))
           return verdict("warn", "/dev/kvm is missing; Android emulators run slowly", kvmFix);
         const usable = await host.readWrite("/dev/kvm");
@@ -122,18 +125,6 @@ export function linuxHostChecks(host: LinuxHost): Check[] {
       },
     },
   ];
-}
-
-/** The first Android SDK folder present, and whether it has the emulator. */
-async function installedSdk(
-  host: LinuxHost,
-): Promise<{ root: string; emulator: boolean } | undefined> {
-  let found: { root: string; emulator: boolean } | undefined;
-  for (const root of androidSdkRoots(host.env, host.env.HOME)) {
-    if (await host.exists(join(root, "emulator"))) return { root, emulator: true };
-    if (!found && (await host.exists(root))) found = { root, emulator: false };
-  }
-  return found;
 }
 
 /** `LinuxHost` on the real machine. */

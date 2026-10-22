@@ -108,11 +108,11 @@ it("an SDK without the Android Emulator says the emulator is missing, not the SD
   );
   expect(result["linux.kvm"]).toMatchObject({
     status: "ok",
-    message: "No Android Emulator in the Android SDK; /dev/kvm not needed",
+    message: "No Android Emulator installed; /dev/kvm not needed",
   });
 });
 
-it("on arm64 Linux the doctor says Google ships no Android Emulator or Platform Tools for it", async () => {
+it("on arm64 Linux the doctor says once that there are no emulators, and that phones work through adb", async () => {
   // Linux arm64 with a usable /dev/kvm and an SDK holding what sdkmanager could install there.
   const result = await checks(
     machine({
@@ -126,8 +126,29 @@ it("on arm64 Linux the doctor says Google ships no Android Emulator or Platform 
     }),
   );
   expect(result["linux.kvm"]).toMatchObject({
+    status: "ok",
+    message:
+      "Android emulators aren't available on Linux arm64; phones and network devices work through adb",
+    fix: expect.stringContaining("sudo apt install adb"),
+  });
+});
+
+it("a distribution's adb on PATH counts as the devices service counts it, and an SDK emulator elsewhere still needs /dev/kvm", async () => {
+  const arm = await checks(machine({ arch: "arm64", path: { adb: "/usr/bin/adb" } }));
+  expect(arm["linux.kvm"]?.message).toContain("phones and network devices work through adb");
+  const noAdb = await checks(machine({ arch: "arm64" }));
+  expect(noAdb["linux.kvm"]?.message).toBe(
+    "Android emulators aren't available on Linux arm64; /dev/kvm not needed",
+  );
+  const x64 = await checks(
+    machine({
+      path: { adb: "/usr/bin/adb" },
+      files: { "/opt/sdk/emulator/emulator": "" },
+      env: { ANDROID_SDK_ROOT: "/opt/sdk" },
+    }),
+  );
+  expect(x64["linux.kvm"]).toMatchObject({
     status: "warn",
-    message: expect.stringContaining("x86-64 Linux only"),
-    fix: expect.stringContaining("x86-64 Linux"),
+    message: expect.stringContaining("/dev/kvm is missing"),
   });
 });

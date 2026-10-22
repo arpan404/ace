@@ -1,6 +1,4 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { androidSdkRoots } from "@ace/devices/sdk-roots";
+import { findAndroidTools } from "@ace/devices/android-tools";
 import { findExecutable } from "@ace/provider-kit/discovery";
 import { probeOutput } from "@ace/provider-kit/process";
 import type { Toolchain } from "@ace/protocol";
@@ -21,7 +19,8 @@ function adbToolsVersion(output: string | undefined): string | undefined {
 
 /**
  * Tools ace uses but never bundles: git (workspaces, review), Xcode (iOS Simulator) and the
- * Android SDK (emulators). Missing tools get a setup hint instead of an error.
+ * Android tools (adb for phones, network devices and emulators). Missing tools get a setup hint
+ * instead of an error.
  */
 export async function detectToolchains(
   env: NodeJS.ProcessEnv,
@@ -60,21 +59,20 @@ export async function detectToolchains(
       ...(version ? { version } : {}),
     });
   }
-  // The SDK folders emulator control searches, so both agree; else adb on PATH.
-  const adbName = platform === "win32" ? "adb.exe" : "adb";
-  const roots = androidSdkRoots(env, env.HOME ?? env.USERPROFILE);
-  const installed = roots
-    .map((root) => join(root, "platform-tools", adbName))
-    .find((path) => existsSync(path));
+  // The adb the devices service runs: an SDK's platform-tools, else the one on PATH.
+  const installed = await findAndroidTools({ env, home: env.HOME ?? env.USERPROFILE });
   const configured = Boolean(env.ANDROID_HOME ?? env.ANDROID_SDK_ROOT);
-  const adb = installed ?? (configured ? undefined : "adb");
+  const adb = installed.adb ?? (configured ? undefined : "adb");
   const adbVersion = adb ? await exec(adb, ["version"]) : undefined;
   const platformTools = adbToolsVersion(adbVersion);
   result.push({
     id: "android",
     available: Boolean(adbVersion),
-    detail: adbVersion?.split("\n")[0] ?? "Android SDK not found",
-    hint: "Optional: install Android Studio, then set ANDROID_HOME to its SDK directory.",
+    detail: adbVersion?.split("\n")[0] ?? "adb not found",
+    hint:
+      platform === "linux"
+        ? "Optional: install your distribution's adb (Debian/Ubuntu: sudo apt install adb) for Android phones and network devices, or Android Studio with ANDROID_HOME set to its SDK directory for emulators too."
+        : "Optional: install Android Studio, then set ANDROID_HOME to its SDK directory.",
     ...(platformTools ? { version: platformTools } : {}),
   });
   return result;

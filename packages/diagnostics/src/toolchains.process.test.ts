@@ -48,6 +48,27 @@ it("an Android Studio SDK in ~/Android/Sdk is found without ANDROID_HOME, as emu
   }
 });
 
+it("on Linux a distribution's adb on PATH is found with an ANDROID_HOME that has none, as the devices service finds it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-toolchains-path-"));
+  try {
+    await writeFile(join(root, "adb"), "#!/bin/sh\necho 'Version 34.0.5-debian'\n");
+    await chmod(join(root, "adb"), 0o700);
+    const tools = await detectToolchains(
+      { PATH: root, ANDROID_HOME: join(root, "missing-sdk") },
+      "linux",
+    );
+    expect(tools.find((tool) => tool.id === "android")).toMatchObject({
+      available: true,
+      version: "34.0.5",
+    });
+    await rm(join(root, "adb"));
+    const missing = await detectToolchains({ PATH: root }, "linux");
+    expect(missing.find((tool) => tool.id === "android")?.hint).toContain("sudo apt install adb");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 it("a Mac without Simulator tools receives an Xcode setup hint", async () => {
   const tools = await detectToolchains({ PATH: "" }, "darwin", async (command) =>
     command.endsWith("git") ? "git version 2.50" : undefined,

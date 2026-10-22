@@ -208,7 +208,10 @@ describe.skipIf(!enabled || !!bootAvd)("Android on Linux, a booted device", () =
     const ace = await world();
     const viewer = await devicesViewer(ace);
     const inventory = DeviceInventory.parse(await viewer.request({ op: "list" }));
-    expect(inventory.issues).toEqual([]);
+    // On arm64 with no emulator installed, the list says once that there are no emulators.
+    expect(
+      inventory.issues.filter((issue) => !/emulators aren't available/.test(issue.message)),
+    ).toEqual([]);
     const device = inventory.devices.find((entry) => entry.serial === serial);
     if (!device) throw new Error(`No Android device ${serial}: ${JSON.stringify(inventory)}`);
     expect(device).toMatchObject({ platform: "android", state: "booted" });
