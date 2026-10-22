@@ -11,16 +11,23 @@ import {
   registerAntigravityAccountCatalog,
 } from "./antigravity-accounts.ts";
 import {
+  antigravityCliHome,
+  antigravitySettingsFile,
+  writeAntigravityGcp,
+} from "../antigravity-settings.ts";
+import {
   antigravityIdentity,
+  antigravityMethodId,
   createAcpInstance,
   instanceEnv,
   type ProviderLoginDriver,
 } from "@ace/accounts";
+import type { AntigravitySignIn } from "@ace/protocol";
 import type { ServiceContext } from "./types.ts";
 
 export async function prepareAgentLogin(
   context: ServiceContext,
-  target: { provider: "acp" | "antigravity"; instance?: string },
+  target: { provider: "acp" | "antigravity"; instance?: string; signIn?: AntigravitySignIn },
   action: "login" | "logout",
   signal: AbortSignal,
   owner: string,
@@ -30,6 +37,9 @@ export async function prepareAgentLogin(
   if (!registry || !services.accounts) throw new Error("Accounts unavailable");
 
   const env = options.accounts?.env ?? options.providerStatus?.env ?? process.env;
+  // A chosen sign-in method is Antigravity's alone.
+  const signIn = target.provider === "antigravity" ? target.signIn : undefined;
+  if (target.signIn && !signIn) throw new Error("Sign-in method unavailable");
   if (target.provider === "acp" && target.instance && !registry.get(target.instance)) {
     const installation = services.agentRegistry?.inventory
       .list()
@@ -102,14 +112,34 @@ export async function prepareAgentLogin(
     target.provider === "acp" && target.instance
       ? acpAgentCli(registry.get(target.instance)?.instance.acpAgentId)?.logout
       : undefined;
+  const agentEnv = launch?.env ?? (added ? instanceEnv(added, cliEnv) : cliEnv);
+  // Gemini Enterprise and Agent Platform read their project and location from the agent's
+  // settings in the home it signs in to: the account's own, or the person's for the CLI login.
+  const gcp = signIn && signIn.method !== "google" ? signIn : undefined;
+  const settingsHome = added ? agentEnv.GEMINI_HOME : antigravityCliHome(agentEnv);
   const driver = acpLoginDriver({
     provider: target.provider,
     action,
     command,
     args: launch?.args ?? (cli && "launch" in cli ? cli.launch.args : []),
-    env: launch?.env ?? (added ? instanceEnv(added, cliEnv) : cliEnv),
+    env: agentEnv,
     cwd: config.dataDir,
     ...(ownLogout ? { ownLogout } : {}),
+    ...(target.provider === "antigravity" ? { returnUrl: true } : {}),
+    ...(signIn ? { methodId: antigravityMethodId(signIn) } : {}),
+    ...(signIn?.method === "agent_platform" ? { browserless: true } : {}),
+    ...(gcp
+      ? {
+          beforeSignIn: async () => {
+            if (!settingsHome) throw new Error("Antigravity home unavailable");
+            // The home ace made is validated again: the file goes only inside it.
+            if (added) await registry.validateHome(added);
+            await writeAntigravityGcp(antigravitySettingsFile(settingsHome), gcp, {
+              followLinks: !added,
+            });
+          },
+        }
+      : {}),
     ...(management
       ? { openTerminal: (terminalLaunch) => management.openLoginTerminal(owner, terminalLaunch) }
       : {}),

@@ -52,6 +52,7 @@ export {
   managedAcpEnv,
   type AcpManagedHome,
 } from "./acp-managed-home.ts";
+export { antigravityMethodId, antigravitySignInOf } from "./antigravity-sign-in.ts";
 export { loginAcpAccount, AcpLoginPlan, type AcpLoginResolver } from "./acp-login.ts";
 
 export { daemonCursorAuth, cursorDaemonDriver, type CursorCliAuth } from "./cursor-cli-auth.ts";

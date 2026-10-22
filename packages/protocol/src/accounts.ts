@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AcpIdentity } from "./agent-registry.ts";
 import { AccountId, AccountInstanceId } from "./account-ids.ts";
 import { BadgeColor } from "./badge-color.ts";
+import { AntigravitySignInMethod } from "./antigravity-sign-in.ts";
 
 export { AccountId, AccountInstanceId } from "./account-ids.ts";
 
@@ -262,6 +263,8 @@ export const AccountSummary = z.object({
   isolation: z.literal("unsupported").optional(),
   authMethod: z.enum(["browser", "api_key", "unknown"]).optional(),
   signedInAs: z.string().max(256).optional(),
+  /** How an Antigravity account last signed in, while it stays signed in. */
+  antigravitySignIn: AntigravitySignInMethod.optional(),
   loginRevision: z.string().max(128).optional(),
   profileRevision: z.string().max(256).optional(),
   installationVersion: z.string().max(256).optional(),
