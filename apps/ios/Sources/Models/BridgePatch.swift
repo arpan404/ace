@@ -63,7 +63,6 @@ struct PullRequestRef: Codable, Sendable, Equatable {
     let number: Int
     /// open, draft, merged or closed.
     let state: String
-    var inReview: Bool { state == "open" || state == "draft" }
 }
 struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     let id: String
@@ -83,9 +82,28 @@ struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     var moreAttachments: Int? = nil
     /// A context handoff's divider; nil on every other row.
     var handoff: HandoffLine? = nil
+    /// The person's bubble as the web draws it; nil on every other row.
+    var bubble: BubbleLine? = nil
+    /// A thought's header: "Thinking…", "Thought for 12s"; nil on every other row.
+    var thought: String? = nil
     /// Shared secondary line, such as the visualization fallback; empty when the row has none.
     let detail: String?
     let quiet: Bool?
+}
+/// The words inside the person's bubble (`@ace/ui-core` `bubbleContent`): prose, code and mention
+/// runs in order, whether it folds behind "Show more", and how it was sent ("steer", "queue").
+struct BubbleLine: Codable, Sendable, Equatable {
+    struct Segment: Codable, Sendable, Equatable {
+        /// "text", "code" or "mention".
+        let kind: String
+        let text: String
+        /// A mention's catalog kind; empty for words and code.
+        let mention: String
+    }
+    let segments: [Segment]
+    let readable: Bool
+    let long: Bool
+    let origin: String
 }
 /// Where a thread moved to another provider (`@ace/ui-core` `handoffMarker`): the models whose
 /// work carried over, oldest first, and the one taking the conversation.

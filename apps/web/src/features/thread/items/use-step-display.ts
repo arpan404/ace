@@ -1,6 +1,6 @@
 import { useAgent } from "@ace/client-react";
 import type { Item } from "@ace/protocol";
-import { describeStep, type StepText } from "@ace/ui-core";
+import { describeStep, shownStep, type StepText } from "@ace/ui-core";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
 import { useChangesStat } from "@/lib/diffs/use-file-diffs.ts";
 import { usePendingAnswer } from "../interactions/pending-answers.ts";
@@ -37,16 +37,6 @@ export function useStepDisplay(
   // A full-text edit's stat is a text diff, counted in the diff worker rather than here.
   const counted = useChangesStat(described?.diffFor);
   if (!item || !described) return undefined;
-  // Without its interaction loaded, the provider's own status says whether it waits.
-  const awaiting =
-    described.needsYou ?? (item.type === "tool_call" && item.call.status === "awaiting_approval");
-  const countedStep = counted ? { ...described, ...counted } : described;
-  const step = countedStep.note?.startsWith("exit ")
-    ? { ...countedStep, note: countedStep.failed ? "Failed" : undefined }
-    : countedStep;
-  return {
-    item,
-    step: awaiting ? { ...step, verb: "", target: undefined, note: undefined } : step,
-    awaiting,
-  };
+  const shown = shownStep(item, described, counted);
+  return { item, ...shown };
 }

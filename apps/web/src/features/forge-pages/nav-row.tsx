@@ -1,12 +1,10 @@
 import { GitPullRequestIcon } from "@phosphor-icons/react";
-import { prStepsForYou } from "@ace/ui-core";
+import { prStepsForYou, workKey, rowStep, prQuery } from "@ace/ui-core";
 import { NavRow } from "@/components/nav-row.tsx";
 import { useVerifyRuns } from "@/lib/verify.ts";
-import { useLinkedThreads, workKey } from "./linked-threads.ts";
+import { useLinkedThreads } from "./linked-threads.ts";
 import { usePrPages } from "./lists.ts";
-import { rowStep } from "./next-steps.ts";
 import { useProjectChoice } from "./project-choice.ts";
-import { prQuery } from "./pulls-model.ts";
 
 /**
  * The sidebar's "Pull requests" row with its needs-you dot: lit while an open PR of the project

@@ -8,35 +8,44 @@ import SwiftUI
     let epoch: Int
 }
 
-/// A settled turn's full step list from the daemon (`turn.steps`): a placeholder while it loads,
-/// Retry when the read failed, and Load more for a turn longer than one read.
+/// A settled turn's full steps from the daemon (`turn.steps`), grouped as the web's opened log
+/// groups them, on a rail: rows standing in for the steps while they load, Retry when the read
+/// failed, and Load more for a turn longer than one read.
 struct DaemonSteps: View {
     let ordinal: Int
     let blockId: String
     let links: StepsLinks
+    let thread: ThreadModel
+    var openMessage: ((TranscriptRow) -> Void)? = nil
     var body: some View {
         let steps = links.screen.steps[ordinal]
         let rows = steps?.rows ?? []
+        let header = steps?.header
         Group {
-            if steps?.header?.state == "failed" && rows.isEmpty {
+            if header?.state == "failed" && rows.isEmpty {
                 HStack(spacing: AceTheme.Spacing.sm) {
                     Text("Couldn't load these steps.")
                     Button("Retry") { links.model.moreSteps(ordinal: ordinal) }.accessibilityIdentifier("steps.retry")
                 }
-                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-            } else if rows.isEmpty && steps?.header?.state != "ready" {
-                HStack(spacing: AceTheme.Spacing.sm) { ProgressView().controlSize(.mini); Text("Loading steps…") }
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .accessibilityIdentifier("steps.loading")
+                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
+            } else if rows.isEmpty && header?.state != "ready" {
+                StepsSkeleton()
             } else if rows.isEmpty {
-                Text("No steps recorded.").aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
+                Text("No steps recorded.").aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+                    .foregroundStyle(AceTheme.Colours.subtleForeground)
             } else {
-                ForEach(rows) { row in DaemonStep(row: row) }
-                if steps?.header?.more == true {
-                    Button("Load more steps") { links.model.moreSteps(ordinal: ordinal) }
-                        .disabled(steps?.header?.state == "loading")
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .accessibilityIdentifier("steps.more")
+                let source = LogSource(thread: thread, fetched: Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { $1 }),
+                                       ace: header?.aceSteps, background: header?.background, retried: header?.retried,
+                                       thoughts: header?.thoughts, openMessage: openMessage)
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                    StepRail { WorkLogRows(rows: header?.log ?? rows.map { BlockRow.LogRow(kind: "step", id: $0.id) }, source: source) }
+                    if header?.more == true {
+                        Button("Load more steps") { links.model.moreSteps(ordinal: ordinal) }
+                            .disabled(header?.state == "loading")
+                            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                            .accessibilityIdentifier("steps.more")
+                    }
                 }
             }
         }
@@ -45,17 +54,26 @@ struct DaemonSteps: View {
     }
 }
 
-/// One step read from the daemon: its line, or what the agent said between steps.
-private struct DaemonStep: View {
-    let row: TranscriptRow
+/// Rows standing in for a log's steps while they load.
+private struct StepsSkeleton: View {
     var body: some View {
-        if row.type == "message" {
-            MarkdownView(text: row.text).stepNarration(true)
-        } else if let step = row.step {
-            StepRow(step: step)
-        } else {
-            Text(row.text).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+            ForEach([0.62, 0.48, 0.70], id: \.self) { width in
+                HStack(spacing: AceTheme.Spacing.sm) {
+                    Capsule(style: .continuous).frame(width: 14, height: 14)
+                    GeometryReader { geometry in
+                        Capsule(style: .continuous).frame(width: geometry.size.width * width, height: 12)
+                    }
+                    .frame(height: 12)
+                }
+                .frame(height: 16)
+            }
         }
+        .foregroundStyle(AceTheme.Colours.fill)
+        .padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs).padding(.leading, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading steps")
+        .accessibilityIdentifier("steps.loading")
     }
 }
 

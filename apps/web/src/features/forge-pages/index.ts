@@ -5,5 +5,4 @@ export { PullRequestPage, type PullRequestTab } from "./pull-request-page.tsx";
 export { IssuePage } from "./issue-page.tsx";
 export { NewIssuePage } from "./new-issue-page.tsx";
 export { PullRequestsNavRow } from "./nav-row.tsx";
-export type { PullsSearch } from "./pulls-model.ts";
-export type { IssuesSearch } from "./issues-model.ts";
+export type { PullsSearch, IssuesSearch } from "@ace/ui-core";

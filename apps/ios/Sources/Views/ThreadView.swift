@@ -42,18 +42,21 @@ struct ThreadView: View {
         fallback.generation = nil
         return fallback
     }
-    private var screen: ThreadScreenModel { thread.screen }
+    /// A reopened parent keeps drawing what it last showed (the transcript does the same) until
+    /// its own session is ready, so the composer and its strip don't blank out on the way back.
+    private var drawn: ThreadModel { thread.loaded ? thread : thread.placeholder ?? thread }
+    private var screen: ThreadScreenModel { drawn.screen }
     /// An archived thread opens read-only (from the archive browser) until it's unarchived.
     private var archived: Bool { (model.inbox[thread.id] ?? metadata)?.archivedAt != nil }
     private var queued: Int { screen.queue?.messages.count ?? 0 }
     /// The composer's one strip: a request (a question too, the composer staying under it), the
     /// queue, or what the main agent waits on.
     private var slot: StripSlot {
-        StripSlot.pick(request: !thread.approvals.isEmpty, queue: queued > 0, waiting: screen.activity?.wait != nil, picked: stripPick)
+        StripSlot.pick(request: !drawn.approvals.isEmpty, queue: queued > 0, waiting: screen.activity?.wait != nil, picked: stripPick)
     }
     /// The question on the strip, whose card the composer's words may answer.
     private var asking: ApprovalRow? {
-        guard slot.shown == .request, let request = thread.approvals.first, request.kind == "question" else { return nil }
+        guard slot.shown == .request, let request = drawn.approvals.first, request.kind == "question" else { return nil }
         return request
     }
     private var subtitle: String {
@@ -64,7 +67,7 @@ struct ThreadView: View {
 
     var body: some View {
         ConversationFeed(model: model, thread: thread, acceptedSend: acceptedSend,
-                         links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: screen, epoch: thread.epoch),
+                         links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: thread.screen, epoch: thread.epoch),
                                                 openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { fullMessage = $0 },
                                                 openAgents: { showAgents = true }, threadStatus: { model.inbox[$0]?.status }, live: true))
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { bottomBar }
@@ -140,7 +143,7 @@ struct ThreadView: View {
     /// question included, the queue, or what the main agent waits on). Nothing renders below
     /// the composer.
     @ViewBuilder private var bottomBar: some View {
-        let request = thread.approvals.first
+        let request = drawn.approvals.first
         let slot = slot
         VStack(spacing: AceTheme.Spacing.none) {
             Group {
@@ -186,7 +189,7 @@ struct ThreadView: View {
             }
         }
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: slot)
-        .onChange(of: thread.approvals.first?.id) { _, id in
+        .onChange(of: drawn.approvals.first?.id) { _, id in
             questionDraft = QuestionDraftState()
             if id != nil { stripPick = nil }
         }

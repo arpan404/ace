@@ -21,7 +21,6 @@ struct InboxShelves: Equatable { var snoozed = false; var settled = false }
 struct InboxList: View {
     @Bindable var inbox: MachineInbox
     let includes: (InboxKey) -> Bool
-    let pulls: Bool
     @Binding var shelves: InboxShelves
     let actions: InboxRowActions
     /// Opens New thread; nil while every machine is view-only.
@@ -155,9 +154,6 @@ struct InboxList: View {
             } else {
                 InboxSkeleton()
             }
-        } else if pulls {
-            EmptyState(icon: .gitPullRequest, title: "No pull requests in review")
-                .padding(.top, 120)
         } else {
             EmptyState(icon: .tray, title: "No threads yet") {
                 if let compose { Button("New thread", action: compose).accessibilityIdentifier("inbox.empty.compose") }

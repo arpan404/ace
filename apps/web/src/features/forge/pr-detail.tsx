@@ -13,7 +13,7 @@ import { ChatCircleIcon, GitCommitIcon, ArrowsDownUpIcon } from "@phosphor-icons
 import { useQueryClient, type Query } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import type { ForgePrDetail, ForgePrStatus, ForgeRepository } from "@ace/protocol";
-import { prPollInterval } from "@ace/ui-core";
+import { prPollInterval, type GateKey } from "@ace/ui-core";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -41,7 +41,6 @@ import { PrGatesLine, PrGatesRow } from "./pr-gates-row.tsx";
 import { prShortcut } from "./pr-shortcuts.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
-import type { GateKey } from "./pr-gates.ts";
 
 export type PrTab = "summary" | "timeline" | "code";
 

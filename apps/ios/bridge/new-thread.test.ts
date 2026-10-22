@@ -355,3 +355,30 @@ test("access the provider can't express is never loosened: Send waits with the r
     "Cursor has nothing as strict as Read-only. Choose its access before sending.",
   );
 });
+
+test("a thread started from an issue links that issue", async () => {
+  const daemon = fixture();
+  const compose = await connect(daemon);
+  const agents = await readyAgents(compose);
+  const start = agents.start as { provider: string; model: string } | null;
+  const issue = {
+    repository: { forge: "github", host: "github.com", owner: "acme", name: "ace" },
+    number: 240,
+  };
+  compose.compose({
+    kind: "create",
+    commandId: "draft-issue-0001",
+    workspaceId: "ace",
+    provider: start?.provider,
+    model: start?.model,
+    mode: "local",
+    text: "Work on GitHub issue #240: Sidebar loses its scroll position",
+    issue,
+  });
+  await until(() => latest("admission", "draft-issue-0001"));
+  expect(createPayloads().at(-1)).toMatchObject({
+    type: "thread.create",
+    workspaceId: "ace",
+    issue,
+  });
+});

@@ -21,6 +21,7 @@ import { ComposeActions } from "./compose-actions.ts";
 import { CheckoutFiles } from "./checkout-files.ts";
 import { followFileChanges } from "./checkout-request.ts";
 import { NativeServices, NativeServiceAction } from "./native-services.ts";
+import { ForgeService } from "./forge-service.ts";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { BrowserLive } from "./browser-live.ts";
 import { nativeChunks } from "./thread-attachments.ts";
@@ -182,7 +183,14 @@ async function start(json: string): Promise<void> {
     search.complete(workspaceId, query, limit),
   );
   followFileChanges(client, pump);
-  services = new NativeServices(client, pump, devices, screen, files);
+  services = new NativeServices(
+    client,
+    pump,
+    devices,
+    screen,
+    files,
+    new ForgeService(client, preview, () => host.now()),
+  );
   terminal = new NativeTerminal(client, pump);
   browser = new BrowserLive(client, pump, preview, scheduler.set, {
     agentName: (threadId, agentId) =>
