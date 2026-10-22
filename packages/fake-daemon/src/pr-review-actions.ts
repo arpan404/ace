@@ -7,6 +7,7 @@ import type {
   ForgeReviewAnchor,
   ForgeReviewState,
 } from "@ace/protocol";
+import { validHostedAnchor } from "@ace/forge/review-anchor";
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
 
 type Result = Omit<CommandResult, "commandId">;
@@ -14,35 +15,10 @@ type Thread = PullRequestFixture["detail"]["status"]["reviewThreads"][number];
 type Applied = { fixture: PullRequestFixture; result: Result };
 const refused = (error: string): Result => ({ ok: false, error });
 
-/** Lines a sample patch draws on each side, as GitHub numbers them for comment anchors. */
-function drawnLines(patch: string): { LEFT: Set<number>; RIGHT: Set<number> } {
-  const lines = { LEFT: new Set<number>(), RIGHT: new Set<number>() };
-  let left = 0;
-  let right = 0;
-  for (const text of patch.split("\n")) {
-    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(text);
-    if (hunk) {
-      left = Number(hunk[1]);
-      right = Number(hunk[2]);
-    } else if (text.startsWith("-")) lines.LEFT.add(left++);
-    else if (text.startsWith("+")) lines.RIGHT.add(right++);
-    else if (text.startsWith(" ")) {
-      lines.LEFT.add(left++);
-      lines.RIGHT.add(right++);
-    }
-  }
-  return lines;
-}
+/** Whether GitHub would take a comment at `anchor`: the same check the real backend makes. */
 function anchored(files: readonly ForgeFile[], anchor: ForgeReviewAnchor): boolean {
   const patch = files.find((f) => f.path === anchor.path)?.patch;
-  if (!patch) return false;
-  const lines = drawnLines(patch);
-  const start = anchor.startLine ?? anchor.line;
-  return (
-    start <= anchor.line &&
-    lines[anchor.side].has(anchor.line) &&
-    lines[anchor.startSide ?? anchor.side].has(start)
-  );
+  return !!patch && validHostedAnchor(patch, anchor);
 }
 function nextId(fixture: PullRequestFixture): number {
   const ids = [

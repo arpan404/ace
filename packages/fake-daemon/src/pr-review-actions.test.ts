@@ -118,6 +118,36 @@ test("a line comment opens a thread at its anchor and leaves the drafts pending"
   }
 });
 
+test("a line comment GitHub would refuse is refused here too, as the real backend does", async () => {
+  const f = await connect();
+  try {
+    // Lines 2 and 9 are both in the sample patch, but on different sides.
+    const across = {
+      commit: headSha,
+      path: "docs/service.md",
+      line: 9,
+      side: "RIGHT" as const,
+      startLine: 2,
+      startSide: "LEFT" as const,
+    };
+    expect(
+      await f.send({ kind: "line.comment", headSha, anchor: across, body: "Across" }),
+    ).toMatchObject({ ok: false, error: "forge_conflict" });
+    const threads = (await f.threads()).length;
+    expect(
+      await f.send({
+        kind: "line.comment",
+        headSha,
+        anchor: { ...across, startSide: "RIGHT" },
+        body: "Same side",
+      }),
+    ).toMatchObject({ ok: true });
+    expect(await f.threads()).toHaveLength(threads + 1);
+  } finally {
+    await f.client.close();
+  }
+});
+
 test("hiding and unhiding a comment shows in the next review state", async () => {
   const f = await connect();
   try {

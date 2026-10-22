@@ -16,6 +16,7 @@
     "@ace/client": "workspace:*",
     "@ace/commands": "workspace:*",
     "@ace/core": "workspace:*",
+    "@ace/forge": "workspace:*",
     "@ace/models": "workspace:*",
     "@ace/plugins": "workspace:*",
     "@ace/project-picker": "workspace:*",
