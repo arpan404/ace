@@ -151,6 +151,24 @@ inner_kde() {
 # shellcheck source=wlroots-session.sh
 . "$root/apps/daemon/scripts/linux-e2e/wlroots-session.sh"
 
+# Inside dbus-run-session: Hyprland or Sway (wlroots-session.sh), the test's GTK and Qt apps,
+# then the suite.
+inner_wlroots() { # <hyprland|sway> [vitest args]
+  local which=$1
+  shift
+  "${which}_session" 1600x1000
+  gnome-calculator >"$logs/calculator.log" 2>&1 &
+  gnome-text-editor --standalone >"$logs/text-editor.log" 2>&1 &
+  kcalc >"$logs/kcalc.log" 2>&1 &
+  sleep 4
+  local status=0
+  run_suite "$which" "$@" 2>&1 || status=$?
+  wlroots_windows "$which"
+  kill $(jobs -p) 2>/dev/null || true
+  wait 2>/dev/null || true
+  return $status
+}
+
 case "${1:-}" in
   __kde)
     shift
@@ -160,7 +178,7 @@ case "${1:-}" in
   __hyprland | __sway)
     which=${1#__}
     shift
-    "inner_$which" "$@"
+    inner_wlroots "$which" "$@"
     exit $?
     ;;
   __x11)

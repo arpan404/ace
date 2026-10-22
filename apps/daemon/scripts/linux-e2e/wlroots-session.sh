@@ -1,13 +1,17 @@
-# Sourced by run.sh: the Hyprland (Omarchy) and Sway sessions. Each runs inside run.sh's
-# dbus-run-session with a private runtime dir, so its Wayland socket, portals and PipeWire
-# are its own. Xwayland stays off: these sessions run native Wayland apps only, and an
-# Xwayland server would claim a shared X display number.
+# Sourced by the Linux e2e runners (apps/daemon/scripts/linux-e2e/run.sh and
+# apps/desktop/scripts/linux-e2e.sh): Hyprland (Omarchy's desktop) and Sway sessions. Each
+# runs inside the runner's dbus-run-session with a private runtime dir, so its Wayland socket,
+# portals and PipeWire are its own. Xwayland stays off: these sessions run native Wayland apps
+# only, and an Xwayland server would claim a shared X display number.
 #
-# Hyprland needs a KMS device: run.sh loads vkms (a virtual display; Mesa renders in
+# Hyprland needs a KMS device: hyprland_device loads vkms (a virtual display; Mesa renders in
 # software) and libseat's noop backend opens it without a seat daemon. Sway uses wlroots'
 # headless backend. The screen-sharing chooser is portal-picker.sh (test-only).
+#
+# The sourcing script defines wait_for <seconds> <command...> and exports $logs and $root.
+wlroots_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
-# Waits for a compositor's socket and exposes it as ace-<name> for the session's clients.
+# Waits for a compositor's socket and exposes it as <name> for the session's clients.
 compositor_socket() { compgen -G "$XDG_RUNTIME_DIR/wayland-[0-9]" >/dev/null; }
 wayland_socket() { # <name>
   wait_for 30 compositor_socket
@@ -15,25 +19,6 @@ wayland_socket() { # <name>
   socket=$(compgen -G "$XDG_RUNTIME_DIR/wayland-[0-9]" | head -n 1)
   ln -sf "$socket" "$XDG_RUNTIME_DIR/$1"
   export WAYLAND_DISPLAY=$1
-}
-
-# What every wlroots-style session shares once its compositor is up: the session bus learns
-# the display, then the AT-SPI bus, the desktop's own bar, notifications and idle daemon (as
-# Omarchy starts them; they must never reach an agent), and the test's GTK and Qt apps.
-wlroots_desktop() {
-  dbus-update-activation-environment WAYLAND_DISPLAY XDG_RUNTIME_DIR XDG_SESSION_TYPE \
-    XDG_CURRENT_DESKTOP GDK_BACKEND GSK_RENDERER QT_QPA_PLATFORM XDG_DATA_DIRS XDG_CONFIG_HOME XDG_DATA_HOME \
-    HYPRLAND_INSTANCE_SIGNATURE SWAYSOCK ACE_E2E_PICKER_CHOICE >/dev/null 2>&1 || true
-  /usr/libexec/at-spi-bus-launcher --launch-immediately >"$logs/at-spi.log" 2>&1 &
-  sleep 1
-  waybar >"$logs/waybar.log" 2>&1 &
-  mako >"$logs/mako.log" 2>&1 &
-  hypridle >"$logs/hypridle.log" 2>&1 &
-  sleep 2
-  gnome-calculator >"$logs/calculator.log" 2>&1 &
-  gnome-text-editor --standalone >"$logs/text-editor.log" 2>&1 &
-  kcalc >"$logs/kcalc.log" 2>&1 &
-  sleep 4
 }
 
 wlroots_env() { # <XDG_CURRENT_DESKTOP>
@@ -45,6 +30,21 @@ wlroots_env() { # <XDG_CURRENT_DESKTOP>
   pipewire >"$logs/pipewire.log" 2>&1 &
   sleep 1
   wireplumber >"$logs/wireplumber.log" 2>&1 &
+}
+
+# What every wlroots-style session shares once its compositor is up: the session bus learns
+# the display, then the AT-SPI bus, the desktop's own bar, notifications and idle daemon (as
+# Omarchy starts them; they must never reach an agent or cover the app under test).
+wlroots_shell() {
+  dbus-update-activation-environment WAYLAND_DISPLAY XDG_RUNTIME_DIR XDG_SESSION_TYPE \
+    XDG_CURRENT_DESKTOP GDK_BACKEND GSK_RENDERER QT_QPA_PLATFORM XDG_DATA_DIRS XDG_CONFIG_HOME XDG_DATA_HOME \
+    HYPRLAND_INSTANCE_SIGNATURE SWAYSOCK ACE_E2E_PICKER_CHOICE >/dev/null 2>&1 || true
+  /usr/libexec/at-spi-bus-launcher --launch-immediately >"$logs/at-spi.log" 2>&1 &
+  sleep 1
+  waybar >"$logs/waybar.log" 2>&1 &
+  mako >"$logs/mako.log" 2>&1 &
+  hypridle >"$logs/hypridle.log" 2>&1 &
+  sleep 2
 }
 
 # ACE_E2E_XDPH_PREFIX=<install prefix>: use that xdg-desktop-portal-hyprland build instead of
@@ -62,12 +62,14 @@ hyprland_portal() { # <prefix>
   echo "xdg-desktop-portal-hyprland from $1"
 }
 
-inner_hyprland() {
+# Starts Hyprland on the vkms device (see hyprland_device) with one <width>x<height> monitor
+# at scale 1, then the desktop's shell.
+hyprland_session() { # <size>
   wlroots_env Hyprland
   local config=$XDG_CONFIG_HOME/hypr
   mkdir -p "$config"
   cat >"$config/hyprland.conf" <<EOF
-monitor = , 1600x1000@60, 0x0, 1
+monitor = , $1@60, 0x0, 1
 xwayland {
   enabled = false
 }
@@ -86,7 +88,7 @@ animations {
 EOF
   cat >"$config/xdph.conf" <<EOF
 screencopy {
-  custom_picker_binary = $root/apps/daemon/scripts/linux-e2e/portal-picker.sh
+  custom_picker_binary = $wlroots_dir/portal-picker.sh
 }
 EOF
   printf 'general {\n  lock_cmd = true\n}\n' >"$config/hypridle.conf"
@@ -96,40 +98,39 @@ EOF
   HYPRLAND_INSTANCE_SIGNATURE=$(ls "$XDG_RUNTIME_DIR/hypr")
   export HYPRLAND_INSTANCE_SIGNATURE
   [ -z "${ACE_E2E_XDPH_PREFIX:-}" ] || hyprland_portal "$ACE_E2E_XDPH_PREFIX"
-  wlroots_desktop
-  local status=0
-  run_suite hyprland "$@" 2>&1 || status=$?
-  hyprctl clients >"$logs/clients.txt" 2>&1 || true
-  kill $(jobs -p) 2>/dev/null || true
-  wait 2>/dev/null || true
-  return $status
+  wlroots_shell
 }
 
-inner_sway() {
+# Starts Sway on wlroots' headless backend with one <width>x<height> output at scale 1, then
+# the desktop's shell.
+sway_session() { # <size>
   wlroots_env sway
   local config=$XDG_CONFIG_HOME/sway
   mkdir -p "$config" "$XDG_CONFIG_HOME/xdg-desktop-portal-wlr"
   cat >"$config/config" <<EOF
-output HEADLESS-1 resolution 1600x1000 position 0 0
+output HEADLESS-1 resolution $1 position 0 0
 xwayland disable
 EOF
   cat >"$XDG_CONFIG_HOME/xdg-desktop-portal-wlr/config" <<EOF
 [screencast]
 chooser_type=dmenu
-chooser_cmd=$root/apps/daemon/scripts/linux-e2e/portal-picker.sh wlr
+chooser_cmd=$wlroots_dir/portal-picker.sh wlr
 EOF
   WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 \
     sway -c "$config/config" >"$logs/sway.log" 2>&1 &
   wayland_socket ace-hypr-sway-0
   SWAYSOCK=$(ls "$XDG_RUNTIME_DIR"/sway-ipc.*.sock 2>/dev/null | head -n 1)
   export SWAYSOCK
-  wlroots_desktop
-  local status=0
-  run_suite sway "$@" 2>&1 || status=$?
-  swaymsg -t get_tree >"$logs/tree.json" 2>&1 || true
-  kill $(jobs -p) 2>/dev/null || true
-  wait 2>/dev/null || true
-  return $status
+  wlroots_shell
+}
+
+# What each compositor knows about its windows, for the logs after a run.
+wlroots_windows() { # <hyprland|sway>
+  if [ "$1" = hyprland ]; then
+    hyprctl clients >"$logs/clients.txt" 2>&1 || true
+  else
+    swaymsg -t get_tree >"$logs/tree.json" 2>&1 || true
+  fi
 }
 
 # Outside the session: a KMS device Hyprland may open (vkms, made once, opened to this user).

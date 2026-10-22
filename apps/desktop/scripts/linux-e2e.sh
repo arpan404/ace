@@ -9,13 +9,17 @@
 #   kde-wayland    KDE Plasma 6 on KWin Wayland, through
 #   kde-x11        native/screen-helper-linux/tests/computer/kde-session.sh (which lists what
 #                  KDE needs); KDE is not part of `all`
+#   hyprland       Hyprland (Omarchy's desktop) on a vkms device, and Sway on wlroots'
+#   sway           headless backend, as apps/daemon/scripts/linux-e2e/wlroots-session.sh
+#                  sets them up (it lists what they need); Electron runs Wayland-native.
+#                  Neither is part of `all`
 # The browser scenarios need ace's pinned Chrome for the daemon's headless engine; it is
 # fetched into ACE_E2E_CHROME_HOME. Where the kernel restricts unprivileged user namespaces
 # (Ubuntu 23.10+), Electron's and Chrome's sandboxes need AppArmor profiles: one is loaded for
 # each for the run and removed afterwards (sudo).
 #
 # Usage, from anywhere inside a Linux checkout after `bun install`:
-#   apps/desktop/scripts/linux-e2e.sh [x11|wayland|wayland-auto|all|kde-wayland|kde-x11] [vitest filters]
+#   apps/desktop/scripts/linux-e2e.sh [x11|wayland|wayland-auto|all|kde-wayland|kde-x11|hyprland|sway] [vitest filters]
 # Needs: Xvfb, openbox, xdotool, dbus; for Wayland gnome-shell, pipewire, wireplumber,
 # xdg-desktop-portal-gnome. Environment: ACE_E2E_DISPLAY (X display number, default 52),
 # ACE_E2E_APPARMOR_PROFILE (profile name prefix, default ace-desktop-e2e),
@@ -95,7 +99,30 @@ inner_kde() {
   run_suite "$@"
 }
 
+# shellcheck source=../../daemon/scripts/linux-e2e/wlroots-session.sh
+. "$root/apps/daemon/scripts/linux-e2e/wlroots-session.sh"
+
+# Inside dbus-run-session: Hyprland or Sway with its bar, notifications and idle daemon, then
+# the suite.
+inner_wlroots() { # <hyprland|sway> [vitest filters]
+  local which=$1
+  shift
+  "${which}_session" 3200x2000
+  local status=0
+  run_suite "$@" || status=$?
+  wlroots_windows "$which"
+  kill $(jobs -p) 2>/dev/null || true
+  wait 2>/dev/null || true
+  return $status
+}
+
 case "${1:-}" in
+  __hyprland | __sway)
+    which=${1#__}
+    shift
+    inner_wlroots "$which" "$@"
+    exit $?
+    ;;
   __kde)
     shift
     inner_kde "$@"
@@ -115,7 +142,7 @@ esac
 
 mode=x11
 case "${1:-}" in
-  x11 | wayland | wayland-auto | all | kde-wayland | kde-x11)
+  x11 | wayland | wayland-auto | all | kde-wayland | kde-x11 | hyprland | sway)
     mode=$1
     shift
     ;;
@@ -184,12 +211,13 @@ session() { # <mode> [vitest filters]
       env "${xdg[@]}" dbus-run-session -- "$self" __x11 "$display" "$@" \
         2>>"$logs/session.log" || status=$?
       ;;
-    wayland)
+    wayland | hyprland | sway)
       # Every Electron the tests start runs Wayland-native, never through Xwayland.
       printf '#!/bin/sh\nexec %q --ozone-platform=wayland "$@"\n' "$electron" >"$scratch/electron"
       chmod +x "$scratch/electron"
+      [ "$which" = hyprland ] && hyprland_device
       env "${xdg[@]}" ACE_E2E_ELECTRON_BINARY="$scratch/electron" \
-        dbus-run-session -- "$self" __wayland "$@" 2>>"$logs/session.log" || status=$?
+        dbus-run-session -- "$self" "__$which" "$@" 2>>"$logs/session.log" || status=$?
       ;;
     wayland-auto)
       env "${xdg[@]}" dbus-run-session -- "$self" __wayland "$@" \
