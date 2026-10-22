@@ -232,11 +232,14 @@ test("a return address goes only to the device that started the sign-in, and onl
   const f = await antigravity();
   try {
     const session = await f.start({ signIn: { method: "google" } });
-    const port = listenerPort(await f.until(session, (progress) => progress.returnUrlEntry === true));
+    const port = listenerPort(
+      await f.until(session, (progress) => progress.returnUrlEntry === true),
+    );
     const otherPort = String((Number(port) % 60000) + 1024);
 
-    expect((await f.paste(session, `http://127.0.0.1:${port}/?code=one-time`, "other")).result)
-      .toEqual({ ok: false, error: "forbidden" });
+    expect(
+      (await f.paste(session, `http://127.0.0.1:${port}/?code=one-time`, "other")).result,
+    ).toEqual({ ok: false, error: "forbidden" });
     for (const wrong of [
       `http://127.0.0.1:${otherPort}/?code=one-time`,
       `http://127.0.0.1:${port}/elsewhere?code=one-time`,
@@ -259,11 +262,13 @@ test("a callback the agent rejects doesn't count as signed in", async () => {
   const f = await antigravity();
   try {
     const session = await f.start({ signIn: { method: "google" } });
-    const port = listenerPort(await f.until(session, (progress) => progress.returnUrlEntry === true));
-    // The listener answers the page, but the agent's own authenticate fails.
-    expect((await f.paste(session, `http://127.0.0.1:${port}/?error=access_denied`)).result.ok).toBe(
-      true,
+    const port = listenerPort(
+      await f.until(session, (progress) => progress.returnUrlEntry === true),
     );
+    // The listener answers the page, but the agent's own authenticate fails.
+    expect(
+      (await f.paste(session, `http://127.0.0.1:${port}/?error=access_denied`)).result.ok,
+    ).toBe(true);
     expect(await f.sessions.completed("device", session)).toMatchObject({ state: "failed" });
     expect(f.registry.summary(antigravityIdentity.instanceId, 1000)?.antigravitySignIn).toBe(
       undefined,
@@ -285,11 +290,18 @@ test("Gemini Enterprise on an added account writes only its project and location
       instance: work.id,
       signIn: { method: "enterprise", project: "acme-agents", location: "eu" },
     });
-    const port = listenerPort(await f.until(session, (progress) => progress.returnUrlEntry === true));
-    expect((await f.paste(session, `http://127.0.0.1:${port}/?code=one-time`)).result.ok).toBe(true);
+    const port = listenerPort(
+      await f.until(session, (progress) => progress.returnUrlEntry === true),
+    );
+    expect((await f.paste(session, `http://127.0.0.1:${port}/?code=one-time`)).result.ok).toBe(
+      true,
+    );
     // The agent goes on to its license choice on this computer; the person is told where.
     expect(
-      await f.until(session, (progress) => progress.hint?.includes("choosing your license") ?? false),
+      await f.until(
+        session,
+        (progress) => progress.hint?.includes("choosing your license") ?? false,
+      ),
     ).toBeTruthy();
     expect(await f.sessions.completed("device", session)).toMatchObject({ state: "succeeded" });
 
@@ -304,8 +316,9 @@ test("Gemini Enterprise on an added account writes only its project and location
       project: null,
     });
     // The person's own settings were not touched.
-    await expect(readFile(join(f.home, ".gemini", "antigravity-acp", "settings.json"))).rejects
-      .toThrow();
+    await expect(
+      readFile(join(f.home, ".gemini", "antigravity-acp", "settings.json")),
+    ).rejects.toThrow();
     expect(f.registry.summary(work.id, 1000)).toMatchObject({ antigravitySignIn: "enterprise" });
   } finally {
     await f.close();
@@ -329,7 +342,9 @@ test("Agent Platform signs in without a browser and the account keeps that metho
         project: null,
       },
     ]);
-    expect(f.registry.summary(work.id, 1000)).toMatchObject({ antigravitySignIn: "agent_platform" });
+    expect(f.registry.summary(work.id, 1000)).toMatchObject({
+      antigravitySignIn: "agent_platform",
+    });
   } finally {
     await f.close();
   }

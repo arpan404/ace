@@ -84,6 +84,7 @@ export function fakeProviderAccounts(
         instance: instanceId,
         method: request.method,
         upstream: request.upstream,
+        ...(request.signIn ? { signIn: request.signIn } : {}),
       },
       options.owner,
       options.push,
