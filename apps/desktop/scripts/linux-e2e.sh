@@ -87,7 +87,20 @@ inner_wayland() {
   return $status
 }
 
+# Inside kde-session.sh: on X11 the pointer is parked first, as inner_x11 does.
+inner_kde() {
+  local kind=$1
+  shift
+  [ "$kind" = x11 ] && xdotool mousemove 3199 1999
+  run_suite "$@"
+}
+
 case "${1:-}" in
+  __kde)
+    shift
+    inner_kde "$@"
+    exit $?
+    ;;
   __x11)
     shift
     inner_x11 "$@"
@@ -187,8 +200,7 @@ session() { # <mode> [vitest filters]
       (cd "$root/apps/desktop" && ACE_KDE_DISPLAY=$display ACE_KDE_SIZE=3200x2000 \
         ACE_KDE_LOGS="$logs" ACE_E2E_ELECTRON=1 \
         "$root/native/screen-helper-linux/tests/computer/kde-session.sh" "${which#kde-}" \
-        node "$root/node_modules/vitest/vitest.mjs" run --config vitest.e2e.config.ts "$@") \
-        || status=$?
+        "$self" __kde "${which#kde-}" "$@") || status=$?
       ;;
   esac
   # The document portal mounts itself in the runtime directory.
