@@ -13,7 +13,7 @@
 #
 # Usage, from anywhere inside a Linux checkout after `bun install`:
 #   apps/desktop/scripts/linux-e2e.sh [x11|wayland|wayland-auto|all] [vitest filters]
-# Needs: Xvfb, openbox, dbus; for Wayland gnome-shell, pipewire, wireplumber,
+# Needs: Xvfb, openbox, xdotool, dbus; for Wayland gnome-shell, pipewire, wireplumber,
 # xdg-desktop-portal-gnome. Environment: ACE_E2E_DISPLAY (X display number, default 52),
 # ACE_E2E_APPARMOR_PROFILE (profile name prefix, default ace-desktop-e2e),
 # ACE_E2E_CHROME_HOME (default ~/.cache/ace-desktop-e2e), ACE_E2E_LOGS (session logs, default a
@@ -50,6 +50,11 @@ inner_x11() {
     >/dev/null 2>&1 || true
   openbox >"$logs/openbox.log" 2>&1 &
   sleep 0.5
+  # The tests drive the app's pointer through Chromium, not X. X's own pointer starts in the
+  # middle of the screen, over the app's window: a native page view shown or hidden under it
+  # sends the page enter and leave events there, which close hover menus mid-test. Park it in
+  # the corner, outside every window the tests open.
+  xdotool mousemove 3199 1999
   local status=0
   run_suite "$@" || status=$?
   kill $(jobs -p) 2>/dev/null || true
