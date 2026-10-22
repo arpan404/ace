@@ -1,5 +1,7 @@
 import SwiftUI
 
+/// Install a plugin from a Git repository: the repository, ref and name, then a review of what
+/// it runs before anything is installed.
 struct PluginInstallView: View {
     let model: ClientModel
     @Environment(\.dismiss) private var dismiss
@@ -9,20 +11,26 @@ struct PluginInstallView: View {
     @State private var review: PluginReviewRequest?
     var body: some View {
         NavigationStack {
-            Form {
-                Group {
-                    TextField("Git repository", text: $repository).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    TextField("Branch or commit", text: $ref).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    TextField("Plugin name", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    Button("Review installation") {
+            List {
+                Section {
+                    TextField("Git repository", text: $repository).aceMonospace(SettingsStyle.value, relativeTo: .body)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TextField("Branch or commit", text: $ref).aceMonospace(SettingsStyle.value, relativeTo: .body)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TextField("Plugin name", text: $name).aceFont(SettingsStyle.label, relativeTo: .body)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                } header: { SettingsHeader("Plugin", note: "Review what the plugin runs before installing it on your machine.") }
+                .settingsRow()
+                Section {
+                    Button {
                         review = PluginReviewRequest(operation: ["type": "plugins.prepare", "repository": repository, "ref": ref, "name": name])
-                    }.disabled(repository.isEmpty || ref.isEmpty || name.isEmpty || !model.canOperate)
-                    Text("Review what the plugin runs before installing it on your machine.")
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    } label: { SettingsActionLabel(title: "Review installation") }
+                    .buttonStyle(.plain)
+                    .disabled(repository.isEmpty || ref.isEmpty || name.isEmpty || !model.canOperate)
                 }
-                .insetRowBackground()
+                .settingsRow()
             }
-            .insetGroupedList()
+            .settingsList()
             .navigationTitle("Install plugin").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
             .sheet(item: $review) { PluginReviewView(model: model, request: $0, installed: { dismiss() }) }
@@ -30,6 +38,8 @@ struct PluginInstallView: View {
     }
 }
 
+/// What a plugin install or edit would run, read in full and pinned to one commit and hash
+/// before it can be accepted.
 struct PluginReviewView: View {
     let model: ClientModel
     let request: PluginReviewRequest
@@ -44,32 +54,59 @@ struct PluginReviewView: View {
     var body: some View {
         NavigationStack {
             List {
-                Group {
-                    if let review {
-                        Section {
-                            LabeledContent("Name", value: review.name)
-                            LabeledContent("Version", value: review.version)
-                            LabeledContent("Commit", value: review.commit).textSelection(.enabled)
-                            LabeledContent("Content hash", value: review.hash).textSelection(.enabled)
-                        } header: { InsetHeader("Plugin") }
-                        Section {
-                            ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
-                                Text(pluginReviewText(entry)).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote).textSelection(.enabled)
+                if let review {
+                    Section {
+                        SettingsRow("Name", value: review.name).accessibilityElement(children: .combine)
+                        SettingsRow("Version", value: review.version).accessibilityElement(children: .combine)
+                        pinned("Commit", review.commit)
+                        pinned("Content hash", review.hash)
+                    } header: { SettingsHeader("Plugin") }
+                    .settingsRow()
+                    Section {
+                        ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                            Text(pluginReviewText(entry)).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
+                                .foregroundStyle(AceTheme.Colours.foreground).textSelection(.enabled)
+                        }
+                        if complete && entries.isEmpty {
+                            Text("No hooks or MCP servers declared.").aceFont(SettingsStyle.value, relativeTo: .body)
+                                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        }
+                        if !complete && problem == nil { readingBars }
+                    } header: { SettingsHeader("What it runs") }
+                    .settingsRow()
+                    Section {
+                        Button { accept() } label: {
+                            HStack(spacing: AceTheme.Spacing.sm) {
+                                SettingsActionLabel(title: "Accept and install")
+                                if busy && complete { ProgressView() }
                             }
-                            if complete && entries.isEmpty { Text("No hooks or MCP servers declared.") }
-                        } header: { InsetHeader("What it runs") }
-                        Section {
-                            Button("Accept and install") { accept() }.disabled(!complete || busy || !model.canOperate)
-                                .accessibilityIdentifier("plugins.accept")
-                        } footer: { Text("Only accept code and endpoints you trust. Installation uses the exact commit and hash shown above.") }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!complete || busy || !model.canOperate)
+                        .accessibilityIdentifier("plugins.accept")
+                    } header: {
+                        SettingsHeader("Install", note: "Only accept code and endpoints you trust. Installation uses the exact commit and hash shown above.")
                     }
-                    if busy || (review == nil && problem == nil) { ProgressView("Reading review…") }
-                    ServiceProblem(message: problem)
-                    if problem != nil { Text("Close and retry from Skills. Pending reviews remain available there.") }
+                    .settingsRow()
+                    if let problem {
+                        Section {
+                            ServiceProblem(message: problem)
+                            Text("Close and retry from Skills. Pending reviews remain available there.")
+                                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        }
+                        .settingsRow()
+                    }
+                } else if let problem {
+                    EmptyState(icon: nil, title: "Couldn't read the review",
+                               line: "\(problem) Close and retry from Skills. Pending reviews remain available there.", failed: true)
+                        .accessibilityIdentifier("service.problem")
+                        .padding(.top, AceTheme.Spacing.xxxl).listRowBackground(Color.clear).listRowSeparator(.hidden)
+                } else {
+                    Section { readingBars } header: { SettingsHeader("Plugin") }
+                        .settingsRow()
                 }
-                .insetRowBackground()
             }
-            .insetGroupedList()
+            .settingsList()
             .navigationTitle("Review plugin").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(busy) } }
         }
@@ -78,6 +115,25 @@ struct PluginReviewView: View {
         .onDisappear {
             if let review, !accepted { Task { _ = try? await model.plugin(["type": "plugins.cancel", "id": review.id], expecting: "plugins.cancelled") } }
         }
+    }
+    /// A commit or hash: mono, cut in the middle so both ends stay readable, and selectable.
+    private func pinned(_ title: String, _ value: String) -> some View {
+        SettingsRow(title: title) {
+            Text(value).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
+                .foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1).truncationMode(.middle)
+                .textSelection(.enabled)
+        }
+        .accessibilityElement(children: .combine)
+    }
+    /// The review while it's read: a few skeleton lines.
+    private var readingBars: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+            ForEach([200, 240, 160], id: \.self) { width in
+                Capsule().fill(AceTheme.Colours.fill).frame(width: CGFloat(width), height: 10)
+            }
+        }
+        .padding(.vertical, AceTheme.Spacing.xs)
+        .accessibilityElement(children: .ignore).accessibilityLabel("Reading review")
     }
     private func prepare() async {
         busy = true
@@ -124,3 +180,4 @@ struct PluginReviewView: View {
         }
     }
 }
+

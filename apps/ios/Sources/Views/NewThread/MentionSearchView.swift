@@ -42,7 +42,7 @@ struct FilePathRow: View {
     var body: some View {
         let parts = path.split(separator: "/", omittingEmptySubsequences: true)
         HStack(spacing: AceTheme.Spacing.md) {
-            Image(systemName: folder ? "folder" : "doc.text").foregroundStyle(AceTheme.Colours.decoration)
+            AceIcon(folder ? .folder : .fileText, size: 16).foregroundStyle(AceTheme.Colours.faintForeground)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(String(parts.last ?? Substring(path))).aceMonospace(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
                 if parts.count > 1 {

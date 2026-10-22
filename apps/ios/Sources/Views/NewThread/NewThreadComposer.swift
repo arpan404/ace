@@ -1,67 +1,8 @@
 import SwiftUI
 
 @MainActor enum NewThreadStyle {
-    static let hero = AceTheme.TypeStyle(size: 28, lineHeight: 34, weight: 500, tracking: -0.56)
-    static let chip = AceTheme.TypeStyle(size: 14.5, lineHeight: 19, weight: 500, tracking: 0)
-    /// The quiet ⌄ after the hero question that says it opens a picker.
-    static var disclosure: Text {
-        Text(" \(Image(systemName: "chevron.down"))").font(.title3.weight(.semibold)).foregroundStyle(AceTheme.Colours.mutedForeground)
-    }
-}
-
-/// "⑂ New worktree ⌄" and "From main ⌄": where the thread works, as chips over the composer.
-struct NewThreadWorktreeChips: View {
-    let drafts: NewThreadDraftModel
-    let branches: (state: String, bases: [ComposeBase], start: ComposeBaseRef?, noWorktree: String?)?
-    private var draft: NewThreadDraft { drafts.draft }
-    private var worktree: Bool { draft.worktree && branches?.noWorktree == nil }
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: AceTheme.Spacing.sm) {
-                Menu {
-                    Picker("Where it works", selection: Binding(get: { worktree }, set: { on in drafts.edit { $0.worktree = on } })) {
-                        Label("Local checkout", systemImage: "folder").tag(false)
-                        Label("New worktree", systemImage: "arrow.triangle.branch").tag(true)
-                    }
-                } label: {
-                    chip(worktree ? "New worktree" : "Local checkout", systemImage: worktree ? "arrow.triangle.branch" : "folder")
-                }
-                .disabled(branches?.noWorktree != nil || branches?.state != "ready")
-                .accessibilityHint(branches?.noWorktree ?? "")
-                .accessibilityIdentifier("newThread.worktree")
-                if worktree, let branches, !branches.bases.isEmpty {
-                    let selected = draft.base ?? branches.start
-                    Menu {
-                        Picker("Starts from", selection: Binding<ComposeBaseRef?>(get: { selected }, set: { base in drafts.edit { $0.base = base } })) {
-                            ForEach(branches.bases) { base in
-                                let tag: ComposeBaseRef? = base.base
-                                Text(base.title).tag(tag)
-                            }
-                        }
-                    } label: {
-                        chip("From \(branches.bases.first { $0.base == selected }?.label ?? "default")", systemImage: nil)
-                    }
-                    .accessibilityIdentifier("newThread.base")
-                }
-            }
-            .padding(.horizontal, AceTheme.Spacing.xxs)
-        }
-        .scrollClipDisabled()
-    }
-    private func chip(_ title: String, systemImage: String?) -> some View {
-        HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
-            if let systemImage { Image(systemName: systemImage).imageScale(.small) }
-            Text(title).lineLimit(1)
-            Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.mutedForeground)
-        }
-        .aceFont(NewThreadStyle.chip, relativeTo: .subheadline)
-        .foregroundStyle(AceTheme.Colours.foreground)
-        .padding(.horizontal, AceTheme.Spacing.md + AceTheme.Spacing.xxs)
-        .frame(minHeight: 38)
-        .background(AceTheme.Colours.fill, in: Capsule())
-        .contentShape(Capsule())
-    }
+    /// "What should we build in ace?": large, regular, muted, with the project at full ink.
+    static let hero = AceTheme.TypeStyle(size: 26, lineHeight: 32, weight: 400, tracking: -0.4)
 }
 
 /// The first message: its files, the words, then + · provider mark and model ⌄ · send.
@@ -77,6 +18,7 @@ struct NewThreadComposer: View {
     let chooseModel: () -> Void
     let send: () -> Void
     private var draft: NewThreadDraft { drafts.draft }
+    private var effort: String? { choice.model?.efforts.first { $0.id == choice.effort }?.label }
 
     var body: some View {
         ComposerSurface {
@@ -107,12 +49,12 @@ struct NewThreadComposer: View {
                     drafts.picked(staged, workspaceId: project)
                     client.composeAttach(staged, workspaceId: project)
                 }, problem: $attachProblem, identifier: "newThread.attach", staging: drafts.staging) {
-                    Image(systemName: "plus").font(.title3).foregroundStyle(AceTheme.Colours.foreground)
+                    AceIcon(.plus, size: 20).foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
                 .disabled(draft.projectId == nil || client?.canOperate != true)
                 Button(action: chooseModel) { modelLabel }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Model").accessibilityValue(choice.model?.label ?? "Choose model")
+                    .accessibilityLabel("Model").accessibilityValue([choice.model?.label ?? "Choose model", effort].compactMap { $0 }.joined(separator: ", "))
                     .accessibilityIdentifier("newThread.agent")
                 Spacer(minLength: AceTheme.Spacing.sm)
                 ComposerActionButton(saving: sending, disabled: blocker != nil || sending, label: "Start thread", action: send)
@@ -121,13 +63,19 @@ struct NewThreadComposer: View {
             .padding(.horizontal, AceTheme.Spacing.sm)
         }
     }
+    /// "✳ Opus 5.5 · Med ⌄": the provider's mark, the model at full ink and the effort muted.
     private var modelLabel: some View {
         HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
             if let agent = choice.agent { ProviderMark(provider: agent.provider, size: 16) }
-            if agentsState != "ready" && agentsState != "failed" { ProgressView().controlSize(.mini) }
-            Text(choice.model?.label ?? (agentsState == "failed" ? "Couldn't read agents" : "Choose model"))
-                .lineLimit(1).truncationMode(.middle)
-            Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+            if agentsState != "ready" && agentsState != "failed" {
+                Capsule().fill(AceTheme.Colours.fill).frame(width: 64, height: 10).accessibilityHidden(true)
+            } else {
+                Text(choice.model?.label ?? (agentsState == "failed" ? "Couldn't read agents" : "Choose model"))
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            if let effort { Text("· \(effort)").lineLimit(1) }
+            AceIcon(.caretDown, size: 11).foregroundStyle(AceTheme.Colours.subtleForeground)
         }
         .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -154,15 +102,15 @@ struct NewThreadInstructionsView: View {
                 .accessibilityIdentifier("newThread.profile")
                 TextField("Custom instructions", text: Binding(get: { draft.instructions ?? "" }, set: { value in drafts.edit { $0.instructions = value } }), axis: .vertical)
                     .lineLimit(2...8).accessibilityIdentifier("newThread.instructions")
-            } footer: { Text("Included in the thread's first message.") }
-            .insetRowBackground()
+            } header: { SettingsHeader("Instructions", note: "Included in the thread's first message.") }
+            .settingsRow()
             Section {
-                NavigationLink { TaskProfilesView(store: TaskProfileStore(defaults: .standard)) } label: { InsetRow("Manage profiles", systemImage: "person.text.rectangle") }
+                NavigationLink { TaskProfilesView(store: TaskProfileStore(defaults: .standard)) } label: { SettingsRow("Manage profiles") }
                     .accessibilityIdentifier("newThread.profiles")
             }
-            .insetRowBackground()
+            .settingsRow()
         }
-        .insetGroupedList()
+        .settingsList()
         .onAppear(perform: reloadProfiles)
         .navigationTitle("Instructions").navigationBarTitleDisplayMode(.inline)
     }

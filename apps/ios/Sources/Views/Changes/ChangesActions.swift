@@ -63,7 +63,7 @@ private struct ChangesActions: ViewModifier {
     /// The next step itself, one tap away.
     private func stepButton(_ step: ChangesSummary.Step) -> some View {
         Button { start(step) } label: {
-            if running { ProgressView() } else { Image(systemName: icon(step)) }
+            if running { ProgressView() } else { Text(label(step)).fontWeight(.medium) }
         }
         .disabled(running)
         .accessibilityLabel(label(step))
@@ -74,7 +74,7 @@ private struct ChangesActions: ViewModifier {
         Menu {
             if let step, step.kind != "none", model.canOperate {
                 Section(step.blocked ?? step.detail) {
-                    Button { start(step) } label: { Label(label(step), systemImage: icon(step)) }
+                    Button { start(step) } label: { Label(label(step), ace: icon(step)) }
                         .disabled(step.blocked != nil || running)
                     if step.kind == "merge" {
                         Picker("Merge method", selection: Binding(get: { method?.method ?? "" }, set: { savedMethod = $0 })) {
@@ -82,17 +82,17 @@ private struct ChangesActions: ViewModifier {
                         }
                         .pickerStyle(.menu)
                         .accessibilityIdentifier("changes.mergeOptions")
-                        Button("Request review", systemImage: "person.badge.plus") { reviewers = ""; requestingReview = true }
+                        Button("Request review", ace: .userPlus) { reviewers = ""; requestingReview = true }
                     }
                 }
             }
-            if let url = step?.pr?.url.flatMap(URL.init(string:)) { Link(destination: url) { Label("Open on GitHub", systemImage: "safari") } }
+            if let url = step?.pr?.url.flatMap(URL.init(string:)) { Link(destination: url) { Label("Open on GitHub", ace: .compass) } }
             Section {
-                Toggle(isOn: $wrap) { Label("Wrap lines", systemImage: "text.word.spacing") }
+                Toggle(isOn: $wrap) { Label("Wrap lines", ace: .textAlignJustify) }
                     .accessibilityIdentifier("diff.wrap")
-                Button("Refresh", systemImage: "arrow.clockwise") { model.sheet(["kind": "changes.refresh"]) }
+                Button("Refresh", ace: .arrowClockwise) { model.sheet(["kind": "changes.refresh"]) }
             }
-        } label: { Image(systemName: "ellipsis") }
+        } label: { AceIcon(.dotsThree, size: 18) }
         .accessibilityLabel("Change actions").accessibilityIdentifier("changes.menu")
     }
 
@@ -117,12 +117,12 @@ private struct ChangesActions: ViewModifier {
             .accessibilityIdentifier(outcome != nil ? "changes.outcome" : model.canOperate ? "changes.running" : "changes.readOnly")
         }
     }
-    private func icon(_ step: ChangesSummary.Step) -> String {
+    private func icon(_ step: ChangesSummary.Step) -> AceIcon.Name {
         switch step.kind {
-        case "commit": "checkmark.circle"
-        case "push": "arrow.up.circle"
-        case "merge": "arrow.triangle.merge"
-        default: "arrow.triangle.branch"
+        case "commit": .checkCircle
+        case "push": .arrowCircleUp
+        case "merge": .gitMerge
+        default: .gitBranch
         }
     }
     private func start(_ step: ChangesSummary.Step) {

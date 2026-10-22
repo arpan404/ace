@@ -1,5 +1,7 @@
 import SwiftUI
 
+/// One plugin skill, command or agent: what it does, which coding agents may use it, and its
+/// source, edited through the same review as an install.
 struct SkillSourceView: View {
     let model: ClientModel
     let component: PluginComponentRow
@@ -14,39 +16,77 @@ struct SkillSourceView: View {
     @State private var review: PluginReviewRequest?
     var body: some View {
         List {
-            Group {
+            if !component.description.isEmpty {
                 Section {
-                    Text(component.description)
-                    if component.kind == "skill", model.canOperate {
-                        Toggle("Enabled for new sessions", isOn: Binding(get: { enabled ?? component.skillAvailability?.enabled ?? component.enabled }, set: { on in availability(enabled: on, providers: providers ?? component.skillAvailability?.providers ?? component.providers) }))
-                        ForEach(ProviderLabels.ids, id: \.self) { provider in
-                            Toggle(provider.capitalized, isOn: Binding(get: { (providers ?? component.skillAvailability?.providers ?? component.providers).contains(provider) }, set: { on in
-                                var selected = providers ?? component.skillAvailability?.providers ?? component.providers
-                                selected.removeAll { $0 == provider }; if on { selected.append(provider) }
-                                availability(enabled: enabled ?? component.skillAvailability?.enabled ?? component.enabled, providers: selected)
-                            }))
+                    Text(component.description).aceFont(SettingsStyle.value, relativeTo: .body)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                }
+                .settingsRow()
+            }
+            if component.kind == "skill", model.canOperate {
+                Section {
+                    Toggle(isOn: Binding(get: { enabled ?? component.skillAvailability?.enabled ?? component.enabled }, set: { on in availability(enabled: on, providers: providers ?? component.skillAvailability?.providers ?? component.providers) })) {
+                        SettingsRow(title: "Enabled for new sessions") { EmptyView() }
+                    }
+                    ForEach(ProviderLabels.ids, id: \.self) { provider in
+                        Toggle(isOn: Binding(get: { (providers ?? component.skillAvailability?.providers ?? component.providers).contains(provider) }, set: { on in
+                            var selected = providers ?? component.skillAvailability?.providers ?? component.providers
+                            selected.removeAll { $0 == provider }; if on { selected.append(provider) }
+                            availability(enabled: enabled ?? component.skillAvailability?.enabled ?? component.enabled, providers: selected)
+                        })) { SettingsRow(title: provider.capitalized) { EmptyView() } }
+                    }
+                } header: { SettingsHeader("Availability", note: "Which coding agents can use this skill in new sessions.") }
+                .settingsRow()
+            }
+            if let problem, hash == nil {
+                EmptyState(icon: nil, title: "Couldn't read the source", line: problem, failed: true) {
+                    Button("Try again") { Task { await read() } }
+                }
+                .accessibilityIdentifier("service.problem")
+                .padding(.top, AceTheme.Spacing.xxxl).listRowBackground(Color.clear).listRowSeparator(.hidden)
+            } else if let problem {
+                Section {
+                    ServiceProblem(message: problem)
+                    Button { Task { await read() } } label: { SettingsActionLabel(title: "Try again") }.buttonStyle(.plain)
+                }
+                .settingsRow()
+            }
+            if loading && hash == nil {
+                Section {
+                    VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+                        ForEach([220, 260, 180, 240], id: \.self) { width in
+                            Capsule().fill(AceTheme.Colours.fill).frame(width: CGFloat(width), height: 10)
                         }
                     }
-                }
-                if loading { ProgressView("Reading source…") }
-                ServiceProblem(message: problem)
-                if problem != nil { Button("Retry") { Task { await read() } } }
-                if hash != nil {
+                    .padding(.vertical, AceTheme.Spacing.xs)
+                    .accessibilityElement(children: .ignore).accessibilityLabel("Reading source")
+                } header: { SettingsHeader("Source") }
+                .settingsRow()
+            }
+            if hash != nil {
+                Section {
                     if editing {
-                        TextEditor(text: $source).frame(minHeight: AceTheme.Dimensions.touchTarget * 5).scrollContentBackground(.hidden)
+                        TextEditor(text: $source).frame(minHeight: AceTheme.Dimensions.touchTarget * 5)
                             .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
-                        Button("Review changes") {
+                            .scrollContentBackground(.hidden)
+                        Button {
                             if let hash { review = PluginReviewRequest(operation: ["type": "plugins.edit", "name": component.plugin, "path": component.path, "expectedHash": hash, "text": source]) }
-                        }.disabled(source == original || source.utf16.count > 262144)
+                        } label: { SettingsActionLabel(title: "Review changes") }
+                        .buttonStyle(.plain)
+                        .disabled(source == original || source.utf16.count > 262144)
                     } else {
                         MarkdownView(text: source)
-                        if model.canOperate { Button("Edit source") { editing = true }.disabled(source.utf16.count > 262144) }
+                        if model.canOperate {
+                            Button { editing = true } label: { SettingsActionLabel(title: "Edit source") }
+                                .buttonStyle(.plain)
+                                .disabled(source.utf16.count > 262144)
+                        }
                     }
-                }
+                } header: { SettingsHeader("Source") }
+                .settingsRow()
             }
-            .insetRowBackground()
         }
-        .insetGroupedList()
+        .settingsList()
         .navigationTitle(component.title ?? component.name).navigationBarTitleDisplayMode(.inline)
         .task { await read() }
         .sheet(item: $review) { PluginReviewView(model: model, request: $0, installed: { editing = false; Task { await read() } }) }
@@ -80,3 +120,4 @@ struct SkillSourceView: View {
         } catch { if !Task.isCancelled { problem = error.localizedDescription } }
     }
 }
+

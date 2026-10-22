@@ -77,20 +77,25 @@ struct FileScreen: View {
         if let content {
             switch content.kind {
             case "missing":
-                EmptyState(icon: .fileDashed, title: "Not in the checkout",
-                           line: "Nothing is at \(path) in this thread's checkout. It may have been moved or deleted.") {
+                ContentUnavailableView {
+                    Label("Not in the checkout", ace: .fileDashed)
+                } description: {
+                    Text("Nothing is at \(path) in this thread's checkout. It may have been moved or deleted.")
+                } actions: {
                     if hasChanges { Button("Show changes") { showChanges = true } }
                 }
             case "large":
-                EmptyState(icon: .fileText, title: "Too large to show here",
-                           line: "\(name) is \(size(content.size)). Files over 2 MB open as a download.") {
-                    Button("Share") { shareFile() }
-                }
+                ContentUnavailableView {
+                    Label("Too large to show here", ace: .fileText)
+                } description: {
+                    Text("\(name) is \(size(content.size)). Files over 2 MB open as a download.")
+                } actions: { Button("Share") { shareFile() } }
             case "binary":
-                EmptyState(icon: .file, title: "Binary file",
-                           line: "\(name) (\(size(content.size))) isn't text, so there's nothing to read here.") {
-                    Button("Share") { shareFile() }
-                }
+                ContentUnavailableView {
+                    Label("Binary file", ace: .file)
+                } description: {
+                    Text("\(name) (\(size(content.size))) isn't text, so there's nothing to read here.")
+                } actions: { Button("Share") { shareFile() } }
             case "image":
                 ScrollView {
                     VStack(spacing: AceTheme.Spacing.md) {
@@ -105,7 +110,9 @@ struct FileScreen: View {
                 textBody(content)
             }
         } else if let failure {
-            EmptyState(icon: .warning, title: "Couldn't open \(name)", line: failure) {
+            ContentUnavailableView {
+                Label("Couldn't open \(name)", ace: .warning)
+            } description: { Text(failure) } actions: {
                 Button("Try again") { self.failure = nil; Task { await load() } }
             }
         } else {
@@ -116,7 +123,7 @@ struct FileScreen: View {
     @ViewBuilder private func textBody(_ content: FileContent) -> some View {
         let text = content.text ?? ""
         if text.isEmpty && !editing {
-            EmptyState(icon: .fileText, title: "Empty file", line: "\(name) has no content.")
+            ContentUnavailableView("Empty file", systemImage: "doc.text", description: Text("\(name) has no content."))
         } else if markdownPreview {
             ScrollView {
                 MarkdownView(text: text).padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.lg)

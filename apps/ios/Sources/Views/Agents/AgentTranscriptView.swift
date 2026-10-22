@@ -24,7 +24,7 @@ struct AgentTranscriptView: View {
                     if item.type == "message" {
                         Text(item.text).aceFont(AceTheme.Typography.body, relativeTo: .body).textSelection(.enabled)
                     } else {
-                        Label(item.text, systemImage: item.type == "tool_call" ? "wrench.and.screwdriver" : "text.alignleft")
+                        Label(item.text, ace: item.type == "tool_call" ? .wrench : .textAlignLeft)
                             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(3)
                     }
                     if item.truncated {
