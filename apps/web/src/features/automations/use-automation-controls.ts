@@ -159,7 +159,7 @@ export function useAutomationControls(
           release();
           if (!liveRef.current) return;
           void navigate({
-            to: "/automations/$automationId/edit",
+            to: "/automations/$automationId",
             params: { automationId: copy.id },
           });
         },

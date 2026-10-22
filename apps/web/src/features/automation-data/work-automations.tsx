@@ -189,8 +189,9 @@ function AutomationLine(props: { entry: AutomationEntry; onClose(): void }) {
           size="sm"
           onClick={() => {
             props.onClose();
+            // The automation edits in place, on its own page.
             void navigate({
-              to: "/automations/$automationId/edit",
+              to: "/automations/$automationId",
               params: { automationId: automation.id },
             });
           }}

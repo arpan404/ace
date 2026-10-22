@@ -162,7 +162,7 @@ test("the header says when it runs next, or that automations are off on this mac
   const { app } = await open("/automations/auto-dependency-audit");
   await heading("Nightly dependency audit");
   await waitFor(() =>
-    expect(main().getByText(/^Every day at 2:00 AM/).parentElement?.textContent).toMatch(
+    expect(main().getByRole("switch", { name: "Enabled" }).parentElement?.textContent).toMatch(
       /Tonight|Today|Tomorrow|Any moment/,
     ),
   );
@@ -499,12 +499,13 @@ test("a model picked in the chip is saved as the provider's model id", async () 
   expect(saved).toMatchObject({ provider: "codex", model: "gpt-5-codex" });
 }, 20_000);
 
-test("Edit when opens the same screen filled in, and a new schedule reads everywhere", async () => {
+test("Edit when changes the schedule in place, and the new schedule reads everywhere", async () => {
   const { app, sidebar } = await open("/automations/auto-flaky-triage");
   await heading("Flaky test triage");
   await menu("Edit when");
-  expect((await prompt()).textContent).toContain("Run the test suite three times");
-  await when();
+  await screen.findByRole("dialog", { name: "When it runs" });
+  // Still the conversation, with its runs: nothing navigated away.
+  expect(screen.getByRole("group", { name: "Prompt" })).toBeTruthy();
   await choose("Repeat", "Weekly");
   await choose("Day", "Monday");
   await userEvent.click(screen.getByRole("button", { name: /^At: / }));
@@ -513,9 +514,7 @@ test("Edit when opens the same screen filled in, and a new schedule reads everyw
     "9:07 PM{Enter}",
   );
   await userEvent.keyboard("{Escape}");
-  await userEvent.type(await prompt(), "{Enter}");
-  await heading("Flaky test triage");
-  expect(main().getByText(/^Mondays at 9:07 PM/)).toBeTruthy();
+  expect(await main().findByText(/^Mondays at 9:07 PM/)).toBeTruthy();
   expect((await sidebar.findByRole("link", { name: /Flaky test triage/ })).textContent).toContain(
     "Mondays",
   );
@@ -524,27 +523,52 @@ test("Edit when opens the same screen filled in, and a new schedule reads everyw
   });
 });
 
-test("an edit over a stale copy reports the conflict instead of overwriting", async () => {
-  const { app } = await open("/automations/auto-flaky-triage/edit");
-  await prompt();
+test("the prompt edits in its own bubble and saves", async () => {
+  const { app } = await open("/automations/auto-flaky-triage");
+  await heading("Flaky test triage");
+  await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+  const box = screen.getByRole("textbox", { name: "Prompt" });
+  await userEvent.type(box, " Also on Windows.");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect((await screen.findByRole("group", { name: "Prompt" })).textContent).toMatch(
+    /Also on Windows\.$/,
+  );
+  await waitFor(async () =>
+    expect((await stored(app, "auto-flaky-triage"))?.prompt).toMatch(/Also on Windows\.$/),
+  );
+});
+
+test("Escape puts the prompt back as it was", async () => {
+  await open("/automations/auto-flaky-triage");
+  await heading("Flaky test triage");
+  await menu("Edit prompt");
+  await userEvent.type(screen.getByRole("textbox", { name: "Prompt" }), " Never mind.{Escape}");
+  expect((await screen.findByRole("group", { name: "Prompt" })).textContent).not.toContain(
+    "Never mind.",
+  );
+});
+
+test("a prompt edit over a stale copy reports the conflict instead of overwriting", async () => {
+  const { app } = await open("/automations/auto-flaky-triage");
+  await heading("Flaky test triage");
   const automation = await stored(app, "auto-flaky-triage");
   if (!automation) throw new Error("Missing automation");
+  await userEvent.click(screen.getByRole("button", { name: "Edit" }));
   await app.client.request({
     type: "automation.put",
     automation: { ...automation, prompt: `${automation.prompt} Elsewhere.` },
   });
-  await userEvent.type(await prompt(), " Also on Windows.{Enter}");
-  expect(await screen.findAllByText(/changed elsewhere.*Reload/i)).not.toHaveLength(0);
+  await userEvent.type(screen.getByRole("textbox", { name: "Prompt" }), " Also on Windows.");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findAllByText(/changed elsewhere/i)).not.toHaveLength(0);
   expect((await stored(app, "auto-flaky-triage"))?.prompt).toContain("Elsewhere.");
 });
 
-test("leaving an edit with unsaved changes asks first", async () => {
-  const { sidebar } = await open("/automations/auto-flaky-triage/edit");
-  await userEvent.type(await prompt(), " Also on Windows.");
-  await userEvent.click(sidebar.getByRole("link", { name: /Changelog draft/ }));
-  expect(
-    await screen.findByRole("dialog", { name: "Discard changes to this automation?" }),
-  ).toBeTruthy();
+test("an old link to the edit page lands on the automation", async () => {
+  await open("/automations/auto-flaky-triage/edit");
+  await heading("Flaky test triage");
+  expect(await screen.findByRole("group", { name: "Prompt" })).toBeTruthy();
+  expect(screen.queryByText(/What should run on its own/)).toBeNull();
 });
 
 test("renaming from the menu saves the new name", async () => {
@@ -699,7 +723,8 @@ test("duplicating opens a paused copy without running it", async () => {
   const { app } = await open("/automations/auto-dependency-audit");
   await heading("Nightly dependency audit");
   await menu("Duplicate");
-  expect((await prompt()).textContent).toContain("Audit dependencies");
+  await heading("Nightly dependency audit copy");
+  expect(main().getByRole("group", { name: "Prompt" }).textContent).toContain("Audit dependencies");
   const copy = (await app.client.request({ type: "automation.list" })).automations?.find(
     (entry) => entry.title === "Nightly dependency audit copy",
   );

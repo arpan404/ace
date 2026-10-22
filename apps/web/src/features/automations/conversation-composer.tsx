@@ -1,5 +1,5 @@
 import type { AccessMode, Automation } from "@ace/protocol";
-import { useId, useMemo } from "react";
+import { useId, useMemo, type ReactNode } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Composer } from "@/features/thread/index.ts";
 import { AutomationAccess, AutomationModelChip } from "./run-settings.tsx";
@@ -17,6 +17,8 @@ export function ConversationComposer(props: {
   automation: Automation;
   controls: AutomationControls;
   runBlocked: string | undefined;
+  /** The strip above the composer: when it runs and its worktree, for the person's own. */
+  environment?: ReactNode;
   settings: { onModel(fields: ModelFields): void; onAccess(access: AccessMode): void } | undefined;
 }) {
   const { automation, controls, settings } = props;
@@ -50,6 +52,7 @@ export function ConversationComposer(props: {
         placeholder="Add a note and run it now"
         shortPlaceholder="Run it now"
         sendBlocked={blocked ? { reason: blocked, describedBy: reasonId } : undefined}
+        environment={props.environment || undefined}
         onSubmit={async (draft) => {
           if (draft.files.local.length) {
             toast.error({ title: "A run takes a written note only. Remove the files to send it." });

@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
@@ -25,19 +24,17 @@ export function ConversationStatus(props: {
   entry: AutomationEntry;
   controls: AutomationControls;
   runBlocked: string | undefined;
+  /** Opens when it runs, in place in the composer's strip. */
+  onEditWhen(): void;
 }) {
   const { entry, controls } = props;
   const now = useNow();
   const own = controls.source === "person";
   const { automation } = entry;
   const editWhen = own && (
-    <Link
-      to="/automations/$automationId/edit"
-      params={{ automationId: automation.id }}
-      className="rounded-xs font-medium text-foreground focus-ring hover:underline"
-    >
+    <TextAction strong onClick={props.onEditWhen}>
       Edit when
-    </Link>
+    </TextAction>
   );
   return (
     <>
