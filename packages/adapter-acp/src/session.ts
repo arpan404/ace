@@ -298,8 +298,12 @@ class AcpSession implements ProviderSession {
     this.configuration.setup(session, mcpTransport);
     if (this.ctx.permissionMode) await this.setMode(this.ctx.permissionMode);
     if (this.ctx.model) await this.setModel(this.ctx.model);
+    // Effort follows the model: the model's own thinking levels arrive with its selection.
+    const effort = this.ctx.options?.["effort"];
+    if (typeof effort === "string" && this.configuration.selectors.effort?.values.includes(effort))
+      await this.select("effort", effort);
   }
-  async select(kind: "model" | "mode", value: string): Promise<void> {
+  async select(kind: "model" | "mode" | "effort", value: string): Promise<void> {
     if (
       this.closed ||
       this.active ||

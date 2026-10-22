@@ -235,6 +235,22 @@ test("a start refused for its model after the worktree was made says why, not th
   expect(within(main).queryByRole("region", { name: "Couldn't create the worktree" })).toBeNull();
 }, 30_000);
 
+test("a start refused before its worktree began says why and stops saying a worktree is being made", async () => {
+  const made = app();
+  made.daemon.refuseCommands("launch_options_unsupported", "thread.create");
+  await made.open("/new?project=relay");
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Message" }, { timeout: 10_000 }),
+    "Start at high effort{Enter}",
+  );
+  const main = screen.getByRole("main");
+  expect(await within(main).findByText("Not sent")).toBeTruthy();
+  expect(within(main).getByText(/can.t start with this effort/)).toBeTruthy();
+  expect(within(main).queryByText(/couldn't complete that action/)).toBeNull();
+  expect(within(main).queryByText("Creating worktree…")).toBeNull();
+  expect(screen.queryByRole("region", { name: "Creating a worktree" })).toBeNull();
+}, 30_000);
+
 test("a worktree refused without its own words still names the worktree", async () => {
   const made = app();
   made.daemon.refuseCommands("workspace_unavailable", "thread.create");

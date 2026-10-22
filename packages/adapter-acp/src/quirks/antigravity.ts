@@ -52,6 +52,12 @@ export const antigravityQuirks: AcpQuirks = {
   },
   capabilities(version) {
     const supported = admitsVersion("antigravity", version);
-    return { ...baseCapabilities, resume: supported, imageInput: supported };
+    return {
+      ...baseCapabilities,
+      resume: supported,
+      imageInput: supported,
+      // Applied at session start through the agent's thinking-level option.
+      launchOptions: supported ? ["effort"] : [],
+    };
   },
 };
