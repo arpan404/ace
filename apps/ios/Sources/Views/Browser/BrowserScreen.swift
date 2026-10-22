@@ -106,7 +106,7 @@ struct BrowserScreen: View {
                         Text(tooltip.text)
                             .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                             .padding(AceTheme.Spacing.xs)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: AceTheme.Radii.button))
+                            .background(.regularMaterial, in: AceShape.capsule)
                             .fixedSize()
                             .position(x: min(max(box.minX, 80), proxy.size.width - 80), y: box.minY + 24)
                             .allowsHitTesting(false)
