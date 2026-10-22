@@ -40,13 +40,22 @@ const patch = (adds: number, dels: number) =>
     ...Array.from({ length: adds }, (_, i) => `+new line ${i + 1}`),
     " // unchanged context",
   ].join("\n");
-export const file = (path: string, additions: number, deletions: number, status = "modified") =>
+/** A changed file whose sample patch draws at most 12 added and 8 removed lines, or all of them. */
+export const file = (
+  path: string,
+  additions: number,
+  deletions: number,
+  status = "modified",
+  whole = false,
+) =>
   ForgeFile.parse({
     path,
     status,
     additions,
     deletions,
-    patch: patch(Math.min(additions, 12), Math.min(deletions, 8)),
+    patch: whole
+      ? patch(additions, deletions)
+      : patch(Math.min(additions, 12), Math.min(deletions, 8)),
     truncated: false,
   });
 export const check = (
@@ -430,7 +439,8 @@ function failingWithChanges(now: number): PullRequestFixture {
     files: [
       file("docs/install.md", 188, 97),
       file("docs/service.md", 64, 0, "added"),
-      file("docs/troubleshooting.md", 41, 12),
+      // Long enough that the diff mounts only the rows near the viewport.
+      file("docs/troubleshooting.md", 441, 12, "modified", true),
       file("docs/docker.md", 16, 30),
       file("sidebar.json", 3, 2),
     ],

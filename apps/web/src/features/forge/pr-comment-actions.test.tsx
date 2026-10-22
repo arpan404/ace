@@ -265,3 +265,31 @@ test("Needs attention keeps its own reply, and quote replies go to the conversat
     await f.close();
   }
 });
+
+const resolvedShown = (on: boolean) =>
+  on ? <PrThread thread={thread(true)} /> : <p>Scrolled away</p>;
+
+test("a resolved conversation the person opened stays open when its row comes back", async () => {
+  const f = await reviewHarness({
+    detail: reviewDetail(),
+    state: reviewState(),
+    ui: resolvedShown(true),
+  });
+  try {
+    await userEvent.click(await screen.findByRole("button", { expanded: false }));
+    await menuOf("reviewer");
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
+    await userEvent.type(
+      await screen.findByRole("textbox", { name: "Edit comment" }),
+      " Also the docs.",
+    );
+    f.rerender(resolvedShown(false));
+    await screen.findByText("Scrolled away");
+    f.rerender(resolvedShown(true));
+    expect(
+      (await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Edit comment" })).value,
+    ).toBe("Done. Also the docs.");
+  } finally {
+    await f.close();
+  }
+});
