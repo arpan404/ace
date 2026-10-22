@@ -297,7 +297,6 @@ export class GitHubForge implements Forge, ForgeBrowser {
   repositoryMetadata(signal: AbortSignal) {
     return githubRepositoryMetadata(this.#api, this.repository, signal);
   }
-  /** This repository as a head, when a PR's branch lives here. */
   /** Whether `head` is another repository than this one. */
   #crossRepository(head: PrHead): boolean {
     return (
