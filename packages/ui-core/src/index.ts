@@ -186,6 +186,8 @@ export {
   subagentBranchStates,
   subagentLabels,
   subagentGroupStatus,
+  subagentGroupTitle,
+  subagentGroupCounts,
   type SubagentGroupStatus,
   type SubagentState,
 } from "./subagents.ts";

@@ -1,10 +1,10 @@
-import { ThreadStore, defaultLimits, type ThreadSource } from "@ace/client";
+import { ClientError, ThreadStore, defaultLimits, type ThreadSource } from "@ace/client";
 import { createThreadView } from "@ace/projection";
 import { Agent, BackgroundTask, Event, Item, Run, Thread, type AgentStatus } from "@ace/protocol";
 import { subagentLabels, subagentStatusLine, subagentTerminal } from "@ace/ui-core";
 import { expect, test } from "vitest";
 import { agentFactsOf } from "@/lib/agent-facts.ts";
-import { readSubagentGroup, subagentEntriesEqual } from "./subagent-group.ts";
+import { listedSubagentState, readSubagentGroup, subagentEntriesEqual } from "./subagent-group.ts";
 
 const thread = Thread.parse({
   id: "group",
@@ -358,4 +358,34 @@ test("a named subagent keeps its own name in the subagent group", () => {
   expect(readSubagentGroup(reader, ["spawn-review"]).value.map((entry) => entry.title)).toEqual([
     "review",
   ]);
+});
+
+test("the thread list speaks for a delegated child only while the daemon keeps it current", () => {
+  const child = Thread.parse({
+    ...thread,
+    id: "child",
+    status: { state: "needs_you", interactions: 1 },
+  });
+  const fresh = Thread.parse({ ...thread, id: "fresh", status: { state: "new" } });
+  const rows = new Map<string, typeof child>([
+    [child.id, child],
+    [fresh.id, fresh],
+  ]);
+  const list = (flags: { unconfirmed?: boolean; syncing?: boolean; error?: ClientError }) => ({
+    ...flags,
+    error: flags.error,
+    thread: (id: string) => rows.get(id),
+  });
+  // A finished child that asks the person again: the list can say so before the parent hears.
+  expect(listedSubagentState(list({}), "child")).toBe("human");
+  // Old rows say nothing: restored or unfollowed, waiting for a snapshot, or kept after the
+  // list's subscription failed.
+  expect(listedSubagentState(list({ unconfirmed: true }), "child")).toBeUndefined();
+  expect(listedSubagentState(list({ syncing: true }), "child")).toBeUndefined();
+  expect(
+    listedSubagentState(list({ error: new ClientError("offline", "Lost the list") }), "child"),
+  ).toBeUndefined();
+  // A child that never started, or one the list doesn't hold, adds nothing either.
+  expect(listedSubagentState(list({}), "fresh")).toBeUndefined();
+  expect(listedSubagentState(list({}), "elsewhere")).toBeUndefined();
 });
