@@ -36,7 +36,7 @@ struct BackgroundLine: View {
                     .foregroundStyle(AceTheme.Colours.foreground)
                     .lineLimit(1).truncationMode(.tail)
                     .padding(.horizontal, AceTheme.Spacing.xs + AceTheme.Spacing.xxs).padding(.vertical, AceTheme.Spacing.xxs)
-                    .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.xs, style: .continuous))
+                    .background(AceTheme.Colours.fill, in: Capsule(style: .continuous))
                 Spacer(minLength: AceTheme.Spacing.sm)
                 age.aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.subtleForeground).monospacedDigit()

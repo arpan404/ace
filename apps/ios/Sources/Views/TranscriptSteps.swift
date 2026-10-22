@@ -112,7 +112,7 @@ struct TargetChip: View {
         .aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
         .foregroundStyle(AceTheme.Colours.foreground)
         .padding(.horizontal, AceTheme.Spacing.xs + AceTheme.Spacing.xxs).padding(.vertical, AceTheme.Spacing.xxs)
-        .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.md, style: .continuous))
+        .background(AceTheme.Colours.fill, in: Capsule(style: .continuous))
     }
 }
 
