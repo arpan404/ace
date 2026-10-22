@@ -255,21 +255,28 @@ private struct FloatingBar<Bar: View>: ViewModifier {
         ZStack(alignment: .bottom) {
             content.ignoresSafeArea(.keyboard, edges: .bottom)
             bar()
-                .background(alignment: .bottom) { BarFade() }
+                .background(alignment: .top) { BarFade() }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         }
     }
 }
 
-/// The page colour rising under the composer: clear at the bar's top, solid by its middle.
+/// The page colour rising under the composer: clear at the bar's top, solid by its middle, and
+/// solid on down behind the keyboard's translucent edge and the home indicator.
 private struct BarFade: View {
     var body: some View {
-        LinearGradient(stops: [.init(color: AceTheme.Colours.background.opacity(0), location: 0),
-                               .init(color: AceTheme.Colours.background.opacity(0.94), location: 0.5),
-                               .init(color: AceTheme.Colours.background, location: 1)],
-                       startPoint: .top, endPoint: .bottom)
-            .ignoresSafeArea(edges: .bottom)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+        GeometryReader { box in
+            VStack(spacing: AceTheme.Spacing.none) {
+                LinearGradient(stops: [.init(color: AceTheme.Colours.background.opacity(0), location: 0),
+                                       .init(color: AceTheme.Colours.background.opacity(0.94), location: 0.5),
+                                       .init(color: AceTheme.Colours.background, location: 1)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: box.size.height)
+                AceTheme.Colours.background.frame(height: box.size.height + AceTheme.Dimensions.touchTarget * 8)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
+
