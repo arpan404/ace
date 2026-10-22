@@ -327,8 +327,8 @@ function NewPrForm(props: {
           />
         </Field>
       </div>
-      <div className="mt-4 flex items-center justify-end gap-3">
-        <label className="mr-auto flex items-center gap-2 text-ui text-muted-foreground">
+      <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
+        <label className="mr-auto flex items-center gap-2 text-ui whitespace-nowrap text-muted-foreground">
           <Switch checked={draft} onCheckedChange={setDraft} />
           Open as a draft
         </label>

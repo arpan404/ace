@@ -91,7 +91,7 @@ function CommitForm(props: {
     >
       <DialogHeader>
         <DialogTitle>
-          {props.when === "now" ? `${label} into ${base}` : `Auto-merge into ${base}`}
+          {props.when === "now" ? `${label} into ${base}` : `${label} into ${base} automatically`}
         </DialogTitle>
       </DialogHeader>
       <label className="flex flex-col gap-1 text-sm">
