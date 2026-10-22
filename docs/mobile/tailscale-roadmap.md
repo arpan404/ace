@@ -71,7 +71,8 @@ forwarder is a separate deployment option documented in
 [remote access](../daemon/remote-access.md).
 
 Tailscale assigns stable IP addresses and optional MagicDNS names. Pairing links name
-the machine's ts.net host, and the 100.x address only when MagicDNS is off. Use the
+the machine's ts.net host while it serves Tailscale's certificate for that name, and the
+100.x address otherwise. Use the
 address the link advertises; a hostname is not the authenticated ace host identity.
 A ts.net host may present Tailscale's publicly trusted certificate in place of the
 pinned key; clients accept it only for that exact name

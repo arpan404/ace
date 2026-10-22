@@ -155,38 +155,8 @@ it("Tailscale remote access warns when Tailscale is missing or not connected", a
   });
   expect(await access({})).toMatchObject({
     status: "ok",
-    message: `Remote access is on: Tailscale at studio-mac.tail1234.ts.net:${context.config.remotePort}`,
+    message: `Remote access is on: Tailscale at 100.64.0.1:${context.config.remotePort}`,
   });
-});
-
-it("Tailscale access uses the tailnet's ts.net name, and the 100.x address only without MagicDNS", async () => {
-  const { context, cleanup } = await doctorTestContext();
-  cleanups.push(cleanup);
-  const where = async (status: object) =>
-    (
-      await verdicts(
-        context,
-        fakePorts({
-          preferences: async () => tailscale,
-          network: { interfaces: () => ({}), status: async () => JSON.stringify(status) },
-        }),
-      )
-    ).get("remote.access")?.message;
-  const running = { BackendState: "Running", TailscaleIPs: ["fd7a:115c::1", "100.64.0.1"] };
-
-  expect(await where({ ...running, Self: { DNSName: "Studio-Mac.tail1234.ts.net." } })).toBe(
-    `Remote access is on: Tailscale at studio-mac.tail1234.ts.net:${context.config.remotePort}`,
-  );
-  expect(
-    await where({
-      ...running,
-      Self: { DNSName: "studio-mac.tail1234.ts.net." },
-      CurrentTailnet: { MagicDNSEnabled: false },
-    }),
-  ).toBe(`Remote access is on: Tailscale at 100.64.0.1:${context.config.remotePort}`);
-  expect(await where({ ...running, Self: { DNSName: "" } })).toBe(
-    `Remote access is on: Tailscale at 100.64.0.1:${context.config.remotePort}`,
-  );
 });
 
 it("over Tailscale, doctor warns until the tailnet can issue this machine's HTTPS certificate", async () => {
