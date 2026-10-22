@@ -40,6 +40,8 @@ export interface DevicesViewInput {
   >;
   /** The channel was up and closed since. */
   closed: boolean;
+  /** The channel never opened in its time: the screen says so while ace keeps trying. */
+  unreachable?: boolean;
   threadId: string | undefined;
   /** The device whose screen is open. */
   deviceId: string | undefined;
@@ -268,7 +270,12 @@ export function phoneDevicesView(input: DevicesViewInput): PhoneDevicesView {
             message: "Lost the connection to this machine's simulators and emulators.",
             hint: "Reconnect to see them again.",
           }
-        : null;
+        : input.unreachable
+          ? {
+              message: "Can't reach this machine's simulators and emulators.",
+              hint: "ace keeps trying.",
+            }
+          : null;
   return {
     connected: snapshot.connected,
     loading: !snapshot.inventoryLoaded,

@@ -194,3 +194,24 @@ test("a channel that closed says so, and missing tools are a setup note", () => 
   expect(shown.notes[0]?.message).toBe("A device tool is missing on this machine.");
   expect(shown.device).toBeNull();
 });
+
+test("a channel that never opened says it can't reach the devices instead of loading forever", () => {
+  const input = {
+    snapshot: { connected: false, inventoryLoaded: false, devices: [], states: [], issues: [] },
+    closed: false,
+    threadId: "thread-1",
+    deviceId: undefined,
+    query: "",
+    platform: "all" as const,
+    now: 0,
+    agent: () => undefined,
+    previous: new Map(),
+  };
+  // Still opening: the screen waits.
+  expect(phoneDevicesView(input).offline).toBeNull();
+  // The open ran out of time: one sentence, and no Reconnect needed since ace keeps trying.
+  expect(phoneDevicesView({ ...input, unreachable: true }).offline).toEqual({
+    message: "Can't reach this machine's simulators and emulators.",
+    hint: "ace keeps trying.",
+  });
+});

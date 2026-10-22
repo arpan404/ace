@@ -107,6 +107,9 @@ export interface NativeDevicesOptions {
 }
 
 /** The shared authenticated devices channel. Input is never queued or replayed. */
+/** How long a Devices screen waits before trying an unreachable channel again. */
+const retryMs = 10_000;
+
 export class NativeDevices {
   readonly client: DeviceClient;
   readonly connection: NativeFeatureConnection;
@@ -115,6 +118,9 @@ export class NativeDevices {
   #view: ViewWatch | undefined;
   #stopView: (() => void) | undefined;
   #closed = false;
+  /** The last open failed; a retry is scheduled while the screen stays open. */
+  #unreachable = false;
+  #retry: (() => void) | undefined;
   #leaseTimer: (() => void) | undefined;
   /** The agent each device was taken from, for Hand back. */
   #previous = new Map<string, Holder>();
@@ -259,17 +265,31 @@ export class NativeDevices {
   /** Read the inventory and states each time the screen opens or asks again. */
   async #load(): Promise<void> {
     const signal = new AbortController().signal;
+    this.#retry?.();
+    this.#retry = undefined;
     try {
       await this.connection.ready(signal);
       await this.client.request({ op: "inventory.watch", watching: true });
       await this.client.request({ op: "list" });
       await this.client.request({ op: "states" });
+      this.#unreachable = false;
     } catch {
-      // The snapshot carries the channel's failure; the view says it.
+      // The snapshot carries a refusal; a channel that never opened has none, so the view would
+      // spin forever. Say so, and try again while the screen stays open.
+      if (this.#view && !this.client.getSnapshot().connected) {
+        this.#unreachable = true;
+        this.#retry = scheduler.set(retryMs, () => {
+          this.#retry = undefined;
+          if (this.#view) void this.#load();
+        });
+      }
     }
     this.#putView();
   }
   #closeView(): void {
+    this.#retry?.();
+    this.#retry = undefined;
+    this.#unreachable = false;
     this.#stopView?.();
     this.#stopView = undefined;
     this.#view = undefined;
@@ -301,6 +321,7 @@ export class NativeDevices {
         view: phoneDevicesView({
           snapshot: this.client.getSnapshot(),
           closed: this.#closed,
+          unreachable: this.#unreachable && !this.client.getSnapshot().connected,
           threadId: current.threadId,
           deviceId: current.deviceId,
           query: current.query,
