@@ -60,9 +60,9 @@ private struct StepsSkeleton: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
             ForEach([0.62, 0.48, 0.70], id: \.self) { width in
                 HStack(spacing: AceTheme.Spacing.sm) {
-                    RoundedRectangle(cornerRadius: AceTheme.Radii.xs).frame(width: 14, height: 14)
+                    Capsule(style: .continuous).frame(width: 14, height: 14)
                     GeometryReader { geometry in
-                        RoundedRectangle(cornerRadius: AceTheme.Radii.xs).frame(width: geometry.size.width * width, height: 12)
+                        Capsule(style: .continuous).frame(width: geometry.size.width * width, height: 12)
                     }
                     .frame(height: 12)
                 }
