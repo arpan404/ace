@@ -254,7 +254,7 @@ export async function startServer(options: ServerOptions): Promise<{
       canReadThread: (thread) =>
         device !== undefined && options.canReadThread?.(device, thread) !== false,
       hostCredential: () => authenticated.get(socket)?.revocable === false,
-      access: { auth, pairing },
+      access: { auth, pairing, pairingApp: access.pairingApp },
       connected: () => socket.readyState === WebSocket.OPEN && authenticated.has(socket),
       send,
       fail,

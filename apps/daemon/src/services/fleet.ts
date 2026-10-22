@@ -54,9 +54,15 @@ async function run(context: SocketContext, operation: FleetOperation): Promise<F
   switch (operation.op) {
     case "pairing": {
       const { op: _op, ...request } = operation;
+      const connection = access.pairing();
+      const app = connection ? await access.pairingApp?.() : undefined;
       // The creator grants only scopes it holds; the host credential holds every one.
-      const issued = issuePairing(auth, access.pairing(), request, (scope) =>
-        context.authorize(scope),
+      const issued = issuePairing(
+        auth,
+        connection,
+        request,
+        (scope) => context.authorize(scope),
+        app,
       );
       return { kind: "pairing", ...issued };
     }
