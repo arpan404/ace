@@ -37,6 +37,17 @@ export interface ReadKey {
   family: ReadFamily;
 }
 
+/**
+ * A kept read as it was asked: what had happened by then, so an answer that arrives after its
+ * family went out of date, after a reconnect, or after a newer answer for the same name is
+ * shown to its screen but never kept as fresh.
+ */
+export interface ReadTicket extends ReadKey {
+  readonly generation: number;
+  readonly reconnects: number;
+  readonly sequence: number;
+}
+
 /** Beside the families' generations: how many times the connection came back. */
 export const reconnectsKey = "reconnects";
 /** Answers the bridge keeps for itself, never handed to Swift's copy. */
@@ -49,6 +60,9 @@ export class NativeReads implements NewThreadMemory {
   readonly #sink: PatchSink;
   readonly #stops: (() => void)[] = [];
   #reconnects = 0;
+  #asked = 0;
+  /** Per kept name, the order of the newest answer kept. */
+  readonly #keptOrder = new Map<string, number>();
   constructor(owner: ReadsOwner, sink: PatchSink, options: ReadsOptions) {
     this.#sink = sink;
     this.#cache = new ReadCache({ now: options.now });
@@ -82,9 +96,16 @@ export class NativeReads implements NewThreadMemory {
   }
 
   /** The request's kept-read name, when Swift named it and its answer is kept. */
-  key(request: unknown, key: string | undefined): ReadKey | undefined {
+  key(request: unknown, key: string | undefined): ReadTicket | undefined {
     const family = key ? readFamily(request) : undefined;
-    return key && family ? { key, family } : undefined;
+    if (!key || !family) return undefined;
+    return {
+      key,
+      family,
+      generation: this.#cache.generation(family),
+      reconnects: this.#reconnects,
+      sequence: ++this.#asked,
+    };
   }
 
   /** The kept answer to give without asking the daemon. */
@@ -92,9 +113,10 @@ export class NativeReads implements NewThreadMemory {
     return this.#cache.fresh(read.key);
   }
 
-  /** The daemon answered a kept read. A refusal is never kept. */
-  answered(read: ReadKey, value: unknown): boolean {
-    if (!keepable(value)) return false;
+  /** The daemon answered a kept read. A refusal or an obsolete answer is never kept. */
+  answered(read: ReadTicket, value: unknown): boolean {
+    if (!keepable(value) || this.#obsolete(read)) return false;
+    this.#keptOrder.set(read.key, read.sequence);
     this.#cache.put(read.key, read.family, value);
     this.#keeper?.changed();
     return true;
@@ -116,6 +138,14 @@ export class NativeReads implements NewThreadMemory {
 
   dispose(): void {
     for (const stop of this.#stops.splice(0)) stop();
+  }
+
+  #obsolete(read: ReadTicket): boolean {
+    return (
+      read.generation !== this.#cache.generation(read.family) ||
+      read.reconnects !== this.#reconnects ||
+      read.sequence < (this.#keptOrder.get(read.key) ?? 0)
+    );
   }
 
   #publish(): void {

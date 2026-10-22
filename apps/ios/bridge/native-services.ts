@@ -35,7 +35,7 @@ import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, type NativeScreen } from "./native-screen.ts";
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
-import type { NativeReads, ReadKey } from "./native-reads.ts";
+import type { NativeReads, ReadKey, ReadTicket } from "./native-reads.ts";
 
 // The SDK validates every request and reply. The native bridge exposes only these services;
 // mutations of threads continue to go through the SDK's durable command outbox.
@@ -130,7 +130,7 @@ export class NativeServices {
     }
     void this.#request(action.id, action.request, read);
   }
-  async #request(id: string, raw: unknown, read?: ReadKey): Promise<void> {
+  async #request(id: string, raw: unknown, read?: ReadTicket): Promise<void> {
     const controller = new AbortController();
     if (this.#pending.size >= 32) {
       this.#reply(id, false, null, "Too many requests. Try again shortly.");
@@ -254,7 +254,7 @@ export class NativeServices {
     }
   }
   /** A daemon answer: kept when it is a kept read, else whatever it changed is read again. */
-  #answer(id: string, raw: unknown, value: unknown, read: ReadKey | undefined): void {
+  #answer(id: string, raw: unknown, value: unknown, read: ReadTicket | undefined): void {
     if (read) {
       this.#reply(id, true, value, "", this.reads?.answered(read, value) ? read : undefined);
       return;
@@ -269,7 +269,7 @@ export class NativeServices {
       ok,
       value,
       message,
-      ...(cache ? { cache } : {}),
+      ...(cache ? { cache: { key: cache.key, family: cache.family } } : {}),
     }));
   }
 }

@@ -79,6 +79,11 @@ export class ReadCache {
     return this.invalidate(families);
   }
 
+  /** One family's generation: it moves whenever that family's answers go out of date. */
+  generation(family: ReadFamily): number {
+    return this.#generations.get(family) ?? 0;
+  }
+
   /** Each family's generation, for the screens that show its answers. */
   generations(): Record<string, number> {
     return Object.fromEntries(this.#generations);
