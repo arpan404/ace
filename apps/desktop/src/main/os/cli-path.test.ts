@@ -42,12 +42,12 @@ describe("choosing how a terminal finds ace", () => {
   });
 });
 
-describe("the shell's startup files", () => {
-  const files = (shell: string, platform: NodeJS.Platform, existing: string[] = [], env = {}) =>
-    startupFiles({ shell, home, platform, env, existing: (file) => existing.includes(file) }).map(
-      (startup) => startup.file,
-    );
+const files = (shell: string, platform: NodeJS.Platform, existing: string[] = [], env = {}) =>
+  startupFiles({ shell, home, platform, env, existing: (file) => existing.includes(file) }).map(
+    (startup) => startup.file,
+  );
 
+describe("the shell's startup files", () => {
   it("covers bash's interactive and login shells without hiding an existing .profile", () => {
     expect(files("/bin/bash", "darwin")).toEqual([`${home}/.bashrc`, `${home}/.bash_profile`]);
     expect(files("/bin/bash", "darwin", [`${home}/.profile`])).toEqual([

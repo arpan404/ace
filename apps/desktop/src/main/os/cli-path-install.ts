@@ -171,9 +171,11 @@ function shellStartupFiles(target: CliPathTarget): StartupFile[] {
 /** Every file ace may have written for any shell, for turning the command off. */
 function everyStartupFile(target: CliPathTarget): StartupFile[] {
   const files = new Map<string, StartupFile>();
-  for (const shell of ["zsh", "bash", "fish", "sh"])
-    for (const startup of startupFiles({ ...target, shell, existing: () => true }))
-      files.set(startup.file, startup);
+  const add = (startup: StartupFile) => files.set(startup.file, startup);
+  for (const shell of ["zsh", "fish"])
+    for (const startup of startupFiles({ ...target, shell, existing: () => false })) add(startup);
+  for (const name of [".zshrc", ".bashrc", ".bash_profile", ".bash_login", ".profile"])
+    add({ file: join(target.home, name), syntax: "sh" });
   return [...files.values()];
 }
 

@@ -96,11 +96,13 @@ export function startupFiles(input: {
   return [];
 }
 
+/** Text that stays literal inside a double-quoted shell word. */
+const shQuote = (value: string) => value.replace(/[\\"$`]/g, (character) => `\\${character}`);
+
 /** A folder as a double-quoted shell word: under the home folder it is written from `$HOME`. */
 function shWord(directory: string, home: string): string {
-  const quote = (value: string) => value.replace(/[\\"$`]/g, (character) => `\\${character}`);
   const inside = directory.startsWith(`${home}/`) ? directory.slice(home.length + 1) : undefined;
-  return inside === undefined ? `"${quote(directory)}"` : `"$HOME/${quote(inside)}"`;
+  return inside === undefined ? `"${shQuote(directory)}"` : `"$HOME/${shQuote(inside)}"`;
 }
 
 /** The lines ace adds to a POSIX shell's startup file. A second run adds nothing to PATH. */

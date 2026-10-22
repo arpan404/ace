@@ -131,6 +131,21 @@ describe("putting the ace command on a terminal's PATH", () => {
     expect(stdout.split(":")).toEqual([target.directory, "/usr/bin", "/bin"]);
   });
 
+  it("takes back the line from bash's .profile after the person moved to zsh", async () => {
+    const { home, target } = await machine("/bin/bash");
+    const profile = join(home, ".profile");
+    await writeFile(profile, "umask 022\n");
+    await expect(putCliOnPath(target, "/usr/bin")).resolves.toEqual({
+      state: "added",
+      files: [join(home, ".bashrc"), profile],
+    });
+
+    await takeCliOffPath({ ...target, env: { SHELL: "/bin/zsh" } });
+
+    expect(await readFile(profile, "utf8")).toBe("umask 022\n");
+    await expect(lstat(join(home, ".bashrc"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("never overwrites a fish file of the person's own", async () => {
     const { home, target } = await machine("/usr/local/bin/fish");
     const file = join(home, ".config", "fish", "conf.d", "ace.fish");
