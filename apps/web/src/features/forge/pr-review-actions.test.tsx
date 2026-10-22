@@ -1,22 +1,10 @@
 import { expect, test } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Client } from "@ace/client";
-import { ClientProvider } from "@ace/client-react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { FakeDaemon, fakeTransport, workbench } from "@ace/fake-daemon";
-import {
-  ClientMessage,
-  DeviceId,
-  ForgePrDetail,
-  ForgeReviewState,
-  ServerMessage,
-  WorkspaceId,
-  type ForgeReviewAction,
-} from "@ace/protocol";
-import { memoryStorage } from "@/boot/client.ts";
+import { workbench } from "@ace/fake-daemon";
+import { ForgePrDetail, ForgeReviewState, WorkspaceId } from "@ace/protocol";
 import { harness } from "@/test/harness.tsx";
-import { PrReviewWorkspace } from "./pr-review-context.tsx";
+import { reviewHarness } from "./review-harness.tsx";
 import { PrComments } from "./pr-comments.tsx";
 import { PrReactions } from "./pr-reactions.tsx";
 import { PrSuggestionBatch } from "./pr-suggestions.tsx";
@@ -95,80 +83,18 @@ const reviewState = ForgeReviewState.parse({
 });
 
 /** The review workspace with every hosted review command accepted and recorded. */
-async function reviewPanel() {
-  const daemon = new FakeDaemon({ clock: () => 1_000 });
-  daemon.workspace.setForgeRead(
-    { op: "forge.pr.review-state", workspaceId: WorkspaceId.parse("api"), repository, number: 42 },
-    { resource: "prReviewState", value: reviewState },
-  );
-  const sent: ForgeReviewAction[] = [];
-  let ids = 0;
-  const client = new Client({
-    deviceId: DeviceId.parse("review-device"),
-    credential: async () => daemon.token,
-    storage: memoryStorage(),
-    id: () => `action-${++ids}`,
-    random: () => 0.5,
-    scheduler: {
-      set(delay, callback) {
-        const timer = setTimeout(callback, delay);
-        return () => clearTimeout(timer);
-      },
-    },
-    transport: () => {
-      const transport = fakeTransport(daemon);
-      return {
-        ...transport,
-        send(text) {
-          const message = ClientMessage.parse(JSON.parse(text));
-          if (message.type === "command" && message.command.payload.type === "forge.hosted.review")
-            sent.push(message.command.payload.action);
-          transport.send(text);
-        },
-        open(events) {
-          transport.open({
-            ...events,
-            message(text) {
-              const message = ServerMessage.parse(JSON.parse(text));
-              if (
-                message.type === "commandResult" &&
-                message.error === "unsupported_by_fake_daemon"
-              )
-                events.message(
-                  JSON.stringify({ type: "commandResult", commandId: message.commandId, ok: true }),
-                );
-              else events.message(text);
-            },
-          });
-        },
-      };
-    },
+function reviewPanel() {
+  return reviewHarness({
+    detail,
+    state: reviewState,
+    ui: (
+      <>
+        <PrSuggestionBatch />
+        <PrReactions subject={{ kind: "pr" }} />
+        <PrComments status={detail.status} />
+      </>
+    ),
   });
-  const query = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  await client.start();
-  const view = render(
-    <ClientProvider client={client}>
-      <QueryClientProvider client={query}>
-        <PrReviewWorkspace
-          workspaceId="api"
-          detail={detail}
-          onRefresh={() => {}}
-          header={<PrSuggestionBatch />}
-        >
-          <PrReactions subject={{ kind: "pr" }} />
-          <PrComments status={detail.status} />
-        </PrReviewWorkspace>
-      </QueryClientProvider>
-    </ClientProvider>,
-  );
-  return {
-    sent,
-    async close() {
-      view.unmount();
-      query.clear();
-      await client.close();
-    },
-  };
 }
 
 test("reactions show their counts with the viewer's own pressed, and pressing one toggles it on GitHub", async () => {
@@ -180,7 +106,7 @@ test("reactions show their counts with the viewer's own pressed, and pressing on
       "false",
     );
     await userEvent.click(heart);
-    await screen.findByText("Saved.");
+    await waitFor(() => expect(f.sent).toHaveLength(1));
     // The description's picker comes first; every comment has its own.
     await userEvent.click(screen.getAllByRole("button", { name: "Add reaction" })[0]!);
     await userEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Rocket" }));

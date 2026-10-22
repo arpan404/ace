@@ -61,8 +61,8 @@ export function PrReviewButton() {
     void review
       .run({ kind: "submit", event: chosen, body, headSha, draftIds: drafts.map((d) => d.id) })
       .then((ok) => {
-        if (!ok) return;
-        draft.clear(body);
+        // Text typed while it posted stays, with the review open to send it.
+        if (!ok || !draft.clear(body)) return;
         setVerdict("COMMENT");
         setOpen(false);
       });
@@ -71,6 +71,7 @@ export function PrReviewButton() {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger render={<Button variant="secondary" />}>
         Review
+        {drafts.length > 0 && " "}
         {drafts.length > 0 && (
           <span className="font-normal text-muted-foreground tabular-nums">
             {`· ${drafts.length} pending`}

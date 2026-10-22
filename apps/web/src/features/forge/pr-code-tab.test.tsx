@@ -195,3 +195,32 @@ test("open review threads the diff can't place gather in one strip above the fil
   expect(strip.textContent).not.toContain("Note 2");
   expect(strip.textContent).not.toContain("Note 4");
 });
+
+const follows = (a: Node, b: Node) =>
+  (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+test("each conversation sits under the line it's on, on the side it was written on", async () => {
+  const app = harness();
+  app.daemon.workspace.setForgeRead(page(1), filesPage([changed("src/first.ts", "one")]));
+  await mount(
+    app,
+    codeTab({
+      ...detail,
+      status: {
+        ...detail.status,
+        reviewThreads: [
+          { ...thread(2, 1, false), side: "RIGHT" as const },
+          { ...thread(5, 1, false), side: "LEFT" as const },
+        ],
+      },
+    }),
+  );
+  const added = await screen.findByText("one");
+  const removed = screen.getByText("old");
+  const onDeleted = screen.getByText("Note 5");
+  const onAdded = screen.getByText("Note 2");
+  // The deleted line's conversation comes right after it, before the added line.
+  expect(follows(removed, onDeleted) && follows(onDeleted, added)).toBe(true);
+  expect(follows(added, onAdded)).toBe(true);
+  expect(screen.queryByRole("group", { name: "Conversations not on the current diff" })).toBeNull();
+});

@@ -266,3 +266,53 @@ test("newest-first lists the same groups in reverse order, keeping their identit
   ]);
   expect(newest).toEqual(oldest.toReversed());
 });
+
+const inline = (id: number, when: string, replyTo: number | null) => ({
+  kind: "inline" as const,
+  id,
+  body: `Inline ${id}`,
+  author: "reviewer",
+  file: "src/a.ts",
+  line: 3,
+  updatedAt: when,
+  createdAt: when,
+  replyTo,
+});
+
+test("review comments show once, as their whole conversation, where it began", () => {
+  const root = inline(31, "2026-10-11T12:05:00Z", null);
+  const reply = inline(32, "2026-10-11T14:00:00Z", 31);
+  const loose = inline(33, "2026-10-11T12:06:00Z", null);
+  const shown = {
+    ...detail,
+    status: {
+      ...detail.status,
+      comments: [...detail.status.comments, root, reply, loose],
+      reviewThreads: [
+        {
+          id: "T9",
+          resolved: false,
+          outdated: false,
+          file: "src/a.ts",
+          line: 3,
+          comments: [root, reply],
+        },
+      ],
+    },
+  };
+  const items = prTimelineItems(shown, [], [], "oldest");
+  const threads = items.filter((item) => item.kind === "thread");
+  expect(threads.map((item) => item.id)).toEqual(["thread:T9"]);
+  expect(threads[0]?.at).toBe(root.createdAt);
+  // The reply lives in its conversation; a review comment outside any conversation stays a row.
+  const ids = items.flatMap((item) =>
+    item.kind === "comment"
+      ? [item.comment.id]
+      : item.kind === "comments"
+        ? item.comments.map((c) => c.id)
+        : [],
+  );
+  expect(ids).not.toContain(31);
+  expect(ids).not.toContain(32);
+  expect(ids).toContain(33);
+});
