@@ -8,6 +8,7 @@ import {
   subagentStatusCounts,
   subagentStatusLine,
   agentName,
+  blockRoom,
   closedMeta,
   closedQuestionWords,
   questionTitle,
@@ -213,6 +214,8 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
   const base = {
     index: index ?? null,
     kind: block.kind,
+    /** The room it asks for above and below (`@ace/ui-core` row-room): 8, 16 or 24. */
+    room: blockRoom(block.kind),
     items: [] as string[],
     headed: block.kind === "message" && block.headed === true,
     interactionId: "",

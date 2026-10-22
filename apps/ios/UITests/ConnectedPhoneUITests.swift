@@ -189,7 +189,7 @@ import XCTest
         let app = launch()
         let current = app.buttons["thread.01a15b0e-7eef-705b-a011-fde54ae8afd1"]
         XCTAssertTrue(current.waitForExistence(timeout: 30)); current.tap()
-        XCTAssertTrue(app.buttons["thread.agents"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20))
         waitForConversation(app)
         let work = app.buttons["work.toggle"].firstMatch
         XCTAssertTrue(work.waitForExistence(timeout: 20))

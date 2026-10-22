@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { facts } from "@ace/fake-daemon";
-import { connect, fixture, open, reset, rows, until } from "./thread-harness.ts";
+import { commands, connect, fixture, open, reset, rows, until } from "./thread-harness.ts";
 
 /*
  * The subagent and question rows the native transcript draws, worded as the web's: over the
@@ -123,4 +123,68 @@ test("a waiting question reads as the agent asking it, then leaves for the work 
   // Once answered, its step reads in the turn's work log, as on the web.
   await until(() => !line(), "the question line leaving");
   expect(rows("thread.block").some((row) => row.kind === "work")).toBe(true);
+});
+
+function asking(id: string, allowOther: boolean) {
+  const fake = fixture();
+  fake.createThread({ id, workspaceId: "ace", title: "Ask", provider: "codex" });
+  fake.apply(id, [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Set up the formatter."),
+    facts.tool("root", "ask-indent", {
+      kind: "ask_user",
+      title: "Tabs or spaces?",
+      detail: { kind: "ask_user" },
+    }),
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "indent",
+      item: "ask-indent",
+      blocking: true,
+      request: { kind: "question", questions: [{ ...indent, allowOther }] },
+    },
+  ]);
+  return fake;
+}
+
+const pendingId = async () => {
+  const block = await until(
+    () => rows("thread.block").find((row) => row.kind === "question"),
+    "the question",
+  );
+  return String(block.interactionId);
+};
+
+test("words sent while the agent waits on its question answer it, not the agent", async () => {
+  const thread = open(connect(asking("reply", true)), "reply");
+  const interactionId = await pendingId();
+  thread.handle({
+    type: "send",
+    text: "Tabs, four wide",
+    opposite: false,
+    reply: { interactionId, picked: {}, written: {}, at: 0 },
+    requestId: "reply-1",
+  });
+  const resolve = await until(() => commands("interaction.resolve")[0], "the answer");
+  expect(resolve.resolution).toEqual({
+    kind: "question",
+    answers: { indent: ["Tabs, four wide"] },
+  });
+  expect(commands("thread.send")).toHaveLength(0);
+});
+
+test("words to a question that takes no free text go to the agent as a message", async () => {
+  const thread = open(connect(asking("plain", false)), "plain");
+  const interactionId = await pendingId();
+  thread.handle({
+    type: "send",
+    text: "Why do you ask?",
+    opposite: false,
+    reply: { interactionId, picked: { indent: ["tabs"] }, written: {}, at: 0 },
+    requestId: "plain-1",
+  });
+  await until(() => commands("thread.send")[0], "the message");
+  expect(commands("interaction.resolve")).toHaveLength(0);
 });

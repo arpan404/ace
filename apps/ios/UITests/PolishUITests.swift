@@ -256,7 +256,7 @@ import XCTest
     }
     private func openTree(_ app: XCUIApplication) {
         open("ios-tree", in: app)
-        XCTAssertTrue(app.buttons["thread.agents"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 15))
     }
     /// Swipes until `element` can be tapped: `up` swipes towards later content, then `down`
     /// towards earlier. At accessibility text sizes a row can sit screens away, or exist under a
