@@ -1,31 +1,52 @@
 import SwiftUI
 
 /// An agent's Markdown as native text: SF Pro prose with inline styling, SF Mono code blocks that
-/// scroll sideways. Parsing is proportional to this one message, so a streamed delta re-renders
-/// its own row only.
+/// scroll sideways. Blocks are kept across updates (`MarkdownStream`) under ids that hold while a
+/// streaming window slides, and each block view is equatable: a streamed delta parses, styles and
+/// lays out only the blocks and pieces it changed.
 struct MarkdownView: View {
     let text: String
+    @State private var stream = MarkdownStream()
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-            ForEach(Array(Markdown.blocks(text).enumerated()), id: \.offset) { _, block in
-                view(for: block)
+            ForEach(stream.update(text)) { block in
+                MarkdownBlockView(block: block).equatable()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .textSelection(.enabled)
     }
-    @ViewBuilder private func view(for block: MarkdownBlock) -> some View {
-        switch block {
+    /// Inline code on the code surface at about 0.92 of the prose, in SF Mono; links in the
+    /// accent, as the web's `text-link`.
+    static func styled(_ text: String) -> AttributedString {
+        var styled = Markdown.inline(text)
+        for run in styled.runs {
+            if run.inlinePresentationIntent?.contains(.code) == true {
+                styled[run.range].font = .system(.subheadline, design: .monospaced)
+                styled[run.range].backgroundColor = AceTheme.Colours.fill
+            }
+            if run.link != nil { styled[run.range].foregroundColor = AceTheme.Colours.accent }
+        }
+        return styled
+    }
+}
+
+/// One block. Equatable, so a block a delta left alone is neither styled nor laid out again.
+private struct MarkdownBlockView: View, Equatable {
+    let block: MarkdownStream.Block
+    var body: some View { view(for: block.block) }
+    @ViewBuilder private func view(for markdown: MarkdownBlock) -> some View {
+        switch markdown {
         case .paragraph(let text):
             // A very long paragraph is drawn in pieces, so a streamed delta lays out and draws
             // only the last piece instead of the whole paragraph.
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                ForEach(Array(Markdown.pieces(text).enumerated()), id: \.offset) { _, piece in
-                    MarkdownProse(text: String(piece)).equatable()
+                ForEach(Markdown.pieces(text, at: block.id), id: \.offset) { piece in
+                    MarkdownProse(text: String(piece.text)).equatable()
                 }
             }
         case .heading(let level, let text):
-            Text(Self.styled(text)).aceFont(level <= 2 ? AceTheme.Typography.title : AceTheme.Typography.rowTitle, relativeTo: .headline)
+            Text(MarkdownView.styled(text)).aceFont(level <= 2 ? AceTheme.Typography.title : AceTheme.Typography.rowTitle, relativeTo: .headline)
                 .accessibilityAddTraits(.isHeader)
         case .code(let language, let text):
             MarkdownCodeBlock(language: language, text: text)
@@ -34,7 +55,7 @@ struct MarkdownView: View {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                     HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
                         Text(verbatim: ordered ? "\(start + index)." : "•").monospacedDigit().foregroundStyle(AceTheme.Colours.mutedForeground)
-                        Text(Self.styled(item))
+                        Text(MarkdownView.styled(item))
                     }
                     .aceFont(AceTheme.Typography.body, relativeTo: .body)
                     // One element per item, so the number is read with its text.
@@ -44,7 +65,7 @@ struct MarkdownView: View {
         case .quote(let text):
             HStack(spacing: AceTheme.Spacing.md) {
                 Rectangle().fill(AceTheme.Colours.separator).frame(width: AceTheme.Spacing.xxs)
-                Text(Self.styled(text)).aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text(MarkdownView.styled(text)).aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.mutedForeground)
             }.fixedSize(horizontal: false, vertical: true)
         case .rule:
             Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
@@ -63,21 +84,8 @@ struct MarkdownView: View {
             }.accessibilityIdentifier("markdown.table")
         }
     }
-    /// Inline code on the code surface at about 0.92 of the prose, in SF Mono; links in the
-    /// accent, as the web's `text-link`.
-    fileprivate static func styled(_ text: String) -> AttributedString {
-        var styled = Markdown.inline(text)
-        for run in styled.runs {
-            if run.inlinePresentationIntent?.contains(.code) == true {
-                styled[run.range].font = .system(.subheadline, design: .monospaced)
-                styled[run.range].backgroundColor = AceTheme.Colours.fill
-            }
-            if run.link != nil { styled[run.range].foregroundColor = AceTheme.Colours.accent }
-        }
-        return styled
-    }
     private func tableCell(_ text: String) -> some View {
-        Text(Self.styled(text)).aceFont(AceTheme.Typography.body, relativeTo: .body)
+        Text(MarkdownView.styled(text)).aceFont(AceTheme.Typography.body, relativeTo: .body)
             .frame(width: AceTheme.Dimensions.touchTarget * 4, alignment: .leading)
             .padding(AceTheme.Spacing.sm)
             .overlay(alignment: .bottom) { Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border) }

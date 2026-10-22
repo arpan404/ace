@@ -55,13 +55,28 @@ import Testing
         let before = Markdown.pieces(text, size: 400)
         let after = Markdown.pieces(text + "More", size: 400)
         #expect(before.count > 2)
-        #expect(Array(after.prefix(before.count - 1)) == Array(before.dropLast()))
-        #expect(after.last?.hasSuffix("More") == true)
+        #expect(after.dropLast().map(\.offset) == before.dropLast().map(\.offset))
+        #expect(after.dropLast().map(\.text) == before.dropLast().map(\.text))
+        #expect(after.last?.text.hasSuffix("More") == true)
         // Nothing is lost between pieces: they cut only at the space after a sentence.
-        #expect(after.joined(separator: " ") == text + "More")
+        #expect(after.map(\.text).joined(separator: " ") == text + "More")
+    }
+    @Test func slidingTheFrontOfAStreamingParagraphKeepsTheMiddlePieces() {
+        let message = (1...200).map { "Next step \($0): wire the safe kill-all filters." }.joined(separator: " ")
+        let window = { (start: Int) in
+            Markdown.pieces(String(message.utf8.dropFirst(start))!, at: start, size: 400)
+        }
+        let before = window(1_000), after = window(1_090)
+        let kept = Set(before.dropFirst().map(\.offset))
+        // Every piece but the first starts where it did, with the same text.
+        for piece in after.dropFirst() {
+            #expect(kept.contains(piece.offset))
+            #expect(before.first { $0.offset == piece.offset }?.text == piece.text)
+        }
+        #expect(after.count >= before.count - 1)
     }
     @Test func aShortParagraphStaysWhole() {
-        #expect(Markdown.pieces("One sentence. Two sentences.") == ["One sentence. Two sentences."])
-        #expect(Markdown.pieces("") == [""])
+        #expect(Markdown.pieces("One sentence. Two sentences.").map(\.text) == ["One sentence. Two sentences."])
+        #expect(Markdown.pieces("").map(\.text) == [""])
     }
 }
