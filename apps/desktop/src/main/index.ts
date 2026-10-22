@@ -35,6 +35,7 @@ import { cliShimCheck, cliShimLog, runningAppImage, type CliShimResult } from ".
 import { installCliShim } from "./os/cli-shim-install.ts";
 import { linuxAutostart, nodeAutostartFiles } from "./os/autostart.ts";
 import { linuxInstall, relaunchCommand } from "./os/linux-sandbox.ts";
+import { relaunchAfterExit } from "./os/relaunch-after-exit.ts";
 import { findElevation, LinuxSandboxSetup, readSandboxFacts } from "./os/linux-sandbox-setup.ts";
 import { backgroundArgument, startHidden } from "./os/login.ts";
 import { enableFeatures, linuxFeatures } from "./os/chromium-features.ts";
@@ -393,7 +394,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
     void shutDown()
       .catch((error: unknown) => log("error", String(error)))
       .finally(() => {
-        if (relaunch) app.relaunch(relaunch);
+        if (relaunch) relaunchAfterExit(relaunch);
         app.quit();
       });
   });
