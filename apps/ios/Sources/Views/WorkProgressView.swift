@@ -88,7 +88,7 @@ private struct LogStepContent: View {
         case "message":
             MarkdownView(text: row.text).stepNarration(true)
         case "reasoning":
-            ThoughtRow(row: row, thought: source.thoughts[row.id], thread: source.thread, openMessage: source.openMessage)
+            ReasoningRow(row: row, thought: source.thoughts[row.id], thread: source.thread, openMessage: source.openMessage)
         case "html", "image":
             if let openMedia = source.openMedia {
                 QuietLink(icon: row.type == "html" ? .chartBarHorizontal : .image, title: row.text) { openMedia(row) }
@@ -197,43 +197,5 @@ private struct LiveGroupTitle: View {
         } else {
             LogRowBox(open: open) { AceIcon(.hammer, size: 16, relativeTo: .subheadline) } title: { Text("Working").shimmer(true) }
         }
-    }
-}
-
-/// What the agent thought, as one quiet row: "Thinking…" while it thinks, "Thought for 12s" once
-/// done, the same height either way. The thought itself opens in place, as muted Markdown.
-struct ThoughtRow: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let row: TranscriptRow
-    /// Its header as the log reads it; without one (a search hit) it reads plainly.
-    var thought: BlockRow.Thought? = nil
-    var thread: ThreadModel? = nil
-    var openMessage: ((TranscriptRow) -> Void)? = nil
-    var workEnded = false
-    @State private var localOpen = false
-    private var key: String { "step:\(row.id)" }
-    private var open: Bool { thread.map { $0.disclosures.isOpen(key) } ?? localOpen }
-    var body: some View {
-        let done = thought?.done ?? (row.complete || workEnded)
-        let label = thought?.label ?? (done ? "Thought" : "Thinking…")
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            Button {
-                withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) {
-                    if let thread { thread.disclosures.toggle(key) } else { localOpen.toggle() }
-                }
-            } label: {
-                LogRowBox(open: open) { AceIcon(.brain, size: 16, relativeTo: .subheadline) } title: { Text(label).shimmer(!done) }
-            }
-            .buttonStyle(.plain).disabled(row.text.isEmpty)
-            .accessibilityIdentifier("thought.\(row.id)").accessibilityValue(open ? "Expanded" : "Collapsed")
-            if open, !row.text.isEmpty {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                    MarkdownView(text: row.text).foregroundStyle(AceTheme.Colours.mutedForeground)
-                    if row.truncated, let openMessage { Button("Read full thought") { openMessage(row) } }
-                }
-                .rowDetailIndent().padding(.bottom, AceTheme.Spacing.sm)
-            }
-        }
-        .railMark(done ? .done : .running)
     }
 }

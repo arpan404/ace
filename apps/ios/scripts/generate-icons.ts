@@ -191,7 +191,9 @@ export const fromSymbols: Record<string, string> = {
 
 /** Icons the redesign draws that no SF Symbol stood for. */
 const extra = [
+  "arrow-bend-down-right",
   "arrow-square-out",
+  "arrows-in-line-vertical",
   "caret-double-down",
   "chat-teardrop-text",
   "folder-simple",

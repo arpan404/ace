@@ -12,6 +12,7 @@ import {
 } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
 import { stepDetail } from "./step-detail.ts";
+import { bubbleOf } from "./thread-messages.ts";
 
 /*
  * What a transcript row shows beyond its text: a step's one-line wording (shared with the web's
@@ -122,6 +123,7 @@ export function itemDetail(item: Item, context?: StepContext) {
     synthetic: item.type === "message" && item.synthetic === true,
     level: item.type === "notice" ? item.level : "",
     step: stepOf(item, context),
+    bubble: bubbleOf(item),
     ...attachmentsOf(item),
   };
 }

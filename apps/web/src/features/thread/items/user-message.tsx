@@ -4,14 +4,7 @@ import { userBubble } from "./user-bubble.ts";
 import type { PendingSend } from "@ace/client";
 import { useItem, usePendingSends } from "@ace/client-react";
 import type { ContentPart } from "@ace/protocol";
-import {
-  formatClock,
-  messageOrigin,
-  withoutPortableHandoff,
-  sanitizeUserText,
-  splitAnnotationParts,
-  splitBrowserAnnotations,
-} from "@ace/ui-core";
+import { bubbleContent, formatClock, messageOrigin } from "@ace/ui-core";
 import { AnnotationsCard } from "@/features/annotations/index.ts";
 import { ArrowBendDownRightIcon, CheckIcon, ClockIcon, CopyIcon } from "@phosphor-icons/react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
@@ -22,7 +15,7 @@ import { imageGroupHeight, type LocalAttachment } from "@/components/attachment-
 import { cn } from "@/lib/cn.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { DeferredSendStatus } from "../composer/deferred-parts.tsx";
-import { inputText, localAttachment, leasable } from "../composer/send-store.ts";
+import { localAttachment, leasable } from "../composer/send-store.ts";
 
 /** Thumbnails and file chips; their code loads with the thread's deferred parts. */
 const DeferredAttachments = deferredComponent(() =>
@@ -77,11 +70,7 @@ function localFiles(send: PendingSend): readonly LocalAttachment[] | undefined {
 
 /** What a bubble shows of a message's parts: its words, its files, its annotations. */
 function bubbleOf(input: readonly ContentPart[], attached: readonly { mimeType: string }[]) {
-  // Browser annotations travel as a block after the person's words; they show as a card.
-  const annotated = splitAnnotationParts(withoutPortableHandoff(input));
-  const parts = annotated.parts;
-  // The words as shown: a portable handoff's envelope stays out of the bubble.
-  const text = sanitizeUserText(splitBrowserAnnotations(inputText(parts)).text);
+  const { parts, text, readable, annotations } = bubbleContent(input);
   const images: { width?: number | undefined; height?: number | undefined }[] = [
     ...attached.filter((file) => file.mimeType.startsWith("image/")),
     ...parts.flatMap((part) => (part.type === "image" ? [{}] : [])),
@@ -91,8 +80,7 @@ function bubbleOf(input: readonly ContentPart[], attached: readonly { mimeType: 
     attached.length || parts.some((part) => part.type === "file" || part.type === "image")
       ? { images }
       : undefined;
-  const readable = !!text || parts.some((part) => part.type === "mention");
-  return { parts, text, files, readable, annotations: annotated.annotations };
+  return { parts, text, files, readable, annotations };
 }
 
 /**

@@ -148,6 +148,11 @@ struct BlockRow: Codable, Sendable, Equatable {
     var files: Files? = nil
     /// The log's calls that left a command running in the background (`bridge/background-rows.ts`).
     var background: [Background]? = nil
+    /// An answer block: its text still arrives while its turn runs.
+    var streaming: Bool? = nil
+    /// An event block's one row as the web decides it (`@ace/ui-core` `eventView`); nil for the
+    /// person's own bubble.
+    var event: EventRow? = nil
     struct Background: Codable, Sendable, Equatable {
         let itemId: String
         let taskId: String
@@ -161,6 +166,25 @@ struct BlockRow: Codable, Sendable, Equatable {
         let startedAt: Double
         let endedAt: Double?
     }
+}
+
+/// Something that happened to the thread rather than in the conversation, flattened by the bridge
+/// (`bridge/thread-messages.ts`). `kind` picks the row: "event" and "system" (a muted row with its
+/// time, opening `note` and `detail`), "error", "refusal", "notSent", "notice", "quiet",
+/// "handoff", "user", "none"; others draw the item as it is.
+struct EventRow: Codable, Sendable, Equatable {
+    let kind: String
+    let icon: String
+    let provider: String
+    let text: String
+    let note: String
+    let detail: String
+    /// The detail is what the model was sent: monospaced.
+    let mono: Bool
+    /// Ms since 1970; 0 when the row shows no time.
+    let at: Double
+    /// How many identical rows this one stands for.
+    let count: Int
 }
 
 /// The composer's canonical choices: delivery while busy, the alternate, and Stop.

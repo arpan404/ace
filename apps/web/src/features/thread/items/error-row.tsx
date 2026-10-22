@@ -23,9 +23,6 @@ function openModelPicker(from: HTMLElement | null) {
   scope.querySelector<HTMLButtonElement>('button[aria-label^="Model:"]')?.click();
 }
 
-/** A notice's structured error fields, shared with the native apps. */
-export { noticeErrorInput as noticeError } from "@ace/ui-core";
-
 /**
  * One failure as one row (IR-12): what went wrong in words, the action that fixes it, and the
  * provider's own text behind "Details". `onRetry` adds Retry where a retry is possible. A
