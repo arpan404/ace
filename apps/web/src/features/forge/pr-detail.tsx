@@ -35,6 +35,7 @@ import { usePrActions } from "./pr-actions.ts";
 import { PrOverflowMenu } from "./pr-overflow-menu.tsx";
 import { PrDialogs, type PrDialog } from "./pr-dialogs.tsx";
 import { PrDetails } from "./pr-details.tsx";
+import { PrMergeCommitDialog } from "./pr-merge-commit.tsx";
 import { PrWriteStatus } from "./pr-write-status.tsx";
 import { PrFailure } from "./pr-detail-states.tsx";
 import { PrPageSkeleton, type PrSeed } from "./pr-page-skeleton.tsx";
@@ -215,11 +216,13 @@ function PrDetailLoaded(props: {
   const readable = props.page ? pageWidth : undefined;
   const { detail } = context;
   const [dialog, setDialog] = useState<PrDialog>();
+  const [commitWhen, setCommitWhen] = useState<"now" | "auto">();
   const actions = usePrActions({
     context,
     extensions: props.extensions,
     hostThreadId: props.hostThreadId,
     openConflicts: () => setDialog("conflicts"),
+    editCommit: setCommitWhen,
   });
   const [behindOpen, setBehindOpen] = useState(false);
   const [revealChecks, setRevealChecks] = useState(0);
@@ -445,6 +448,11 @@ function PrDetailLoaded(props: {
           hostThreadId={props.hostThreadId}
           open={dialog}
           onClose={() => setDialog(undefined)}
+        />
+        <PrMergeCommitDialog
+          actions={actions}
+          when={commitWhen}
+          onClose={() => setCommitWhen(undefined)}
         />
       </PrReviewWorkspace>
     </div>

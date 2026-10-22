@@ -25,6 +25,8 @@ export function usePrActions(props: {
   hostThreadId?: string | undefined;
   /** Opens the panel's own conflict view; GitHub's conflict page when there is none. */
   openConflicts?: (() => void) | undefined;
+  /** Opens the commit title and message before a merge or squash, now or on auto-merge. */
+  editCommit?: ((when: "now" | "auto") => void) | undefined;
 }) {
   const { context } = props;
   const openWeb = useOpenWebAddress();
@@ -115,6 +117,16 @@ export function usePrActions(props: {
     else if (props.openConflicts) props.openConflicts();
     else void openWeb(`${status.url}/conflicts`).catch(() => {});
   };
+  /** Merge now: a merge or squash first shows its commit to edit; a rebase writes none. */
+  const merge = () => {
+    if (method !== "rebase" && props.editCommit) return props.editCommit("now");
+    return writes.merge(method);
+  };
+  /** Turn auto-merge on, with its commit to edit first for a merge or squash. */
+  const enableAutoMerge = () => {
+    if (method !== "rebase" && props.editCommit) return props.editCommit("auto");
+    return mergeState.run("enable", method);
+  };
   return {
     context,
     threadId,
@@ -152,10 +164,14 @@ export function usePrActions(props: {
                     context.disabled
                   ? "Wait for GitHub to refresh"
                   : undefined,
+    merge,
+    enableAutoMerge,
+    /** A merge or auto-merge from here first shows its commit to edit and confirm. */
+    editsCommit: method !== "rebase" && props.editCommit !== undefined,
     async runPrimary() {
-      if (primary.kind === "merge") return writes.merge(method);
+      if (primary.kind === "merge") return merge();
       if (primary.kind === "auto-merge" || primary.kind === "auto-merge-ready")
-        return mergeState.run("enable", method);
+        return enableAutoMerge();
       if (primary.kind === "link" && host) return writes.link(host);
       if (primary.kind === "ready") return void (await lifecycle.apply({ kind: "ready" }));
       if (primary.kind === "resolve") resolveConflicts();
