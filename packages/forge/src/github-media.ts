@@ -50,19 +50,19 @@ export function mediaKey(source: string): string | undefined {
   return `url:${url.href}`;
 }
 
-const marker = (index: number) => `ACEMEDIA${index}X`;
-const markerPattern = /ACEMEDIA(\d+)X/;
+/** One item's marker: the request's nonce and the item's index, as a paragraph of its own. */
+const marker = (nonce: string, index: number) => `ACEMEDIA${nonce}N${index}X`;
 
 /**
  * Text that GitHub renders into one media element per item, each after its own marker: an image
  * as an `<img>`, a link alone on its line (so an uploaded video becomes a player).
  */
-export function mediaRenderText(items: readonly ForgeMediaRequest[]): string {
+export function mediaRenderText(items: readonly ForgeMediaRequest[], nonce: string): string {
   return items
     .map((item, index) => {
       const url = new URL(item.url).href;
       const media = item.role === "image" ? `<img src="${url.replaceAll('"', "%22")}">` : url;
-      return `${marker(index)}\n\n${media}`;
+      return `${marker(nonce, index)}\n\n${media}`;
     })
     .join("\n\n");
 }
@@ -101,17 +101,25 @@ function mediaAt(kind: "image" | "video", src: string | undefined): RenderedMedi
  * The media GitHub rendered for each of `count` items in HTML produced from `mediaRenderText`:
  * the first image or video after each item's marker, or null where it rendered none.
  */
-export function renderedMedia(html: string, count: number): RenderedMedia[] {
+export function renderedMedia(html: string, count: number, nonce: string): RenderedMedia[] {
   const found: RenderedMedia[] = Array.from({ length: count }, () => null);
+  const markers = new Map(
+    Array.from({ length: count }, (_, index) => [marker(nonce, index), index]),
+  );
   let current: number | undefined;
   const walk = (nodes: readonly Node[]) => {
     for (const node of nodes) {
-      if (node.nodeName === "#text" && "value" in node) {
-        const match = markerPattern.exec(node.value);
-        if (match) current = Number(match[1]);
-        continue;
-      }
       if (!("tagName" in node)) continue;
+      // Only a paragraph that is exactly a marker switches items; URL text never does.
+      if (node.tagName === "p") {
+        const only = node.childNodes.length === 1 ? node.childNodes[0] : undefined;
+        const text = only?.nodeName === "#text" && "value" in only ? only.value.trim() : "";
+        const index = markers.get(text);
+        if (index !== undefined) {
+          current = index;
+          continue;
+        }
+      }
       if (current !== undefined && current < count && found[current] === null) {
         if (node.tagName === "img") found[current] = mediaAt("image", attribute(node, "src"));
         else if (node.tagName === "video")
@@ -129,12 +137,13 @@ export async function renderGitHubMedia(
   api: GhApi,
   repository: ForgeRepository,
   items: readonly ForgeMediaRequest[],
+  nonce: string,
   signal: AbortSignal,
 ): Promise<RenderedMedia[]> {
   const html = await api.renderMarkdown(
-    mediaRenderText(items),
+    mediaRenderText(items, nonce),
     `${repository.owner}/${repository.name}`,
     signal,
   );
-  return renderedMedia(html, items.length);
+  return renderedMedia(html, items.length, nonce);
 }

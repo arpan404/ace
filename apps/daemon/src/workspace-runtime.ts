@@ -1,5 +1,6 @@
 import { ForgeMediaCache, forgeMediaRoot } from "./forge-media/media-cache.ts";
 import { ForgeMediaService } from "./forge-media/media-service.ts";
+import type { ForgeMediaGrants } from "./forge-media/media-grants.ts";
 import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { DefaultBranches } from "./default-branch.ts";
 import type { createWritingCli } from "./source-control-cli.ts";
@@ -67,6 +68,8 @@ export interface WorkspaceRuntimeOptions {
   forgeRunner?: (cwd: string) => CommandRunner;
   /** Media for forge text (ADR 0096); by default kept under the daemon's data directory. */
   forgeMedia?: () => ForgeMediaService;
+  /** Where the media service records which project may download what (the files layer's). */
+  forgeMediaGrants?: ForgeMediaGrants;
   /** Injected endpoint selection for isolated Git fixtures; production matches repository identity. */
   prRemote?: (remotes: PrRemotes, repository: ForgeRepository) => string;
   gitService?: WorkspaceGit;
@@ -89,12 +92,17 @@ export interface WorkspaceRuntimeOptions {
   log?: (message: string, error: unknown) => void;
 }
 /** The media service, made on first use so a daemon that never shows forge media never makes its folder. */
-function forgeMedia(directory: string, now: () => number): () => ForgeMediaService {
+function forgeMedia(
+  directory: string,
+  now: () => number,
+  grants: ForgeMediaGrants | undefined,
+): () => ForgeMediaService {
   let service: ForgeMediaService | undefined;
   return () =>
     (service ??= new ForgeMediaService({
       cache: new ForgeMediaCache(forgeMediaRoot(directory)),
       now,
+      ...(grants ? { grants } : {}),
     }));
 }
 export class WorkspaceRuntime {
@@ -138,7 +146,7 @@ export class WorkspaceRuntime {
       now,
       options.forgeRunner ?? ((cwd) => createCommandRunner({ cwd })),
       options.sourceControl,
-      options.forgeMedia ?? forgeMedia(directory, now),
+      options.forgeMedia ?? forgeMedia(directory, now, options.forgeMediaGrants),
     );
     this.roots = new WorkspaceRoots(store, this.git, directory, now, this.machine, {
       ...(options.baseFetchTimeoutMs ? { baseFetchTimeoutMs: options.baseFetchTimeoutMs } : {}),

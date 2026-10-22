@@ -26,7 +26,11 @@ const Entry = z.object({
 export type CachedMedia = z.infer<typeof Entry>;
 const Index = z.object({
   keys: z.array(z.tuple([z.string().max(4096), Entry, z.number().int().nonnegative()])),
+  /** Files least recently used first, so eviction keeps its order across restarts. */
+  order: z.array(sha256).optional(),
 });
+/** How long index writes wait to gather the stores that follow. */
+const persistDelayMs = 1000;
 
 /** Where the daemon keeps forge media under its data directory. */
 export function forgeMediaRoot(dataDir: string): string {
@@ -53,6 +57,10 @@ export class ForgeMediaCache {
   private readonly files = new Map<string, number>();
   private bytes = 0;
   private writing: Promise<void> = Promise.resolve();
+  /** A gathered index write waiting its turn. */
+  private pending: ReturnType<typeof setTimeout> | undefined;
+  /** Files being moved into place: counted once, however many stores race for them. */
+  private readonly arriving = new Map<string, Promise<void>>();
   constructor(root: string, limits: Partial<ForgeMediaCacheLimits> = {}) {
     this.root = root;
     this.limits = { ...defaults, ...limits };
@@ -81,6 +89,8 @@ export class ForgeMediaCache {
       const index = Index.parse(JSON.parse(readFileSync(join(root, "index.json"), "utf8")));
       for (const [key, media, at] of index.keys)
         if (this.files.get(media.sha256) === media.bytes) this.keys.set(key, { media, at });
+      // Most recently used last, as it was when the index was written.
+      for (const hash of index.order ?? []) this.touch(hash);
     } catch {
       /* No index yet, or an unreadable one: media is fetched again. */
     }
@@ -91,7 +101,7 @@ export class ForgeMediaCache {
     const entry = this.keys.get(key);
     if (!entry || !this.files.has(entry.media.sha256)) return undefined;
     this.touch(entry.media.sha256);
-    const fresh = key.startsWith("asset:") || now - entry.at < this.limits.ttlMs;
+    const fresh = key.includes(" asset:") || now - entry.at < this.limits.ttlMs;
     return { media: entry.media, fresh };
   }
 
@@ -102,11 +112,22 @@ export class ForgeMediaCache {
 
   /** Take a fetched file as `key`'s media; the temporary file is moved or removed. */
   async adopt(key: string, temporary: string, media: CachedMedia, now: number): Promise<void> {
-    if (this.files.has(media.sha256)) await unlink(temporary).catch(() => {});
-    else {
-      await rename(temporary, join(this.root, media.sha256));
-      this.files.set(media.sha256, media.bytes);
-      this.bytes += media.bytes;
+    const arriving = this.arriving.get(media.sha256);
+    if (this.files.has(media.sha256) || arriving) {
+      await unlink(temporary).catch(() => {});
+      await arriving;
+    } else {
+      // Reserved before the move, so a second store of the same bytes doesn't count them again.
+      const moving = rename(temporary, join(this.root, media.sha256)).then(() => {
+        this.files.set(media.sha256, media.bytes);
+        this.bytes += media.bytes;
+      });
+      this.arriving.set(media.sha256, moving);
+      try {
+        await moving;
+      } finally {
+        this.arriving.delete(media.sha256);
+      }
     }
     this.keys.delete(key);
     this.keys.set(key, { media, at: now });
@@ -141,21 +162,32 @@ export class ForgeMediaCache {
     await Promise.all([...gone].map((hash) => unlink(join(this.root, hash)).catch(() => {})));
   }
 
-  /** Writes the index after the ones before it, never two at once. */
+  /** Gathers the stores of the next second into one index write. */
   private persist(): void {
+    if (this.pending) return;
+    this.pending = setTimeout(() => this.write(), persistDelayMs);
+    this.pending.unref?.();
+  }
+
+  /** Writes the index after the ones before it, never two at once. */
+  private write(): void {
+    clearTimeout(this.pending);
+    this.pending = undefined;
     const keys = [...this.keys].map(([key, entry]) => [key, entry.media, entry.at]);
+    const order = [...this.files.keys()];
     const path = join(this.root, "index.json");
     this.writing = this.writing
       .then(async () => {
         const temporary = `${path}.${randomUUID()}.tmp`;
-        await writeFile(temporary, JSON.stringify({ keys }));
+        await writeFile(temporary, JSON.stringify({ keys, order }));
         await rename(temporary, path);
       })
       .catch(() => {});
   }
 
-  /** Index writes still on their way (for shutdown and tests). */
+  /** Writes a gathered index now and waits for it (for shutdown and tests). */
   flushed(): Promise<void> {
+    if (this.pending) this.write();
     return this.writing;
   }
 }

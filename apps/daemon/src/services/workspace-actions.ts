@@ -58,6 +58,7 @@ export async function startWorkspaceActions({
         ),
     },
     ...(services.sourceControl ? { sourceControl: services.sourceControl } : {}),
+    ...(services.threadFiles ? { forgeMediaGrants: services.threadFiles.forgeMedia.grants } : {}),
     writingCli:
       options.workspaceActions?.writingCli ??
       createWritingCli({

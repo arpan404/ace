@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { ForgePrCheckout } from "@ace/protocol/forge-worktree";
 import { BrowserPr } from "./github-browser-schemas.ts";
 import { GitHubLifecycle } from "./github-lifecycle.ts";
@@ -274,7 +275,9 @@ export class GitHubForge implements Forge, ForgeBrowser {
     items: readonly import("@ace/protocol/forge-media").ForgeMediaRequest[],
     signal: AbortSignal,
   ) {
-    return renderGitHubMedia(this.#api, this.repository, items, signal);
+    // A fresh nonce per request, so nothing in a URL can pose as an item's marker.
+    const nonce = randomUUID().replaceAll("-", "").slice(0, 16);
+    return renderGitHubMedia(this.#api, this.repository, items, nonce, signal);
   }
   async states(numbers: readonly number[], signal: AbortSignal) {
     return githubStates(this.#api, this.repository, numbers, signal);

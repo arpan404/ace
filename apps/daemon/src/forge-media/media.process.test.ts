@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -14,7 +13,8 @@ import { WorkspaceRuntime } from "../workspace-runtime.ts";
 import { FilesWorkspaces } from "../files-workspaces.ts";
 import { projectFilesBinding } from "../project-files-binding.ts";
 import { ForgeMediaCache, forgeMediaRoot } from "./media-cache.ts";
-import { fetchMedia, mediaHostAllowed } from "./media-fetch.ts";
+import { mediaHostAllowed } from "./media-fetch.ts";
+import { localMediaHost, png, signedFiles } from "./media-test-hosts.ts";
 import { ForgeMediaService } from "./media-service.ts";
 import { mediaDimensions, sniffMedia } from "./media-sniff.ts";
 
@@ -25,48 +25,17 @@ afterEach(async () => {
 });
 
 const asset = "98705180-e07b-4a5d-b44e-2941ed073508";
-const png = Buffer.concat([
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-  Buffer.alloc(600, 7),
-]);
 const jwt = (token: string, exp: number) =>
   ["e30", Buffer.from(JSON.stringify({ exp, token })).toString("base64url"), "sig"].join(".");
 const signedUrl = (token: string) =>
   `https://private-user-images.githubusercontent.com/1/2-${asset}.png?jwt=${jwt(token, 2_000_000_000)}`;
-const renderedImage = (url: string) => `<p>ACEMEDIA0X</p>\n<a href="${url}"><img src="${url}"></a>`;
-
-/** GitHub's media host, played locally: a signed URL works only while its token is current. */
-async function mediaHost(files: Record<string, { body: Buffer; type: string }>, current: string) {
-  const server: Server = createServer((request, response) => {
-    const url = new URL(request.url ?? "/", "http://local");
-    const token = url.searchParams.get("jwt");
-    if (token) {
-      const payload = Buffer.from(token.split(".")[1] ?? "", "base64url").toString();
-      if (!payload.includes(`"token":"${current}"`)) {
-        response.writeHead(403).end("Request has expired");
-        return;
-      }
-    }
-    const file = files[url.pathname];
-    if (!file) {
-      response.writeHead(404).end();
-      return;
-    }
-    response.writeHead(200, { "content-type": file.type }).end(file.body);
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  cleanups.push(() => new Promise((resolve) => server.close(() => resolve())));
-  const address = server.address();
-  const port = typeof address === "object" && address ? address.port : 0;
-  // Fetch what GitHub named from the local stand-in, keeping its path and query.
-  return (url: string, temporary: string, maxBytes = 1024 * 1024) => {
-    const parsed = new URL(url);
-    return fetchMedia(`http://127.0.0.1:${port}${parsed.pathname}${parsed.search}`, temporary, {
-      maxBytes,
-      allowed: () => true,
-    });
-  };
-}
+const renderedImage = (url: string) =>
+  `<p>ACEMEDIANONCEN0X</p>\n<a href="${url}"><img src="${url}"></a>`;
+const scope = (workspaceId: string, repository = "github.com/octo/ace") => ({
+  host: "github.com",
+  repository,
+  workspaceId,
+});
 
 async function project() {
   const root = await mkdtemp(join(tmpdir(), "ace-forge-media-"));
@@ -102,20 +71,37 @@ test("an expired signed URL is rendered again, and the bytes then serve every la
     ],
   });
   cleanups.push(() => gh.cleanup());
-  const host = await mediaHost(
-    { [`/1/2-${asset}.png`]: { body: png, type: "application/octet-stream" } },
-    "fresh",
+  const host = await localMediaHost(
+    signedFiles(
+      { [`/1/2-${asset}.png`]: { body: png, type: "application/octet-stream" } },
+      () => "fresh",
+    ),
+    cleanups,
   );
-  const dataDir = readConfig({ ACE_HOME: root }, root).dataDir;
+  const config = readConfig({ ACE_HOME: root }, root);
+  const dataDir = config.dataDir;
+  const files = new FilesWorkspaces({
+    store,
+    config,
+    options: {},
+    now: () => 1000,
+    id: randomUUID,
+  });
+  cleanups.push(() => files.close());
+  const caches: ForgeMediaCache[] = [];
   const runtimeWith = () =>
     new WorkspaceRuntime(store, dataDir, () => 1000, {
       forgeRunner: () => (request) => gh.runner({ ...request, command: gh.executable }),
-      forgeMedia: () =>
-        new ForgeMediaService({
-          cache: new ForgeMediaCache(forgeMediaRoot(dataDir)),
+      forgeMedia: () => {
+        const cache = new ForgeMediaCache(forgeMediaRoot(dataDir));
+        caches.push(cache);
+        return new ForgeMediaService({
+          cache,
           now: () => 1000,
-          fetch: (url, temporary) => host(url, temporary),
-        }),
+          grants: files.forgeMedia.grants,
+          fetch: (url, temporary) => host.fetch(url, temporary),
+        });
+      },
     });
   const item = {
     url: `https://github.com/user-attachments/assets/${asset}`,
@@ -126,20 +112,13 @@ test("an expired signed URL is rendered again, and the bytes then serve every la
   expect(await resolve(runtimeWith(), workspaceId, [item])).toEqual([ready]);
   expect((await gh.requests()).filter((request) => request.path === "markdown")).toHaveLength(2);
 
-  // A restarted daemon answers from its cache and asks GitHub nothing.
+  // A restarted daemon (its index written as it stopped) answers from its cache and asks
+  // GitHub nothing.
+  await Promise.all(caches.map((cache) => cache.flushed()));
   expect(await resolve(runtimeWith(), workspaceId, [item])).toEqual([ready]);
   expect((await gh.requests()).filter((request) => request.path === "markdown")).toHaveLength(2);
 
   // Clients read the bytes by hash through the project's read-only download.
-  const config = readConfig({ ACE_HOME: root }, root);
-  const files = new FilesWorkspaces({
-    store,
-    config,
-    options: {},
-    now: () => 1000,
-    id: randomUUID,
-  });
-  cleanups.push(() => files.close());
   const binding = await projectFilesBinding(
     files,
     workspaceId,
@@ -152,6 +131,17 @@ test("an expired signed URL is rendered again, and the bytes then serve every la
   await download.close();
   expect(Buffer.concat(parts).equals(png)).toBe(true);
   expect(binding.allowed("operate")).toBe(false);
+
+  // Another project never resolved it: knowing the hash isn't enough to read it.
+  const other = store.createWorkspace(join(root, "other"), "Other");
+  await expect(
+    projectFilesBinding(
+      files,
+      other,
+      { op: "forge.media.download", sha256, offset: 0 },
+      () => true,
+    ),
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
 test("bytes that are not media are refused whatever their host claims, and SVG is only an image", async () => {
@@ -160,16 +150,19 @@ test("bytes that are not media are refused whatever their host claims, and SVG i
   const svg = Buffer.from(
     '<?xml version="1.0"?>\n<!-- logo -->\n<svg xmlns="http://www.w3.org/2000/svg"></svg>',
   );
-  const host = await mediaHost(
-    {
-      "/page.png": {
-        body: Buffer.from("<!doctype html><script>alert(1)</script>"),
-        type: "image/png",
+  const host = await localMediaHost(
+    signedFiles(
+      {
+        "/page.png": {
+          body: Buffer.from("<!doctype html><script>alert(1)</script>"),
+          type: "image/png",
+        },
+        "/logo.svg": { body: svg, type: "text/plain" },
+        "/huge.png": { body: Buffer.concat([png, Buffer.alloc(4096)]), type: "image/png" },
       },
-      "/logo.svg": { body: svg, type: "text/plain" },
-      "/huge.png": { body: Buffer.concat([png, Buffer.alloc(4096)]), type: "image/png" },
-    },
-    "",
+      () => "",
+    ),
+    cleanups,
   );
   const urls: Record<string, string> = {
     "https://example.com/page.png": "https://camo.githubusercontent.com/page.png",
@@ -182,7 +175,7 @@ test("bytes that are not media are refused whatever their host claims, and SVG i
   const service = new ForgeMediaService({
     cache,
     now: () => 1000,
-    fetch: (url, temporary) => host(url, temporary, 2048),
+    fetch: (url, temporary) => host.fetch(url, temporary, { maxBytes: 2048 }),
   });
   const render = async (items: readonly ForgeMediaRequest[]) =>
     items.map((item) => ({
@@ -191,7 +184,7 @@ test("bytes that are not media are refused whatever their host claims, and SVG i
       expiresAt: undefined,
     }));
   const items = Object.keys(urls).map((url) => ({ url, role: "image" as const }));
-  const results = await service.resolve("github.com", render, items, new AbortController().signal);
+  const results = await service.resolve(scope("ace"), render, items);
   expect(results.map((result) => (result.state === "ready" ? result.mimeType : result))).toEqual([
     { state: "unavailable", reason: "unsupported" },
     "image/svg+xml",
@@ -217,20 +210,22 @@ test("the cache keeps to its byte budget, dropping the least recently used, acro
       1,
     );
   };
-  await put("asset:a", 1);
-  await put("asset:b", 2);
-  expect(cache.lookup("asset:a", 1)).toBeDefined(); // a is now the most recently used
-  await put("asset:c", 3);
+  await put("github.com/o/r asset:a", 1);
+  await put("github.com/o/r asset:b", 2);
+  expect(cache.lookup("github.com/o/r asset:a", 1)).toBeDefined(); // a is now the most recently used
+  await put("github.com/o/r asset:c", 3);
   expect(cache.size).toEqual({ files: 2, bytes: 2000 });
-  expect(cache.lookup("asset:b", 1)).toBeUndefined();
+  expect(cache.lookup("github.com/o/r asset:b", 1)).toBeUndefined();
   await cache.flushed();
   const reopened = new ForgeMediaCache(root, limits);
-  expect(reopened.lookup("asset:a", 1)?.fresh).toBe(true);
-  expect(reopened.lookup("asset:c", 1)?.fresh).toBe(true);
-  expect(reopened.lookup("asset:b", 1)).toBeUndefined();
+  expect(reopened.lookup("github.com/o/r asset:a", 1)?.fresh).toBe(true);
+  expect(reopened.lookup("github.com/o/r asset:c", 1)?.fresh).toBe(true);
+  expect(reopened.lookup("github.com/o/r asset:b", 1)).toBeUndefined();
   // Non-attachment media is fetched again after its week.
-  await put("url:https://example.com/a.png", 4);
-  expect(cache.lookup("url:https://example.com/a.png", 1 + 8 * 24 * 3600_000)?.fresh).toBe(false);
+  await put("github.com/o/r url:https://example.com/a.png", 4);
+  expect(
+    cache.lookup("github.com/o/r url:https://example.com/a.png", 1 + 8 * 24 * 3600_000)?.fresh,
+  ).toBe(false);
 });
 
 test("an image's pixel size is read from its header so pages can hold its space", () => {
