@@ -39,6 +39,39 @@ export class FakePrPeople {
     this.state.set(number, initial);
     return initial;
   }
+  /**
+   * Someone else submits a review: it becomes their standing review (a comment never replaces
+   * a verdict) and answers their request. Returns GitHub's review decision after it.
+   */
+  submit(
+    fixture: PullRequestFixture,
+    review: {
+      id: number;
+      login: string;
+      state: "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED";
+      at: string;
+    },
+  ): "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" {
+    const current = this.reviewers(fixture);
+    const earlier = current.reviews.find((r) => same(r.login, review.login));
+    const verdict =
+      review.state === "COMMENTED" && earlier && earlier.state !== "COMMENTED"
+        ? earlier
+        : undefined;
+    const next: ForgeLatestReview = verdict ?? {
+      id: review.id,
+      login: review.login,
+      state: review.state,
+      submittedAt: review.at,
+    };
+    const reviews = [next, ...current.reviews.filter((r) => !same(r.login, review.login))];
+    const requested = current.requested.filter(
+      (r) => r.kind !== "user" || !same(r.login, review.login),
+    );
+    this.state.set(fixture.detail.status.ref.number, { reviews, requested });
+    if (reviews.some((r) => r.state === "CHANGES_REQUESTED")) return "CHANGES_REQUESTED";
+    return reviews.some((r) => r.state === "APPROVED") ? "APPROVED" : "REVIEW_REQUIRED";
+  }
   /** The logins asked now, for the PR detail's reviewer list. */
   requestedLogins(fixture: PullRequestFixture): string[] {
     return this.reviewers(fixture).requested.flatMap((r) => (r.kind === "user" ? [r.login] : []));

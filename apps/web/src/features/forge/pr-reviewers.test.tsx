@@ -4,6 +4,8 @@ import { focusManager } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { pullRequestDetails, workbench } from "@ace/fake-daemon";
 import { WorkspaceId } from "@ace/protocol";
+import { createQueryClient } from "@/app.tsx";
+import { prDetailKey } from "@/lib/forge-pr-detail.ts";
 import { harness } from "@/test/harness.tsx";
 import { openPullRequest } from "./test-support.ts";
 
@@ -15,8 +17,8 @@ const repository = {
 } as const;
 
 /** PR #31 of acme/docs-site: mira asked for changes, dana commented, ola is still asked. */
-async function openInstallPage() {
-  const app = harness();
+async function openInstallPage(queryClient = createQueryClient()) {
+  const app = harness({ queryClient });
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   app.daemon.workspace.seedPullRequests(pullRequestDetails(1_000));
   await openPullRequest(app, { project: "api", repository, number: 31 });
@@ -104,4 +106,21 @@ test("the reviewers are read once, not again each time the window regains focus"
   await new Promise((resolve) => setTimeout(resolve, 300));
   expect(app.daemon.workspace.forgeReadCount(read)).toBe(before);
   focusManager.setFocused(undefined);
+}, 30_000);
+
+test("on the Code tab, an approval that arrives with the PR clears the Changes requested gate", async () => {
+  const queryClient = createQueryClient();
+  const app = await openInstallPage(queryClient);
+  await userEvent.click(await screen.findByRole("tab", { name: "Code" }));
+  // Summary (and its Reviewers line) is gone; only the PR view remains to follow.
+  await waitFor(() => expect(screen.queryByRole("group", { name: "Reviewers" })).toBeNull());
+  await screen.findByRole("button", { name: "Reviews: Changes requested" });
+  app.daemon.workspace.submitPullRequestReview(31, {
+    login: "mira",
+    state: "APPROVED",
+    at: "2026-10-22T12:00:00.000Z",
+  });
+  // The PR's own poll brings the new detail; nothing else is read again by hand.
+  await act(() => queryClient.refetchQueries({ queryKey: prDetailKey("api", repository, 31) }));
+  await screen.findByRole("button", { name: "Reviews: 1 approved" }, { timeout: 5_000 });
 }, 30_000);
