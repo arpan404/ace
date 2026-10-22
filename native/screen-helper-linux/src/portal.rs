@@ -1,6 +1,9 @@
-//! Portal session persistence is owned by RemoteDesktop for a combined session.
+//! The live view's Wayland portal session. With RemoteDesktop (GNOME, KDE) it is one combined
+//! session whose persistence RemoteDesktop owns; without it (xdg-desktop-portal-hyprland,
+//! xdg-desktop-portal-wlr) it is a ScreenCast-only session that persists itself, and the view
+//! is watch-only: input is never sent around the portal (ADR 0049).
 use crate::{
-    policy::portal_policy,
+    policy::{PortalOffer, RemoteDesktopOffer, portal_policy},
     protocol::{Fault, Result, internal},
 };
 use futures_util::StreamExt;
@@ -13,6 +16,8 @@ use zbus::{
 type Dict = HashMap<String, OwnedValue>;
 const SERVICE: &str = "org.freedesktop.portal.Desktop";
 const PATH: &str = "/org/freedesktop/portal/desktop";
+/// How long closing a request or session may take before the helper moves on.
+const CLOSE_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 fn dict(entries: impl IntoIterator<Item = (&'static str, OwnedValue)>) -> Dict {
     entries.into_iter().map(|(k, v)| (k.into(), v)).collect()
 }
@@ -24,19 +29,19 @@ pub struct Portal {
     pub session: Option<OwnedObjectPath>,
     pub node: u32,
     pub size: (u32, u32),
+    /// Input devices the person granted in the current session (none without RemoteDesktop).
     pub devices: u32,
-    pub sources: u32,
-    pub version: u32,
+    offer: PortalOffer,
     token_path: PathBuf,
     counter: u64,
 }
+/// Why a live view on this desktop can't take input: its portal has no RemoteDesktop. ace
+/// never sends input around the compositor's consent (ADR 0049), so the view is watch-only.
+pub const NO_REMOTE_DESKTOP: &str = "This desktop's screen-sharing portal has no remote control (RemoteDesktop; e.g. xdg-desktop-portal-hyprland or -wlr), so ace can show the app here but cannot send it clicks or keys. Use the app on the desktop itself; agents act through element ids.";
 impl Portal {
     pub async fn connect(token_path: PathBuf) -> Result<Self> {
         let conn = Connection::session().await.map_err(internal)?;
         let sc = Proxy::new(&conn, SERVICE, PATH, "org.freedesktop.portal.ScreenCast")
-            .await
-            .map_err(internal)?;
-        let rd = Proxy::new(&conn, SERVICE, PATH, "org.freedesktop.portal.RemoteDesktop")
             .await
             .map_err(internal)?;
         let sources: u32 = sc.get_property("AvailableSourceTypes").await.map_err(|e| {
@@ -45,33 +50,33 @@ impl Portal {
                 format!("ScreenCast portal unavailable: {e}"),
             )
         })?;
-        let devices: u32 = rd.get_property("AvailableDeviceTypes").await.map_err(|e| {
-            Fault::new(
-                "not_supported",
-                format!("RemoteDesktop portal unavailable: {e}"),
-            )
-        })?;
-        let version: u32 = rd.get_property("version").await.map_err(internal)?;
+        let screencast_version: u32 = sc.get_property("version").await.unwrap_or(1);
+        let offer = PortalOffer {
+            sources,
+            screencast_version,
+            remote_desktop: remote_desktop(&conn).await,
+        };
         Ok(Self {
             conn,
             session: None,
             node: 0,
             size: (0, 0),
-            devices,
-            sources,
-            version,
+            devices: 0,
+            offer,
             token_path,
             counter: 0,
         })
     }
     pub fn capabilities(&self, ui: bool) -> Value {
-        let p = portal_policy(self.sources, self.devices, self.version);
-        let permission = if self.session.is_some() {
+        let p = portal_policy(&self.offer);
+        let remote = self.offer.remote_desktop;
+        let screen = if self.session.is_some() {
             "granted"
         } else {
             "prompt"
         };
-        json!({"version":2,"platform":"linux-wayland","capture":{"windows":p.windows,"displays":p.displays,"changeDriven":false},"input":{"pointer":p.pointer,"keyboard":p.keyboard,"scroll":p.pointer,"text":ui},"uiTree":ui,"semanticActions":if ui {vec!["press","focus","setValue","scroll","expand","select"]} else {vec![]},"codecs":["jpeg"],"permissions":{"screen":permission,"input":permission},"portal":{"remoteDesktopVersion":self.version,"restore":p.persistent,"desktop":std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),"windowIdentity":false,"semanticScope":"approved executable with exactly one accessible window, independent of chooser","notes":"Window availability and restore support vary by GNOME/KDE portal version; chooser controls source, no EWMH ids or silent window targeting"}})
+        let input = if remote.is_some() { screen } else { "n/a" };
+        json!({"version":2,"platform":"linux-wayland","capture":{"windows":p.windows,"displays":p.displays,"changeDriven":false},"input":{"pointer":p.pointer,"keyboard":p.keyboard,"scroll":p.pointer,"text":ui},"uiTree":ui,"semanticActions":if ui {vec!["press","focus","setValue","scroll","expand","select"]} else {vec![]},"codecs":["jpeg"],"permissions":{"screen":screen,"input":input},"portal":{"remoteDesktop":remote.is_some(),"remoteDesktopVersion":remote.map_or(0, |rd| rd.version),"screenCastVersion":self.offer.screencast_version,"restore":p.persistent,"desktop":std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),"windowIdentity":false,"semanticScope":"approved executable with exactly one accessible window, independent of chooser","notes":"Window availability and restore support vary by portal (GNOME, KDE, Hyprland, wlroots); chooser controls source, no EWMH ids or silent window targeting; without RemoteDesktop the view is watch-only"}})
     }
     async fn proxy(&self, interface: &str) -> Result<Proxy<'_>> {
         Proxy::new(
@@ -140,7 +145,10 @@ impl Portal {
             {
                 Ok(Some(m)) => m,
                 _ => {
-                    let _: std::result::Result<(), _> = request.call("Close", &()).await;
+                    // A backend still waiting on its chooser (xdg-desktop-portal-hyprland runs
+                    // it synchronously) can't answer Close either: don't wait on it.
+                    let close = request.call::<_, _, ()>("Close", &());
+                    let _ = tokio::time::timeout(CLOSE_WAIT, close).await;
                     return Err(Fault::new("timeout", "Portal consent timed out"));
                 }
             };
@@ -158,15 +166,22 @@ impl Portal {
             return Err(Fault::new("busy", "Portal session already active"));
         }
         let source = if window { 2 } else { 1 };
-        if self.sources & source == 0 {
+        if self.offer.sources & source == 0 {
             return Err(Fault::new(
                 "not_supported",
                 "Compositor cannot capture this source type",
             ));
         }
+        // With RemoteDesktop one combined session carries the picture and the person's input;
+        // without it the session is ScreenCast alone and the view is watch-only.
+        let owner = if self.offer.remote_desktop.is_some() {
+            "RemoteDesktop"
+        } else {
+            "ScreenCast"
+        };
         let created = self
             .request(
-                "RemoteDesktop",
+                owner,
                 "CreateSession",
                 None,
                 dict([("session_handle_token", string("ace_session")?)]),
@@ -181,24 +196,54 @@ impl Portal {
             .map_err(internal)?;
         let session = OwnedObjectPath::try_from(path).map_err(internal)?;
         self.session = Some(session.clone());
-        let result = self.configure(&session, source).await;
+        let result = if self.offer.remote_desktop.is_some() {
+            self.configure(&session, source).await
+        } else {
+            self.configure_screencast(&session, source).await
+        };
         if result.is_err() {
             let _ = self.stop().await;
         }
         result
+    }
+    /// Asks for a remembered grant: persist until revoked, restoring the last one if any.
+    fn persist(&self, options: &mut Dict) -> Result<()> {
+        if portal_policy(&self.offer).persistent {
+            options.insert("persist_mode".into(), OwnedValue::from(2u32));
+            if let Some(token) = read_token(&self.token_path)? {
+                options.insert("restore_token".into(), string(&token)?);
+            }
+        }
+        Ok(())
+    }
+    /// A ScreenCast-only session: the picture, persisted by ScreenCast itself.
+    async fn configure_screencast(
+        &mut self,
+        session: &OwnedObjectPath,
+        source: u32,
+    ) -> Result<std::os::fd::OwnedFd> {
+        let mut options = dict([
+            ("types", OwnedValue::from(source)),
+            ("multiple", OwnedValue::from(false)),
+            ("cursor_mode", OwnedValue::from(1u32)),
+        ]);
+        self.persist(&mut options)?;
+        self.request("ScreenCast", "SelectSources", Some(session), options)
+            .await?;
+        let result = self
+            .request("ScreenCast", "Start", Some(session), HashMap::new())
+            .await?;
+        self.devices = 0;
+        self.stream(session, &result).await
     }
     async fn configure(
         &mut self,
         session: &OwnedObjectPath,
         source: u32,
     ) -> Result<std::os::fd::OwnedFd> {
-        let mut options = dict([("types", OwnedValue::from(self.devices & 3))]);
-        if self.version >= 2 {
-            options.insert("persist_mode".into(), OwnedValue::from(2u32));
-            if let Some(token) = read_token(&self.token_path)? {
-                options.insert("restore_token".into(), string(&token)?);
-            }
-        }
+        let available = self.offer.remote_desktop.map_or(0, |rd| rd.devices);
+        let mut options = dict([("types", OwnedValue::from(available & 3))]);
+        self.persist(&mut options)?;
         self.request("RemoteDesktop", "SelectDevices", Some(session), options)
             .await?;
         // Combined sessions must not pass persistence options to ScreenCast.
@@ -223,6 +268,15 @@ impl Portal {
             .map_err(internal)?
             .try_into()
             .map_err(internal)?;
+        self.stream(session, &result).await
+    }
+    /// The started session's one stream: its node, logical size and restore token, and the
+    /// PipeWire connection to read it from.
+    async fn stream(
+        &mut self,
+        session: &OwnedObjectPath,
+        result: &Dict,
+    ) -> Result<std::os::fd::OwnedFd> {
         let streams: Vec<(u32, Dict)> = result
             .get("streams")
             .ok_or_else(|| internal("Portal omitted streams"))?
@@ -285,16 +339,18 @@ impl Portal {
             )
             .await
             .map_err(internal)?;
-            proxy
-                .call::<_, _, ()>("Close", &())
-                .await
-                .map_err(internal)?;
+            // A backend stuck on its chooser closes the session itself once that is answered;
+            // the portal also ends it when this process disconnects.
+            match tokio::time::timeout(CLOSE_WAIT, proxy.call::<_, _, ()>("Close", &())).await {
+                Ok(closed) => closed.map_err(internal)?,
+                Err(_) => eprintln!("portal: the session did not close in time"),
+            }
         }
         Ok(())
     }
     pub async fn motion(&self, x: f64, y: f64) -> Result<()> {
-        crate::policy::point(x, y, self.size.0, self.size.1)?;
         self.require(2)?;
+        crate::policy::point(x, y, self.size.0, self.size.1)?;
         self.proxy("RemoteDesktop")
             .await?
             .call::<_, _, ()>(
@@ -357,6 +413,9 @@ impl Portal {
             .ok_or_else(|| Fault::new("target_gone", "No portal session"))
     }
     fn require(&self, device: u32) -> Result<()> {
+        if self.offer.remote_desktop.is_none() {
+            return Err(Fault::new("not_supported", NO_REMOTE_DESKTOP));
+        }
         self.path()?;
         if self.devices & device == 0 {
             return Err(Fault::new(
@@ -366,5 +425,15 @@ impl Portal {
         }
         Ok(())
     }
+}
+/// The RemoteDesktop portal, when the desktop's portal backends implement it. Without one,
+/// xdg-desktop-portal doesn't export the interface and its properties can't be read.
+async fn remote_desktop(conn: &Connection) -> Option<RemoteDesktopOffer> {
+    let rd = Proxy::new(conn, SERVICE, PATH, "org.freedesktop.portal.RemoteDesktop")
+        .await
+        .ok()?;
+    let devices: u32 = rd.get_property("AvailableDeviceTypes").await.ok()?;
+    let version: u32 = rd.get_property("version").await.ok()?;
+    Some(RemoteDesktopOffer { devices, version })
 }
 pub use crate::portal_token::{read_token, save_token};

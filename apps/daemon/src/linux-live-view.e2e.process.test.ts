@@ -15,10 +15,13 @@ import { ScreenInventory, ScreenState, type ScreenTarget } from "@ace/protocol";
 import { evalWorld, type EvalWorld } from "./evals/world.ts";
 import { at, changed, decodeH264 } from "./testing/decode-h264.ts";
 import { LiveViewer, type ViewerFrame } from "./testing/live-viewer.ts";
+import { answerChooser, leaveChooserUnanswered, scriptedChooser } from "./testing/portal-chooser.ts";
 
 const session = process.env.ACE_LINUX_DESKTOP_E2E;
 const helper = process.env.ACE_SCREEN_HELPER;
-const graphical = session === "x11" || session === "wayland";
+/** x11 (Openbox), wayland (GNOME Shell), hyprland (Omarchy's compositor) or sway. */
+const graphical = ["x11", "wayland", "hyprland", "sway"].includes(session ?? "");
+const wayland = graphical && session !== "x11";
 const enabled = process.platform === "linux" && graphical && !!helper;
 const exec = promisify(execFile);
 const calculator = "org.gnome.Calculator";
@@ -74,6 +77,11 @@ async function calculatorWindow(
     };
   }
   expect(inventory).toEqual({ displays: [], windows: [] });
+  if (scriptedChooser) {
+    // Hyprland and Sway: the person picks Calculator's window in the portal's chooser.
+    await answerChooser({ window: calculator });
+    return { target: waylandCalculator };
+  }
   const token = join(dirname(ace.daemon.tokenPath), "screen-artifacts", "portal", "restore-token");
   // GNOME's shell names the window's app by its desktop file.
   const app = `${calculator}.desktop`;
@@ -135,11 +143,12 @@ describe.skipIf(!enabled)(`Linux live view (${session ?? "off"})`, () => {
     const expected = size
       ? { width: Math.floor(size.width / 2) * 2, height: Math.floor(size.height / 2) * 2 }
       : { width: first.width, height: first.height };
-    // The window alone, never the 1280×800 desktop the runner makes around it.
+    // The window alone, never the desktop (at least 1280×800) the runner makes around it. A
+    // tiling compositor (Hyprland, Sway) gives the window a full column, so one side may be
+    // long, never both.
     expect(expected.width).toBeGreaterThan(200);
-    expect(expected.width).toBeLessThan(800);
     expect(expected.height).toBeGreaterThan(200);
-    expect(expected.height).toBeLessThan(800);
+    expect(expected.width < 1280 || expected.height < 800, JSON.stringify(expected)).toBe(true);
     for (const [index, frame] of decoded.entries()) {
       expect({ width: frame.width, height: frame.height }).toEqual(expected);
       expect({ width: after[index]?.width, height: after[index]?.height }).toEqual(expected);
@@ -148,12 +157,40 @@ describe.skipIf(!enabled)(`Linux live view (${session ?? "off"})`, () => {
     expect(changed(at(decoded, before.length - 1), at(decoded, -1))).toBeGreaterThan(0.001);
   }, 120_000);
 
-  it.skipIf(session !== "wayland")(
+  it.skipIf(!scriptedChooser)(
+    "on a desktop whose portal has no remote control the person watches, and their clicks are refused with the reason",
+    async () => {
+      const ace = await world();
+      const viewer = await LiveViewer.connect(ace.daemon.url, ace.daemon.tokenPath);
+      cleanups.push(() => viewer.close());
+      const { target } = await calculatorWindow(ace, viewer);
+      const state = ScreenState.parse(await viewer.request({ op: "start", target }));
+      await viewer.request({ op: "subscribe", sessionId: state.sessionId });
+      expect(await viewer.frames(state.sessionId, { count: 1 })).toHaveLength(1);
+      await viewer.request({ op: "controller", sessionId: state.sessionId, controller: "human" });
+      const click = viewer.request({
+        op: "input",
+        sessionId: state.sessionId,
+        input: { kind: "pointer.click", x: 20, y: 20 },
+      });
+      await expect(click).rejects.toThrow(/no remote control/);
+      // Still watching after the refusal.
+      expect(await viewer.request({ op: "sessions" })).toHaveLength(1);
+    },
+    120_000,
+  );
+
+  it.skipIf(!wayland)(
     "a Wayland live view nobody approves on the desktop fails with the reason and leaves nothing running",
     async () => {
       const ace = await world();
       const viewer = await LiveViewer.connect(ace.daemon.url, ace.daemon.tokenPath);
       cleanups.push(() => viewer.close());
+      await leaveChooserUnanswered();
+      // The person comes back and declines, which frees the chooser for whatever runs next.
+      cleanups.push(async () => {
+        if (scriptedChooser) await answerChooser("cancel");
+      });
       const started = viewer.request({ op: "start", target: waylandCalculator }, 180_000);
       await expect(started).rejects.toThrow(/Portal consent timed out/);
       expect(await viewer.request({ op: "sessions" })).toEqual([]);

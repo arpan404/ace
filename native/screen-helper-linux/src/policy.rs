@@ -75,13 +75,34 @@ pub struct PortalPolicy {
     pub pointer: bool,
     pub persistent: bool,
 }
-pub fn portal_policy(sources: u32, devices: u32, version: u32) -> PortalPolicy {
+/// What the desktop's xdg-desktop-portal offers. RemoteDesktop is optional: GNOME and KDE
+/// implement it, xdg-desktop-portal-hyprland and xdg-desktop-portal-wlr do not.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PortalOffer {
+    /// ScreenCast `AvailableSourceTypes` (1 monitor, 2 window, 4 virtual).
+    pub sources: u32,
+    pub screencast_version: u32,
+    pub remote_desktop: Option<RemoteDesktopOffer>,
+}
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RemoteDesktopOffer {
+    /// `AvailableDeviceTypes` (1 keyboard, 2 pointer, 4 touchscreen).
+    pub devices: u32,
+    pub version: u32,
+}
+pub fn portal_policy(offer: &PortalOffer) -> PortalPolicy {
+    let devices = offer.remote_desktop.map_or(0, |rd| rd.devices);
     PortalPolicy {
-        windows: sources & 2 != 0,
-        displays: sources & 1 != 0,
+        windows: offer.sources & 2 != 0,
+        displays: offer.sources & 1 != 0,
         keyboard: devices & 1 != 0,
         pointer: devices & 2 != 0,
-        persistent: version >= 2,
+        // A combined session persists through RemoteDesktop (v2); a ScreenCast-only one through
+        // ScreenCast's own persist_mode (v4).
+        persistent: match offer.remote_desktop {
+            Some(rd) => rd.version >= 2,
+            None => offer.screencast_version >= 4,
+        },
     }
 }
 

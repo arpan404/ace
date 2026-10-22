@@ -1,5 +1,7 @@
 use ace_screen_helper_linux::{
-    policy::{Backend, DamageGate, backend, point, portal_policy},
+    policy::{
+        Backend, DamageGate, PortalOffer, RemoteDesktopOffer, backend, point, portal_policy,
+    },
     portal::{read_token, save_token},
     protocol::{Request, packet},
 };
@@ -54,17 +56,40 @@ fn coordinates_reject_edges_nonfinite_values_and_negative_positions() {
 }
 #[test]
 fn portal_support_and_persistence_follow_advertised_versions_and_device_masks() {
-    let old = portal_policy(1, 1, 1);
+    let combined = |sources, devices, version| PortalOffer {
+        sources,
+        screencast_version: 5,
+        remote_desktop: Some(RemoteDesktopOffer { devices, version }),
+    };
+    let old = portal_policy(&combined(1, 1, 1));
     assert!(!old.windows);
     assert!(old.displays);
     assert!(old.keyboard);
     assert!(!old.pointer);
     assert!(!old.persistent);
-    let new = portal_policy(3, 2, 2);
+    let new = portal_policy(&combined(3, 2, 2));
     assert!(new.windows);
     assert!(new.pointer);
     assert!(!new.keyboard);
     assert!(new.persistent);
+}
+#[test]
+fn a_portal_without_remote_desktop_shares_the_screen_but_offers_no_input() {
+    // xdg-desktop-portal-hyprland 1.3: monitors and windows, ScreenCast v5, no RemoteDesktop.
+    let hyprland = portal_policy(&PortalOffer {
+        sources: 3,
+        screencast_version: 5,
+        remote_desktop: None,
+    });
+    assert!(hyprland.windows && hyprland.displays && hyprland.persistent);
+    assert!(!hyprland.pointer && !hyprland.keyboard);
+    // Before ScreenCast v4 a sharing grant can't be remembered.
+    let old = portal_policy(&PortalOffer {
+        sources: 1,
+        screencast_version: 3,
+        remote_desktop: None,
+    });
+    assert!(!old.persistent);
 }
 #[test]
 fn malformed_commands_cannot_start_capture_or_exceed_the_memory_bound() {
