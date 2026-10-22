@@ -84,7 +84,9 @@ export class QuantizerControl {
     );
     if (quantizer >= this.#last) return undefined;
     this.#last = quantizer;
+    // Its size is known once it comes out; until then there is nothing to judge another by.
     this.#keyQuantizer = quantizer;
+    this.#keyBits = undefined;
     return quantizer;
   }
   /** A frame came out of the encoder at this many bytes. Keyframes don't steer the deltas. */
