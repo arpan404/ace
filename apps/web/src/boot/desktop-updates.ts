@@ -82,6 +82,11 @@ function updatesBridge(scope: object): UpdatesBridge | undefined {
   };
 }
 
+/** Whether this page runs in the desktop app, which can update itself. */
+export function hasDesktopUpdates(scope: object = globalThis): boolean {
+  return updatesBridge(scope) !== undefined;
+}
+
 const text = (value: unknown, max: number) =>
   typeof value === "string" && value.length <= max ? value : undefined;
 const count = (value: unknown) =>

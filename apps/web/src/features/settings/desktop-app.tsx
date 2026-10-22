@@ -1,6 +1,7 @@
 import type { DesktopPreferencesPatch } from "@/boot/desktop-settings.ts";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
+import { AppUpdateRow } from "./app-updates.tsx";
 import { useDesktopPreferences } from "./data/desktop-preferences.ts";
 import { DesktopShortcut } from "./desktop-shortcut.tsx";
 import { useSettingWrite } from "./data/use-settings.ts";
@@ -33,6 +34,7 @@ export function DesktopAppPreferences() {
           onChange={(globalShortcut) => save({ globalShortcut })}
         />
       </SettingRow>
+      <AppUpdateRow />
     </SettingSection>
   );
 }
