@@ -62,7 +62,8 @@ export function PrDescription(props: {
             ref={box}
             className={cn(
               !expanded &&
-                "line-clamp-4 [&_*]:my-0 [&_h1,&_h2,&_h3,&_h4]:text-ui [&_h1,&_h2,&_h3,&_h4]:font-medium",
+                // Images and other blocks escape a line clamp: the height cap keeps them a preview.
+                "line-clamp-4 max-h-48 overflow-hidden [&_*]:my-0 [&_h1,&_h2,&_h3,&_h4]:text-ui [&_h1,&_h2,&_h3,&_h4]:font-medium",
             )}
           >
             <PrMarkdown

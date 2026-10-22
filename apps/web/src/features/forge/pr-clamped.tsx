@@ -49,7 +49,7 @@ function ClampedText(props: {
   if (!props.text.trim()) return null;
   return (
     <div>
-      <div ref={box} className={open ? undefined : "line-clamp-6"}>
+      <div ref={box} className={open ? undefined : "line-clamp-6 max-h-64 overflow-hidden"}>
         <ForgeProse text={props.text} tasks={props.tasks} className="text-ui leading-normal" />
       </div>
       {(overflows || open) && (

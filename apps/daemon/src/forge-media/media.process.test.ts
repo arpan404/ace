@@ -16,6 +16,7 @@ import { projectFilesBinding } from "../project-files-binding.ts";
 import { ForgeMediaCache, forgeMediaRoot } from "./media-cache.ts";
 import { fetchMedia, mediaHostAllowed } from "./media-fetch.ts";
 import { ForgeMediaService } from "./media-service.ts";
+import { mediaDimensions, sniffMedia } from "./media-sniff.ts";
 
 const execute = promisify(execFile);
 const cleanups: (() => Promise<void>)[] = [];
@@ -230,6 +231,19 @@ test("the cache keeps to its byte budget, dropping the least recently used, acro
   // Non-attachment media is fetched again after its week.
   await put("url:https://example.com/a.png", 4);
   expect(cache.lookup("url:https://example.com/a.png", 1 + 8 * 24 * 3600_000)?.fresh).toBe(false);
+});
+
+test("an image's pixel size is read from its header so pages can hold its space", () => {
+  const ihdr = Buffer.alloc(33);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(ihdr);
+  ihdr.writeUInt32BE(13, 8);
+  ihdr.write("IHDR", 12, "ascii");
+  ihdr.writeUInt32BE(1920, 16);
+  ihdr.writeUInt32BE(1080, 20);
+  expect(sniffMedia(ihdr)).toEqual({ kind: "image", mimeType: "image/png" });
+  expect(mediaDimensions(ihdr, "image/png")).toEqual({ width: 1920, height: 1080 });
+  const gif = Buffer.from("GIF89a\x40\x01\xf0\x00", "latin1");
+  expect(mediaDimensions(gif, "image/gif")).toEqual({ width: 320, height: 240 });
 });
 
 test("only the forge's own media hosts are fetched", () => {
