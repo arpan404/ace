@@ -28,14 +28,14 @@ import QuartzCore
         #endif
     }
     private var storageUnavailable: some View {
-        ContentUnavailableView("Storage unavailable", systemImage: "externaldrive.badge.exclamationmark",
-                               description: Text("ace couldn't open its storage on this phone."))
+        EmptyState(icon: nil, title: "Storage unavailable", line: "ace couldn't open its storage on this phone.", failed: true)
+            .frame(maxHeight: .infinity)
     }
     /// Debug `--spike` only: the loopback fixture with a fixed fake device credential.
     private var spike: some View {
         Group {
             if started { InboxView(inbox: spikeInbox) }
-            else { ContentUnavailableView("Connecting to the spike daemon", systemImage: "point.3.connected.trianglepath.dotted") }
+            else { EmptyState(icon: .graph, title: "Connecting to the spike daemon").frame(maxHeight: .infinity) }
         }
         .environment(notificationDelegate.coordinator)
         .onChange(of: scenePhase) { _, phase in notificationDelegate.coordinator.scene(active: phase == .active) }

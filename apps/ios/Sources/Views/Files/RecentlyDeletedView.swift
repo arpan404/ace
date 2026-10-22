@@ -16,7 +16,7 @@ struct RecentlyDeletedView: View {
             if !loaded && problem == nil {
                 HStack { Spacer(); ProgressView(); Spacer() }.listRowSeparator(.hidden)
             } else if loaded && entries.isEmpty {
-                ContentUnavailableView("No recently deleted files", systemImage: "trash").listRowSeparator(.hidden)
+                EmptyState(icon: .trash, title: "No recently deleted files").listRowSeparator(.hidden)
             }
             ForEach(entries) { entry in
                 HStack(spacing: AceTheme.Spacing.md) {

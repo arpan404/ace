@@ -5,7 +5,7 @@ import XCTest
     override func setUp() { continueAfterFailure = false }
     func testShelvesSwipesAndUndo() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--spike"]
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
         app.launch()
         XCTAssertTrue(app.buttons["thread.ios-tree"].waitForExistence(timeout: 25))
         screenshot("inbox")
@@ -26,8 +26,14 @@ import XCTest
         XCTAssertTrue(app.buttons["1 hour"].waitForExistence(timeout: 5))
         screenshot("inbox-snooze")
         app.buttons["1 hour"].tap()
-        let snoozed = expectation(for: NSPredicate(format: "label CONTAINS 'Until'"), evaluatedWith: tree)
-        wait(for: [snoozed], timeout: 15)
+        // The snoozed row moves to the open shelf at the end of the list and says when it wakes.
+        var wakes = false
+        for _ in 0..<15 where !wakes {
+            sleep(1)
+            wakes = tree.exists && tree.label.contains("Until")
+            if !wakes { app.swipeUp() }
+        }
+        XCTAssertTrue(wakes)
         for _ in 0..<8 where !tree.isHittable { app.swipeUp() }
         tree.swipeLeft()
         XCTAssertTrue(app.buttons["Wake"].waitForExistence(timeout: 5))
@@ -42,7 +48,9 @@ import XCTest
         XCTAssertTrue(app.buttons["inbox.undoSettle"].waitForExistence(timeout: 10))
         let settled = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: done)
         wait(for: [settled], timeout: 10)
-        XCTAssertTrue(app.buttons["inbox.settled"].exists)
+        let shelf = app.buttons["inbox.settled"]
+        for _ in 0..<4 where !shelf.exists { app.swipeUp() }
+        XCTAssertTrue(shelf.exists)
         screenshot("inbox-settled")
         app.buttons["inbox.undoSettle"].tap()
         XCTAssertTrue(done.waitForExistence(timeout: 10))

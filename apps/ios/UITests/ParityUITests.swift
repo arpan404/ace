@@ -3,15 +3,16 @@ import XCTest
 @MainActor final class ParityUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
 
-    func testTaskEntryIsTheDetachedComposeButtonAndOpensTheNativeDraft() {
+    func testTaskEntryIsTheBottomToolbarComposeButtonAndOpensTheNativeDraft() {
         let app = launch()
         let start = app.newThreadButton
         XCTAssertTrue(start.waitForExistence(timeout: 30))
         let filter = app.buttons["inbox.projects"]
         XCTAssertTrue(filter.exists)
-        // The project filter sits under the header; compose is the tab bar's detached button.
-        XCTAssertLessThan(filter.frame.maxY, app.frame.midY)
+        // The scope and compose share the bottom toolbar, compose at its trailing end.
+        XCTAssertGreaterThan(filter.frame.minY, app.frame.midY)
         XCTAssertGreaterThan(start.frame.minY, app.frame.midY)
+        XCTAssertGreaterThan(start.frame.minX, filter.frame.maxX)
         XCTAssertGreaterThan(start.frame.midX, app.frame.midX)
         start.tap()
         XCTAssertTrue(app.navigationBars["New thread"].waitForExistence(timeout: 10))

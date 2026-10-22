@@ -5,8 +5,8 @@ extension XCUIApplication {
         XCTAssertTrue(buttons["thread.agents"].waitForExistence(timeout: 10))
         buttons["thread.agents"].tap()
     }
-    /// The inbox's detached compose button in the tab bar.
-    var newThreadButton: XCUIElement { tabBars.buttons["New thread"].firstMatch }
+    /// The inbox's New thread button in the bottom toolbar.
+    var newThreadButton: XCUIElement { buttons["inbox.compose"].firstMatch }
     /// Opens Settings from the inbox, scrolled so the machine tools show.
     @MainActor func openSettings() {
         XCTAssertTrue(buttons["inbox.settings"].waitForExistence(timeout: 10))
