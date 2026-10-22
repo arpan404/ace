@@ -217,7 +217,8 @@ test("a create retried after a lost answer adds what it asked for to the PR the 
     [lookup("octo/ace", "octo")]: [{ body: [opened] }],
     "repos/octo/ace/issues/7/labels": [{ body: [{ name: "bug" }] }],
     "repos/octo/ace/issues/7/assignees": [{ status: 201, body: { number: 7 } }],
-    "repos/octo/ace/issues/7": [{ body: { number: 7 } }],
+    // #7 has no milestone yet: the create's is set.
+    "repos/octo/ace/issues/7": [{ body: { number: 7, milestone: null } }, { body: { number: 7 } }],
     "repos/octo/ace/pulls/7/requested_reviewers": [
       { status: 201, body: { requested_reviewers: [{ login: "hubot" }] } },
     ],
@@ -239,7 +240,11 @@ test("a create retried after a lost answer adds what it asked for to the PR the 
     expect((await sent(env.gh, "repos/octo/ace/issues/7/assignees"))[0]?.body).toEqual({
       assignees: ["octo"],
     });
-    expect((await sent(env.gh, "repos/octo/ace/issues/7"))[0]?.body).toEqual({ milestone: 4 });
+    expect(
+      (await sent(env.gh, "repos/octo/ace/issues/7")).find((request) =>
+        request.args.includes("PATCH"),
+      )?.body,
+    ).toEqual({ milestone: 4 });
     expect((await sent(env.gh, "repos/octo/ace/pulls/7/requested_reviewers"))[0]?.body).toEqual({
       reviewers: ["hubot"],
     });
@@ -297,6 +302,61 @@ test("a fork sharing its parent's owner opens on the parent from its own branch"
       head_repo: "ace-fork",
       base: "main",
     });
+  } finally {
+    await env.close();
+  }
+});
+
+test("a retried create keeps the milestone the PR it finds is already in, and says so", async () => {
+  const env = await environment({
+    "repos/octo/ace": [metadata()],
+    [lookup("octo/ace", "octo")]: [{ body: [opened] }],
+    "repos/octo/ace/issues/7": [{ body: { number: 7, milestone: { number: 2 } } }],
+  });
+  try {
+    expect(await env.create({ milestone: 4 })).toMatchObject({
+      ok: true,
+      prExisting: true,
+      code: "forge_pr_details_incomplete",
+    });
+    const patched = (await env.gh.requests()).filter(
+      (request) => request.path === "repos/octo/ace/issues/7" && request.args.includes("PATCH"),
+    );
+    expect(patched).toEqual([]);
+  } finally {
+    await env.close();
+  }
+});
+
+test("a project whose remote still uses a renamed repository's old name finds its open PR", async () => {
+  // The remote says octo/old; GitHub renamed it octo/ace, the name its PRs report.
+  const current = { id: 1, name: "ace", owner: { login: "octo" } };
+  const env = await environment(
+    {
+      "repos/octo/old": [metadata(undefined, "ace")],
+      [lookup("octo/old", "octo")]: [
+        {
+          body: [
+            {
+              ...opened,
+              base: { ref: "main", repo: current },
+              head: { ...opened.head, repo: current },
+            },
+          ],
+        },
+      ],
+    },
+    "octo/old",
+  );
+  try {
+    const old = { ...repository, name: "old" };
+    expect(
+      await env.create({
+        repository: old,
+        head: { owner: "octo", name: "old", branch: "feature/card" },
+      }),
+    ).toMatchObject({ ok: true, pr: { number: 7 }, prExisting: true });
+    expect(await sent(env.gh, "repos/octo/old/pulls")).toEqual([]);
   } finally {
     await env.close();
   }

@@ -572,6 +572,10 @@
             "head": {
               "$ref": "https://ace.local/protocol/v1/ForgeCompareHead.json"
             },
+            "headSha": {
+              "pattern": "^[a-fA-F0-9]{40,64}$",
+              "type": "string"
+            },
             "op": {
               "const": "forge.compare",
               "type": "string"

@@ -1459,7 +1459,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | owner | yes | string | {"maxLength":100,"pattern":"^[\\w-]+$"} |
-| name | yes | string | {"maxLength":100,"pattern":"^[\\w.-]+$"} |
+| name | yes | [ForgeRepositoryName.json](schema/ForgeRepositoryName.json) |  |
 | branch | yes | [ForgeBranchName.json](schema/ForgeBranchName.json) |  |
 
 Example:
@@ -3659,6 +3659,18 @@ Example:
 }
 ```
 
+## ForgeRepositoryName
+
+[JSON Schema](schema/ForgeRepositoryName.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"LgE"
+```
+
 ## ForgeReviewAction
 
 [JSON Schema](schema/ForgeReviewAction.json), input validation.
@@ -3692,10 +3704,11 @@ Example:
 {
   "draft": {
     "anchor": {
-      "commit": "0cE2b2eEBa5EaC55B3D9eB7fba53E4341a4C4A8Bd2C4BE",
-      "line": 7,
+      "commit": "b2eEBa5EaC55B3D9eB7fba53E4341a4C4A8Bd2C4BE2828B2bc7dA886",
+      "line": 5,
       "path": "example",
-      "side": "RIGHT"
+      "side": "RIGHT",
+      "startLine": 10
     },
     "body": "example",
     "id": "example"
@@ -3736,8 +3749,8 @@ Example:
 {
   "body": "example",
   "draftIds": [],
-  "event": "REQUEST_CHANGES",
-  "headSha": "2bc7dA886E7f8E59dEbCE7a51ec8eD5C2d01138BB85bBC3F",
+  "event": "COMMENT",
+  "headSha": "9dEbCE7a51ec8eD5C2d01138BB85bBC3F388DA260aB415cBcD946746dA4A",
   "kind": "submit"
 }
 ```
@@ -3771,7 +3784,7 @@ Example:
 ```json
 {
   "body": "example",
-  "commentId": 10,
+  "commentId": 4,
   "kind": "reply"
 }
 ```
@@ -3791,7 +3804,7 @@ Example:
 ```json
 {
   "body": "example",
-  "commentId": 10,
+  "commentId": 6,
   "expectedBody": "example",
   "kind": "comment.edit",
   "source": "issue"
@@ -3811,7 +3824,7 @@ Example:
 
 ```json
 {
-  "commentId": 3,
+  "commentId": 8,
   "expectedBody": "example",
   "kind": "comment.delete",
   "source": "inline"
@@ -3862,7 +3875,7 @@ Example:
 
 ```json
 {
-  "headSha": "0aB415cBcD946746dA4AfBFA4570eC6F81Aa14befFfD2EDBcfEf6d9FbeFA",
+  "headSha": "0eC6F81Aa14befFfD2EDBcfEf6d9FbeFAA2DE2Ce3172eEC770eba0fD73266a",
   "kind": "file.view",
   "path": "example"
 }
@@ -3880,7 +3893,7 @@ Example:
 
 ```json
 {
-  "headSha": "2DE2Ce3172eEC770eba0fD73266a2aa0B49c994b2d3209f",
+  "headSha": "aa0B49c994b2d3209fBd1CC8FAEFc9e97Be51efFecCD6D137bbFA4bC",
   "kind": "file.unview",
   "path": "example"
 }
@@ -3898,10 +3911,10 @@ Example:
 
 ```json
 {
-  "content": "confused",
+  "content": "heart",
   "kind": "reaction.add",
   "subject": {
-    "commentId": 2,
+    "commentId": 10,
     "kind": "issue"
   }
 }
@@ -3919,11 +3932,10 @@ Example:
 
 ```json
 {
-  "content": "eyes",
+  "content": "rocket",
   "kind": "reaction.remove",
   "subject": {
-    "commentId": 4,
-    "kind": "issue"
+    "kind": "pr"
   }
 }
 ```
@@ -3941,7 +3953,7 @@ Example:
 {
   "kind": "reviewers.request",
   "reviewers": [
-    "sCGh8l"
+    "s"
   ]
 }
 ```
@@ -3960,11 +3972,11 @@ Example:
 ```json
 {
   "commentIds": [
-    5
+    3
   ],
-  "headSha": "7Be51efFecCD6D137bbFA4bCF82e6aA86E44Cf10cc2A7ECec2ea6D2A4A1871c",
+  "headSha": "6E44Cf10cc2A7ECec2ea6D2A4A1871cD2f9e3aeA598bFAa5D9ED0F44BaE1d2C",
   "kind": "suggestions.apply",
-  "message": "_"
+  "message": "P"
 }
 ```
 
@@ -3985,10 +3997,12 @@ Example:
 
 ```json
 {
-  "commit": "9e3aeA598bFAa5D9ED0F44BaE1d2CeFddA5D3C7e9C4509",
-  "line": 8,
+  "commit": "dA5D3C7e9C45094F97bb1Eb7fbFDdd1D31AcD94DE04f",
+  "line": 4,
   "path": "example",
-  "side": "RIGHT"
+  "side": "LEFT",
+  "startLine": 6,
+  "startSide": "RIGHT"
 }
 ```
 
@@ -4007,8 +4021,8 @@ Example:
 ```json
 {
   "anchor": {
-    "commit": "b1Eb7fbFDdd1D31AcD94DE04fBDd1d3Dba0E63533",
-    "line": 4,
+    "commit": "ba0E63533BeF4F7A5e40C86DBF4b941ffA549FaF0ad804dA8C",
+    "line": 9,
     "path": "example",
     "side": "LEFT"
   },
@@ -4037,13 +4051,14 @@ Example:
 
 ```json
 {
-  "canComment": true,
+  "canComment": false,
   "canReview": false,
   "drafts": [],
-  "headSha": "7A5e40C86DBF4b941ffA549FaF0ad804dA8C7b91b6b009f6F1CEA",
+  "headSha": "6b009f6F1CEA4Fd60EB92872C99d5e17786F2D507",
   "operations": [],
+  "reactions": null,
   "resolvableThreads": [],
-  "viewed": null,
+  "viewed": [],
   "viewer": "example"
 }
 ```
@@ -4068,7 +4083,7 @@ Example:
   "comments": [],
   "file": "example",
   "id": "example",
-  "line": 9,
+  "line": null,
   "outdated": true,
   "resolved": false
 }
@@ -4083,7 +4098,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"3Qx88kZmN3"
+"@me"
 ```
 
 ## ForgeStack
@@ -4103,16 +4118,16 @@ Example:
 
 ```json
 {
-  "canMerge": true,
+  "canMerge": false,
   "id": "example",
   "layers": [
     {
       "baseBranch": "example",
       "branch": "example",
       "checksState": "example",
-      "headSha": "2D507c96c48a1D0F613a9dF59A95C38BaBCdb682de8de08457Cb8",
+      "headSha": "3a9dF59A95C38BaBCdb682de8de08457Cb83dEFFE8f1B3fC2bE9bF8",
       "mergeState": "example",
-      "number": 10,
+      "number": 6,
       "position": 9,
       "queueState": null,
       "reviewDecision": null,
@@ -4121,7 +4136,7 @@ Example:
       "url": "https://example.invalid/"
     }
   ],
-  "number": 9,
+  "number": 6,
   "raw": null,
   "trunk": "example"
 }
@@ -4145,8 +4160,8 @@ Example:
   "id": "example",
   "layers": [
     {
-      "headSha": "1B3fC2bE9bF80d07281a3D61420aC3BfB6f429fa503cFB",
-      "number": 10
+      "headSha": "3D61420aC3BfB6f429fa503cFBBe49ae5037df45",
+      "number": 6
     }
   ],
   "local": {
@@ -4186,14 +4201,14 @@ Example:
   "baseBranch": "example",
   "branch": "example",
   "checksState": null,
-  "checksTruncated": true,
-  "headSha": "ae5037df45Dc2b6c596b88FB9cbcC0f0bfB9Aa66C7D8FDFba3ea19c31bf7ADa",
+  "checksTruncated": false,
+  "headSha": "6c596b88FB9cbcC0f0bfB9Aa66C7D8FDFba3ea19c",
   "mergeState": "example",
-  "number": 2,
-  "position": 8,
+  "number": 1,
+  "position": 7,
   "queueState": "example",
   "requiredChecks": [],
-  "reviewDecision": "example",
+  "reviewDecision": null,
   "state": "example",
   "title": "example",
   "url": "https://example.invalid/"
@@ -4214,8 +4229,14 @@ Example:
 
 ```json
 {
-  "number": 6,
-  "stack": null
+  "number": 1,
+  "stack": {
+    "id": "example",
+    "number": 7,
+    "position": 3,
+    "size": 4,
+    "trunk": "example"
+  }
 }
 ```
 
@@ -4235,9 +4256,9 @@ Example:
 ```json
 {
   "branch": "example",
-  "current": "dC34a77BEcb3D06da130aE61CA9DbE73c5cC13EbAcDeB",
-  "number": 3,
-  "reviewed": "ABb9dF395ccB04E5eaEdAb62d5Ea9D218fCB8E08"
+  "current": "BEcb3D06da130aE61CA9DbE73c5cC13EbAcDeB90bB1557bD0CAE1CcEeB7ca",
+  "number": 2,
+  "reviewed": "207eaABb9dF395ccB04E5eaEdAb62d5Ea9D218fCB8E08fdC34a7"
 }
 ```
 
@@ -4258,10 +4279,10 @@ Example:
 
 ```json
 {
-  "action": "sync",
+  "action": "rebase",
   "message": "example",
-  "raw": null,
-  "state": "conflict"
+  "state": "enqueued",
+  "uuid": "a6f2B9ba-FB61-3A4A-b93b-A48aC2dB8fcF"
 }
 ```
 
@@ -4282,14 +4303,37 @@ Example:
 ```json
 {
   "local": null,
-  "localUnavailable": null,
+  "localUnavailable": "example",
+  "movedLayers": [],
   "operation": {
-    "action": "continue",
+    "action": "push",
     "message": "example",
-    "state": "conflict",
-    "uuid": "00000000-0000-0000-0000-000000000000"
+    "stage": "push",
+    "state": "pending"
   },
-  "stack": null
+  "stack": {
+    "canMerge": false,
+    "id": "example",
+    "layers": [
+      {
+        "baseBranch": "example",
+        "branch": "example",
+        "checksState": null,
+        "headSha": "c06AA523dc4633EB340bddB293BDa3b6346C0edFBd2ae7",
+        "mergeState": "example",
+        "number": 4,
+        "position": 8,
+        "queueState": null,
+        "reviewDecision": "example",
+        "state": "example",
+        "title": "example",
+        "url": "https://example.invalid/"
+      }
+    ],
+    "number": 6,
+    "raw": null,
+    "trunk": "example"
+  }
 }
 ```
 
@@ -4307,12 +4351,12 @@ Example:
 ```json
 {
   "pr": {
-    "number": 2,
+    "number": 6,
     "repository": {
-      "forge": "github",
-      "host": "lv4hat",
-      "name": "-MsLtXr",
-      "owner": "Mehk/TfYA/C0-Ztc/LWnW/zBjHDWmw/2gNXzT"
+      "forge": "gitlab",
+      "host": "etNxtPc",
+      "name": "XBGDJFUrKm",
+      "owner": "LrElQPqK/s-i2DX/m_W/mXCt/Ip/GIp/C1Ah8G"
     }
   },
   "threadId": "example"

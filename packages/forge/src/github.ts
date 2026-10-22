@@ -17,7 +17,7 @@ import { GitHubFileContent } from "./github-file-content.ts";
 import { GitHubNewPr } from "./github-new-pr.ts";
 import { ForgeGroupCounting, ForgePrSearch } from "@ace/protocol/forge-browser";
 import { ForgeMergeCommit } from "@ace/protocol/forge-merge-state";
-import { ForgeBranchName } from "@ace/protocol/forge-new-pr";
+import { ForgeBranchName, ForgeRepositoryName } from "@ace/protocol/forge-new-pr";
 import { readGroupCounts } from "./github-group-counts.ts";
 import { ForgeListCaches } from "./list-cache.ts";
 import { githubOpenWork } from "./github-open-work.ts";
@@ -43,6 +43,12 @@ import { githubStates } from "./github-states.ts";
 const positive = z.number().int().positive();
 const shaSchema = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
 const mergeSchema = z.enum(["merge", "squash", "rebase"]);
+/** A PR's head or base repository as the pulls list reports it. */
+const PrRepo = z.looseObject({
+  id: z.number().int().optional(),
+  name: z.string().max(100),
+  owner: z.looseObject({ login: z.string() }),
+});
 export class GitHubForge implements Forge, ForgeBrowser {
   readonly repository: ForgeRepository;
   readonly lifecycle: GitHubLifecycle;
@@ -292,9 +298,6 @@ export class GitHubForge implements Forge, ForgeBrowser {
     return githubRepositoryMetadata(this.#api, this.repository, signal);
   }
   /** This repository as a head, when a PR's branch lives here. */
-  get #self(): PrHead {
-    return { owner: this.repository.owner, name: this.repository.name };
-  }
   /** Whether `head` is another repository than this one. */
   #crossRepository(head: PrHead): boolean {
     return (
@@ -303,25 +306,25 @@ export class GitHubForge implements Forge, ForgeBrowser {
     );
   }
   /**
-   * The open PR from `branch` of `head` into `base` in this repository, if any. Merged and
-   * closed PRs are history: a new create is allowed once they are done. GitHub refuses a
-   * second open PR for the same head and base, so an open match also recovers an in-flight
-   * create whose acknowledgement was lost.
+   * The open PR from `branch` into `base` in this repository, if any: a branch of this
+   * repository, or of the fork `head` names. Merged and closed PRs are history: a new create is
+   * allowed once they are done. GitHub refuses a second open PR for the same head and base, so
+   * an open match also recovers an in-flight create whose acknowledgement was lost.
    */
   async findPr(
     branch: string,
     base: string,
     signal: AbortSignal,
-    head: PrHead = this.#self,
+    head?: PrHead,
   ): Promise<ForgePrRef | null> {
     z.string().min(1).max(256).parse(branch);
     z.string().min(1).max(256).parse(base);
-    z.string().min(1).max(100).parse(head.owner);
+    if (head) z.string().min(1).max(100).parse(head.owner);
     // GitHub filters by owner:branch only, which a same-owner fork shares with its parent:
-    // read a few and keep the ones whose head is in `head`'s repository.
+    // read a few and keep the ones whose head is in the right repository.
     const query = new URLSearchParams({
       state: "open",
-      head: `${head.owner}:${branch}`,
+      head: `${head?.owner ?? this.repository.owner}:${branch}`,
       base,
       per_page: "10",
     });
@@ -329,26 +332,32 @@ export class GitHubForge implements Forge, ForgeBrowser {
     const results = z
       .array(
         GitHubPr.extend({
-          base: z.looseObject({ ref: z.string().max(256) }),
-          head: GitHubPr.shape.head.extend({
-            repo: z
-              .looseObject({
-                name: z.string().max(100),
-                owner: z.looseObject({ login: z.string() }),
-              })
-              .nullish(),
-          }),
+          base: z.looseObject({ ref: z.string().max(256), repo: PrRepo.nullish() }),
+          head: GitHubPr.shape.head.extend({ repo: PrRepo.nullish() }),
         }),
       )
       .max(10)
       .safeParse(response.body);
     if (!results.success) throw new ForgeError("invalid_data");
-    const matching = results.data.filter(
-      (pr) =>
-        !pr.head.repo ||
-        (pr.head.repo.owner.login.toLowerCase() === head.owner.toLowerCase() &&
-          pr.head.repo.name.toLowerCase() === head.name.toLowerCase()),
-    );
+    const matching = results.data.filter((pr) => {
+      const from = pr.head.repo;
+      // GitHub left the repository out: the owner and branch already matched.
+      if (!from) return true;
+      // A fork, by GitHub's current name for it.
+      if (head)
+        return (
+          from.owner.login.toLowerCase() === head.owner.toLowerCase() &&
+          from.name.toLowerCase() === head.name.toLowerCase()
+        );
+      // This repository: the PR's head and base repositories are one, whatever name the remote
+      // still uses for it (a renamed repository keeps answering to its old name).
+      const into = pr.base.repo;
+      if (!into) return true;
+      return from.id !== undefined && into.id !== undefined
+        ? from.id === into.id
+        : `${from.owner.login}/${from.name}`.toLowerCase() ===
+            `${into.owner.login}/${into.name}`.toLowerCase();
+    });
     if (matching.length > 1) throw new ForgeError("conflict");
     const found = matching[0];
     if (found && (found.head.ref !== branch || found.base.ref !== base))
@@ -360,7 +369,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
     threadId: string,
     input: ForgeCreatePrInput,
     signal: AbortSignal,
-    head: PrHead = this.#self,
+    head?: PrHead,
   ): Promise<ForgePrRef> {
     const value = ForgeCreatePrInput.parse(input);
     if (value.base === undefined) throw new ForgeError("base_missing");
@@ -386,21 +395,24 @@ export class GitHubForge implements Forge, ForgeBrowser {
     );
   }
   /**
-   * Open a pull request from `branch` of `head` into `base` as written: the one create every
-   * entry point shares. Callers look for an open PR of the same head and base first.
+   * Open a pull request from `branch` into `base` as written: the one create every entry point
+   * shares. `head` names the fork holding the branch; none, this repository. Callers look for an
+   * open PR of the same head and base first.
    */
   async openPr(
     input: { branch: string; base: string; title: string; body: string; draft: boolean },
     signal: AbortSignal,
-    head: PrHead = this.#self,
+    head?: PrHead,
     dispatch?: WriteDispatch,
   ): Promise<ForgePrRef> {
-    z.string().min(1).max(100).parse(head.owner);
-    z.string()
-      .regex(/^[\w.-]+$/)
-      .max(100)
-      .parse(head.name);
-    const cross = this.#crossRepository(head);
+    if (head) {
+      z.string().min(1).max(100).parse(head.owner);
+      ForgeRepositoryName.parse(head.name);
+    }
+    const cross = head !== undefined && this.#crossRepository(head);
+    // GitHub needs the fork's name only when it shares its owner with this repository, and
+    // takes it as a bare name (`head_repo`, as its REST reference documents).
+    const sameOwner = head?.owner.toLowerCase() === this.repository.owner.toLowerCase();
     const branch = input.branch;
     if (
       !ForgeBranchName.safeParse(branch).success ||
@@ -411,10 +423,8 @@ export class GitHubForge implements Forge, ForgeBrowser {
       `${this.#root}/pulls`,
       signal,
       {
-        // A fork's branch is `owner:branch`; GitHub needs the fork's name too when it shares
-        // its owner with this repository (`head_repo`, as GitHub documents).
-        head: cross ? `${head.owner}:${branch}` : branch,
-        ...(cross ? { head_repo: head.name } : {}),
+        head: cross && head ? `${head.owner}:${branch}` : branch,
+        ...(cross && sameOwner && head ? { head_repo: head.name } : {}),
         base: z.string().min(1).max(256).parse(input.base),
         title: z.string().min(1).max(256).parse(input.title),
         body: z.string().max(65_536).parse(input.body),
@@ -447,6 +457,16 @@ export class GitHubForge implements Forge, ForgeBrowser {
       dispatch,
     );
     if (response.identityChanged) throw new ForgeMutationOutcome({ dispatched: true });
+  }
+  /** The milestone a pull request is in now, by number, or null for none. */
+  async prMilestone(number: number, signal: AbortSignal): Promise<number | null> {
+    this.#ref(number);
+    const response = await this.#api.request(`${this.#root}/issues/${number}`, signal);
+    const parsed = z
+      .looseObject({ milestone: z.looseObject({ number: positive }).nullable() })
+      .safeParse(response.body);
+    if (!parsed.success) throw new ForgeError("invalid_data");
+    return parsed.data.milestone?.number ?? null;
   }
   /**
    * Add labels and assignees to a pull request's issue, keeping the ones it has: what a create
@@ -491,12 +511,14 @@ export class GitHubForge implements Forge, ForgeBrowser {
     head: import("@ace/protocol/forge-new-pr").ForgeCompareHead,
     page: number,
     signal: AbortSignal,
+    pinned?: string,
   ) {
-    if (page !== 1) return this.#newPr.compare(base, head, page, signal);
+    if (page !== 1) return this.#newPr.compare(base, head, page, signal, pinned);
     // GitHub refuses a second open PR for the same head and base: say so before Create.
+    const fork = { owner: head.owner, name: head.name };
     const [compared, existing] = await Promise.all([
-      this.#newPr.compare(base, head, page, signal),
-      this.findPr(head.branch, base, signal, { owner: head.owner, name: head.name }),
+      this.#newPr.compare(base, head, page, signal, pinned),
+      this.findPr(head.branch, base, signal, this.#crossRepository(fork) ? fork : undefined),
     ]);
     return existing ? { ...compared, existingPr: existing.number } : compared;
   }

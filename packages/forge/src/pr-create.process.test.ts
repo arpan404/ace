@@ -64,6 +64,8 @@ test("a fork PR targets upstream with the fork's owner on the head", async () =>
   });
   const post = (await gh.requests()).find((request) => request.path === "repos/acme/ace/pulls");
   expect(post?.body).toMatchObject({ head: "octo:work/card", base: "main" });
+  // GitHub needs a fork's name only when it shares its parent's owner.
+  expect(post?.body).not.toHaveProperty("head_repo");
 });
 
 test("the repository's default branch and fork parent come from the host", async () => {
@@ -199,4 +201,43 @@ test("the fork's own open PR is found among same-named branches of its network",
   expect(
     await gh.forge.findPr("work/card", "main", signal(), { owner: "octo", name: "ace-fork" }),
   ).toMatchObject({ number: 8 });
+});
+
+test("a remote still using a renamed repository's old name finds the branch's open PR", async () => {
+  // The remote says octo/old; GitHub renamed it octo/ace and reports that name on PRs.
+  const renamed = { forge: "github", host: "github.com", owner: "octo", name: "old" } as const;
+  const current = { id: 1, name: "ace", owner: { login: "octo" } };
+  const gh = await setup({
+    [lookup("octo", "octo/old")]: [
+      {
+        body: [
+          // A same-owner fork's PR from a branch of the same name: not this repository's.
+          {
+            ...created(3),
+            base: { ref: "main", repo: current },
+            head: {
+              sha,
+              ref: "work/card",
+              repo: { id: 2, name: "ace-fork", owner: { login: "octo" } },
+            },
+          },
+          {
+            ...created(7),
+            base: { ref: "main", repo: current },
+            head: { sha, ref: "work/card", repo: current },
+          },
+        ],
+      },
+    ],
+  });
+  const forge = new GitHubForge({
+    repository: renamed,
+    runner: gh.runner,
+    command: gh.executable,
+    now: () => 1_000,
+  });
+  expect(await forge.findPr("work/card", "main", signal())).toEqual({
+    repository: renamed,
+    number: 7,
+  });
 });

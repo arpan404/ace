@@ -39,9 +39,22 @@ export function useCompare(
   page: number,
   /** The head is in the base's repository, where a branch can't compare with itself. */
   sameRepository = true,
+  /** Page 1's head commit: later pages compare exactly what page 1 did. */
+  headSha?: string,
 ) {
   return useDaemonQuery<ForgeCompare>({
-    queryKey: ["forge", project, "new-pr", "compare", base, head?.owner, head?.branch, page],
+    queryKey: [
+      "forge",
+      project,
+      "new-pr",
+      "compare",
+      base,
+      head?.owner,
+      head?.name,
+      head?.branch,
+      page,
+      headSha,
+    ],
     enabled: head !== undefined && !(sameRepository && head.branch === base),
     retry: false,
     staleTime: 15_000,
@@ -49,7 +62,14 @@ export function useCompare(
       if (!head) throw new Error("No branch picked.");
       const result = await readForge(
         reader,
-        { op: "forge.compare", workspaceId: project, base, head, page },
+        {
+          op: "forge.compare",
+          workspaceId: project,
+          base,
+          head,
+          page,
+          ...(headSha ? { headSha } : {}),
+        },
         signal,
       );
       if (result.resource !== "compare") throw new Error("No comparison returned.");

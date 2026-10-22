@@ -2,6 +2,7 @@ import { ForgeError, ForgeMutationOutcome, repositoryKey, type GitHubForge } fro
 import {
   ForgeHostedPrCreateCommand,
   type CommandResult,
+  type ForgeCompareHead,
   type ForgeNewPrContext,
 } from "@ace/protocol";
 import { prCreateTarget } from "./pr-create-target.ts";
@@ -15,6 +16,10 @@ type Target = Awaited<ReturnType<WorkspaceNewPr["resolveTarget"]>>;
 /** One repository, by owner and name whatever their case. */
 const same = (a: { owner: string; name: string }, b: { owner: string; name: string }) =>
   a.owner.toLowerCase() === b.owner.toLowerCase() && a.name.toLowerCase() === b.name.toLowerCase();
+
+/** A head a PR from this checkout may come from: the target repository, or its fork. */
+const headIn = (target: Target["target"], head: { owner: string; name: string }) =>
+  same(head, target.repository) || (target.head !== undefined && same(head, target.head));
 
 /**
  * A project's new pull request from any branch, with no thread: where it opens (a fork's
@@ -40,9 +45,15 @@ export class WorkspaceNewPr {
         : await this.ctx.backends.backend(cwd, target.repository);
     return { target, pushed, backend, headDefault: metadata.defaultBranch };
   }
+  /** Forget every resolved target: the account or source control preferences changed. */
+  clear(): void {
+    this.targets.clear();
+  }
   /** The target for reads, reused for a short while; a failed resolution is never reused. */
   private cachedTarget(cwd: string): Promise<Target> {
     const now = this.ctx.now();
+    for (const [key, entry] of this.targets)
+      if (now - entry.at >= targetReuseMs) this.targets.delete(key);
     const kept = this.targets.get(cwd);
     if (kept && now - kept.at < targetReuseMs) return kept.value;
     const value = this.resolveTarget(cwd);
@@ -62,9 +73,28 @@ export class WorkspaceNewPr {
     ]);
     return {
       base: { repository: target.repository, defaultBranch: target.base, ...base },
-      head: { repository: pushed.repository, ...(head ?? base) },
+      // A fork by GitHub's current name for it, which is what its PRs report.
+      head: {
+        repository: target.head
+          ? { ...pushed.repository, owner: target.head.owner, name: target.head.name }
+          : target.repository,
+        ...(head ?? base),
+      },
       template,
     };
+  }
+  /**
+   * What a PR from `head` into `base` would show. Only a head a create would take: a branch of
+   * the target repository, or of the fork this checkout pushes to.
+   */
+  async compare(
+    cwd: string,
+    input: { base: string; head: ForgeCompareHead; page: number; headSha?: string | undefined },
+    signal: AbortSignal,
+  ) {
+    const { target, backend } = await this.cachedTarget(cwd);
+    if (!headIn(target, input.head)) throw new Error("repository_mismatch");
+    return backend.compare(input.base, input.head, input.page, signal, input.headSha);
   }
   /** The backend for the repository the new PR opens on, for its options and comparisons. */
   async targetBackend(cwd: string): Promise<GitHubForge> {
@@ -82,11 +112,10 @@ export class WorkspaceNewPr {
       throw new Error("repository_mismatch");
     // The branch lives in the pushed repository (a fork) or the target itself, by owner and
     // name: a fork may share its owner with its parent.
-    const head = { owner: p.head.owner, name: p.head.name };
-    if (!same(head, target.head) && !same(head, target.repository))
-      throw new Error("repository_mismatch");
-    if (same(head, target.repository) && p.head.branch === p.base)
-      throw new ForgeError("no_commits");
+    if (!headIn(target, p.head)) throw new Error("repository_mismatch");
+    // The fork the branch is in, or none when it is in the target repository itself.
+    const head = target.head && same(p.head, target.head) ? target.head : undefined;
+    if (!head && p.head.branch === p.base) throw new ForgeError("no_commits");
     const found = await backend.findPr(p.head.branch, p.base, signal, head);
     if (found) {
       // A create whose answer was lost, or one that raced another: the PR exists. What this
@@ -164,15 +193,24 @@ export class WorkspaceNewPr {
     const signal = this.ctx.signal;
     const milestone = p.milestone;
     return this.attempt(allowed, [
+      // A milestone replaces the one it has, so it is only set on a PR that has none; one in
+      // another milestone keeps it, and the create says so.
+      ...(milestone === undefined
+        ? []
+        : [
+            async () => {
+              const current = await backend.prMilestone(number, signal);
+              if (current === milestone) return;
+              if (current !== null) throw new Error("milestone_kept");
+              await backend.setIssueFields(number, { milestone }, signal);
+            },
+          ]),
       ...(p.labels.length || p.assignees.length
         ? [
             () =>
               backend.addIssueFields(number, { labels: p.labels, assignees: p.assignees }, signal),
           ]
         : []),
-      ...(milestone === undefined
-        ? []
-        : [() => backend.setIssueFields(number, { milestone }, signal)]),
       ...(p.reviewers.length ? [() => backend.requestReviews(number, p.reviewers, signal)] : []),
     ]);
   }
