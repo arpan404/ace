@@ -111,6 +111,7 @@ export class DelegationService {
         suspending: (thread) => this.suspending.has(thread),
         requestingAgent: () => this.requesting,
         launchQueued: (child) => this.launchQueued(child),
+        resumeRestartHeld: (thread, request) => this.resumeRestartHeld(thread, request),
         conversationAccepted: (thread) => {
           this.journal.activity(thread, 1);
         },
@@ -785,6 +786,47 @@ export class DelegationService {
       this.deps.engine.discardRecovery(thread);
     });
     this.arm();
+  }
+  /**
+   * Resume what `thread` started that a daemon restart left held: its running delegated
+   * children and the threads its agents opened. Each resume passes through the command policy
+   * again, so their own held work follows. Only unfinished work the restart interrupted
+   * qualifies: finished, stopped, settled, archived or deleted threads never start again.
+   */
+  private resumeRestartHeld(thread: ThreadId, request: string) {
+    const started = [
+      ...this.journal
+        .liveChildren(thread)
+        .flatMap((edge) =>
+          edge.phase === "running" ? [[edge.childId, edge.generation] as const] : [],
+        ),
+      ...this.conversations.waitingOwnedBy(thread).map((id) => [id, 0] as const),
+    ];
+    for (const [child, generation] of started) {
+      const queue = this.restartHeld(child);
+      if (!queue) continue;
+      this.command(controlCommandId(child, `${request}:${generation}`, "restart.resume"), {
+        type: "thread.resume",
+        threadId: child,
+        expectedRevision: queue.revision,
+      });
+    }
+  }
+  /** The queue of `thread` when it is unfinished work that only a restart holds. */
+  private restartHeld(thread: ThreadId) {
+    const row = this.deps.store.getThread(thread);
+    if (
+      !row ||
+      row.status.state !== "waiting" ||
+      row.deletedAt !== undefined ||
+      row.archivedAt !== undefined ||
+      row.settledAt !== undefined ||
+      this.journal.stopped(thread) ||
+      this.journal.ancestorStopped(thread)
+    )
+      return undefined;
+    const queue = this.deps.engine.queue(thread);
+    return queue.paused && queue.reason === "restart" ? queue : undefined;
   }
   cancelDescendants(thread: ThreadId, request = this.deps.id()) {
     this.deps.store.atomic(() => {
