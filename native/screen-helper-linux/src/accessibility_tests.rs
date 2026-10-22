@@ -186,3 +186,17 @@ async fn a_clipped_final_match_keeps_find_truncated_when_no_more_children_remain
     fixture.control.lock().unwrap().name = "ordinary".into();
     assert_eq!(fixture.ui.find(&query, 1).await.unwrap()["truncated"], false);
 }
+
+#[test]
+fn an_x_window_is_matched_to_its_accessible_window_by_place_or_else_by_its_exact_size() {
+    let at = |x, y, w, h| Bounds { x, y, w, h };
+    let target = at(615, 192, 370, 616);
+    // Qt reports screen positions; a frame with decorations around the window matches too.
+    assert_eq!(window_for_bounds(&[at(0, 0, 200, 100), at(610, 160, 380, 650)], &target), Some(1));
+    // GTK 4 on X11 puts every window at 0,0: the one window of the X window's size is it.
+    assert_eq!(window_for_bounds(&[at(0, 0, 370, 616)], &target), Some(0));
+    assert_eq!(window_for_bounds(&[at(0, 0, 400, 300), at(0, 0, 370, 616)], &target), Some(1));
+    // Two windows of that size, or none, is no match: never a guess.
+    assert_eq!(window_for_bounds(&[at(0, 0, 370, 616), at(0, 0, 370, 616)], &target), None);
+    assert_eq!(window_for_bounds(&[at(0, 0, 371, 616)], &target), None);
+}

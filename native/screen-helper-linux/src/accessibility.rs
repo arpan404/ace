@@ -35,6 +35,26 @@ pub struct Accessibility {
     pub(crate) refs: crate::references::References<Object>,
     pub(crate) scope: Option<Object>,
 }
+/// Which of an app's accessible windows is the X window at `bounds`. By screen position first:
+/// the window, or its frame with the decorations around it. GTK 4 doesn't know where its window
+/// is on X11 and puts every window at 0,0, so failing that, the one window of exactly its size.
+pub fn window_for_bounds(windows: &[Bounds], bounds: &Bounds) -> Option<usize> {
+    let placed = windows.iter().position(|w| {
+        w.x <= bounds.x
+            && w.y <= bounds.y
+            && w.x + w.w >= bounds.x + bounds.w
+            && w.y + w.h >= bounds.y + bounds.h
+            && (w.x - bounds.x).abs() < 128
+            && (w.y - bounds.y).abs() < 128
+    });
+    if placed.is_some() {
+        return placed;
+    }
+    let sized: Vec<usize> = (0..windows.len())
+        .filter(|&i| windows[i].w == bounds.w && windows[i].h == bounds.h)
+        .collect();
+    (sized.len() == 1).then(|| sized[0])
+}
 impl Accessibility {
     pub async fn connect() -> Result<Self> {
         let session = Connection::session().await.map_err(internal)?;
@@ -186,6 +206,7 @@ impl Accessibility {
                 .get_property("ChildCount")
                 .await
                 .map_err(internal)?;
+            let mut found = Vec::new();
             for i in 0..windows.clamp(0, 256) {
                 let window: Object = accessible
                     .call("GetChildAtIndex", &(i,))
@@ -196,18 +217,13 @@ impl Accessibility {
                     .call::<_, _, (i32, i32, i32, i32)>("GetExtents", &(0u32,))
                     .await
                 {
-                    // WM frame decorations may surround the content window.
-                    if x <= bounds.x
-                        && y <= bounds.y
-                        && x + w >= bounds.x + bounds.w
-                        && y + h >= bounds.y + bounds.h
-                        && (x - bounds.x).abs() < 128
-                        && (y - bounds.y).abs() < 128
-                    {
-                        self.scope = Some(window);
-                        return Ok(());
-                    }
+                    found.push((window, Bounds { x, y, w, h }));
                 }
+            }
+            let extents: Vec<Bounds> = found.iter().map(|(_, b)| b.clone()).collect();
+            if let Some(index) = window_for_bounds(&extents, bounds) {
+                self.scope = Some(found.swap_remove(index).0);
+                return Ok(());
             }
             return Err(Fault::new(
                 "target_gone",
