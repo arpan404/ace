@@ -18,6 +18,9 @@ unsafe extern "C" {
     fn ace_pw_crop(c: *mut c_void, x: *mut i32, y: *mut i32, w: *mut u32, h: *mut u32) -> i32;
 }
 
+/// The stream opened but sent no picture before the deadline.
+pub const NO_FRAME: &str = "no frame arrived in time";
+
 struct Grab {
     frame: Option<Rgb>,
     failed: Option<String>,
@@ -114,7 +117,7 @@ pub fn grab(remote: OwnedFd, node: u32, timeout: Duration) -> Result<Rgb, String
                 break;
             }
             if Instant::now() > deadline {
-                grab.failed = Some("no frame arrived in time".into());
+                grab.failed = Some(NO_FRAME.into());
                 break;
             }
             if unsafe { ace_pw_step(capture, 100) } < 0 {

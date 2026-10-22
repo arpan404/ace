@@ -92,6 +92,15 @@ pub fn declined_message(app: &str, why: &str) -> String {
     )
 }
 
+/// Sharing is approved but the stream stayed empty. Some compositors (Hyprland with
+/// xdg-desktop-portal-hyprland 1.3) hand over a window's picture only when that screen next
+/// redraws, so an unchanged desktop, or one whose display is asleep, sends none.
+pub fn still_message(app: &str) -> String {
+    format!(
+        "No screenshot of {app}: screen sharing is approved, but the desktop sent no picture because nothing on that screen has redrawn since (or its display is asleep). Look again after the app changes, e.g. after your next action; the outline works meanwhile."
+    )
+}
+
 fn text(value: &str) -> OwnedValue {
     OwnedValue::try_from(Value::from(value)).unwrap_or_else(|_| OwnedValue::from(0u32))
 }
@@ -208,7 +217,13 @@ impl ScreenCast {
         self.store_token(&key, started.token.clone());
         let frame = self.grab(&started).await;
         close(&self.conn, &started.session).await;
-        let picture = frame?;
+        let picture = frame.map_err(|e| {
+            if e == crate::computer::pw_frame::NO_FRAME {
+                still_message(app_name)
+            } else {
+                format!("No picture came from the screen-sharing stream ({e}). Use the outline.")
+            }
+        })?;
         let logical = logical_size(started.logical, (picture.width, picture.height));
         Ok(Frame {
             picture,
@@ -276,23 +291,25 @@ impl ScreenCast {
         tokio::task::spawn_blocking(move || crate::computer::pw_frame::grab(fd, node, Duration::from_secs(3)))
             .await
             .map_err(|_| "The screenshot was interrupted.".to_owned())?
-            .map_err(|e| format!("No picture came from the screen-sharing stream ({e}). Use the outline."))
     }
 }
 
+/// Closing never holds up a look: a backend still waiting on its chooser can't answer it.
+const CLOSE_WAIT: Duration = Duration::from_secs(2);
+
 async fn close(conn: &Connection, session: &OwnedObjectPath) {
-    let _ = conn
-        .call_method(
-            Some(SERVICE),
-            session.as_str(),
-            Some("org.freedesktop.portal.Session"),
-            "Close",
-            &(),
-        )
-        .await;
+    let call = conn.call_method(
+        Some(SERVICE),
+        session.as_str(),
+        Some("org.freedesktop.portal.Session"),
+        "Close",
+        &(),
+    );
+    let _ = tokio::time::timeout(CLOSE_WAIT, call).await;
 }
 
-/// CreateSession, SelectSources and Start. Start shows the dialog unless the token restores.
+/// CreateSession, SelectSources and Start. Unless the token restores, the portal asks the
+/// person at Start (GNOME, KDE) or already at SelectSources (xdg-desktop-portal-hyprland).
 async fn start(conn: Connection, counter: Arc<AtomicU64>, select: Dict) -> Result<Started, String> {
     let mut create: Dict = HashMap::new();
     create.insert(
@@ -313,7 +330,8 @@ async fn start(conn: Connection, counter: Arc<AtomicU64>, select: Dict) -> Resul
             "SelectSources",
             Some(&session),
             select,
-            Duration::from_secs(10),
+            // GNOME asks the person at Start; xdg-desktop-portal-hyprland already here.
+            APPROVAL,
         )
         .await?;
         let started = request(&conn, &counter, "Start", Some(&session), HashMap::new(), APPROVAL).await?;
@@ -395,15 +413,14 @@ async fn request(
     let message = match tokio::time::timeout(wait, responses.next()).await {
         Ok(Some(Ok(message))) => message,
         _ => {
-            let _ = conn
-                .call_method(
-                    Some(SERVICE),
-                    handle.as_str(),
-                    Some("org.freedesktop.portal.Request"),
-                    "Close",
-                    &(),
-                )
-                .await;
+            let close = conn.call_method(
+                Some(SERVICE),
+                handle.as_str(),
+                Some("org.freedesktop.portal.Request"),
+                "Close",
+                &(),
+            );
+            let _ = tokio::time::timeout(CLOSE_WAIT, close).await;
             return Err("nobody answered the dialog".into());
         }
     };
