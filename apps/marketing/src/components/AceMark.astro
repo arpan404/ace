@@ -1,0 +1,30 @@
+---
+/*
+ * ace's logo: the mark (two mirrored wings around an open diamond) on a rounded tile in the
+ * text colour. The wing path is the app's (apps/web/src/components/ace-mark.tsx); the app icon
+ * and favicon draw the same one.
+ */
+interface Props {
+  size?: number;
+}
+
+const { size = 24 } = Astro.props;
+const wing =
+  "M11.6 2C10.8 2 10.4 2.6 9.8 3.3L2.9 11.3C1.2 13.3 1.8 15.6 3.8 16.8L7.8 19.3C8.5 19.8 9.3 19.8 9.9 19.1L11 17.7C11.7 16.8 11.5 16.1 10.8 15.4L7.3 12.3C10.3 9.8 11.6 7.6 11.6 5V2Z";
+---
+
+<svg class="ace-logo" width={size} height={size} viewBox="0 0 20 20" aria-hidden="true">
+  <g fill="currentColor" transform="translate(1 1.83) scale(0.75)">
+    <path d={wing}></path>
+    <path transform="translate(24 0) scale(-1 1)" d={wing}></path>
+  </g>
+</svg>
+
+<style>
+  .ace-logo {
+    flex-shrink: 0;
+    border-radius: 30%;
+    background: var(--foreground);
+    color: var(--background);
+  }
+</style>

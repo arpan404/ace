@@ -1,0 +1,120 @@
+---
+import homeDark from "../assets/shots/home-dark.png";
+import homeLight from "../assets/shots/home-light.png";
+import { product } from "../content/product.ts";
+import { links } from "../site.ts";
+import DownloadButton from "./DownloadButton.astro";
+import ThemeShot from "./ThemeShot.astro";
+---
+
+<section class="hero">
+  <div class="page hero-copy">
+    <h1>{product.headline}</h1>
+    <p class="lede">{product.summary}</p>
+    <div class="hero-actions">
+      <DownloadButton withNote />
+      <a class="button button-secondary" href={links.source}>View source</a>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="page">
+      <div class="window">
+        <ThemeShot
+          light={homeLight}
+          dark={homeDark}
+          alt="ace with a thread open: the task list on the left shows which threads need an approval or an answer, and the open thread waits on two subagents and a running command."
+          sizes="(min-width: 1280px) 1200px, calc(100vw - 48px)"
+          widths={[720, 1200, 1800, 2400]}
+          eager
+        />
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    padding-top: 64px;
+  }
+
+  .hero-copy {
+    display: grid;
+    gap: 20px;
+    justify-items: start;
+    padding-bottom: 48px;
+  }
+
+  h1 {
+    font-size: clamp(40px, 5.8vw, 68px);
+    max-width: 11em;
+  }
+
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 8px;
+  }
+
+  /* The window sits half on the page, half on a quieter band, so it reads as lifted. */
+  .stage {
+    background: linear-gradient(to bottom, var(--background) 30%, var(--sidebar) 30%);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 72px;
+  }
+
+  .window {
+    overflow: hidden;
+    border-radius: 12px;
+    border: 1px solid var(--border-strong);
+    background: var(--background);
+    box-shadow:
+      0 1px 2px rgb(var(--shadow) / 0.06),
+      0 24px 64px -24px rgb(var(--shadow) / 0.28);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .hero-copy > *,
+    .window {
+      animation: arrive 640ms var(--ease-out) both;
+    }
+
+    .hero-copy > :nth-child(2) {
+      animation-delay: 60ms;
+    }
+
+    .hero-copy > :nth-child(3) {
+      animation-delay: 120ms;
+    }
+
+    .window {
+      animation-delay: 200ms;
+    }
+  }
+
+  @keyframes arrive {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+  }
+
+  @media (max-width: 767px) {
+    .hero {
+      padding-top: 40px;
+    }
+
+    .hero-copy {
+      padding-bottom: 40px;
+    }
+
+    .stage {
+      padding-bottom: 48px;
+    }
+
+    .window {
+      border-radius: 8px;
+    }
+  }
+</style>

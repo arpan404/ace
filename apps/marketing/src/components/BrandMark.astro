@@ -1,0 +1,47 @@
+---
+/*
+ * A provider's or agent's mark in its own colours, drawn from the same path data the app uses
+ * (`@ace/ui-core/provider-icons`). Mono marks fill with the text colour.
+ */
+import { brandArt, type Brand, type BrandPath } from "@ace/ui-core/provider-icons";
+
+interface Props {
+  brand: Brand;
+  size?: number;
+}
+
+const { brand, size = 24 } = Astro.props;
+const art = await brandArt[brand]();
+const paths: readonly BrandPath[] = art.color ?? art.mono;
+const gradientId = (index: number) => `mark-${brand}-${index}`;
+---
+
+<svg width={size} height={size} viewBox={art.viewBox} aria-hidden="true" focusable="false">
+  <defs>
+    {
+      paths.map((path, index) => {
+        const gradient = path.gradient;
+        if (!gradient) return null;
+        const Tag = gradient.type === "linear" ? "linearGradient" : "radialGradient";
+        return (
+          <Tag id={gradientId(index)} {...gradient.attributes}>
+            {gradient.stops.map((stop) => (
+              <stop offset={stop.offset} stop-color={stop.color} stop-opacity={stop.opacity} />
+            ))}
+          </Tag>
+        );
+      })
+    }
+  </defs>
+  {
+    paths.map((path, index) => (
+      <path
+        d={path.d}
+        fill={path.gradient ? `url(#${gradientId(index)})` : (path.fill ?? "currentColor")}
+        fill-rule={path.fillRule}
+        clip-rule={path.clipRule}
+        opacity={path.opacity}
+      />
+    ))
+  }
+</svg>
