@@ -19,6 +19,7 @@ import { blockItems, type Block } from "@ace/ui-core/transcript-blocks";
 import { preview } from "./presentation.ts";
 import { workGroups } from "./work-groups.ts";
 import { backgroundCalls, backgroundRows } from "./background-rows.ts";
+import { eventFollows, messageBlock, streamingOf } from "./thread-messages.ts";
 
 /*
  * The transcript's blocks as the web builds them (`@ace/ui-core` transcript grouping): "Worked
@@ -183,8 +184,10 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
     }
     case "live":
       return base;
-    default:
-      return { ...base, items: [...blockItems(block)] };
+    default: {
+      const items = [...blockItems(block)];
+      return { ...base, items, ...messageBlock(store, block.kind, items[0]) };
+    }
   }
 }
 
@@ -217,6 +220,10 @@ export function followBlocks(
   const counted = new Map<string, Set<string>>();
   /** Blocks whose display follows agent, run and interaction state. */
   const following = new Set<string>();
+  /** Event blocks whose row reads the rows around it (×N, repeats). */
+  const ordered = new Set<string>();
+  /** An event block's one item → that block, which redraws when the item does. */
+  const single = new Map<string, string>();
   const emit = (key: string) =>
     put(`${prefix}block:${key}`, () => {
       const block = blocks.get(key);
@@ -229,12 +236,22 @@ export function followBlocks(
     });
   const forget = (key: string) => {
     following.delete(key);
+    ordered.delete(key);
     const block = blocks.get(key);
+    if (block?.kind === "user" || block?.kind === "event" || block?.kind === "item")
+      if (single.get(block.itemId) === key) single.delete(block.itemId);
     if (block?.kind === "work") for (const id of workItems(block)) counted.get(id)?.delete(key);
   };
   const remember = (block: Block) => {
     if (block.kind === "subagents" || block.kind === "live" || block.kind === "question")
       following.add(block.key);
+    // An answer's streaming ends with its turn; its own deltas never touch the block.
+    if (block.kind === "message" && streamingOf(store, store.item(block.itemId)))
+      following.add(block.key);
+    if (block.kind === "user" || block.kind === "event" || block.kind === "item") {
+      single.set(block.itemId, block.key);
+      if (eventFollows(store, block.kind, block.itemId)) ordered.add(block.key);
+    }
     if (block.kind !== "work") return;
     if (block.ongoing || block.outcome === undefined) following.add(block.key);
     for (const id of workItems(block))
@@ -291,8 +308,12 @@ export function followBlocks(
         if (structural.has(key) || watch.has(key)) regroup = true;
         else if (key.startsWith("run:") || key.startsWith("agent:")) regroup = true;
         if (live(key)) for (const block of following) touched.add(block);
-        if (key.startsWith("item:"))
+        if (key.startsWith("item:")) {
           for (const block of counted.get(key.slice(5)) ?? []) touched.add(block);
+          const block = single.get(key.slice(5));
+          if (block) touched.add(block);
+        }
+        if (key === "order") for (const block of ordered) touched.add(block);
         if (key.startsWith("interaction:"))
           for (const block of following)
             if (blocks.get(block)?.kind === "question") touched.add(block);

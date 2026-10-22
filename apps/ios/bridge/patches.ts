@@ -2,6 +2,7 @@ import type { ChangeTap, ThreadSource } from "@ace/client";
 import { threadRow, itemRow } from "./presentation.ts";
 import { interactionRow } from "./interaction-rows.ts";
 import { itemDetail } from "./thread-rows.ts";
+import { thoughtOf } from "./thread-messages.ts";
 
 import { PatchPump } from "./patch-pump.ts";
 export { PatchPump } from "./patch-pump.ts";
@@ -28,7 +29,11 @@ export function followThread(
         type: "thread.item",
         id,
         row: item
-          ? { ...itemRow(item, positions.get(id), store.truncated(id)), ...itemDetail(item) }
+          ? {
+              ...itemRow(item, positions.get(id), store.truncated(id)),
+              ...itemDetail(item),
+              thought: thoughtOf(store, item),
+            }
           : null,
       };
     });
@@ -48,6 +53,11 @@ export function followThread(
       for (const id of store.interactionIds()) interaction(id);
     } else {
       if (keys.has("order")) {
+        // A thought ends where what follows it begins: its header reads that item.
+        const thought = (index: number) => {
+          const id = store.order[index - 1];
+          if (id !== undefined && store.item(id)?.type === "reasoning") row(id);
+        };
         const retained = new Set(store.order);
         for (const id of positions.keys())
           if (!retained.has(id)) {
@@ -55,8 +65,10 @@ export function followThread(
             row(id);
           }
         store.order.forEach((id, index) => {
-          if (!positions.has(id)) row(id, index);
-          else if (positions.get(id) !== index) {
+          if (!positions.has(id)) {
+            row(id, index);
+            thought(index);
+          } else if (positions.get(id) !== index) {
             positions.set(id, index);
             put(`position:${id}`, () => ({
               type: "thread.position",
@@ -68,6 +80,11 @@ export function followThread(
       }
       for (const key of keys) {
         if (key.startsWith("item:")) row(key.slice(5));
+        // A turn's end times its last thought.
+        if (key.startsWith("run:")) {
+          const last = store.order.at(-1);
+          if (last !== undefined && store.item(last)?.type === "reasoning") row(last);
+        }
         if (key.startsWith("interaction:")) interaction(key.slice(12));
       }
     }
