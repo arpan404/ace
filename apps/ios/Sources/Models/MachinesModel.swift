@@ -24,10 +24,6 @@ import Observation
     @ObservationIgnored var beforeConnect: ((ClientModel, ConnectionTarget) async -> Void)?
     /// Runs once a removed machine's runtime has stopped, so nothing keeps routing to it.
     @ObservationIgnored var afterRemove: ((ClientModel, String) -> Void)?
-    /// Runs on a relaunch after the remembered machines start connecting and before the directory
-    /// is read, so the directory's own runtime (a second VM evaluating the whole bundle) does not
-    /// compete with them while the inbox comes up.
-    @ObservationIgnored var beforeListing: ((MachineInbox) async -> Void)?
     /// Runs once every listed machine has its runtime.
     @ObservationIgnored var afterLoad: (() -> Void)?
 
@@ -55,7 +51,6 @@ import Observation
             machines = known
             loaded = true
             for entry in known { await connect(entry) }
-            await beforeListing?(inbox)
         }
         let listing = LaunchTrace.begin("machines.list")
         let listed = await access.perform(.list)
