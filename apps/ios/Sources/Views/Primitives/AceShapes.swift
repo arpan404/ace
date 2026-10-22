@@ -10,13 +10,15 @@ import SwiftUI
     /// The composer and its strip, and the fields inside cards that take several lines: a full
     /// capsule while one line tall, then the composer's radius.
     static let field = TextCapsule(maxRadius: AceTheme.Radii.composer)
+    /// The strip tucked above the composer: the composer's top corners, an open bottom.
+    static let strip = UnevenRoundedRectangle(topLeadingRadius: AceTheme.Radii.composer, topTrailingRadius: AceTheme.Radii.composer, style: .continuous)
     /// The person's message: a capsule for a short line, the bubble radius once it wraps.
     static let bubble = TextCapsule(maxRadius: AceTheme.Radii.bubble)
     /// Code blocks, cards and screenshots: the content block radius.
     static let block = rounded(AceTheme.Radii.card)
-    /// A row's pressed or selected fill where the row has no container of its own (iOS 18; on
-    /// iOS 26 `aceConcentricBackground` uses it as the floor).
-    static let row = rounded(AceTheme.Radii.lg)
+    /// A row's pressed or selected fill: this radius on iOS 18, and the floor of its concentric
+    /// corners on iOS 26.
+    static let rowRadius = AceTheme.Radii.lg
     /// The tiny drawn glyphs (the Stop square, a file-status box, the tab count): radius scales
     /// with the glyph, never a capsule.
     static let stopGlyph = rounded(AceTheme.Radii.xs / 2)
@@ -27,7 +29,7 @@ import SwiftUI
         RoundedRectangle(cornerRadius: radius, style: .continuous)
     }
     /// The concentric radius inside `outer` at `inset` from its edge, never sharper than `xs`.
-    static func nested(in outer: CGFloat, inset: CGFloat) -> CGFloat {
+    nonisolated static func nested(in outer: CGFloat, inset: CGFloat) -> CGFloat {
         max(outer - inset, AceTheme.Radii.xs)
     }
 }
