@@ -165,3 +165,34 @@ test("a device that loses its authority before dispatch sends nothing", async ()
     await env.cleanup();
   }
 });
+
+test("a replayed command is answered from its receipt and never reaches GitHub twice", async () => {
+  const env = await environment({ "notifications/threads/7": [{ status: 204, raw: "" }] });
+  try {
+    const first = await env.write("replayed", { action: "done", id: "7" });
+    expect(first).toMatchObject({ ok: true, inboxAction: { state: "succeeded" } });
+    // The client lost the answer and sends the same command again on reconnect.
+    expect(await env.write("replayed", { action: "done", id: "7" })).toEqual(first);
+    const sent = (await env.gh.requests()).filter((r) => r.path === "notifications/threads/7");
+    expect(sent).toHaveLength(1);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test("the inbox names the project's own repository, so its rows open without naming it", async () => {
+  const env = await environment({ [firstPage]: [{ body: [review] }] });
+  try {
+    expect((await env.list()).result).toMatchObject({
+      kind: "forge",
+      data: {
+        resource: "inboxList",
+        value: {
+          projectRepository: { forge: "github", host: "github.com", owner: "octo", name: "ace" },
+        },
+      },
+    });
+  } finally {
+    await env.cleanup();
+  }
+});

@@ -17,12 +17,12 @@
       "sha256": "977c9225d35970e2dfb41c87095c31ddf4ed18a2a37f4dbddee571f3bbfe3509"
     },
     "forge.md": {
-      "bytes": 105251,
-      "sha256": "be088ae2cd5040f7c570282159bcf0633359aa97b1590a6366b4f824e27e1830"
+      "bytes": 105982,
+      "sha256": "ec9d6493fc3ba50303140ca869fe08e7fd0e0f3ba3c366b8f2ce3f5f9b0bbe9e"
     },
     "mcp.md": {
-      "bytes": 72314,
-      "sha256": "584ded9aac83c5c8e0be0e36fbe087db71be56fe90bef8c0716059cb22cfa318"
+      "bytes": 72140,
+      "sha256": "249aa5cd597f26c2aed0c92c6bb3f3d95cc556d851d139f1c60f396ed45bbe33"
     },
     "models.md": {
       "bytes": 15710,
@@ -1233,8 +1233,8 @@
       "sha256": "69ff68bd9f9ff6f2d5cdf187c329efe44f1ed8b5d3c751935dbc9b7066be6d20"
     },
     "schema/ForgeInboxList.json": {
-      "bytes": 771,
-      "sha256": "d43a2b3171133dbbd86cb1c50800ff5917916257beffaf12ff04b80675c038a8"
+      "bytes": 872,
+      "sha256": "53a91b5435e21b9b5e42f898143a405b35afde27da21a856d673d795056d9928"
     },
     "schema/ForgeInboxQuery.json": {
       "bytes": 881,
@@ -1245,8 +1245,8 @@
       "sha256": "97e80b7b3e56c60366ec041b8a6a41f2e29b07e8e040194090e7255cc0d8f3bf"
     },
     "schema/ForgeInboxRow.json": {
-      "bytes": 1330,
-      "sha256": "914a1111155da8ff0aeb9f44de3ce7e492f80818835bbb9aa5c9aa54245888b2"
+      "bytes": 1315,
+      "sha256": "05fc0e2c3fe2753dc03633a78293fd148d13562e24f7151285e1b5ae8b685f12"
     },
     "schema/ForgeInboxSubjectState.json": {
       "bytes": 223,
@@ -4245,10 +4245,10 @@
       "sha256": "3c00a18ea5c34e708a57c9d0f5d0cdba097745d6b5fc80bd543053d4c1079efc"
     },
     "types.md": {
-      "bytes": 888158,
-      "sha256": "39d08f2da66e66f2443a32fcdc582da24719e8d2dbe3bf1e92c45a726d9d827a"
+      "bytes": 879308,
+      "sha256": "c50ff23207a1138d20b9f2409e9b9cbb34e276f0df9f4b8d91edd69d99f81d1d"
     }
   },
-  "input": "724b5c1b73caf044a96f807f1ee94f6aec81446f2bb08159913c401bb9f2b669",
+  "input": "f6cb22ba72cac5386f056da379b8c775b447c361f1d4908f1eaabbf9e69e2ad1",
   "version": 1
 }

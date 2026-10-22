@@ -324,3 +324,84 @@ test("a refused write is a definite failure, not an uncertain one", async () => 
     await gh.cleanup();
   }
 });
+
+test("after a refused state read, the next poll asks for states again though the notifications didn't change", async () => {
+  const { gh, reader, clock } = await inbox({
+    [firstPage]: [
+      {
+        headers: { "Last-Modified": "Thu, 22 Oct 2026 09:00:00 GMT", "X-Poll-Interval": "30" },
+        body: [notification("1", "PullRequest", "mention", `${api}/acme/ace/pulls/229`)],
+      },
+      { status: 304, raw: "" },
+    ],
+    "graphql:InboxStates": [
+      { status: 403, headers: { "Retry-After": "1" }, body: { message: "secondary rate limit" } },
+      { body: { data: { r0: { n229: { __typename: "PullRequest", state: "MERGED" } } } } },
+    ],
+  });
+  try {
+    const first = await reader.list(ForgeInboxQuery.parse({}), signal());
+    expect(first.items[0]?.state).toBeUndefined();
+    clock.now += 31_000;
+    const again = await reader.list(ForgeInboxQuery.parse({}), signal());
+    expect(again).toMatchObject({ unchanged: true, items: [{ id: "1", state: "merged" }] });
+  } finally {
+    await gh.cleanup();
+  }
+});
+
+test("a rate limit holds every read until GitHub's reset, without asking again", async () => {
+  const { gh, reader, clock } = await inbox({
+    [firstPage]: [
+      {
+        status: 403,
+        headers: { "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "120" },
+        body: { message: "API rate limit exceeded" },
+      },
+      { body: [] },
+    ],
+  });
+  try {
+    await expect(reader.list(ForgeInboxQuery.parse({}), signal())).rejects.toMatchObject({
+      kind: "rate_limit",
+    });
+    clock.now = 60_000;
+    await expect(reader.list(ForgeInboxQuery.parse({}), signal())).rejects.toMatchObject({
+      kind: "rate_limit",
+    });
+    expect((await gh.requests()).filter((r) => r.path === firstPage)).toHaveLength(1);
+    clock.now = 121_000;
+    expect(await reader.list(ForgeInboxQuery.parse({}), signal())).toMatchObject({ items: [] });
+    expect((await gh.requests()).filter((r) => r.path === firstPage)).toHaveLength(2);
+  } finally {
+    await gh.cleanup();
+  }
+});
+
+test("a sign-in that is gone, or a refusal for one repository, keeps its own category", async () => {
+  const repoPage =
+    "repos/acme/secret/notifications?all=false&participating=false&per_page=50&page=1";
+  const { gh, reader } = await inbox({
+    [firstPage]: [
+      { status: 401, body: { message: "Bad credentials" } },
+      { offline: true, code: 4 },
+    ],
+    [repoPage]: [{ status: 403, body: { message: "Resource not accessible" } }],
+  });
+  try {
+    for (let read = 0; read < 2; read++)
+      await expect(reader.list(ForgeInboxQuery.parse({}), signal())).rejects.toMatchObject({
+        kind: "forbidden",
+      });
+    await expect(
+      reader.list(
+        ForgeInboxQuery.parse({
+          repository: { forge: "github", host: "github.com", owner: "acme", name: "secret" },
+        }),
+        signal(),
+      ),
+    ).rejects.toMatchObject({ kind: "forbidden" });
+  } finally {
+    await gh.cleanup();
+  }
+});
