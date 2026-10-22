@@ -125,3 +125,37 @@ remote matching treats the PR's own host as known, so Enterprise remotes match.
 422 refusals map to `no_commits`, `pr_exists`, `head_missing`, `base_missing`, `conflict`
 (an existing name) or `unprocessable`. Work on PR reports `head_moved` and
 `fork_deleted` instead of `conflict` and `not_found`.
+
+## People, references and reviewer management (2026-10-22)
+
+The Markdown editor completes `@` and `#`. Three reads serve it and the Reviewers list,
+each one GraphQL request through `gh`:
+
+- `forge.people`: `repository.mentionableUsers(first: 20, query)`. Pages put the PR's or
+  issue's own people (author, reviewers or assignees, commenters) first and fill in from
+  this. Answers are reused per query for five minutes; writes never change them.
+- `forge.references`: two aliased `search(type: ISSUE)` queries (open, then any state,
+  10 each, newest activity first) plus `repository.issueOrPullRequest` when the query is
+  a number, so an exact number leads. Query text is reduced to words, dots and dashes,
+  so a typed qualifier can't point the search at another repository. Reused for one
+  minute and dropped on any write.
+- `forge.pr.reviewers`: `reviewRequests` (people and teams), `latestReviews`,
+  `suggestedReviewers`, `viewerCanUpdate` and `repository.viewerPermission`. Not cached.
+  Requests are offered when the PR is open and the viewer can update it; dismissal when
+  it is open and the viewer has write, maintain or admin permission. A branch rule that
+  restricts dismissal still refuses on GitHub and shows as `forbidden`.
+
+Unknown review states, request kinds and search node types are skipped, not fatal.
+
+Three hosted review actions go through `forge.hosted.review` like the others: identity
+check before dispatch, the write journal and its uncertainty fence, no automatic retry.
+
+- `reviewers.request` gains optional `teams` (slugs, sent as `team_reviewers`); asking
+  someone who already reviewed is a re-request. Confirmed when every name is asked.
+- `reviewers.remove`: `DELETE /pulls/{n}/requested_reviewers` with people and teams.
+  Confirmed when none of them is asked.
+- `review.dismiss`: reads the review first and refuses (`conflict`) unless it is
+  `APPROVED` or `CHANGES_REQUESTED`, then `PUT /pulls/{n}/reviews/{id}/dismissals` with
+  the required message. Confirmed when the review reads `DISMISSED`.
+
+All three refuse with `conflict` on a PR that is not open.
