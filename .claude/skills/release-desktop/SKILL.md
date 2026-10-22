@@ -36,9 +36,9 @@ PATH=<node 24.13.0>/bin:$PATH bun run release:doctor
 PATH=<node 24.13.0>/bin:$PATH bun run release:build <version> --with-daemon
 ```
 
-The `--os`/`--cpu` flags also install the Intel builds of optional native packages such as sharp, which the `darwin-x64` daemon archive stages; a plain install has only the host's and the build fails with `Missing image runtime dependency`. `release:doctor` lists every check; stop on any ✗. `release:build` packages, signs and notarizes the app, verifies it (`codesign`, `spctl`, `stapler`), launches it with an empty data home and fails unless its daemon starts and the updater begins a check, builds and signs the daemon manifests for both macOS architectures, and stages everything with checksums under `dist/releases/v<version>`. It passes the version to the packager itself, so an `ACE_VERSION` inherited from a running ace does not leak in.
+The `--os`/`--cpu` flags also install spare copies of optional native packages such as sharp; a plain install has only the host's. `release:doctor` lists every check; stop on any ✗. `release:build` packages, signs and notarizes the app, verifies it (`codesign`, `spctl`, `stapler`), launches it with an empty data home and fails unless its daemon starts and the updater begins a check, builds and signs the Apple silicon daemon manifest, and stages everything with checksums under `dist/releases/v<version>`. It passes the version to the packager itself, so an `ACE_VERSION` inherited from a running ace does not leak in.
 
-It takes 10–20 minutes (notarization is most of it); run it in the background and wait for it to exit. Done when it exits 0 and `dist/releases/v<version>/` holds `ace-<version>-arm64.dmg`, `ace-<version>-arm64-mac.zip`, their blockmaps, `latest-mac.yml`, `darwin-arm64.json`/`.sig`, `darwin-x64.json`/`.sig` and both daemon archives.
+It takes 10–20 minutes (notarization is most of it); run it in the background and wait for it to exit. Done when it exits 0 and `dist/releases/v<version>/` holds `ace-<version>-arm64.dmg`, `ace-<version>-arm64-mac.zip`, their blockmaps, `latest-mac.yml`, and `darwin-arm64.json`/`.sig` with its daemon archive. No `darwin-x64` files are built or published.
 
 ## 3. Notes
 
