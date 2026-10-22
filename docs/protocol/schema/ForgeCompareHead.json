@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeCompareHead.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "branch": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "owner": {
+      "maxLength": 100,
+      "pattern": "^[\\w-]+$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "owner",
+    "branch"
+  ],
+  "type": "object"
+}

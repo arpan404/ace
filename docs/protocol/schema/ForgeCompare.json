@@ -1,0 +1,88 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeCompare.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "aheadBy": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "base": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "behindBy": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "commits": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeCommit.json"
+      },
+      "maxItems": 250,
+      "type": "array"
+    },
+    "files": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeFile.json"
+      },
+      "maxItems": 25,
+      "type": "array"
+    },
+    "head": {
+      "$ref": "https://ace.local/protocol/v1/ForgeCompareHead.json"
+    },
+    "headSha": {
+      "pattern": "^[a-fA-F0-9]{40,64}$",
+      "type": "string"
+    },
+    "mergeBaseSha": {
+      "pattern": "^[a-fA-F0-9]{40,64}$",
+      "type": "string"
+    },
+    "nextPage": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "ahead",
+        "behind",
+        "diverged",
+        "identical"
+      ],
+      "type": "string"
+    },
+    "totalCommits": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "totalFiles": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "base",
+    "head",
+    "status",
+    "aheadBy",
+    "behindBy",
+    "mergeBaseSha",
+    "headSha",
+    "commits",
+    "totalCommits",
+    "files",
+    "totalFiles",
+    "truncated"
+  ],
+  "type": "object"
+}

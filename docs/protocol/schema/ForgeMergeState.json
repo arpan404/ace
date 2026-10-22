@@ -66,6 +66,17 @@
         }
       ]
     },
+    "commitMessages": {
+      "properties": {
+        "merge": {
+          "$ref": "https://ace.local/protocol/v1/ForgeMergeCommit.json"
+        },
+        "squash": {
+          "$ref": "https://ace.local/protocol/v1/ForgeMergeCommit.json"
+        }
+      },
+      "type": "object"
+    },
     "deployments": {
       "items": {
         "properties": {
