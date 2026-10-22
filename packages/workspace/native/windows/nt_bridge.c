@@ -191,6 +191,11 @@ static const char *nt_open_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
           FILE_SHARE_DELETE,
       disposition, options, NULL, 0);
   if (!WCORE_NT_SUCCESS(status)) {
+    // FILE_CREATE never opens an existing object. The directory constraint
+    // can report its type before collision; preserve exclusive-create semantics.
+    if (disposition == 2UL &&
+        ((ULONG)status == 0xC00000BAUL || (ULONG)status == 0xC0000103UL))
+      return "EEXIST";
     // RtlNtStatusToDosError loses type information: FILE_IS_A_DIRECTORY
     // becomes ACCESS_DENIED on real Windows. Preserve the NT type codes.
     // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-erref/596a1078-e883-4972-9bbc-49e60bebca55
