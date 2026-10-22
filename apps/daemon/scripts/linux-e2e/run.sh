@@ -161,9 +161,20 @@ echo "Fetching ace's pinned Chrome into $chrome_home"
 ACE_CHROMIUM_PATH=$(cd "$root" && node apps/daemon/scripts/linux-e2e/chrome.ts install "$chrome_home" | tail -n 1)
 export ACE_CHROMIUM_PATH
 profile_path="/etc/apparmor.d/$profile"
+# Runs on one machine share the profile (it is for the one pinned Chrome): each run signs in
+# here, and the last one out removes it, so a run never loses its sandbox to another's cleanup.
+profile_users="/tmp/$profile.users"
+mkdir -p "$profile_users"
+touch "$profile_users/$$"
 cleanup() {
   rm -rf "$helper_dir"
-  if [ -f "$profile_path" ] && [ -z "${ACE_E2E_KEEP_PROFILE:-}" ]; then
+  rm -f "$profile_users/$$"
+  local user
+  for user in "$profile_users"/*; do
+    [ -e "$user" ] && ! kill -0 "$(basename "$user")" 2>/dev/null && rm -f "$user"
+  done
+  if [ -f "$profile_path" ] && [ -z "${ACE_E2E_KEEP_PROFILE:-}" ] &&
+    [ -z "$(ls -A "$profile_users" 2>/dev/null)" ]; then
     sudo apparmor_parser -R "$profile_path" >/dev/null 2>&1 || true
     sudo rm -f "$profile_path"
   fi

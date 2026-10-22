@@ -120,7 +120,8 @@ describe.skipIf(!enabled)(`Linux live view (${session ?? "off"})`, () => {
     cleanups.push(() => viewer.close());
     const { target, size, approve } = await calculatorWindow(ace, viewer);
     const [started] = await Promise.all([
-      viewer.request({ op: "start", target }, 60_000),
+      // As long as the daemon gives a Wayland start, the person included.
+      viewer.request({ op: "start", target }, 130_000),
       approve?.(),
     ]);
     const state = ScreenState.parse(started);
