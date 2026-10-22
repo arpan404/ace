@@ -2,22 +2,39 @@ import Foundation
 import JavaScriptCore
 import Security
 
+/// What a runtime serves: its daemon, its outbox database, its native services and where its
+/// patches go. A warm runtime (`RuntimeWarmup`) evaluates the client bundle before it has one.
+struct HostBinding: Sendable {
+    var target: ConnectionTarget?
+    var storageURL: URL?
+    var services: HostServices
+    var receive: @Sendable (Data) -> Void
+    static let unbound = HostBinding(target: nil, storageURL: nil, services: HostServices(), receive: { _ in })
+}
+
 /// All mutable dictionaries live on ClientRuntime's thread. Disk work has its own serial queue.
 final class NativeHost: @unchecked Sendable {
     private weak var runtime: ClientRuntime?
-    private let target: ConnectionTarget?
-    private let storageURL: URL?
-    private let services: HostServices
-    private let receive: @Sendable (Data) -> Void
-    private let storageQueue = DispatchQueue(label: "ace.client.storage", qos: .utility)
+    /// Set at creation, or once on the VM thread before the bundle starts; never changed after.
+    private var binding: HostBinding
+    private var target: ConnectionTarget? { binding.target }
+    private var storageURL: URL? { binding.storageURL }
+    private var services: HostServices { binding.services }
+    private var receive: @Sendable (Data) -> Void { binding.receive }
+    private let storageQueue = DispatchQueue(label: "ace.client.storage", qos: .userInitiated)
+    /// Read snapshots have their own queue, so a large cache write never delays an outbox admission.
+    private let snapshotQueue = DispatchQueue(label: "ace.client.snapshots", qos: .userInitiated)
     private var store: DurableStore?
+    private var snapshots: SnapshotStore?
     private var sockets: [String: PinnedSocket] = [:]
     private var timers: [String: Timer] = [:]
 
-    init(runtime: ClientRuntime, target: ConnectionTarget?, storageURL: URL?, services: HostServices,
-         receive: @escaping @Sendable (Data) -> Void) {
-        self.runtime = runtime; self.target = target; self.storageURL = storageURL; self.services = services; self.receive = receive
+    init(runtime: ClientRuntime, binding: HostBinding) {
+        self.runtime = runtime; self.binding = binding
     }
+    /// A warm runtime's machine, on the VM thread before its entry runs: nothing has called the
+    /// host yet, and every later call (and the queues it dispatches to) reads this binding.
+    func bind(_ binding: HostBinding) { self.binding = binding }
     func install(in context: JSContext) {
         let call: @convention(block) (String, String, JSValue) -> Void = { [weak self] operation, json, value in
             self?.call(operation, json: json, callback: Callback(value))
@@ -74,6 +91,7 @@ final class NativeHost: @unchecked Sendable {
     }
     private func call(_ operation: String, json: String, callback: Callback) {
         if operation == "http" { http(json, callback: callback); return }
+        if operation.hasPrefix("snapshot.") { snapshot(operation, json: json, callback: callback); return }
         storageQueue.async { [self] in
             let result: Result<String, Error> = Result {
                 guard let data = json.data(using: .utf8), data.count <= 9 * 1024 * 1024 else { throw HostError.storage }
@@ -83,6 +101,10 @@ final class NativeHost: @unchecked Sendable {
                 }
                 if let value = try services.perform(operation, input: data) { return value }
                 guard let storageURL else { throw HostError.unsupported }
+                if operation == "inbox.checkpoint" {
+                    try InboxCheckpoint.write(try JSONDecoder().decode(String.self, from: data), database: storageURL)
+                    return ""
+                }
                 if store == nil { store = try DurableStore(url: storageURL) }
                 guard let store else { throw HostError.storage }
                 return try store.perform(operation, input: data)
@@ -92,6 +114,25 @@ final class NativeHost: @unchecked Sendable {
                 case .success(let text): callback.value.call(withArguments: [NSNull(), text])
                 case .failure: callback.value.call(withArguments: ["Host operation failed", ""])
                 }
+            }
+        }
+    }
+    private func snapshot(_ operation: String, json: String, callback: Callback) {
+        snapshotQueue.async { [self] in
+            let result: Result<String, Error> = Result {
+                guard let storageURL, let data = json.data(using: .utf8), data.count <= 9 * 1024 * 1024 else { throw HostError.storage }
+                if snapshots == nil { snapshots = try SnapshotStore(database: storageURL, now: services.now) }
+                guard let value = try snapshots?.perform(operation, input: data) else { throw HostError.unsupported }
+                return value
+            }
+            reply(result, to: callback)
+        }
+    }
+    private func reply(_ result: Result<String, Error>, to callback: Callback) {
+        runtime?.execute { _ in
+            switch result {
+            case .success(let text): callback.value.call(withArguments: [NSNull(), text])
+            case .failure: callback.value.call(withArguments: ["Host operation failed", ""])
             }
         }
     }
@@ -113,7 +154,11 @@ final class NativeHost: @unchecked Sendable {
               let request = try? JSONDecoder().decode(PinnedHTTPRequest.self, from: Data(json.utf8)) else {
             reply(.failure(.invalid)); return
         }
-        PinnedHTTP.send(origin: origin, pin: target.pin, request: request, now: services.now, completion: reply)
+        let tracing = LaunchTrace.begin("http", request.path)
+        PinnedHTTP.send(origin: origin, pin: target.pin, request: request, now: services.now) { result in
+            tracing.end()
+            reply(result)
+        }
     }
     private func socket(_ id: String, action: String, text: String) {
         switch action {

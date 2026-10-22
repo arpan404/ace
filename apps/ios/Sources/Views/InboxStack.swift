@@ -29,6 +29,8 @@ struct InboxStack<Destination: View>: View {
     /// The tab and the chips: a row shows when its machine, project and pull request match.
     private func includes(_ key: InboxKey) -> Bool {
         if !machine.isEmpty && key.machineId != machine { return false }
+        // Rows are read only for a project scope, so the list redraws for membership alone.
+        if project.isEmpty { return true }
         guard let row = inbox.row(key) ?? inbox.pending(key).flatMap({ inbox.row(InboxKey(machineId: key.machineId, id: $0.threadId)) }) else {
             return project.isEmpty
         }
