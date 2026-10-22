@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
@@ -18,9 +19,17 @@ export interface Confirming {
 
 /** Confirms a destructive change. Focus starts on Cancel, so Enter never destroys by accident. */
 export function ConfirmDialog(props: { confirming: Confirming | undefined; onDone(): void }) {
-  const { confirming } = props;
+  // The last change asked about stays written while the dialog fades out.
+  const [shown, setShown] = useState(props.confirming);
+  const asked = props.confirming;
+  if (
+    asked &&
+    (asked.title !== shown?.title || asked.body !== shown.body || asked.confirm !== shown.confirm)
+  )
+    setShown(asked);
+  const confirming = props.confirming ?? shown;
   return (
-    <Dialog open={confirming !== undefined} onOpenChange={(open) => !open && props.onDone()}>
+    <Dialog open={props.confirming !== undefined} onOpenChange={(open) => !open && props.onDone()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{confirming?.title}</DialogTitle>
@@ -33,7 +42,7 @@ export function ConfirmDialog(props: { confirming: Confirming | undefined; onDon
           <Button
             variant="danger"
             onClick={() => {
-              confirming?.run();
+              props.confirming?.run();
               props.onDone();
             }}
           >

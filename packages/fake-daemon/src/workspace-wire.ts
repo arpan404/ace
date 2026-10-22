@@ -78,6 +78,15 @@ export class FakeWorkspaceWire {
   mergePullRequest(number: number): void {
     this.pullRequests.mergeNumber(number);
   }
+  /**
+   * A seeded read asked for with the repository named, as a link from a PR page asks: the
+   * catalog seeds `acme/ace`'s reads without it.
+   */
+  private withoutRepository(op: WorkspaceActionRequest["operation"]) {
+    if (!("repository" in op) || !op.repository || op.repository.name !== "ace") return undefined;
+    const { repository: _repository, ...rest } = op;
+    return this.forgeReads.get(JSON.stringify(rest));
+  }
   /** An issue's title, as the seeded issue reads have it. */
   private issueTitle(number: number): string | undefined {
     for (const read of this.forgeReads.values())
@@ -88,6 +97,7 @@ export class FakeWorkspaceWire {
     return (
       this.issues.read(op) ??
       this.forgeReads.get(JSON.stringify(op)) ??
+      this.withoutRepository(op) ??
       (op.op === "forge.issue.list" ? catalogIssueList(op, this.forgeReads) : undefined) ??
       this.pullRequests.groupCounts(op, this.forgeReads) ??
       emptyIssueList(op)
@@ -325,7 +335,11 @@ export class FakeWorkspaceWire {
     const merged =
       this.pullRequests.merge(payload) ??
       this.pullRequests.mergeState(payload) ??
-      this.pullRequests.lifecycle(payload, (number) => this.issueTitle(number)) ??
+      this.pullRequests.lifecycle(
+        payload,
+        (number) => this.issueTitle(number),
+        this.context.now(),
+      ) ??
       this.pullRequests.create(payload, this.context.now());
     if (merged) return merged;
     const project = this.projects.command(payload);

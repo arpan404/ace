@@ -437,7 +437,7 @@ function PrDetailLoaded(props: {
           }}
         />
         <PrComposer
-          context={lockedOut ? { ...context, disabled: true } : context}
+          context={lockedOut ? { ...context, commentsLocked: true } : context}
           extensions={props.extensions}
         />
         <PrDialogs
