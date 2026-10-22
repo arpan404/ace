@@ -133,7 +133,7 @@
     },
     "apps/desktop": {
       "name": "@ace/desktop",
-      "version": "0.0.7",
+      "version": "0.0.8",
       "dependencies": {
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
@@ -597,6 +597,7 @@
         "@ace/client": "workspace:*",
         "@ace/commands": "workspace:*",
         "@ace/core": "workspace:*",
+        "@ace/forge": "workspace:*",
         "@ace/models": "workspace:*",
         "@ace/plugins": "workspace:*",
         "@ace/project-picker": "workspace:*",

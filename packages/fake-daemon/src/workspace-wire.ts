@@ -72,10 +72,14 @@ export class FakeWorkspaceWire {
   ): void {
     this.issues.setOutcome(outcome);
   }
-  private pullRequests = new FakePrCatalog();
+  private pullRequests = new FakePrCatalog(() => this.context.now());
   /** Whole pull requests the fake app's PR panel can open (`pullRequestDetails`). */
   seedPullRequests(fixtures: readonly PullRequestFixture[]): void {
     this.pullRequests.seed(fixtures);
+  }
+  /** Push to a catalog PR's branch: a new head with every new-side line moved down by ten. */
+  pushPullRequest(number: number): boolean {
+    return this.pullRequests.push(number);
   }
   /** Mark a catalog PR merged, as a Verify merge run does on GitHub. */
   mergePullRequest(number: number): void {
@@ -89,6 +93,29 @@ export class FakeWorkspaceWire {
       this.pullRequests.groupCounts(op, this.forgeReads) ??
       emptyIssueList(op)
     );
+  }
+  /**
+   * A test scripted this PR's review state or detail with `setForgeRead`: its review commands
+   * stay unanswered here (`unsupported_by_fake_daemon`) so the test decides their outcome.
+   */
+  private scriptedReview(payload: CommandPayload): boolean {
+    if (payload.type !== "forge.hosted.review") return false;
+    const repository = JSON.stringify(payload.pr.repository);
+    for (const key of this.forgeReads.keys()) {
+      const op: unknown = JSON.parse(key);
+      if (
+        typeof op === "object" &&
+        op !== null &&
+        "op" in op &&
+        (op.op === "forge.pr.review-state" || op.op === "forge.pr.detail") &&
+        "number" in op &&
+        op.number === payload.pr.number &&
+        "repository" in op &&
+        JSON.stringify(op.repository) === repository
+      )
+        return true;
+    }
+    return false;
   }
   setForgeRead(operation: ForgeBrowserOperation, result: ForgeBrowserResult): void {
     this.forgeReads.set(JSON.stringify(operation), ForgeBrowserResult.parse(result));
@@ -327,7 +354,10 @@ export class FakeWorkspaceWire {
       this.checkReruns.push(payload.action);
       return { ok: true };
     }
-    const merged = this.pullRequests.merge(payload) ?? this.pullRequests.mergeState(payload);
+    const merged =
+      this.pullRequests.merge(payload) ??
+      this.pullRequests.mergeState(payload) ??
+      (this.scriptedReview(payload) ? undefined : this.pullRequests.review(payload, commandId));
     if (merged) return merged;
     const project = this.projects.command(payload);
     if (project) return project;

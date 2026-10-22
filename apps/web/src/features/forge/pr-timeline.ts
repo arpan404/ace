@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ForgeComment } from "@ace/protocol";
+import type { ForgeComment, ForgePrStatus } from "@ace/protocol";
 import type { ForgeActivity, ForgeCommit, ForgePrDetail } from "@ace/protocol/forge-browser";
 
 export type PrTimelineEntry =
@@ -122,6 +122,7 @@ export type PrTimelineItem =
       event: ForgeActivity;
     }
   | { kind: "references"; id: string; at: string | null; references: PrReference[] }
+  | { kind: "thread"; id: string; at: string; thread: ForgePrStatus["reviewThreads"][number] }
   | { kind: "comments"; id: string; at: string; comments: ForgeComment[]; authors: string[] };
 
 /** At least this many comments in a row, each this close to the last, fold into one burst. */
@@ -250,7 +251,7 @@ function single(entry: PrTimelineEntry, stale: ReadonlySet<number>): PrTimelineI
 
 /**
  * The Timeline tab's rows: `prTimeline` with merge-time closes folded away, reviews given a
- * verdict, runs of references collapsed into one row and bursts of comments into another.
+ * verdict, review comments gathered into their conversations, runs of references collapsed into one row and bursts of comments into another.
  * Groups form oldest-first, so a group keeps its identity when the order flips.
  */
 export function prTimelineItems(
@@ -261,6 +262,22 @@ export function prTimelineItems(
 ): PrTimelineItem[] {
   const entries = foldMergeClose(prTimeline(detail, commits, events, "oldest"));
   const stale = staleReviews(detail.status.comments, events, detail.status.headSha);
+  const threadOf = new Map(
+    detail.status.reviewThreads.flatMap((thread) =>
+      thread.comments.map((comment) => [comment.id, thread] as const),
+    ),
+  );
+  // Where each conversation shows: its first comment the timeline has. Past the read cap a
+  // root may be missing; the conversation then shows at its first reply that is present.
+  const present = new Set(
+    detail.status.comments.filter((c) => c.kind === "inline").map((c) => c.id),
+  );
+  const shownAt = new Map(
+    detail.status.reviewThreads.flatMap((thread) => {
+      const first = thread.comments.find((comment) => present.has(comment.id));
+      return first ? [[thread.id, first.id] as const] : [];
+    }),
+  );
   const items: PrTimelineItem[] = [];
   let references: PrReference[] = [];
   let burst: CommentEntry[] = [];
@@ -296,6 +313,17 @@ export function prTimelineItems(
       continue;
     }
     flushReferences();
+    // A review comment shows as its whole conversation, once, where the conversation began.
+    const thread =
+      entry.kind === "comment" && entry.comment.kind === "inline"
+        ? threadOf.get(entry.comment.id)
+        : undefined;
+    if (entry.kind === "comment" && thread) {
+      if (shownAt.get(thread.id) !== entry.comment.id) continue;
+      flushBurst();
+      items.push({ kind: "thread", id: `thread:${thread.id}`, at: entry.at, thread });
+      continue;
+    }
     if (entry.kind === "comment" && entry.comment.kind !== "review") {
       const previous = burst.at(-1);
       if (previous && !(time(entry.at) - time(previous.at) <= COMMENT_BURST_GAP_MS)) flushBurst();

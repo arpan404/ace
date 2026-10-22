@@ -74,6 +74,12 @@ export const ForgeReviewThread = z.object({
   outdated: z.boolean(),
   file: text,
   line: z.number().int().nullable(),
+  /** Which side of the diff `line` (and `startLine`) count on; absent from older reads. */
+  side: z.enum(["LEFT", "RIGHT"]).optional(),
+  /** The first line of a multi-line thread; null or absent for a single line. */
+  startLine: z.number().int().nullable().optional(),
+  /** The side `startLine` counts on, when the thread starts on the other side from `side`. */
+  startSide: z.enum(["LEFT", "RIGHT"]).optional(),
   comments: z.array(ForgeComment).max(2_000),
 });
 export const ForgePrStatus = z.object({

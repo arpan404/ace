@@ -7,6 +7,32 @@ import type {
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
 import { catalogGroupCounts, catalogPrList } from "./forge-list-wire.ts";
 import { colors } from "./forge-list-rows.ts";
+import { applyHostedReview } from "./pr-review-actions.ts";
+
+/** How many lines a fake push adds at the top of each changed file. */
+const pushedLines = 10;
+
+/**
+ * `patch` after a push that adds ten lines at the top of the file: they join its first change
+ * as added lines, and every later change starts ten lines further down on the new side.
+ */
+function pushedPatch(patch: string): string {
+  let first = true;
+  return patch.replaceAll(
+    /^@@ -(\d+(?:,\d+)?) \+(\d+)(?:,(\d+))? @@.*$/gm,
+    (_header: string, left: string, start: string, count: string | undefined) => {
+      if (!first) return `@@ -${left} +${Number(start) + pushedLines},${count ?? "1"} @@`;
+      first = false;
+      const added = Array.from({ length: pushedLines }, (_, i) => `+pushed line ${i + 1}`);
+      return [`@@ -${left} +${start},${Number(count ?? "1") + pushedLines} @@`, ...added].join(
+        "\n",
+      );
+    },
+  );
+}
+
+/** A line ten further down, as a push of ten lines above it leaves it. */
+const shift = (line: number | null | undefined) => (line == null ? line : line + pushedLines);
 
 /**
  * Whole pull requests the fake app can open in its PR panel: detail, merge state, lifecycle,
@@ -15,6 +41,10 @@ import { colors } from "./forge-list-rows.ts";
  */
 export class FakePrCatalog {
   private fixtures: PullRequestFixture[] = [];
+  private readonly now: () => number;
+  constructor(now: () => number = () => 0) {
+    this.now = now;
+  }
   seed(fixtures: readonly PullRequestFixture[]): void {
     // As GitHub answers: each label with its colour.
     this.fixtures = fixtures.map((fixture) => ({
@@ -48,6 +78,49 @@ export class FakePrCatalog {
     if (status.mergeability === "conflicting" || status.ci === "failure")
       return { ok: false, error: "forge_write_refused" };
     return { ok: true, pr: payload.pr, prStatus: this.markMerged(fixture).detail.status };
+  }
+  /**
+   * A push to a catalog PR's branch, for trying the app against a moving head: a new head, and
+   * ten lines added above every change, so each new-side line number now names other code.
+   * Conversations on the new side move down with their lines, as GitHub moves them; pending
+   * drafts stay on the old head and so read as outdated.
+   */
+  push(number: number): boolean {
+    const fixture = this.fixtures.find((entry) => entry.detail.status.ref.number === number);
+    if (!fixture || fixture.detail.status.state !== "open") return false;
+    const { status } = fixture.detail;
+    const headSha = (status.headSha.slice(2) + status.headSha.slice(0, 2)).replace(/^./, "e");
+    const pushed: PullRequestFixture = {
+      ...fixture,
+      detail: {
+        ...fixture.detail,
+        status: {
+          ...status,
+          headSha,
+          reviewThreads: status.reviewThreads.map((thread) =>
+            thread.side === "LEFT"
+              ? thread
+              : Object.assign({}, thread, {
+                  line: shift(thread.line) ?? null,
+                  startLine: shift(thread.startLine),
+                }),
+          ),
+        },
+      },
+      ...(fixture.mergeState ? { mergeState: { ...fixture.mergeState, headSha } } : {}),
+      lifecycle: { ...fixture.lifecycle, snapshot: { ...fixture.lifecycle.snapshot, headSha } },
+      review: { ...fixture.review, headSha },
+      files: fixture.files.map((file) =>
+        file.patch === null
+          ? file
+          : Object.assign({}, file, {
+              patch: pushedPatch(file.patch),
+              additions: file.additions + pushedLines,
+            }),
+      ),
+    };
+    this.fixtures = this.fixtures.map((entry) => (entry === fixture ? pushed : entry));
+    return true;
   }
   /** A catalog PR as merged, as a merge from anywhere (Verify's included) leaves it. */
   mergeNumber(number: number): void {
@@ -99,6 +172,23 @@ export class FakePrCatalog {
       entry === fixture ? { ...fixture, mergeState: next } : entry,
     );
     return { ok: true, pr: payload.pr, prStatus: { ...fixture.detail.status, mergeState: next } };
+  }
+  /**
+   * `forge.hosted.review` on a catalog PR: drafts, comments, replies, hiding, resolving and
+   * viewed marks change it in memory, so the next detail and review-state reads show them.
+   */
+  review(payload: CommandPayload, commandId: string): Omit<CommandResult, "commandId"> | undefined {
+    if (payload.type !== "forge.hosted.review") return undefined;
+    const fixture = this.find(payload.pr);
+    if (!fixture) return undefined;
+    const applied = applyHostedReview(
+      fixture,
+      payload.action,
+      commandId,
+      new Date(this.now()).toISOString(),
+    );
+    this.fixtures = this.fixtures.map((entry) => (entry === fixture ? applied.fixture : entry));
+    return applied.result;
   }
   /** Each list group's total, from these pull requests and the issues in `reads`. */
   groupCounts(
