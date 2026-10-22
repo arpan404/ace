@@ -146,18 +146,22 @@ export class ReviewThreadReader {
               line: thread.line,
               ...side(thread.diffSide),
               startLine: thread.startLine ?? null,
-              comments: connections.flat().map((comment) => ({
-                kind: "inline",
-                id: comment.databaseId,
-                body: comment.body,
-                author: comment.author?.login ?? "ghost",
-                ...(comment.author?.avatarUrl ? { authorAvatarUrl: comment.author.avatarUrl } : {}),
-                ...(comment.createdAt ? { createdAt: comment.createdAt } : {}),
-                file: thread.path,
-                line: thread.line,
-                updatedAt: comment.updatedAt,
-                replyTo: null,
-              })),
+              comments: connections.flat().map((comment) =>
+                Object.assign(
+                  {
+                    kind: "inline" as const,
+                    id: comment.databaseId,
+                    body: comment.body,
+                    author: comment.author?.login ?? "ghost",
+                    file: thread.path,
+                    line: thread.line,
+                    updatedAt: comment.updatedAt,
+                    replyTo: null,
+                  },
+                  comment.author?.avatarUrl ? { authorAvatarUrl: comment.author.avatarUrl } : {},
+                  comment.createdAt ? { createdAt: comment.createdAt } : {},
+                ),
+              ),
             });
         result.push(row);
         projections.set(thread.id, { source: thread, versions, row });
