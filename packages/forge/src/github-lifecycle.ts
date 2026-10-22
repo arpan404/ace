@@ -40,6 +40,11 @@ function snapshotDocument(extended: boolean) {
 export function lifecycleWriteMarker(operationId: string) {
   return `<!-- ace-revert:${createHash("sha256").update(operationId).digest("hex")} -->`;
 }
+/** Labels and people an edit names, with GitHub's ids and spelling. */
+type ResolvedNames = {
+  labels?: { id: string; name: string }[];
+  assignees?: { id: string; login: string }[];
+};
 /** Single GitHub lifecycle action owner. It owns capability discovery, preconditions and observation. */
 export class GitHubLifecycle {
   readonly #api: GhApi;
@@ -168,6 +173,50 @@ export class GitHubLifecycle {
       }),
     });
   }
+  /**
+   * The labels and people an edit names, as this repository has them. One lookup for both edit
+   * paths, so a name GitHub doesn't know refuses the edit (`conflict`) however it is sent.
+   */
+  async #resolveNames(
+    changes: Extract<ForgeLifecycleAction, { kind: "edit" }>["changes"],
+    signal: AbortSignal,
+  ): Promise<ResolvedNames> {
+    const labels = changes.labels ?? [];
+    const assignees = changes.assignees ?? [];
+    const resolved: ResolvedNames = {};
+    if (changes.labels) resolved.labels = [];
+    if (changes.assignees) resolved.assignees = [];
+    if (!labels.length && !assignees.length) return resolved;
+    // Names remain literal GraphQL strings and cannot expand repository scope.
+    const query = `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){${labels.map((l, i) => `l${i}:label(name:${JSON.stringify(l)}){id name}`).join(" ")} id} ${assignees.map((u, i) => `u${i}:user(login:${JSON.stringify(u)}){id login}`).join(" ")}}`;
+    const result = decode(
+      z.object({ data: z.record(z.string(), z.unknown()) }),
+      (
+        await this.#graphql(
+          query,
+          { owner: this.#repository.owner, name: this.#repository.name },
+          signal,
+        )
+      ).body,
+    ).data;
+    const repo = decode(z.record(z.string(), z.unknown()), result.repository);
+    if (changes.labels)
+      resolved.labels = labels.map((name, i) => {
+        // GitHub answers null for a name it doesn't have.
+        if (repo[`l${i}`] === null) throw new ForgeError("unprocessable");
+        const label = decode(z.object({ id: text, name: text }), repo[`l${i}`]);
+        if (label.name !== name) throw new ForgeError("conflict");
+        return { id: label.id, name: label.name };
+      });
+    if (changes.assignees)
+      resolved.assignees = assignees.map((login, i) => {
+        if (result[`u${i}`] === null) throw new ForgeError("unprocessable");
+        const user = decode(z.object({ id: text, login: text }), result[`u${i}`]);
+        if (user.login.toLowerCase() !== login.toLowerCase()) throw new ForgeError("conflict");
+        return { id: user.id, login: user.login };
+      });
+    return resolved;
+  }
   async #editInput(
     snapshot: ForgeLifecycleSnapshot,
     changes: Extract<ForgeLifecycleAction, { kind: "edit" }>["changes"],
@@ -177,37 +226,9 @@ export class GitHubLifecycle {
     if (changes.title !== undefined) input.title = changes.title;
     if (changes.body !== undefined) input.body = changes.body;
     if (changes.baseBranch !== undefined) input.baseRefName = changes.baseBranch;
-    const labels = changes.labels ?? [];
-    const assignees = changes.assignees ?? [];
-    if (labels.length || assignees.length) {
-      // Names remain literal GraphQL strings and cannot expand repository scope.
-      const query = `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){${labels.map((l, i) => `l${i}:label(name:${JSON.stringify(l)}){id name}`).join(" ")} id} ${assignees.map((u, i) => `u${i}:user(login:${JSON.stringify(u)}){id login}`).join(" ")}}`;
-      const result = decode(
-        z.object({ data: z.record(z.string(), z.unknown()) }),
-        (
-          await this.#graphql(
-            query,
-            { owner: this.#repository.owner, name: this.#repository.name },
-            signal,
-          )
-        ).body,
-      ).data;
-      const repo = decode(z.record(z.string(), z.unknown()), result.repository);
-      if (changes.labels)
-        input.labelIds = labels.map((name, i) => {
-          const label = decode(z.object({ id: text, name: text }), repo[`l${i}`]);
-          if (label.name !== name) throw new ForgeError("conflict");
-          return label.id;
-        });
-      if (changes.assignees)
-        input.assigneeIds = assignees.map((login, i) => {
-          const user = decode(z.object({ id: text, login: text }), result[`u${i}`]);
-          if (user.login.toLowerCase() !== login.toLowerCase()) throw new ForgeError("conflict");
-          return user.id;
-        });
-    }
-    if (changes.labels?.length === 0) input.labelIds = [];
-    if (changes.assignees?.length === 0) input.assigneeIds = [];
+    const names = await this.#resolveNames(changes, signal);
+    if (names.labels) input.labelIds = names.labels.map((label) => label.id);
+    if (names.assignees) input.assigneeIds = names.assignees.map((user) => user.id);
     return input;
   }
   async apply(
@@ -245,9 +266,17 @@ export class GitHubLifecycle {
         allowed,
         async () => {
           // GitHub sets a milestone through the issue behind the PR, which takes these fields too.
-          const { milestone, baseBranch, ...rest } = action.changes;
+          const { milestone, baseBranch, title, body: description } = action.changes;
           if (baseBranch !== undefined) throw new ForgeError("invalid_data");
-          const body = { ...rest, milestone };
+          // The same name check as an edit without a milestone, then GitHub's own spelling.
+          const names = await this.#resolveNames(action.changes, signal);
+          const body = {
+            ...(title === undefined ? {} : { title }),
+            ...(description === undefined ? {} : { body: description }),
+            ...(names.labels ? { labels: names.labels.map((label) => label.name) } : {}),
+            ...(names.assignees ? { assignees: names.assignees.map((user) => user.login) } : {}),
+            milestone,
+          };
           return (writeDispatch: WriteDispatch) =>
             this.#api
               .request(
