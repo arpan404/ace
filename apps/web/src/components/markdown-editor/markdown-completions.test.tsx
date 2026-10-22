@@ -114,9 +114,37 @@ test("an email address, a heading and code never open suggestions", async () => 
   const { user, field } = setup();
   await user.type(field, "mail me@mi");
   await user.type(field, "{Enter}# Title{Enter}`@mi");
-  await new Promise((resolve) => setTimeout(resolve, 200));
+  await new Promise((resolve) => setTimeout(resolve, 400));
   expect(screen.queryByRole("listbox")).toBeNull();
   expect(field.value).toBe("mail me@mi\n# Title\n`@mi");
+});
+
+test("# after a deleted @ word never shows people: Enter inserts no one while the search is out", async () => {
+  const { user, field } = setup();
+  await user.type(field, "@mi");
+  await options("People");
+  // Same place, other kind; Enter comes before the new search has answered.
+  await user.type(field, "{Backspace}{Backspace}{Backspace}#1{Enter}");
+  expect(field.value).toBe("#1\n");
+});
+
+test("# searches titles by words with spaces between them", async () => {
+  const { user, field } = setup();
+  await user.type(field, "dupe of #Daemon forg");
+  const rows = await options("Issues and pull requests");
+  expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
+    "#12 Daemon forgets the port, closed issue",
+  ]);
+  await user.keyboard("{Enter}");
+  expect(field.value).toBe("dupe of #12 ");
+});
+
+test("a link's #anchor target never opens suggestions", async () => {
+  const { user, field } = setup();
+  await user.type(field, "see [[setup](#Daemon");
+  expect(field.value).toBe("see [setup](#Daemon");
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  expect(screen.queryByRole("listbox")).toBeNull();
 });
 
 test("Enter still continues a list once the person is chosen", async () => {

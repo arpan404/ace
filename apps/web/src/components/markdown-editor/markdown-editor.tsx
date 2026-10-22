@@ -117,9 +117,10 @@ export function MarkdownEditor(props: {
         maxLength={props.maxLength}
         // oxlint-disable-next-line jsx-a11y/no-autofocus -- Only where the field opens to write in.
         autoFocus={props.autoFocus}
+        // A text box that suggests (ARIA's textbox with aria-autocomplete): it keeps its own
+        // role, and names the open list and its highlighted row.
         aria-autocomplete={suggest.match ? "list" : undefined}
         aria-controls={suggest.match ? listId : undefined}
-        aria-expanded={suggest.match ? true : undefined}
         aria-activedescendant={suggest.match ? `${listId}-${suggest.active}` : undefined}
         onChange={(event) => {
           props.onChange(event.currentTarget.value);

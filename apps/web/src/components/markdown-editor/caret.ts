@@ -21,12 +21,24 @@ const copied = [
   "tabSize",
 ] as const;
 
+/** Where a text offset sits inside its field's text box, before scrolling. */
+interface Offsets {
+  key: string;
+  top: number;
+  left: number;
+  lineHeight: number;
+}
+
 /**
- * Where offset `at` of a textarea's text is on screen, as a zero-width box one line tall: a
- * hidden copy of the field lays the text out the same way and a marker is measured in it.
+ * The last measurement per field. The list's positioner asks for the caret on every layout
+ * pass; the mirror is built again only when the text, the offset or the field's width changed.
  */
-export function caretRect(field: HTMLTextAreaElement, at: number): DOMRect {
-  const box = field.getBoundingClientRect();
+const measured = new WeakMap<HTMLTextAreaElement, Offsets>();
+
+function offsets(field: HTMLTextAreaElement, at: number, width: number): Offsets {
+  const key = `${at}:${width}:${field.value.length}:${field.value.slice(0, at)}`;
+  const known = measured.get(field);
+  if (known?.key === key) return known;
   const style = getComputedStyle(field);
   const mirror = document.createElement("div");
   for (const name of copied) mirror.style[name] = style[name];
@@ -38,14 +50,29 @@ export function caretRect(field: HTMLTextAreaElement, at: number): DOMRect {
   mirror.style.left = "-9999px";
   mirror.textContent = field.value.slice(0, at);
   const marker = document.createElement("span");
-  marker.textContent = "​";
+  marker.textContent = "\u200b";
   mirror.append(marker);
   document.body.append(mirror);
-  const top = marker.offsetTop - field.scrollTop;
-  const left = marker.offsetLeft - field.scrollLeft;
-  const lineHeight = marker.offsetHeight || Number.parseFloat(style.lineHeight) || 16;
+  const next = {
+    key,
+    top: marker.offsetTop,
+    left: marker.offsetLeft,
+    lineHeight: marker.offsetHeight || Number.parseFloat(style.lineHeight) || 16,
+  };
   mirror.remove();
-  const x = box.left + Math.min(Math.max(left, 0), box.width);
-  const y = box.top + Math.min(Math.max(top, 0), Math.max(box.height - lineHeight, 0));
+  measured.set(field, next);
+  return next;
+}
+
+/**
+ * Where offset `at` of a textarea's text is on screen, as a zero-width box one line tall: a
+ * hidden copy of the field lays the text out the same way and a marker is measured in it.
+ */
+export function caretRect(field: HTMLTextAreaElement, at: number): DOMRect {
+  const box = field.getBoundingClientRect();
+  const { top, left, lineHeight } = offsets(field, at, box.width);
+  const x = box.left + Math.min(Math.max(left - field.scrollLeft, 0), box.width);
+  const y =
+    box.top + Math.min(Math.max(top - field.scrollTop, 0), Math.max(box.height - lineHeight, 0));
   return new DOMRect(x, y, 0, lineHeight);
 }

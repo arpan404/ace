@@ -110,6 +110,7 @@ function Row(props: {
 }) {
   const { row, run } = props;
   const [dismissing, setDismissing] = useState(false);
+  const review = row.review;
   const person = row.kind === "user" ? [row.name] : [];
   const team = row.kind === "team" ? [row.name] : [];
   return (
@@ -162,14 +163,12 @@ function Row(props: {
           </Button>
         )}
       </div>
-      {dismissing && row.review && (
+      {dismissing && review && (
         <DismissForm
           row={row}
           disabled={props.disabled}
           onCancel={() => setDismissing(false)}
-          onDismiss={(message) =>
-            run({ kind: "review.dismiss", reviewId: row.review?.id ?? 0, message })
-          }
+          onDismiss={(message) => run({ kind: "review.dismiss", reviewId: review.id, message })}
         />
       )}
     </li>

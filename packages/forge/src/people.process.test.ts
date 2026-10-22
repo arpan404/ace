@@ -93,22 +93,23 @@ test("a PR's reviewers read who is asked (people and teams), each latest review 
   }
 });
 
+const review = (id: number, state: string, at: string, login = "tg") => ({
+  databaseId: id,
+  state,
+  submittedAt: at,
+  author: { login },
+});
+
 test("a comment after an approval leaves the approval standing, with its own id for dismissal", async () => {
-  const review = (id: number, state: string, at: string, login = "tg") => ({
-    databaseId: id,
-    state,
-    submittedAt: at,
-    author: { login },
-  });
   const body = reviewers("WRITE");
-  const pr: Record<string, unknown> = body.data.repository.pullRequest;
-  pr.latestReviews = {
+  const host: Record<string, unknown> = body.data.repository.pullRequest;
+  host.latestReviews = {
     nodes: [
       review(41, "COMMENTED", "2026-10-21T10:00:00Z"),
       review(43, "COMMENTED", "2026-10-21T11:00:00Z", "dana"),
     ],
   };
-  pr.latestOpinionatedReviews = { nodes: [review(40, "APPROVED", "2026-10-20T10:00:00Z")] };
+  host.latestOpinionatedReviews = { nodes: [review(40, "APPROVED", "2026-10-20T10:00:00Z")] };
   const f = await fakeGh({ "graphql:query AcePrReviewers": [{ body }] });
   try {
     expect((await f.forge.prReviewers(7, signal())).reviews).toEqual([
