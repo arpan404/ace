@@ -11,6 +11,7 @@ import {
   displayCommand,
   questionTitle,
   requestIdentity,
+  closedMeta,
 } from "@ace/ui-core";
 import { CheckIcon } from "@phosphor-icons/react";
 import { ApprovalHeading, ApprovalRequest } from "@/components/approval-request.tsx";
@@ -18,7 +19,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
-import { AnsweredQuestionCard, closedMeta } from "./answered-question.tsx";
+import { AnsweredQuestionCard } from "./answered-question.tsx";
 import { answerStore, useLocalAnswer, type LocalAnswer } from "./answers.ts";
 import { useAnswerSender } from "./answer-sender.ts";
 import { QuestionForm } from "./question-form.tsx";
