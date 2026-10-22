@@ -1,6 +1,7 @@
-# 0092: The daemon runs natively on Windows
+# 0095: The daemon runs natively on Windows
 
-Date: 2026-10-20. Status: proposed. Amends [ADR 0048](0048-windows-screen-helper.md),
+Date: 2026-10-20. Status: proposed. Builds on [ADR 0091](0091-windows-process-launch.md)
+(Windows process launch). Amends [ADR 0048](0048-windows-screen-helper.md),
 [ADR 0054](0054-desktop-shell.md) (the remote-only Windows target), [ADR 0084](0084-use-my-chrome.md)
 (Windows was out of scope) and [ADR 0087](0087-background-computer-use-engine.md) (macOS only).
 
@@ -28,12 +29,13 @@ and Windows 11, x64 and ARM64. Release targets gain `win32-x64` and `win32-arm64
 
 ### Process ownership
 
-POSIX process groups become Job Objects on Windows. Every provider, terminal and helper tree
-the daemon starts is assigned to a job created with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, so a
-crashed daemon cannot orphan it. Stopping a tree asks politely first (stdin close, a
-provider's own interrupt, `CTRL_BREAK_EVENT` for console trees), then terminates the job.
+ADR 0091 already launches provider CLIs on Windows: PATHEXT lookup, npm entrypoints run as
+`node <script>`, `.cmd` quoting, `taskkill /T` tree stops and a per-process kill-on-close Job
+Object through koffi. This ADR keeps that model and extends it to the rest of the daemon:
+terminals, browser processes and screen helpers join the same kind of job.
 `kill("SIGTERM")` is never used as a graceful stop on win32, because Node maps it to
 `TerminateProcess`. The supervisor and desktop app stop the daemon through `POST /v1/stop`.
+The restart reaper (`ProcessInventory`) gets a Windows identity: pid plus creation time.
 
 ### Filesystem confinement
 

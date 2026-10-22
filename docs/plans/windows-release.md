@@ -2,7 +2,7 @@
 
 Goal: ace runs natively on Windows 10 1903+ and Windows 11, x64 and ARM64: daemon, CLI,
 desktop app, terminals, every provider, browser use and computer use. Design:
-[ADR 0092](../adr/0092-native-windows-daemon.md). Started 2026-10-20 from five code audits.
+[ADR 0095](../adr/0095-native-windows-daemon.md). Started 2026-10-20 from five code audits.
 
 Today the Windows desktop app is a remote-only client. Nothing below it runs on Windows:
 `bun install` fails, every provider spawn throws, terminals throw, release targets and service
@@ -13,17 +13,17 @@ registration have no win32 entry, and the Windows computer-use helper speaks a r
 Each workstream is one branch off `main`, named `ace/windows-<stream>`. Windows-only code goes
 in `*-win32.ts` files or `windows/` folders behind existing platform seams.
 
-| # | Stream | Branch | Size |
-|---|--------|--------|------|
-| 1 | Workspace confinement addon, ripgrep inputs, command discovery, pinned git | `ace/windows-fs` | XL |
-| 2 | Process ownership (Job Objects), CLI resolution, `.cmd` shims, env keys | `ace/windows-process` | XL |
-| 3 | Terminal on ConPTY, workspace scripts, login terminals | `ace/windows-terminal` | L |
-| 4 | Release targets, runtime staging, install.ps1, service, supervisor, updater | `ace/windows-release` | XL |
-| 5 | Browser use and Use my Chrome | `ace/windows-browser` | L |
-| 6 | Computer use engine (`--computer` on UI Automation) and daemon wiring | `ace/windows-computer` | XL |
-| 7 | Desktop app: local daemon, packaging, OS integration, Windows UI fixes | `ace/windows-desktop` | L |
-| 8 | Git, secure files, sign-in, provider installers, small daemon gaps | `ace/windows-daemon-misc` | L |
-| 9 | CI lanes (x64, ARM64), `.gitattributes`, test fixtures | `ace/windows-ci` | M |
+| #   | Stream                                                                      | Branch                    | Size | Status (2026-10-22)                                                                    |
+| --- | --------------------------------------------------------------------------- | ------------------------- | ---- | -------------------------------------------------------------------------------------- |
+| 1   | Workspace confinement addon, ripgrep inputs, command discovery, pinned git  | `ace/windows-fs`          | XL   | Not started                                                                            |
+| 2   | Process ownership (Job Objects), CLI resolution, `.cmd` shims, env keys     | `ace/windows-process`     | XL   | Launch done in #1216, #1234 (ADR 0091); reaper, `ownedCwd`, preview ports, Cursor left |
+| 3   | Terminal on ConPTY, workspace scripts, login terminals                      | `ace/windows-terminal`    | L    | Not started                                                                            |
+| 4   | Release targets, runtime staging, install.ps1, service, supervisor, updater | `ace/windows-release`     | XL   | Not started                                                                            |
+| 5   | Browser use and Use my Chrome                                               | `ace/windows-browser`     | L    | Upload containment fixed; rest open                                                    |
+| 6   | Computer use engine (`--computer` on UI Automation) and daemon wiring       | `ace/windows-computer`    | XL   | Not started                                                                            |
+| 7   | Desktop app: local daemon, packaging, OS integration, Windows UI fixes      | `ace/windows-desktop`     | L    | Not started                                                                            |
+| 8   | Git, secure files, sign-in, provider installers, small daemon gaps          | `ace/windows-daemon-misc` | L    | Not started                                                                            |
+| 9   | CI lanes (x64, ARM64), `.gitattributes`, test fixtures                      | `ace/windows-ci`          | M    | Not started                                                                            |
 
 ### 1. Workspace confinement (`ace/windows-fs`)
 
@@ -39,16 +39,20 @@ in `*-win32.ts` files or `windows/` folders behind existing platform seams.
 
 ### 2. Process ownership (`ace/windows-process`)
 
-- `provider-kit` `process.ts`, `process-interactive.ts`, `process-bytes.ts`,
-  `process-owner.ts`, `process-identity.ts`, `process-inventory.ts`: Job Object ownership via
-  koffi (kernel32), identity = pid + creation time, graceful stop then `TerminateJobObject`.
-- `discovery/executable.ts`: PATHEXT, prefer `.exe`, never pick npm's extensionless shim,
-  case-insensitive `Path`, `USERPROFILE` fallback. Run npm `.cmd` shims through their real
-  target (`node <script>` or the vendor `.exe`) and use `cmd /d /s /c` with strict quoting only
-  as a last resort (CVE-2024-27980).
-- `windowsHide: true` everywhere the daemon spawns.
-- `adapter-cursor/src/host-entry.ts` negative-pid kill; `provider-kit/src/sdk.ts` Cursor gate.
-- `directory-processes.ts` (lsof/ps), preview port discovery (`preview/src/discovery.ts`).
+Done on main (ADR 0091, #1216, #1234): PATHEXT-aware lookup, npm entrypoints as
+`node <script>`, `.cmd` quoting through `cmd.exe /d /s /c`, `windowsHide`, `taskkill /T`
+stops, per-process kill-on-close Job Objects through koffi (`windows-job.ts`), interactive login.
+
+Left:
+
+- `ProcessInventory` restart reaper on win32: identity = pid + creation time
+  (`process-identity.ts` still throws there).
+- `ownedCwd` directory reaping (`directory-processes.ts`, lsof/ps) has no Windows path.
+- Preview port discovery throws on win32 (`preview/src/discovery.ts`, `listener-discovery.ts`).
+- Cursor SDK host is refused on win32 (`provider-kit/src/sdk.ts`); `adapter-cursor` host
+  uses a negative-pid kill.
+- Check the remaining direct CLI spawns use the shared lookup: `sign-in-pages.ts`,
+  `declared-limits.ts`, `provider-mcp-add.ts`, `preview/src/launch.ts`.
 
 ### 3. Terminal (`ace/windows-terminal`)
 
@@ -72,7 +76,8 @@ in `*-win32.ts` files or `windows/` folders behind existing platform seams.
 
 ### 5. Browser (`ace/windows-browser`)
 
-- Security: `uploads.ts` containment uses `..` + `sep` (P0).
+- Done: upload containment treats `..\` as outside the workspace (`uploads.ts`), so Windows
+  uploads from outside the workspace hit the upload prompt.
 - Use my Chrome: `.cmd` native-host launcher, registry registration per vendor
   (Chrome, Chromium, Edge, Brave, Vivaldi), install/uninstall/query.
 - ARM64: no Chrome for Testing build; fall back to native Chrome or Edge (App Paths).
@@ -119,7 +124,9 @@ in `*-win32.ts` files or `windows/` folders behind existing platform seams.
 ## Test machine
 
 Windows 11 ARM64 (26300) in VMware Fusion on the Mac: VM `Windows 11 ARM ace`, user `ace`,
-OpenSSH with key `~/.ssh/ace_winvm`. ARM64 Windows also runs x64 builds under emulation, so
+OpenSSH with key `~/.ssh/ace_winvm`. Windows is installed unattended; first-boot setup
+(VMware Tools, OpenSSH) and the toolchain (Node 24.13, Bun, Git, Rust, VS Build Tools ARM64 +
+x64) still need to run once. ARM64 Windows also runs x64 builds under emulation, so
 both architectures can be exercised. Real-desktop checks (UIA, input, capture, ConPTY,
 Use my Chrome) run there before release.
 
