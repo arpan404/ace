@@ -95,6 +95,7 @@ export async function registerAntigravity(
       }),
       accounts,
       context.services.accounts,
+      context.options.accounts?.env ?? process.env,
     ),
     cli,
   );

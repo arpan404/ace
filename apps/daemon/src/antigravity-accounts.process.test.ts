@@ -14,7 +14,7 @@ import { createLogger } from "@ace/diagnostics";
 import { ModelCatalog, openModelStorage } from "@ace/models";
 import { ThreadId } from "@ace/protocol";
 import { AccountManagement } from "./account-management.ts";
-import { createManagedHome } from "./account-homes.ts";
+import { createManagedHome, deleteManagedHome } from "./account-homes.ts";
 import { readConfig } from "./config.ts";
 import {
   registerAntigravityAccountCatalog,
@@ -105,6 +105,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     createAcpAdapter(antigravityQuirks, { command: join(bin, "agy_acp_server"), env }),
     registry,
     accounts,
+    env,
   );
   return {
     home,
@@ -418,6 +419,48 @@ test("ace's tools and guidance reach Antigravity sessions on the CLI login and o
       { mcp: ["ace http"], systemPrompt: "ace's guidance for Antigravity" },
       { mcp: ["ace http"], systemPrompt: "ace's guidance for Antigravity" },
     ]);
+  } finally {
+    await f.close();
+  }
+});
+
+test("an added account sees the person's own Antigravity skills, but not their MCP servers, and removing it leaves them", async () => {
+  const f = await antigravity();
+  try {
+    const personal = join(f.home, ".gemini");
+    await mkdir(join(personal, "config", "skills", "review"), { recursive: true });
+    await writeFile(join(personal, "config", "skills", "review", "SKILL.md"), "# Review");
+    await mkdir(join(personal, "antigravity-cli", "skills", "ship"), { recursive: true });
+    await writeFile(join(personal, "antigravity-cli", "skills", "ship", "SKILL.md"), "# Ship");
+    await writeFile(join(personal, "config", "mcp_config.json"), "{}");
+    const work = await f.add("Work");
+    // A folder of the account's own is kept as it is.
+    const own = await f.add("Own");
+    await mkdir(join(own.homeDir, "antigravity-cli", "skills", "mine"), { recursive: true });
+
+    await (await f.open(work.id)).close("shutdown");
+    await (await f.open(own.id)).close("shutdown");
+    expect(
+      await readFile(join(work.homeDir, "config", "skills", "review", "SKILL.md"), "utf8"),
+    ).toBe("# Review");
+    expect(
+      await readFile(join(work.homeDir, "antigravity-cli", "skills", "ship", "SKILL.md"), "utf8"),
+    ).toBe("# Ship");
+    await expect(readFile(join(work.homeDir, "config", "mcp_config.json"))).rejects.toThrow();
+    await expect(
+      readFile(join(own.homeDir, "antigravity-cli", "skills", "ship", "SKILL.md")),
+    ).rejects.toThrow();
+    expect(
+      await readFile(join(own.homeDir, "config", "skills", "review", "SKILL.md"), "utf8"),
+    ).toBe("# Review");
+
+    await deleteManagedHome(f.home, work);
+    expect(await readFile(join(personal, "config", "skills", "review", "SKILL.md"), "utf8")).toBe(
+      "# Review",
+    );
+    expect(
+      await readFile(join(personal, "antigravity-cli", "skills", "ship", "SKILL.md"), "utf8"),
+    ).toBe("# Ship");
   } finally {
     await f.close();
   }
