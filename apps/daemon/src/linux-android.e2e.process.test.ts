@@ -165,13 +165,16 @@ async function personDrives(viewer: LiveViewer, deviceId: string, metrics: Metri
   // Typing reaches the focused field: the settings search box, once its text field is up.
   await viewer.request({ op: "input", deviceId, input: { kind: "key", key: "back" } });
   await waitToShow(viewer, deviceId, "Search");
-  const search = await centreOf(viewer, deviceId, "Search");
-  await viewer.request({ op: "input", deviceId, input: { kind: "tap", ...search } });
-  // A slow emulator can take a while to show the field; tap it when it is there.
+  // A slow emulator can take a while to show the field, or miss a tap made mid-animation: tap
+  // Search again once if no field came up, and tap the field when it is there.
   let field: Awaited<ReturnType<typeof firstOfRole>>;
-  for (let tries = 0; tries < 10 && !field; tries++) {
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    field = await firstOfRole(viewer, deviceId, "EditText");
+  for (let taps = 0; taps < 2 && !field; taps++) {
+    const search = await centreOf(viewer, deviceId, "Search");
+    await viewer.request({ op: "input", deviceId, input: { kind: "tap", ...search } });
+    for (let tries = 0; tries < 10 && !field; tries++) {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      field = await firstOfRole(viewer, deviceId, "EditText");
+    }
   }
   if (field)
     await viewer.request({
@@ -246,7 +249,12 @@ async function agentReads(ace: EvalWorld, deviceId: string) {
   const shot = await agent.call("sim_screenshot", { simId: deviceId });
   expect(shot.failed, shot.text).toBe(false);
   expect(shot.images).toBe(1);
-  const tree = await agent.call("sim_ui", { simId: deviceId });
+  // Right after a screen change only the status bar may be up, with nothing to act on yet.
+  let tree = await agent.call("sim_ui", { simId: deviceId });
+  for (let tries = 0; tries < 5 && !/"ref":\s*"@?e\d+"/.test(tree.text); tries++) {
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    tree = await agent.call("sim_ui", { simId: deviceId });
+  }
   expect(tree.failed, tree.text).toBe(false);
   expect(tree.text).toMatch(/"ref":\s*"@?e\d+"/);
 }
