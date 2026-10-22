@@ -96,6 +96,15 @@ export const FileOperation = z.discriminatedUnion("op", [
     after: id.optional(),
     limit: z.number().int().min(1).max(64).default(32),
   }),
+  /**
+   * Read-only download of media the daemon fetched for forge text (ADR 0096), by the hash a
+   * `forge.media.resolve` returned. Sent with `workspaceId`.
+   */
+  z.object({
+    op: z.literal("forge.media.download"),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    offset: offset.default(0),
+  }),
   z.object({
     op: z.literal("attachment.download"),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),

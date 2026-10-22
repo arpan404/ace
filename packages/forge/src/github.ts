@@ -36,6 +36,7 @@ import { GitHubPr } from "./github-schemas.ts";
 import { ForgeError } from "./errors.ts";
 import type { CommandRunner } from "./command.ts";
 import { githubStates } from "./github-states.ts";
+import { renderGitHubMedia } from "./github-media.ts";
 
 const positive = z.number().int().positive();
 const shaSchema = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
@@ -268,6 +269,12 @@ export class GitHubForge implements Forge, ForgeBrowser {
   }
   fileContent(input: Parameters<GitHubFileContent["read"]>[0], signal: AbortSignal) {
     return this.#content.read(input, signal);
+  }
+  renderMedia(
+    items: readonly import("@ace/protocol/forge-media").ForgeMediaRequest[],
+    signal: AbortSignal,
+  ) {
+    return renderGitHubMedia(this.#api, this.repository, items, signal);
   }
   async states(numbers: readonly number[], signal: AbortSignal) {
     return githubStates(this.#api, this.repository, numbers, signal);

@@ -322,6 +322,44 @@ export class GhApi {
     this.#cache.set(key, page);
     this.#cacheBytes += page.bytes;
   }
+  /**
+   * GitHub's own rendering of `text` as a comment in `context` (`owner/name`): HTML in which
+   * private attachments carry short-lived signed URLs and other images their proxy URLs. A read
+   * (rendering changes nothing), never cached: the signed URLs in it expire within minutes.
+   */
+  async renderMarkdown(text: string, context: string, signal: AbortSignal): Promise<string> {
+    const output = await this.#runner({
+      command: this.#command,
+      args: [
+        "api",
+        "markdown",
+        "--hostname",
+        this.#host,
+        "--include",
+        "--method",
+        "POST",
+        "--header",
+        "Accept: text/html",
+        "--input",
+        "-",
+      ],
+      input: JSON.stringify({ text, mode: "gfm", context }),
+      signal,
+      mode: "json",
+    });
+    const split = /\r?\n\r?\n/.exec(output.stdout);
+    if (!split) throw noResponse(output, new MutationDispatch());
+    const head = output.stdout.slice(0, split.index);
+    const code = Number(/^HTTP\/[\d.]+ (\d{3})/i.exec(head)?.[1]);
+    const body = output.stdout.slice(split.index + split[0].length);
+    if (code === 429 || (code === 403 && /rate limit/i.test(body)))
+      throw new ForgeError("rate_limit", this.#now() + 60_000, false);
+    if (code === 401 || code === 403) throw new ForgeError("forbidden", undefined, false);
+    if (code === 404) throw new ForgeError("not_found", undefined, false);
+    if (code !== 200 || output.code !== 0) throw new ForgeError("cli");
+    if (output.truncated) throw new ForgeError("limit");
+    return body;
+  }
   async pages(path: string, signal: AbortSignal, budget: ReadBudget): Promise<Page[]> {
     const result: Page[] = [];
     let endpoint: string | undefined = path;

@@ -10,6 +10,8 @@ export function isForgeMutation(request: CommandRequest): boolean {
   const method =
     index < 0 ? (request.input === undefined ? "GET" : "POST") : request.args[index + 1];
   if (method === "GET" || method === "HEAD") return false;
+  // Rendering markdown is a read that happens to be a POST.
+  if (request.args[1] === "markdown") return false;
   if (request.args[1] === "graphql") {
     try {
       const query = z.object({ query: z.string() }).parse(JSON.parse(request.input ?? "")).query;
