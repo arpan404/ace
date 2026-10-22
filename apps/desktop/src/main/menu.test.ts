@@ -52,6 +52,7 @@ function menu(platform: NodeJS.Platform) {
     openUrl: (url) => effects.push(`open:${url}`),
     showLogs: () => effects.push("logs"),
     zoom: (change) => effects.push(`zoom:${change}`),
+    reload: () => effects.push("reload"),
   });
   const choose = (entry: MenuItemConstructorOptions | undefined) => {
     if (!entry?.click) throw new Error(`Nothing to choose: ${entry?.label}`);
@@ -90,8 +91,13 @@ describe("native menu shortcuts", () => {
     for (const platform of platforms) {
       const built = menu(platform);
       // Keymap items show their keys and leave them to the page; zoom's are the window's own.
+      // Reload's click goes to the main process instead (View › Reload, below).
       const withKeys = built.all.filter(
-        (entry) => entry.accelerator && entry.click && entry.registerAccelerator === false,
+        (entry) =>
+          entry.accelerator &&
+          entry.click &&
+          entry.registerAccelerator === false &&
+          entry.label !== "Reload",
       );
       expect(withKeys.length).toBeGreaterThan(0);
       for (const entry of withKeys) {
@@ -111,6 +117,35 @@ describe("native menu shortcuts", () => {
       view.choose(view.top("View").find((entry) => entry.label === label)),
     );
     expect(choices).toEqual(["action:rightPanel", "action:fullView", "action:findInThread"]);
+  });
+});
+
+const fullScreenItems = (platform: NodeJS.Platform) =>
+  menu(platform)
+    .top("View")
+    .filter((entry) => entry.role === "togglefullscreen").length;
+
+describe("View › Reload", () => {
+  it("reloads from the main process, so it works while the page is stuck", () => {
+    for (const platform of platforms) {
+      const view = menu(platform);
+      const reload = view.top("View").find((entry) => entry.label === "Reload");
+      expect(reload?.accelerator).toBe("CmdOrCtrl+R");
+      expect(view.choose(reload)).toBe("reload");
+    }
+  });
+
+  it("leaves ⌘R to the page, so a focused browser panel reloads its own page", () => {
+    const reload = menu("darwin")
+      .top("View")
+      .find((entry) => entry.label === "Reload");
+    expect(reload?.registerAccelerator).toBe(false);
+  });
+
+  it("macOS lists full screen once: the system adds its own item to View", () => {
+    expect(fullScreenItems("darwin")).toBe(0);
+    expect(fullScreenItems("win32")).toBe(1);
+    expect(fullScreenItems("linux")).toBe(1);
   });
 });
 
@@ -181,6 +216,7 @@ it("a rebound menu label shows the new shortcut and clicks still dispatch New Th
     openUrl() {},
     showLogs() {},
     zoom() {},
+    reload() {},
   });
   const item = items(template).find((entry) => entry.label === "New Thread");
   expect(item?.accelerator).toBe("CmdOrCtrl+Shift+J");

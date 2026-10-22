@@ -122,6 +122,7 @@ export async function harness(
     nativeAdapter?: ProviderAdapter;
     discovery?: DiscoveryResult;
     onSessionOpenFailure?: EngineOptions["onSessionOpenFailure"];
+    onSettleCleanupFailure?: EngineOptions["onSettleCleanupFailure"];
     createTranslator?: ProviderAdapter["createTranslator"];
     storeOptions?: StoreOptions;
   } = {},
@@ -207,6 +208,9 @@ export async function harness(
     silenceMs: 100,
     onError: (error) => errors.push(error),
     ...(options.onSessionOpenFailure ? { onSessionOpenFailure: options.onSessionOpenFailure } : {}),
+    ...(options.onSettleCleanupFailure
+      ? { onSettleCleanupFailure: options.onSettleCleanupFailure }
+      : {}),
   });
   const server = await startServer({
     port: 0,

@@ -53,6 +53,7 @@ export function createHandlers(options: {
   connection(): Promise<DaemonConnection>;
   authorizeDaemon(url: string): void;
   quit(): void;
+  reload(): void;
   updateKeymap?(bindings: Record<string, string>): void;
   /** Opens the daemon's and the app's log folders; false when there is nothing to show. */
   showLogs(): Promise<boolean>;
@@ -91,6 +92,10 @@ export function createHandlers(options: {
     "app.info": () => options.info,
     "app.quit": () => {
       options.quit();
+      return undefined;
+    },
+    "app.reload": () => {
+      options.reload();
       return undefined;
     },
     "daemon.connection": () => options.connection(),

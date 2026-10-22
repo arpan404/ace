@@ -47,6 +47,7 @@ import { IntentWorkers } from "./workers.ts";
 import { engineHandler } from "./handler.ts";
 import { AdapterRegistry } from "./registry.ts";
 import { EngineRepository, type IntentHeader } from "./repository.ts";
+import { SettledTrees } from "./settled-trees.ts";
 import {
   defaultProviderIdleMs,
   providerProcessState,
@@ -96,6 +97,8 @@ export interface EngineOptions {
   idleMs?: number;
   silenceMs?: number;
   onError?: (error: unknown) => void;
+  /** Stopping part of a settled thread's tree failed: for the log only, never the person. */
+  onSettleCleanupFailure?: (thread: ThreadId, error: unknown) => void;
   onSessionOpenFailure?: (
     thread: ThreadId,
     details: import("@ace/protocol").ProviderErrorDetails,
@@ -125,6 +128,10 @@ export class Engine {
   private batchScheduler: Pick<EngineClock, "setTimer">;
   private idleMs: number;
   private report: (error: unknown) => void;
+  private settleFailed: (thread: ThreadId, error: unknown) => void;
+  private settledTrees: SettledTrees;
+  /** Settles that arrived before startup recovery finished; stopped once it has. */
+  private pendingSettles = new Set<ThreadId>();
   private diagnostic: EngineOptions["onProviderDiagnostic"];
   private actors = new Map<ThreadId, ThreadActor>();
   private stopReleaseWatch: () => void;
@@ -192,6 +199,7 @@ export class Engine {
     if (!Number.isSafeInteger(this.idleMs) || this.idleMs < 0) throw new Error("Invalid idleMs");
     if (!Number.isSafeInteger(silenceMs) || silenceMs < 0) throw new Error("Invalid silenceMs");
     this.report = options.onError ?? console.error;
+    this.settleFailed = options.onSettleCleanupFailure ?? ((_thread, error) => this.report(error));
     this.diagnostic = options.onProviderDiagnostic;
     this.sends = new IntentWorkers((id) => this.slotted(id, (a) => this.work(a)), this.report);
     this.steering = new IntentWorkers((id) => this.slotted(id, (a) => this.steer(a)), this.report);
@@ -292,6 +300,18 @@ export class Engine {
       actor: (id) => this.actors.get(id),
       updateChild: (parent, child) => this.updateChild(parent, child),
     });
+    this.settledTrees = new SettledTrees({
+      repo: this.repo,
+      clock: this.clock,
+      sessions: this.sessions,
+      recovery: this.recovery,
+      actor: (id) => this.actors.get(id),
+      drain: async (id) => {
+        await Promise.all([this.sends.drain(id), this.controls.drain(id), this.steering.drain(id)]);
+      },
+      forget: (id) => this.forgetPurged(id),
+      tree: (id) => this.liveness.tree(id),
+    });
     // Settling or archiving releases a done thread's warm provider without the idle wait.
     const stopReleases = store.subscribe((events) => {
       for (const event of events) {
@@ -305,6 +325,12 @@ export class Engine {
           this.repo.state(event.threadId)
         )
           store.atomic(() => this.recovery.closeSettled(event.threadId));
+        // Settling ends everything the thread runs: its children, sessions and background tasks.
+        if (
+          event.payload.type === "thread.client.updated" &&
+          typeof event.payload.changes.settledAt === "number"
+        )
+          this.stopSettled(event.threadId);
       }
     });
     // Live output the store had to drop stops only that thread's session, visibly.
@@ -393,12 +419,26 @@ export class Engine {
         models.migrateCachedDefaults();
         if (!this.closing) recover();
         this.readyState = true;
+        for (const id of this.pendingSettles) this.stopSettled(id);
+        this.pendingSettles.clear();
       })();
     } else {
       recover();
       this.readyState = true;
       this.readyPromise = Promise.resolve();
     }
+  }
+  private stopSettled(id: ThreadId): void {
+    if (this.closing) return;
+    if (!this.readyState) this.pendingSettles.add(id);
+    else if (this.repo.state(id)) void this.settledTrees.stop(id, this.settleFailed);
+  }
+  /** The liveness sweep's retry for a settled tree that still has a provider running. */
+  async retrySettled(id: ThreadId): Promise<void> {
+    if (!this.readyState || this.closing || this.repo.store.getThread(id)?.settledAt === undefined)
+      return;
+    if (this.liveness.tree(id).some((owner) => this.hasSession(owner)))
+      await this.settledTrees.stop(id, this.settleFailed);
   }
   /** One trusted host policy for accepted commands, inside the receipt transaction. */
   bindCommandPolicy(policy: NonNullable<Engine["commandPolicy"]>): void {
@@ -1383,11 +1423,17 @@ export class Engine {
       await this.readyPromise;
       await Promise.resolve();
       do {
+        await this.settledTrees.settled();
         await Promise.all([...this.actors.values()].map((actor) => actor.flush()));
         await Promise.all([this.sends.flush(), this.controls.flush(), this.steering.flush()]);
         await Promise.all([...this.actors.values()].map((actor) => actor.flush()));
         await this.recovery.flush();
-      } while (this.sends.active || this.controls.active || this.steering.active);
+      } while (
+        this.sends.active ||
+        this.controls.active ||
+        this.steering.active ||
+        this.settledTrees.active
+      );
     } finally {
       this.flushDepth--;
     }
@@ -1396,6 +1442,7 @@ export class Engine {
     this.closePromise ??= (async () => {
       this.closing = true;
       this.stopReleaseWatch();
+      await this.settledTrees.settled();
       this.flushDepth++;
       await Promise.allSettled(this.workspaceChanges.values());
       await this.readyPromise;

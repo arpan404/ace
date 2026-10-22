@@ -1,4 +1,5 @@
 import { hasDesktopPreferences } from "@/boot/desktop-settings.ts";
+import { hasDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { visibleSettingsPages, settingsPages, type SettingsPath } from "./settings-pages.ts";
 
 /**
@@ -213,6 +214,12 @@ const entries = [
     page: "/settings/general",
     title: "Bounce dock icon for attention",
     keywords: ["flash", "window", "taskbar", "urgent"],
+  },
+  {
+    id: "app.updates",
+    page: "/settings/general",
+    title: "Updates",
+    keywords: ["check for updates", "download", "install", "version", "upgrade", "restart"],
   },
   // Appearance
   {
@@ -455,6 +462,7 @@ export function searchSettings(query: string): SettingEntry[] {
           "app.globalShortcut",
           "app.attention",
         ].includes(entry.id)) &&
+      (entry.id !== "app.updates" || hasDesktopUpdates()) &&
       matches(entry, text),
   );
   return found.toSorted(

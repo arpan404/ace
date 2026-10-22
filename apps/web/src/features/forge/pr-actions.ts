@@ -1,5 +1,5 @@
 import { ciLine, mergeGate, noAutoMerge } from "@ace/ui-core";
-import { openExternal } from "@/boot/open-external.ts";
+import { useOpenWebAddress } from "@/components/web-link.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { usePrLifecycle } from "./pr-lifecycle.ts";
 import { usePrMergeState } from "./pr-merge-state.ts";
@@ -27,6 +27,7 @@ export function usePrActions(props: {
   openConflicts?: (() => void) | undefined;
 }) {
   const { context } = props;
+  const openWeb = useOpenWebAddress();
   const { detail, workspaceId } = context;
   const { status } = detail;
   const related = detail.relatedThreads;
@@ -112,7 +113,7 @@ export function usePrActions(props: {
   const resolveConflicts = () => {
     if (props.extensions?.resolveInWorktree) props.extensions.resolveInWorktree(context);
     else if (props.openConflicts) props.openConflicts();
-    else void openExternal(`${status.url}/conflicts`).catch(() => {});
+    else void openWeb(`${status.url}/conflicts`).catch(() => {});
   };
   return {
     context,

@@ -1,5 +1,5 @@
 import { EncodePacer, EncoderWatchdog } from "../src/video-pacing.ts";
-import { QuantizerControl } from "../src/quantizer-control.ts";
+import { affordsSettleKey, QuantizerControl } from "../src/quantizer-control.ts";
 import { TabAudio } from "./audio.ts";
 
 /*
@@ -43,6 +43,10 @@ interface Encoder {
   /** ace's own rate control, while the encoder runs in `quantizer` mode. */
   quantizer: QuantizerControl | undefined;
   description: string | undefined;
+  /** The last keyframe's size in bits: what a whole picture costs at this rate. */
+  keyBits: number | undefined;
+  /** The last frame encoded was a keyframe the encoder sized itself (no `quantizer` mode). */
+  sharpKey: boolean;
   /** Bumped per configuration: output from a replaced encoder is ignored. */
   generation: number;
 }
@@ -119,10 +123,28 @@ function quantized(codec: string): boolean {
 function frameOptions(entry: Encoder, key: boolean): VideoEncoderEncodeOptions {
   const control = entry.quantizer;
   if (!control) return { keyFrame: key };
-  const quantizer = control.next(key);
+  return withQuantizer(entry, key, control.next(key));
+}
+
+function withQuantizer(entry: Encoder, key: boolean, quantizer: number): VideoEncoderEncodeOptions {
   return entry.spec.codec.startsWith("hvc1.")
     ? ({ keyFrame: key, hevc: { quantizer } } as VideoEncoderEncodeOptions)
     : { keyFrame: key, avc: { quantizer } };
+}
+
+/**
+ * The options to encode a still page's last picture once more as a sharper keyframe; undefined
+ * when it would be no sharper or the link can't afford it. Without `quantizer` mode the
+ * encoder sizes the keyframe itself, as sharp as its first one.
+ */
+function settleOptions(entry: Encoder): VideoEncoderEncodeOptions | undefined {
+  const control = entry.quantizer;
+  if (control) {
+    const quantizer = control.settled();
+    return quantizer === undefined ? undefined : withQuantizer(entry, true, quantizer);
+  }
+  if (entry.sharpKey || !affordsSettleKey(entry.keyBits, entry.spec.bitrate)) return undefined;
+  return { keyFrame: true };
 }
 
 /** The next configuration this encode can run with; none left reports it failed. */
@@ -148,6 +170,7 @@ async function configure(capture: Capture, entry: Encoder, reason: string): Prom
         const bytes = new Uint8Array(chunk.byteLength);
         chunk.copyTo(bytes);
         const key = chunk.type === "key";
+        if (key) entry.keyBits = bytes.length * 8;
         entry.quantizer?.observe(bytes.length, key);
         emit(
           {
@@ -206,12 +229,18 @@ function retune(entry: Encoder, bitrate: number): void {
 }
 
 function encode(entry: Encoder, frame: VideoFrame, key: boolean): void {
+  if (!entry.encoder || entry.encoder.state !== "configured") return;
+  submit(entry, frame, frameOptions(entry, key));
+}
+
+function submit(entry: Encoder, frame: VideoFrame, options: VideoEncoderEncodeOptions): void {
   const encoder = entry.encoder;
   if (!encoder || encoder.state !== "configured") return;
   // Our own clock: a still frame encoded again needs a later timestamp than last time.
   const stamped = new VideoFrame(frame, { timestamp: Math.round(now() * 1000) });
   try {
-    encoder.encode(stamped, frameOptions(entry, key));
+    encoder.encode(stamped, options);
+    entry.sharpKey = options.keyFrame === true && !entry.quantizer;
     entry.watchdog.submitted(now());
   } finally {
     stamped.close();
@@ -290,7 +319,7 @@ async function decodePictures(capture: Capture): Promise<void> {
   }
 }
 
-// Owed keyframes on a still page, and encoders that stopped answering.
+// Owed keyframes on a still page, its sharper last picture, and encoders that stopped answering.
 setInterval(() => {
   const at = now();
   for (const capture of captures.values())
@@ -299,8 +328,16 @@ setInterval(() => {
         void configure(capture, entry, "The encoder stopped producing output");
         continue;
       }
-      if (capture.last && entry.pacer.still(at, capture.lastAt, busy(entry)))
-        encode(entry, capture.last, true);
+      const last = capture.last;
+      if (!last) continue;
+      if (entry.pacer.still(at, capture.lastAt, busy(entry))) encode(entry, last, true);
+      else if (entry.encoder?.state === "configured") {
+        const idle = entry.encoder.encodeQueueSize === 0;
+        if (entry.pacer.settle(at, capture.lastAt, idle)) {
+          const options = settleOptions(entry);
+          if (options) submit(entry, last, options);
+        }
+      }
     }
 }, 50);
 
@@ -439,6 +476,8 @@ Object.assign(globalThis, {
           active: undefined,
           quantizer: undefined,
           description: undefined,
+          keyBits: undefined,
+          sharpKey: false,
           generation: 0,
         };
         capture.encoders.set(spec.key, entry);

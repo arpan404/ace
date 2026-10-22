@@ -28,18 +28,15 @@ function coarse(): MediaQueryList | undefined {
 /**
  * Fingers on the live page go to it as touches: every finger down, each move coalesced to one
  * per display frame. A mouse or pen keeps the mouse handlers; their compatibility mouse events
- * for a touch are suppressed here, so a tap is not also a click. What the touches mean shows at
- * once through `echo`: a tap's ripple, a drag moving the frame.
+ * for a touch are suppressed here, so a tap is not also a click. A tap's ripple shows at once
+ * through `echo`; a drag is the page's own scroll, shown when its frames arrive.
  */
 export function useTouchInput(options: {
   /** A pointer event's point in the page's pixels. */
   locate(event: PointerEvent<HTMLElement>): { x: number; y: number };
   /** Send input to the page, timed for the latency readout. */
   send(input: ForwardedInput): Promise<void>;
-  echo: {
-    ripple(x: number, y: number): void;
-    scroll(x: number, y: number, sent: Promise<void>): void;
-  };
+  echo: { ripple(x: number, y: number): void };
   /**
    * ace's own page menu takes a long press (it opens on its own); the page's touch is
    * cancelled. Absent: the page gets the long press, as a phone's browser would.
@@ -51,7 +48,7 @@ export function useTouchInput(options: {
   useEffect(() => {
     latest.current = options;
   });
-  const pending = useRef<{ input: ForwardedInput; sent: (done: Promise<void>) => void }[]>([]);
+  const pending = useRef<ForwardedInput | undefined>(undefined);
   const frame = useRef(0);
   const hold = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(
@@ -62,22 +59,18 @@ export function useTouchInput(options: {
     [],
   );
 
-  /** Send the latest coalesced move; every pan that waited on it learns when it landed. */
+  /** Send the latest coalesced move. */
   const flush = () => {
     cancelAnimationFrame(frame.current);
     frame.current = 0;
-    const moves = pending.current.splice(0);
-    const last = moves.at(-1);
-    if (!last) return;
-    const done = latest.current.send(last.input);
-    for (const move of moves) move.sent(done);
+    const move = pending.current;
+    pending.current = undefined;
+    if (move) void latest.current.send(move);
   };
 
   const run = (effects: TouchEffect[]) => {
-    let pans: { x: number; y: number }[] = [];
     for (const effect of effects) {
       if (effect.type === "tap") latest.current.echo.ripple(effect.at.screen.x, effect.at.screen.y);
-      else if (effect.type === "pan") pans.push(effect.page);
       else if (effect.type === "longPress") {
         const take = latest.current.onLongPress;
         if (!take) continue;
@@ -86,15 +79,7 @@ export function useTouchInput(options: {
         flush();
         run(gestures.current.cancel());
       } else if (effect.input.kind === "touch" && effect.input.event === "touchMove") {
-        const waiting = pans;
-        pans = [];
-        pending.current.push({
-          input: effect.input,
-          // The page scrolls opposite to the finger: a drag down scrolls up.
-          sent: (done) => {
-            for (const pan of waiting) latest.current.echo.scroll(-pan.x, -pan.y, done);
-          },
-        });
+        pending.current = effect.input;
         if (!frame.current) frame.current = requestAnimationFrame(flush);
       } else {
         flush();

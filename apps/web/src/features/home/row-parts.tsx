@@ -11,6 +11,7 @@ import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { useMachines } from "@/lib/machines.ts";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import { MiddleTruncate } from "@/components/ui/middle-truncate.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useThreadBrowsing } from "@/lib/browsing.ts";
 import { useThreadComputerUse } from "@/lib/computer-using.ts";
@@ -20,7 +21,8 @@ import {
   GlobeSimpleIcon,
   TreeStructureIcon,
 } from "@phosphor-icons/react";
-import { openExternal } from "@/boot/open-external.ts";
+import type { LinkClick } from "@/lib/web-links.ts";
+import { useOpenThreadPullRequest } from "./open-pull-request.ts";
 
 /*
  * Shared row pieces render the card facts. RowTime reads the shared clock for elapsed time;
@@ -98,8 +100,10 @@ export function ComputerUseMark(props: { threadId: string }) {
 /** State is also spoken, so the PR's colour is never the only clue. */
 export function PullRequest(props: { card: ThreadCard }) {
   const { pr, prState } = props.card;
+  const openPullRequest = useOpenThreadPullRequest(props.card.id);
   if (pr === undefined) return null;
-  const url = props.card.prs?.[0]?.url;
+  const linked = props.card.prs?.[0];
+  const url = linked?.url;
   const more = (props.card.prs?.length ?? 0) - 1;
   const label = `${prState ?? "Linked"} pull request #${pr}${more > 0 ? `, ${more} more linked` : ""}`;
   const content = (
@@ -116,18 +120,21 @@ export function PullRequest(props: { card: ThreadCard }) {
       </span>
     );
   // The row is itself a link, so the badge opens the pull request without nesting an anchor;
-  // the row stays the one focus stop.
-  const open = (event: { preventDefault(): void; stopPropagation(): void }) => {
+  // the row stays the one focus stop. It opens ace's page for the PR (⌘/Ctrl-click: GitHub).
+  const open = (event: { preventDefault(): void; stopPropagation(): void }, click?: LinkClick) => {
     event.preventDefault();
     event.stopPropagation();
-    void openExternal(url).catch(() => {});
+    openPullRequest({ number: linked?.number ?? pr, url, repo: linked?.repo }, click);
   };
   return (
     <span
       role="button"
       tabIndex={-1}
       aria-label={`Open ${label}`}
-      onClick={open}
+      onClick={(event) => open(event, event)}
+      onAuxClick={(event) => {
+        if (event.button === 1) open(event, event);
+      }}
       onKeyDown={(event) => {
         if (event.key === "Enter") open(event);
       }}
@@ -232,11 +239,7 @@ export function RowContext(props: { card: ThreadCard }) {
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-meta leading-4 text-subtle-foreground">
       {card.run && <RunMark run={card.run} />}
-      {card.branch && (
-        <span className="min-w-0 flex-1 truncate font-mono" title={card.branch.name}>
-          {card.branch.name}
-        </span>
-      )}
+      {card.branch && <MiddleTruncate text={card.branch.name} className="flex-1 font-mono" />}
       {card.pr !== undefined && (
         <span className="shrink-0">
           <PullRequest card={card} />
