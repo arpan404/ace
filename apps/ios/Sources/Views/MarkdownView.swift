@@ -43,19 +43,28 @@ struct MarkdownView: View {
         case .rule:
             Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
         case .table(let headers, let rows):
+            // Fixed-width columns in plain stacks: a Grid inside a sideways scroller in the lazy
+            // transcript re-places rows without end.
             ScrollView(.horizontal, showsIndicators: false) {
-                Grid(alignment: .topLeading, horizontalSpacing: AceTheme.Spacing.none, verticalSpacing: AceTheme.Spacing.none) {
-                    GridRow {
-                        ForEach(Array(headers.enumerated()), id: \.offset) { _, cell in tableCell(cell).fontWeight(.semibold).background(AceTheme.Colours.fill) }
-                    }
-                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                        GridRow {
-                            ForEach(Array(row.enumerated()), id: \.offset) { _, cell in tableCell(cell) }
-                        }
-                    }
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                    tableRow(headers, header: true)
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in tableRow(row, header: false) }
                 }
             }.accessibilityIdentifier("markdown.table")
         }
+    }
+    private func tableRow(_ cells: [String], header: Bool) -> some View {
+        HStack(alignment: .top, spacing: AceTheme.Spacing.none) {
+            ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
+                Text(styled(cell)).aceFont(AceTheme.Typography.body, relativeTo: .body)
+                    .fontWeight(header ? .semibold : .regular)
+                    .frame(width: AceTheme.Dimensions.touchTarget * 4, alignment: .leading)
+                    .padding(AceTheme.Spacing.sm)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .background(header ? AceTheme.Colours.fill : .clear)
+        .overlay(alignment: .bottom) { Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border) }
     }
     /// Inline code on the code surface at about 0.92 of the prose, in SF Mono; links in the
     /// accent, as the web's `text-link`.
@@ -69,11 +78,5 @@ struct MarkdownView: View {
             if run.link != nil { styled[run.range].foregroundColor = AceTheme.Colours.accent }
         }
         return styled
-    }
-    private func tableCell(_ text: String) -> some View {
-        Text(styled(text)).aceFont(AceTheme.Typography.body, relativeTo: .body)
-            .frame(width: AceTheme.Dimensions.touchTarget * 4, alignment: .leading)
-            .padding(AceTheme.Spacing.sm)
-            .overlay(alignment: .bottom) { Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border) }
     }
 }
