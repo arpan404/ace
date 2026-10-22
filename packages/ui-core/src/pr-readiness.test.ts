@@ -1,6 +1,6 @@
 import type { ForgePrList } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { nextStep, readinessQueries } from "./ready-ranking.ts";
+import { nextReadyRead, readinessQueries } from "./pr-readiness.ts";
 
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "ace" } as const;
 test("open pull requests are asked of GitHub readiest first, then the rest, then drafts", () => {
@@ -35,10 +35,10 @@ const page = (nextPage?: number): ForgePrList => ({
 });
 
 test("reading continues the current search's pages, then moves to the next search, then stops", () => {
-  expect(nextStep([], [], 3)).toEqual({ query: 0, page: 1 });
-  expect(nextStep([{ query: 0, page: 1 }], [page(2)], 3)).toEqual({ query: 0, page: 2 });
-  expect(nextStep([{ query: 0, page: 1 }], [page()], 3)).toEqual({ query: 1, page: 1 });
-  expect(nextStep([{ query: 2, page: 1 }], [page()], 3)).toBeUndefined();
+  expect(nextReadyRead([], [], 3)).toEqual({ query: 0, page: 1 });
+  expect(nextReadyRead([{ query: 0, page: 1 }], [page(2)], 3)).toEqual({ query: 0, page: 2 });
+  expect(nextReadyRead([{ query: 0, page: 1 }], [page()], 3)).toEqual({ query: 1, page: 1 });
+  expect(nextReadyRead([{ query: 2, page: 1 }], [page()], 3)).toBeUndefined();
   // Nothing is asked for while the last read is still on its way.
-  expect(nextStep([{ query: 0, page: 1 }], [undefined], 3)).toBeUndefined();
+  expect(nextReadyRead([{ query: 0, page: 1 }], [undefined], 3)).toBeUndefined();
 });

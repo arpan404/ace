@@ -1,3 +1,4 @@
+import { prPrimaryLabel, type PrPrimary } from "@ace/ui-core";
 import { useEffect, useState } from "react";
 import {
   EyeIcon,
@@ -14,7 +15,6 @@ import { Button } from "@/components/ui/button.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.tsx";
 import { cardEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
-import { prPrimaryLabel, type PrPrimary } from "./pr-primary-action.ts";
 
 /** How long the first press of a merge waits for the second. */
 const confirmWindowMs = 3_000;

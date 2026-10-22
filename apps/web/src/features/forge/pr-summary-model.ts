@@ -1,4 +1,5 @@
 import type { ForgeComment, ForgePrStatus } from "@ace/protocol";
+import type { ReviewOutcome } from "@ace/ui-core";
 import { checkFixRequest } from "./pr-check-model.ts";
 
 /*
@@ -6,8 +7,6 @@ import { checkFixRequest } from "./pr-check-model.ts";
  * latest verdict, and the conversation as cards (comments and review threads) with the
  * filters and paging the tab offers. Pure.
  */
-
-export type ReviewOutcome = "approved" | "changes" | "commented" | "dismissed";
 
 const outcomes: Record<string, ReviewOutcome> = {
   APPROVED: "approved",

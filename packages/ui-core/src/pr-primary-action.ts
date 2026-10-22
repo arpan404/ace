@@ -1,5 +1,5 @@
 import type { ForgeMergeState, ForgePrStatus } from "@ace/protocol";
-import { ciLine, noAutoMerge, type MergeMethod } from "@ace/ui-core";
+import { ciLine, noAutoMerge, type MergeMethod } from "./pull-request.ts";
 
 /**
  * The one control the PR header shows, chosen from the PR's state. Pure: the header renders it,

@@ -1,13 +1,58 @@
-import type { ForgePrRow, VerifyRun } from "@ace/protocol";
+import type { SidebarReader } from "@ace/client";
+import type { ForgePrRow, ForgeRepository, VerifyRun } from "@ace/protocol";
+import type { RowGroup } from "./forge-lists.ts";
 import {
   localCheckOf,
   prNextStep,
   prStepsForYou,
   type LocalCheckResult,
   type PrNextStep,
-} from "@ace/ui-core";
-import type { LinkedThread } from "./linked-threads.ts";
-import type { RowGroup } from "./pulls-model.ts";
+} from "./pr-next-step.ts";
+
+/** A thread working on a pull request or issue, as the thread list knows it. */
+export interface LinkedThread {
+  id: string;
+  title: string;
+  /** It waits on the person: an approval, a question. */
+  needsYou: boolean;
+}
+export type LinkedThreads = ReadonlyMap<string, LinkedThread>;
+
+/** One key per PR or issue: repository and number, case-insensitive like GitHub's names. */
+export function workKey(repository: Pick<ForgeRepository, "owner" | "name">, number: number) {
+  return `${repository.owner}/${repository.name}#${number}`.toLowerCase();
+}
+
+/**
+ * Which PRs and issues the loaded threads are linked to, newest thread first: the thread list
+ * already carries every link, so a row can name its thread without asking the daemon. Archived
+ * threads are left out.
+ */
+export function linkedWork(reader: Pick<SidebarReader, "ids" | "thread">): {
+  pulls: LinkedThreads;
+  issues: LinkedThreads;
+} {
+  const pulls = new Map<string, LinkedThread>();
+  const issues = new Map<string, LinkedThread>();
+  for (const id of reader.ids) {
+    const thread = reader.thread(id);
+    if (!thread || thread.archivedAt !== undefined) continue;
+    const linked = {
+      id: thread.id,
+      title: thread.title,
+      needsYou: thread.status.state === "needs_you",
+    };
+    for (const pr of thread.details?.linkedPrs ?? []) {
+      const key = workKey(pr.repo, pr.number);
+      if (!pulls.has(key)) pulls.set(key, linked);
+    }
+    for (const issue of thread.details?.linkedIssues ?? []) {
+      const key = workKey(issue.repository, issue.number);
+      if (!issues.has(key)) issues.set(key, linked);
+    }
+  }
+  return { pulls, issues };
+}
 
 /*
  * The open list by what each PR needs next (ADR 0094): what is the viewer's to do, what is
@@ -47,9 +92,9 @@ const groups = [
   { id: "wait", label: "Waiting" },
   { id: "drafts", label: "Drafts" },
 ] as const;
-export type StepGroup = (typeof groups)[number]["id"];
+export type PrStepGroup = (typeof groups)[number]["id"];
 
-function groupOf(step: PrNextStep): StepGroup {
+function groupOf(step: PrNextStep): PrStepGroup {
   if (prStepsForYou.includes(step)) return "you";
   if (step === "merge") return "merge";
   if (step === "draft") return "drafts";

@@ -1,4 +1,11 @@
-import { ciLine, mergeGate, noAutoMerge } from "@ace/ui-core";
+import {
+  ciLine,
+  mergeGate,
+  noAutoMerge,
+  prPrimaryAction,
+  mergeBlockers,
+  prGates,
+} from "@ace/ui-core";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { usePrLifecycle } from "./pr-lifecycle.ts";
@@ -7,8 +14,6 @@ import { usePrLinkWrites } from "./pr-link-writes.ts";
 import { usePrWorktree } from "./pr-worktree.ts";
 import { useMergeMethod } from "./pr-merge-method.ts";
 import { useStackMemberships } from "./pr-stack-groups.tsx";
-import { prPrimaryAction } from "./pr-primary-action.ts";
-import { mergeBlockers, prGates } from "./pr-gates.ts";
 import { reviewerOutcomes } from "./pr-summary-model.ts";
 import { usePrLocalCheck } from "./pr-local-check.ts";
 
