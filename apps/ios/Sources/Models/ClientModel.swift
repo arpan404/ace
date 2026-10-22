@@ -116,6 +116,7 @@ import CryptoKit
     }
     @discardableResult func receive(_ data: Data) -> Bool {
         largestFrame = max(largestFrame, data.count)
+        if patchCount == 0 { LaunchTrace.mark("bridge.firstFrame") }
         guard let patches = try? frames.decode(data) else {
             error = "Could not read a client update"
             return false
@@ -129,12 +130,15 @@ import CryptoKit
             case .terminal(let patch):
                 if let offset = terminal.receive(patch) { action(["type": "terminal.credit", "id": patch.id, "offset": offset]) }
             case .fragment: break // BridgeFrames only returns complete patches.
-            case .inboxReset: inbox.removeAll(keepingCapacity: true); inboxLoaded = true; activityChanged = true
+            case .inboxReset:
+                LaunchTrace.mark("inbox.reset", "\(inbox.count) rows held")
+                inbox.removeAll(keepingCapacity: true); inboxLoaded = true; activityChanged = true
             case .inbox(let id, let row):
                 if let generation = row?.generation, generation > activityGeneration {
                     activityGeneration = generation
                     normalizeGenerations()
                 }
+                if inbox.isEmpty, row != nil { LaunchTrace.mark("inbox.firstRow", row?.confirmed == true ? "confirmed" : "unconfirmed") }
                 if let current = row {
                     // Missing generations (old payloads) never confirm.
                     inbox[id] = ThreadLiveActivity.effectiveRow(current, latestGeneration: activityGeneration)
@@ -144,6 +148,7 @@ import CryptoKit
                 activityChanged = true
             case .inboxSections(let layout): if inboxLayout != layout { inboxLayout = layout }
             case .connection(let state, let generation):
+                if state != connection { LaunchTrace.mark("connection", state) }
                 connection = state
                 if let generation, generation > activityGeneration {
                     activityGeneration = generation

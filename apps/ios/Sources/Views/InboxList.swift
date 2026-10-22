@@ -77,6 +77,15 @@ struct InboxList: View {
         .background(AceTheme.Colours.background)
         .environment(\.defaultMinListRowHeight, 0)
         .contentMargins(.vertical, AceTheme.Spacing.xs, for: .scrollContent)
+        .onAppear { if !sections.isEmpty { InboxList.traceRows(sections) } }
+        .onChange(of: sections.isEmpty) { _, empty in if !empty { InboxList.traceRows(sections) } }
+    }
+    /// Marks the first time this process draws inbox rows, for launch timing.
+    private static var tracedRows = false
+    private static func traceRows(_ sections: [MergedInbox.Section]) {
+        guard !tracedRows else { return }
+        tracedRows = true
+        LaunchTrace.mark("inbox.rowsOnScreen", "\(sections.reduce(0) { $0 + $1.rows.count }) rows")
     }
 
     @ViewBuilder private func rows(_ section: MergedInbox.Section) -> some View {
