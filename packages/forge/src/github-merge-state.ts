@@ -1,6 +1,6 @@
 import { WriteDispatch } from "./write-dispatch.ts";
 import { z } from "zod";
-import { ForgeMergeState } from "@ace/protocol/forge-merge-state";
+import { ForgeMergeState, type ForgeMergeCommit } from "@ace/protocol/forge-merge-state";
 import type { ForgeRepository } from "@ace/protocol/forge";
 import type { GhApi, Page } from "./http.ts";
 import { ForgeMutationOutcome } from "./mutation.ts";
@@ -77,6 +77,11 @@ const source = z.looseObject({
   commits,
   viewerCanEnableAutoMerge: z.boolean(),
   viewerCanDisableAutoMerge: z.boolean(),
+  // GitHub's prefill for each commit; only an explanation, so a bad value drops it.
+  mergeHeadline: text.nullish().catch(null),
+  mergeBody: text.nullish().catch(null),
+  squashHeadline: text.nullish().catch(null),
+  squashBody: text.nullish().catch(null),
 });
 const responseSchema = z.looseObject({
   data: z.looseObject({
@@ -90,10 +95,21 @@ const wrap = (selection: string) =>
   `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){viewerPermission pullRequest(number:$number){${selection}}}}`;
 const baseQuery = wrap(`${fields} mergeQueueEntry{id state position enqueuedAt}`);
 const query = wrap(
-  `${fields} mergeQueueEntry{id state position enqueuedAt estimatedTimeToMerge} baseRef{branchProtectionRule{requiredApprovingReviewCount requiresConversationResolution requiresCommitSignatures requiresLinearHistory} rules(first:20){nodes{type}}} commits(last:1){nodes{commit{deployments(last:10){nodes{environment state latestStatus{state environmentUrl}}}}}}`,
+  `${fields} mergeHeadline:viewerMergeHeadlineText(mergeType:MERGE) mergeBody:viewerMergeBodyText(mergeType:MERGE) squashHeadline:viewerMergeHeadlineText(mergeType:SQUASH) squashBody:viewerMergeBodyText(mergeType:SQUASH) mergeQueueEntry{id state position enqueuedAt estimatedTimeToMerge} baseRef{branchProtectionRule{requiredApprovingReviewCount requiresConversationResolution requiresCommitSignatures requiresLinearHistory} rules(first:20){nodes{type}}} commits(last:1){nodes{commit{deployments(last:10){nodes{environment state latestStatus{state environmentUrl}}}}}}`,
 );
 
 type Source = z.infer<typeof source>;
+
+/** GitHub's own title and message for this account's merge and squash commits. */
+function commitMessages(pr: Source) {
+  const commit = (title: string | null | undefined, message: string | null | undefined) =>
+    title?.trim() ? { title: title.slice(0, 1_024), message: message ?? "" } : undefined;
+  const merge = commit(pr.mergeHeadline, pr.mergeBody);
+  const squash = commit(pr.squashHeadline, pr.squashBody);
+  return merge || squash
+    ? { ...(merge ? { merge } : {}), ...(squash ? { squash } : {}) }
+    : undefined;
+}
 
 /** The outstanding review requirement, with the count when branch protection names one. */
 function reviewsRequired(pr: Source): string | undefined {
@@ -179,6 +195,7 @@ function mapState(pr: Source, permission: string | null, raw: unknown): ForgeMer
     deployments: latestDeployments(pr),
     canEnable: pr.state === "OPEN" && !pr.isDraft && pr.viewerCanEnableAutoMerge,
     canDisable: pr.viewerCanDisableAutoMerge,
+    commitMessages: commitMessages(pr),
     canDequeue:
       pr.mergeQueueEntry !== null && ["WRITE", "MAINTAIN", "ADMIN"].includes(permission ?? ""),
     blockers,
@@ -230,6 +247,7 @@ export class GitHubMergeState {
     signal: AbortSignal,
     allowed: () => boolean = () => true,
     dispatch = new WriteDispatch(),
+    commit?: ForgeMergeCommit,
   ): Promise<ForgeMergeState | undefined> {
     z.string()
       .regex(/^[a-fA-F0-9]{40,64}$/)
@@ -260,7 +278,15 @@ export class GitHubMergeState {
           : "dequeuePullRequest";
     const input =
       action === "enable"
-        ? { pullRequestId: pr.id, expectedHeadOid: headSha, mergeMethod: method.toUpperCase() }
+        ? {
+            pullRequestId: pr.id,
+            expectedHeadOid: headSha,
+            mergeMethod: method.toUpperCase(),
+            // A rebase writes no commit of its own, so it takes no message.
+            ...(commit && method !== "rebase"
+              ? { commitHeadline: commit.title, commitBody: commit.message }
+              : {}),
+          }
         : action === "disable"
           ? { pullRequestId: pr.id }
           : { id: pr.id };

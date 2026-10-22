@@ -15,6 +15,7 @@ import { GitHubChecks } from "./github-checks.ts";
 import { GitHubBrowser } from "./github-browser.ts";
 import { GitHubFileContent } from "./github-file-content.ts";
 import { ForgeGroupCounting, ForgePrSearch } from "@ace/protocol/forge-browser";
+import { ForgeMergeCommit } from "@ace/protocol/forge-merge-state";
 import { readGroupCounts } from "./github-group-counts.ts";
 import { ForgeListCaches } from "./list-cache.ts";
 import { githubOpenWork } from "./github-open-work.ts";
@@ -180,8 +181,18 @@ export class GitHubForge implements Forge, ForgeBrowser {
     signal: AbortSignal,
     allowed: () => boolean = () => true,
     dispatch?: WriteDispatch,
+    commit?: ForgeMergeCommit,
   ) {
-    return this.#mergeState.change(number, headSha, action, method, signal, allowed, dispatch);
+    return this.#mergeState.change(
+      number,
+      headSha,
+      action,
+      method,
+      signal,
+      allowed,
+      dispatch,
+      commit,
+    );
   }
   prStack(number: number, signal: AbortSignal) {
     return this.#stacks.read(number, signal);
@@ -445,14 +456,23 @@ export class GitHubForge implements Forge, ForgeBrowser {
     method: MergeMethod,
     signal: AbortSignal,
     dispatch = new MutationDispatch(),
+    commit?: ForgeMergeCommit,
   ): Promise<void> {
     this.#ref(number);
     shaSchema.parse(headSha);
     mergeSchema.parse(method);
+    const message = commit ? ForgeMergeCommit.parse(commit) : undefined;
     const response = await this.#api.request(
       `${this.#root}/pulls/${number}/merge`,
       signal,
-      { sha: headSha, merge_method: method },
+      {
+        sha: headSha,
+        merge_method: method,
+        // A rebase writes no commit of its own, so it takes no message.
+        ...(message && method !== "rebase"
+          ? { commit_title: message.title, commit_message: message.message }
+          : {}),
+      },
       "PUT",
       dispatch,
     );
