@@ -31,9 +31,10 @@ and binds its run (ADR 0065, 2026-10-17 amendment).
 The commit before provider I/O is the claim boundary. Exactly-once external
 delivery cannot be promised across a crash. Unacknowledged claimed messages
 become uncertain and stay visible; they are never replayed automatically.
-Unclaimed messages keep their order and wait for explicit resume after restart. ace
-never continues interrupted work by itself (the former `threads.continueAfterRestart`
-setting is gone); the person's Resume, or their next message, carries on. A persisted continuation counts
+Unclaimed messages keep their order. Work a daemon restart cut short continues by itself
+once, under the rules of [ADR 0098](0098-resume-after-restart.md); everything else held after
+a restart waits for the person's Resume or next message (the former
+`threads.continueAfterRestart` setting is gone). A persisted continuation counts
 as queued engine work even when no user messages remain; its thread waits on
 queue until resumed. Paginated reads use revision-checked command-ID cursors.
 New admissions are bounded; older stored input shapes remain readable.
@@ -274,3 +275,11 @@ settled, never working or waiting on work nobody can reach.
   shutdown capture and a provider-exit hold both skip a queue held by `stopped`, so nothing waits
   for Resume after a Stop. Startup drops a restart continuation that earlier builds saved behind a
   Stop, so such threads (and the delegated children a parent cancelled) settle on the next start.
+
+## Amendment 2026-10-22: a restart continues the work it cut short
+
+[ADR 0098](0098-resume-after-restart.md) replaces "nothing starts by itself after a restart" for
+one case: a thread whose provider work was live when ace stopped continues by itself with one
+restart continuation, ahead of its queued messages. Turns waiting on the person, stopped or held
+threads, uncertain input, providers that can't resume and turns interrupted three restarts in a
+row still wait for the person. A provider that dies while ace keeps running still holds.
