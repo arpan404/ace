@@ -1,4 +1,4 @@
-import type { AccessMode, Automation } from "@ace/protocol";
+import type { Automation } from "@ace/protocol";
 import { ClockIcon, TrashIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useThreadMeta } from "@ace/client-react";
@@ -17,24 +17,24 @@ import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { NextRun } from "@/features/automation-data/index.ts";
-import { withModel } from "./automation-model.ts";
 import type { AutomationEntry } from "@/features/automation-data/index.ts";
-import { ConversationComposer } from "./conversation-composer.tsx";
 import { ConversationRuns } from "./conversation-runs.tsx";
 import { ConversationStatus } from "./conversation-status.tsx";
-import { PromptMessage } from "./prompt-message.tsx";
-import { WhenStrip } from "./when-strip.tsx";
-import { RenameDialog } from "./rename-dialog.tsx";
+import { EditDialog } from "./edit-dialog.tsx";
 import { normalizeDaemonKey } from "@/features/automation-data/index.ts";
 import { describeWhen, localTimeZone } from "@/features/automation-schedule/index.ts";
 import { useAutomationControls } from "./use-automation-controls.ts";
 import { useAutomation } from "@/features/automation-data/index.ts";
 
+/** The message it sends, as the thread shows the person's: a tailless bubble. */
+const promptBubble =
+  "relative max-w-[80%] min-w-0 overflow-hidden rounded-lg bg-bubble px-3 py-2 font-prose text-prose wrap-break-word whitespace-pre-wrap";
+
 /**
  * One automation as a conversation: a pinned header (name, when it runs, the switch), the
- * prompt once as the person's message, then every run as a turn, and at the bottom a composer
- * with the automation's own model and access. Sending runs it now with that note. Everything
- * about it edits in place: the prompt in its bubble, when it runs in the composer's strip.
+ * message it sends once as the person's, then every run as a turn. Its job is to send that
+ * message on time, so there is no composer: Run now sends it at once, and Edit changes the name,
+ * message and schedule together in one dialog.
  */
 export function AutomationScreen(props: { id: string }) {
   const { entry, pending, error, retry } = useAutomation(props.id);
@@ -87,12 +87,7 @@ function Conversation(props: { entry: AutomationEntry; daemonKey: string; refetc
   const [running] = useDaemonSetting("automations.enabled");
   const now = useNow();
   const projectName = useProjectName();
-  const [renaming, setRenaming] = useState(false);
-  const [editingPrompt, setEditingPrompt] = useState(false);
-  const [whenOpen, setWhenOpen] = useState(false);
-  const page = useRef<HTMLDivElement>(null);
-  const noteField = () =>
-    page.current?.querySelector<HTMLElement>('[role="combobox"][contenteditable]') ?? null;
+  const [editing, setEditing] = useState(false);
   // A change in flight shows at once; the stored definition takes over at its next revision.
   const [draft, setDraft] = useState<{ automation: Automation; revision: number | undefined }>();
   const automation =
@@ -130,21 +125,9 @@ function Conversation(props: { entry: AutomationEntry; daemonKey: string; refetc
             <>
               <MenuItem
                 disabled={controls.busy || !controls.ready}
-                onClick={() => setRenaming(true)}
+                onClick={() => setEditing(true)}
               >
-                Rename
-              </MenuItem>
-              <MenuItem
-                disabled={controls.busy || !controls.ready}
-                onClick={() => setEditingPrompt(true)}
-              >
-                Edit prompt
-              </MenuItem>
-              <MenuItem
-                disabled={controls.busy || !controls.ready}
-                onClick={() => setWhenOpen(true)}
-              >
-                Edit when
+                Edit
               </MenuItem>
               <MenuItem disabled={controls.busy || !controls.ready} onClick={controls.duplicate}>
                 Duplicate
@@ -162,7 +145,7 @@ function Conversation(props: { entry: AutomationEntry; daemonKey: string; refetc
         </>
       }
     >
-      <div ref={page} className="flex h-full min-h-0 flex-col">
+      <div className="flex h-full min-h-0 flex-col">
         <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto pb-8">
           <div className={readingColumn}>
             {/* The app header already names it; one pinned line says when it runs next, with the switch. */}
@@ -170,8 +153,7 @@ function Conversation(props: { entry: AutomationEntry; daemonKey: string; refetc
               <h2 className="sr-only">{automation.title}</h2>
               <div className="flex min-h-10 items-center gap-3 rounded-lg border border-border px-3 py-1.5 text-ui text-muted-foreground">
                 <p className="min-w-0 flex-1 truncate">
-                  {/* The person's own say when it runs in the composer's strip, where it changes. */}
-                  {!own && <>{describeWhen(automation.trigger, localTimeZone())} · </>}
+                  {describeWhen(automation.trigger, localTimeZone())} ·{" "}
                   <span className="text-foreground">
                     <NextRun
                       automation={automation}
@@ -191,14 +173,10 @@ function Conversation(props: { entry: AutomationEntry; daemonKey: string; refetc
                 />
               </div>
             </header>
-            <div className="mt-6">
-              <PromptMessage
-                prompt={automation.prompt}
-                editing={editingPrompt}
-                onEditingChange={setEditingPrompt}
-                onSave={own ? (prompt) => change({ ...automation, prompt }) : undefined}
-                disabled={controls.busy || !controls.ready}
-              />
+            <div className="mt-6 flex justify-end">
+              <div aria-label="Prompt" role="group" className={promptBubble}>
+                {automation.prompt}
+              </div>
             </div>
             <ConversationRuns
               automationId={automation.id}
@@ -211,43 +189,16 @@ function Conversation(props: { entry: AutomationEntry; daemonKey: string; refetc
               entry={entry}
               controls={controls}
               runBlocked={runBlocked}
-              onEditWhen={() => setWhenOpen(true)}
+              onEditWhen={() => setEditing(true)}
             />
           </div>
         </div>
-        <div className={cn(readingColumn, "shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))]")}>
-          <ConversationComposer
-            automation={automation}
-            controls={controls}
-            runBlocked={runBlocked}
-            environment={
-              own && (
-                <WhenStrip
-                  automation={automation}
-                  onSave={(next) => void change(next)}
-                  open={whenOpen}
-                  onOpenChange={setWhenOpen}
-                  returnFocus={noteField}
-                  disabled={controls.busy || !controls.ready}
-                />
-              )
-            }
-            settings={
-              own
-                ? {
-                    onModel: (fields) => void change(withModel(automation, fields)),
-                    onAccess: (access: AccessMode) => void change({ ...automation, access }),
-                  }
-                : undefined
-            }
-          />
-        </div>
       </div>
-      <RenameDialog
-        open={renaming}
-        title={automation.title}
-        onClose={() => setRenaming(false)}
-        onRename={(title) => controls.update({ ...automation, title })}
+      <EditDialog
+        open={editing}
+        automation={automation}
+        onClose={() => setEditing(false)}
+        onSave={change}
       />
     </Screen>
   );

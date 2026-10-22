@@ -188,7 +188,6 @@ export function WhenPopover(props: {
   const now = useNow();
   const { form } = props;
   const summary = whenSummary(form, now);
-  const suggested = useProjectRepository(form.workspace);
   return (
     <Popover open={props.open} onOpenChange={props.onOpenChange}>
       <PopoverTrigger
@@ -206,25 +205,44 @@ export function WhenPopover(props: {
         finalFocus={props.returnFocus}
         className="flex max-h-[min(36rem,var(--available-height))] w-72 max-w-[calc(100vw-2rem)] flex-col overflow-y-auto p-1"
       >
-        <Field label="Runs">
-          <Select
-            label="Runs"
-            value={form.trigger}
-            options={kinds}
-            onValueChange={(trigger) =>
-              props.onChange(
-                // A GitHub trigger starts from the project's own repository; the field stays editable.
-                trigger === "github" && !form.repository && suggested
-                  ? { trigger, repository: suggested }
-                  : { trigger },
-              )
-            }
-            className="h-7 w-full min-w-0"
-          />
-        </Field>
-        <TriggerFields {...props} now={now} />
+        <WhenFields form={form} onChange={props.onChange} errors={props.errors} now={now} />
       </PopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * What the When popover holds, for any surface that edits when an automation runs: the kind of
+ * trigger, then that kind's own fields.
+ */
+export function WhenFields(props: {
+  form: AutomationForm;
+  onChange(patch: Partial<AutomationForm>): void;
+  errors: FieldErrors;
+  now: number;
+}) {
+  const { form } = props;
+  const suggested = useProjectRepository(form.workspace);
+  return (
+    <>
+      <Field label="Runs">
+        <Select
+          label="Runs"
+          value={form.trigger}
+          options={kinds}
+          onValueChange={(trigger) =>
+            props.onChange(
+              // A GitHub trigger starts from the project's own repository; the field stays editable.
+              trigger === "github" && !form.repository && suggested
+                ? { trigger, repository: suggested }
+                : { trigger },
+            )
+          }
+          className="h-7 w-full min-w-0"
+        />
+      </Field>
+      <TriggerFields {...props} />
+    </>
   );
 }
 

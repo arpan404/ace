@@ -1,6 +1,6 @@
 import { openProfileView } from "@/test/navigation.ts";
 import { fakeClient } from "@/test/fake-client.ts";
-import { chooseModel, openModelControl } from "@/test/model-control.ts";
+import { chooseModel } from "@/test/model-control.ts";
 import type { Client } from "@ace/client";
 import { flakyCheckout, workbench, workbenchServices } from "@ace/fake-daemon";
 import type { ClientMessage } from "@ace/protocol";
@@ -73,7 +73,6 @@ const heading = (name: string | RegExp) => screen.findByRole("heading", { level:
 const main = () => within(screen.getByRole("main"));
 const group = (sidebar: ReturnType<typeof within>, name: string) =>
   within(sidebar.getByRole("region", { name }));
-const note = () => screen.findByRole("combobox", { name: "Note for this run" });
 const prompt = () => screen.findByRole("combobox", { name: "What the agent does each time" });
 
 async function menu(item: string) {
@@ -170,17 +169,14 @@ test("the header says when it runs next, or that automations are off on this mac
   expect(await main().findByRole("link", { name: "Turn on Run automations" })).toBeTruthy();
 });
 
-test("sending a note runs the automation now with that note, and the run appears as a working turn", async () => {
+test("Run now runs the automation at once, and the run appears as a working turn", async () => {
   const { app, runs } = await open("/automations/auto-dependency-audit");
   await heading("Nightly dependency audit");
   await setAutomations(app, true);
   const before = (await runsOf(app, "auto-dependency-audit")).length;
-  await userEvent.type(await note(), "Also check the lockfile{Enter}");
+  await menu("Run now");
   expect(await main().findByText(/^Working for /)).toBeTruthy();
-  expect(runs.at(-1)).toMatchObject({
-    id: "auto-dependency-audit",
-    message: "Also check the lockfile",
-  });
+  expect(runs.at(-1)).toMatchObject({ id: "auto-dependency-audit" });
   expect(await runsOf(app, "auto-dependency-audit")).toHaveLength(before + 1);
   expect(JSON.parse(localStorage.getItem("ace.automation.runIntents") ?? "[]")).toHaveLength(0);
 });
@@ -194,14 +190,16 @@ test("Run now in the menu runs it without a note", async () => {
   expect(runs.at(-1)?.message).toBeUndefined();
 });
 
-test("while automations are off nothing can be sent, and turning them on lets it run", async () => {
+test("while automations are off it can't be run, and turning them on lets it run", async () => {
   const { app } = await open("/automations/auto-dependency-audit");
   await heading("Nightly dependency audit");
   await setAutomations(app, false);
   await main().findByRole("link", { name: "Turn on Run automations" });
-  await userEvent.type(await note(), "Check now");
-  const send = screen.getByRole("button", { name: "Send" });
-  expect(send.getAttribute("aria-disabled") === "true" || send.hasAttribute("disabled")).toBe(true);
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  expect(
+    (await screen.findByRole("menuitem", { name: "Run now" })).getAttribute("aria-disabled"),
+  ).toBe("true");
+  await userEvent.keyboard("{Escape}");
 
   await userEvent.click(main().getByRole("link", { name: "Turn on Run automations" }));
   await userEvent.click(await screen.findByRole("switch", { name: "Run automations" }));
@@ -245,21 +243,19 @@ test("pausing from the switch moves it to Paused and stops runs; the switch resu
   ).toBeTruthy();
 });
 
-test("a refused run says it didn't start, keeps its key and note, and Retry reuses both", async () => {
-  const { app, runs } = await open("/automations/auto-dependency-audit");
+test("a refused run says it didn't start, keeps its key, and Retry reuses it", async () => {
+  const { app } = await open("/automations/auto-dependency-audit");
   await heading("Nightly dependency audit");
   await setAutomations(app, true);
   app.daemon.failRequests("automation.run");
-  await userEvent.type(await note(), "Only the web app{Enter}");
+  await menu("Run now");
   const alert = await main().findByRole("alert", { name: "Run now" });
   expect(alert.textContent).toContain("Not started");
   const kept = JSON.parse(localStorage.getItem("ace.automation.runIntents") ?? "[]");
   expect(kept).toHaveLength(1);
-  expect(kept[0].message).toBe("Only the web app");
   app.daemon.restoreRequests();
   await userEvent.click(within(alert).getByRole("button", { name: "Retry run" }));
   expect(await main().findByText(/^Working for /)).toBeTruthy();
-  expect(runs.at(-1)?.message).toBe("Only the web app");
   expect(JSON.parse(localStorage.getItem("ace.automation.runIntents") ?? "[]")).toHaveLength(0);
   const inbox = await runsOf(app, "auto-dependency-audit");
   expect(inbox.filter((run) => run.id === `run-${kept[0].requestId}`)).toHaveLength(1);
@@ -303,16 +299,18 @@ test("a run is refused when this browser can only remember its retry key in memo
   expect(await runsOf(app, "auto-dependency-audit")).toHaveLength(before.length);
 });
 
-test("a second send while the first run is starting doesn't dispatch another run", async () => {
+test("Run now can't start a second run while the first is starting", async () => {
   const { app, runs } = await open("/automations/auto-dependency-audit");
   await heading("Nightly dependency audit");
   await setAutomations(app, true);
   app.daemon.holdRequests("automation.run");
   try {
-    await userEvent.type(await note(), "First{Enter}");
+    await menu("Run now");
     await waitFor(() => expect(runs).toHaveLength(1));
-    await userEvent.type(await note(), "Second{Enter}");
-    expect((await note()).textContent).toContain("Second");
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+    expect(
+      (await screen.findByRole("menuitem", { name: "Run now" })).getAttribute("aria-disabled"),
+    ).toBe("true");
     expect(runs).toHaveLength(1);
   } finally {
     app.daemon.restoreRequests();
@@ -330,35 +328,22 @@ test("a failed run says what happened, and Run again starts it", async () => {
   expect(await main().findByText(/^Working for /)).toBeTruthy();
 });
 
-test("changing the model chip's effort saves the automation", async () => {
-  const { app } = await open("/automations/auto-dependency-audit");
-  await heading("Nightly dependency audit");
-  const popover = await openModelControl();
-  const effort = within(popover).getByRole("slider", { name: "Effort" });
-  effort.focus();
-  await userEvent.keyboard("{ArrowLeft}");
-  await userEvent.keyboard("{Escape}");
-  await waitFor(async () =>
-    expect((await stored(app, "auto-dependency-audit"))?.effort).not.toBe("high"),
-  );
-  expect((await stored(app, "auto-dependency-audit"))?.instance).toBe("claude-work");
-});
-
-test("a model change made over a stale copy reports the conflict instead of overwriting", async () => {
+test("an edit over a stale copy reports the conflict instead of overwriting", async () => {
   const { app } = await open("/automations/auto-dependency-audit");
   await heading("Nightly dependency audit");
   const automation = await stored(app, "auto-dependency-audit");
   if (!automation) throw new Error("Missing automation");
+  await menu("Edit");
+  const dialog = within(await screen.findByRole("dialog", { name: "Edit automation" }));
   await app.client.request({
     type: "automation.put",
     automation: { ...automation, prompt: `${automation.prompt} Elsewhere.` },
   });
-  await chooseModel("GPT-5 Codex", "Codex");
-  expect(await screen.findAllByText(/changed elsewhere.*Reload/i)).not.toHaveLength(0);
-  const saved = await stored(app, "auto-dependency-audit");
-  expect(saved?.prompt).toContain("Elsewhere.");
-  expect(saved?.provider).toBe("claude");
-}, 20_000);
+  await userEvent.type(dialog.getByRole("textbox", { name: "Message" }), " Also the lockfile.");
+  await userEvent.click(dialog.getByRole("button", { name: "Save" }));
+  expect(await screen.findAllByText(/changed elsewhere/i)).not.toHaveLength(0);
+  expect((await stored(app, "auto-dependency-audit"))?.prompt).toContain("Elsewhere.");
+});
 
 test("a new automation is named from its prompt, runs when chosen and opens once created", async () => {
   const { app } = await open("/automations");
@@ -499,13 +484,11 @@ test("a model picked in the chip is saved as the provider's model id", async () 
   expect(saved).toMatchObject({ provider: "codex", model: "gpt-5-codex" });
 }, 20_000);
 
-test("Edit when changes the schedule in place, and the new schedule reads everywhere", async () => {
+test("Edit changes when it runs in one dialog, and the new schedule reads everywhere", async () => {
   const { app, sidebar } = await open("/automations/auto-flaky-triage");
   await heading("Flaky test triage");
-  await menu("Edit when");
-  await screen.findByRole("dialog", { name: "When it runs" });
-  // Still the conversation, with its runs: nothing navigated away.
-  expect(screen.getByRole("group", { name: "Prompt" })).toBeTruthy();
+  await menu("Edit");
+  await screen.findByRole("dialog", { name: "Edit automation" });
   await choose("Repeat", "Weekly");
   await choose("Day", "Monday");
   await userEvent.click(screen.getByRole("button", { name: /^At: / }));
@@ -513,7 +496,7 @@ test("Edit when changes the schedule in place, and the new schedule reads everyw
     await screen.findByRole("textbox", { name: "Exact time" }),
     "9:07 PM{Enter}",
   );
-  await userEvent.keyboard("{Escape}");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
   expect(await main().findByText(/^Mondays at 9:07 PM/)).toBeTruthy();
   expect((await sidebar.findByRole("link", { name: /Flaky test triage/ })).textContent).toContain(
     "Mondays",
@@ -523,45 +506,34 @@ test("Edit when changes the schedule in place, and the new schedule reads everyw
   });
 });
 
-test("the prompt edits in its own bubble and saves", async () => {
+test("Edit changes the name and message together", async () => {
   const { app } = await open("/automations/auto-flaky-triage");
   await heading("Flaky test triage");
-  await userEvent.click(screen.getByRole("button", { name: "Edit" }));
-  const box = screen.getByRole("textbox", { name: "Prompt" });
-  await userEvent.type(box, " Also on Windows.");
-  await userEvent.click(screen.getByRole("button", { name: "Save" }));
-  expect((await screen.findByRole("group", { name: "Prompt" })).textContent).toMatch(
-    /Also on Windows\.$/,
-  );
-  await waitFor(async () =>
-    expect((await stored(app, "auto-flaky-triage"))?.prompt).toMatch(/Also on Windows\.$/),
-  );
-});
-
-test("Escape puts the prompt back as it was", async () => {
-  await open("/automations/auto-flaky-triage");
-  await heading("Flaky test triage");
-  await menu("Edit prompt");
-  await userEvent.type(screen.getByRole("textbox", { name: "Prompt" }), " Never mind.{Escape}");
-  expect((await screen.findByRole("group", { name: "Prompt" })).textContent).not.toContain(
-    "Never mind.",
-  );
-});
-
-test("a prompt edit over a stale copy reports the conflict instead of overwriting", async () => {
-  const { app } = await open("/automations/auto-flaky-triage");
-  await heading("Flaky test triage");
-  const automation = await stored(app, "auto-flaky-triage");
-  if (!automation) throw new Error("Missing automation");
-  await userEvent.click(screen.getByRole("button", { name: "Edit" }));
-  await app.client.request({
-    type: "automation.put",
-    automation: { ...automation, prompt: `${automation.prompt} Elsewhere.` },
+  await menu("Edit");
+  const dialog = within(await screen.findByRole("dialog", { name: "Edit automation" }));
+  const name = dialog.getByRole("textbox", { name: "Name" });
+  await userEvent.clear(name);
+  await userEvent.type(name, "Flake hunt");
+  await userEvent.type(dialog.getByRole("textbox", { name: "Message" }), " Also on Windows.");
+  await userEvent.click(dialog.getByRole("button", { name: "Save" }));
+  await heading("Flake hunt");
+  expect(main().getByRole("group", { name: "Prompt" }).textContent).toMatch(/Also on Windows\.$/);
+  expect(await stored(app, "auto-flaky-triage")).toMatchObject({
+    title: "Flake hunt",
+    prompt: expect.stringMatching(/Also on Windows\.$/),
   });
-  await userEvent.type(screen.getByRole("textbox", { name: "Prompt" }), " Also on Windows.");
-  await userEvent.click(screen.getByRole("button", { name: "Save" }));
-  expect(await screen.findAllByText(/changed elsewhere/i)).not.toHaveLength(0);
-  expect((await stored(app, "auto-flaky-triage"))?.prompt).toContain("Elsewhere.");
+});
+
+test("Cancel leaves the automation as it was", async () => {
+  const { app } = await open("/automations/auto-flaky-triage");
+  await heading("Flaky test triage");
+  const before = await stored(app, "auto-flaky-triage");
+  await menu("Edit");
+  const dialog = within(await screen.findByRole("dialog", { name: "Edit automation" }));
+  await userEvent.type(dialog.getByRole("textbox", { name: "Message" }), " Never mind.");
+  await userEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+  expect(main().getByRole("group", { name: "Prompt" }).textContent).not.toContain("Never mind.");
+  expect(await stored(app, "auto-flaky-triage")).toEqual(before);
 });
 
 test("an old link to the edit page lands on the automation", async () => {
@@ -569,17 +541,6 @@ test("an old link to the edit page lands on the automation", async () => {
   await heading("Flaky test triage");
   expect(await screen.findByRole("group", { name: "Prompt" })).toBeTruthy();
   expect(screen.queryByText(/What should run on its own/)).toBeNull();
-});
-
-test("renaming from the menu saves the new name", async () => {
-  const { app } = await open("/automations/auto-flaky-triage");
-  await heading("Flaky test triage");
-  await menu("Rename");
-  const name = await screen.findByRole("textbox", { name: "Name" });
-  await userEvent.clear(name);
-  await userEvent.type(name, "Flake hunt{Enter}");
-  await heading("Flake hunt");
-  expect((await stored(app, "auto-flaky-triage"))?.title).toBe("Flake hunt");
 });
 
 test("deleting an automation removes it at once, and Undo recreates it with its runs", async () => {
@@ -701,13 +662,13 @@ test("an agent's automation opens as the same conversation, runs and pauses thro
     (await main().findByRole("link", { name: "Fix flaky checkout test" })).getAttribute("href"),
   ).toBe("/t/thread-checkout");
   expect(await main().findByText(/25 of 25 runs passed/)).toBeTruthy();
-  expect(screen.queryByRole("button", { name: /^Model: / })).toBeNull();
-  await userEvent.type(await note(), "Seed 81733 first{Enter}");
+  await menu("Run now");
   await waitFor(() =>
     expect(runs.at(-1)).toMatchObject({ id: "agent-checkout-soak", source: "thread" }),
   );
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  expect(screen.queryByRole("menuitem", { name: "Rename" })).toBeNull();
+  // Its thread owns what it does; it can be run, paused or deleted here, not edited.
+  expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
   await userEvent.keyboard("{Escape}");
   await userEvent.click(screen.getByRole("switch", { name: "Enabled" }));
   await waitFor(async () => {
