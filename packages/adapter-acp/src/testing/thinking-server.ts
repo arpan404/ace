@@ -32,6 +32,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     result({ sessionId: "native", configOptions: configOptions() });
   else if (message["method"] === "session/set_config_option") {
     const params = object(message["params"]);
+    if (params["configId"] === "thinking" && process.argv.includes("--refuse-thinking")) {
+      write({ id: message["id"], error: { code: -32602, message: "Thinking level unavailable" } });
+      return;
+    }
     if (params["configId"] === "model") model = string(params["value"]);
     result({ configOptions: configOptions() });
   } else if (message["method"] === "session/prompt") result({ stopReason: "end_turn" });

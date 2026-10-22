@@ -268,3 +268,17 @@ test("a lease that stays unreadable still fences the repository", async () => {
     await git2.close();
   }
 });
+
+test("leases left half-written by crashed daemons never fence the repository", async () => {
+  const { y, journal } = await worktrees();
+  await mkdir(journal, { recursive: true });
+  // More staged writes than the journal holds published leases: none were ever published.
+  for (let count = 0; count < 300; count++)
+    await writeFile(join(journal, `${randomUUID()}.next`), "{");
+  const git2 = service();
+  try {
+    await expect(checkpoint(git2, y)).resolves.toMatchObject({ label: "after" });
+  } finally {
+    await git2.close();
+  }
+});

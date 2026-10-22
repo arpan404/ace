@@ -174,11 +174,13 @@ export async function records(path: string): Promise<JournalEntry[]> {
       if (missing(error)) continue;
       throw error;
     }
-    if (names.length > 256)
+    // A lease being written (or left half-written by a crash) is staged under `.next`; only
+    // published leases fence Git or count toward the journal's limit.
+    const published = names.filter((name) => !name.endsWith(".next"));
+    if (published.length > 256)
       throw new GitError("git_quarantined", "Git ownership journal exceeds limit");
-    for (const name of names) {
+    for (const name of published) {
       const file = join(directory, name);
-      if (name.endsWith(".next")) continue;
       const running = owned(name);
       if (running) {
         result.push({ record: running.record, file });

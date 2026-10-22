@@ -298,10 +298,11 @@ class AcpSession implements ProviderSession {
     this.configuration.setup(session, mcpTransport);
     if (this.ctx.permissionMode) await this.setMode(this.ctx.permissionMode);
     if (this.ctx.model) await this.setModel(this.ctx.model);
-    // Effort follows the model: the model's own thinking levels arrive with its selection.
+    // Effort follows the model: the model's own thinking levels arrive with its selection. An
+    // agent that refuses the level keeps its default; a start never fails over effort.
     const effort = this.ctx.options?.["effort"];
     if (typeof effort === "string" && this.configuration.selectors.effort?.values.includes(effort))
-      await this.select("effort", effort);
+      await this.configuration.select("effort", effort, this.nativeSessionId).catch(() => {});
   }
   async select(kind: "model" | "mode" | "effort", value: string): Promise<void> {
     if (

@@ -6,7 +6,11 @@ import { openAcpSession, genericQuirks } from "./index.ts";
 import { object } from "./data.ts";
 
 /** Open a session on the scripted agent and return the config selections ace sent it. */
-async function selectionsAt(model: string, effort: string): Promise<unknown[]> {
+async function selectionsAt(
+  model: string,
+  effort: string,
+  serverArgs: string[] = [],
+): Promise<unknown[]> {
   const frames: Frame[] = [];
   const session = await openAcpSession(
     {
@@ -23,7 +27,10 @@ async function selectionsAt(model: string, effort: string): Promise<unknown[]> {
     genericQuirks,
     {
       command: process.execPath,
-      args: [fileURLToPath(new URL("./testing/thinking-server.ts", import.meta.url))],
+      args: [
+        fileURLToPath(new URL("./testing/thinking-server.ts", import.meta.url)),
+        ...serverArgs,
+      ],
     },
   );
   await session.close("shutdown");
@@ -48,4 +55,11 @@ test("a new ACP session starts at the chosen effort, from the selected model's o
 
 test("an effort the agent doesn't offer for the model leaves the session at its default", async () => {
   expect(await selectionsAt("fast", "max")).toEqual([["model", "fast"]]);
+});
+
+test("an agent that refuses the thinking level still starts, at its own default", async () => {
+  expect(await selectionsAt("deep", "max", ["--refuse-thinking"])).toEqual([
+    ["model", "deep"],
+    ["thinking", "max"],
+  ]);
 });

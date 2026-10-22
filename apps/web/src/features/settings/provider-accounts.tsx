@@ -1,7 +1,12 @@
 import { AccountBadge } from "@/components/ui/provider-account-icon.tsx";
 import { AccountLabelEditor } from "./account-label-editor.tsx";
 import { ApiKeyUpstream, type ProviderKind } from "@ace/protocol";
-import { accountStatus, acpRegistryId, headlineWindows, type AccountView } from "@ace/ui-core";
+import {
+  accountStatus,
+  antigravityIdentity,
+  headlineWindows,
+  type AccountView,
+} from "@ace/ui-core";
 import { DotsThreeIcon } from "@phosphor-icons/react";
 import { useRef, useState } from "react";
 import { CompactWindow, formatResets } from "@/features/accounts/index.ts";
@@ -47,15 +52,12 @@ import {
 
 /**
  * Whether an account is this provider page's. ace runs Antigravity through its ACP agent, so
- * Antigravity's account is the ACP row of that agent.
+ * Antigravity's account is the ACP row of its own CLI login, never another installation of the
+ * same agent (its actions sign that CLI login in and out).
  */
 function ownAccount(account: AccountView, provider: ProviderKind, acpAgentId?: string): boolean {
   if (provider === "antigravity")
-    return (
-      account.provider === "acp" &&
-      account.acpAgentId !== undefined &&
-      acpRegistryId(account.acpAgentId) === "antigravity-acp"
-    );
+    return account.provider === "acp" && account.id === antigravityIdentity.instanceId;
   return account.provider === provider && (provider !== "acp" || account.acpAgentId === acpAgentId);
 }
 
@@ -143,7 +145,7 @@ function AccountItem(props: {
   // Antigravity signs in through its own CLI login; any other account is named. The dialog
   // names the agent, not "ACP agent".
   const target = {
-    name: props.name,
+    ...(agentProvider(provider) ? { name: props.name } : {}),
     ...(provider === "antigravity" || account.implicit ? {} : { instance: account.id }),
   };
   const needsSignIn =
