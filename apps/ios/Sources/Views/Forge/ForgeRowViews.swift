@@ -35,7 +35,7 @@ struct ForgePullRowView: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             HStack(spacing: AceTheme.Spacing.sm) {
                 ForgePullGlyph(state: row.state, merged: row.merged, conflicting: row.conflicting, size: 15)
-                Text("#\(row.number)").aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
+                Text(verbatim: "#\(row.number)").aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
                     .foregroundStyle(AceTheme.Colours.subtleForeground)
                 ForgeLabels(labels: row.labels, limit: 2)
                 Spacer(minLength: AceTheme.Spacing.sm)
@@ -54,7 +54,7 @@ struct ForgePullRowView: View {
                 Text(row.author).lineLimit(1)
                 if let branches = row.branches {
                     Text(branches).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .lineLimit(1).truncationMode(.middle)
+                        .lineLimit(1)
                         .layoutPriority(-1)
                 }
                 if let thread = row.thread { ForgeThreadChip(thread: thread) }
@@ -79,7 +79,7 @@ struct ForgeIssueRowView: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             HStack(spacing: AceTheme.Spacing.sm) {
                 ForgeIssueGlyph(state: row.state, size: 15)
-                Text("#\(row.number)").aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
+                Text(verbatim: "#\(row.number)").aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
                     .foregroundStyle(AceTheme.Colours.subtleForeground)
                 ForgeLabels(labels: row.labels, limit: 2)
                 Spacer(minLength: AceTheme.Spacing.sm)

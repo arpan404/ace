@@ -34,7 +34,7 @@ struct ForgePullPageView: View {
         .background(AceTheme.Colours.background)
         .refreshable { await load() }
         .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { if let page { bar(page) } }
-        .navigationTitle("#\(route.number)")
+        .navigationTitle(Text(verbatim: "#\(route.number)"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let page, let link = URL(string: page.url) {
@@ -53,7 +53,7 @@ struct ForgePullPageView: View {
                             titleVisibility: .visible, presenting: confirming) { action in
             Button(action.label) { Task { await write(action) } }
         } message: { _ in
-            if let page { Text("#\(page.number) \(page.title)") }
+            if let page { Text(verbatim: "#\(page.number) \(page.title)") }
         }
     }
 

@@ -164,6 +164,23 @@ maps token keys to theme colours and draws the rows. Archive, unarchive (Undo), 
 presets and wake go through the SDK's durable outbox. `InboxContractTests` and
 `InboxUITests` exercise the inbox against the fixture.
 
+## Pull requests and Issues
+
+The second tab (Pulls) holds the web's Pull requests and Issues pages for one machine and
+project at a time: a segmented switch between them, the project and Filters chips (state with
+GitHub's counts, involvement, sort, drafts, review, checks, author, labels), and the system
+search field. `bridge/forge-service.ts` answers native service calls (`forge.pulls`,
+`forge.issues`, `forge.pull`, `forge.issue`, `forge.merge`, `forge.auto-merge`,
+`forge.projects`) through the daemon's forge reads, the person's own `gh`. Searches, groups,
+next steps, merge gates, the primary control and the marks' words and tones come from
+`@ace/ui-core` (`forge-lists`, `pr-readiness`, `pr-row-steps`, `pr-gates`,
+`pr-primary-action`, `forge-marks`), the same modules the web pages use. List pages are kept
+half a minute; pull to refresh reads again. Merge and auto-merge go through the PR's linked
+thread when there is one, else its project (`forge.hosted.*`), pinned to the head shown and
+confirmed first. Start thread on an issue opens New thread with the issue written in and
+linked (`thread.create`'s `issue`). Linked threads open on the Threads tab. Bridge behaviour is
+covered by `bridge/forge-service.test.ts` on the fake daemon.
+
 ## Several machines
 
 Every paired machine connects at once, each on its own runtime (VM, socket, outbox

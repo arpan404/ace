@@ -18,7 +18,7 @@ import Observation
     /// Reads the list for `key` (machine, project, filters, query). A new key starts again at
     /// one screenful; the same key reads again (pull to refresh with `fresh`).
     func load(_ key: String, fresh: Bool = false, read: @escaping (_ screens: Int, _ fresh: Bool) async throws -> List) async {
-        if key != self.key { self.key = key; screens = 1; stale = list != nil }
+        if key != self.key { self.key = key; screens = 1; stale = list != nil; failure = nil }
         await run(fresh: fresh, read: read)
     }
     /// One more screenful of the same list.
