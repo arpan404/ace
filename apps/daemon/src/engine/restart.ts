@@ -293,19 +293,20 @@ export function recoverEngine(
             ...work,
             uncertain: uncertain || repo.queue.get(state.threadId).reason === "not_sent",
           });
-          if (decision.kind !== "none")
-            repo.apply(
-              state.threadId,
-              [
-                interruptedNotice(
-                  state.rootKey,
-                  clock.now(),
-                  "restart",
-                  restartNoticeText(decision, work.waitingOnPerson),
-                ),
-              ],
-              clock.now(),
-            );
+          repo.apply(
+            state.threadId,
+            [
+              interruptedNotice(
+                state.rootKey,
+                clock.now(),
+                "restart",
+                decision.kind === "none"
+                  ? undefined
+                  : restartNoticeText(decision, work.waitingOnPerson),
+              ),
+            ],
+            clock.now(),
+          );
           if (decision.kind === "resume") {
             recovery.resumeAfterRestart(state.threadId);
             return;
