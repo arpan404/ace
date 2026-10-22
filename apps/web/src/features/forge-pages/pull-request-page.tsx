@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ForgePrRef, ForgeRepository } from "@ace/protocol";
+import { IssuePages } from "@/components/forge-links.tsx";
 import { PullRequestOpener } from "@/components/pull-request-link.tsx";
 import { loadPrDetail, PrPageSkeleton } from "@/features/forge/index.ts";
 import { Screen } from "@/features/shell/index.ts";
@@ -63,35 +64,37 @@ export function PullRequestPage(props: {
   return (
     <Screen title={`#${props.number}`} crumb={choice.name(project)}>
       <PullRequestOpener value={(pr: ForgePrRef) => open(pr.number, pr.repository)}>
-        <Suspense
-          fallback={
-            <div className="h-full bg-panel [--forge-gutter:1rem] sm:[--forge-gutter:2rem]">
-              <PrPageSkeleton
-                number={props.number}
-                seed={seed}
-                onBack={back}
-                readable="mx-auto w-full max-w-[64rem]"
-              />
-            </div>
-          }
-        >
-          <PrDetail
-            key={`${project}:${props.repo ?? ""}#${props.number}`}
-            workspaceId={project}
-            repository={repositoryFromParam(props.repo)}
-            number={props.number}
-            seed={seed}
-            tab={props.tab ?? "summary"}
-            onTab={(tab) => {
-              const next = tabs.find((known) => known === tab) ?? "summary";
-              props.onTab(next === "summary" ? undefined : next);
-            }}
-            onState={onState}
-            onOpen={(number) => open(number)}
-            onBack={back}
-            page
-          />
-        </Suspense>
+        <IssuePages project={project}>
+          <Suspense
+            fallback={
+              <div className="h-full bg-panel [--forge-gutter:1rem] sm:[--forge-gutter:2rem]">
+                <PrPageSkeleton
+                  number={props.number}
+                  seed={seed}
+                  onBack={back}
+                  readable="mx-auto w-full max-w-[64rem]"
+                />
+              </div>
+            }
+          >
+            <PrDetail
+              key={`${project}:${props.repo ?? ""}#${props.number}`}
+              workspaceId={project}
+              repository={repositoryFromParam(props.repo)}
+              number={props.number}
+              seed={seed}
+              tab={props.tab ?? "summary"}
+              onTab={(tab) => {
+                const next = tabs.find((known) => known === tab) ?? "summary";
+                props.onTab(next === "summary" ? undefined : next);
+              }}
+              onState={onState}
+              onOpen={(number) => open(number)}
+              onBack={back}
+              page
+            />
+          </Suspense>
+        </IssuePages>
       </PullRequestOpener>
     </Screen>
   );

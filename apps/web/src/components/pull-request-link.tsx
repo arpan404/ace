@@ -1,9 +1,8 @@
 import { useThreadMeta } from "@ace/client-react";
-import { prFromUrl } from "@ace/forge/pr-reference";
 import type { ForgePrRef } from "@ace/protocol";
-import { createContext, useContext, type MouseEvent, type ReactNode } from "react";
+import { useContext, type MouseEvent, type ReactNode } from "react";
 import { pullRequestTab, useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { WebLink } from "./web-link.tsx";
+import { PullRequestOpener, WebLink } from "./web-link.tsx";
 
 /*
  * A link to a pull request opens it in a side panel tab rather than on the forge. Inside a pull
@@ -15,17 +14,7 @@ import { WebLink } from "./web-link.tsx";
 
 type OpenPullRequest = (pr: ForgePrRef) => void;
 
-/** Where links to a pull request open, for everything drawn inside it (a PR tab provides it). */
-export const PullRequestOpener = createContext<OpenPullRequest | undefined>(undefined);
-
-/** The pull request a GitHub address names (`…/pull/12`, `…/pull/12/files`), else undefined. */
-export function pullRequestAt(href: string): ForgePrRef | undefined {
-  try {
-    return prFromUrl(href);
-  } catch {
-    return undefined;
-  }
-}
+export { PullRequestOpener, pullRequestAt } from "./web-link.tsx";
 
 /** A plain click; a modified or middle click keeps the browser's own meaning (a new tab). */
 const plainClick = (event: MouseEvent) =>

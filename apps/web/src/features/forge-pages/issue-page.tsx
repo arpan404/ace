@@ -7,7 +7,7 @@ import {
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import type { ForgeIssueDetail } from "@ace/protocol";
+import type { ForgeIssueDetail, ForgeRepository } from "@ace/protocol";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
@@ -26,6 +26,8 @@ import { LabelPill, StateBadge } from "@/components/forge-marks.tsx";
 import { WorkHeading, WorkTitle } from "@/components/work-heading.tsx";
 import { Avatars } from "./marks.tsx";
 import { useProjectChoice } from "./project-choice.ts";
+import { IssuePages, PullRequestPages } from "@/components/forge-links.tsx";
+import { repositoryFromParam } from "@/lib/pull-request-route.ts";
 
 /** A page's reading width, as a pull request's page has. */
 export const readable = "mx-auto w-full max-w-[64rem] px-4 sm:px-8";
@@ -125,7 +127,13 @@ function Header(props: { project: string; issue: ForgeIssueDetail; onBack(): voi
   );
 }
 
-function IssueBody(props: { project: string; issue: ForgeIssueDetail; onBack(): void }) {
+function IssueBody(props: {
+  project: string;
+  /** The issue's repository when it isn't the project's own. */
+  repository: ForgeRepository | undefined;
+  issue: ForgeIssueDetail;
+  onBack(): void;
+}) {
   const { issue } = props;
   const writes = useIssueWrites(props.project, issue.ref.repository);
   return (
@@ -139,7 +147,11 @@ function IssueBody(props: { project: string; issue: ForgeIssueDetail; onBack(): 
           <p className="text-ui text-subtle-foreground">No description.</p>
         )}
       </div>
-      <IssueTimeline project={props.project} number={issue.ref.number} />
+      <IssueTimeline
+        project={props.project}
+        repository={props.repository}
+        number={issue.ref.number}
+      />
       <IssueComposer project={props.project} issue={issue} writes={writes} />
     </div>
   );
@@ -152,38 +164,54 @@ function IssueBody(props: { project: string; issue: ForgeIssueDetail; onBack(): 
 export function IssuePage(props: {
   project: string;
   number: number;
+  /** A repository other than the project's own (`github.com/acme/ace`). */
+  repo?: string | undefined;
   /** The list's own address, when opened from it. */
   back: string | undefined;
 }) {
   const choice = useProjectChoice(props.project);
   const back = useBackToList("/issues", props.project, props.back);
-  const query = useIssueDetail(props.project, props.number);
+  const repository = repositoryFromParam(props.repo);
+  const query = useIssueDetail(props.project, props.number, repository);
   const cache = useQueryClient();
   const issue = query.data;
   return (
     <Screen title={`#${props.number}`} crumb={choice.name(props.project)}>
-      <article aria-label={`Issue #${props.number}`} className="h-full overflow-y-auto">
-        {issue ? (
-          <IssueBody project={props.project} issue={issue} onBack={back} />
-        ) : query.isError ? (
-          <EmptyState
-            title={`Couldn't open issue #${props.number}`}
-            description={query.error.message}
-            action={
-              <Button size="sm" onClick={() => void query.refetch()}>
-                Try again
-              </Button>
-            }
-          />
-        ) : (
-          <IssuePageSkeleton
-            number={props.number}
-            seed={cachedRow(cache, props.project, "issueList", props.number)}
-            onBack={back}
-            readable={readable}
-          />
-        )}
-      </article>
+      <PullRequestPages project={props.project}>
+        <IssuePages project={props.project}>
+          <article aria-label={`Issue #${props.number}`} className="h-full overflow-y-auto">
+            {issue ? (
+              <IssueBody
+                project={props.project}
+                repository={repository}
+                issue={issue}
+                onBack={back}
+              />
+            ) : query.isError ? (
+              <EmptyState
+                title={`Couldn't open issue #${props.number}`}
+                description={query.error.message}
+                action={
+                  <Button size="sm" onClick={() => void query.refetch()}>
+                    Try again
+                  </Button>
+                }
+              />
+            ) : (
+              <IssuePageSkeleton
+                number={props.number}
+                seed={
+                  props.repo
+                    ? undefined
+                    : cachedRow(cache, props.project, "issueList", props.number)
+                }
+                onBack={back}
+                readable={readable}
+              />
+            )}
+          </article>
+        </IssuePages>
+      </PullRequestPages>
     </Screen>
   );
 }
