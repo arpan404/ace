@@ -25,6 +25,7 @@ struct ConversationFeed: View {
     @State private var initialScroll = false
     @State private var intent = TranscriptScrollIntent()
     @State private var anchor = TranscriptReadingAnchor()
+    @State private var rows = TranscriptFeedRowsCache()
     /// How far the keyboard reaches above the feed's bottom edge.
     @State private var keyboardLift: CGFloat = 0
     /// While the keyboard moves, the live tail doesn't jump to the end on each delta: the
@@ -49,7 +50,7 @@ struct ConversationFeed: View {
                         .frame(minHeight: AceTheme.Dimensions.touchTarget)
                 }
                 if ready {
-                    ForEach(TranscriptFeedRow.rows(shown)) { row in
+                    ForEach(rows.rows(shown)) { row in
                         TranscriptFeedRowView(row: row, thread: shown, links: links).id(row.id)
                             .onAppear { ThreadOpenTrace.shared.painted(thread.id) }
                             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("transcript.viewport")) } action: { frame in
