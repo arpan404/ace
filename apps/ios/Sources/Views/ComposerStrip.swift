@@ -28,7 +28,7 @@ struct StripSurface<Content: View>: View {
     @ViewBuilder var content: () -> Content
     @Environment(\.colorScheme) private var scheme
     var body: some View {
-        let shape = UnevenRoundedRectangle(topLeadingRadius: StripMetrics.radius, topTrailingRadius: StripMetrics.radius, style: .continuous)
+        let shape = AceShape.strip
         ScrollView {
             content()
                 .padding(.horizontal, dense ? AceTheme.Spacing.md : AceTheme.Spacing.lg)
@@ -39,6 +39,7 @@ struct StripSurface<Content: View>: View {
         .scrollIndicators(.hidden)
         .frame(maxHeight: maxHeight)
         .fixedSize(horizontal: false, vertical: true)
+        .aceContainerShape(shape)
         .aceGlass(in: shape)
         .shadow(color: AceTheme.Colours.shadow.opacity(AceTheme.Opacity.shadow(scheme) / 2), radius: AceTheme.Spacing.sm, y: -AceTheme.Dimensions.border)
         .mask(alignment: .top) {
@@ -58,6 +59,9 @@ struct StripSurface<Content: View>: View {
 enum StripMetrics {
     /// The composer and its strip share the composer radius: a capsule while one line tall.
     static let radius = AceTheme.Radii.composer
+    /// Insets inside the strip or composer (a command, a plan, a choice) sit `lg` in from its
+    /// edge, so their corners are the composer's less that.
+    static let insetRadius = AceShape.nested(in: radius, inset: AceTheme.Spacing.lg)
     /// How far the strip's lower edge sits behind the composer.
     static let tuck = AceTheme.Spacing.lg
     /// The strip is narrower than the composer by this much on each side.
@@ -119,7 +123,7 @@ struct StripTextButtonStyle: ButtonStyle {
             .foregroundStyle(configuration.isPressed ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
             .padding(.horizontal, AceTheme.Spacing.sm)
             .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
-            .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: RoundedRectangle(cornerRadius: AceTheme.Radii.md))
+            .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
             .contentShape(Rectangle())
     }
 }
