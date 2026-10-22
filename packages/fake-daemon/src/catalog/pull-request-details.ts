@@ -7,6 +7,7 @@ import {
   ForgeReviewState,
   type ForgeRepository,
 } from "@ace/protocol";
+import { withManagement } from "./pr-management.ts";
 
 /*
  * The full pull request views the design's PR panel opens, one for each state it has to look
@@ -80,7 +81,8 @@ export const mergeState = (headSha: string, patchState: Partial<ForgeMergeState>
     ...patchState,
   });
 export const lifecycle = (detail: ForgePrDetail, actions: string[]) =>
-  ForgeLifecycleState.parse({
+  withManagement(
+    ForgeLifecycleState.parse({
     snapshot: {
       pr: detail.status.ref,
       id: `PR_${detail.status.ref.number}`,
@@ -98,9 +100,17 @@ export const lifecycle = (detail: ForgePrDetail, actions: string[]) =>
       editableFields: detail.status.state === "merged" ? [] : ["title", "body", "labels"],
       actions,
       unsupported: [],
+      headBranch: {
+        name: detail.headBranch,
+        exists: true,
+        sameRepository: true,
+        isDefault: false,
+        deleteOnMerge: false,
+      },
     },
     operations: [],
-  });
+    }),
+  );
 export const review = (headSha: string, open: boolean) =>
   ForgeReviewState.parse({
     viewer: "you",
