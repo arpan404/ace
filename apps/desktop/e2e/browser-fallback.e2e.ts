@@ -112,9 +112,8 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
           return !!box && Math.abs(height - box.height) < 2;
         })
         .toBe(true);
-      // A new browser tab's address opens a page of its own; closing the tab closes it.
-      await p.getByRole("button", { name: "Browser options" }).click();
-      await p.getByRole("menuitem", { name: "New browser tab" }).click();
+      // A new panel tab's address opens a browser tab of its own; closing the tab closes it.
+      await p.getByRole("button", { name: "New tab" }).click();
       await address.fill(new URL("/second", s.url).href);
       await address.press("Enter");
       await expect.poll(() => s.daemon.browser.state(s.thread.id)?.tabs?.length).toBe(2);

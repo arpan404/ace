@@ -290,7 +290,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       while ((await p.getByRole("menu").count()) > 0) await p.keyboard.press("Escape");
       await toolbar.waitFor();
       const pageSize = async (name: string) => {
-        await toolbar.getByRole("combobox", { name: "Device" }).click();
+        await toolbar.getByRole("combobox", { name: "Device", exact: true }).click();
         await p.getByRole("option", { name, exact: true }).click();
       };
       await pageSize("iPhone 16 Pro");
