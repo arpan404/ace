@@ -10,11 +10,11 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import type { ForgeIssueRow, ForgePrRow } from "@ace/protocol";
-import type { LocalCheckResult } from "@ace/ui-core";
+import { checksMark, checksState, reviewMark, type LocalCheckResult } from "@ace/ui-core";
 import { PersonAvatar as PrAvatar } from "@/components/person-avatar.tsx";
 import { cn } from "@/lib/cn.ts";
 
-import { prTone, prWords } from "@/components/forge-marks.tsx";
+import { prTone, prWords } from "@ace/ui-core";
 
 export function PrStateGlyph(props: {
   state: ForgePrRow["state"];
@@ -58,21 +58,22 @@ export function IssueStateGlyph(props: { state: ForgeIssueRow["state"]; size?: n
   );
 }
 
-const reviewMarks = {
-  APPROVED: { icon: CheckCircleIcon, tone: "done", word: "Approved" },
-  CHANGES_REQUESTED: { icon: XCircleIcon, tone: "failed", word: "Changes requested" },
-  REVIEW_REQUIRED: { icon: CircleDashedIcon, tone: undefined, word: "Review required" },
+const reviewIcons = {
+  APPROVED: CheckCircleIcon,
+  CHANGES_REQUESTED: XCircleIcon,
+  REVIEW_REQUIRED: CircleDashedIcon,
 } as const;
 
 export function ReviewMark(props: { decision: ForgePrRow["reviewDecision"] }) {
-  if (!props.decision) return null;
-  const mark = reviewMarks[props.decision];
-  const Icon = mark.icon;
+  const mark = reviewMark(props.decision);
+  if (!props.decision || !mark) return null;
+  const Icon = reviewIcons[props.decision];
+  const toned = mark.tone !== "idle";
   return (
     <span
-      data-tone={mark.tone}
+      data-tone={toned ? mark.tone : undefined}
       title={mark.word}
-      className={cn("inline-flex", mark.tone ? "text-(--tone-text)" : "text-muted-foreground")}
+      className={cn("inline-flex", toned ? "text-(--tone-text)" : "text-muted-foreground")}
     >
       <Icon aria-hidden size={14} />
       <span className="sr-only">{mark.word}</span>
@@ -80,36 +81,12 @@ export function ReviewMark(props: { decision: ForgePrRow["reviewDecision"] }) {
   );
 }
 
-/** GitHub's checks and the latest local check of the head, as one state. */
-function checksState(
-  ci: ForgePrRow["ci"],
-  local: LocalCheckResult,
-): "failure" | "pending" | "success" | undefined {
-  if (ci === "failure" || local === "failed") return "failure";
-  if (ci === "pending" || local === "running") return "pending";
-  if (ci === "success" || local === "passed") return "success";
-  return undefined;
-}
-
-const localWords = {
-  failed: "local check failed",
-  running: "local check running",
-  passed: "local check passed",
-};
-
 export function ChecksMark(props: { ci: ForgePrRow["ci"]; local?: LocalCheckResult }) {
   const state = checksState(props.ci, props.local);
-  const mark =
-    state === "success"
-      ? { icon: CheckIcon, tone: "done", word: "Checks passed" }
-      : state === "failure"
-        ? { icon: XIcon, tone: "failed", word: "Checks failing" }
-        : state === "pending"
-          ? { icon: ClockIcon, tone: "working", word: "Checks running" }
-          : undefined;
-  if (!mark) return null;
-  const Icon = mark.icon;
-  const word = props.local ? `${mark.word}, ${localWords[props.local]}` : mark.word;
+  const mark = checksMark(props.ci, props.local);
+  if (!state || !mark) return null;
+  const Icon = state === "success" ? CheckIcon : state === "failure" ? XIcon : ClockIcon;
+  const word = mark.word;
   return (
     <span data-tone={mark.tone} title={word} className="inline-flex text-(--tone-text)">
       <Icon aria-hidden size={14} weight={state === "pending" ? "regular" : "bold"} />
