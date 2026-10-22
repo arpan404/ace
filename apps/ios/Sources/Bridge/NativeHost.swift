@@ -51,17 +51,9 @@ final class NativeHost: @unchecked Sendable {
         let now: @convention(block) () -> Double = { Date().timeIntervalSince1970 * 1000 }
         let uuid: @convention(block) () -> String = { UUID().uuidString.lowercased() }
         let random: @convention(block) () -> Double = { Double(UInt32.random(in: .min ... .max)) / 4294967296 }
-        let encode: @convention(block) (String) -> [UInt8] = { Array($0.utf8) }
         let utf8Base64: @convention(block) (String) -> String = { Data($0.utf8).base64EncodedString() }
         let previewHead: @convention(block) (String, Int) -> String = { DisplayText.head($0, limit: $1) }
         let previewTail: @convention(block) (String, Int) -> String = { DisplayText.tail($0, limit: $1) }
-        let decode: @convention(block) ([UInt8], String, Bool) -> String = { bytes, encoding, fatal in
-            let data = Data(bytes)
-            let selected: String.Encoding = encoding.lowercased() == "utf-16le" ? .utf16LittleEndian : .utf8
-            if let text = String(data: data, encoding: selected) { return text }
-            if fatal { JSContext.current()?.exception = JSValue(newErrorFromMessage: "Invalid encoded text", in: JSContext.current()) }
-            return String(decoding: bytes, as: UTF8.self)
-        }
         let entropy: @convention(block) (Int) -> [UInt8] = { count in
             guard count >= 0, count <= 65536 else { return [] }
             var bytes = [UInt8](repeating: 0, count: count)
@@ -84,9 +76,9 @@ final class NativeHost: @unchecked Sendable {
             return String(decoding: data, as: UTF8.self)
         }
         let functions: [String: Any] = ["parseURL": parseURL, "call": call, "emit": emit, "socket": socket, "timer": timer,
-            "cancelTimer": cancel, "now": now, "uuid": uuid, "random": random, "encode": encode,
-            "decode": decode, "randomBytes": entropy, "base64": base64, "utf8Base64": utf8Base64,
-            "previewHead": previewHead, "previewTail": previewTail]
+            "cancelTimer": cancel, "now": now, "uuid": uuid, "random": random,
+            "randomBytes": entropy, "base64": base64, "utf8Base64": utf8Base64,
+            "previewHead": previewHead, "previewTail": previewTail].merging(NativeBytes.functions()) { current, _ in current }
         context.setObject(functions, forKeyedSubscript: "aceHost" as NSString)
     }
     private func call(_ operation: String, json: String, callback: Callback) {
@@ -170,7 +162,11 @@ final class NativeHost: @unchecked Sendable {
             }
             let socket = PinnedSocket(target: target, now: services.now, streams: runtime?.browserStreams) { type, value in
                 runtime?.execute { context in
-                    context.objectForKeyedSubscript("aceSocket")?.call(withArguments: [id, type, value])
+                    // Binary messages reach the SDK as a Uint8Array, never as text to unpack in script.
+                    let payload: Any = type == "binary"
+                        ? (Data(base64Encoded: value) ?? Data()).withUnsafeBytes { NativeBytes.makeArray($0, in: context) }
+                        : value
+                    context.objectForKeyedSubscript("aceSocket")?.call(withArguments: [id, type, payload])
                 }
             }
             sockets[id] = socket
