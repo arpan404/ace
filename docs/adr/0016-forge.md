@@ -125,3 +125,30 @@ remote matching treats the PR's own host as known, so Enterprise remotes match.
 422 refusals map to `no_commits`, `pr_exists`, `head_missing`, `base_missing`, `conflict`
 (an existing name) or `unprocessable`. Work on PR reports `head_moved` and
 `fork_deleted` instead of `conflict` and `not_found`.
+
+## Single line comments and hidden comments (2026-10-22)
+
+`line.comment` posts one inline comment at once, through
+`POST repos/{owner}/{repo}/pulls/{number}/comments`, with the write marker in its body. It
+exists because the only other way to put a comment on a line was a review submit, and a
+submit sends the pending drafts with it. A single comment must never publish or remove the
+viewer's drafts: the daemon passes it no drafts and deletes none, and the backend refuses
+one that arrives with drafts. Before writing, the PR must be open at the anchor's head, the
+viewer must be able to comment, and the anchor must name a line GitHub's own patch draws,
+the same check a submit makes. It reconciles from the viewer's inline comment on that path
+carrying the marker.
+
+`comment.hide` and `comment.unhide` minimize and unminimize one of the PR's own
+conversation or inline comments with GitHub's `minimizeComment` (classifier `OFF_TOPIC`,
+`OUTDATED`, `RESOLVED`, `DUPLICATE` or `SPAM`) and `unminimizeComment`, addressed by the
+comment's GraphQL node id from its REST record. A comment id from another PR is refused
+before any request. The viewer must have `viewerCanMinimize`. Both reconcile from the
+comment's `isMinimized` and `minimizedReason`. An uncertain hide or unhide fences the other
+on the same comment until its outcome is known.
+
+Review state reports `hidden` (minimized comments with GitHub's reason, lower-cased and
+hyphenated, kept as text when unknown) and `hideable` (comments with `viewerCanMinimize`).
+They are read in the same GraphQL pages and under the same bounds as reactions, so no
+extra calls are made. Like reactions they are decoration: a failed read, or a host that
+doesn't report visibility, leaves them null without failing the review state. Review
+threads also carry their diff side and first line (`diffSide`, `startLine`).
