@@ -7,7 +7,7 @@ import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { ProjectMark, PullRequest, RowStatus } from "./row-parts.tsx";
-import { ExternalLink, ThreadHoverPrs } from "./thread-hover-prs.tsx";
+import { LinkedPullRequestLink, ThreadHoverPrs } from "./thread-hover-prs.tsx";
 import { onScrollMove, scrolledRecently } from "./scroll-rest.ts";
 
 /** One compact line of the card: a glyph and its fact. */
@@ -42,7 +42,7 @@ export function ThreadHoverContent(props: {
     ? accounts.data?.find((candidate) => candidate.id === props.instance)
     : undefined;
   const model = entry.live?.model ?? entry.execution?.model;
-  const prUrl = card.prs?.[0]?.url;
+  const linkedPr = card.prs?.[0];
   const queued =
     entry.switch?.state === "queued" && entry.switch.selection.instanceId === account?.id;
   return (
@@ -76,10 +76,14 @@ export function ThreadHoverContent(props: {
         {card.branch && (
           <Fact>
             <GitBranchIcon aria-hidden size={14} className="shrink-0" />
-            {prUrl ? (
-              <ExternalLink href={prUrl} label={`Open pull request for ${card.branch.name}`}>
+            {linkedPr ? (
+              <LinkedPullRequestLink
+                threadId={card.id}
+                pr={linkedPr}
+                label={`Open pull request for ${card.branch.name}`}
+              >
                 {card.branch.name}
-              </ExternalLink>
+              </LinkedPullRequestLink>
             ) : (
               <span className="min-w-0 truncate">{card.branch.name}</span>
             )}
@@ -112,7 +116,7 @@ export function ThreadHoverContent(props: {
       {(card.pr !== undefined || card.diff) && (
         <div className="mt-1 border-t border-border pt-1 text-ui text-muted-foreground">
           {card.prs?.length ? (
-            <ThreadHoverPrs prs={card.prs} />
+            <ThreadHoverPrs threadId={card.id} prs={card.prs} />
           ) : card.pr !== undefined ? (
             <Fact>
               <PullRequest card={card} />

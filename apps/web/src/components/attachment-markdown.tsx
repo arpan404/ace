@@ -5,6 +5,7 @@ import { Suspense, useContext } from "react";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { displayName } from "./attachment-format.ts";
+import { WebLink } from "@/components/web-link.tsx";
 
 // The thumbnail and its lightbox load only when a message has an inline image.
 const InlineImage = deferredComponent(() =>
@@ -34,17 +35,12 @@ export function MarkdownImage(props: { src: string; alt: string }) {
   const web = webUrl(src);
   if (web)
     return (
-      <a
-        href={web.href}
-        target="_blank"
-        rel="noreferrer noopener"
-        className={chipClass + " hover:bg-accent hover:text-foreground"}
-      >
+      <WebLink href={web.href} className={chipClass + " hover:bg-accent hover:text-foreground"}>
         <ImageIcon aria-hidden size={14} className="shrink-0 text-subtle-foreground" />
         <span className="min-w-0 truncate">{alt || displayName(web.pathname, "Image")}</span>
         <span className="shrink-0 text-subtle-foreground">{web.host}</span>
         <ArrowSquareOutIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
-      </a>
+      </WebLink>
     );
   if (scope) return <ThreadReference reference={src} image alt={alt} />;
   const name = displayName(src, "Image");

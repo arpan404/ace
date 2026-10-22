@@ -61,6 +61,27 @@ test("no picked accent passes for any status colour: one too close is moved clea
   expect(deltaE(rgb(moved.accent), rgb(working))).toBeGreaterThanOrEqual(statusDistance);
 });
 
+test("a curated accent is the same hue in light and dark on every theme", () => {
+  for (const accent of accentIds) {
+    if (accent === "theme" || accent === "ink" || accent === "custom") continue;
+    const choice = { accent, customAccent: "#3E8E7E" };
+    for (const id of themeIds) {
+      const [light, dark] = schemes.map((scheme) =>
+        rgbToOklch(rgb(themedPalette(id, scheme, choice).accent)),
+      );
+      const turn = Math.abs((((light?.h ?? 0) - (dark?.h ?? 0) + 540) % 360) - 180);
+      expect(turn, `${accent} on ${id}`).toBeLessThan(15);
+    }
+  }
+});
+
+test("destructive buttons are the same red in light and dark on every theme", () => {
+  for (const id of themeIds) {
+    const [light, dark] = schemes.map((scheme) => themeDeclarations(id, scheme)["--danger"]);
+    expect(deltaE(rgb(light), rgb(dark)), id).toBeLessThan(3);
+  }
+});
+
 test("no two themes share an accent, in either scheme", () => {
   // Themes are colour only: their accents are what tells them apart at a glance.
   for (const scheme of schemes)
@@ -199,7 +220,7 @@ test("a saved appearance keeps each valid choice, and a removed theme falls back
     JSON.stringify({
       mode: "dark",
       theme: "graphite",
-      accent: "violet",
+      accent: "teal",
       customAccent: "not a colour",
       translucency: 30,
       reduceMotion: 1,
@@ -209,7 +230,7 @@ test("a saved appearance keeps each valid choice, and a removed theme falls back
     ...defaultAppearance,
     theme: "ace",
     mode: "dark",
-    accent: "violet",
+    accent: "teal",
     translucency: 30,
   });
 });

@@ -1,11 +1,11 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   type ClipboardEvent,
   type KeyboardEvent,
   type MouseEvent,
-  type WheelEvent,
 } from "react";
 import { matchesChord, parseChord } from "@/lib/hotkeys.ts";
 import { bindingsFor, scopeOf, useResolvedKeymap } from "@/lib/keybindings.ts";
@@ -26,7 +26,7 @@ import { PageContextMenu, type PageMenu } from "./page-context-menu.tsx";
 import { typedByPageKeyboard } from "./page-keyboard.tsx";
 import { PageStateLayer } from "./page-state-layer.tsx";
 import { usePageState } from "./use-page-state.ts";
-import { mouseButton, mouseMove, modifierMask } from "./pointer-input.ts";
+import { mouseButton, mouseMove, modifierMask, wheelScroll } from "./pointer-input.ts";
 import { localCursor } from "./local-echo.ts";
 import { useLocalEcho } from "./use-local-echo.ts";
 import { LocalEchoOverlay } from "./local-echo-overlay.tsx";
@@ -69,7 +69,7 @@ export function PageView(props: {
   const tabId = props.tab?.tabId;
   const pane = useRef<HTMLDivElement>(null);
   const picture = useRef<HTMLElement>(null);
-  const echo = useLocalEcho(props.threadId, frame);
+  const echo = useLocalEcho(props.threadId);
   /** The person's input, to the shown tab by name, timed for the ⋯ menu's round trip. */
   const forward = (input: ForwardedInput) =>
     echo.timed(() => props.source.input(props.threadId, input, tabId));
@@ -90,10 +90,13 @@ export function PageView(props: {
   useViewportSync(props.source, props.threadId, pane, props.fit && props.interactive, touchScreen);
   useCaptureSize(props.source, props.threadId, pane);
   // Pointer positions map back to page pixels through the picture's rendered box.
-  const point = (event: MouseEvent<HTMLElement>) => {
+  const placement = () => {
     // The picture is a <canvas> laid out in CSS pixels, whatever its bitmap's size.
-    const box = event.currentTarget.querySelector("[data-page-picture]")?.getBoundingClientRect();
-    const scale = box?.width && frame ? frame.width / box.width : 1;
+    const box = pane.current?.querySelector("[data-page-picture]")?.getBoundingClientRect();
+    return { box, scale: box?.width && frame ? frame.width / box.width : 1 };
+  };
+  const point = (event: { clientX: number; clientY: number }) => {
+    const { box, scale } = placement();
     return {
       x: Math.round((event.clientX - (box?.left ?? 0)) * scale),
       y: Math.round((event.clientY - (box?.top ?? 0)) * scale),
@@ -127,19 +130,20 @@ export function PageView(props: {
         if (move.current) void forward(move.current);
       });
   };
-  const onWheel = (event: WheelEvent<HTMLElement>) => {
-    const deltaX = Math.round(event.deltaX);
-    const deltaY = Math.round(event.deltaY);
-    const sent = forward({
-      kind: "scroll",
-      ...point(event),
-      deltaX,
-      deltaY,
-      modifiers: modifierMask(event),
-    });
-    // Ctrl+wheel is a pinch or the page's zoom, not a scroll to show ahead of the frame.
-    if (!event.ctrlKey) echo.scroll(deltaX, deltaY, sent);
-  };
+  // The wheel goes to the page as it came, at the pointer: Chrome scrolls whatever is under it
+  // and the next frame shows that. The picture itself never moves, and ace never scrolls, zooms
+  // or swipes back for it, so the listener is not passive (React's onWheel is).
+  const onWheel = useRef<((event: WheelEvent) => void) | undefined>(undefined);
+  const paneRef = useCallback((element: HTMLDivElement | null) => {
+    pane.current = element;
+    if (!element) return;
+    const wheel = (event: WheelEvent) => onWheel.current?.(event);
+    element.addEventListener("wheel", wheel, { passive: false });
+    return () => {
+      element.removeEventListener("wheel", wheel);
+      pane.current = null;
+    };
+  }, []);
   const touch = useTouchInput({
     locate: (event) => point(event),
     send: forward,
@@ -199,7 +203,6 @@ export function PageView(props: {
       pictureRef={picture}
       frame={drawn}
       alt={`Live view of ${props.view.url}`}
-      style={echo.pictureStyle}
       className={cn(
         "block object-contain transition-opacity duration-(--motion-base)",
         props.framed ? "size-full" : "h-auto max-h-full w-auto max-w-full",
@@ -218,6 +221,19 @@ export function PageView(props: {
   // annotate mode changes hands: dropped to <body>, the composer would take the next keys and
   // Enter would send it. While the page can't take them, keys typed here go nowhere.
   const live = props.interactive && !props.nativeShown;
+  useEffect(() => {
+    onWheel.current = live
+      ? (event) => {
+          event.preventDefault();
+          void forward({
+            kind: "scroll",
+            ...point(event),
+            ...wheelScroll(event, placement().scale, frame ?? { width: 0, height: 0 }),
+            modifiers: modifierMask(event),
+          });
+        }
+      : undefined;
+  });
   // The daemon draws agents' cursors in the page, so the frames already show them; only a
   // recording keeps them out of the page, and then they are drawn here instead.
   const inPage = props.view.features?.includes("page-cursor") === true && !props.view.recording;
@@ -237,7 +253,7 @@ export function PageView(props: {
   const view = (
     // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- handlers attach only while live, when the pane is role="application"
     <div
-      ref={pane}
+      ref={paneRef}
       data-page-view=""
       role={live ? "application" : undefined}
       aria-label={live ? `Control ${props.view.url}` : undefined}
@@ -246,7 +262,6 @@ export function PageView(props: {
       onMouseMove={live ? onMove : undefined}
       onMouseDown={live ? send("mousePressed") : undefined}
       onMouseUp={live ? send("mouseReleased") : undefined}
-      onWheel={live ? onWheel : undefined}
       onPointerDown={live ? touch.onPointerDown : undefined}
       onPointerMove={live ? touch.onPointerMove : undefined}
       onPointerUp={live ? touch.onPointerUp : undefined}

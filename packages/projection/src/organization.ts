@@ -75,7 +75,10 @@ export function organizationDecision(
     case "thread.autoSettle":
       return {
         type: "thread.client.updated",
-        changes: p.enabled ? { autoSettle: null } : { autoSettle: false, autoSettleAt: null },
+        // Turned back on by hand: every rule applies again, a pull request that settled it too.
+        changes: p.enabled
+          ? { autoSettle: null, prSettled: null }
+          : { autoSettle: false, autoSettleAt: null },
       };
     case "thread.snooze":
       if (p.until !== null && p.until <= at) return "snooze_in_past";
@@ -147,16 +150,27 @@ function automaticSettle(
     policy.hours > 0
       ? (thread.activityAt ?? thread.updatedAt) + policy.hours * 3_600_000
       : undefined;
-  const reason =
-    thread.details?.linkedPr?.state === "merged" && policy.merged
-      ? "pr_merged"
-      : thread.details?.linkedPr?.state === "closed" && policy.closed
-        ? "pr_closed"
-        : due !== undefined && due <= at
-          ? "inactivity"
+  // A pull request settles its thread once. Reopened after that, the thread stays open until
+  // the person settles it, it goes inactive, or another linked pull request merges or closes.
+  const pr = thread.details?.linkedPr;
+  const prReason =
+    !pr || pr.number === thread.prSettled
+      ? undefined
+      : pr.state === "merged" && policy.merged
+        ? "pr_merged"
+        : pr.state === "closed" && policy.closed
+          ? "pr_closed"
           : undefined;
-  return reason
-    ? { ...expired, settledAt: at, settledReason: reason, autoSettleAt: null }
+  if (prReason && pr)
+    return {
+      ...expired,
+      settledAt: at,
+      settledReason: prReason,
+      autoSettleAt: null,
+      prSettled: pr.number,
+    };
+  return due !== undefined && due <= at
+    ? { ...expired, settledAt: at, settledReason: "inactivity", autoSettleAt: null }
     : { ...expired, autoSettleAt: due ?? null };
 }
 
