@@ -61,7 +61,8 @@ export class AutomationStore {
       CREATE TABLE IF NOT EXISTS automation_revisions(id TEXT PRIMARY KEY, revision INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS automation_history ON automation_runs(automation_id,seq);
       CREATE INDEX IF NOT EXISTS automation_active ON automation_runs(automation_id) WHERE status='running';
-      CREATE INDEX IF NOT EXISTS automation_status ON automation_runs(status,seq);`);
+      CREATE INDEX IF NOT EXISTS automation_status ON automation_runs(status,seq);
+      CREATE TABLE IF NOT EXISTS automation_cancellations(run_id TEXT PRIMARY KEY, automation_id TEXT NOT NULL, reason TEXT NOT NULL, requested_at INTEGER NOT NULL);`);
     // Migrate inline snapshots once; leave the legacy column empty for compatibility.
     // Backfill durable CAS revisions for definitions stored before revisions existed.
     this.transaction(() => {
@@ -82,18 +83,24 @@ export class AutomationStore {
     }
     return result;
   }
+  /** One commit for `operation`; a transaction opened inside it joins the outer one. */
   transaction<T>(operation: () => T): T {
+    if (this.depth > 0) return operation();
     this.db.exec("BEGIN IMMEDIATE");
+    this.depth++;
     try {
       const result = operation();
       if (result instanceof Promise) throw new Error("Automation transactions must be synchronous");
+      this.depth--;
       this.db.exec("COMMIT");
       return result;
     } catch (error) {
+      if (this.depth > 0) this.depth--;
       this.db.exec("ROLLBACK");
       throw error;
     }
   }
+  private depth = 0;
   revision(id: string): number | undefined {
     const row = this.sql("SELECT revision FROM automation_revisions WHERE id=?").get(id);
     return row ? Number(row.revision) : undefined;
@@ -427,6 +434,35 @@ export class AutomationStore {
     ).run(JSON.stringify(run), String(row.id));
     return { run, input: Input.parse(JSON.parse(String(row.input))) };
   }
+  /**
+   * Stop an automation's work, in the transaction that pauses or deletes it: its waiting runs
+   * are skipped, and each running run gets a durable cancellation the executor carries out,
+   * even after a crash. Returns the skipped runs.
+   */
+  halt(id: string, now: number, reason: string): AutomationRun[] {
+    return this.transaction(() => {
+      this.sql(
+        "INSERT OR IGNORE INTO automation_cancellations SELECT id,automation_id,?,? FROM automation_runs WHERE automation_id=? AND status='running'",
+      ).run(reason, now, id);
+      return this.dropQueued(id, now, reason);
+    });
+  }
+  /** Why a running run was cancelled, while its cancellation is still being carried out. */
+  cancellation(runId: string): string | undefined {
+    const row = this.sql("SELECT reason FROM automation_cancellations WHERE run_id=?").get(runId);
+    return row ? String(row.reason) : undefined;
+  }
+  /** Running runs whose cancellation is not carried out yet, for start-up to send again. */
+  cancelling(): { run: AutomationRun; input: ExecutionInput }[] {
+    return this.sql(
+      "SELECT r.body,r.input FROM automation_cancellations c JOIN automation_runs r ON r.id=c.run_id WHERE r.status='running' LIMIT 256",
+    )
+      .all()
+      .map((row) => ({
+        run: AutomationRun.parse(JSON.parse(String(row.body))),
+        input: Input.parse(JSON.parse(String(row.input))),
+      }));
+  }
   /** Skip every waiting run of this automation, saying why; returns them as skipped. */
   dropQueued(id: string, now: number, reason: string): AutomationRun[] {
     const rows = this.sql(
@@ -450,22 +486,26 @@ export class AutomationStore {
     now: number,
     outcome: ExecutionResult | { status: "failed"; result: string },
   ): AutomationRun | undefined {
-    const row = this.sql("SELECT body FROM automation_runs WHERE id=? AND status='running'").get(
-      id,
-    );
-    if (!row) return undefined;
-    const run = AutomationRun.parse({
-      ...AutomationRun.parse(JSON.parse(String(row.body))),
-      ...outcome,
-      finishedAt: now,
+    return this.transaction(() => {
+      const row = this.sql("SELECT body FROM automation_runs WHERE id=? AND status='running'").get(
+        id,
+      );
+      if (!row) return undefined;
+      const run = AutomationRun.parse({
+        ...AutomationRun.parse(JSON.parse(String(row.body))),
+        ...outcome,
+        finishedAt: now,
+      });
+      this.sql("UPDATE automation_runs SET status=?,body=? WHERE id=? AND status='running'").run(
+        run.status,
+        JSON.stringify(run),
+        id,
+      );
+      // A finished run's cancellation, if it had one, is done with.
+      this.sql("DELETE FROM automation_cancellations WHERE run_id=?").run(id);
+      this.prune(run.automationId);
+      return run;
     });
-    this.sql("UPDATE automation_runs SET status=?,body=? WHERE id=? AND status='running'").run(
-      run.status,
-      JSON.stringify(run),
-      id,
-    );
-    this.prune(run.automationId);
-    return run;
   }
   active(): { run: AutomationRun; input: ExecutionInput }[] {
     return this.sql("SELECT body,input FROM automation_runs WHERE status='running' LIMIT 256")

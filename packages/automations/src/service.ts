@@ -16,6 +16,7 @@ import { Lifecycle } from "./lifecycle.ts";
 import { ExecutionOwner } from "./execution-owner.ts";
 import { observe } from "./observation.ts";
 import { AutomationRuntime } from "./runtime.ts";
+import { Cancellations } from "./cancellations.ts";
 import type { GhClient } from "./gh-process.ts";
 
 /**
@@ -52,6 +53,7 @@ export class AutomationService {
   private controller = new AbortController();
   private generation = 0;
   private ticking = false;
+  private cancellations: Cancellations;
   constructor(store: AutomationStore, deps: Dependencies, gh?: GhClient) {
     this.store = store;
     this.deps = deps;
@@ -67,6 +69,13 @@ export class AutomationService {
       },
       (error) => this.report(error),
       () => this.arm(),
+    );
+    this.cancellations = new Cancellations(
+      store,
+      deps,
+      () => this.live,
+      (error) => this.report(error),
+      (operation) => this.track(operation),
     );
     this.runtime = new AutomationRuntime(
       deps,
@@ -123,6 +132,8 @@ export class AutomationService {
           if (!this.live) break;
         }
       }
+      // A pause or delete whose stops never reached the executor hands them over again.
+      this.cancellations.carryOut();
       // Runs that were waiting when ace stopped start once nothing of theirs is running.
       this.drainWaiting();
       this.arm();
@@ -176,6 +187,7 @@ export class AutomationService {
     this.generation++;
     const cancelTimer = this.cancelTimer;
     this.cancelTimer = undefined;
+    this.cancellations.stop();
     this.pending.clear();
     this.polling.clear();
     try {
@@ -240,24 +252,10 @@ export class AutomationService {
       this.report(error);
     }
   }
-  /**
-   * Pausing or deleting an automation stops its work: waiting runs are skipped and the run in
-   * progress is stopped in its thread, which settles it as failed.
-   */
-  private halt(id: string, reason: string): void {
-    try {
-      for (const run of this.store.transaction(() =>
-        this.store.dropQueued(id, this.deps.now(), reason),
-      ))
-        this.publish(run);
-    } catch (error) {
-      this.report(error);
-    }
-    const interrupt = this.deps.executor.interrupt?.bind(this.deps.executor);
-    if (!interrupt) return;
-    for (const { run, input } of this.store.active())
-      if (run.automationId === id)
-        this.track(interrupt(input).catch((error: unknown) => this.report(error)));
+  /** Publish the runs a pause or delete skipped, then carry out the cancellations it stored. */
+  private halted(id: string, skipped: readonly AutomationRun[]): void {
+    for (const run of skipped) this.publish(run);
+    this.cancellations.carryOut(id);
   }
   put(input: unknown, expectedRevision?: number | null): Automation {
     const automation = normalizeAutomation(input);
@@ -305,8 +303,15 @@ export class AutomationService {
         : recurrence
           ? scheduledDeadline(occurrence, recurrence, automation.jitterMs, this.deps.random())
           : undefined;
+    let skipped: AutomationRun[] = [];
     try {
-      this.store.put(automation, nominal, due, occurrence ?? {}, expectedRevision);
+      // A pause commits with its cancellations, so no crash can leave the work going.
+      skipped = this.store.transaction(() => {
+        this.store.put(automation, nominal, due, occurrence ?? {}, expectedRevision);
+        return pausing
+          ? this.store.halt(automation.id, this.deps.now(), "Paused before it started")
+          : [];
+      });
     } catch (error) {
       this.runtime.discard(prepared);
       throw error;
@@ -316,7 +321,7 @@ export class AutomationService {
     // are healthy immediately after a successful save.
     if (automation.trigger.kind === "file")
       this.clearIfReady(automation.id, prepared.revision, generation, ready);
-    if (pausing) this.halt(automation.id, "Paused before it started");
+    if (pausing) this.halted(automation.id, skipped);
     this.arm();
     return automation;
   }
@@ -389,8 +394,11 @@ export class AutomationService {
     this.arm();
   }
   remove(id: string, expectedRevision?: number | null): void {
-    this.store.remove(id, expectedRevision ?? undefined);
-    this.halt(id, "Deleted before it started");
+    const skipped = this.store.transaction(() => {
+      this.store.remove(id, expectedRevision ?? undefined);
+      return this.store.halt(id, this.deps.now(), "Deleted before it started");
+    });
+    this.halted(id, skipped);
     this.runtime.remove(id);
     this.arm();
   }
