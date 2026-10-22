@@ -256,12 +256,14 @@ export class HostRuntime {
       const agentOptions = nativeCursorOptions(options, this.store, this.toolGuidance?.directory);
       let sandboxSupported = false;
       if (agentOptions.local?.sandboxOptions?.enabled) {
+        let refusal: string | undefined;
         if (this.sdk.sandboxSupport) {
           const admission = await this.sdk.sandboxSupport(agentOptions);
           sandboxSupported = admission.supported;
           if (admission.supported) this.sandboxRelease = admission.release;
+          else refusal = admission.reason;
         } else sandboxSupported = options.autoReviewAvailable;
-        if (!sandboxSupported) throw new Error("Cursor native sandbox is unavailable");
+        if (!sandboxSupported) throw new Error(refusal ?? "Cursor native sandbox is unavailable");
       }
       if (nativeId?.startsWith("bc-")) throw new Error("Cloud continuation is forbidden");
       if (nativeId) await checkpointRevision(this.store, nativeId);
