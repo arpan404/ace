@@ -65,7 +65,8 @@ struct MarkdownParser {
             }
             flush()
         }
-        if let separators = Markdown.tableCells(trimmed), separators.count > 1,
+        // The cheap checks first: a streaming paragraph's last line can be very long.
+        if !paragraph.isEmpty, Markdown.mayBeTableRule(trimmed), let separators = Markdown.tableCells(trimmed), separators.count > 1,
            separators.allSatisfy({ cell in
                let marks = cell.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
                return marks.count >= 3 && marks.allSatisfy { $0 == "-" }
@@ -140,6 +141,12 @@ enum Markdown {
             if run.count >= 3 { return String(run) }
         }
         return nil
+    }
+    /// Whether `line` holds only what a table's separator row can (pipes, colons, dashes,
+    /// escapes and spaces), read up to the first character that rules it out.
+    static func mayBeTableRule(_ line: String) -> Bool {
+        let space = CharacterSet.whitespaces
+        return line.unicodeScalars.allSatisfy { $0 == "|" || $0 == ":" || $0 == "-" || $0 == "\\" || space.contains($0) }
     }
     /// Escaped pipes and pipes inside inline code belong to the cell, not its boundary.
     static func tableCells(_ line: String) -> [String]? {
