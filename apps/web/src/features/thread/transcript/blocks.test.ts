@@ -236,18 +236,41 @@ test("a delegate's finished result reads once, on its launch row, never as a sec
     settled("settled-earlier", 3, ["earlier"]),
     // One child in view and one not: the receipt still names the one out of view.
     settled("settled-mixed", 4, ["review", "earlier"]),
+    // Only the provider's spawn call of a child is in view, not ace's launch: the call doesn't
+    // carry the delivered result, so the receipt keeps its row.
+    Item.parse({
+      id: "native-spawned",
+      agentId: "root",
+      runId: "turn",
+      createdAt: 5,
+      complete: true,
+      type: "tool_call",
+      call: {
+        id: "native-spawned",
+        agentId: "root",
+        kind: "agent.spawn",
+        title: "Spawn",
+        detail: { kind: "agent.spawn", childAgentId: "spawned" },
+        status: "succeeded",
+        startedAt: 5,
+        raw: [],
+      },
+    }),
+    settled("settled-spawned", 6, ["spawned"]),
   ];
   const blocks = buildBlocks({
     order: items.map((item) => item.id),
     item: (id) => items.find((item) => item.id === id),
     background: new Map(),
+    launchThread: (id) => (id === "spawned" ? "thread-spawned" : undefined),
   });
   expect(
     blocks.filter((block) => block.kind === "subagents").map((block) => block.itemIds),
-  ).toEqual([["review"]]);
+  ).toEqual([["review"], ["native-spawned"]]);
   expect(shown(blocks).filter((row) => row?.startsWith("settled-"))).toEqual([
     "settled-earlier",
     "settled-mixed",
+    "settled-spawned",
   ]);
 });
 

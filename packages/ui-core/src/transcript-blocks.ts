@@ -416,6 +416,8 @@ export function buildBlocks(source: BlockSource): Block[] {
   const launched = new Map<string, { run: string | undefined; itemIds: string[]; at: number }>();
   const branches = new Map<string, { run: string | undefined; itemIds: string[]; at: number }>();
   const groupOf = new Map<string, { itemIds: string[]; at: number }>();
+  // Children whose ace launch row is in view: it turns into their outcome and result in place.
+  const delegated = new Set<string>();
   let turnId: string | undefined;
   let askId: string | undefined;
   /** Where the person's latest Continue ("Continue where you left off.") was placed. */
@@ -703,12 +705,13 @@ export function buildBlocks(source: BlockSource): Block[] {
           break;
         case "delegation.started":
           group("subagents", id);
+          delegated.add(item.childThreadId);
           break;
         case "delegation.settled":
           // Each launch row turns into its child's outcome and result in place, so a receipt
           // whose children all launched in view would show them twice. One whose launch isn't
           // loaded (paged out, another agent's) keeps its row.
-          if (!item.results.every((result) => launched.has(result.threadId)))
+          if (!item.results.every((result) => delegated.has(result.threadId)))
             push({ kind: "item", key: id, itemId: id }, false);
           break;
         case "notice": {

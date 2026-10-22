@@ -509,6 +509,37 @@ test("a finished delegate reads once: one folded row, opening to its thread link
   expect(await screen.findByText(/Drafted the frame table/)).toBeTruthy();
 });
 
+test("a finished delegate unfolds once the thread list says it needs the person, before the parent hears", async () => {
+  const app = harness();
+  for (const script of delegatedDocs()) app.play(script).runUntilBlocked();
+  await app.open(`/t/${delegatedDocsIds.parent}`);
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const card = await group(feed, "1 subagent ran");
+  // Only the child's own thread moves: the parent's launch row still says Done.
+  await act(async () =>
+    app.daemon.apply(delegatedDocsIds.child, [
+      {
+        type: "interaction.opened",
+        agent: "root",
+        interaction: "child-question",
+        blocking: true,
+        request: { kind: "question", questions: [] },
+      },
+    ]),
+  );
+  const waiting = await within(card).findByRole("link", {
+    name: "Open Relay protocol reference's thread, Needs you",
+  });
+  expect(waiting.textContent).toContain("Waiting for you");
+  expect(within(card).queryByRole("button", { name: "1 subagent ran" })).toBeNull();
+  await act(async () =>
+    app.daemon.apply(delegatedDocsIds.child, [
+      { type: "interaction.closed", interaction: "child-question", state: "resolved" },
+    ]),
+  );
+  expect(await within(card).findByRole("button", { name: "1 subagent ran" })).toBeTruthy();
+});
+
 test("a group leads with its providers' marks, not a status glyph, and a child's live line becomes its result", async () => {
   const app = harness();
   const script = app.play(scenario([...spawn("first"), ...spawn("second")]));

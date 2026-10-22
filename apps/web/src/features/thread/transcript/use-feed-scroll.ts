@@ -16,6 +16,7 @@ import {
   compensation,
   correction,
   heldKey,
+  heldSuccessor,
   joinedAtTop,
   transition,
   type Held,
@@ -337,7 +338,11 @@ export function useFeedScroll(options: FeedScrollOptions) {
     const el = viewport.current;
     if (!el || (mode.current.kind === "following" ? !structural && !grew : !structural)) return;
     const was = held.current;
-    const at = was && locate(was.key, was.itemId);
+    let at = was && locate(was.key, was.itemId);
+    // The held row left the transcript: the row that followed it takes its place.
+    const from = was && !at && structural ? before.indexOf.get(was.key) : undefined;
+    const succeeded = from !== undefined;
+    if (succeeded) at = heldSuccessor(before.keys, from, (key) => locate(key, undefined));
     const fix = correction(
       mode.current,
       was,
@@ -348,7 +353,9 @@ export function useFeedScroll(options: FeedScrollOptions) {
     else if (fix.kind === "shift") placeAt(virtualizer, el, el.scrollTop + fix.by);
     else if (fix.kind === "aim") aimAt(virtualizer, el, fix.index, fix.align);
     if (was && at) {
-      held.current = { ...was, key: at.key, top: at.start - el.scrollTop };
+      const row = rows[at.index];
+      const itemId = succeeded && row ? blockItems(row.block)[0] : was.itemId;
+      held.current = { ...was, key: at.key, itemId, top: at.start - el.scrollTop };
       settling.current = structural && mode.current.kind === "free";
       const earlier = before.rows[before.indexOf.get(was.key) ?? -1];
       const shown = rows[at.index];

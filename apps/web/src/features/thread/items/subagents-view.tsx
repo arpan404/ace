@@ -1,17 +1,26 @@
 import type { AgentFacts } from "@/lib/agent-facts.ts";
+import type { SidebarKey, SidebarReader } from "@ace/client";
+import { useSidebar } from "@ace/client-react";
 import {
+  delegatedState,
+  rollupSubagent,
   subagentGroupCounts,
   subagentGroupStatus,
   subagentGroupTitle,
   subagentTerminal,
   type SubagentGroupStatus,
+  type SubagentState,
 } from "@ace/ui-core";
 import { CaretRightIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { useAgentFacts } from "@/lib/use-agent-facts.ts";
-import { useCallback, useId, useState } from "react";
+import { useCallback, useId, useMemo, useState } from "react";
 import { useThreadLiveState } from "../lib/live-state.ts";
-import { readSubagentGroup, subagentEntriesEqual } from "../lib/subagent-group.ts";
+import {
+  readSubagentGroup,
+  subagentEntriesEqual,
+  type SubagentEntry,
+} from "../lib/subagent-group.ts";
 import { ProvidersLead } from "./agent-lead.tsx";
 import { subagentTones } from "./agent-row.tsx";
 import { SubagentElapsed, SubagentRow } from "./subagent-row.tsx";
@@ -34,6 +43,42 @@ export const groupStyles = {
   list: "mt-1 ml-[9px] flex flex-col border-l border-border pl-4",
 } as const;
 
+type Listed = readonly (SubagentState | undefined)[];
+const sameListed = (a: Listed, b: Listed) =>
+  a.length === b.length && a.every((state, at) => state === b[at]);
+
+/**
+ * Each delegated child's state as the thread list has it. After a reconnect the list can hear
+ * first that a finished child took new work or asks the person, before the parent's copy on its
+ * launch row does. Nothing from a list the daemon hasn't confirmed, or for a child not started.
+ */
+function useListedStates(entries: readonly SubagentEntry[]): Listed | undefined {
+  const ids = entries.map((entry) => entry.childThreadId ?? "").join("\n");
+  const keys = useMemo<SidebarKey[]>(
+    () => [
+      "unconfirmed",
+      ...ids.split("\n").flatMap((id) => (id ? [`thread:${id}` as const] : [])),
+    ],
+    [ids],
+  );
+  const read = useCallback(
+    (reader: SidebarReader): Listed =>
+      ids.split("\n").map((id) => {
+        const status = id && !reader.unconfirmed ? reader.thread(id)?.status : undefined;
+        return status && status.state !== "new" ? delegatedState(status) : undefined;
+      }),
+    [ids],
+  );
+  return useSidebar(keys, read, sameListed);
+}
+
+/** An entry at the worse of its own state and the list's: never ended while either says it runs. */
+function rolledUp(entry: SubagentEntry, listed: SubagentState | undefined): SubagentEntry {
+  const state = listed ? rollupSubagent(entry.state, listed) : entry.state;
+  if (state === entry.state) return entry;
+  return { ...entry, state, endedAt: subagentTerminal(state) ? entry.endedAt : undefined };
+}
+
 /**
  * A launch's subagents in the transcript. One still at work is just its row, its live activity in
  * view. Several, or any number once all have ended, fold into one row led by their providers'
@@ -47,7 +92,9 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
     (facts: AgentFacts) => readSubagentGroup(facts.reader, props.itemIds, facts),
     [props.itemIds],
   );
-  const entries = useAgentFacts(props.threadId, read, subagentEntriesEqual) ?? [];
+  const own = useAgentFacts(props.threadId, read, subagentEntriesEqual) ?? [];
+  const listed = useListedStates(own);
+  const entries = own.map((entry, at) => rolledUp(entry, listed?.[at]));
   const [open, setOpen] = useState(false);
   const body = useId();
   const live = useThreadLiveState(props.threadId);

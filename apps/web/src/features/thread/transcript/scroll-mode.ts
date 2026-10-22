@@ -171,6 +171,25 @@ export function heldKey(
   return settling ? { key: settling.key, itemId: settling.itemId } : top;
 }
 
+/**
+ * A held row that left the transcript (a duplicate dropped once older history brought in the row
+ * that says the same) hands its place to the nearest row that followed it and is still shown, so
+ * rows landing above never lose the reader's place. `keys` are the rows before the change, `from`
+ * the gone row's index among them; looks a few rows on at most.
+ */
+export function heldSuccessor<T>(
+  keys: readonly string[],
+  from: number,
+  find: (key: string) => T | undefined,
+  limit = 8,
+): T | undefined {
+  for (const key of keys.slice(from + 1, from + 1 + limit)) {
+    const found = find(key);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 /** Where the held row is now, and whether older items just joined it at its top. */
 export interface HeldRow {
   index: number;
