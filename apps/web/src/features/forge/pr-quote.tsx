@@ -80,7 +80,8 @@ export function focusEnd(box: { readonly current: HTMLElement | null }) {
   setTimeout(() => {
     const field = box.current?.querySelector("textarea");
     if (!field) return;
-    field.scrollIntoView?.({ block: "nearest" });
+    // Centred, so pinned bars above the scroller never cover it.
+    field.scrollIntoView?.({ block: "center" });
     field.focus();
     field.setSelectionRange(field.value.length, field.value.length);
   }, 0);
