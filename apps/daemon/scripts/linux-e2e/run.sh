@@ -21,6 +21,9 @@
 # ACE_E2E_XDPH_PREFIX (hyprland: an xdg-desktop-portal-hyprland install prefix to use instead
 # of the distro's, e.g. a build of the version Arch ships).
 set -euo pipefail
+# A crashed Vitest worker or helper leaves a core (systemd-coredump: `coredumpctl list`) to
+# read instead of only a signal name; distributions default the limit to 0.
+ulimit -c unlimited 2>/dev/null || true
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
 self="$root/apps/daemon/scripts/linux-e2e/run.sh"
 # ACE_E2E_SUITES (space separated test files) runs only those.
@@ -136,6 +139,9 @@ inner_kde() {
   printf 'hello\n' >"$note"
   kcalc >"$logs/kcalc.log" 2>&1 &
   kwrite "$note" >"$logs/kwrite.log" 2>&1 &
+  # The fixture is GTK 4, whose Vulkan renderer crashes at start on Mesa's software Vulkan
+  # over vgem (in the device-select layer), as on the wlroots sessions' vkms.
+  export GSK_RENDERER=cairo
   fixture
   sleep 3
   # Konsole takes focus, so the apps sit in the background, and an agent must never see it.
