@@ -177,7 +177,8 @@ struct ThreadView: View {
                                  return saved
                              }, stop: { model.stopTree() },
                              inputBegan: { model.metrics?.inputBegan() }, mention: mention,
-                             files: screen.attachments.count, stopInStrip: slot.shown == .waiting) {
+                             files: screen.attachments.count, stopInStrip: slot.shown == .waiting,
+                             draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) }) {
                     ComposerAccessories(model: model, screen: screen, problem: attachProblem)
                 } leading: {
                     AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)

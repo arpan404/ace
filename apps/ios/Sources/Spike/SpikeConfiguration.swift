@@ -39,4 +39,11 @@ enum SpikeConfiguration {
                                                        credential: { "{\"token\":\"ios-spike-token\"}" }))
         }
     }
+    /// Spike launches start without unsent thread words, so one UI test's typing never reaches
+    /// the next; `--spike-keep-drafts` keeps them, for the relaunch check.
+    static func threadDrafts(in directory: URL) -> URL {
+        let url = directory.appendingPathComponent("spike-thread-drafts.json")
+        if !ProcessInfo.processInfo.arguments.contains("--spike-keep-drafts") { try? FileManager.default.removeItem(at: url) }
+        return url
+    }
 }
