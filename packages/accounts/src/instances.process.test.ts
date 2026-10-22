@@ -43,9 +43,8 @@ test("each provider selects an independent home and strips ambient auth override
   });
   expect(instanceEnv(instance("opencode"), base)).toMatchObject({
     XDG_DATA_HOME: "/tmp/opencode/data",
-    XDG_CONFIG_HOME: "/tmp/opencode/config",
-    XDG_CACHE_HOME: "/tmp/opencode/cache",
     XDG_STATE_HOME: "/tmp/opencode/state",
+    XDG_CONFIG_HOME: "/tmp/opencode/config",
   });
   for (const provider of ["codex", "claude", "cursor", "opencode"] as const) {
     const env = instanceEnv(instance(provider), base);
@@ -56,6 +55,59 @@ test("each provider selects an independent home and strips ambient auth override
     expect(env["PATH"]).toBe("/fake");
   }
 });
+test("isolated accounts keep the person's own home, config root and temp folder for their tools", () => {
+  const person = {
+    PATH: "/fake",
+    HOME: "/Users/person",
+    USERPROFILE: "C:\\Users\\person",
+    APPDATA: "C:\\Users\\person\\AppData\\Roaming",
+    XDG_CONFIG_HOME: "/Users/person/.config",
+    XDG_CACHE_HOME: "/Users/person/.cache",
+    TMPDIR: "/private/tmp/person",
+    TEMP: "C:\\Temp",
+    GH_TOKEN: "person-github-token",
+    SSH_AUTH_SOCK: "/private/tmp/agent.sock",
+  };
+  for (const provider of ["codex", "claude"] as const) {
+    const managed = { ...instance(provider), managed: true as const };
+    expect(instanceEnv(managed, person)).toMatchObject(person);
+  }
+});
+
+test("an isolated OpenCode account keeps its own config while gh still finds the person's", () => {
+  const managed = { ...instance("opencode"), managed: true as const };
+  const person = { HOME: "/Users/person", TMPDIR: "/private/tmp/person", PATH: "/fake" };
+  // Config holds OpenCode provider keys, so it moves with the account's login and state.
+  expect(instanceEnv(managed, person, undefined, "darwin")).toMatchObject({
+    ...person,
+    XDG_DATA_HOME: "/tmp/opencode/data",
+    XDG_STATE_HOME: "/tmp/opencode/state",
+    XDG_CONFIG_HOME: "/tmp/opencode/config",
+    GH_CONFIG_DIR: "/Users/person/.config/gh",
+  });
+  const windows = {
+    USERPROFILE: "C:\\Users\\person",
+    APPDATA: "C:\\Users\\person\\AppData\\Roaming",
+  };
+  expect(instanceEnv(managed, windows, undefined, "win32")["GH_CONFIG_DIR"]).toBe(
+    "C:\\Users\\person\\AppData\\Roaming\\GitHub CLI",
+  );
+  expect(
+    instanceEnv(managed, { ...person, GH_CONFIG_DIR: "/custom/gh" }, undefined, "darwin")[
+      "GH_CONFIG_DIR"
+    ],
+  ).toBe("/custom/gh");
+});
+
+test("an inherited Claude secure-storage folder cannot point an isolated account at another login", () => {
+  const managed = { ...instance("claude"), managed: true as const };
+  for (const inherited of ["", "/Users/person/.claude"]) {
+    const env = instanceEnv(managed, { CLAUDE_SECURESTORAGE_CONFIG_DIR: inherited });
+    expect(env["CLAUDE_SECURESTORAGE_CONFIG_DIR"]).toBeUndefined();
+    expect(env["CLAUDE_CONFIG_DIR"]).toBe("/tmp/claude");
+  }
+});
+
 test("login discovery sees the selected home rather than another account", async () => {
   const root = await temp();
   await fakeClis(root);

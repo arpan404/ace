@@ -310,3 +310,39 @@ paginated fork resolves its source in the destination's thread store, so `thread
 - **Normal CLI logins.** A normal Codex login can be the source of a copy: ace only reads it, under
   the CLI's lock (the lease's resume appends Codex's own settings record). ace still never writes
   into a normal login, so moving there hands over.
+
+## Amendment: accounts share the person's home (#1268)
+
+Managed accounts no longer replace HOME, USERPROFILE, APPDATA or the temp folder. Only the
+selectors that hold the CLI's own login and settings move into the account home:
+`CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `PI_CODING_AGENT_DIR`, and OpenCode's `XDG_DATA_HOME`,
+`XDG_STATE_HOME` and `XDG_CONFIG_HOME`. Agents in any account therefore use the person's own
+gh, git, ssh, npm and keychain on macOS, Linux and Windows, as in a terminal. A private HOME
+kept those tools from reading the person's config, so a Codex agent in an extra account could
+not use `gh`.
+
+Separation still holds, because each CLI keys its login on that selector. Claude's keychain
+entry name carries a hash of `CLAUDE_CONFIG_DIR` (with the plaintext fallback inside that
+folder); `CLAUDE_SECURESTORAGE_CONFIG_DIR` overrides that folder, so it is masked like the
+other auth overrides. Codex and Pi keep `auth.json` in their home. OpenCode needs three roots:
+its login is in the data root, 2.x finds the background service that serves the login through
+the state root, and its config can hold provider keys. Its cache stays the person's. Because gh
+follows `XDG_CONFIG_HOME`, OpenCode accounts get `GH_CONFIG_DIR` pointing at the person's gh
+config. Git still reads `~/.gitconfig` there, but not a git config kept only under the
+person's XDG root.
+
+Cursor is the exception. Its SDK finds its login through `os.homedir()`, so its host keeps a
+private HOME. The adapter sets `GH_CONFIG_DIR` to the person's gh config and writes the
+private `.gitconfig` as an include of the person's two global git files, in git's order, with
+git's own home lookup (HOME, then HOMEDRIVE+HOMEPATH, then USERPROFILE on Windows). Explicit
+`GH_CONFIG_DIR` or `GIT_CONFIG_GLOBAL` win. On macOS the keychain is found through HOME, so the
+private home's `Library/Keychains` links to the person's own. The SDK keeps its login in
+`.cursor/sdk/auth.json` and never uses the keychain (checked against SDK 1.0.35), so Cursor
+accounts stay apart. Windows Credential Manager and the Linux secret service do not depend on
+HOME. `~` inside git includes still resolves to the private home, and `git config --global`
+writes there.
+
+gh and git lookup rules live once in `@ace/provider-kit/user-tool-paths`. The per-session
+tool-credential allowlist (`toolEnv`) is removed, since the person's own environment now
+reaches every account. Existing account homes keep their logins, because the selectors are
+unchanged.
