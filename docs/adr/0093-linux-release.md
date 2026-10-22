@@ -117,6 +117,15 @@ Login launch writes an XDG autostart entry. The tray uses a colour icon on Linux
 shortcut uses the GlobalShortcuts portal on Wayland. The `ace` CLI shim detects AppImage and
 points at the stable AppImage path, not its temporary mount.
 
+The app's Linux identity is `dev.ace.app` everywhere: the installed desktop entry
+(`dev.ace.app.desktop`), the X11 window class and Wayland app id, and the autostart entry.
+Portals need a reverse-DNS id; GNOME refuses global shortcuts to one like `ace-desktop`, and
+Chromium only uses the shortcuts portal on GNOME with `GlobalShortcutsPortalPreferredTrigger`
+on as well. The executable stays `ace-desktop`. The app icon is installed at each size the
+hicolor theme indexes (16 to 512 px); the theme has no 1024 px directory. Desktops without a
+StatusNotifier host (stock GNOME, bare window managers) show no tray icon, so the first time
+the window closes into the background there, a notification says ace is still running.
+
 **Releases and updates.** Linux desktop releases go through the same `release.ts build` and
 `publish` as macOS (ADR 0091), run in the Debian 11 container on a host of each
 architecture, unsigned. They publish an AppImage, a deb and a tar.gz under one naming
