@@ -71,6 +71,16 @@ import XCTest
         let barTop = strip.exists ? min(strip.frame.minY, input.frame.minY) : input.frame.minY
         XCTAssertLessThanOrEqual(last.frame.maxY, barTop, "the last line sits under the composer")
         XCTAssertFalse(app.buttons["transcript.latest"].exists, "Scroll to end shows at the end")
+        // Opened again while at the end, the rows push the end up rather than under the composer.
+        rollup.tap()
+        XCTAssertTrue(app.buttons["subagent.Review PID-reuse safety"].waitForNonExistence(timeout: 5))
+        sleep(1)
+        rollup.tap()
+        XCTAssertTrue(app.buttons["subagent.Review PID-reuse safety"].waitForExistence(timeout: 5))
+        sleep(2)
+        screenshot("thread-end-subagents-reopened")
+        XCTAssertLessThanOrEqual(last.frame.maxY, barTop, "opening the rows at the end hides the last line")
+        XCTAssertFalse(app.buttons["transcript.latest"].exists, "Scroll to end shows after opening the rows at the end")
     }
     func testQuestionAndApprovalCards() {
         let app = launch()
