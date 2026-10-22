@@ -148,6 +148,49 @@ test("in the desktop app the browser tab draws the embedded page over its page a
   );
 });
 
+/** A size only the device stage has (jsdom lays nothing out). */
+const stageRoom = (size: number) =>
+  function (this: HTMLElement) {
+    return this.hasAttribute("data-device-stage") ? size : 0;
+  };
+
+test("opening the device toolbar moves the native page onto the device's frame", async () => {
+  // The stage has room for a device, and its frame sits centred in it.
+  const frameBox = { x: 560, y: 140, width: 280, height: 560 };
+  const width = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
+  const height = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+    configurable: true,
+    get: stageRoom(400),
+  });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get: stageRoom(600),
+  });
+  const pageArea = HTMLElement.prototype.getBoundingClientRect;
+  HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+    if (this.hasAttribute("data-device-frame"))
+      return box(frameBox.x, frameBox.y, frameBox.width, frameBox.height);
+    return pageArea.call(this);
+  };
+  try {
+    const { panel } = await openEmbeddedBrowser();
+    await waitFor(() => expect(last()?.visible).toBe(true));
+    await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Device toolbar" }));
+    await userEvent.click(
+      await screen.findByRole("menuitemcheckbox", { name: "Show device toolbar" }),
+    );
+    while (screen.queryAllByRole("menu").length > 0) await userEvent.keyboard("{Escape}");
+    await within(panel).findByRole("toolbar", { name: "Device toolbar" });
+    // The frame mounts once the toolbar has a size; the page follows it there and shows.
+    await waitFor(() => expect(last()).toMatchObject({ visible: true, bounds: frameBox }));
+  } finally {
+    if (width) Object.defineProperty(HTMLElement.prototype, "clientWidth", width);
+    if (height) Object.defineProperty(HTMLElement.prototype, "clientHeight", height);
+  }
+});
+
 test("the embedded page shows natively without waiting for a video picture", async () => {
   // The desktop's embedded pages have no video to send, so no picture ever comes.
   const { panel } = await openEmbeddedBrowser({ video: false });

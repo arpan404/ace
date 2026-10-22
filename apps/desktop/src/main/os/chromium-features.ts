@@ -22,8 +22,12 @@ export function enableFeatures(switches: FeatureSwitches, features: readonly str
 
 /**
  * Linux's Chromium features: on Wayland a global shortcut can only be grabbed through the XDG
- * GlobalShortcuts portal, which Chromium uses only with this feature on (X11 is unaffected).
+ * GlobalShortcuts portal, which Chromium uses only with `GlobalShortcutsPortal` on, and on
+ * GNOME only with `GlobalShortcutsPortalPreferredTrigger` as well (it hands GNOME the keys to
+ * offer in its consent dialog). X11 grabs keys directly and is unaffected.
  */
 export function linuxFeatures(platform: NodeJS.Platform): readonly string[] {
-  return platform === "linux" ? ["GlobalShortcutsPortal"] : [];
+  return platform === "linux"
+    ? ["GlobalShortcutsPortal", "GlobalShortcutsPortalPreferredTrigger"]
+    : [];
 }

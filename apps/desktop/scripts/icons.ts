@@ -11,7 +11,9 @@ import { appEnvironment, desktop, electronBinary, repo } from "./common.ts";
  *   node apps/desktop/scripts/icons.ts
  *
  * - `build/icon.icns` (macOS, through an `.iconset` and `iconutil`) and `build/icon.png`
- *   (1024 px; electron-builder derives the Windows and Linux icons from it);
+ *   (1024 px; electron-builder derives the Windows icon from it);
+ * - `build/linux-icons/<n>x<n>.png`, the Linux app icon at each size the hicolor icon theme
+ *   indexes (it has no 1024 px directory, so a lone 1024 px icon is never found);
  * - `resources/trayTemplate.png` and `trayTemplate@2x.png`: black and alpha only, which macOS
  *   treats as a template image and tints for the menu bar;
  * - the web app's `public/favicon.png` (from `public/favicon.svg`, for browsers without SVG
@@ -29,6 +31,8 @@ interface Job {
 }
 
 const build = join(desktop, "build");
+/** The sizes the freedesktop hicolor theme indexes that launchers and docks ask for. */
+const linuxSizes = [16, 24, 32, 48, 64, 128, 256, 512];
 const resources = join(desktop, "resources");
 const web = join(repo, "apps", "web");
 
@@ -118,6 +122,12 @@ try {
       template: false,
     })),
     { svg: icon, size: 1024, out: join(build, "icon.png"), template: false },
+    ...linuxSizes.map((size) => ({
+      svg: icon,
+      size,
+      out: join(build, "linux-icons", `${size}x${size}.png`),
+      template: false,
+    })),
     { svg: tray, size: 18, out: join(resources, "trayTemplate.png"), template: true },
     { svg: tray, size: 36, out: join(resources, "trayTemplate@2x.png"), template: true },
     { svg: favicon, size: 64, out: join(web, "public", "favicon.png"), template: false },

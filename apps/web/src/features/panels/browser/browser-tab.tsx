@@ -6,7 +6,14 @@ import {
   describeBrowserFailure,
   sitePermissionLabel as permissionLabel,
 } from "@ace/ui-core";
-import { useEffectEvent, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffectEvent,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { cn } from "@/lib/cn.ts";
 import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
 import { usePanelServices } from "../services.ts";
@@ -111,7 +118,14 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   // In the desktop app the page itself is a native view drawn over this tab's page area (or
   // over the device toolbar's frame).
   const pageArea = useRef<HTMLDivElement>(null);
-  const deviceFrame = useRef<HTMLDivElement>(null);
+  // The elements themselves, as state: the device frame mounts a render after the toolbar
+  // opens (once it has a size), and the native view must move onto it then.
+  const [pageElement, setPageElement] = useState<HTMLDivElement | null>(null);
+  const [deviceFrame, setDeviceFrame] = useState<HTMLDivElement | null>(null);
+  const pageAreaRef = useCallback((node: HTMLDivElement | null) => {
+    pageArea.current = node;
+    setPageElement(node);
+  }, []);
   const tools = usePageTools({
     source,
     threadId,
@@ -122,7 +136,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   });
   const native = useNativeView(
     threadId,
-    tools.toolbar ? deviceFrame : pageArea,
+    tools.toolbar ? deviceFrame : pageElement,
     !!live &&
       !blank &&
       live.backend === "embedded" &&
@@ -426,7 +440,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         />
       )}
       <div
-        ref={pageArea}
+        ref={pageAreaRef}
         data-browser-page=""
         className={cn(
           "relative min-h-0 flex-1 overflow-auto",
@@ -434,7 +448,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         )}
       >
         {tools.toolbar ? (
-          <DeviceStage tools={tools} frame={deviceFrame}>
+          <DeviceStage tools={tools} frame={setDeviceFrame}>
             {content}
             {still && <CoverPicture still={still} />}
           </DeviceStage>

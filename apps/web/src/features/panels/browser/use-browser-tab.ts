@@ -218,11 +218,12 @@ export function useBrowserTab(
   };
 
   // Opened with an address (the launcher's bar, Suggested, a link): it opens once, as soon as
-  // a browser can be reached. The request is dropped before it runs, so a re-render or another
-  // window can never open it twice.
+  // a browser can be reached. The request is taken from the store, not from this render, and
+  // dropped before it runs, so a re-render or another view of this tab can never open it twice.
   const pending = data.open;
   useEffect(() => {
     if (!pending || shownId || !online || !tabs.reachable) return;
+    if (browserTabData(findTab(store.get(threadId), tab.key)?.tab).open !== pending) return;
     save({ open: undefined });
     void openHere(pending);
     // `openHere` closes over this render's browser; the address is what matters.

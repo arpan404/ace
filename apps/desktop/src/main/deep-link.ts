@@ -61,11 +61,30 @@ export function linksFromArgv(
     if (argument.startsWith(`${protocolScheme}://`)) {
       const link = parseDeepLink(argument);
       if (link) links.push(link);
-    } else if (!argument.startsWith("-") && isAbsolute(argument) && isDirectory(argument)) {
-      links.push({ kind: "open-folder", path: argument });
+    } else {
+      const path = localPath(argument);
+      if (path && isDirectory(path)) links.push({ kind: "open-folder", path });
     }
   }
   return links;
+}
+
+/**
+ * An argument naming a local file: an absolute path, or a `file://` URI on this machine (a
+ * Linux launcher may pass one for the desktop entry's `%U`). Flags and anything else are not.
+ */
+function localPath(argument: string): string | undefined {
+  if (argument.startsWith("-")) return undefined;
+  if (isAbsolute(argument)) return argument;
+  if (!argument.startsWith("file:")) return undefined;
+  try {
+    const url = new URL(argument);
+    if (url.host && url.host !== "localhost") return undefined;
+    const path = decodeURIComponent(url.pathname);
+    return isAbsolute(path) && !path.includes("\0") ? path : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function isAbsolute(path: string): boolean {

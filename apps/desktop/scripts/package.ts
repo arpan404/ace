@@ -207,15 +207,20 @@ const config: Configuration = {
     vendor: "ace",
     synopsis: "Desktop app for ace, the local multi-agent coding environment",
     category: "Development",
-    icon: join(desktop, "build/icon.png"),
+    // One PNG per hicolor size (`scripts/icons.ts`): the theme has no 1024 px directory.
+    icon: join(desktop, "build/linux-icons"),
     artifactName: "ace-${version}-${arch}.${ext}",
-    mimeTypes: ["x-scheme-handler/ace", "inode/directory"],
+    // `ace://` comes from `protocols`: electron-builder adds its handler type to the entry.
+    mimeTypes: ["inode/directory"],
   },
   // The static type2 AppImage runtime (FUSE 3). The legacy default links an unversioned
   // libz.so on arm64, which a stock Ubuntu (no zlib1g-dev) does not have.
   toolsets: { appimage: "1.0.3" },
   deb: {
     packageName: "ace-desktop",
+    // Its own list: electron-builder appends the `ace://` handler type to the list it is
+    // given, so the deb sharing `linux.mimeTypes` with the AppImage would list it twice.
+    mimeTypes: ["inode/directory"],
     // electron-builder's defaults plus ALSA, which Electron links but the defaults omit: a
     // minimal Ubuntu install failed with "libasound.so.2: cannot open shared object file".
     // The t64 name is Ubuntu 24.04+ and Debian 13+; the plain one is the older releases.
