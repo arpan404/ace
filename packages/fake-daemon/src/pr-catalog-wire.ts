@@ -102,6 +102,47 @@ export class FakePrCatalog {
     );
     return { ok: true, pr: payload.pr, prStatus: { ...fixture.detail.status, mergeState: next } };
   }
+  /**
+   * Another person reviews catalog PR `number` on GitHub: the PR's detail gains the review and
+   * its new decision, and its reviewers read shows the review as theirs.
+   */
+  submitReview(
+    number: number,
+    review: { login: string; state: "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED"; at: string },
+  ): void {
+    const fixture = this.fixtures.find((entry) => entry.detail.status.ref.number === number);
+    if (!fixture) return;
+    const id = 10_000 + fixture.detail.status.comments.length;
+    const decision = this.people.submit(fixture, { ...review, id });
+    const { detail } = fixture;
+    const next: PullRequestFixture = {
+      ...fixture,
+      detail: {
+        ...detail,
+        updatedAt: review.at,
+        reviewDecision: decision,
+        status: {
+          ...detail.status,
+          comments: [
+            ...detail.status.comments,
+            {
+              kind: "review",
+              id,
+              body: "",
+              author: review.login,
+              file: null,
+              line: null,
+              createdAt: review.at,
+              updatedAt: review.at,
+              replyTo: null,
+              reviewState: review.state,
+            },
+          ],
+        },
+      },
+    };
+    this.fixtures = this.fixtures.map((entry) => (entry === fixture ? next : entry));
+  }
   /** Reviewer requests, withdrawals and dismissals on a catalog PR (`forge.hosted.review`). */
   review(payload: CommandPayload): Omit<CommandResult, "commandId"> | undefined {
     return this.people.review(payload, (pr) => this.find(pr));

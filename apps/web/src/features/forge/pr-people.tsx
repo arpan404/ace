@@ -5,7 +5,7 @@ import { cn } from "@/lib/cn.ts";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrReviewers } from "./pr-reviewers.tsx";
 import { reviewerRows, type ReviewerRow } from "./pr-reviewers-model.ts";
-import { useFollowPrReviewers } from "./pr-reviewers-query.ts";
+import { usePrReviewers } from "./pr-reviewers-query.ts";
 
 /**
  * Reviewers and labels on one line: an avatar stack ringed by each reviewer's latest verdict,
@@ -18,7 +18,8 @@ export function PrPeople(props: {
   onEdit: (() => void) | undefined;
 }) {
   const { detail, disabled } = props.context;
-  const reviewers = useFollowPrReviewers(props.context.workspaceId, detail);
+  // Kept current by the PR view (`usePrActions`); this line only reads.
+  const reviewers = usePrReviewers(props.context.workspaceId, detail);
   // Until GitHub's reviewer list arrives, the PR's own list of who is asked stands in.
   const rows: ReviewerRow[] = reviewers.data
     ? reviewerRows(reviewers.data)
@@ -68,7 +69,7 @@ export function PrPeople(props: {
             rows={rows}
             value={reviewers.data}
             disabled={disabled}
-            onChanged={() => void reviewers.refetch()}
+            onChanged={() => void reviewers.refetch({ cancelRefetch: false })}
             onRequestReview={props.onRequestReview}
           />
         ) : (

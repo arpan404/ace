@@ -38,7 +38,8 @@ export function usePrReviewers(workspaceId: string, detail: ForgePrDetail) {
 
 /**
  * The reviewers, read again whenever the PR itself changes: a new review or request shows in
- * the PR first. One view (the Reviewers line) follows; every other reader shares its answer.
+ * the PR first. Only the PR view, mounted whichever tab shows, follows (`usePrActions`); every
+ * other reader shares its answer. A read already on its way is joined, never cancelled.
  */
 export function useFollowPrReviewers(workspaceId: string, detail: ForgePrDetail) {
   const query = usePrReviewers(workspaceId, detail);
@@ -48,7 +49,7 @@ export function useFollowPrReviewers(workspaceId: string, detail: ForgePrDetail)
   useEffect(() => {
     if (seen.current === changed) return;
     seen.current = changed;
-    void refetch();
+    void refetch({ cancelRefetch: false });
   }, [changed, refetch]);
   return query;
 }

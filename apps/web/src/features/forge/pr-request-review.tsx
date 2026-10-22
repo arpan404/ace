@@ -112,7 +112,7 @@ export function RequestReviewDialog(props: { actions: PrActions; open: boolean; 
                 ...(request.teams.length ? { teams: request.teams } : {}),
               })
               .then((ok) => {
-                void reviewers.refetch();
+                void reviewers.refetch({ cancelRefetch: false });
                 if (ok) setText("");
               });
           }}

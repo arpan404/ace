@@ -75,6 +75,13 @@ export class FakeWorkspaceWire {
   seedPullRequests(fixtures: readonly PullRequestFixture[]): void {
     this.pullRequests.seed(fixtures);
   }
+  /** Another person reviews catalog PR `number` on GitHub (`FakePrCatalog.submitReview`). */
+  submitPullRequestReview(
+    number: number,
+    review: Parameters<FakePrCatalog["submitReview"]>[1],
+  ): void {
+    this.pullRequests.submitReview(number, review);
+  }
   /** Mark a catalog PR merged, as a Verify merge run does on GitHub. */
   mergePullRequest(number: number): void {
     this.pullRequests.mergeNumber(number);
