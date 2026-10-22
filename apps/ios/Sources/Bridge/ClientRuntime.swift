@@ -1,6 +1,7 @@
 import Foundation
 import JavaScriptCore
 import CoreFoundation
+import QuartzCore
 
 /// Owns one VM on one dedicated thread with a live run loop. No JSValue reaches SwiftUI.
 final class ClientRuntime: ClientSession, @unchecked Sendable {
@@ -145,7 +146,7 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
         guard let runLoop else { return }
         CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) { [weak self] in
             guard let self, !self.lock.withLock({ self.stopped }), let context = self.context else { return }
-            autoreleasepool { work(context) }
+            HostTrace.measure("js.run") { autoreleasepool { work(context) } }
         }
         CFRunLoopWakeUp(runLoop)
     }
@@ -172,4 +173,11 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
 private struct PairedConfig: Encodable { let secretKey: String }
 private struct RuntimeConfig: Encodable { let deviceId: String; let hostId: String; let itemLimit: Int; let paired: PairedConfig? }
 /// The value is retained across an async native operation, then read/released only on the VM thread.
-final class Callback: @unchecked Sendable { let value: JSValue; init(_ value: JSValue) { self.value = value } }
+final class Callback: @unchecked Sendable {
+    let value: JSValue
+    private let traced: String?
+    private let began: Double
+    init(_ value: JSValue, traced: String? = nil, began: Double = 0) { self.value = value; self.traced = traced; self.began = began }
+    /// Adds the operation's time, request to native reply, to the host totals when traced.
+    func finish() { if let traced { HostTrace.add("host.call:" + traced, seconds: CACurrentMediaTime() - began) } }
+}
