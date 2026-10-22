@@ -50,6 +50,8 @@ import XCTest
     /// The fixture snoozed `ios-nap` for `ACE_IOS_SPIKE_NAP_MS`. The fixture goes offline before
     /// that, so only the phone's clock can end it.
     func testASnoozeEndsOnThePhoneWhileTheMachineIsOffline() throws {
+        // A snooze that starts now, however long the fixture has been running.
+        try post("/review/nap", #"{"ms":45000}"#)
         let app = launch()
         let snoozed = app.buttons["inbox.snoozed"].firstMatch
         for _ in 0..<6 where !snoozed.isHittable { app.swipeUp() }
@@ -60,7 +62,9 @@ import XCTest
         XCTAssertTrue(nap.label.contains("Until"), nap.label)
         try control(online: false)
         defer { try? control(online: true) }
-        let ended = expectation(for: NSPredicate(format: "label CONTAINS 'Snooze ended'"), evaluatedWith: nap)
+        // Rows read as the web's: at rest a thread shows only its age, so an ended snooze shows as
+        // the row leaving the Snoozed shelf with no "Until".
+        let ended = expectation(for: NSPredicate(format: "exists == true AND NOT (label CONTAINS 'Until')"), evaluatedWith: nap)
         wait(for: [ended], timeout: 200)
         screenshot("snooze-ended-offline")
     }
@@ -318,11 +322,12 @@ import XCTest
         add(report)
         XCTAssertEqual(found.filter { $0.hasPrefix("ISSUE") }, [], "Accessibility audit: \(name)")
     }
-    private func control(online: Bool) throws {
-        guard let url = URL(string: "http://127.0.0.1:\(port)/control") else { return }
+    private func control(online: Bool) throws { try post("/control", #"{"online":\#(online)}"#) }
+    private func post(_ path: String, _ body: String) throws {
+        guard let url = URL(string: "http://127.0.0.1:\(port)\(path)") else { return }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.httpBody = Data(#"{"online":\#(online)}"#.utf8)
+        request.httpBody = Data(body.utf8)
         let done = expectation(description: "control")
         URLSession.shared.dataTask(with: request) { _, _, _ in done.fulfill() }.resume()
         wait(for: [done], timeout: 10)
