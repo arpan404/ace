@@ -60,11 +60,13 @@ struct UserBubble: View {
         HStack(spacing: AceTheme.Spacing.none) {
             Spacer(minLength: Self.inset)
             VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
+                // Full height, then clipped: the fold cuts the text rather than squeezing it.
                 BubbleText(text: text, bubble: bubble)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxHeight: folded ? foldHeight : nil, alignment: .top)
                     .clipped()
                     .mask {
-                        LinearGradient(stops: [.init(color: .black, location: folded ? 0.8 : 1), .init(color: folded ? .clear : .black, location: 1)],
+                        LinearGradient(stops: [.init(color: .black, location: folded ? 0.7 : 1), .init(color: folded ? .clear : .black, location: 1)],
                                        startPoint: .top, endPoint: .bottom)
                     }
                 if long {

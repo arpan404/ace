@@ -118,6 +118,13 @@ only, and the bridge builds `thread.send`, `thread.interrupt`, `interaction.reso
 the shared Allow once / Always allow / Deny verbs by option index, so large option sets are
 sent once with exact canonical ids.
 
+Message rows follow the web's (`bridge/thread-messages.ts`): item rows carry the person's
+bubble (`bubbleContent`: word, code and mention runs, the long fold, Steer or Queued) and a
+thought's header (`thoughtLabel`); event blocks carry the web's own event decision
+(`eventView`: system rows, errors with ×N and Details, refusals, Not sent, notices, the handoff
+divider), re-read when the order around them changes; answer blocks say whether they still
+stream. A truncated finished answer reads its whole text in place (`native.message`).
+
 SwiftUI renders blocks with native Markdown (`Models/Markdown.swift`, SF Mono code blocks),
 collapsible work logs, inline subagent rows (a delegated child thread pushes; a native
 subagent's lane opens a sheet), question and approval cards above the composer, a model
