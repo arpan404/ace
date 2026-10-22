@@ -55,11 +55,12 @@ export function fixture(): FakeDaemon {
   return new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "ios-test-token" });
 }
 
-export function connect(daemon: FakeDaemon): ClientCore {
+export function connect(daemon: FakeDaemon, items?: number): ClientCore {
   let saved: string | null = null;
   client = new ClientCore({
     deviceId: DeviceId.parse("ios-bridge-test"),
     expectedHostId: HostId.parse("ios-test-host"),
+    ...(items ? { limits: { items } } : {}),
     transport: () => {
       const inner = fakeTransport(daemon);
       let deliver: ((text: string) => void) | undefined;

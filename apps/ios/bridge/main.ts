@@ -10,6 +10,7 @@ import { followInbox, inboxAction, makeActivityGeneration } from "./inbox.ts";
 import { ArchiveBrowser } from "./archive.ts";
 import { dispatchCommand } from "./commands.ts";
 import { ThreadSession } from "./thread-session.ts";
+import { fillHistory } from "./thread-history.ts";
 import { routeThreadAction } from "./thread-route.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
@@ -227,45 +228,6 @@ async function start(json: string): Promise<void> {
   });
   await client.start();
 }
-async function hydrate(
-  owner: ClientCore,
-  store: ThreadSource,
-  id: string,
-  generation: number,
-  signal: AbortSignal,
-): Promise<void> {
-  // Snapshots always cap at 200. Exercise the SDK's paged history admission and delta journal.
-  await new Promise<void>((resolve) => {
-    if (store.thread || store.error) {
-      resolve();
-      return;
-    }
-    const cancelled = () => {
-      stop();
-      resolve();
-    };
-    const stop = store.observe(() => {
-      if (store.thread || store.error) {
-        stop();
-        signal.removeEventListener("abort", cancelled);
-        resolve();
-      }
-    });
-    signal.addEventListener("abort", cancelled, { once: true });
-    if (signal.aborted) cancelled();
-  });
-  while (store.itemsBefore != null && store.order.length < itemLimit) {
-    if (generation !== epoch || signal.aborted) return;
-    await owner.loadOlder(id, Math.min(200, itemLimit - store.order.length), { signal });
-  }
-  if (generation === epoch)
-    pump.put("thread:ready", () => ({
-      type: "thread.ready",
-      threadId: id,
-      epoch: generation,
-      count: store.order.length,
-    }));
-}
 function action(json: string): void {
   try {
     const raw: unknown = JSON.parse(json);
@@ -323,21 +285,21 @@ function action(json: string): void {
           pump.bind(ledger, ++epoch);
           stopThread = followThread(lease.store, value.threadId, epoch, pump, ledger);
         }
-        session = new ThreadSession(
-          client,
-          lease.store,
-          value.threadId,
-          epoch,
-          pump,
-          undefined,
-          itemLimit,
-        );
+        session = new ThreadSession(client, lease.store, value.threadId, epoch, pump);
         browser?.close();
         browser?.probe(value.threadId, epoch);
         if (itemLimit > 200) {
           const generation = epoch;
           const signal = historyAbort.signal;
-          void hydrate(client, lease.store, value.threadId, generation, signal).catch(() => {
+          void fillHistory({
+            owner: client,
+            store: lease.store,
+            threadId: value.threadId,
+            limit: itemLimit,
+            current: () => generation === epoch,
+            drained: () => pump.drained(),
+            signal,
+          }).catch(() => {
             if (generation === epoch && !signal.aborted) error();
           });
         }

@@ -49,6 +49,7 @@ export class PatchPump {
     new Map(),
   ];
   #fragment: Fragment | undefined;
+  #drained: (() => void)[] = [];
   /** The open thread's ledger and navigation generation, while native keeps that thread. */
   #bound: { ledger: NativeLedger; epoch: number } | undefined;
 
@@ -79,6 +80,13 @@ export class PatchPump {
         settled: false,
       });
     this.#schedule();
+  }
+  /** Resolves once nothing deliverable is waiting or in flight. */
+  drained(): Promise<void> {
+    return new Promise((resolve) => {
+      this.#drained.push(resolve);
+      this.#schedule();
+    });
   }
   ack(accepted: boolean): void {
     const delivery = this.#inFlight;
@@ -132,6 +140,7 @@ export class PatchPump {
     if (next === Infinity) {
       this.#timer?.cancel();
       this.#timer = undefined;
+      for (const resolve of this.#drained.splice(0)) resolve();
       return;
     }
     const at = ready >= framePatches ? now : Math.max(now + 8, next);
