@@ -104,6 +104,12 @@ struct StepsHeader: Codable, Sendable, Equatable {
     let pages: Int
     let count: Int
     let more: Bool
+    /// The turn's steps in groups, as the web's opened log groups them.
+    var log: [BlockRow.LogRow]? = nil
+    var aceSteps: [BlockRow.AceStep]? = nil
+    var background: [BlockRow.Background]? = nil
+    var retried: [String]? = nil
+    var thoughts: [BlockRow.Thought]? = nil
 }
 
 /// The thread screen's patches beyond blocks and controls: finished steps, effort and speed,

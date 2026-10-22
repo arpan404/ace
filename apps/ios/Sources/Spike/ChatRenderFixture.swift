@@ -77,15 +77,18 @@ private final class ChatRenderSession: ClientSession, @unchecked Sendable {
     }
     private func workFixture() -> [[String: Any]] {
         let ids = ["fixture-command", "fixture-narration"]
-        let rows = [record(ids[0], position: 0, text: "Ran physical phone build", role: "assistant").merging(["type": "tool_call"]) { _, value in value },
+        let step: [String: Any] = ["icon": "shell", "glyph": "command", "verb": "Ran physical phone build", "target": "", "note": "",
+                                   "settled": true, "failed": false, "needsYou": false, "added": NSNull(), "removed": NSNull()]
+        let rows = [record(ids[0], position: 0, text: "Ran physical phone build", role: "assistant").merging(["type": "tool_call", "step": step]) { _, value in value },
                     record(ids[1], position: 1, text: "Checking the phone result.", role: "assistant")]
-        let groups: [[String: Any]] = [
-            ["id": "fixture-tools", "items": [ids[0]], "single": false, "label": "Ran 1 command", "icon": "shell", "running": false, "active": ids[0]],
-            ["id": ids[1], "items": [ids[1]], "single": true, "label": "", "icon": "note", "running": false, "active": ids[1]]
+        let log: [[String: Any]] = [
+            ["kind": "group", "id": "fixture-tools", "items": [ids[0]], "sentence": "Ran 1 command", "summary": "Ran 1 command", "failed": 0,
+             "icon": "command", "running": false, "active": ids[0], "count": "1 steps"],
+            ["kind": "step", "id": ids[1]]
         ]
         let work: [String: Any] = ["label": "Working", "counts": "Ran 1 command", "current": "Ran physical phone build", "ongoing": true, "outcome": "", "startedAt": Date().timeIntervalSince1970 * 1000, "failed": 0]
         return zip(ids, rows).map { scoped("thread.item", ["id": $0.0, "row": $0.1]) } +
-            [scoped("thread.block", ["id": "fixture-work", "row": ["index": 0, "kind": "work", "items": ids, "headed": false, "interactionId": "", "work": work, "groups": groups]])]
+            [scoped("thread.block", ["id": "fixture-work", "row": ["index": 0, "kind": "work", "items": ids, "headed": false, "interactionId": "", "work": work, "log": log]])]
     }
     private func block(_ id: String, position: Int, role: String) -> [String: Any] {
         ["index": position + 240, "kind": role == "user" ? "user" : "message", "items": [id], "headed": false, "interactionId": ""]

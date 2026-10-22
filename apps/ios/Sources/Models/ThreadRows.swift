@@ -3,6 +3,8 @@ import Foundation
 /// A step's one line, worded by the shared work-log rules in the bridge.
 struct StepLine: Codable, Sendable, Equatable {
     let icon: String
+    /// What the row's glyph shows (`@ace/ui-core` `stepGlyphKind`).
+    var glyph: String? = nil
     let verb: String
     let target: String
     let note: String
@@ -15,6 +17,31 @@ struct StepLine: Codable, Sendable, Equatable {
     var browser: Bool? = nil
     /// `device:<id>` or `computer`: where tapping the step goes; empty or nil for nowhere.
     var opens: String? = nil
+    /// Waits on an approval nobody has answered: the row steps aside for the composer's request.
+    var awaiting: Bool? = nil
+    /// The row opens to its output, diff or reasoning.
+    var expandable: Bool? = nil
+    /// What the opened row shows, bounded by the bridge.
+    var detail: StepDetail? = nil
+}
+/// An opened step: a command's output tail, compact diffs, a search's matches, a failure.
+struct StepDetail: Codable, Sendable, Equatable {
+    struct Diff: Codable, Sendable, Equatable {
+        struct Line: Codable, Sendable, Equatable {
+            /// `add`, `del`, `context` or `hunk`.
+            let kind: String
+            let text: String
+        }
+        let path: String
+        /// `create`, `delete`, `move`; empty for an update.
+        let kind: String
+        let lines: [Line]
+        let more: Int
+    }
+    let output: String
+    let outputTruncated: Bool
+    let text: String
+    let diffs: [Diff]
 }
 struct AttachmentLine: Codable, Sendable, Equatable, Hashable {
     let kind: String
@@ -24,15 +51,6 @@ struct AttachmentLine: Codable, Sendable, Equatable, Hashable {
 /// One transcript block as `@ace/ui-core` groups it. Items are referenced by id; their rows
 /// stream separately, so a delta never rebuilds a block.
 struct BlockRow: Codable, Sendable, Equatable {
-    struct WorkGroup: Codable, Sendable, Equatable, Identifiable {
-        let id: String
-        let items: [String]
-        let single: Bool
-        let label: String
-        let icon: String
-        let running: Bool
-        let active: String
-    }
     struct Work: Codable, Sendable, Equatable {
         let label: String
         let counts: String
@@ -97,11 +115,6 @@ struct BlockRow: Codable, Sendable, Equatable {
         let answer: String
         let outcome: String
     }
-    struct Ending: Codable, Sendable, Equatable {
-        let label: String
-        let automatic: Bool
-        let error: String
-    }
     struct Started: Codable, Sendable, Equatable {
         let threadId: String
         let title: String
@@ -125,7 +138,14 @@ struct BlockRow: Codable, Sendable, Equatable {
     struct Room: Codable, Sendable, Equatable { let before: Double; let after: Double }
     /// A settled work head's root turn, whose full steps open on demand.
     var ordinal: Int? = nil
-    var groups: [WorkGroup]? = nil
+    /// The work log's rows, as the web groups them (`bridge/work-log.ts`).
+    var log: [LogRow]? = nil
+    /// ace's own steps, worded with what earlier steps of the log said about them.
+    var aceSteps: [AceStep]? = nil
+    /// Failed steps a later step ran again with success.
+    var retried: [String]? = nil
+    var thoughts: [Thought]? = nil
+    var files: Files? = nil
     /// The log's calls that left a command running in the background (`bridge/background-rows.ts`).
     var background: [Background]? = nil
     struct Background: Codable, Sendable, Equatable {
@@ -135,6 +155,7 @@ struct BlockRow: Codable, Sendable, Equatable {
         let label: String
         let command: String
         let running: Bool
+        var status: String? = nil
         let stoppable: Bool
         /// Ms since 1970.
         let startedAt: Double

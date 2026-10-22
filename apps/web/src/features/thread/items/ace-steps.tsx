@@ -1,12 +1,5 @@
-import type { Item } from "@ace/protocol";
-import {
-  aceCallOf,
-  aceToolLog,
-  screenStep,
-  type AceLog,
-  type AceToolView,
-} from "@ace/ui-core/ace-tools";
-import { toolRefusal } from "@ace/ui-core";
+import type { AceToolView } from "@ace/ui-core/ace-tools";
+import { readAceLog, sameAceReading, type AceReading } from "@ace/ui-core/work-log-reading";
 import { useMemo } from "react";
 import { useLightbox } from "@/components/attachment-open.tsx";
 import type { ShownImage } from "@/components/attachment-format.ts";
@@ -18,41 +11,10 @@ import { useStepItemsSelect } from "./step-items.ts";
  * audits folded into their calls) and the images a step answered with.
  */
 
-/** Whether an item is one of ace's own steps, or the daemon's audit or failure report of one; memoised. */
-const aceItems = new WeakMap<Item, boolean>();
-function isAce(item: Item): boolean {
-  let known = aceItems.get(item);
-  if (known === undefined) {
-    known = !!screenStep(item) || !!aceCallOf(item) || !!toolRefusal(item);
-    aceItems.set(item, known);
-  }
-  return known;
-}
-
-/** ace's steps in a log: what each acted on, and the audits folded into the call they record. */
-export interface AceReading {
-  contexts: AceLog["contexts"];
-  hidden: ReadonlySet<string>;
-  signature: string;
-}
 const empty: AceReading = { contexts: {}, hidden: new Set(), signature: "" };
-const sameReading = (a: AceReading, b: AceReading) => a.signature === b.signature;
-
-function readAceLog(items: readonly (Item | undefined)[]): AceReading {
-  const ace = items.filter((item): item is Item => !!item && isAce(item));
-  if (!ace.length) return empty;
-  // Only ace's own steps feed its reading, so a log of other tools costs nothing here.
-  const log = aceToolLog(
-    ace.map((item) => item.id),
-    ace,
-  );
-  const shown = new Set(log.rows.flatMap((row) => (row.kind === "group" ? row.ids : [row.id])));
-  const hidden = new Set(ace.flatMap((item) => (shown.has(item.id) ? [] : [item.id])));
-  return { contexts: log.contexts, hidden, signature: log.signature };
-}
 
 export function useAceLog(threadId: string, itemIds: readonly string[]): AceReading {
-  return useStepItemsSelect(threadId, itemIds, readAceLog, sameReading) ?? empty;
+  return useStepItemsSelect(threadId, itemIds, readAceLog, sameAceReading) ?? empty;
 }
 
 /** A step's screenshots and images as small thumbnails; each opens the image lightbox. */
