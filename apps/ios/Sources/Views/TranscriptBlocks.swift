@@ -92,7 +92,7 @@ struct UserBubble: View {
             Spacer(minLength: AceTheme.Spacing.xxxl * 2)
             Text(text).aceFont(AceTheme.Typography.body, relativeTo: .body).textSelection(.enabled)
                 .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
-                .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.lg, style: .continuous))
+                .background(AceTheme.Colours.fill, in: AceShape.bubble)
         }
     }
 }
@@ -138,7 +138,7 @@ struct AttachmentChips: View {
                 Label(attachment.name.isEmpty ? "Attachment" : attachment.name, ace: attachment.kind == "image" ? .image : attachment.kind == "pdf" ? .fileText : .file)
                     .lineLimit(1).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .padding(.horizontal, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.xs)
-                    .background(AceTheme.Colours.fill, in: Capsule())
+                    .background(AceTheme.Colours.fill, in: AceShape.capsule)
             }
             if more > 0 { Text("+\(more)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit() }
         }

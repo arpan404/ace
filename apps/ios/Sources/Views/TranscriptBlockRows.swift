@@ -34,15 +34,15 @@ struct ConversationSkeleton: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxl) {
             HStack {
                 Spacer(minLength: AceTheme.Spacing.xxxl)
-                RoundedRectangle(cornerRadius: AceTheme.Radii.lg)
+                AceShape.bubble
                     .fill(AceTheme.Colours.fill)
                     .frame(height: AceTheme.Dimensions.touchTarget)
                     .containerRelativeFrame(.horizontal) { width, _ in width * 0.6 }
             }
             VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
-                Capsule().fill(AceTheme.Colours.fill).frame(height: AceTheme.Spacing.sm)
-                Capsule().fill(AceTheme.Colours.fill).frame(height: AceTheme.Spacing.sm)
-                Capsule().fill(AceTheme.Colours.fill).frame(height: AceTheme.Spacing.sm)
+                AceShape.capsule.fill(AceTheme.Colours.fill).frame(height: AceTheme.Spacing.sm)
+                AceShape.capsule.fill(AceTheme.Colours.fill).frame(height: AceTheme.Spacing.sm)
+                AceShape.capsule.fill(AceTheme.Colours.fill).frame(height: AceTheme.Spacing.sm)
                     .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
             }
         }
