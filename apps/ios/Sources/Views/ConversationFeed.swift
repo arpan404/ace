@@ -61,7 +61,12 @@ struct ConversationFeed: View {
                 // size as they move: resizing a long lazy transcript re-estimates its height and
                 // throws the scroll offset, so only this row grows and shrinks.
                 Color.clear.frame(height: barHeight + keyboardLift).accessibilityHidden(true)
-                TranscriptTail(thread: thread, following: pinned) { if !keyboardMoving { position.scrollTo(edge: .bottom) } }
+                // Growth at the end keeps the end in view by itself (the size-change anchor below);
+                // the tail scrolls only when the feed is not at the end, so a streamed delta lays
+                // the feed out once rather than again for a scroll.
+                TranscriptTail(thread: thread, following: pinned) {
+                    if !keyboardMoving, intent.metrics.bottom > 1 { position.scrollTo(edge: .bottom) }
+                }
             }
             .scrollTargetLayout()
             .padding(.top, AceTheme.Spacing.sm)
@@ -72,6 +77,9 @@ struct ConversationFeed: View {
         .coordinateSpace(name: "transcript.viewport")
         .scrollPosition($position, anchor: .top)
         .defaultScrollAnchor(.bottom, for: .initialOffset)
+        // Following the end, content that grows stays bottom-aligned in the same layout pass. The
+        // keyboard and composer move the end with their own animated scroll instead.
+        .defaultScrollAnchor(pinned && !keyboardMoving ? .bottom : .top, for: .sizeChanges)
         .background(AceTheme.Colours.background)
         .scrollDismissesKeyboard(.interactively)
         .accessibilityIdentifier("transcript")
