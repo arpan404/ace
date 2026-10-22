@@ -142,8 +142,8 @@ struct CommandBlock: View {
         .scrollBounceBehavior(.basedOnSize)
         .frame(maxHeight: AceTheme.Dimensions.touchTarget * 3)
         .fixedSize(horizontal: false, vertical: true)
-        .requestInset(cornerRadius: AceTheme.Radii.md)
-        .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.md, style: .continuous).strokeBorder(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+        .requestInset()
+        .aceConcentricBorder(AceTheme.Colours.separator, minimum: StripMetrics.insetRadius, lineWidth: AceTheme.Dimensions.border)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Command")
         .accessibilityValue(command)
@@ -151,7 +151,7 @@ struct CommandBlock: View {
 }
 
 /// A request's answer: the one primary in ink, the rest outlined so they read as buttons at rest.
-/// 44pt tall for a finger, `rounded-md`, flat.
+/// 44pt tall for a finger, a capsule, flat.
 struct RequestButtonStyle: ButtonStyle {
     var primary = false
     /// Takes the card's full width (a question's Continue).
@@ -159,7 +159,7 @@ struct RequestButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     @Environment(\.colorScheme) private var scheme
     func makeBody(configuration: Configuration) -> some View {
-        let shape = RoundedRectangle(cornerRadius: AceTheme.Radii.md, style: .continuous)
+        let shape = AceShape.capsule
         configuration.label
             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
             .lineLimit(1)
