@@ -25,13 +25,19 @@ if [ -z "${ACE_KDE_SESSION_INNER:-}" ]; then
   runtime=$(mktemp -d /tmp/ace-kde-rt.XXXXXX)
   chmod 700 "$runtime"
   state=$(mktemp -d /tmp/ace-kde-state.XXXXXX)
+  # Also when the session is stopped (a timeout, Ctrl-C): nothing is left in /tmp.
+  remove() {
+    # The document portal leaves a FUSE mount in the runtime dir.
+    fusermount3 -u "$runtime/doc" 2>/dev/null || fusermount -u "$runtime/doc" 2>/dev/null || true
+    rm -rf "$runtime" "$state" 2>/dev/null || true
+  }
+  trap remove EXIT
+  trap 'exit 143' TERM
+  trap 'exit 130' INT
   status=0
   ACE_KDE_SESSION_INNER=1 XDG_RUNTIME_DIR="$runtime" XDG_CONFIG_HOME="$state/config" \
     XDG_DATA_HOME="$state/data" XDG_STATE_HOME="$state/state" XDG_CACHE_HOME="$state/cache" \
     dbus-run-session -- "$0" "$kind" "$@" || status=$?
-  # The document portal leaves a FUSE mount in the runtime dir.
-  fusermount3 -u "$runtime/doc" 2>/dev/null || fusermount -u "$runtime/doc" 2>/dev/null || true
-  rm -rf "$runtime" "$state" 2>/dev/null || true
   exit $status
 fi
 
