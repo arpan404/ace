@@ -332,7 +332,10 @@ export class GitHubForge implements Forge, ForgeBrowser {
           base: z.looseObject({ ref: z.string().max(256) }),
           head: GitHubPr.shape.head.extend({
             repo: z
-              .looseObject({ name: z.string().max(100), owner: z.looseObject({ login: z.string() }) })
+              .looseObject({
+                name: z.string().max(100),
+                owner: z.looseObject({ login: z.string() }),
+              })
               .nullish(),
           }),
         }),
@@ -393,7 +396,10 @@ export class GitHubForge implements Forge, ForgeBrowser {
     dispatch?: WriteDispatch,
   ): Promise<ForgePrRef> {
     z.string().min(1).max(100).parse(head.owner);
-    z.string().regex(/^[\w.-]+$/).max(100).parse(head.name);
+    z.string()
+      .regex(/^[\w.-]+$/)
+      .max(100)
+      .parse(head.name);
     const cross = this.#crossRepository(head);
     const branch = input.branch;
     if (

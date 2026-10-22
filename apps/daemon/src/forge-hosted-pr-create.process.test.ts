@@ -272,7 +272,14 @@ test("a fork sharing its parent's owner opens on the parent from its own branch"
       "repos/octo/ace-fork": [metadata({ owner: "octo", name: "ace" }, "ace-fork")],
       [lookup("octo/ace", "octo")]: [
         // The parent's own feature/card PR shares owner:branch with the fork's branch.
-        { body: [{ ...opened, head: { ...opened.head, repo: { name: "ace", owner: { login: "octo" } } } }] },
+        {
+          body: [
+            {
+              ...opened,
+              head: { ...opened.head, repo: { name: "ace", owner: { login: "octo" } } },
+            },
+          ],
+        },
       ],
       "repos/octo/ace/pulls": [{ status: 201, body: { ...opened, number: 12 } }],
     },

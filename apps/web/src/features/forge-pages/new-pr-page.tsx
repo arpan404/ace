@@ -258,9 +258,7 @@ function NewPrForm(props: {
               mono
               choices={branchChoices("base")}
               picked={[base]}
-              trigger={
-                fork ? branchLabel(context.base.repository, headRepository, base) : base
-              }
+              trigger={fork ? branchLabel(context.base.repository, headRepository, base) : base}
               onChange={([next]) => next && pickBranches({ base: next })}
             />
             {ready ? (

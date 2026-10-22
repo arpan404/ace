@@ -55,7 +55,9 @@ test("a fork PR targets upstream with the fork's owner on the head", async () =>
     command: gh.executable,
     now: () => 1_000,
   });
-  expect(await forge.findPr("work/card", "main", signal(), { owner: "octo", name: "ace" })).toBeNull();
+  expect(
+    await forge.findPr("work/card", "main", signal(), { owner: "octo", name: "ace" }),
+  ).toBeNull();
   expect(await forge.createPr("thread", input, signal(), { owner: "octo", name: "ace" })).toEqual({
     repository: upstream,
     number: 40,
@@ -155,7 +157,11 @@ test("a fork with its parent's owner opens from its own branch, named with head_
     [lookup("octo")]: [
       {
         body: [
-          { ...created(5), base: { ref: "main" }, head: { sha, ref: "work/card", repo: { name: "ace", owner: { login: "octo" } } } },
+          {
+            ...created(5),
+            base: { ref: "main" },
+            head: { sha, ref: "work/card", repo: { name: "ace", owner: { login: "octo" } } },
+          },
         ],
       },
     ],
@@ -169,14 +175,23 @@ test("a fork with its parent's owner opens from its own branch, named with head_
   expect(post?.body).toMatchObject({ head: "octo:work/card", head_repo: "ace-fork" });
 });
 
+const repo = (name: string) => ({ name, owner: { login: "octo" } });
+
 test("the fork's own open PR is found among same-named branches of its network", async () => {
-  const repo = (name: string) => ({ name, owner: { login: "octo" } });
   const gh = await setup({
     [lookup("octo")]: [
       {
         body: [
-          { ...created(5), base: { ref: "main" }, head: { sha, ref: "work/card", repo: repo("ace") } },
-          { ...created(8), base: { ref: "main" }, head: { sha, ref: "work/card", repo: repo("ace-fork") } },
+          {
+            ...created(5),
+            base: { ref: "main" },
+            head: { sha, ref: "work/card", repo: repo("ace") },
+          },
+          {
+            ...created(8),
+            base: { ref: "main" },
+            head: { sha, ref: "work/card", repo: repo("ace-fork") },
+          },
         ],
       },
     ],
