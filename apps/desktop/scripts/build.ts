@@ -130,34 +130,20 @@ await verifyNatives(arch);
 log(`done: ${dist}`);
 
 /**
- * node-pty is external to the bundle. It is a Node-API addon, so one binary serves Node and
- * Electron's Node alike; a binary rebuilt by `desktop:rebuild-native` (build/Release) wins
- * over the npm prebuild, and is the only option on Linux, which has no prebuilds.
+ * node-pty is external to the bundle. Staging is owned by `@ace/release/pty-assets`
+ * (POSIX plus bounded Windows ConPTY); a binary rebuilt by
+ * `desktop:rebuild-native` (build/Release) wins over the npm prebuild, and is the
+ * only option on Linux, which has no prebuilds.
  */
 async function stageNodePty(root: string): Promise<void> {
+  const { stagePtyFiles } = await import("@ace/release/pty-assets");
   const require = createRequire(join(repo, "packages/terminal/package.json"));
   const source = dirname(require.resolve("node-pty/package.json"));
-  const target = join(root, "node_modules/node-pty");
-  await mkdir(target, { recursive: true });
-  for (const name of ["lib", "package.json", "LICENSE"])
-    await cp(join(source, name), join(target, name), { recursive: true });
-  const rebuilt = join(source, "build/Release");
-  const prebuild = join(source, "prebuilds", `${process.platform}-${process.arch}`);
-  const from = existsSync(join(rebuilt, "pty.node")) ? rebuilt : prebuild;
-  const to =
-    from === rebuilt
-      ? join(target, "build/Release")
-      : join(target, "prebuilds", `${process.platform}-${process.arch}`);
-  if (!existsSync(join(from, "pty.node")))
-    throw new Error(
-      "No node-pty binary for this platform; run `bun run desktop:rebuild-native` first",
-    );
-  await mkdir(to, { recursive: true });
-  await copyFile(join(from, "pty.node"), join(to, "pty.node"));
-  if (existsSync(join(from, "spawn-helper"))) {
-    await copyFile(join(from, "spawn-helper"), join(to, "spawn-helper"));
-    await chmod(join(to, "spawn-helper"), 0o755);
-  }
+  await stagePtyFiles(
+    source,
+    join(root, "node_modules/node-pty"),
+    `${process.platform}-${process.arch}`,
+  );
 }
 
 async function stageRipgrep(bin: string): Promise<void> {
