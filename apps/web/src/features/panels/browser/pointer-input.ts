@@ -75,3 +75,34 @@ export function mouseButton(
     modifiers: modifierMask(event),
   };
 }
+
+/** One wheel line in CSS pixels, about what Chromium scrolls for a line. */
+const wheelLine = 40;
+/** Largest scroll one input may carry (the protocol's coordinate bound). */
+const wheelLimit = 100_000;
+
+/**
+ * A wheel event's scroll as the page should get it, in its CSS pixels. Pixel deltas (a trackpad,
+ * most mice) are the panel's pixels: `scale` (page pixels per panel pixel) turns them into the
+ * page's, so a scaled-down page still moves with the fingers. Line and page steps become pixels.
+ * Nothing is rounded, so a trackpad's small steps add up instead of vanishing.
+ */
+export function wheelScroll(
+  wheel: { deltaX: number; deltaY: number; deltaMode: number },
+  scale: number,
+  page: { width: number; height: number },
+): { deltaX: number; deltaY: number } {
+  const step =
+    wheel.deltaMode === 1
+      ? { x: wheelLine, y: wheelLine }
+      : wheel.deltaMode === 2
+        ? { x: page.width, y: page.height }
+        : { x: scale, y: scale };
+  return { deltaX: bound(wheel.deltaX * step.x), deltaY: bound(wheel.deltaY * step.y) };
+}
+
+function bound(delta: number): number {
+  if (!Number.isFinite(delta)) return 0;
+  // `|| 0` folds -0 into 0.
+  return Math.min(wheelLimit, Math.max(-wheelLimit, delta)) || 0;
+}
