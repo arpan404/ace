@@ -87,6 +87,7 @@ impl Accessibility {
             .await
             .map_err(internal)?;
         let mut selected = None;
+        let mut installed = None;
         for index in 0..count.clamp(0, 256) {
             let app: Object = root
                 .call("GetChildAtIndex", &(index,))
@@ -101,10 +102,15 @@ impl Accessibility {
                 Ok(p) => p,
                 Err(_) => continue,
             };
-            if executable.file_name().and_then(|s| s.to_str()) != Some(identity) {
-                continue;
-            }
             let a = self.proxy(&app, "Accessible").await?;
+            // An executable name, or the desktop id computer use and the sharing dialog use.
+            if executable.file_name().and_then(|s| s.to_str()) != Some(identity) {
+                let name: Option<String> = a.get_property("Name").await.ok();
+                let installed = installed.get_or_insert_with(crate::computer::apps::installed);
+                if crate::computer::apps::process_app_id(pid, name, installed) != identity {
+                    continue;
+                }
+            }
             let n: i32 = a.get_property("ChildCount").await.map_err(internal)?;
             if n != 1 || selected.is_some() {
                 return Err(Fault::new(
@@ -132,14 +138,20 @@ impl Accessibility {
         object: &Object,
         interface: &str,
     ) -> Result<Proxy<'static>> {
-        Proxy::new_owned(
-            self.conn.clone(),
-            object.0.clone(),
-            object.1.clone(),
-            format!("org.a11y.atspi.{interface}"),
-        )
-        .await
-        .map_err(|e| Fault::new("target_gone", e.to_string()))
+        // No property cache: it fetches every property with GetAll first, which GTK 4's
+        // accessibility answers with an empty reply, failing every later read.
+        let failed = |e: zbus::Error| Fault::new("target_gone", e.to_string());
+        zbus::proxy::Builder::<Proxy<'static>>::new(&self.conn)
+            .destination(object.0.to_string())
+            .map_err(failed)?
+            .path(object.1.clone())
+            .map_err(failed)?
+            .interface(format!("org.a11y.atspi.{interface}"))
+            .map_err(failed)?
+            .cache_properties(zbus::proxy::CacheProperties::No)
+            .build()
+            .await
+            .map_err(failed)
     }
     pub async fn scope(&mut self, pid: u32, bounds: &Bounds) -> Result<()> {
         self.clear();
@@ -168,6 +180,10 @@ impl Accessibility {
                 .get_property("ChildCount")
                 .await
                 .map_err(internal)?;
+            // GTK 4 on X11 reports window extents without the window's screen position, so a
+            // window whose size matches, or the app's only window, also identifies it.
+            let mut sized = Vec::new();
+            let mut all = Vec::new();
             for i in 0..windows.clamp(0, 256) {
                 let window: Object = accessible
                     .call("GetChildAtIndex", &(i,))
@@ -189,7 +205,19 @@ impl Accessibility {
                         self.scope = Some(window);
                         return Ok(());
                     }
+                    if (w - bounds.w).abs() <= 2 && (h - bounds.h).abs() <= 2 {
+                        sized.push(window.clone());
+                    }
                 }
+                all.push(window);
+            }
+            if let [only] = sized.as_slice() {
+                self.scope = Some(only.clone());
+                return Ok(());
+            }
+            if let ([only], true) = (all.as_slice(), sized.is_empty()) {
+                self.scope = Some(only.clone());
+                return Ok(());
             }
             return Err(Fault::new(
                 "target_gone",

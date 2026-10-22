@@ -1,32 +1,57 @@
 //! Portal session persistence is owned by RemoteDesktop for a combined session.
 use crate::{
     policy::portal_policy,
+    portal_choice::{Picked, SOURCE_MONITOR, SOURCE_WINDOW},
     protocol::{Fault, Result, internal},
 };
 use futures_util::StreamExt;
 use serde_json::{Value, json};
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU64},
+    },
+};
 use zbus::{
     Connection, Proxy,
     zvariant::{OwnedObjectPath, OwnedValue, Value as DValue},
 };
-type Dict = HashMap<String, OwnedValue>;
+pub(crate) type Dict = HashMap<String, OwnedValue>;
 const SERVICE: &str = "org.freedesktop.portal.Desktop";
 const PATH: &str = "/org/freedesktop/portal/desktop";
-fn dict(entries: impl IntoIterator<Item = (&'static str, OwnedValue)>) -> Dict {
+pub(crate) fn dict(entries: impl IntoIterator<Item = (&'static str, OwnedValue)>) -> Dict {
     entries.into_iter().map(|(k, v)| (k.into(), v)).collect()
 }
 fn string(s: &str) -> Result<OwnedValue> {
     OwnedValue::try_from(DValue::from(s)).map_err(internal)
 }
+/// What the person may pick in the sharing dialog.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Choice {
+    Window,
+    Display,
+    /// A window or a whole screen: the dialog offers both.
+    Any,
+}
+/// Why a consent request ended without a session, in the person's words.
+pub const DECLINED: &str = "Sharing was declined in the sharing dialog.";
+pub const UNANSWERED: &str = "Nobody chose a window or screen in the sharing dialog within 2 minutes.";
 pub struct Portal {
-    conn: Connection,
+    pub(crate) conn: Connection,
     pub session: Option<OwnedObjectPath>,
     pub node: u32,
     pub size: (u32, u32),
     pub devices: u32,
     pub sources: u32,
     pub version: u32,
+    /// What the person shared, once the session started.
+    pub picked: Option<Picked>,
+    /// Logical size of the newest picture (width << 32 | height), written by the capture thread.
+    pub shown: Arc<AtomicU64>,
+    pub(crate) pointer_ready: AtomicBool,
+    pub(crate) keyboard_ready: AtomicBool,
     token_path: PathBuf,
     counter: u64,
 }
@@ -60,6 +85,10 @@ impl Portal {
             devices,
             sources,
             version,
+            picked: None,
+            shown: Arc::new(AtomicU64::new(0)),
+            pointer_ready: AtomicBool::new(false),
+            keyboard_ready: AtomicBool::new(false),
             token_path,
             counter: 0,
         })
@@ -71,9 +100,12 @@ impl Portal {
         } else {
             "prompt"
         };
-        json!({"version":2,"platform":"linux-wayland","capture":{"windows":p.windows,"displays":p.displays,"changeDriven":false},"input":{"pointer":p.pointer,"keyboard":p.keyboard,"scroll":p.pointer,"text":ui},"uiTree":ui,"semanticActions":if ui {vec!["press","focus","setValue","scroll","expand","select"]} else {vec![]},"codecs":["jpeg"],"permissions":{"screen":permission,"input":permission},"portal":{"remoteDesktopVersion":self.version,"restore":p.persistent,"desktop":std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),"windowIdentity":false,"semanticScope":"approved executable with exactly one accessible window, independent of chooser","notes":"Window availability and restore support vary by GNOME/KDE portal version; chooser controls source, no EWMH ids or silent window targeting"}})
+        // A whole screen is view-only: input could reach any app on it.
+        let view_only = self.picked.as_ref().is_some_and(|p| p.display);
+        let picked = self.picked.as_ref().map(Picked::json);
+        json!({"version":2,"platform":"linux-wayland","capture":{"windows":p.windows,"displays":p.displays,"changeDriven":false},"input":{"pointer":p.pointer && !view_only,"keyboard":p.keyboard && !view_only,"scroll":p.pointer && !view_only,"text":ui && !view_only},"uiTree":ui,"semanticActions":if ui {vec!["press","focus","setValue","scroll","expand","select"]} else {vec![]},"codecs":["jpeg"],"permissions":{"screen":permission,"input":permission},"portal":{"remoteDesktopVersion":self.version,"restore":p.persistent,"desktop":std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),"windowIdentity":false,"picked":picked,"semanticScope":"the app the person picked in the sharing dialog, when the desktop records it","notes":"The sharing dialog picks the source; there are no window ids to target"}})
     }
-    async fn proxy(&self, interface: &str) -> Result<Proxy<'_>> {
+    pub(crate) async fn proxy(&self, interface: &str) -> Result<Proxy<'_>> {
         Proxy::new(
             &self.conn,
             SERVICE,
@@ -141,29 +173,36 @@ impl Portal {
                 Ok(Some(m)) => m,
                 _ => {
                     let _: std::result::Result<(), _> = request.call("Close", &()).await;
-                    return Err(Fault::new("timeout", "Portal consent timed out"));
+                    return Err(Fault::new("timeout", UNANSWERED));
                 }
             };
         let (code, results): (u32, Dict) = message.body().deserialize().map_err(internal)?;
         if code != 0 {
-            return Err(Fault::new(
-                "permission_denied",
-                "Portal consent was cancelled or denied",
-            ));
+            return Err(Fault::new("permission_denied", DECLINED));
         }
         Ok(results)
     }
-    pub async fn start(&mut self, window: bool) -> Result<std::os::fd::OwnedFd> {
+    /// Starts a combined RemoteDesktop and ScreenCast session. `restore` reuses the person's
+    /// last choice silently when the desktop still has it; otherwise the dialog asks.
+    pub async fn start(&mut self, choice: Choice, restore: bool) -> Result<std::os::fd::OwnedFd> {
         if self.session.is_some() {
             return Err(Fault::new("busy", "Portal session already active"));
         }
-        let source = if window { 2 } else { 1 };
-        if self.sources & source == 0 {
+        let source = match choice {
+            Choice::Window => SOURCE_WINDOW,
+            Choice::Display => SOURCE_MONITOR,
+            Choice::Any => self.sources & (SOURCE_WINDOW | SOURCE_MONITOR),
+        };
+        if source == 0 || self.sources & source != source {
             return Err(Fault::new(
                 "not_supported",
-                "Compositor cannot capture this source type",
+                "This desktop's sharing dialog cannot share this kind of source",
             ));
         }
+        self.picked = None;
+        self.shown.store(0, std::sync::atomic::Ordering::Release);
+        self.pointer_ready.store(false, std::sync::atomic::Ordering::Release);
+        self.keyboard_ready.store(false, std::sync::atomic::Ordering::Release);
         let created = self
             .request(
                 "RemoteDesktop",
@@ -181,7 +220,7 @@ impl Portal {
             .map_err(internal)?;
         let session = OwnedObjectPath::try_from(path).map_err(internal)?;
         self.session = Some(session.clone());
-        let result = self.configure(&session, source).await;
+        let result = self.configure(&session, source, restore).await;
         if result.is_err() {
             let _ = self.stop().await;
         }
@@ -191,11 +230,12 @@ impl Portal {
         &mut self,
         session: &OwnedObjectPath,
         source: u32,
+        restore: bool,
     ) -> Result<std::os::fd::OwnedFd> {
         let mut options = dict([("types", OwnedValue::from(self.devices & 3))]);
         if self.version >= 2 {
             options.insert("persist_mode".into(), OwnedValue::from(2u32));
-            if let Some(token) = read_token(&self.token_path)? {
+            if restore && let Some(token) = read_token(&self.token_path)? {
                 options.insert("restore_token".into(), string(&token)?);
             }
         }
@@ -257,16 +297,30 @@ impl Portal {
             return Err(Fault::new("bounds", "Invalid portal size"));
         }
         self.size = (w as u32, h as u32);
-        if let Some(value) = result.get("restore_token") {
-            let token: String = value
-                .try_clone()
-                .map_err(internal)?
-                .try_into()
-                .map_err(internal)?;
-            save_token(&self.token_path, &token)?;
+        let kind: Option<u32> = props
+            .get("source_type")
+            .and_then(|v| v.try_clone().ok())
+            .and_then(|v| v.try_into().ok());
+        let token: Option<String> = match result.get("restore_token") {
+            Some(value) => Some(
+                value
+                    .try_clone()
+                    .map_err(internal)?
+                    .try_into()
+                    .map_err(internal)?,
+            ),
+            None => None,
+        };
+        if let Some(token) = &token {
+            save_token(&self.token_path, token)?;
         } else if self.token_path.exists() {
             std::fs::remove_file(&self.token_path).map_err(internal)?;
         }
+        let recorded = match &token {
+            Some(token) => crate::portal_choice::recorded_choice(&self.conn, token).await,
+            None => None,
+        };
+        self.picked = Some(Picked::new(kind, source, recorded));
         let fd: zbus::zvariant::OwnedFd = self
             .proxy("ScreenCast")
             .await?
@@ -276,6 +330,7 @@ impl Portal {
         Ok(fd.into())
     }
     pub async fn stop(&mut self) -> Result<()> {
+        self.picked = None;
         if let Some(path) = self.session.take() {
             let proxy = Proxy::new(
                 &self.conn,
@@ -292,72 +347,19 @@ impl Portal {
         }
         Ok(())
     }
-    pub async fn motion(&self, x: f64, y: f64) -> Result<()> {
-        crate::policy::point(x, y, self.size.0, self.size.1)?;
-        self.require(2)?;
-        self.proxy("RemoteDesktop")
-            .await?
-            .call::<_, _, ()>(
-                "NotifyPointerMotionAbsolute",
-                &(self.path()?, Dict::new(), self.node, x, y),
-            )
-            .await
-            .map_err(internal)
-    }
-    pub async fn button(&self, button: &str, pressed: bool) -> Result<()> {
-        self.require(2)?;
-        let code: i32 = match button {
-            "left" => 0x110,
-            "right" => 0x111,
-            "middle" => 0x112,
-            _ => return Err(Fault::new("bounds", "Unknown button")),
-        };
-        self.proxy("RemoteDesktop")
-            .await?
-            .call::<_, _, ()>(
-                "NotifyPointerButton",
-                &(self.path()?, Dict::new(), code, u32::from(pressed)),
-            )
-            .await
-            .map_err(internal)
-    }
-    pub async fn key_symbol(&self, symbol: u32, pressed: bool) -> Result<()> {
-        self.require(1)?;
-        self.proxy("RemoteDesktop")
-            .await?
-            .call::<_, _, ()>(
-                "NotifyKeyboardKeysym",
-                &(self.path()?, Dict::new(), symbol as i32, u32::from(pressed)),
-            )
-            .await
-            .map_err(internal)
-    }
-    pub async fn scroll(&self, dx: f64, dy: f64) -> Result<()> {
-        if !dx.is_finite() || !dy.is_finite() || dx.abs() > 1000. || dy.abs() > 1000. {
-            return Err(Fault::new("bounds", "Scroll exceeds limit"));
-        }
-        self.require(2)?;
-        self.proxy("RemoteDesktop")
-            .await?
-            .call::<_, _, ()>(
-                "NotifyPointerAxis",
-                &(
-                    self.path()?,
-                    dict([("finish", OwnedValue::from(true))]),
-                    dx,
-                    dy,
-                ),
-            )
-            .await
-            .map_err(internal)
-    }
-    fn path(&self) -> Result<&OwnedObjectPath> {
+    pub(crate) fn path(&self) -> Result<&OwnedObjectPath> {
         self.session
             .as_ref()
             .ok_or_else(|| Fault::new("target_gone", "No portal session"))
     }
-    fn require(&self, device: u32) -> Result<()> {
+    pub(crate) fn require(&self, device: u32) -> Result<()> {
         self.path()?;
+        if self.picked.as_ref().is_some_and(|p| p.display) {
+            return Err(Fault::new(
+                "permission_denied",
+                "A shared screen is view-only; share a window to control it",
+            ));
+        }
         if self.devices & device == 0 {
             return Err(Fault::new(
                 "permission_denied",

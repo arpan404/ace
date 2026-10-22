@@ -22,6 +22,27 @@ pub fn installed() -> Vec<DesktopApp> {
     desktop::scan(&desktop::application_dirs(&|name| std::env::var(name).ok()))
 }
 
+/// The app an X window belongs to, named as `running` names it, so a live view and computer
+/// use call one app by one id.
+pub fn x_window_app_id(x: &XDisplay, window: u32, pid: u32, installed: &[DesktopApp]) -> String {
+    let described = x.describe(window);
+    let hints = Hints {
+        gtk_application_id: described.gtk_application_id,
+        wm_class: described.wm_class,
+        accessible_name: None,
+    };
+    identity::identify(&identity::read_process(Path::new("/proc"), pid), &hints, installed).0
+}
+
+/// The app an accessible application belongs to, from its process and accessible name.
+pub fn process_app_id(pid: u32, accessible_name: Option<String>, installed: &[DesktopApp]) -> String {
+    let hints = Hints {
+        accessible_name,
+        ..Hints::default()
+    };
+    identity::identify(&identity::read_process(Path::new("/proc"), pid), &hints, installed).0
+}
+
 /// Apps with at least one window on the accessibility bus, this helper excluded.
 pub async fn running(bus: &Bus, x: Option<&XDisplay>, installed: &[DesktopApp]) -> Vec<RunningApp> {
     let Ok(apps) = bus.applications().await else {

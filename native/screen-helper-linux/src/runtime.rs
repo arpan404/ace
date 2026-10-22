@@ -1,7 +1,7 @@
 use crate::{
     accessibility::Accessibility,
     policy::{Backend, backend},
-    portal::Portal,
+    portal::{Choice, Portal},
     protocol::{Fault, Request, Result, internal, reply, valid_id},
     writer::Writer,
     x11::{Window, X11},
@@ -18,7 +18,7 @@ use std::{
     },
     thread::JoinHandle,
 };
-use tokio::io::{AsyncBufReadExt, BufReader};
+use std::time::Duration;
 
 pub(crate) struct Capture {
     stop: Arc<AtomicBool>,
@@ -51,7 +51,7 @@ impl Runtime {
             return portal.capabilities(self.ui.is_some());
         }
         let ui = self.ui.is_some();
-        json!({"version":2,"platform":"linux-x11","capture":{"windows":true,"displays":false,"changeDriven":true},"input":{"pointer":false,"keyboard":true,"scroll":false,"text":ui},"uiTree":ui,"semanticActions":if ui {vec!["press","focus","setValue","scroll","expand","select"]} else {vec![]},"codecs":["jpeg"],"permissions":{"screen":"granted","input":"granted"}})
+        json!({"version":2,"platform":"linux-x11","capture":{"windows":true,"displays":false,"changeDriven":true},"input":{"pointer":true,"keyboard":true,"scroll":true,"text":ui},"uiTree":ui,"semanticActions":if ui {vec!["press","focus","setValue","scroll","expand","select"]} else {vec![]},"codecs":["jpeg"],"permissions":{"screen":"granted","input":"granted"}})
     }
     async fn stop(&mut self) -> Result<Value> {
         self.capture.take();
@@ -112,14 +112,19 @@ impl Runtime {
             })
         } else {
             let p = self.portal.as_mut().ok_or_else(|| internal("No backend"))?;
-            if target.kind != "window" && target.kind != "display" {
-                return Err(Fault::new(
-                    "not_supported",
-                    "Wayland target must be window or display; chooser selects actual source",
-                ));
-            }
+            let choice = match target.kind.as_str() {
+                "chooser" => Choice::Any,
+                "window" => Choice::Window,
+                "display" => Choice::Display,
+                _ => {
+                    return Err(Fault::new(
+                        "not_supported",
+                        "Wayland target must be chosen in the sharing dialog",
+                    ));
+                }
+            };
             // Portal chooser is the only trustworthy source identity. Do not claim supplied ids are enforced.
-            if target.kind == "window"
+            if choice == Choice::Window
                 && !target
                     .bundle_id
                     .as_ref()
@@ -130,10 +135,16 @@ impl Runtime {
                     "Application approval required before portal consent",
                 ));
             }
-            let fd: OwnedFd = p.start(target.kind == "window").await?;
-            self.view_only = target.kind == "display";
+            let fd: OwnedFd = p.start(choice, target.restore.unwrap_or(true)).await?;
+            self.view_only = p.picked.as_ref().is_none_or(|picked| picked.display);
+            // The app the person picked, as the desktop recorded it, else the one asked for.
+            let scope = p
+                .picked
+                .as_ref()
+                .and_then(|picked| picked.app.as_ref().map(|app| app.app_id.clone()))
+                .or_else(|| target.bundle_id.clone().filter(|_| choice == Choice::Window));
             if !self.view_only {
-                if let (Some(ui), Some(identity)) = (&mut self.ui, &target.bundle_id) {
+                if let (Some(ui), Some(identity)) = (&mut self.ui, &scope) {
                     match ui.scope_application(identity).await {
                         Ok(()) => self.ui_active = true,
                         Err(e) => eprintln!("AT-SPI target: {e}"),
@@ -141,8 +152,10 @@ impl Runtime {
                 }
             }
             let publisher = self.writer.publisher(session);
+            let p = self.portal.as_ref().ok_or_else(|| internal("No backend"))?;
             let node = p.node;
             let logical_width = p.size.0;
+            let shown = p.shown.clone();
             std::thread::spawn(move || {
                 let _read = read;
                 if let Err(e) = crate::pipewire::capture(
@@ -153,6 +166,7 @@ impl Runtime {
                     _read.as_raw_fd(),
                     cancelled,
                     publisher,
+                    shown,
                 ) {
                     eprintln!("capture: {e}");
                     let _ = socket.shutdown(std::net::Shutdown::Both);
@@ -165,7 +179,11 @@ impl Runtime {
             wake,
             worker: Some(worker),
         });
-        Ok(json!({"capabilities":self.capabilities()}))
+        let picked = self
+            .portal
+            .as_ref()
+            .and_then(|p| p.picked.as_ref().map(crate::portal_choice::Picked::json));
+        Ok(json!({"capabilities":self.capabilities(),"picked":picked}))
     }
     async fn command(&mut self, r: &Request) -> Result<Value> {
         match r.op.as_str() {
@@ -177,7 +195,10 @@ impl Runtime {
                 if let Some(x) = &self.x {
                     x.inventory()
                 } else {
-                    Ok(json!({"windows":[],"displays":[],"chooserRequired":true}))
+                    // Nothing to list: the sharing dialog on this desktop picks the source.
+                    let p = self.portal.as_ref().ok_or_else(|| internal("No backend"))?;
+                    let policy = crate::policy::portal_policy(p.sources, p.devices, p.version);
+                    Ok(json!({"windows":[],"displays":[],"chooser":{"windows":policy.windows,"displays":policy.displays}}))
                 }
             }
             "start" => self.start(r).await,
@@ -235,7 +256,7 @@ impl Runtime {
                         .ok_or_else(|| internal("No X11 target"))?
                         .check(w)?;
                     let (x, y) = crate::policy::element_center(&b, &live.bounds)?;
-                    self.click(x, y, "left").await?;
+                    self.click(x, y, "left", r.person).await?;
                     Ok(json!({"fallback":true,"method":"pointer.click"}))
                 } else {
                     Ok(json!({"fallback":false,"method":"atspi"}))
@@ -276,7 +297,7 @@ impl Runtime {
         }
         if let (Some(x), Some(w)) = (&self.x, &self.window) {
             let live = x.window(w.id)?;
-            if live.pid != w.pid || live.identity != w.identity {
+            if !w.same_as(&live) {
                 return Err(Fault::new("target_gone", "Accessibility target replaced"));
             }
         }
@@ -343,65 +364,80 @@ pub async fn run() -> Result<()> {
         capture: None,
         writer,
     };
-    let mut input = BufReader::new(tokio::io::stdin());
-    let mut line = Vec::new();
+    let mut lines = crate::command_lines::spawn(tokio::io::stdin());
+    let mut queued = std::collections::VecDeque::new();
     loop {
-        line.clear();
-        // fill_buf avoids allocating an unbounded command before checking its limit.
-        loop {
-            let bytes = input.fill_buf().await.map_err(internal)?;
-            if bytes.is_empty() {
-                break;
-            }
-            let end = bytes
-                .iter()
-                .position(|b| *b == b'\n')
-                .map(|i| i + 1)
-                .unwrap_or(bytes.len());
-            if line.len() + end > 64 * 1024 {
-                return Err(Fault::new("bounds", "Command exceeds 64 KiB"));
-            }
-            let newline = bytes[end - 1] == b'\n';
-            line.extend_from_slice(&bytes[..end]);
-            input.consume(end);
-            if newline {
-                break;
-            }
+        let r = match queued.pop_front() {
+            Some(r) => r,
+            None => match lines.recv().await {
+                Some(r) => r?,
+                None => break,
+            },
+        };
+        if r.op != "start" {
+            let drag = Duration::from_millis(r.duration_ms.unwrap_or(0).min(10_000));
+            let result = tokio::time::timeout(Duration::from_secs(10) + drag, runtime.command(&r))
+                .await
+                .unwrap_or_else(|_| Err(Fault::new("timeout", "Command timed out")));
+            respond(&r, result)?;
+            continue;
         }
-        if line.is_empty() {
-            break;
-        }
-        let r = Request::parse(&line)?;
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(if r.op == "start" { 130 } else { 10 }),
-            runtime.command(&r),
-        )
-        .await;
-        let result = match result {
-            Ok(result) => result,
-            Err(_) => {
-                if r.op == "start" {
-                    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), runtime.stop())
-                        .await;
+        // A start can wait up to two minutes for the person; a stop meanwhile cancels it.
+        let mut cancel: Option<Option<Request>> = None;
+        let outcome = {
+            let started = tokio::time::timeout(Duration::from_secs(130), runtime.command(&r));
+            tokio::pin!(started);
+            loop {
+                tokio::select! {
+                    outcome = &mut started => break Some(outcome),
+                    next = lines.recv(), if cancel.is_none() => match next {
+                        Some(Ok(next)) if next.op == "stop" => { cancel = Some(Some(next)); break None; }
+                        Some(Ok(next)) => queued.push_back(next),
+                        Some(Err(error)) => return Err(error),
+                        None => { cancel = Some(None); break None; }
+                    },
                 }
-                Err(Fault::new("timeout", "Command timed out"))
             }
         };
-        let mut response = reply(&r, result);
-        let mut bytes = serde_json::to_vec(&response).map_err(internal)?;
-        if bytes.len() > 64 * 1024 {
-            response = reply(
-                &r,
-                Err(Fault::new(
-                    "bounds",
-                    "Reply exceeds 64 KiB; reduce tree caps",
-                )),
-            );
-            bytes = serde_json::to_vec(&response).map_err(internal)?;
+        let result = match outcome {
+            Some(Ok(result)) => result,
+            Some(Err(_)) | None => {
+                let _ = tokio::time::timeout(Duration::from_secs(5), runtime.stop()).await;
+                Err(if outcome.is_none() {
+                    Fault::new("denied", "Sharing was cancelled")
+                } else {
+                    Fault::new("timeout", "Command timed out")
+                })
+            }
+        };
+        respond(&r, result)?;
+        match cancel {
+            Some(Some(stop)) => {
+                let result = runtime.command(&stop).await;
+                respond(&stop, result)?;
+            }
+            Some(None) => break,
+            None => {}
         }
-        bytes.push(b'\n');
-        std::io::stdout().write_all(&bytes).map_err(internal)?;
     }
     runtime.stop().await?;
     Ok(())
+}
+
+/// Writes one reply line, replacing a reply over 64 KiB with a bounds error.
+fn respond(r: &Request, result: Result<Value>) -> Result<()> {
+    let mut response = reply(r, result);
+    let mut bytes = serde_json::to_vec(&response).map_err(internal)?;
+    if bytes.len() > 64 * 1024 {
+        response = reply(
+            r,
+            Err(Fault::new(
+                "bounds",
+                "Reply exceeds 64 KiB; reduce tree caps",
+            )),
+        );
+        bytes = serde_json::to_vec(&response).map_err(internal)?;
+    }
+    bytes.push(b'\n');
+    std::io::stdout().write_all(&bytes).map_err(internal)
 }

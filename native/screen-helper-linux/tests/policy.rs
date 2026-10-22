@@ -149,7 +149,7 @@ fn semantic_fallback_uses_current_window_origin_and_refuses_an_outside_element()
 fn accessibility_queries_cannot_silently_use_a_different_target() {
     use ace_screen_helper_linux::{protocol::Target, policy::scoped_target};
     let target = Target { kind: "window".into(), window_id: Some(1), display_id: None,
-        bundle_id: Some("approved".into()), bundle_ids: vec![] };
+        bundle_id: Some("approved".into()), bundle_ids: vec![], restore: None };
     let different = Target { window_id: Some(2), ..target.clone() };
     assert!(scoped_target(Some(&target), Some(&target)).is_ok());
     assert!(scoped_target(None, Some(&target)).is_ok());

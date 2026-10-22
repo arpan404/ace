@@ -7,7 +7,7 @@ use std::{
     os::fd::{IntoRawFd, OwnedFd},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -56,6 +56,8 @@ struct Frames {
     failed: bool,
     /// The open stream, to read each buffer's crop region from.
     capture: *mut c_void,
+    /// The newest picture's size in stream points (width << 32 | height), for input bounds.
+    shown: Arc<AtomicU64>,
 }
 unsafe extern "C" fn on_frame(
     user: *mut c_void,
@@ -113,6 +115,11 @@ unsafe extern "C" fn on_frame(
             .map_err(internal)?;
         // Picture pixels per logical point of what it shows.
         let logical_shown = f64::from(rw) * f64::from(frames.logical_width) / f64::from(w);
+        let logical_high = f64::from(rh) * f64::from(frames.logical_width) / f64::from(w);
+        frames.shown.store(
+            ((logical_shown.round() as u64) << 32) | (logical_high.round() as u64 & 0xffff_ffff),
+            Ordering::Release,
+        );
         frames
             .publisher
             .frame(jpeg, ow, oh, f64::from(ow) / logical_shown)?;
@@ -131,6 +138,7 @@ pub fn capture(
     stop_fd: i32,
     stop: Arc<AtomicBool>,
     publisher: Publisher,
+    shown: Arc<AtomicU64>,
 ) -> Result<()> {
     let mut frames = Frames {
         publisher,
@@ -141,6 +149,7 @@ pub fn capture(
         rgb: Vec::new(),
         failed: false,
         capture: std::ptr::null_mut(),
+        shown,
     };
     let c = unsafe {
         ace_pw_open(
