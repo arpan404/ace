@@ -6,8 +6,7 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
-    "preview": "astro preview",
-    "deploy": "SITE_URL=https://acehq.dev astro build && bunx wrangler@4 deploy"
+    "preview": "astro preview"
   },
   "dependencies": {
     "@ace/protocol": "workspace:*",

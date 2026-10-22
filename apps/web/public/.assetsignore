@@ -1,2 +1,0 @@
-# Source maps stay build artifacts; they are not published.
-*.map
