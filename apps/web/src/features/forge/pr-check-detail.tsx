@@ -19,7 +19,7 @@ import type {
 import { Button } from "@/components/ui/button.tsx";
 import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
-import { openExternal } from "@/boot/open-external.ts";
+import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { PrWorkspaceContext } from "./pr-extensions.ts";
@@ -159,6 +159,7 @@ export function PrCheckDetail(props: {
   const { detail, workspaceId } = context;
   const pr = detail.status.ref;
   const toast = useToast();
+  const openWeb = useOpenWebAddress();
   const query = useCheckRun({ workspaceId, pr, check, enabled: true });
   const rerun = useCheckRerun({ workspaceId, pr, onDone: context.refresh });
   const agent = useFixWithAgent({ workspaceId, detail, hostThreadId: props.hostThreadId });
@@ -168,8 +169,8 @@ export function PrCheckDetail(props: {
     <Button
       variant="ghost"
       size="xs"
-      onClick={() =>
-        void openExternal(url).catch(() => toast.error({ title: "Couldn't open the check" }))
+      onClick={(event) =>
+        void openWeb(url, event).catch(() => toast.error({ title: "Couldn't open the check" }))
       }
     >
       <ArrowSquareOutIcon aria-hidden size={12} />

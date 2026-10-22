@@ -1,26 +1,47 @@
 import { useState } from "react";
-import type { ForgeBrowserResult } from "@ace/protocol";
+import type { ForgeBrowserResult, ForgeRepository } from "@ace/protocol";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { PersonAvatar as PrAvatar, RelativeTime as PrTime } from "@/components/person-avatar.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "@/lib/forge-read.ts";
+import { repositoryParam } from "@/lib/pull-request-route.ts";
 import { issueEventText } from "./issue-events.ts";
 import { CommentsSkeleton } from "./issue-skeletons.tsx";
+import { WebLink } from "@/components/web-link.tsx";
 
 type TimelinePage = Extract<ForgeBrowserResult, { resource: "issueTimeline" }>;
 type IssueEvent = TimelinePage["events"][number];
 
-function useTimelinePage(project: string, number: number, page: number) {
+function useTimelinePage(
+  project: string,
+  repository: ForgeRepository | undefined,
+  number: number,
+  page: number,
+) {
   return useDaemonQuery<TimelinePage>({
-    queryKey: ["forge", project, "browse", "issueTimeline", number, page],
+    queryKey: [
+      "forge",
+      project,
+      "browse",
+      "issueTimeline",
+      number,
+      page,
+      repository ? repositoryParam(repository) : "",
+    ],
     staleTime: 15_000,
     gcTime: 10 * 60_000,
     retry: false,
     read: async (client, signal) => {
       const value = await readForge(
         client,
-        { op: "forge.issue.timeline", workspaceId: project, number, page },
+        {
+          op: "forge.issue.timeline",
+          workspaceId: project,
+          number,
+          page,
+          ...(repository ? { repository } : {}),
+        },
         signal,
       );
       if (value.resource !== "issueTimeline") throw new Error("No timeline.");
@@ -51,14 +72,9 @@ function Activity(props: { event: IssueEvent; text: string }) {
     <li className="flex items-baseline gap-1.5 border-t border-border py-2 pl-9 text-ui text-muted-foreground first:border-t-0">
       <span className="font-medium text-foreground/85">{props.event.actor}</span>
       {props.event.pullRequestUrl ? (
-        <a
-          href={props.event.pullRequestUrl}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="text-link hover:underline focus-ring"
-        >
+        <WebLink href={props.event.pullRequestUrl} className="text-link hover:underline focus-ring">
           {props.text}
-        </a>
+        </WebLink>
       ) : (
         <span>{props.text}</span>
       )}
@@ -70,8 +86,13 @@ function Activity(props: { event: IssueEvent; text: string }) {
   );
 }
 
-function Page(props: { project: string; number: number; page: number }) {
-  const query = useTimelinePage(props.project, props.number, props.page);
+function Page(props: {
+  project: string;
+  repository: ForgeRepository | undefined;
+  number: number;
+  page: number;
+}) {
+  const query = useTimelinePage(props.project, props.repository, props.number, props.page);
   const [more, setMore] = useState(false);
   if (query.isError)
     return (
@@ -111,10 +132,14 @@ function Page(props: { project: string; number: number; page: number }) {
 }
 
 /** An issue's comments and activity, oldest first, read a page of 25 at a time. */
-export function IssueTimeline(props: { project: string; number: number }) {
+export function IssueTimeline(props: {
+  project: string;
+  repository: ForgeRepository | undefined;
+  number: number;
+}) {
   return (
     <section aria-label="Conversation" className="mt-6">
-      <Page project={props.project} number={props.number} page={1} />
+      <Page project={props.project} repository={props.repository} number={props.number} page={1} />
     </section>
   );
 }

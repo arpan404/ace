@@ -16,6 +16,7 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { patchLines, stepPath, stripAnsi } from "@ace/ui-core";
 import type { AceToolView } from "@ace/ui-core/ace-tools";
 import { readOutputText } from "@/lib/output-read.ts";
+import { WebLink } from "@/components/web-link.tsx";
 
 /**
  * The expanded body of a work-log row (IR-7): command output, diffs, the file read, the tool's
@@ -60,9 +61,9 @@ function FetchedAddress(props: { url: string; threadId: string | undefined }) {
       </PullRequestLink>
     );
   return (
-    <a href={props.url} target="_blank" rel="noreferrer" className={addressClass}>
+    <WebLink href={props.url} className={addressClass}>
       {props.url}
-    </a>
+    </WebLink>
   );
 }
 

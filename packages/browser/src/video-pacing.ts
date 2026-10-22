@@ -13,6 +13,12 @@ export const keyframePeriodMs = 20_000;
 export const keyframeGapMs = 500;
 /** A still page sends no frames: an owed keyframe re-encodes the last one after this long. */
 export const stillFrameMs = 100;
+/**
+ * A page still this long since its last encode gets its last picture encoded once more, sharper
+ * (`QuantizerControl.settled`): a still page sends no frames, so without it the picture would
+ * keep the coarse quantizer of the motion or keyframe that came before.
+ */
+export const settleMs = 300;
 /** An encoder with frames in and nothing out for this long is stuck (ADR 0088's watchdog). */
 export const stallMs = 1_500;
 
@@ -23,6 +29,9 @@ export class EncodePacer {
   private nextAt = -Infinity;
   private lastKey = -Infinity;
   private owed = true;
+  private lastEncode = -Infinity;
+  /** The picture on screen has had its sharper encode since the page last changed. */
+  private settled = true;
   constructor(fps: number) {
     this.fps = fps;
   }
@@ -45,6 +54,18 @@ export class EncodePacer {
     this.encoded(now, true);
     return true;
   }
+  /**
+   * No frame came for a while: whether to encode the last one once more, sharper. Once per still
+   * spell, after any owed keyframe; never while the encoder is still working on earlier frames.
+   */
+  settle(now: number, lastFrameAt: number, idle: boolean): boolean {
+    if (!idle || this.settled || this.keyDue(now)) return false;
+    if (now - lastFrameAt < settleMs || now - this.lastEncode < settleMs) return false;
+    this.settled = true;
+    this.lastEncode = now;
+    this.nextAt = Math.max(this.nextAt, now + 1000 / this.fps - 8);
+    return true;
+  }
   private keyDue(now: number): boolean {
     if (now - this.lastKey >= keyframePeriodMs) return true;
     return this.owed && now - this.lastKey >= keyframeGapMs;
@@ -53,6 +74,8 @@ export class EncodePacer {
     const interval = 1000 / this.fps;
     // The next slot follows this one's; after a pause it starts again from now, not in a burst.
     this.nextAt = Math.max(this.nextAt + interval, now + interval - 8);
+    this.lastEncode = now;
+    this.settled = false;
     if (!key) return "delta";
     this.lastKey = now;
     this.owed = false;

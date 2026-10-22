@@ -344,6 +344,11 @@ export class WorkspaceRuntime {
       if (entry.threadId === id && !terminalAlive(entry.terminal))
         await this.closeTerminal(key, id);
   }
+  /** Ends every process in the thread's terminals; their output stays readable. */
+  async stopThreadTerminals(id: ThreadId): Promise<void> {
+    for (const entry of this.terminals.values())
+      if (entry.threadId === id) await this.manager.stop(entry.terminal);
+  }
   async closeThreadTerminals(id: ThreadId): Promise<void> {
     for (const [key, entry] of this.terminals)
       if (entry.threadId === id) await this.closeTerminal(key, id);
