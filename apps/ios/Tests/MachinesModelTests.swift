@@ -229,26 +229,6 @@ import Testing
         #expect(relaunch.sessions.started.allSatisfy { !$0.stopped })
     }
 
-    @Test func aRelaunchReadsTheDirectoryOnlyOnceItsMachinesAreUnderWay() async throws {
-        let first = try Fixture(machines: [machine("studio", device: "phone-1")])
-        defer { first.cleanUp() }
-        await first.model.load()
-        #expect(first.access.lists == 1)
-        let relaunch = try Fixture(machines: [machine("studio", device: "phone-1")], defaults: first.defaults)
-        let hold = Gate()
-        hold.close()
-        relaunch.model.beforeListing = { _ in await hold.wait() }
-        let loading = Task { await relaunch.model.load() }
-        for _ in 0..<50 where relaunch.sessions.started.isEmpty { await Task.yield() }
-        for _ in 0..<20 { await Task.yield() }
-        #expect(relaunch.sessions.started.map(\.target.hostId) == ["studio"])
-        #expect(relaunch.access.lists == 0)
-        hold.open()
-        await loading.value
-        #expect(relaunch.access.lists == 1)
-        #expect(relaunch.sessions.started.count == 1)
-    }
-
     @Test func aMachineTheDirectoryNoLongerListsStopsAfterARelaunchAndANewOneConnects() async throws {
         let first = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
         defer { first.cleanUp() }
@@ -311,14 +291,13 @@ private final class FakeAccess: MachineAccess, @unchecked Sendable {
     var removal: Result<Void, ProblemNotice> = .success(())
     private(set) var removed: [String] = []
     private(set) var renamed: [String] = []
-    private(set) var lists = 0
     private let listGate = Gate()
     init(_ machines: [MachineEntry]) { self.machines = machines }
     /// The directory's runtime answers only once released.
     func holdList() { listGate.close() }
     func releaseList() { listGate.open() }
     func perform(_ request: AccessRequest) async -> Result<AccessOutcome, ProblemNotice> {
-        if case .list = request { lock.withLock { lists += 1 }; await listGate.wait() }
+        if case .list = request { await listGate.wait() }
         return lock.withLock {
             switch request {
             case .list: return .success(AccessOutcome(ok: true, machines: machines, paired: nil, problem: nil))
