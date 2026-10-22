@@ -21,8 +21,8 @@
       "sha256": "c1f81c0a77a92e866b6a19bf4ebb199b3285f1c0a59c0eb9aca2eb2f042e16ca"
     },
     "mcp.md": {
-      "bytes": 71616,
-      "sha256": "189c4c950333dc7ca4c700b0f34d0fe9d40850431e32c02c69c12056babdce7a"
+      "bytes": 72649,
+      "sha256": "a8bd48d9916b5efa91567c109aff5022934726f735a7b4a7675ad7696a7fe3f9"
     },
     "models.md": {
       "bytes": 14854,
@@ -173,12 +173,16 @@
       "sha256": "cba2f4bd7061c93700357556522cbe48f373d3e514a2403bdba88ac1e9cb2822"
     },
     "schema/AgentAutomation.json": {
-      "bytes": 1607,
-      "sha256": "ef345ec8d89f6d5505cd4ddbbe61d58648933b74899231323ecb3d00d0d5fa47"
+      "bytes": 1748,
+      "sha256": "1a9aef2289eaf129e7ace802530545887841ad4a6d04d870076cd8f4f49bea25"
     },
     "schema/AgentAutomationRequest.json": {
       "bytes": 5019,
       "sha256": "9c1172d523b7b0a70a7e68b4e1f1e0825b7f3b7d74e2d24738fad1175e7e6355"
+    },
+    "schema/AgentAutomationSchedule.json": {
+      "bytes": 728,
+      "sha256": "0b5bcfcf2351e06fbc4fc2f587677c762336029abb5e51a860fefb99d6d6a519"
     },
     "schema/AgentCatalogInput.json": {
       "bytes": 981,
@@ -3940,9 +3944,17 @@
       "bytes": 563,
       "sha256": "77d96ea5584a1cbe397d0e5adc2f8ac9fd04949f1e6edaaa37189014fe42077a"
     },
+    "schema/automation_pause.input.json": {
+      "bytes": 535,
+      "sha256": "ddbcb52d2506a602f7869863bf30b485b43bf0f6d76f31542907c89c4b02ba5c"
+    },
+    "schema/automation_pause.output.json": {
+      "bytes": 203,
+      "sha256": "585410cac2180b95e2243060bbad115d24fb2e5d80d1cfd3b2900eea7c8135a8"
+    },
     "schema/automation_put.input.json": {
-      "bytes": 1733,
-      "sha256": "c39773fd604e7d6d850e8d124c19434f7578f40ccd2737bf6350c7d9c8f14337"
+      "bytes": 1461,
+      "sha256": "01f7a9946d7adcfe5f72bbacb63ff0e322cbf68ca7ac01219b5277becff42a06"
     },
     "schema/automation_put.output.json": {
       "bytes": 578,
@@ -4165,10 +4177,10 @@
       "sha256": "3c00a18ea5c34e708a57c9d0f5d0cdba097745d6b5fc80bd543053d4c1079efc"
     },
     "types.md": {
-      "bytes": 875419,
-      "sha256": "ed82e90a91b8cc16b7b99cd1587ef288c3b59a67e62bf712ab8b09a2a8cde369"
+      "bytes": 878635,
+      "sha256": "68b6f13d1bdeaeeda7ac4dfaf525456d1564ad33db7fed45be5b69da9c92ef42"
     }
   },
-  "input": "85b123c7389f729484d5d8d8c86b3027e7334b93d12becbffd29db6d5f5f6091",
+  "input": "a8b74d774721b363ec792a2fe7df427ff89ce3afe88dcf937c8b6117c49268c1",
   "version": 1
 }

@@ -8,7 +8,7 @@ import { ProviderKind } from "./provider.ts";
 import { InteractionResolution } from "./interactions.ts";
 import { AcpIdentity } from "./agent-registry.ts";
 import { AccountInstanceId } from "./account-ids.ts";
-import { Automation, AutomationRequest } from "./automations.ts";
+import { Automation, AutomationRequest, AutomationSchedule } from "./automations.ts";
 import { AgentCatalogInput, AgentWorkspace, ThreadListInput } from "./agent-orchestration.ts";
 import { WaitInput, WaitMode, WaitTimeoutSeconds } from "./agent-monitor.ts";
 import { MachineName } from "./machine-calls.ts";
@@ -217,12 +217,33 @@ export const AgentConversationRecord = z.object({
 });
 export type AgentConversationRecord = z.infer<typeof AgentConversationRecord>;
 /**
- * An agent's automation definition: the daemon supplies the caller's project, and agent jobs
- * never use worktrees or jitter, so those may be omitted. Omitted provider: the caller's own.
+ * When an agent's automation runs on a schedule: the time zone defaults to the machine's and the
+ * start to now, so an agent names only the rule.
  */
-export const AgentAutomation = Automation.extend({
+export const AgentAutomationSchedule = AutomationSchedule.extend({
+  timezone: AutomationSchedule.shape.timezone.optional(),
+  startAt: AutomationSchedule.shape.startAt.optional(),
+});
+export type AgentAutomationSchedule = z.infer<typeof AgentAutomationSchedule>;
+/**
+ * An agent's automation definition. Each run is a message into the agent's own thread, so the
+ * thread decides the provider, model, effort, account and access: the definition carries none of
+ * them, and the daemon records the thread's provider. The daemon also supplies the caller's
+ * project; agent jobs never use worktrees or jitter, and run by hand or on a schedule only.
+ */
+export const AgentAutomation = Automation.omit({
+  provider: true,
+  model: true,
+  effort: true,
+  instance: true,
+  access: true,
+  trigger: true,
+}).extend({
   workspace: Automation.shape.workspace.optional(),
-  provider: ProviderKind.optional(),
+  trigger: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("manual") }),
+    z.object({ kind: z.literal("schedule"), schedule: AgentAutomationSchedule }),
+  ]),
   worktree: Automation.shape.worktree.optional(),
   jitterMs: Automation.shape.jitterMs.optional(),
   enabled: z.boolean().default(true),

@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { z } from "zod";
-import { Automation, Command, ThreadId } from "@ace/protocol";
+import { Automation, Command, ThreadId, AgentAutomation } from "@ace/protocol";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { connectAutomations } from "./automation-socket-test-support.ts";
 
@@ -24,7 +24,11 @@ const definition = (workspace: string, patch: Partial<Automation> = {}): Automat
 async function agentPuts(f: Awaited<ReturnType<typeof daemonFixture>>, automation: Automation) {
   const saved = await f.call({
     op: "automation.manage",
-    request: { type: "automation.put", requestId: `put-${automation.id}`, automation },
+    request: {
+      type: "automation.put",
+      requestId: `put-${automation.id}`,
+      automation: AgentAutomation.parse(automation),
+    },
   });
   expect(saved.ok).toBe(true);
 }
@@ -43,8 +47,14 @@ test("the app lists an agent's automation with its thread and pauses and deletes
       requestId: "with-threads",
       includeThreads: true,
     });
+    // Its runs land in the agent's thread, so it is recorded with that thread's provider.
+    const provider = f.daemon.store.getThread(f.caller.threadId)?.provider;
     expect(listed.threadAutomations).toEqual([
-      expect.objectContaining({ automation, threadId: f.caller.threadId, nextRunAt: null }),
+      expect.objectContaining({
+        automation: { ...automation, provider },
+        threadId: f.caller.threadId,
+        nextRunAt: null,
+      }),
     ]);
     const revision = z.number().int().positive().parse(listed.threadAutomations?.[0]?.revision);
     expect(

@@ -12,6 +12,7 @@ import {
   AgentId,
   ThreadId,
   type AgentControlResult,
+  type AgentAutomation,
   type Automation,
   type AutomationRequest,
   type McpAttribution,
@@ -92,14 +93,34 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
           return offshifts.execute(caller, operation, signal);
         case "automation.manage": {
           const request = operation.request;
-          if (request.type === "automation.list")
+          if (request.type === "automation.list") {
+            // Each automation the caller may see, with when it runs next and how it last went.
+            const listed = automations.handle({
+              type: "automation.list",
+              requestId: request.requestId,
+            });
+            const schedules = new Map(
+              (listed.schedules ?? []).map((schedule) => [schedule.id, schedule]),
+            );
             return {
               ok: true,
-              data: automations.list().filter((job) => {
-                const identity = lookup(job.id);
-                return identity && delegations.authorize(caller, identity.thread_id, true);
-              }),
+              data: (listed.automations ?? [])
+                .filter((job) => {
+                  const identity = lookup(job.id);
+                  return identity && delegations.authorize(caller, identity.thread_id, true);
+                })
+                .map((job) => {
+                  const schedule = schedules.get(job.id);
+                  const lastRun = schedule?.lastRun;
+                  return Object.assign(
+                    {},
+                    job,
+                    { nextRunAt: schedule?.nextRunAt ?? null },
+                    lastRun ? { lastRun: { status: lastRun.status, at: lastRun.startedAt } } : {},
+                  );
+                }),
             };
+          }
           // Inbox paging is scoped by each job's durable ownership, before data is returned.
           if (request.type === "automation.inbox") {
             const page = automations.inbox(request.limit, request.before);
@@ -131,20 +152,21 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
             const path = store.getWorkspacePath(thread.workspaceId);
             if (!path) return { ok: false, code: "unavailable" };
             const draft = request.automation;
-            // Agent jobs run in the caller's project, without worktrees or jitter.
+            // Agent jobs run in the caller's project and thread, without worktrees or jitter.
+            // The thread is where each run lands, so its provider is the automation's, always.
             const definition: Automation = {
               ...draft,
+              trigger: completeTrigger(
+                draft.trigger,
+                now(),
+                new Intl.DateTimeFormat().resolvedOptions().timeZone,
+              ),
               workspace: draft.workspace ?? path,
-              provider: draft.provider ?? thread.provider,
+              provider: thread.provider,
               worktree: false,
               jitterMs: 0,
             };
-            if (
-              definition.workspace !== path ||
-              draft.worktree ||
-              (draft.jitterMs ?? 0) !== 0 ||
-              !["manual", "schedule"].includes(definition.trigger.kind)
-            )
+            if (definition.workspace !== path || draft.worktree || (draft.jitterMs ?? 0) !== 0)
               return { ok: false, code: "unsupported" };
             store.atomic((db) => {
               // Ownership tombstones protect historical and interrupted runs.
@@ -164,6 +186,27 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
         default:
           return { ok: false, code: "unsupported" };
       }
+    },
+  };
+}
+
+/**
+ * An agent's trigger with its schedule filled in: the machine's time zone and a start of now,
+ * to the minute, where the agent named only the rule.
+ */
+export function completeTrigger(
+  trigger: AgentAutomation["trigger"],
+  now: number,
+  localZone: string,
+): Automation["trigger"] {
+  if (trigger.kind === "manual") return trigger;
+  const { schedule } = trigger;
+  return {
+    kind: "schedule",
+    schedule: {
+      ...schedule,
+      timezone: schedule.timezone ?? localZone,
+      startAt: schedule.startAt ?? Math.floor(now / 60_000) * 60_000,
     },
   };
 }

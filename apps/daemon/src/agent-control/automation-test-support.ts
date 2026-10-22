@@ -35,7 +35,8 @@ export async function automationFixture() {
       id: () => `automation-${++sequence}`,
       resources,
       log,
-      services: { settings },
+      // Runs go into the agent's own thread through the engine, as in the daemon.
+      services: { settings, engine: h.engine },
       onListen,
     } satisfies ServiceContext;
     const owners = createAgentOwners(context, h.service);

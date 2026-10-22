@@ -1,4 +1,4 @@
-import { AutomationResponse, type Automation } from "@ace/protocol";
+import { AutomationResponse, type Automation, AgentAutomation } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { automationFixture } from "./automation-test-support.ts";
 
@@ -18,7 +18,7 @@ function definition(workspace: string): Automation {
   };
 }
 
-test("agent manual runs follow the global automation switch and stopped observers leave their child running", async () => {
+test("agent manual runs follow the global automation switch, and turning it off never fails a run", async () => {
   const f = await automationFixture();
   try {
     const automation = definition(f.h.home);
@@ -26,7 +26,11 @@ test("agent manual runs follow the global automation switch and stopped observer
       (
         await f.call({
           op: "automation.manage",
-          request: { type: "automation.put", requestId: "put", automation },
+          request: {
+            type: "automation.put",
+            requestId: "put",
+            automation: AgentAutomation.parse(automation),
+          },
         })
       ).ok,
     ).toBe(true);
@@ -48,9 +52,8 @@ test("agent manual runs follow the global automation switch and stopped observer
     const admitted = await run("enabled");
     expect(admitted).toMatchObject({ ok: true, run: { status: "running" } });
     if (!admitted.run) throw new Error("Missing run");
-    await expect
-      .poll(() => f.h.service.journal.receipt(f.caller.threadId, admitted.run?.id ?? ""))
-      .toBeDefined();
+    // The run is a message into the agent's own thread.
+    await expect.poll(() => f.h.inputs.get(f.caller.threadId)?.at(-1)).toBe("Check");
     await f.h.engine.flush();
     await f.settings.set("automations.enabled", false, { kind: "global" });
     await f.settings.settled({ kind: "global" });
@@ -62,13 +65,11 @@ test("agent manual runs follow the global automation switch and stopped observer
       op: "automation.manage",
       request: { type: "automation.inbox", requestId: "inbox", limit: 50 },
     });
-    expect(inbox.data).toMatchObject({ runs: [{ status: "running" }] });
+    // Turning the service off never fails a run: this one finished its turn in the thread.
+    expect(inbox.data).toMatchObject({ runs: [{ status: "succeeded" }] });
     await f.settings.set("automations.enabled", true, { kind: "global" });
     await f.settings.settled({ kind: "global" });
-    expect(await run("resumed")).toMatchObject({
-      ok: true,
-      run: { status: "skipped", result: "Concurrency limit reached" },
-    });
+    expect(await run("resumed")).toMatchObject({ ok: true, run: { status: "running" } });
   } finally {
     await f.close();
   }
@@ -93,7 +94,11 @@ test("persisted agent schedules stay stopped across restart and resume the misse
       (
         await f.call({
           op: "automation.manage",
-          request: { type: "automation.put", requestId: "scheduled", automation },
+          request: {
+            type: "automation.put",
+            requestId: "scheduled",
+            automation: AgentAutomation.parse(automation),
+          },
         })
       ).ok,
     ).toBe(true);
@@ -119,9 +124,8 @@ test("persisted agent schedules stay stopped across restart and resume the misse
     await expect
       .poll(inbox)
       .toMatchObject({ runs: [{ status: "running", eventKey: "schedule:60000" }] });
-    await expect
-      .poll(() => [...f.h.contexts.keys()].filter((id) => id !== f.caller.threadId))
-      .not.toEqual([]);
+    // The caught-up run is a message into the agent's own thread.
+    await expect.poll(() => f.h.inputs.get(f.caller.threadId)?.at(-1)).toBe("Check");
   } finally {
     await f.close();
   }
