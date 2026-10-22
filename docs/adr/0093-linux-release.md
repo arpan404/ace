@@ -162,7 +162,16 @@ The app's Linux identity is `dev.ace.app` everywhere: the installed desktop entr
 (`dev.ace.app.desktop`), the X11 window class and Wayland app id, and the autostart entry.
 Portals need a reverse-DNS id; GNOME refuses global shortcuts to one like `ace-desktop`, and
 Chromium only uses the shortcuts portal on GNOME with `GlobalShortcutsPortalPreferredTrigger`
-on as well. The executable stays `ace-desktop`. The app icon is installed at each size the
+on as well. The executable stays `ace-desktop`. An AppImage or extracted tar.gz installs
+nothing, so its launch writes `dev.ace.app.desktop` (and the 512 px icon) into
+`$XDG_DATA_HOME/applications`, pointing at the AppImage file or the tar.gz's launcher: without
+it GNOME's portal refuses the shortcut ("An app id is required") and `ace://` links have no
+handler. It removes an `ace-desktop.desktop` an earlier AppImage wrote, so ace is listed once,
+and the deb's own launch removes an AppImage-written entry that would shadow the package's.
+Hyprland's portal registers apps' shortcuts but never gives them keys; there Settings shows
+the hyprland.conf line (`bind = MODS, KEY, global, dev.ace.app:<id>`), read back from
+`hyprctl globalshortcuts` because Electron names the shortcut with a per-profile id.
+Computer use refuses `dev.ace.app`, `ace-desktop` and the tar.gz's `ace-desktop-bin`. The app icon is installed at each size the
 hicolor theme indexes (16 to 512 px); the theme has no 1024 px directory. Desktops without a
 StatusNotifier host (stock GNOME, bare window managers) show no tray icon, so the first time
 the window closes into the background there, a notification says ace is still running.
