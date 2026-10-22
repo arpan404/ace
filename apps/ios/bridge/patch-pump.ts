@@ -17,7 +17,9 @@ interface Delivery {
   read: Reader;
   sticky: boolean;
   /** What native will hold once this is confirmed, for the open thread's ledger. */
-  record?: { ledger: NativeLedger; epoch: number; patch: Record<string, unknown>; text: string } | undefined;
+  record?:
+    | { ledger: NativeLedger; epoch: number; patch: Record<string, unknown>; text: string }
+    | undefined;
 }
 interface Fragment extends Delivery {
   id: string;
@@ -25,6 +27,9 @@ interface Fragment extends Delivery {
   offset: number;
   index: number;
 }
+
+/** ADR 0074: a frame carries at most 32 patches and 32 KiB. */
+const framePatches = 32;
 
 function priority(key: string): 0 | 1 | 2 {
   if (key === "inbox:reset" || key === "thread:reset") return 0;
@@ -105,24 +110,31 @@ export class PatchPump {
         this.#queue("thread:reset").has("thread:reset"))
     );
   }
+  /**
+   * A few changes wait 8 ms so streaming deltas share a frame. A backlog of at least a full frame
+   * (opening a thread, a snapshot, history) or a fragmented patch goes at once: it is already
+   * coalesced, and each wait would only add to the frames it takes.
+   */
   #schedule(): void {
     if (this.#inFlight) return;
     const now = host.now();
     let next = this.#fragment ? now : Infinity;
+    let ready = this.#fragment ? framePatches : 0;
     for (const queue of this.#queues) {
       for (const task of queue.values()) {
-        if (!task.parked && !task.settled && !this.#blocked(task))
-          next = Math.min(next, task.readyAt);
-        if (next <= now) break;
+        if (task.parked || task.settled || this.#blocked(task)) continue;
+        next = Math.min(next, task.readyAt);
+        if (task.readyAt <= now) ready++;
+        if (ready >= framePatches) break;
       }
-      if (next <= now) break;
+      if (ready >= framePatches) break;
     }
     if (next === Infinity) {
       this.#timer?.cancel();
       this.#timer = undefined;
       return;
     }
-    const at = Math.max(now + 8, next);
+    const at = ready >= framePatches ? now : Math.max(now + 8, next);
     if (this.#timer && this.#timer.at <= at) return;
     this.#timer?.cancel();
     this.#timer = {
@@ -185,7 +197,7 @@ export class PatchPump {
           this.#emitFragment();
           return;
         }
-        if (bytes + size + 1 > 32768 || frame.length >= 32) break outer;
+        if (bytes + size + 1 > 32768 || frame.length >= framePatches) break outer;
         delivered.push({ task, read, sticky, record });
         frame.push(patch);
         bytes += size + 1;
