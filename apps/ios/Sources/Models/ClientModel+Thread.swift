@@ -70,6 +70,12 @@ extension ClientModel {
             threadAction(["type": "queue", "messageId": message.id, "change": change, "requestId": id])
         }
     }
+    /// Pause, resume or clear the thread's goal from its sheet; true once the daemon took it.
+    func changeGoal(_ change: String) async -> Bool {
+        guard canOperate else { return false }
+        let id = admissions.nextId()
+        return await admissions.wait(id: id) { threadAction(["type": "goal", "change": change, "requestId": id]) }
+    }
     @discardableResult func threadAction(_ value: [String: Any]) -> Bool {
         let dispatched = action(threadMessage(value, epoch: nil))
         if !dispatched { error = "Could not submit the request. Your draft is still available." }

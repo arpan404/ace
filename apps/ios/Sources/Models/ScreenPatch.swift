@@ -65,37 +65,43 @@ struct AttachmentFile: Codable, Sendable, Equatable, Identifiable {
     let progress: Double
     let error: String
 }
-/// The thread's live state (`bridge/thread-activity.ts`), worded from the shared `turnActivity`:
-/// the inline line at the top of the live turn and, while the main agent only waits, the
-/// composer strip's words with what its Stop ends. Nil when nothing is live.
-struct ActivityRow: Codable, Sendable, Equatable {
-    /// What the composer strip says while the main agent does nothing itself.
-    struct Wait: Codable, Sendable, Equatable {
-        /// "Waiting for 2 subagents", "Running", "Running 2 commands".
+/// The live pill over the composer (`bridge/thread-pill.ts`, worded by `livePill` in
+/// `@ace/ui-core`): what the thread does now, and what else is live, each part naming the sheet it
+/// opens (`agents`, `queue`, `goal`; empty opens nothing).
+struct PillRow: Codable, Sendable, Equatable {
+    struct Status: Codable, Sendable, Equatable {
+        /// "Working", "Waiting on 2", "Running".
         let label: String
-        /// A single shell's command, drawn as code after the label; empty when none.
+        /// The words before the timer, "Working for"; empty without a timer.
+        let lead: String
+        /// The timer's origin in ms since 1970.
+        let since: Double?
+        /// A single background command, drawn as code after the label; empty when none.
         let code: String
-        /// "1 command running", after a dot; empty when none.
-        let detail: String
-        /// The turn's timer follows the words (while subagents work).
-        let timed: Bool
-        /// `tree` stops the whole agent tree; `commands` stops `taskIds`.
-        let stop: String
-        let taskIds: [String]
+        /// The main agent itself works: the words sweep.
+        let live: Bool
+        let opens: String
     }
-    /// The line's words: "Working", "Waiting for your approval".
-    let label: String
-    /// `working`, `needs-you`, `held` or `paused`.
-    let tone: String
-    /// The timer's origin in ms since 1970; nil when the line has no timer.
-    let since: Double?
-    /// The words before the timer: "Working for"; empty when the line has no timer.
-    let lead: String
-    /// The inline line shows at the top of the live turn.
-    let inline: Bool
-    /// What else the tree does, after the time: "2 subagents working · 1 command".
-    let context: String
-    let wait: Wait?
+    struct Segment: Codable, Sendable, Equatable, Identifiable {
+        let kind: String
+        let label: String
+        let opens: String
+        let live: Bool
+        var id: String { kind }
+    }
+    let status: Status?
+    let segments: [Segment]
+}
+/// The goal's sheet: its words, progress and the changes ace can make to it.
+struct GoalRow: Codable, Sendable, Equatable {
+    let title: String
+    let objective: String
+    /// "Not met yet: …"; empty when the provider gave no reason.
+    let reason: String
+    let usage: String
+    let canPause: Bool
+    let canResume: Bool
+    let canClear: Bool
 }
 /// A finished turn's steps read from the daemon, page by page.
 struct StepsHeader: Codable, Sendable, Equatable {
@@ -121,10 +127,10 @@ enum ScreenPatch: Sendable {
     case attachments([AttachmentFile])
     case laneBlock(lane: String, id: String, row: BlockRow?)
     case laneBlockPosition(lane: String, id: String, index: Int?)
-    case activity(ActivityRow?)
+    case pill(PillRow?, GoalRow?)
 
-    static let types: Set<String> = ["thread.steps", "thread.stepsPage", "thread.tune", "thread.attachments", "thread.laneBlock", "thread.laneBlockPosition", "thread.activity"]
-    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, lane, id, row, index }
+    static let types: Set<String> = ["thread.steps", "thread.stepsPage", "thread.tune", "thread.attachments", "thread.laneBlock", "thread.laneBlockPosition", "thread.pill"]
+    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, lane, id, row, index, pill, goal }
     init(type: String, from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         switch type {
@@ -132,7 +138,7 @@ enum ScreenPatch: Sendable {
         case "thread.stepsPage":
             self = .stepsPage(ordinal: try box.decode(Int.self, forKey: .ordinal), page: try box.decode(Int.self, forKey: .page), rows: try box.decode([TranscriptRow].self, forKey: .rows))
         case "thread.tune": self = .tune(try TuneRow(from: decoder))
-        case "thread.activity": self = .activity(try box.decodeIfPresent(ActivityRow.self, forKey: .row))
+        case "thread.pill": self = .pill(try box.decodeIfPresent(PillRow.self, forKey: .pill), try box.decodeIfPresent(GoalRow.self, forKey: .goal))
         case "thread.attachments": self = .attachments(try box.decode([AttachmentFile].self, forKey: .files))
         case "thread.laneBlock":
             self = .laneBlock(lane: try box.decode(String.self, forKey: .lane), id: try box.decode(String.self, forKey: .id), row: try box.decodeIfPresent(BlockRow.self, forKey: .row))
