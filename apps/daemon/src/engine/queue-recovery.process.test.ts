@@ -5,7 +5,6 @@ import {
   cleanupRecovery,
   text,
   restart,
-  resume,
   sends,
   replaceProvider,
   crashCopy,
@@ -186,7 +185,7 @@ test("claiming a message before provider startup makes a concurrent edit fail", 
   expect(sends(h.adapter)).toEqual([{ type: "send", input: text("claimed"), delivery: "queue" }]);
 });
 
-test("restart preserves reordering and holds the queue until the person resumes", async () => {
+test("restart preserves reordering and sends the queue in order behind the restart continuation", async () => {
   const frames = scriptFrames();
   const h = await fixture([{ on: "send", frames: [frames.frame(start, task, end)] }], frames);
   const id = await h.create();
@@ -205,15 +204,12 @@ test("restart preserves reordering and holds the queue until the person resumes"
     { on: "send", frames: [frames.frame(start, end)] },
   ]);
   const recovered = await restart(h);
-  expect(sends(replacement)).toHaveLength(0);
-  expect(recovered.queue(id)).toMatchObject({ paused: true, reason: "restart" });
-  expect(resume(h, recovered, id).ok).toBe(true);
   await recovered.flush();
   expect(h.contexts.at(-1)?.resume).toEqual({ nativeSessionId: "native-1" });
   const delivered = replacement.commands.filter((command) => command.type === "send");
   expect(delivered[0]?.input[0]).toMatchObject({
     type: "text",
-    text: "Continue where you left off.",
+    text: expect.stringContaining("Background build"),
   });
   expect(delivered.slice(1).map((command) => command.input)).toEqual([text("b"), text("a")]);
   expect(
@@ -221,7 +217,7 @@ test("restart preserves reordering and holds the queue until the person resumes"
   ).toBe(true);
 });
 
-test("native restart settles lost shells monitors and subagents and sends one continuation", async () => {
+test("native restart settles lost shells monitors and subagents and continues once, naming them", async () => {
   const frames = scriptFrames();
   const h = await fixture(
     [
@@ -262,23 +258,13 @@ test("native restart settles lost shells monitors and subagents and sends one co
     { on: "send", frames: [frames.frame(start, end)] },
   ]);
   const recovered = await crashCopy(h);
-  expect(sends(replacement)).toHaveLength(0);
-  dispatch(recovered.store, recovered.engine, {
-    type: "thread.resume",
-    threadId: id,
-    expectedRevision: recovered.engine.queue(id).revision,
-  });
   await recovered.engine.flush();
   expect(recovered.store.getThread(id)?.status.state).toBe("done");
   const continuationItems = Object.values(recovered.store.snapshotThread(id).items).filter(
     (item) => item.type === "message" && item.origin?.kind === "restart",
   );
   expect(continuationItems).toHaveLength(1);
-  expect(continuationItems[0]).toMatchObject({
-    synthetic: true,
-    origin: { kind: "restart" },
-    parts: [{ type: "text", text: "Continue where you left off." }],
-  });
+  expect(continuationItems[0]).toMatchObject({ synthetic: true, origin: { kind: "restart" } });
   const view = recovered.store.snapshotThread(id);
   expect(Object.values(view.backgroundTasks)).toEqual(
     expect.arrayContaining([
@@ -293,10 +279,10 @@ test("native restart settles lost shells monitors and subagents and sends one co
     }),
   );
   expect(sends(replacement)).toHaveLength(1);
-  const continuation = replacement.commands.find((command) => command.type === "send");
-  expect(continuation).toMatchObject({
-    input: [{ type: "text", text: "Continue where you left off." }],
-  });
+  // The one continuation names each piece of work that died with the old provider.
+  const continuation = sends(replacement)[0]?.input[0];
+  const said = continuation?.type === "text" ? continuation.text : "";
+  for (const lost of ["Background build", "Watch tests", "Research"]) expect(said).toContain(lost);
 });
 
 test("an unacknowledged send is never replayed: Resume refuses it and the next message goes ahead without it", async () => {

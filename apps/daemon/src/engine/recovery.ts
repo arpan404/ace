@@ -229,7 +229,21 @@ export class Recovery {
     });
     this.schedule();
   }
+  /** Records a plain continuation for interrupted live work (a provider exit, a host pause). */
   capture(id: ThreadId): void {
+    this.captureWith(id, () => continueMessage);
+  }
+  /**
+   * Records the continuation for work a daemon shutdown or crash cut short: it tells the agent ace
+   * restarted and names the background work that died. Cursor SDK work stays uncertain until
+   * checkpoint reconciliation, so it keeps the plain continuation.
+   */
+  captureRestart(id: ThreadId): void {
+    this.captureWith(id, (lost) =>
+      this.repo.backend(id) === "cursor-sdk" ? continueMessage : restartContinuation(lost),
+    );
+  }
+  private captureWith(id: ThreadId, text: (lost: string[]) => string): void {
     if (this.repo.pending.uncertainContinuation(id)) return;
     // A Stop is final: the stopped turn never carries on, so a restart has nothing to resume.
     if (stoppedHold(this.repo.queue.get(id))) return;
@@ -239,10 +253,7 @@ export class Recovery {
       this.clock.now(),
     );
     if (!lost) return;
-    // Cursor SDK work stays uncertain until checkpoint reconciliation; it never auto-resumes.
-    const continuation =
-      this.repo.backend(id) === "cursor-sdk" ? continueMessage : restartContinuation(lost);
-    this.repo.queue.set(id, { continuation, trigger: "restart" }, this.clock.now());
+    this.repo.queue.set(id, { continuation: text(lost), trigger: "restart" }, this.clock.now());
     this.sync(id);
   }
   /**

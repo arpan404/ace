@@ -1470,7 +1470,7 @@ export class Engine {
       this.recovery.close();
       for (const actor of this.actors.values()) {
         await actor.flush();
-        this.recovery.capture(actor.id);
+        this.recovery.captureRestart(actor.id);
       }
       this.sends.stop();
       this.controls.stop();

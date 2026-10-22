@@ -22,7 +22,7 @@ afterEach(cleanupRecovery);
 
 async function heldAfterRestart(queued: string[] = []) {
   const frames = scriptFrames();
-  // One finished turn, then a second one still running when ace restarts.
+  // One finished turn, then a second one its provider died in before ace restarts.
   const h = await fixture(
     [
       { on: "send", frames: [frames.frame(start, end)] },
@@ -40,6 +40,9 @@ async function heldAfterRestart(queued: string[] = []) {
   const replacement = replaceProvider(h, frames, [
     { on: "send", frames: [frames.frame(start, end)] },
   ]);
+  // The provider died mid-turn, holding the turn for the person; then ace restarted.
+  h.contexts.at(-1)?.onExit({ deliberate: false, message: "provider died" });
+  await h.engine.flush();
   const recovered = await crashCopy(h);
   expect(recovered.engine.queue(id)).toMatchObject({ paused: true, reason: "restart" });
   return { h, id, replacement, recovered };

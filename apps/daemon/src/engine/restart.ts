@@ -115,7 +115,7 @@ export function recoverEngine(
         // and a hold an earlier restart left goes now.
         if (repo.store.getThread(state.threadId)?.settledAt !== undefined)
           recovery.closeSettled(state.threadId);
-        else recovery.capture(state.threadId);
+        else recovery.captureRestart(state.threadId);
         // A stopped provider no longer owns an admitted continuation. Native history
         // remains the source for a new restart continuation, never the old input.
         if (!repo.pending.uncertainContinuation(state.threadId))
@@ -127,7 +127,9 @@ export function recoverEngine(
         // state shows a deliberate exit; the captured continuation is the evidence either way.
         const captured = repo.queue.get(state.threadId);
         const thread = repo.store.getThread(state.threadId);
+        // Cursor SDK work stays uncertain until checkpoint reconciliation, which owns it.
         const candidate =
+          backend !== "cursor-sdk" &&
           !heldBefore &&
           captured.trigger === "restart" &&
           captured.continuation !== null &&
@@ -139,7 +141,7 @@ export function recoverEngine(
             settled: false,
             archived: thread?.archivedAt !== undefined,
             waitingOnPerson: openRequest ? requestLine(openRequest.request) : undefined,
-            canContinue: backend !== "cursor-sdk" && canContinue(state.threadId),
+            canContinue: canContinue(state.threadId),
             streak: recovery.streaks.get(state.threadId),
           });
         if (live && backend === "cursor-sdk")
