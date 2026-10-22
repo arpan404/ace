@@ -2,6 +2,7 @@ import { host, scheduler } from "./host.ts";
 import { degradedPatch } from "./degraded-patch.ts";
 import { base64 } from "./bytes.ts";
 import { keptKey, ledgerText, type NativeLedger } from "./native-ledger.ts";
+import { itemPatch } from "./text-edit.ts";
 
 type Reader = () => Record<string, unknown> | undefined;
 interface Task {
@@ -201,7 +202,9 @@ export class PatchPump {
           continue;
         }
         const serializeAt = tracing ? host.now() : 0;
-        const json = JSON.stringify(patch);
+        // Streaming text crosses as an edit of what native confirmed holding (`text-edit.ts`).
+        const sent = record ? itemPatch(patch, record.ledger.confirmed(task.key)) : patch;
+        const json = JSON.stringify(sent);
         const size = host.utf8Length(json);
         if (tracing) serializing += host.now() - serializeAt;
         if (size > 32760) {
@@ -224,7 +227,7 @@ export class PatchPump {
           break outer;
         }
         delivered.push({ task, read, sticky, record });
-        frame.push(patch);
+        frame.push(sent);
         texts.push(json);
         bytes += size + 1;
         if (task.failures) break outer;
@@ -295,7 +298,9 @@ export class PatchPump {
       queue.set(task.key, task);
     }
   }
-  #reject({ task, read }: Delivery): void {
+  #reject({ task, read, record }: Delivery): void {
+    // Native's copy may no longer match what it last confirmed: the retry goes whole.
+    record?.ledger.forget(task.key);
     const queue = this.#queue(task.key);
     if (queue.get(task.key) !== task) return;
     task.failures++;
