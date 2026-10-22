@@ -163,15 +163,15 @@ async function body(response: IncomingMessage, max: number): Promise<Buffer | un
   return Buffer.concat(chunks);
 }
 
-/**
- * GET `url` from the public web. `missing` when it isn't there (4xx, too large, no body),
- * `refused` when it would leave the public web, `failed` when it may work later.
- */
-export async function publicGet(
-  url: string,
-  input: PublicFetchOptions = {},
-): Promise<PublicResponse> {
-  const options: Required<PublicFetchOptions> = {
+/** An open response: the caller reads (and must consume or destroy) the body. */
+export type PublicOpen =
+  | { kind: "ok"; response: IncomingMessage; url: string }
+  | { kind: "missing"; status?: number }
+  | { kind: "refused" }
+  | { kind: "failed" };
+
+function withDefaults(input: PublicFetchOptions): Required<PublicFetchOptions> {
+  return {
     resolve: systemResolve,
     allowed: publicWeb,
     timeoutMs: 3000,
@@ -180,6 +180,19 @@ export async function publicGet(
     accept: "image/*",
     ...input,
   };
+}
+
+/**
+ * GET `url` from the public web and hand back the response once it answers 2xx, its body
+ * unread; the whole fetch, body included, still ends at its deadline. `missing` (with the
+ * status when the host answered) when it isn't there, `refused` when it would leave the public
+ * web, `failed` when it may work later.
+ */
+export async function publicResponse(
+  url: string,
+  input: PublicFetchOptions = {},
+): Promise<PublicOpen> {
+  const options = withDefaults(input);
   let current: URL;
   try {
     current = new URL(url);
@@ -213,20 +226,34 @@ export async function publicGet(
     }
     if (status < 200 || status >= 300) {
       response.resume();
-      return { kind: "missing" };
+      return { kind: "missing", status };
     }
-    try {
-      const bytes = await body(response, options.maxBytes);
-      if (!bytes?.length) return { kind: "missing" };
-      return {
-        kind: "ok",
-        body: bytes,
-        contentType: String(response.headers["content-type"] ?? ""),
-        url: current.href,
-      };
-    } catch {
-      return { kind: "failed" };
-    }
+    return { kind: "ok", response, url: current.href };
   }
   return { kind: "missing" };
+}
+
+/**
+ * GET `url` from the public web. `missing` when it isn't there (4xx, too large, no body),
+ * `refused` when it would leave the public web, `failed` when it may work later.
+ */
+export async function publicGet(
+  url: string,
+  input: PublicFetchOptions = {},
+): Promise<PublicResponse> {
+  const opened = await publicResponse(url, input);
+  if (opened.kind === "missing") return { kind: "missing" };
+  if (opened.kind !== "ok") return opened;
+  try {
+    const bytes = await body(opened.response, withDefaults(input).maxBytes);
+    if (!bytes?.length) return { kind: "missing" };
+    return {
+      kind: "ok",
+      body: bytes,
+      contentType: String(opened.response.headers["content-type"] ?? ""),
+      url: opened.url,
+    };
+  } catch {
+    return { kind: "failed" };
+  }
 }

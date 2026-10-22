@@ -1,3 +1,5 @@
+import { ForgeMediaCache, forgeMediaRoot } from "./forge-media/media-cache.ts";
+import { ForgeMediaService } from "./forge-media/media-service.ts";
 import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { DefaultBranches } from "./default-branch.ts";
 import type { createWritingCli } from "./source-control-cli.ts";
@@ -63,6 +65,8 @@ export interface WorkspaceRuntimeOptions {
     commit?: () => void,
   ): Promise<void>;
   forgeRunner?: (cwd: string) => CommandRunner;
+  /** Media for forge text (ADR 0096); by default kept under the daemon's data directory. */
+  forgeMedia?: () => ForgeMediaService;
   /** Injected endpoint selection for isolated Git fixtures; production matches repository identity. */
   prRemote?: (remotes: PrRemotes, repository: ForgeRepository) => string;
   gitService?: WorkspaceGit;
@@ -83,6 +87,15 @@ export interface WorkspaceRuntimeOptions {
   machine?: { host: string; name: string };
   /** Reports failures nobody waits on: background worktree cleanup and its recovery. */
   log?: (message: string, error: unknown) => void;
+}
+/** The media service, made on first use so a daemon that never shows forge media never makes its folder. */
+function forgeMedia(directory: string, now: () => number): () => ForgeMediaService {
+  let service: ForgeMediaService | undefined;
+  return () =>
+    (service ??= new ForgeMediaService({
+      cache: new ForgeMediaCache(forgeMediaRoot(directory)),
+      now,
+    }));
 }
 export class WorkspaceRuntime {
   readonly creationDrafts: CreationDrafts;
@@ -125,6 +138,7 @@ export class WorkspaceRuntime {
       now,
       options.forgeRunner ?? ((cwd) => createCommandRunner({ cwd })),
       options.sourceControl,
+      options.forgeMedia ?? forgeMedia(directory, now),
     );
     this.roots = new WorkspaceRoots(store, this.git, directory, now, this.machine, {
       ...(options.baseFetchTimeoutMs ? { baseFetchTimeoutMs: options.baseFetchTimeoutMs } : {}),
@@ -427,7 +441,8 @@ export class WorkspaceRuntime {
       op.op === "forge.pr.commits" ||
       op.op === "forge.pr.files" ||
       op.op === "forge.pr.check" ||
-      op.op === "forge.file.content"
+      op.op === "forge.file.content" ||
+      op.op === "forge.media.resolve"
     ) {
       if (
         op.op === "forge.pr.stack" &&

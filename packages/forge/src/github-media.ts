@@ -38,10 +38,14 @@ export function mediaKey(source: string): string | undefined {
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
   if (url.username || url.password) return undefined;
-  const asset =
-    (url.hostname === "github.com" && attachmentPath.exec(url.pathname)) ||
-    (url.hostname === "private-user-images.githubusercontent.com" && signedPath.exec(url.pathname));
-  if (asset?.[1]) return `asset:${asset[1].toLowerCase()}`;
+  const pattern =
+    url.hostname === "github.com"
+      ? attachmentPath
+      : url.hostname === "private-user-images.githubusercontent.com"
+        ? signedPath
+        : undefined;
+  const asset = pattern?.exec(url.pathname)?.[1];
+  if (asset) return `asset:${asset.toLowerCase()}`;
   url.hash = "";
   return `url:${url.href}`;
 }

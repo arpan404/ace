@@ -18,9 +18,23 @@ export async function projectFilesBinding(
   readable: () => boolean,
 ): Promise<{
   service: FilesService;
-  release(): void;
+  release?(): void;
   allowed(access: "read" | "operate"): boolean;
+  operation?: FileOperation;
 }> {
+  if (operation?.op === "forge.media.download") {
+    // Media the daemon fetched for this project's forge text (ADR 0096), by hash.
+    const registered = () => {
+      try {
+        files.projectRoot(workspaceId);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    if (!registered()) throw new FileError("NOT_FOUND", "Project unavailable");
+    return files.forgeMedia.bind(operation, () => readable() && registered());
+  }
   if (!operation || !reads.has(operation.op))
     throw new FileError("FORBIDDEN", "A project's files are read-only before a thread exists");
   if (!readable()) throw new FileError("FORBIDDEN", "File access denied");

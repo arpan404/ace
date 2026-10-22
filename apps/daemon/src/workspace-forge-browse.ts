@@ -1,4 +1,5 @@
-import { repositoryKey, prUrl } from "@ace/forge";
+import { ForgeError, repositoryKey, prUrl } from "@ace/forge";
+import type { ForgeMediaService } from "./forge-media/media-service.ts";
 import { ThreadId, type ForgePrStatus } from "@ace/protocol";
 import type { IssueActions } from "./issue-actions.ts";
 import type { WorkspaceForgeActions } from "./workspace-forge-actions.ts";
@@ -18,6 +19,7 @@ export class WorkspaceForgeBrowse {
     lifecycle: WorkspaceForgeLifecycle;
     reviews: WorkspaceForgeReviews;
     stacks: WorkspaceForgeStacks;
+    media?: (() => ForgeMediaService) | undefined;
   };
   constructor(ctx: WorkspaceForgeContext, parts: WorkspaceForgeBrowse["parts"]) {
     this.ctx = ctx;
@@ -113,6 +115,19 @@ export class WorkspaceForgeBrowse {
         resource: "prCheck",
         value: await backend.checks.run(operation.checkRunId, operation.jobId, signal),
       };
+    if (operation.op === "forge.media.resolve") {
+      const media = this.parts.media?.();
+      if (!media) throw new ForgeError("unsupported");
+      return {
+        resource: "media",
+        items: await media.resolve(
+          repository.host,
+          (items, abort) => backend.renderMedia(items, abort),
+          operation.items,
+          signal,
+        ),
+      };
+    }
     if (operation.op === "forge.file.content")
       return { resource: "fileContent", value: await backend.fileContent(operation, signal) };
     const ref = { repository, number: operation.number };
