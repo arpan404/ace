@@ -4,7 +4,10 @@ import Observation
 /// Paired computers, each connected at once on its own runtime. Directory rules and credentials
 /// stay in the shared SDK and Keychain; this model starts, renames and retires runtimes.
 @MainActor @Observable final class MachinesModel {
-    private(set) var machines: [MachineEntry] = []
+    /// Remembered on every change, so the next launch connects them before the directory answers.
+    private(set) var machines: [MachineEntry] = [] {
+        didSet { if machines != oldValue { defaults.set(try? JSONEncoder().encode(machines), forKey: Keys.known) } }
+    }
     private(set) var loaded = false
     private(set) var grants: [String: [String]]
     /// Directory trouble, or an operation on a machine that failed (for a person).
@@ -36,17 +39,44 @@ import Observation
     }
     private func canOperate(_ entry: MachineEntry) -> Bool { Grants(scopes: grants[entry.deviceId] ?? ["operate"]).canOperate }
 
-    /// Load the directory, then connect every paired machine. An offline one gates nothing.
+    /// Connect every machine this phone knew at once, then read the directory and follow it: a
+    /// machine it no longer lists stops, a changed one reconnects, a new one connects. Reading the
+    /// directory starts a JavaScript runtime of its own, so a relaunch never waits on it before
+    /// its machines start. An offline machine gates nothing.
     func load() async {
+        let known = (defaults.data(forKey: Keys.known)).flatMap { try? JSONDecoder().decode([MachineEntry].self, from: $0) } ?? []
+        if !known.isEmpty {
+            machines = known
+            loaded = true
+            for entry in known { await connect(entry) }
+        }
         let listing = LaunchTrace.begin("machines.list")
         let listed = await access.perform(.list)
         listing.end()
         switch listed {
-        case .success(let outcome): machines = outcome.machines ?? []
+        case .success(let outcome): await follow(outcome.machines ?? [])
         case .failure(let notice): problem = notice
         }
         loaded = true
         for entry in machines { await connect(entry) }
+    }
+    /// The directory's answer replaces what this phone remembered.
+    private func follow(_ listed: [MachineEntry]) async {
+        let previous = machines
+        machines = listed
+        for entry in previous {
+            let current = listed.first { $0.hostId == entry.hostId }
+            if current == entry { continue }
+            if let current, current.target == entry.target, current.deviceId == entry.deviceId {
+                inbox.rename(entry.hostId, to: current.displayName)
+                continue
+            }
+            // Gone from the directory, or reachable another way now: this runtime stops.
+            guard let client = inbox.detach(entry.hostId) else { continue }
+            unsupported.remove(entry.hostId)
+            await client.disconnectAndWait()
+            afterRemove?(client, entry.hostId)
+        }
     }
     /// Redeem a confirmed link, store the device, then connect it beside the others.
     func pair(_ link: PairingLink, name: String) async -> ProblemNotice? {
@@ -116,5 +146,5 @@ import Observation
         await beforeConnect?(client, target)
         await client.connect(target: target, directory: storage, itemLimit: itemLimit)
     }
-    private enum Keys { static let grants = "ace.machines.grants" }
+    private enum Keys { static let grants = "ace.machines.grants", known = "ace.machines.known" }
 }
