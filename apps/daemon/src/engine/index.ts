@@ -96,6 +96,8 @@ export interface EngineOptions {
   idleMs?: number;
   silenceMs?: number;
   onError?: (error: unknown) => void;
+  /** Stopping part of a settled thread's tree failed: for the log only, never the person. */
+  onSettleCleanupFailure?: (thread: ThreadId, error: unknown) => void;
   onSessionOpenFailure?: (
     thread: ThreadId,
     details: import("@ace/protocol").ProviderErrorDetails,
@@ -125,6 +127,7 @@ export class Engine {
   private batchScheduler: Pick<EngineClock, "setTimer">;
   private idleMs: number;
   private report: (error: unknown) => void;
+  private settleFailed: (thread: ThreadId, error: unknown) => void;
   private diagnostic: EngineOptions["onProviderDiagnostic"];
   private actors = new Map<ThreadId, ThreadActor>();
   private stopReleaseWatch: () => void;
@@ -192,6 +195,7 @@ export class Engine {
     if (!Number.isSafeInteger(this.idleMs) || this.idleMs < 0) throw new Error("Invalid idleMs");
     if (!Number.isSafeInteger(silenceMs) || silenceMs < 0) throw new Error("Invalid silenceMs");
     this.report = options.onError ?? console.error;
+    this.settleFailed = options.onSettleCleanupFailure ?? ((_thread, error) => this.report(error));
     this.diagnostic = options.onProviderDiagnostic;
     this.sends = new IntentWorkers((id) => this.slotted(id, (a) => this.work(a)), this.report);
     this.steering = new IntentWorkers((id) => this.slotted(id, (a) => this.steer(a)), this.report);
@@ -305,6 +309,15 @@ export class Engine {
           this.repo.state(event.threadId)
         )
           store.atomic(() => this.recovery.closeSettled(event.threadId));
+        // Settling ends everything the thread runs: its children, sessions and background tasks.
+        if (
+          event.payload.type === "thread.client.updated" &&
+          typeof event.payload.changes.settledAt === "number" &&
+          this.readyState &&
+          !this.closing &&
+          this.repo.state(event.threadId)
+        )
+          void this.liveness.settleTree(event.threadId, this.settleFailed);
       }
     });
     // Live output the store had to drop stops only that thread's session, visibly.
@@ -1382,6 +1395,7 @@ export class Engine {
     try {
       await this.readyPromise;
       await Promise.resolve();
+      await this.liveness.settled();
       do {
         await Promise.all([...this.actors.values()].map((actor) => actor.flush()));
         await Promise.all([this.sends.flush(), this.controls.flush(), this.steering.flush()]);
@@ -1396,6 +1410,7 @@ export class Engine {
     this.closePromise ??= (async () => {
       this.closing = true;
       this.stopReleaseWatch();
+      await this.liveness.settled();
       this.flushDepth++;
       await Promise.allSettled(this.workspaceChanges.values());
       await this.readyPromise;

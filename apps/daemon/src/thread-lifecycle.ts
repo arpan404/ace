@@ -1,3 +1,4 @@
+import { logError } from "@ace/diagnostics";
 import { Command, ThreadId, type CommandResult } from "@ace/protocol";
 import { initializeThreadCleanup, threadCleaning } from "./thread-cleanup-journal.ts";
 import { organizationDecision } from "@ace/projection";
@@ -16,10 +17,49 @@ export class ThreadLifecycle {
   private sweeping: Promise<void> | undefined;
   private after = "";
   private stopped = false;
+  private settling = new Set<Promise<void>>();
+  private stopSettleWatch: () => void;
   constructor(options: ServerOptions, schedule = organizerSchedule) {
     this.options = options;
     this.schedule = schedule;
     initializeThreadCleanup(options.store);
+    this.stopSettleWatch = options.store.subscribe((events) => {
+      for (const event of events)
+        if (
+          event.payload.type === "thread.client.updated" &&
+          typeof event.payload.changes.settledAt === "number"
+        )
+          this.track(this.closeSettled(event.threadId));
+    });
+  }
+  private track(work: Promise<void>): void {
+    const done = work
+      .catch((error: unknown) =>
+        this.options.warn?.("Closing a settled thread failed", logError(error)),
+      )
+      .finally(() => this.settling.delete(done));
+    this.settling.add(done);
+  }
+  /**
+   * A settled thread keeps nothing running on the host: the terminals, dev-server previews and
+   * browser of it and every delegated child close. (The engine stops their agents.) A part that
+   * fails to close goes to the daemon's log only, never to the person.
+   */
+  private async closeSettled(id: ThreadId): Promise<void> {
+    await Promise.resolve();
+    const { engine, workspaceActions, previewClient, browser } = this.options;
+    for (const owner of (engine?.cleanupThreads(id) ?? [id]).toReversed()) {
+      if (this.stopped) return;
+      const failed = (error: unknown) =>
+        this.options.warn?.(`Closing settled thread ${owner} failed`, logError(error));
+      await workspaceActions?.closeThreadTerminals(owner).catch(failed);
+      try {
+        previewClient?.releaseThread(owner);
+      } catch (error) {
+        failed(error);
+      }
+      await browser?.closeThread(owner).catch(failed);
+    }
   }
   private now(): number {
     return (this.options.now ?? Date.now)();
@@ -218,6 +258,8 @@ export class ThreadLifecycle {
   }
   async close(): Promise<void> {
     this.stopped = true;
+    this.stopSettleWatch();
+    await Promise.allSettled(this.settling);
     this.cancel?.();
     await this.sweeping;
     await Promise.allSettled(this.flights.values());
