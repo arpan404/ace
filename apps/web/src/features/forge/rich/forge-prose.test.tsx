@@ -24,8 +24,9 @@ const repository = { forge: "github", host: "github.com", owner: "acme", name: "
  * A client of the fake daemon that records which media URLs it asked the daemon about.
  * `evicted` answers the first media download as a daemon whose cache dropped the file would.
  */
-async function connected(options: { evicted?: boolean } = {}) {
+async function connected(options: { evicted?: boolean; emojiOffline?: boolean } = {}) {
   let evicted = options.evicted ?? false;
+  let emojiReads = 0;
   const daemon = new FakeDaemon({ clock: () => 1_000 });
   // Media downloads are read-only reads of a registered project.
   daemon.projects.seedFolders("/fake", [{ path: "/fake/ace", git: true }]);
@@ -57,6 +58,22 @@ async function connected(options: { evicted?: boolean } = {}) {
         send(text) {
           const message = ClientMessage.parse(JSON.parse(text));
           if (
+            message.type === "workspace.request" &&
+            message.operation.op === "forge.emoji.images"
+          ) {
+            emojiReads++;
+            if (options.emojiOffline) {
+              reply?.(
+                JSON.stringify({
+                  type: "workspace.result",
+                  requestId: message.requestId,
+                  result: { kind: "error", code: "forge_offline" },
+                }),
+              );
+              return;
+            }
+          }
+          if (
             evicted &&
             message.type === "files.request" &&
             message.operation.op === "forge.media.download"
@@ -84,7 +101,7 @@ async function connected(options: { evicted?: boolean } = {}) {
   });
   await client.start();
   await expect.poll(() => client.state).toBe("ready");
-  return { client, asked, workspaceId };
+  return { client, asked, workspaceId, emojiReads: () => emojiReads };
 }
 
 function page(
@@ -351,4 +368,24 @@ test("commits, other repositories' references and GitHub's image emoji link and 
   expect(screen.queryByRole("link", { name: "deadbeef" })).toBeNull();
   const octocat = await screen.findByRole("img", { name: ":octocat:" });
   expect(octocat.getAttribute("src")).toMatch(/^data:image\/svg\+xml;base64,/);
+});
+
+test("GitHub's emoji list isn't asked for again on every render after it couldn't be read", async () => {
+  const daemon = await connected({ emojiOffline: true });
+  const { unmount } = page(daemon, <ForgeProse text="Made with :octocat: at 10:30:45" />);
+  await expect.poll(() => daemon.emojiReads()).toBe(1);
+  expect(await screen.findByText(/:octocat:/)).toBeTruthy();
+  unmount();
+  page(daemon, <ForgeProse text="Still :octocat:" />);
+  await screen.findByText(/Still :octocat:/);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(daemon.emojiReads()).toBe(1);
+});
+
+test("a time like 10:30:45 holds no shortcode and asks for no emoji", async () => {
+  const daemon = await connected();
+  page(daemon, <ForgeProse text="Deployed at 10:30:45 :tada:" />);
+  await screen.findByRole("img", { name: "tada" });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(daemon.emojiReads()).toBe(0);
 });

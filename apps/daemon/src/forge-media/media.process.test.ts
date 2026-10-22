@@ -31,6 +31,8 @@ const signedUrl = (token: string) =>
   `https://private-user-images.githubusercontent.com/1/2-${asset}.png?jwt=${jwt(token, 2_000_000_000)}`;
 const renderedImage = (url: string) =>
   `<p>ACEMEDIANONCEN0X</p>\n<a href="${url}"><img src="${url}"></a>`;
+/** A timer that never fires: the cache's index is written only at shutdown. */
+const never = () => () => {};
 const scope = (workspaceId: string, repository = "github.com/octo/ace") => ({
   host: "github.com",
   repository,
@@ -88,13 +90,11 @@ test("an expired signed URL is rendered again, and the bytes then serve every la
     id: randomUUID,
   });
   cleanups.push(() => files.close());
-  const caches: ForgeMediaCache[] = [];
   const runtimeWith = () =>
     new WorkspaceRuntime(store, dataDir, () => 1000, {
       forgeRunner: () => (request) => gh.runner({ ...request, command: gh.executable }),
       forgeMedia: () => {
-        const cache = new ForgeMediaCache(forgeMediaRoot(dataDir));
-        caches.push(cache);
+        const cache = new ForgeMediaCache(forgeMediaRoot(dataDir), {}, never);
         return new ForgeMediaService({
           cache,
           now: () => 1000,
@@ -109,13 +109,16 @@ test("an expired signed URL is rendered again, and the bytes then serve every la
   };
   const sha256 = createHash("sha256").update(png).digest("hex");
   const ready = { state: "ready", kind: "image", mimeType: "image/png", bytes: png.length, sha256 };
-  expect(await resolve(runtimeWith(), workspaceId, [item])).toEqual([ready]);
+  const first = runtimeWith();
+  expect(await resolve(first, workspaceId, [item])).toEqual([ready]);
   expect((await gh.requests()).filter((request) => request.path === "markdown")).toHaveLength(2);
 
-  // A restarted daemon (its index written as it stopped) answers from its cache and asks
-  // GitHub nothing.
-  await Promise.all(caches.map((cache) => cache.flushed()));
-  expect(await resolve(runtimeWith(), workspaceId, [item])).toEqual([ready]);
+  // A daemon that stopped (its index written as it did) answers from its cache after a
+  // restart and asks GitHub nothing.
+  await first.close();
+  const restarted = runtimeWith();
+  cleanups.push(() => restarted.close());
+  expect(await resolve(restarted, workspaceId, [item])).toEqual([ready]);
   expect((await gh.requests()).filter((request) => request.path === "markdown")).toHaveLength(2);
 
   // Clients read the bytes by hash through the project's read-only download.

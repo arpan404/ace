@@ -11,7 +11,12 @@ import { ForgeContentScope } from "./scope.ts";
  * know. The images themselves load through the daemon like any other media.
  */
 
-type Entry = { images: ReadonlyMap<string, string> | undefined; listeners: Set<() => void> };
+type Entry = {
+  images: ReadonlyMap<string, string> | undefined;
+  listeners: Set<() => void>;
+};
+/** How long a failed read stands before the list is asked for again. */
+const retryMs = 10 * 60_000;
 const lists = new WeakMap<ClientApi, Map<string, Entry>>();
 const none = new Map<string, string>();
 
@@ -38,8 +43,13 @@ function entryFor(client: ClientApi, scope: ForgeScope): Entry {
         for (const listener of created.listeners) listener();
       },
       () => {
-        // Not readable now: shortcodes stay text, and the next page asks again.
-        byHost?.delete(scope.repository.host);
+        // Not readable now (offline, rate-limited): shortcodes stay text for a while, not
+        // asked about again on every render, then the next page asks again.
+        created.images = none;
+        for (const listener of created.listeners) listener();
+        setTimeout(() => {
+          if (byHost?.get(scope.repository.host) === created) byHost.delete(scope.repository.host);
+        }, retryMs);
       },
     );
   }

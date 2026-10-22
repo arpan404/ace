@@ -128,6 +128,9 @@ export class WorkspaceForgeBrowse {
           },
           (items, abort) => backend.renderMedia(items, abort),
           operation.items,
+          async (abort) => {
+            await backend.repositoryMetadata(abort);
+          },
         ),
       };
     }

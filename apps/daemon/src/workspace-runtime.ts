@@ -91,24 +91,35 @@ export interface WorkspaceRuntimeOptions {
   /** Reports failures nobody waits on: background worktree cleanup and its recovery. */
   log?: (message: string, error: unknown) => void;
 }
-/** The media service, made on first use so a daemon that never shows forge media never makes its folder. */
+/**
+ * The media service, made on first use (a daemon that never shows forge media never makes its
+ * folder) and flushed at shutdown if it was made.
+ */
+function lazyMedia(create: () => ForgeMediaService) {
+  let service: ForgeMediaService | undefined;
+  return {
+    get: () => (service ??= create()),
+    close: async () => service?.close(),
+  };
+}
+
 function forgeMedia(
   directory: string,
   now: () => number,
   grants: ForgeMediaGrants | undefined,
 ): () => ForgeMediaService {
-  let service: ForgeMediaService | undefined;
   return () =>
-    (service ??= new ForgeMediaService({
+    new ForgeMediaService({
       cache: new ForgeMediaCache(forgeMediaRoot(directory)),
       now,
       ...(grants ? { grants } : {}),
-    }));
+    });
 }
 export class WorkspaceRuntime {
   readonly creationDrafts: CreationDrafts;
   readonly git: WorkspaceGit;
   readonly forge: WorkspaceForge;
+  private media: ReturnType<typeof lazyMedia>;
   private defaultBranches: DefaultBranches;
   readonly commands: AsyncCommands;
   readonly checkpoints: RunCheckpoints;
@@ -140,13 +151,16 @@ export class WorkspaceRuntime {
     this.machine = options.machine ?? { host: hostname(), name: hostname() };
     this.git = options.gitService ?? new GitService(options.git);
     this.defaultBranches = new DefaultBranches(now);
+    this.media = lazyMedia(
+      options.forgeMedia ?? forgeMedia(directory, now, options.forgeMediaGrants),
+    );
     this.forge = new WorkspaceForge(
       store,
       this.git,
       now,
       options.forgeRunner ?? ((cwd) => createCommandRunner({ cwd })),
       options.sourceControl,
-      options.forgeMedia ?? forgeMedia(directory, now, options.forgeMediaGrants),
+      this.media.get,
     );
     this.roots = new WorkspaceRoots(store, this.git, directory, now, this.machine, {
       ...(options.baseFetchTimeoutMs ? { baseFetchTimeoutMs: options.baseFetchTimeoutMs } : {}),
@@ -881,6 +895,8 @@ export class WorkspaceRuntime {
     for (const lifetime of this.writing) lifetime.abort();
     this.prLifetime.abort();
     this.forge.close();
+    // The media cache's gathered index writes land before the daemon stops.
+    await this.media.close();
     await this.roots.close();
     await this.commands.drained();
     await this.checkpoints.close();

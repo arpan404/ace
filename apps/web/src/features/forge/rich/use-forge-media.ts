@@ -75,7 +75,9 @@ export function useForgeMedia(url: string | undefined, role: ForgeMediaRole): Me
         if (blob.type === "image/svg+xml") {
           // Never a same-origin blob: opened on its own (a new tab), an SVG from a data URL has
           // no origin of its own, so its scripts can't reach the app's storage or pairing.
-          void svgDataUrl(blob).then((url) => live && show({ phase: "ready", media, url }));
+          void svgDataUrl(blob).then(
+            (dataUrl) => live && show({ phase: "ready", media, url: dataUrl }),
+          );
           return;
         }
         objectUrl = URL.createObjectURL(blob);

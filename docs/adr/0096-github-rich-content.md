@@ -38,11 +38,18 @@ responses, including a private repository. ace never reads, stores or proxies cr
   encrypted relay. Paired devices and phones never contact GitHub.
 - Access follows the repository. Cache keys are the repository (`host/owner/name`) plus the media
   key, so what one repository's text resolved never answers another's: another repository asks
-  GitHub itself, through the user's own access. A hash is granted to the project whose resolve
-  answered with it, and a download is served only to a project granted that hash; knowing a hash
-  from elsewhere is not enough. Grants live in memory; after a restart a download answers
-  NOT_FOUND, and the client drops its saved answer and resolves once more, which answers from
-  the cache and grants it again (the same path recovers media the cache evicted).
+  GitHub itself, through the user's own access. Kept bytes are served only while the user's `gh`
+  still reads the repository: a cache hit re-confirms it at most every ten minutes per repository
+  (one metadata read, cached by ETag). A refusal (no access, gone) withholds them; a check that
+  can't be answered now (offline, rate-limited) leaves what was resolved before standing. A hash
+  is granted to the project whose resolve answered with it, and a download is served only to a
+  project granted that hash; knowing a hash from elsewhere is not enough. Grants are per project
+  rather than per repository on purpose: every project reaches the same forge through the same
+  `gh` sign-in, and forge reads already let a project name any repository that sign-in can read,
+  so the repository check above is the boundary, not the project. Grants live in memory; after a
+  restart a download answers NOT_FOUND, and the client drops its saved answer and resolves once
+  more, which answers from the cache and grants it again (the same path recovers media the
+  cache evicted).
 - The daemon looks each URL up by its key: an attachment by its asset id (whether written as the
   upload URL or a pasted signed URL), anything else by its URL without a fragment. A key already
   cached answers at once and asks GitHub nothing; one past its week answers with the kept bytes
@@ -73,7 +80,8 @@ responses, including a private repository. ace never reads, stores or proxies cr
 ### Cache and limits
 
 - `<data>/forge-media/<sha256>` with an in-memory index persisted to `index.json` (writes gathered
-  over a second, recency order kept across restarts); at most 2,048 files and 512 MiB, least
+  over a second on an injected timer and written at shutdown, recency order kept across
+  restarts); at most 2,048 files and 512 MiB, least
   recently used first; temporary files from a crash are removed at start. A hash is counted once
   however many stores of the same bytes race. Attachment entries never go stale; other entries are
   fetched again after a week, the old bytes answering until a fetch succeeds.
@@ -107,9 +115,14 @@ width height align` (img), `srcset media type` (source), `open` (details), `cols
   the list is shown as its source text (`<script>…</script>` reads as text). HTML comments are
   hidden. Links are kept only for http(s), mailto and in-page anchors; images only for http(s);
   root-relative paths resolve against the forge host.
-- SVG is only ever drawn as an `<img>` from a blob URL, where its scripts never run. The desktop
-  shell denies new windows for `blob:` URLs, and a `blob:` document inherits the app's content
-  policy, which allows no inline script in a release build, so an SVG can't run even if opened.
+- SVG is only ever drawn as an `<img>`, and from a `data:` URL, never a same-origin `blob:`: a
+  document opened from it on its own (a new tab) has no origin, so its scripts can't reach the
+  app's storage or pairing. The page runs under the app's Content Security Policy in both
+  builds, defined once (`@ace/html/app-policy`): the desktop shell sends it as a header, and the
+  hosted web build writes it into `index.html` as it is built, hashing its inline boot scripts
+  (the host adds `frame-ancestors 'none'`, `nosniff` and `no-referrer`). Scripts come only from
+  the bundle; nothing inline runs otherwise; plugins are off; images, media and frames come only
+  from the page itself (`data:`/`blob:`) and the places listed.
 - Images take the size their text asks for (`width`/`height`), else their own, never wider than
   the column, with their box held while loading (from the attributes or the daemon's header
   read). A click opens the existing lightbox; an image inside a link follows the link. A video
@@ -120,22 +133,34 @@ width height align` (img), `srcset media type` (source), `open` (details), `cols
 - Alerts are monochrome (an icon and the word): colour in ace means agent state (DESIGN.md).
   Emoji shortcodes use GitHub's published `gemoji` list, loaded as its own chunk only when text
   holds a shortcode; GitHub's image-only emoji (`:octocat:`) come from its emoji list
-  (`forge.emoji.images`, read once per host when a shortcode isn't Unicode) and load through the
+  (`forge.emoji.images`, read once per host when a shortcode isn't Unicode; a failed read waits
+  ten minutes before it is asked again) and load through the
   daemon as media. @people and @org/team link to GitHub; `#123` and `owner/repo#123` link and open
   inside ace where the page can; commit SHAs (40 characters, or 7 and up mixing digits and
   letters, since ace can't ask GitHub whether each exists) and `owner/repo@sha` link to the
   commit; footnotes are numbered in definition order with back links. None of these apply inside
   link text or code, as on GitHub.
-- Mermaid diagrams draw as images: the renderer loads as its own chunk only when a page shows a
-  ```mermaid block, runs at `securityLevel: "strict"` with plain-text labels, and its SVG is shown
-  only as an `<img>` from a blob. The code block stays while it loads and if it can't be drawn.
+- Mermaid diagrams draw as images. The renderer loads as its own chunk only when a page shows a
+  ```mermaid block. A diagram's own configuration (`%%{init}%%` directives, front matter) is
+  removed before it renders, and every setting that could turn on HTML labels, lower the security
+  level or restyle it is locked (`secure`), so it renders at `securityLevel: "strict"` with
+  plain-text labels and no error drawing. Renders run one at a time (mermaid's settings are
+  global), in an off-screen, inert container of ours that is removed afterwards; its output is
+  sanitized by mermaid and, under the policy above, nothing inline in it could run even while it
+  is there. The SVG is shown only as an `<img>` from a `data:` URL. The code block stays while it
+  loads and if it can't be drawn. (A sandboxed opaque-origin frame was considered: its module
+  scripts would need CORS from every host the app is served from, including the desktop's own
+  scheme, for no gain over the above.)
 - Task boxes tick where the viewer may edit the text: the PR description through the lifecycle
   edit against the snapshot version (only while that version's body is the one shown), the
   viewer's own PR comments through the comment edit with its expected-body guard, and issue
   bodies through the issue edit with its expected-updated-at guard. Each box is placed in the
-  text by walking the lexer's own tokens through the source, so code, comments, quotes and
-  nested lists can't make a different box change; only that box's mark changes, and a box that
-  can't be placed only shows its state. Each box is named by its item's words.
+  text by walking the lexer's own tokens through the source, read with its line endings as the
+  lexer reads them (CRLF, as GitHub's editor saves, mapped back to the original): a token the
+  lexer re-indented or unquoted spans exactly its own lines, so code it holds is never searched
+  again; a box is placed only where its item's own line holds it; loose lists' boxes (inside
+  their first paragraph) tick too. Only that box's mark changes, and a box that can't be placed
+  only shows its state. Each box is named by its item's words.
 
 ## Consequences
 
