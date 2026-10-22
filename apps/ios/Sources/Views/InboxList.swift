@@ -187,7 +187,7 @@ private struct InboxSkeleton: View {
         .accessibilityLabel("Loading threads")
     }
     private func pill(width: CGFloat, height: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: AceTheme.Radii.xs, style: .continuous)
+        AceShape.capsule
             .fill(AceTheme.Colours.fill)
             .frame(width: width, height: height)
     }

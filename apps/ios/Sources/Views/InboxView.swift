@@ -151,7 +151,7 @@ struct InboxView: View {
             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
             .foregroundStyle(AceTheme.Colours.foreground)
             .padding(.leading, AceTheme.Spacing.xl).padding(.trailing, AceTheme.Spacing.lg)
-            .aceGlass(in: Capsule())
+            .aceGlass(in: AceShape.capsule)
             // Clear of the tab bar.
             .padding(.bottom, 76)
             .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))

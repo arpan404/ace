@@ -17,7 +17,7 @@ struct ProjectTag: View {
             .foregroundStyle(quiet ? AceTheme.Colours.faintForeground : AceTheme.Colours.mutedForeground)
             .frame(minWidth: width, minHeight: height, maxHeight: height)
             .padding(.horizontal, initials.count > 2 ? AceTheme.Spacing.xxs : 0)
-            .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.xs, style: .continuous))
+            .background(AceTheme.Colours.fill, in: AceShape.capsule)
             .accessibilityHidden(true)
     }
 }
