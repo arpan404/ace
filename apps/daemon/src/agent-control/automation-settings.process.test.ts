@@ -1,4 +1,9 @@
-import { AutomationResponse, type Automation, AgentAutomation } from "@ace/protocol";
+import {
+  AutomationInbox,
+  AutomationResponse,
+  type Automation,
+  AgentAutomation,
+} from "@ace/protocol";
 import { expect, test } from "vitest";
 import { automationFixture } from "./automation-test-support.ts";
 
@@ -19,7 +24,7 @@ function definition(workspace: string): Automation {
 }
 
 test("agent manual runs follow the global automation switch, and turning it off never fails a run", async () => {
-  const f = await automationFixture();
+  const f = await automationFixture("claude");
   try {
     const automation = definition(f.h.home);
     expect(
@@ -43,6 +48,15 @@ test("agent manual runs follow the global automation switch, and turning it off 
           })
         ).data,
       );
+    const latest = async () =>
+      AutomationInbox.parse(
+        (
+          await f.call({
+            op: "automation.manage",
+            request: { type: "automation.inbox", requestId: "inbox", limit: 50 },
+          })
+        ).data,
+      ).runs[0];
     expect(await run("disabled")).toMatchObject({
       ok: false,
       error: "Automation service is stopped",
@@ -51,24 +65,27 @@ test("agent manual runs follow the global automation switch, and turning it off 
     await f.settings.settled({ kind: "global" });
     const admitted = await run("enabled");
     expect(admitted).toMatchObject({ ok: true, run: { status: "running" } });
-    if (!admitted.run) throw new Error("Missing run");
-    // The run is a message into the agent's own thread.
+    // The run is a message into the agent's own thread, whose turn is still open.
     await expect.poll(() => f.h.inputs.get(f.caller.threadId)?.at(-1)).toBe("Check");
     await f.h.engine.flush();
+    expect(f.h.store.getThread(f.caller.threadId)?.status.state).toBe("working");
     await f.settings.set("automations.enabled", false, { kind: "global" });
     await f.settings.settled({ kind: "global" });
     expect(await run("disabled-again")).toMatchObject({
       ok: false,
       error: "Automation service is stopped",
     });
-    const inbox = await f.call({
-      op: "automation.manage",
-      request: { type: "automation.inbox", requestId: "inbox", limit: 50 },
-    });
-    // Turning the service off never fails a run: this one finished its turn in the thread.
-    expect(inbox.data).toMatchObject({ runs: [{ status: "succeeded" }] });
+    // Turning the service off leaves the run going with its turn.
+    expect(await latest()).toMatchObject({ id: admitted.run?.id, status: "running" });
+    expect(f.h.store.getThread(f.caller.threadId)?.status.state).toBe("working");
+    await f.answer(2, "check-answer", "All checks pass.");
+    expect(await latest()).toMatchObject({ status: "running" });
+    // Turned on again, the service finds the turn finished and keeps its answer.
     await f.settings.set("automations.enabled", true, { kind: "global" });
     await f.settings.settled({ kind: "global" });
+    await expect
+      .poll(latest)
+      .toMatchObject({ id: admitted.run?.id, status: "succeeded", result: "All checks pass." });
     expect(await run("resumed")).toMatchObject({ ok: true, run: { status: "running" } });
   } finally {
     await f.close();

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { SettingsService } from "@ace/settings";
 import { createLogger } from "@ace/diagnostics";
 import type { McpAttribution } from "@ace/protocol";
@@ -9,10 +10,14 @@ import { createAgentOwners } from "./owners.ts";
 import type { ExtensionOperation } from "./tools.ts";
 import { setup } from "./test-support.ts";
 
-/** Real ownership, settings, delegation and SQLite; only the provider CLI is scripted. */
-export async function automationFixture() {
+/**
+ * Real ownership, settings, delegation and SQLite; only the provider CLI is scripted. With
+ * `claude`, the automations' thread is a Claude thread: each turn stays open until the test
+ * answers it (`answer`), where a Codex turn ends as soon as it starts.
+ */
+export async function automationFixture(provider: "codex" | "claude" = "codex") {
   const h = setup();
-  const caller = await h.parent();
+  const caller = provider === "claude" ? await claudeThread(h) : await h.parent();
   let sequence = 0;
   const open = async () => {
     const resources = new Resources();
@@ -47,6 +52,26 @@ export async function automationFixture() {
   return {
     h,
     caller,
+    /** The agent ends the thread's open turn with `text`, once it has taken `turn` inputs. */
+    async answer(turn: number, item: string, text: string) {
+      for (let i = 0; i < 200 && (h.inputs.get(caller.threadId)?.length ?? 0) < turn; i++)
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      await h.emit(
+        caller.threadId,
+        {
+          type: "item.upsert",
+          agent: "root",
+          item,
+          draft: {
+            type: "message",
+            role: "assistant",
+            parts: [{ type: "text", text }],
+            complete: true,
+          },
+        },
+        end,
+      );
+    },
     get settings() {
       return owner.settings;
     },
@@ -64,4 +89,24 @@ export async function automationFixture() {
       await h.close();
     },
   };
+}
+
+/** A Claude thread for automations to run in, in the harness's workspace. */
+async function claudeThread(h: ReturnType<typeof setup>): Promise<McpAttribution> {
+  const codex = await h.parent();
+  const workspaceId = h.store.getThread(codex.threadId)?.workspaceId;
+  if (!workspaceId) throw new Error("Missing workspace");
+  const result = h.service.command(randomUUID(), {
+    type: "thread.create",
+    workspaceId,
+    provider: "claude",
+    access: "full-access",
+    input: [{ type: "text", text: "plan" }],
+  });
+  if (!result.ok || !result.threadId) throw new Error(result.error ?? "Creation failed");
+  await h.engine.flush();
+  for (let i = 0; i < 200 && !h.inputs.get(result.threadId)?.length; i++)
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  await h.complete(result.threadId, "Planned");
+  return h.caller(result.threadId);
 }
