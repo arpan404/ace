@@ -1,10 +1,6 @@
 import type { Tone } from "@ace/ui-core";
 import type { AutomationEntry, AutomationLists } from "@/features/automation-data/index.ts";
-import {
-  describeRepeat,
-  describeTrigger,
-  formatWhen,
-} from "@/features/automation-schedule/index.ts";
+import { describeRepeat, formatWhen } from "@/features/automation-schedule/index.ts";
 
 /*
  * The Automations sidebar as data: which group each automation sits in, in what order, and its
@@ -36,7 +32,26 @@ function status(entry: AutomationEntry): SidebarRow["status"] {
   return undefined;
 }
 
-/** "Tonight 02:00 · Every day", "Running · Every 6 hours", "Paused · Fridays at 16:00". */
+/** What starts it, in a few words that fit a sidebar row. */
+function shortTrigger(trigger: AutomationEntry["automation"]["trigger"]): string {
+  switch (trigger.kind) {
+    case "manual":
+      return "By hand";
+    case "schedule":
+      return describeRepeat(trigger.schedule);
+    case "file":
+      return "When files change";
+    case "github":
+      return {
+        pr_changed: "On pull requests",
+        ci_failed: "When CI fails",
+        review_comment: "On review comments",
+        issue_labelled: "On labelled issues",
+      }[trigger.event];
+  }
+}
+
+/** "Tonight 2:00 AM · Every day", "Running · Every 6 hours", "Paused · Fridays", "On pull requests". */
 export function sidebarRow(entry: AutomationEntry, now: number, zone: string): SidebarRow {
   const { automation, nextRunAt } = entry;
   const trigger = automation.trigger;
@@ -46,7 +61,7 @@ export function sidebarRow(entry: AutomationEntry, now: number, zone: string): S
   const detail =
     scheduled && !shown && !paused && nextRunAt !== undefined
       ? `${formatWhen(nextRunAt, now, trigger.schedule.timezone || zone)} · ${describeRepeat(trigger.schedule)}`
-      : describeTrigger(trigger);
+      : shortTrigger(trigger);
   return {
     id: automation.id,
     title: automation.title,

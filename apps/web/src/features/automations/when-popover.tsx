@@ -7,11 +7,12 @@ import { Select } from "@/components/ui/select.tsx";
 import { composerStrip } from "@/features/thread/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
-import { AutomationForm, hourSteps, scheduleFromForm } from "./automation-values.ts";
+import { AutomationForm, hourSteps, minuteSteps, scheduleFromForm } from "./automation-values.ts";
 import { missedRunLabels } from "./labels.ts";
 import {
   describeSchedule,
-  formatRunInZone,
+  formatWhen,
+  onceInstant,
   githubEventLabels,
   timeZones,
   upcomingRuns,
@@ -36,11 +37,13 @@ const kinds: { value: Trigger; label: string }[] = [
   { value: "manual", label: "Only when I run it" },
 ];
 const cadences = [
+  { value: "minutes", label: "Minutes" },
+  { value: "hourly", label: "Hours" },
   { value: "daily", label: "Every day" },
   { value: "weekdays", label: "Weekdays" },
-  { value: "weekly", label: "Once a week" },
-  { value: "hourly", label: "Every few hours" },
-  { value: "custom", label: "Custom (RRULE or cron)" },
+  { value: "weekly", label: "Weekly" },
+  { value: "once", label: "Once" },
+  { value: "custom", label: "Custom" },
 ] as const;
 const days = weekdays.map((value) => ({ value, label: weekdayName(value) }));
 const syntaxes = [
@@ -55,6 +58,25 @@ const missed = (["run_once", "skip"] as const).map((value) => ({
   value,
   label: missedRunLabels[value],
 }));
+const minutesLabel = (minutes: number) =>
+  minutes === 1 ? "Every minute" : `Every ${minutes} minutes`;
+function minuteOptions(current: number) {
+  const steps: number[] = minuteSteps.some((step) => step === current)
+    ? [...minuteSteps]
+    : [...minuteSteps, current].toSorted((a, b) => a - b);
+  return steps.map((minutes) => ({ value: String(minutes), label: minutesLabel(minutes) }));
+}
+const dateIn = (at: number, timezone: string) =>
+  new Date(at).toLocaleDateString("en-CA", { timeZone: timezone });
+/**
+ * Where a one-off run starts out: the next time `time` comes round in the zone, today if it's
+ * still ahead, else tomorrow, so a new one never opens on "No upcoming run".
+ */
+function nextDateFor(time: string, now: number, timezone: string): string {
+  const today = dateIn(now, timezone);
+  const at = onceInstant({ date: today, time }, timezone);
+  return at !== undefined && at > now ? today : dateIn(now + 86_400_000, timezone);
+}
 const hoursLabel = (hours: number) => (hours === 1 ? "Every hour" : `Every ${hours} hours`);
 function hourOptions(current: number) {
   const steps: number[] = hourSteps.includes(current as (typeof hourSteps)[number])
@@ -131,7 +153,7 @@ export function WhenPopover(props: {
         sideOffset={10}
         aria-label="When it runs"
         finalFocus={props.returnFocus}
-        className="flex max-h-[min(36rem,var(--available-height))] w-[22rem] max-w-[calc(100vw-2rem)] flex-col overflow-y-auto p-1"
+        className="flex max-h-[min(36rem,var(--available-height))] w-72 max-w-[calc(100vw-2rem)] flex-col overflow-y-auto p-1"
       >
         <div role="radiogroup" aria-label="What starts it" className="flex flex-col">
           {kinds.map((kind) => (
@@ -188,7 +210,7 @@ function TriggerFields(props: {
               value={form.event}
               options={events}
               onValueChange={(event) => onChange({ event })}
-              className="w-full min-w-0"
+              className="h-7 w-full min-w-0"
             />
           </Field>
           {form.event === "issue_labelled" && (
@@ -243,12 +265,15 @@ function ScheduleFields(props: {
     [form.timezone],
   );
   const timed =
-    form.cadence === "daily" || form.cadence === "weekdays" || form.cadence === "weekly";
+    form.cadence === "daily" ||
+    form.cadence === "weekdays" ||
+    form.cadence === "weekly" ||
+    form.cadence === "once";
   const own = fieldErrors(form);
   const next = scheduleFields.some((field) => own[field])
     ? undefined
     : upcomingRuns(scheduleFromForm(form, props.now), props.now).map((at) =>
-        formatRunInZone(at, form.timezone),
+        formatWhen(at, props.now, form.timezone),
       );
   return (
     <div className="flex flex-col">
@@ -257,8 +282,17 @@ function ScheduleFields(props: {
           label="Repeat"
           value={form.cadence}
           options={cadences}
-          onValueChange={(cadence) => onChange({ cadence })}
-          className="w-full min-w-0"
+          onValueChange={(cadence) =>
+            onChange(
+              // Each kind starts from a usable value, whatever the form held before.
+              cadence === "once" && !form.date
+                ? { cadence, date: nextDateFor(form.time, props.now, form.timezone) }
+                : cadence === "minutes" && !Number.isInteger(form.minutes)
+                  ? { cadence, minutes: 15 }
+                  : { cadence },
+            )
+          }
+          className="h-7 w-full min-w-0"
         />
       </Field>
       {form.cadence === "weekly" && (
@@ -268,7 +302,31 @@ function ScheduleFields(props: {
             value={form.day}
             options={days}
             onValueChange={(day) => onChange({ day })}
-            className="w-full min-w-0"
+            className="h-7 w-full min-w-0"
+          />
+        </Field>
+      )}
+      {form.cadence === "minutes" && (
+        <Field label="How often" error={errors.minutes}>
+          <Select
+            label="How often"
+            value={String(form.minutes)}
+            options={minuteOptions(form.minutes)}
+            onValueChange={(minutes) => onChange({ minutes: Number(minutes) })}
+            className="h-7 w-full min-w-0"
+          />
+        </Field>
+      )}
+      {form.cadence === "once" && (
+        <Field label="On" htmlFor="automation-date" error={errors.date}>
+          <Input
+            id="automation-date"
+            type="date"
+            value={form.date}
+            onValueChange={(date) => onChange({ date })}
+            className="h-7 tabular-nums"
+            aria-invalid={errors.date ? true : undefined}
+            aria-describedby={errors.date ? "automation-date-error" : undefined}
           />
         </Field>
       )}
@@ -291,7 +349,7 @@ function ScheduleFields(props: {
             value={String(form.every)}
             options={hourOptions(form.every)}
             onValueChange={(every) => onChange({ every: Number(every) })}
-            className="w-full min-w-0"
+            className="h-7 w-full min-w-0"
           />
         </Field>
       )}
@@ -332,16 +390,16 @@ function ScheduleFields(props: {
           value={form.timezone}
           options={zones}
           onValueChange={(timezone) => onChange({ timezone })}
-          className="w-full min-w-0"
+          className="h-7 w-full min-w-0"
         />
       </Field>
-      <Field label="If a run is missed">
+      <Field label="If missed">
         <Select
           label="If a run is missed"
           value={form.missedRun}
           options={missed}
           onValueChange={(missedRun) => onChange({ missedRun })}
-          className="w-full min-w-0"
+          className="h-7 w-full min-w-0"
         />
       </Field>
       <p aria-live="polite" className="px-2 pt-1.5 pb-1 text-xs text-muted-foreground">
@@ -361,7 +419,7 @@ function Field(props: {
 }) {
   const errorId = props.htmlFor ? `${props.htmlFor}-error` : undefined;
   return (
-    <div className="flex flex-col gap-1 px-2 py-1">
+    <div className="flex flex-col gap-1 px-2 py-0.5">
       <div
         className={cn(
           "flex gap-3",
@@ -371,7 +429,7 @@ function Field(props: {
         <label htmlFor={props.htmlFor} className="shrink-0 text-ui text-muted-foreground">
           {props.label}
         </label>
-        <div className={props.stacked ? "w-full" : "w-44 min-w-0"}>{props.children}</div>
+        <div className={props.stacked ? "w-full" : "w-36 min-w-0"}>{props.children}</div>
       </div>
       {props.error && (
         <p id={errorId} className="text-xs text-destructive">

@@ -94,9 +94,9 @@ test("a row's meta line says when it runs next, or the status that needs a look"
     (upcoming?.rows ?? []).map((row) => [row.id, [row.status?.word, row.detail]]),
   );
   expect(meta.next).toEqual([undefined, "Tomorrow 2:00 AM · Every day"]);
-  expect(meta.running).toEqual(["Running", "Every day at 2:00 AM"]);
-  expect(meta.stopped).toEqual(["Not watching", "Every day at 2:00 AM"]);
-  expect(meta.failed).toEqual(["Failed", "Every day at 2:00 AM"]);
+  expect(meta.running).toEqual(["Running", "Every day"]);
+  expect(meta.stopped).toEqual(["Not watching", "Every day"]);
+  expect(meta.failed).toEqual(["Failed", "Every day"]);
 });
 
 test("a search keeps only automations whose names contain it", () => {

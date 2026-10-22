@@ -38,10 +38,14 @@ export const AutomationForm = z
     /** The provider account the chip picked. */
     instance: z.string().max(256).optional(),
     trigger: z.enum(["schedule", "github", "file", "manual"]),
-    cadence: z.enum(["daily", "weekdays", "weekly", "hourly", "custom"]),
+    cadence: z.enum(["minutes", "hourly", "daily", "weekdays", "weekly", "once", "custom"]),
     time: z.string(),
     day: z.enum(weekdays),
     every: z.number(),
+    /** "Every few minutes": how many. */
+    minutes: z.number(),
+    /** "Once": the wall-clock date, "2026-10-24", in the schedule's zone. */
+    date: z.string(),
     timezone: z.string(),
     /** An existing schedule's DTSTART, which anchors its recurrence; new ones start now. */
     startAt: z.number().optional(),
@@ -73,7 +77,18 @@ export const AutomationForm = z
           message: "Enter whole hours from 1 to 23.",
         });
       if (
-        ["daily", "weekdays", "weekly"].includes(form.cadence) &&
+        form.cadence === "minutes" &&
+        (!Number.isInteger(form.minutes) || form.minutes < 1 || form.minutes > 59)
+      )
+        ctx.addIssue({
+          code: "custom",
+          path: ["minutes"],
+          message: "Enter whole minutes from 1 to 59.",
+        });
+      if (form.cadence === "once" && !/^\d{4}-\d{2}-\d{2}$/.test(form.date))
+        ctx.addIssue({ code: "custom", path: ["date"], message: "Pick a date." });
+      if (
+        ["daily", "weekdays", "weekly", "once"].includes(form.cadence) &&
         !/^([01]\d|2[0-3]):[0-5]\d$/.test(form.time)
       )
         ctx.addIssue({ code: "custom", path: ["time"], message: "Enter a time, like 09:30." });
@@ -130,6 +145,8 @@ export const globs = (paths: string) =>
 
 /** Hour intervals offered for "Every few hours": each divides a day, so runs don't drift. */
 export const hourSteps = [1, 2, 3, 4, 6, 8, 12] as const;
+/** Minute intervals offered for "Every few minutes": each divides an hour. */
+export const minuteSteps = [1, 5, 10, 15, 30] as const;
 
 export function blankForm(workspace: string, timezone: string): AutomationForm {
   return {
@@ -143,6 +160,8 @@ export function blankForm(workspace: string, timezone: string): AutomationForm {
     time: "09:00",
     day: "MO",
     every: 6,
+    minutes: 15,
+    date: "",
     timezone,
     syntax: "rrule",
     expression: "",
@@ -192,6 +211,10 @@ export function formFromAutomation(automation: Automation, localZone: string): A
       return { ...scheduled, syntax: preset.syntax, expression: preset.expression };
     case "hourly":
       return { ...scheduled, every: preset.every };
+    case "minutes":
+      return { ...scheduled, minutes: preset.every };
+    case "once":
+      return { ...scheduled, date: preset.date, time: preset.time };
     case "weekly":
       return { ...scheduled, day: preset.day, time: preset.time };
     default:
@@ -208,6 +231,10 @@ export function presetFromForm(form: AutomationForm): SchedulePreset {
       return { kind: "weekly", day: form.day, time: form.time };
     case "hourly":
       return { kind: "hourly", every: form.every };
+    case "minutes":
+      return { kind: "minutes", every: form.minutes };
+    case "once":
+      return { kind: "once", date: form.date, time: form.time };
     case "custom":
       return { kind: "custom", syntax: form.syntax, expression: form.expression };
   }

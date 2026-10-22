@@ -1,5 +1,6 @@
 /** How automations say when they run: schedule wording, next runs, presets. No UI, no threads. */
 export {
+  onceInstant,
   weekdays,
   weekdayName,
   localTimeZone,

@@ -157,10 +157,7 @@ function Conversation(props: { entry: AutomationEntry; daemonKey: string; refetc
       }
     >
       <div className="flex h-full min-h-0 flex-col">
-        <div
-          ref={scroller}
-          className="min-h-0 flex-1 overflow-y-auto pb-8 [scrollbar-gutter:stable]"
-        >
+        <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto pb-8">
           <div className={readingColumn}>
             {/* The app header already names it; one pinned line says when it runs, with the switch. */}
             <header className="sticky top-0 z-10 bg-background pt-4 pb-2">

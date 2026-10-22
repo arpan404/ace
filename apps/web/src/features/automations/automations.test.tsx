@@ -153,7 +153,7 @@ test("an automation reads as a conversation: its prompt once, then each run olde
   if (!latest) throw new Error("No runs");
   // The turn's head says when and how long, and opens the run's own thread.
   const head = within(latest).getByRole("link", { name: /^Open run, / });
-  expect(head.textContent).toContain("Worked for 12m 0s");
+  expect(head.textContent).toContain("Worked for 12m");
   expect(head.getAttribute("href")).toBe("/t/thread-bump-codex");
   expect(await within(latest).findByText(/Found 2 advisories/)).toBeTruthy();
 });
@@ -396,7 +396,7 @@ test("an idea fills the prompt and when it runs", async () => {
 test("an invalid custom RRULE is caught in the When popover and nothing is created", async () => {
   const { app } = await open("/automations/new");
   const popover = await when();
-  await choose("Repeat", "Custom (RRULE or cron)");
+  await choose("Repeat", "Custom");
   await userEvent.type(popover.getByRole("textbox", { name: "Expression" }), "FREQ=BOGUS");
   await userEvent.keyboard("{Escape}");
   const before = (await app.client.request({ type: "automation.list" })).automations?.length;
@@ -411,7 +411,7 @@ test("an invalid custom RRULE is caught in the When popover and nothing is creat
 test("a valid custom RRULE is created and reads back", async () => {
   await open("/automations/new");
   const popover = await when();
-  await choose("Repeat", "Custom (RRULE or cron)");
+  await choose("Repeat", "Custom");
   await userEvent.type(
     popover.getByRole("textbox", { name: "Expression" }),
     "FREQ=WEEKLY;BYDAY=MO;BYHOUR=8;BYMINUTE=30",
@@ -475,7 +475,7 @@ test("Edit when opens the same screen filled in, and a new schedule reads everyw
   await menu("Edit when");
   expect((await prompt()).textContent).toContain("Run the test suite three times");
   await when();
-  await choose("Repeat", "Once a week");
+  await choose("Repeat", "Weekly");
   await choose("Day", "Monday");
   const time = screen.getByRole("textbox", { name: "At" });
   await userEvent.clear(time);
@@ -638,10 +638,12 @@ test("an agent's automation opens as the same conversation, runs and pauses thro
     "link",
     { name: /Re-run the checkout test overnight/ },
   );
-  // Its meta line names the thread it belongs to.
-  expect(row.textContent).toMatch(/ · in .+/);
   await userEvent.click(row);
   await heading("Re-run the checkout test overnight");
+  // Its page links back to the thread it belongs to.
+  expect(
+    (await main().findByRole("link", { name: "Fix flaky checkout test" })).getAttribute("href"),
+  ).toBe("/t/thread-checkout");
   expect(await main().findByText(/25 of 25 runs passed/)).toBeTruthy();
   expect(screen.queryByRole("button", { name: /^Model: / })).toBeNull();
   await userEvent.type(await note(), "Seed 81733 first{Enter}");

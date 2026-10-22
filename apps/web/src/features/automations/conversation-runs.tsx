@@ -102,6 +102,9 @@ function TurnHead(props: {
   );
 }
 
+/** "14m", not "14m 0s": whole minutes read cleaner in a turn's head. */
+const elapsed = (ms: number) => formatElapsed(ms).replace(/(\d)m 0s$/, "$1m");
+
 function Working(props: { startedAt: number }) {
   const now = useSeconds(true);
   return <>Working for {formatElapsed(now - props.startedAt)}</>;
@@ -116,8 +119,7 @@ function RunTurn(props: {
   const { run } = props;
   const now = useNow();
   const when = formatWhen(run.startedAt, now, props.timezone);
-  const took =
-    run.finishedAt !== undefined ? formatElapsed(run.finishedAt - run.startedAt) : undefined;
+  const took = run.finishedAt !== undefined ? elapsed(run.finishedAt - run.startedAt) : undefined;
   const threadId = run.threadId;
   return (
     <article aria-label={`Run, ${when}`} className="mt-10 flex flex-col gap-3">

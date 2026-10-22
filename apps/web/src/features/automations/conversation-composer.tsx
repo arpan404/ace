@@ -47,7 +47,7 @@ export function ConversationComposer(props: {
         draftKey={`automation-note:${automation.id}`}
         busy={false}
         label="Note for this run"
-        placeholder="Run it now, with anything extra to check"
+        placeholder="Add a note and run it now"
         shortPlaceholder="Run it now"
         sendBlocked={blocked ? { reason: blocked, describedBy: reasonId } : undefined}
         onSubmit={async (draft) => {

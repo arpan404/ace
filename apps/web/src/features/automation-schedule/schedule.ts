@@ -31,6 +31,9 @@ export type SchedulePreset =
   | { kind: "weekdays"; time: string }
   | { kind: "weekly"; day: Weekday; time: string }
   | { kind: "hourly"; every: number }
+  | { kind: "minutes"; every: number }
+  /** One run at a wall-clock date ("2026-10-24") and time ("09:00") in the schedule's zone. */
+  | { kind: "once"; date: string; time: string }
   | { kind: "custom"; syntax: "rrule" | "cron"; expression: string };
 
 const pad = (value: number) => String(value).padStart(2, "0");
@@ -75,8 +78,39 @@ export function presetToSchedule(
         kind: "rrule",
         expression: `FREQ=HOURLY;INTERVAL=${preset.every};BYMINUTE=0`,
       };
+    case "minutes":
+      return { ...base, kind: "rrule", expression: `FREQ=MINUTELY;INTERVAL=${preset.every}` };
+    case "once":
+      // DTSTART is the one run; COUNT=1 stops the rule after it.
+      return {
+        timezone,
+        startAt: onceInstant(preset, timezone) ?? base.startAt,
+        kind: "rrule",
+        expression: "FREQ=DAILY;COUNT=1",
+      };
     case "custom":
       return { ...base, kind: preset.syntax, expression: preset.expression.trim() };
+  }
+}
+
+/** The instant a one-off preset names in `timezone`; undefined for an unreadable date. */
+export function onceInstant(
+  preset: { date: string; time: string },
+  timezone: string,
+): number | undefined {
+  const date = /^(\d{4})-(\d{2})-(\d{2})$/.exec(preset.date);
+  if (!date) return undefined;
+  const [hour, minute] = parseTime(preset.time);
+  try {
+    return zonedCalendar(timezone).resolve({
+      year: Number(date[1]),
+      month: Number(date[2]),
+      day: Number(date[3]),
+      hour,
+      minute,
+    });
+  } catch {
+    return undefined;
   }
 }
 
@@ -88,6 +122,7 @@ interface Rule {
   days: string[] | undefined;
   hours: number[] | undefined;
   minutes: number[] | undefined;
+  count: number | undefined;
 }
 /** Lenient RRULE read for display; the daemon is the validator. */
 function readRule(expression: string): Rule | undefined {
@@ -99,7 +134,7 @@ function readRule(expression: string): Rule | undefined {
   const freq = fields.get("FREQ");
   if (!freq) return undefined;
   const numbers = (key: string) => fields.get(key)?.split(",").map(Number);
-  const presetParts = new Set(["FREQ", "INTERVAL", "BYDAY", "BYHOUR", "BYMINUTE"]);
+  const presetParts = new Set(["FREQ", "INTERVAL", "BYDAY", "BYHOUR", "BYMINUTE", "COUNT"]);
   return {
     freq,
     other: [...fields.keys()].some((key) => !presetParts.has(key)),
@@ -107,6 +142,7 @@ function readRule(expression: string): Rule | undefined {
     days: fields.get("BYDAY")?.split(","),
     hours: numbers("BYHOUR"),
     minutes: numbers("BYMINUTE"),
+    count: fields.has("COUNT") ? Number(fields.get("COUNT")) : undefined,
   };
 }
 
@@ -120,6 +156,21 @@ export function scheduleToPreset(schedule: AutomationSchedule): SchedulePreset {
   const rule = readRule(schedule.expression);
   // A preset can't carry COUNT, UNTIL or the like: such a rule stays exactly as written.
   if (!rule || rule.other) return custom;
+  const bare = !rule.days && !rule.hours && !rule.minutes;
+  if (rule.count === 1 && rule.freq === "DAILY" && rule.interval === 1 && bare) {
+    const local = wallClockDate(schedule.startAt, schedule.timezone);
+    return { kind: "once", date: local.date, time: clock(local.hour, local.minute) };
+  }
+  // COUNT on anything else isn't a preset: it stays exactly as written.
+  if (rule.count !== undefined) return custom;
+  if (
+    rule.freq === "MINUTELY" &&
+    Number.isInteger(rule.interval) &&
+    rule.interval >= 1 &&
+    rule.interval <= 59 &&
+    bare
+  )
+    return { kind: "minutes", every: rule.interval };
   const single = rule.hours?.length === 1 && rule.minutes?.length === 1;
   const time = single ? clock(rule.hours?.[0] ?? 0, rule.minutes?.[0] ?? 0) : undefined;
   if (rule.freq === "DAILY" && rule.interval === 1 && !rule.days && time)
@@ -159,6 +210,16 @@ function timeOfDay(rule: Rule, schedule: AutomationSchedule): string | undefined
   return spokenClock(rule.hours?.[0] ?? local.hour, rule.minutes?.[0] ?? local.minute);
 }
 
+/** The wall-clock date ("2026-10-24") and time of an instant in `timezone`. */
+function wallClockDate(instant: number, timezone: string) {
+  const local = zonedCalendar(timezone).local(instant);
+  return {
+    date: `${local.year}-${pad(local.month)}-${pad(local.day)}`,
+    hour: local.hour,
+    minute: local.minute,
+  };
+}
+
 function wallClock(instant: number, timezone: string): { hour: number; minute: number } {
   try {
     return zonedCalendar(timezone).local(instant);
@@ -175,6 +236,15 @@ function describeRule(schedule: AutomationSchedule): string | undefined {
   const days = rule.days?.map((day) => weekdays.find((d) => d === day));
   if (days?.some((day) => day === undefined)) return undefined;
   const known = (days ?? []).filter((day): day is Weekday => day !== undefined);
+  if (rule.count === 1) {
+    const date = new Date(schedule.startAt).toLocaleDateString("en-US", {
+      timeZone: schedule.timezone,
+      month: "short",
+      day: "numeric",
+    });
+    return `Once on ${date}${suffix}`;
+  }
+  if (rule.count !== undefined) return undefined;
   switch (rule.freq) {
     case "MINUTELY":
       return capital(plural(rule.interval, "minute"));

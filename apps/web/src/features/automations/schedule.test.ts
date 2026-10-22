@@ -202,3 +202,24 @@ test("inactive schedule fields cannot prevent switching to manual or custom", ()
     false,
   );
 });
+
+test("every few minutes reads as people say it and survives a round trip through its RRULE", () => {
+  const schedule = presetToSchedule({ kind: "minutes", every: 5 }, "UTC", startAt);
+  expect(schedule.expression).toBe("FREQ=MINUTELY;INTERVAL=5");
+  expect(describeSchedule(schedule)).toBe("Every 5 minutes");
+  expect(scheduleToPreset(schedule)).toEqual({ kind: "minutes", every: 5 });
+  const runs = upcomingRuns(schedule, startAt + 60_000);
+  expect(runs).toHaveLength(3);
+  expect((runs[1] ?? 0) - (runs[0] ?? 0)).toBe(5 * 60_000);
+});
+
+test("a one-off run happens once, at that date and time in its own zone, and reads back", () => {
+  const preset = { kind: "once", date: "2026-10-24", time: "09:30" } as const;
+  const schedule = presetToSchedule(preset, "America/New_York", startAt);
+  // 9:30 AM on Oct 24 in New York (EDT, UTC-4).
+  expect(schedule.startAt).toBe(Date.UTC(2026, 9, 24, 13, 30));
+  expect(scheduleToPreset(schedule)).toEqual(preset);
+  expect(describeSchedule(schedule)).toBe("Once on Oct 24 at 9:30 AM");
+  expect(upcomingRuns(schedule, startAt)).toEqual([schedule.startAt]);
+  expect(upcomingRuns(schedule, schedule.startAt + 60_000)).toEqual([]);
+});

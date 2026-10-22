@@ -1,5 +1,4 @@
 import { MagnifyingGlassIcon, PlusIcon } from "@phosphor-icons/react";
-import { useThreadMeta } from "@ace/client-react";
 import { Link, useParams } from "@tanstack/react-router";
 import { useState } from "react";
 import { Icon } from "@/components/icon.tsx";
@@ -141,14 +140,7 @@ function AutomationRow(props: { row: SidebarRow; selected: boolean }) {
           ))}
         {row.status && " · "}
         {row.detail}
-        {row.owner && <OwnerThread threadId={row.owner} />}
       </span>
     </Link>
   );
-}
-
-/** "· in Fix the login redirect": the thread an agent made this automation from. */
-function OwnerThread(props: { threadId: string }) {
-  const title = useThreadMeta(props.threadId)?.title;
-  return <> · in {title || "a thread"}</>;
 }

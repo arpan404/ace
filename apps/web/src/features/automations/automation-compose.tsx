@@ -175,6 +175,8 @@ function ComposeAutomation(props: {
   const blocker = useBlocker({
     shouldBlockFn: () => changed && !committed.current,
     withResolver: true,
+    // The router's own unload guard blocks every reload; the effect below asks only when changed.
+    enableBeforeUnload: false,
   });
   useEffect(() => {
     if (!changed) return;
