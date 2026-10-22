@@ -88,9 +88,11 @@ export class DelegationJournal {
       this.origins.backfill([
         ...this.sql("SELECT record FROM delegated_threads")
           .all()
-          .map((row) => this.decode(row.record))
-          .map((edge) => ({ ...edge, live: edge.phase !== "settled" })),
-        ...this.reservations().map((reservation) => ({ ...reservation.record, live: true })),
+          .map((row) => {
+            const edge = this.decode(row.record);
+            return edgeOwnerFacts(edge, edge.phase !== "settled");
+          }),
+        ...this.reservations().map((reservation) => edgeOwnerFacts(reservation.record, true)),
       ]);
   }
   private sql(query: string) {
@@ -538,4 +540,15 @@ export class DelegationJournal {
       "UPDATE delegation_trees SET tokens=MIN(9007199254740991,tokens+?),cost=MIN(1.7976931348623157e308,cost+?) WHERE root_id=?",
     ).run(tokens, delta.cost, root);
   }
+}
+
+/** What owner backfill needs of a delegation. */
+function edgeOwnerFacts(edge: DelegationRecord, live: boolean) {
+  return {
+    childId: edge.childId,
+    parentId: edge.parentId,
+    generation: edge.generation,
+    createdAt: edge.createdAt,
+    live,
+  };
 }
