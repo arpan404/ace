@@ -103,14 +103,15 @@ import CryptoKit
         await closing?.value
         guard connectionEpoch == epoch, !Task.isCancelled else { return }
         shutdown = nil
-        // Frames are decoded where they arrive, on the runtime's thread; the main thread applies them.
+        // Frames are decoded off both the main thread and the script's; the main thread applies them.
         let decoder = FrameDecoder()
         let runtime = makeRuntime(target, database, { [weak self] data in
-            let patches = decoder.decode(data)
-            Task { @MainActor in
-                guard let self, self.connectionEpoch == epoch else { return }
-                let accepted = self.accept(patches, bytes: data.count)
-                self.runtime?.acknowledge(accepted: accepted)
+            decoder.decode(data) { patches in
+                Task { @MainActor in
+                    guard let self, self.connectionEpoch == epoch else { return }
+                    let accepted = self.accept(patches, bytes: data.count)
+                    self.runtime?.acknowledge(accepted: accepted)
+                }
             }
         }, { [weak self] message in Task { @MainActor in
             guard let self, self.connectionEpoch == epoch else { return }

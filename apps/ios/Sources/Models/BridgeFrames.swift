@@ -52,13 +52,17 @@ struct BridgeFrames {
 }
 private enum FrameError: Error { case budget, order }
 
-/// Decodes a runtime's frames on the thread that emits them, so the main thread only applies the
-/// result. One frame is in flight at a time; the lock only guards against misuse.
+/// Decodes a runtime's frames on a queue of its own, so neither the main thread nor the script's
+/// thread waits on JSON. One frame is in flight at a time (the bridge waits for its acknowledgment),
+/// and the serial queue keeps fragment assembly in order.
 final class FrameDecoder: @unchecked Sendable {
-    private let lock = NSLock()
+    private let queue = DispatchQueue(label: "ace.client.frames", qos: .userInitiated)
     private var frames = BridgeFrames()
-    /// The frame's complete patches, or nil when it could not be read (the assembly resets).
-    func decode(_ data: Data) -> [BridgePatch]? {
-        lock.withLock { HostTrace.measure("host.decodeFrame", bytes: data.count) { try? frames.decode(data) } }
+    /// Decodes `data`, then hands `done` the frame's complete patches, or nil when it could not be
+    /// read (the assembly resets).
+    func decode(_ data: Data, then done: @escaping @Sendable ([BridgePatch]?) -> Void) {
+        queue.async { [self] in
+            done(HostTrace.measure("host.decodeFrame", bytes: data.count) { try? frames.decode(data) })
+        }
     }
 }
