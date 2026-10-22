@@ -11,9 +11,14 @@ struct SubagentGroupView: View {
     /// The block's items: the launches, whose times start the timer.
     let items: [String]
     let thread: ThreadModel
+    /// The block this group is, so its open state outlives the row's view.
+    let blockId: String
     let open: (BlockRow.Agents.Entry) -> Void
     var openAll: (() -> Void)? = nil
-    @State private var expanded = false
+    private var expanded: Bool { thread.screen.openGroups.contains(blockId) }
+    private func toggle() {
+        if expanded { thread.screen.openGroups.remove(blockId) } else { thread.screen.openGroups.insert(blockId) }
+    }
     private var live: Bool { agents.entries.contains { ["working", "waiting", "needsYou", "unresponsive"].contains($0.token) } }
     private var launched: Double? { items.compactMap { thread.items[$0]?.row.createdAt }.min() }
 
@@ -22,7 +27,7 @@ struct SubagentGroupView: View {
             SubagentRow(entry: only, open: open)
         } else {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { expanded.toggle() } } label: { rollup }
+                Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { toggle() } } label: { rollup }
                     .buttonStyle(TranscriptRowButtonStyle())
                     .accessibilityValue(expanded ? "Expanded" : "Collapsed")
                     .accessibilityIdentifier("subagents.rollup")

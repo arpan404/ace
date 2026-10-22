@@ -234,6 +234,8 @@ import CryptoKit
         let opened = ThreadModel(id: id)
         opened.epoch = generation
         opened.placeholder = trail.reopen(id, leaving: thread)
+        // Coming back from a child finds its subagent groups as they were left.
+        opened.screen.openGroups = opened.placeholder?.screen.openGroups ?? []
         thread = opened
         action(["type": "open", "threadId": id])
     }
