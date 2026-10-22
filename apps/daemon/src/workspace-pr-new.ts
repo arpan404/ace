@@ -12,6 +12,10 @@ const targetReuseMs = 30_000;
 
 type Target = Awaited<ReturnType<WorkspaceNewPr["resolveTarget"]>>;
 
+/** One repository, by owner and name whatever their case. */
+const same = (a: { owner: string; name: string }, b: { owner: string; name: string }) =>
+  a.owner.toLowerCase() === b.owner.toLowerCase() && a.name.toLowerCase() === b.name.toLowerCase();
+
 /**
  * A project's new pull request from any branch, with no thread: where it opens (a fork's
  * parent), its branches and template, and the create itself. The create shares the thread
@@ -78,9 +82,6 @@ export class WorkspaceNewPr {
       throw new Error("repository_mismatch");
     // The branch lives in the pushed repository (a fork) or the target itself, by owner and
     // name: a fork may share its owner with its parent.
-    const same = (a: { owner: string; name: string }, b: { owner: string; name: string }) =>
-      a.owner.toLowerCase() === b.owner.toLowerCase() &&
-      a.name.toLowerCase() === b.name.toLowerCase();
     const head = { owner: p.head.owner, name: p.head.name };
     if (!same(head, target.head) && !same(head, target.repository))
       throw new Error("repository_mismatch");
@@ -149,9 +150,7 @@ export class WorkspaceNewPr {
       ...(p.milestone ? { milestone: p.milestone } : {}),
     };
     return this.attempt(allowed, [
-      ...(Object.keys(fields).length
-        ? [() => backend.setIssueFields(number, fields, signal)]
-        : []),
+      ...(Object.keys(fields).length ? [() => backend.setIssueFields(number, fields, signal)] : []),
       ...(p.reviewers.length ? [() => backend.requestReviews(number, p.reviewers, signal)] : []),
     ]);
   }
@@ -168,11 +167,7 @@ export class WorkspaceNewPr {
       ...(p.labels.length || p.assignees.length
         ? [
             () =>
-              backend.addIssueFields(
-                number,
-                { labels: p.labels, assignees: p.assignees },
-                signal,
-              ),
+              backend.addIssueFields(number, { labels: p.labels, assignees: p.assignees }, signal),
           ]
         : []),
       ...(milestone === undefined

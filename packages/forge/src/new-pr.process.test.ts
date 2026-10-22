@@ -96,7 +96,12 @@ test("a fork's branch is compared as owner:branch", async () => {
       },
     ],
   });
-  const result = await gh.forge.compare("main", { owner: "fork", name: "ace", branch: "card" }, 1, signal());
+  const result = await gh.forge.compare(
+    "main",
+    { owner: "fork", name: "ace", branch: "card" },
+    1,
+    signal(),
+  );
   expect(result).toMatchObject({ status: "identical", headSha: nextSha, totalCommits: 0 });
   expect(result.existingPr).toBeUndefined();
 });
@@ -199,7 +204,12 @@ test("a comparison GitHub cuts at 250 commits still names the branch's newest as
       },
     ],
   });
-  const result = await gh.forge.compare("main", { owner: "octo", name: "ace", branch: "big" }, 1, signal());
+  const result = await gh.forge.compare(
+    "main",
+    { owner: "octo", name: "ace", branch: "big" },
+    1,
+    signal(),
+  );
   expect(result).toMatchObject({ headSha: commit(250).sha, truncated: true, totalCommits: 300 });
   const compared = (await gh.requests()).find((request) => request.path.includes("/compare/"));
   expect(compared?.path).not.toContain("page");
@@ -232,7 +242,7 @@ test("a fork with the parent's owner is compared at its own branch's commit, rea
   );
   expect(result).toMatchObject({ aheadBy: 1, totalFiles: 1 });
   // Never `main...card`, which is the parent's own branch.
-  expect((await gh.requests()).some((request) => request.path.endsWith("/compare/main...card"))).toBe(
-    false,
-  );
+  expect(
+    (await gh.requests()).some((request) => request.path.endsWith("/compare/main...card")),
+  ).toBe(false);
 });

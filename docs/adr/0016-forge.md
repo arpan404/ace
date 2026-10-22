@@ -157,6 +157,9 @@ uncertain-write handling:
   `associatedPullRequests` and doesn't offer delete while any other is open, and the write
   checks `GET pulls?state=open&head=owner:branch` again just before sending (`branch_in_use`).
   A branch already gone by then is reported as `branch_gone`, not as a branch to push.
+  After a close (not a merge) GitHub closes, rather than retargets, open PRs based on the
+  deleted branch, so for a closed PR those count too: the snapshot reads open PRs with that
+  `baseRefName`, and the write rechecks `pulls?state=open&base=branch`.
 - Restore branch: `POST /repos/{o}/{r}/git/refs` at the PR's head commit, when the branch is
   gone and nothing else took its name.
 - Link and unlink an issue: GraphQL `addCloseIssueReferences` and `removeCloseIssueReferences`.
@@ -174,9 +177,16 @@ sends neither. The merge-state read prefills them from GitHub's
 repository's commit message settings.
 
 A project-level `forge.hosted.pr.create` opens a PR from any branch without a thread. It
-resolves its target as the thread path does (a fork's parent, `fork-owner:branch`), looks for an
-open PR of the same head and base first and returns it instead of opening another, then opens
-the PR through the same `openPr` request the thread path uses. Labels, assignees and the
+resolves its target as the thread path does (a fork's parent), looks for an open PR of the same
+head and base first and returns it instead of opening another, then opens the PR through the
+same `openPr` request the thread path uses. A head is a branch of a repository named by owner
+and name, since a fork can share its owner with its parent: create sends `owner:branch` with
+`head_repo`, the open-PR lookup keeps only PRs whose head repository matches (GitHub's `head`
+filter is owner and branch only), and compare uses `owner:branch` across owners or, for a
+same-owner fork, the commit the fork's branch points at (GitHub compares commits across a
+network). When the lookup finds the PR, which is how a create whose answer was lost is
+retried, the reviewers, labels, assignees and milestone it asked for are added to that PR
+(labels and assignees join what it has) or reported incomplete. Labels, assignees and the
 milestone follow in one issue `PATCH`, reviewers in one review request; a refusal there leaves the
 PR open and returns `forge_pr_details_incomplete`. The page reads branches
 (`GET /repos/{o}/{r}/branches`, ten pages of 100 at most), the repository's PR template (GraphQL

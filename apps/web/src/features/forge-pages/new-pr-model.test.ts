@@ -1,12 +1,6 @@
 import { expect, test } from "vitest";
 import type { ForgeCompare } from "@ace/protocol";
-import {
-  branchLabel,
-  compareBlocker,
-  isFork,
-  prefill,
-  prPageSearch,
-} from "./new-pr-model.ts";
+import { branchLabel, compareBlocker, isFork, prefill, prPageSearch } from "./new-pr-model.ts";
 
 const commit = (message: string) => ({
   sha: "a".repeat(40),
