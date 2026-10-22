@@ -75,6 +75,23 @@ export function InboxPage(props: {
       kind="inbox"
       address={listAddress}
       ready={list.rows.length > 0}
+      strip={
+        // The rows on show are an earlier answer: say so once, with the way to ask again.
+        list.error && list.first ? (
+          <div
+            role="status"
+            aria-label="Inbox refresh"
+            className="flex min-h-9 min-w-0 items-center gap-1 border-t border-border py-1 text-ui text-muted-foreground"
+          >
+            <span className="min-w-0 truncate" title={list.error.message}>
+              Couldn't refresh notifications.
+            </span>
+            <Button size="xs" variant="ghost" className="text-foreground" onClick={list.retry}>
+              Try again
+            </Button>
+          </div>
+        ) : null
+      }
       actions={
         unread && writes.ready ? (
           <Button size="sm" onClick={() => void readAll()}>

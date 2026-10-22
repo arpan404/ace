@@ -85,25 +85,29 @@ export function afterWrite(
   return { ...page, items };
 }
 
-/** Refusals asking again won't change: the person fixes them, then tries again. */
+/**
+ * Refusals asking again won't change by themselves: the person fixes them (signs in, adds a
+ * remote) and tries again. Asked again only rarely, so a fix also shows up on its own.
+ */
 const settled = new Set([
   "forge_notifications_unavailable",
   "forge_unsupported",
   "forge_forbidden",
+  "forge_no_remote",
+  "git_not_a_repo",
+  "workspace_not_found",
 ]);
 /** Refusals that pass: a rate limit or a lost connection, asked again after a longer wait. */
 const passing = new Set(["forge_rate_limit", "forge_offline"]);
 export const inboxBackoffMs = 5 * 60_000;
+export const inboxSettledMs = 15 * 60_000;
 
 /**
- * How long until the inbox asks again: GitHub's poll interval; never after a refusal that won't
- * pass by itself; a few minutes after a rate limit or a lost connection.
+ * How long until the inbox asks again: GitHub's poll interval; a few minutes after a rate limit
+ * or a lost connection; a quarter of an hour after a refusal that won't pass by itself.
  */
-export function inboxPollMs(
-  data: ForgeInboxList | undefined,
-  failure: string | undefined,
-): number | false {
-  if (failure && settled.has(failure)) return false;
+export function inboxPollMs(data: ForgeInboxList | undefined, failure: string | undefined): number {
+  if (failure && settled.has(failure)) return inboxSettledMs;
   if (failure && passing.has(failure)) return inboxBackoffMs;
   return (data?.pollSeconds ?? 60) * 1_000;
 }

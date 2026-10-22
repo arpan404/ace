@@ -200,7 +200,7 @@ test("the inbox polls at GitHub's interval while in front, and not while the app
   }
 });
 
-test("a refusal that won't pass by itself stops the polling", async () => {
+test("a refusal that won't pass by itself isn't asked again at GitHub's interval", async () => {
   const app = withInbox();
   const inbox = app.daemon.workspace.inbox;
   inbox.setPollSeconds(1);
@@ -225,4 +225,39 @@ test("a pull request opened from the inbox goes back to the inbox, by name", asy
   expect(other?.getAttribute("href")).toContain("repo=github.com%2Facme%2Fdocs-site");
   await user.click(link);
   expect(await screen.findByRole("button", { name: "Back to inbox" })).toBeTruthy();
+});
+
+test("a poll on its way when a row is marked read can't bring the row back bold", async () => {
+  const app = withInbox();
+  const inbox = app.daemon.workspace.inbox;
+  inbox.setPollSeconds(1);
+  const user = userEvent.setup();
+  await app.open("/inbox?project=ace");
+  await waitFor(async () => expect(await rows()).toHaveLength(7));
+  // The next poll is asked before the write and answered after it, as a slow GitHub would.
+  const release = inbox.hold();
+  const asked = inbox.reads;
+  await waitFor(() => expect(inbox.reads).toBeGreaterThan(asked), { timeout: 3_000 });
+  await user.click(
+    within(await row("Rewrite the install page")).getByRole("button", { name: "Mark read" }),
+  );
+  await waitFor(async () => expect(await unreadCount()).toBe(6));
+  release();
+  await never(async () => (await unreadCount()) !== 6);
+});
+
+test("when a refresh fails, the rows stay with one line saying so and a way to try again", async () => {
+  const app = withInbox();
+  const inbox = app.daemon.workspace.inbox;
+  inbox.setPollSeconds(1);
+  const user = userEvent.setup();
+  await app.open("/inbox?project=ace");
+  await waitFor(async () => expect(await rows()).toHaveLength(7));
+  inbox.setUnavailable(true);
+  const line = await screen.findByRole("status", { name: "Inbox refresh" }, { timeout: 3_000 });
+  expect(line.textContent).toContain("Couldn't refresh notifications.");
+  expect(await rows()).toHaveLength(7);
+  inbox.setUnavailable(false);
+  await user.click(within(line).getByRole("button", { name: "Try again" }));
+  await waitFor(() => expect(screen.queryByRole("status", { name: "Inbox refresh" })).toBeNull());
 });

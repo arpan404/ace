@@ -2,6 +2,8 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import { WorkspaceId, type ForgeInboxList, type ForgeInboxWrite } from "@ace/protocol";
 import { actionErrorText } from "@ace/ui-core";
 import { keepPreviousData, useQueries, useQueryClient } from "@tanstack/react-query";
+import { useRef } from "react";
+import { useClock } from "@/lib/time.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { CommandRefused, runCommand } from "@/lib/daemon-command.ts";
 import { failureCode, readForge } from "@/lib/forge-read.ts";
@@ -95,6 +97,14 @@ export function useInboxWrites(project: string | undefined) {
   const cache = useQueryClient();
   const toast = useToast();
   const ready = useConnectionState() === "ready";
+  const clock = useClock();
+  /** When Mark all read last went out: GitHub may still be applying it. */
+  const readAllAt = useRef<number | undefined>(undefined);
+  /** GitHub's poll interval, as the inbox last heard it. */
+  const pollMs = () =>
+    (cache
+      .getQueriesData<ForgeInboxList>({ queryKey: inboxKey(project) })
+      .find(([, page]) => page)?.[1]?.pollSeconds ?? 60) * 1_000;
   const change = (input: ForgeInboxWrite) =>
     cache.setQueriesData<ForgeInboxList>({ queryKey: inboxKey(project) }, (page) =>
       !page
@@ -115,6 +125,10 @@ export function useInboxWrites(project: string | undefined) {
     );
   const write = async (input: ForgeInboxWrite): Promise<boolean> => {
     if (!project || !ready) return false;
+    // A poll on its way may carry GitHub's answer from before this write: drop it, so it can't
+    // undo the change shown here.
+    await cache.cancelQueries({ queryKey: inboxKey(project) });
+    if (input.action === "read-all") readAllAt.current = clock();
     change(input);
     try {
       await runCommand(client, {
@@ -125,7 +139,10 @@ export function useInboxWrites(project: string | undefined) {
       // Done and unsubscribe land at once: read again. Read is already shown. Mark all read is
       // applied by GitHub in the background (202), so reading now could bring the rows back
       // bold; the next poll catches up instead.
-      if (input.action === "done" || input.action === "unsubscribe")
+      // Within a poll interval of Mark all read, a read could still show those rows bold, so the
+      // done row's removal stands on its own until the next poll.
+      const applying = readAllAt.current !== undefined && clock() - readAllAt.current < pollMs();
+      if ((input.action === "done" || input.action === "unsubscribe") && !applying)
         await cache.invalidateQueries({ queryKey: inboxKey(project) });
       return true;
     } catch (error) {
