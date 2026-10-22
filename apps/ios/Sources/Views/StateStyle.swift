@@ -21,7 +21,7 @@ struct StateLabel: View {
 }
 extension View {
     @ViewBuilder func floatingGlass() -> some View {
-        let shape = RoundedRectangle(cornerRadius: AceTheme.Radii.composer)
+        let shape = AceShape.field
         if #available(iOS 26, *) { self.glassEffect(.regular, in: shape) }
         else { self.background(.regularMaterial, in: shape).overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border)) }
     }
