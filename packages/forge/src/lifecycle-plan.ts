@@ -23,6 +23,8 @@ export interface LifecycleExtraFacts {
   isDefault: boolean;
   deleteOnMerge: boolean;
   canRestoreHead: boolean;
+  /** Other open PRs whose head is this branch. */
+  openPrsOnHead: readonly number[];
 }
 /** One capability/state gate serves daemon writes and the public workspace snapshot. */
 export function lifecycleCapabilities(facts: {
@@ -73,7 +75,10 @@ export function lifecycleCapabilities(facts: {
   if (extras && !active && extras.sameRepository && extras.canRestoreHead) {
     // GitHub deletes a merged PR's branch itself when the repository asks it to: never race it.
     const githubDeletes = facts.state === "merged" && extras.deleteOnMerge;
-    if (extras.headExists && !extras.isDefault && !githubDeletes) actions.push("branch.delete");
+    // Another open PR from the same branch would close with it.
+    const shared = extras.openPrsOnHead.length > 0;
+    if (extras.headExists && !extras.isDefault && !githubDeletes && !shared)
+      actions.push("branch.delete");
     if (!extras.headExists) actions.push("branch.restore");
   }
   if (extras && active && facts.canUpdate) actions.push("issue.link", "issue.unlink");

@@ -25,21 +25,27 @@ export function extraRecord(
     viewerCanDeleteHeadRef?: boolean;
     closing?: unknown[];
     manual?: unknown[];
+    /** Open PRs, this one included, whose head is the branch. */
+    openOnHead?: number[];
   } = {},
 ) {
-  const { closing: issues = [], manual = [], ...rest } = overrides;
+  const { closing: issues = [], manual = [], openOnHead = [], headRef, ...rest } = overrides;
+  const ref = headRef === undefined ? { name: "feature/fix" } : headRef;
   return {
     ...lifecycleRecord(rest.state ? { state: rest.state } : {}),
     milestone: null,
     locked: false,
     activeLockReason: null,
     headRefName: "feature/fix",
-    headRef: { name: "feature/fix" },
     isCrossRepository: false,
     viewerCanDeleteHeadRef: true,
     closingIssuesReferences: closing(issues),
     manualClosingIssues: closing(manual),
     ...rest,
+    headRef: ref && {
+      ...ref,
+      associatedPullRequests: { nodes: openOnHead.map((number) => ({ number })) },
+    },
   };
 }
 /** Snapshots answered in order, from a host that reports the extra facts. */
@@ -81,4 +87,10 @@ export function headRef(branch: string, at: string | null = sha) {
         : { body: { object: { sha: at } } },
     ],
   };
+}
+
+/** GitHub's open PRs whose head is `branch` in octo/ace, as the delete recheck reads them. */
+export function openPrsFrom(branch: string, numbers: number[]) {
+  const query = new URLSearchParams({ state: "open", head: `octo:${branch}`, per_page: "10" });
+  return { [`repos/octo/ace/pulls?${query}`]: [{ body: numbers.map((number) => ({ number })) }] };
 }

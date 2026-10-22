@@ -83,7 +83,17 @@ export const LifecycleExtras = z.object({
         locked: z.boolean(),
         activeLockReason: text.nullable(),
         headRefName: text,
-        headRef: z.looseObject({ name: text }).nullable(),
+        headRef: z
+          .looseObject({
+            name: text,
+            // Open PRs whose head is this branch: deleting it would close them.
+            associatedPullRequests: z.looseObject({
+              nodes: z
+                .array(z.looseObject({ number: z.number().int().positive() }).nullable())
+                .max(10),
+            }),
+          })
+          .nullable(),
         isCrossRepository: z.boolean(),
         viewerCanDeleteHeadRef: z.boolean(),
         closingIssuesReferences: closing,
@@ -94,4 +104,4 @@ export const LifecycleExtras = z.object({
 });
 export const lifecycleExtraRepositoryFields = `deleteBranchOnMerge defaultBranchRef { name }`;
 const closingFields = `nodes { number title state url repository { name owner { login } } } pageInfo { hasNextPage }`;
-export const lifecycleExtraPrFields = `milestone { number title state dueOn } locked activeLockReason headRefName headRef { name } isCrossRepository viewerCanDeleteHeadRef closingIssuesReferences(first:50){ ${closingFields} } manualClosingIssues:closingIssuesReferences(first:50,userLinkedOnly:true){ ${closingFields} }`;
+export const lifecycleExtraPrFields = `milestone { number title state dueOn } locked activeLockReason headRefName headRef { name associatedPullRequests(states:OPEN,first:10){ nodes { number } } } isCrossRepository viewerCanDeleteHeadRef closingIssuesReferences(first:50){ ${closingFields} } manualClosingIssues:closingIssuesReferences(first:50,userLinkedOnly:true){ ${closingFields} }`;

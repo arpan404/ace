@@ -98,6 +98,7 @@ export class GitHubLifecycle {
           this.#repository,
           extraFacts.data.data.repository,
           repository.viewerPermission,
+          number,
         )
       : undefined;
     const raw = repository.pullRequest;

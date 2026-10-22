@@ -6,6 +6,7 @@ import {
   extraFixtures,
   extraRecord,
   headRef,
+  openPrsFrom,
 } from "./testing/lifecycle-extra-fixtures.ts";
 import type { ForgeLifecycleAction } from "@ace/protocol/forge-lifecycle";
 
@@ -73,6 +74,7 @@ test("deleting the head branch removes it on GitHub and reports it gone", async 
   const f = await fakeGh({
     ...extraFixtures([merged, merged, merged, extraRecord({ state: "MERGED", headRef: null })]),
     ...headRef("feature/fix"),
+    ...openPrsFrom("feature/fix", []),
     "repos/octo/ace/git/refs/heads/feature/fix": [{ status: 204, raw: "" }],
   });
   try {
@@ -265,6 +267,50 @@ test("a host that refuses the newer fields still answers the snapshot, without t
     expect(snapshot.conversation).toBeUndefined();
     expect(snapshot.actions).not.toContain("lock");
     expect(snapshot.editableFields).not.toContain("milestone");
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a branch another open PR comes from is kept: delete isn't offered while that PR is open", async () => {
+  // feature/fix also heads PR #9, into another base: deleting it would close #9.
+  const f = await fakeGh(extraFixtures([extraRecord({ state: "MERGED", openOnHead: [7, 9] })]));
+  try {
+    const snapshot = await f.forge.lifecycle.snapshot(7, signal());
+    expect(snapshot.actions).not.toContain("branch.delete");
+    expect(snapshot.headBranch?.usedBy).toEqual([9]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a PR opened from the branch after the snapshot stops the delete before anything is sent", async () => {
+  const merged = extraRecord({ state: "MERGED" });
+  const f = await fakeGh({
+    ...extraFixtures([merged]),
+    ...headRef("feature/fix"),
+    ...openPrsFrom("feature/fix", [9]),
+  });
+  try {
+    await expect(apply(f, { kind: "branch.delete" })).rejects.toMatchObject({
+      kind: "branch_in_use",
+    });
+    expect(await writes(f)).toEqual([]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a branch deleted elsewhere since the snapshot is reported gone, not missing", async () => {
+  const f = await fakeGh({
+    ...extraFixtures([extraRecord({ state: "MERGED" })]),
+    ...headRef("feature/fix", null),
+  });
+  try {
+    await expect(apply(f, { kind: "branch.delete" })).rejects.toMatchObject({
+      kind: "branch_gone",
+    });
+    expect(await writes(f)).toEqual([]);
   } finally {
     await f.cleanup();
   }
