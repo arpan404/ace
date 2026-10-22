@@ -1,26 +1,34 @@
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import type { LinkedPullRequest } from "@ace/protocol";
-import { openExternal } from "@/boot/open-external.ts";
 import { PullRequestGlyph } from "@/components/pull-request-state.tsx";
 import { cn } from "@/lib/cn.ts";
+import { useOpenThreadPullRequest } from "./open-pull-request.ts";
 
-/** Text that opens a web address in the device's browser; underlined under the pointer. */
-export function ExternalLink(props: {
-  href: string;
-  label: string;
+/** A linked pull request that opens ace's page for it; ⌘/Ctrl-click opens it on GitHub. */
+export function LinkedPullRequestLink(props: {
+  threadId: string;
+  pr: LinkedPullRequest;
+  label?: string;
   className?: string;
   children: ReactNode;
 }) {
+  const open = useOpenThreadPullRequest(props.threadId);
+  const follow = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    open(props.pr, event);
+  };
   return (
     <a
-      href={props.href}
+      href={props.pr.url}
       target="_blank"
       rel="noreferrer"
-      aria-label={props.label}
+      aria-label={props.label ?? `Open pull request #${props.pr.number}`}
       onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        void openExternal(props.href).catch(() => {});
+        if (event.button === 0 && !event.shiftKey && !event.altKey) follow(event);
+      }}
+      onAuxClick={(event) => {
+        if (event.button === 1) follow(event);
       }}
       className={cn(
         "min-w-0 truncate rounded-sm underline-offset-2 hover:underline focus-ring",
@@ -33,7 +41,7 @@ export function ExternalLink(props: {
 }
 
 /** Dense, single-line PRs; separate repositories keep identical PR numbers unambiguous. */
-export function ThreadHoverPrs(props: { prs: readonly LinkedPullRequest[] }) {
+export function ThreadHoverPrs(props: { threadId: string; prs: readonly LinkedPullRequest[] }) {
   const repositories = new Map<string, LinkedPullRequest[]>();
   for (const pr of props.prs) {
     const key = `${pr.repo.host}/${pr.repo.owner}/${pr.repo.name}`;
@@ -56,9 +64,9 @@ export function ThreadHoverPrs(props: { prs: readonly LinkedPullRequest[] }) {
                 className="flex h-5 min-w-0 items-center text-ui"
                 aria-label={`#${pr.number}, ${pr.state}${pr.title ? `, ${pr.title}` : ""}`}
               >
-                <ExternalLink
-                  href={pr.url}
-                  label={`Open pull request #${pr.number}`}
+                <LinkedPullRequestLink
+                  threadId={props.threadId}
+                  pr={pr}
                   className="flex flex-1 items-center gap-1.5"
                 >
                   <PullRequestGlyph state={pr.state} size={14} />
@@ -68,7 +76,7 @@ export function ThreadHoverPrs(props: { prs: readonly LinkedPullRequest[] }) {
                   <span className="min-w-0 flex-1 truncate text-muted-foreground">
                     {pr.title ?? `${pr.repo.owner}/${pr.repo.name}`}
                   </span>
-                </ExternalLink>
+                </LinkedPullRequestLink>
               </li>
             ))}
           </ul>

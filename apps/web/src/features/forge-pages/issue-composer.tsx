@@ -1,16 +1,22 @@
-import { useState } from "react";
 import type { ForgeIssueDetail } from "@ace/protocol";
+import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
+import { draftKeys, useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
 import { Button } from "@/components/ui/button.tsx";
-import { Textarea } from "@/components/ui/input.tsx";
 import type { IssueWrites } from "./issue-writes.ts";
 
 /**
  * A comment on the issue, and closing or reopening it, as GitHub's own form offers: with text,
- * Close posts the comment first. Only what the signed-in account may do is offered.
+ * Close posts the comment first. Only what the signed-in account may do is offered. Unsent text
+ * stays as a draft on this device.
  */
-export function IssueComposer(props: { issue: ForgeIssueDetail; writes: IssueWrites }) {
+export function IssueComposer(props: {
+  project: string;
+  issue: ForgeIssueDetail;
+  writes: IssueWrites;
+}) {
   const { issue, writes } = props;
-  const [body, setBody] = useState("");
+  const draft = useMarkdownDraft(draftKeys.issueComment(props.project, issue.ref.number));
+  const body = draft.text;
   const can = issue.permissions;
   const open = issue.state === "open";
   const canState = open ? can.close : can.reopen;
@@ -25,7 +31,7 @@ export function IssueComposer(props: { issue: ForgeIssueDetail; writes: IssueWri
       body: submitted,
     });
     // Text typed while it posted stays.
-    if (posted) setBody((current) => (current === submitted ? "" : current));
+    if (posted) draft.clear(submitted);
     return posted;
   };
   // The state change goes first: it is checked against the issue as last read, which a comment
@@ -45,22 +51,16 @@ export function IssueComposer(props: { issue: ForgeIssueDetail; writes: IssueWri
       className="mt-4 flex flex-col gap-2 border-t border-border pt-4"
       onSubmit={(event) => {
         event.preventDefault();
-        if (text) void comment();
+        if (text && !busy) void comment();
       }}
     >
       {can.comment && (
-        <Textarea
-          aria-label="Comment"
-          placeholder="Leave a comment (Markdown)"
-          rows={4}
+        <MarkdownEditor
+          label="Comment"
+          placeholder="Leave a comment"
           maxLength={64_000}
           value={body}
-          onChange={(event) => setBody(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
-            event.preventDefault();
-            if (text && !busy) void comment();
-          }}
+          onChange={draft.setText}
         />
       )}
       <div className="flex justify-end gap-2">

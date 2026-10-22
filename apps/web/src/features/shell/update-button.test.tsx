@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { ToastProvider } from "@/components/ui/toast.tsx";
@@ -30,7 +30,11 @@ const offer = (overrides: Record<string, unknown> = {}) =>
   status({ state: "available", version: "1.1.0", releaseUrl, notes, ...overrides });
 
 /** The desktop preload's `window.ace.updates` and `shell`, steered by the test. */
-function desktop(initial: unknown = status(), checked: unknown = status({ state: "current" })) {
+function desktop(
+  initial: unknown = status(),
+  checked: unknown = status({ state: "current" }),
+  busy: number | Error = 0,
+) {
   let report: ((value: unknown) => void) | undefined;
   const calls: string[] = [];
   const opened: string[] = [];
@@ -50,6 +54,7 @@ function desktop(initial: unknown = status(), checked: unknown = status({ state:
           calls.push("install");
           return Promise.resolve(initial);
         },
+        busy: () => (busy instanceof Error ? Promise.reject(busy) : Promise.resolve(busy)),
         onStatus(listener: (value: unknown) => void) {
           report = listener;
           return () => {};
@@ -112,17 +117,43 @@ test("hovering an update in hand shows what changed in every newer release", asy
   expect(screen.getByText("2 older releases on GitHub")).toBeTruthy();
 });
 
+const restartButton = () =>
+  screen.findByRole("button", { name: "Update 1.1.0 downloaded. Click to restart and install." });
+
 test("a downloaded update restarts only after the person confirms", async () => {
   const app = desktop(offer({ state: "downloaded", percent: 100 }));
-  await userEvent.click(
-    await screen.findByRole("button", {
-      name: "Update 1.1.0 downloaded. Click to restart and install.",
-    }),
-  );
-  expect(await screen.findByText("Restart to install ace 1.1.0?")).toBeTruthy();
+  await userEvent.click(await restartButton());
+  expect(await screen.findByText("Restart to update?")).toBeTruthy();
+  expect(await screen.findByText("Nothing is running. ace is back in a few seconds.")).toBeTruthy();
   expect(app.calls).toEqual([]);
   await userEvent.click(screen.getByRole("button", { name: "Restart" }));
   expect(app.calls).toEqual(["install"]);
+});
+
+test("Restart warns how many agents on this computer it stops, then stops them", async () => {
+  const app = desktop(offer({ state: "downloaded", percent: 100 }), undefined, 2);
+  await userEvent.click(await restartButton());
+  expect(
+    await screen.findByText(
+      "2 agents on this computer will stop. Their threads keep their progress.",
+    ),
+  ).toBeTruthy();
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" })),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Restart anyway" }));
+  expect(app.calls).toEqual(["install"]);
+});
+
+test("when the agent count is unknown, Restart still warns that agents stop", async () => {
+  desktop(offer({ state: "downloaded", percent: 100 }), undefined, new Error("daemon gone"));
+  await userEvent.click(await restartButton());
+  expect(
+    await screen.findByText(
+      "Agents running on this computer will stop. Their threads keep their progress.",
+    ),
+  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Restart anyway" })).toBeTruthy();
 });
 
 test("while agents finish, the button says how many it waits for", async () => {

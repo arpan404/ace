@@ -19,7 +19,7 @@ Check variables by name and file existence only; secret values stay out of the t
 Run from the main checkout (`~/Code/ace-next`). Every check passes before anything builds; on a failure, stop and tell the owner which check failed and how to fix it.
 
 1. Branch is `main`, level with `origin/main` after `git fetch`, and `git status --short` shows no tracked changes.
-2. `version` is the `version` in `apps/desktop/package.json`. `gh release view v<version> -R arpan404/ace` fails (the tag is free). If it exists, stop: bumping the version is the owner's call, done in a PR.
+2. `version` is the `version` in `apps/desktop/package.json`. `gh release view v<version> -R arpan404/ace` fails (the tag is free). If it exists, stop: bumping the version is the owner's call, done in a PR. Any PR you create for the version bump or preflight fixes stays unlinked from the ace thread (never `thread_link_pr`): linking settles the thread and closes the terminals the build needs.
 3. `~/.ace-release/release.env` loads (`set -a; source ~/.ace-release/release.env; set +a`), every variable above is non-empty with no `XXXX`/`xxxx` placeholder, and the `.p8` and public key files exist.
 4. `security find-identity -v -p codesigning` lists `Developer ID Application: $CSC_NAME`.
 5. `xcrun notarytool history --key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER"` exits 0.

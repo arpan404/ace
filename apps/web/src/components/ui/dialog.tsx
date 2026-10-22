@@ -30,8 +30,11 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
   return (
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
+      // A dialog opened from a sheet (the narrow window's sidebar) is nested in it; it still
+      // blurs what is behind it, sheet included, on the modal layer after that sheet.
+      forceRender
       className={cn(
-        layers.overlay,
+        layers.modal,
         "ace-backdrop fixed inset-0 [-webkit-app-region:no-drag] transition-opacity duration-(--motion-base) ease-smooth data-ending-style:opacity-0 data-ending-style:duration-(--motion-exit) data-starting-style:opacity-0",
         className,
       )}
@@ -120,12 +123,18 @@ function DialogContent({
   children,
   showCloseButton = true,
   size = "sm",
+  material = "solid",
   initialFocus,
   finalFocus,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean;
   size?: keyof typeof sizes;
+  /**
+   * `glass`: translucent over the blurred page, like the command palette, for a short
+   * confirmation that holds only words and buttons. Forms and content stay `solid`.
+   */
+  material?: "solid" | "glass";
 }) {
   const openerRef = useRef<HTMLElement | null>(null);
   const popupRef = useRef<HTMLDivElement | null>(null);
@@ -163,9 +172,10 @@ function DialogContent({
         finalFocus={finalFocus ?? returnFocus}
         className={cn(
           layers.modal,
-          // Solid: a dialog holds content (forms, text, choices), so it is never glass. The page
-          // behind it is blurred once by its backdrop.
-          "ace-floating-solid text-popover-foreground",
+          // Solid unless asked: a dialog usually holds content (forms, text, choices). The page
+          // behind it is blurred once by its backdrop; a glass modal adds no blur of its own.
+          material === "glass" ? "ace-floating ace-modal-thin" : "ace-floating-solid",
+          "text-popover-foreground",
           // Centred by insets and auto margins, never by a translate another rule could replace.
           "ace-modal fixed inset-0 m-auto flex h-fit max-h-[calc(100dvh-2rem)] flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain rounded-card p-5 text-ui text-popover-foreground outline-none [-webkit-app-region:no-drag]",
           "transition-[opacity,transform] duration-(--motion-base) ease-spring data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--motion-exit) data-ending-style:ease-exit data-starting-style:translate-y-(--rise) data-starting-style:scale-[0.97] data-starting-style:opacity-0",
@@ -178,7 +188,7 @@ function DialogContent({
         <FocusHold />
         {/* A dialog is its own surface, even when a settings row opened it. */}
         <InCard value={false}>
-          <FloatingContents glass={false}>{children}</FloatingContents>
+          <FloatingContents glass={material === "glass"}>{children}</FloatingContents>
         </InCard>
         {showCloseButton && (
           <DialogPrimitive.Close

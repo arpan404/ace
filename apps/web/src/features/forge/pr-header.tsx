@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, type MouseEvent, type ReactNode } from "react";
 import {
   ArrowLeftIcon,
   ArrowSquareOutIcon,
@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input.tsx";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { pullRequestTone } from "@/components/pull-request-state.tsx";
 import { DiffStat } from "@/components/diff-stat.tsx";
-import { openExternal } from "@/boot/open-external.ts";
+import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useCopy } from "@/components/use-copy.ts";
 import { cn } from "@/lib/cn.ts";
@@ -197,11 +197,12 @@ export function PrHeader(props: {
   const repository = status.ref.repository;
   const checkout = `gh pr checkout ${status.ref.number} --repo ${repository.host}/${repository.owner}/${repository.name}`;
   const toast = useToast();
+  const openWeb = useOpenWebAddress();
   const { copied, copy } = useCopy(() =>
     toast.error({ title: "Couldn't copy the checkout command" }),
   );
-  const openUrl = (url: string) =>
-    void openExternal(url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
+  const openUrl = (url: string, click?: MouseEvent) =>
+    void openWeb(url, click).catch(() => toast.error({ title: "Couldn't open GitHub" }));
   const branches = (
     <>
       {detail.baseBranch} ← {detail.headBranch}
@@ -209,7 +210,7 @@ export function PrHeader(props: {
   );
   return (
     <header className="shrink-0 pt-2">
-      <div className="flex h-7 min-w-0 items-center gap-1 px-4">
+      <div className="flex h-7 min-w-0 items-center gap-1 px-[var(--forge-gutter,1rem)]">
         {props.onBack && (
           <IconButton
             icon={ArrowLeftIcon}
@@ -220,7 +221,7 @@ export function PrHeader(props: {
         )}
         <button
           type="button"
-          onClick={() => openUrl(status.url)}
+          onClick={(event) => openUrl(status.url, event)}
           className="inline-flex min-w-0 shrink items-center gap-1 rounded-xs text-xs text-muted-foreground focus-ring touch-hit hover:underline"
         >
           <span className="truncate font-medium">
@@ -259,7 +260,7 @@ export function PrHeader(props: {
         )}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="mt-1 space-y-1.5 px-4 pb-2.5">
+          <div className="mt-1 space-y-1.5 px-[var(--forge-gutter,1rem)] pb-2.5">
             {!props.condensed && <PrTitle actions={actions} condensed={false} />}
             <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
               <PrAvatar name={detail.author} url={detail.authorAvatarUrl} />
@@ -304,7 +305,7 @@ export function PrHeader(props: {
         </div>
       </div>
       {props.condensed && (
-        <p className="fx-cross-in truncate px-4 pb-1.5 font-mono text-2xs text-subtle-foreground">
+        <p className="fx-cross-in truncate px-[var(--forge-gutter,1rem)] pb-1.5 font-mono text-2xs text-subtle-foreground">
           {branches}
         </p>
       )}

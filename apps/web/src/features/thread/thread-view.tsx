@@ -65,6 +65,7 @@ import { WorkButton } from "./header/work-button.tsx";
 import { createWorkCardStore, WorkCardContext } from "./header/work-card-store.ts";
 import { WorkSide } from "./header/work-side.tsx";
 import { DelegateBottom } from "./subagent/delegate-bottom.tsx";
+import { ThreadForgeLinks } from "@/components/forge-links.tsx";
 
 /**
  * A thread New thread started a moment ago, until the daemon names it: its view's code loads
@@ -112,7 +113,9 @@ export function ThreadView(props: { threadId: string; target?: ThreadTarget | un
           </Screen>
         }
       >
-        <ThreadScreen threadId={props.threadId} target={props.target} />
+        <ThreadForgeLinks threadId={props.threadId}>
+          <ThreadScreen threadId={props.threadId} target={props.target} />
+        </ThreadForgeLinks>
       </Suspense>
     </ThreadNavProvider>
   );

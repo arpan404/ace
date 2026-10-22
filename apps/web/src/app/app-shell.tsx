@@ -1,4 +1,6 @@
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
+import { NavRow } from "@/components/nav-row.tsx";
+import { GitPullRequestIcon } from "@phosphor-icons/react";
 import { AddAccountHost } from "@/features/account-management/index.ts";
 import { useConnectionState } from "@ace/client-react";
 import { Outlet, useRouter, useRouterState } from "@tanstack/react-router";
@@ -120,9 +122,27 @@ export function AppShell() {
 /** The thread list in the sidebar's body, composed independently of shell controls. */
 const threads = <ThreadsSidebar />;
 
-/** The sidebar with what other slices own: the thread list. */
+/** The sidebar's Pull requests row and its needs-you dot, loaded after the first paint. */
+const PullRequestsRow = deferredComponent(() =>
+  import("@/features/forge-pages/index.ts").then((m) => m.PullRequestsNavRow),
+);
+const pullRequests = (active: boolean) => {
+  // Until its code (and the list it reads) arrives, the row shows without its dot.
+  const plain = (
+    <NavRow to="/pulls" icon={GitPullRequestIcon} label="Pull requests" active={active} />
+  );
+  return (
+    <LocalBoundary label="pull requests row" fallback={plain}>
+      <Suspense fallback={plain}>
+        <PullRequestsRow.Component active={active} />
+      </Suspense>
+    </LocalBoundary>
+  );
+};
+
+/** The sidebar with what other slices own: the thread list and the Pull requests row. */
 function ShellSidebar() {
-  return <AppSidebar threads={threads} />;
+  return <AppSidebar threads={threads} pages={pullRequests} />;
 }
 
 function ShellHotkeys() {

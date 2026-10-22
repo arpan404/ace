@@ -124,6 +124,8 @@ function settleRequest(thread: Thread): "settle" | "drop" | undefined {
   return state === "working" || state === "waiting" ? undefined : "drop";
 }
 
+const quiescentStates = new Set<Thread["status"]["state"]>(["done", "failed", "new"]);
+
 function automaticSettle(
   thread: Thread,
   policy: SettlePolicy,
@@ -138,6 +140,9 @@ function automaticSettle(
     return { ...expired, autoSettleAt: null };
   if (thread.settledAt !== undefined || thread.autoSettle === false)
     return { ...expired, autoSettleAt: null };
+  // Only a finished tree settles by itself. One still waiting (a background shell, a queued
+  // turn, a limit, the person) stays in the list, and settles once it finishes if still due.
+  if (!quiescentStates.has(thread.status.state)) return { ...expired, autoSettleAt: null };
   const due =
     policy.hours > 0
       ? (thread.activityAt ?? thread.updatedAt) + policy.hours * 3_600_000

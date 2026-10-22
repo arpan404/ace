@@ -11,7 +11,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog.tsx";
 
-export function AddMachine(props: { onClose(): void }) {
+/** Pair this window with another machine; `onAdded` gets its host id once it's in the directory. */
+export function AddMachine(props: { onClose(): void; onAdded?(hostId: string): void }) {
   const pool = useMachinePool();
   const ensure = useEnsureMachinePool();
   return (
@@ -25,7 +26,9 @@ export function AddMachine(props: { onClose(): void }) {
         <DialogHeader>
           <DialogTitle>Add machine</DialogTitle>
           <DialogDescription>
-            Create a pairing link in Settings on the other computer, then paste it here.
+            On the other computer, open Settings › Fleet › Pair a device with Administrator access,
+            or run <code className="font-mono text-xs">ace pair read,operate,admin</code> there.
+            Paste the link here; it links with every machine once it connects.
           </DialogDescription>
         </DialogHeader>
         <PairingForm
@@ -38,7 +41,10 @@ export function AddMachine(props: { onClose(): void }) {
             if (!chosen)
               throw new Error("Couldn't open your machine directory. Reconnect and try again.");
             signal.throwIfAborted();
-            await chosen.pair(target.url, () => readPairedMachine(target, remember, signal));
+            const entry = await chosen.pair(target.url, () =>
+              readPairedMachine(target, remember, signal),
+            );
+            props.onAdded?.(entry.hostId);
             props.onClose();
           }}
         />

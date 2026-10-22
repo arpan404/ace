@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { Store } from "@ace/daemon";
 import {
@@ -21,7 +22,9 @@ import { ThreadId, type EventPayload } from "@ace/protocol";
  * lock) and only into an empty store, so it never mixes with real work.
  */
 const home = process.env.ACE_HOME;
-if (!home || !home.includes(".ace-dev")) throw new Error("Seeding only writes to a .ace-dev home");
+if (!home || resolve(home) === resolve(homedir(), ".ace")) {
+  throw new Error("Seeding only writes to a development home, never ~/.ace");
+}
 mkdirSync(home, { recursive: true, mode: 0o700 });
 
 const store = new Store(join(home, "events.sqlite"));

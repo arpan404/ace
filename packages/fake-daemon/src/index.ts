@@ -94,6 +94,7 @@ export type {
   SettingsFixture,
 } from "./scenarios/settings.ts";
 export { FakeServices, FakeSettings } from "./services/index.ts";
+export { FakeVerify, type FakeVerifyFailure } from "./services/verify.ts";
 export { FakeAccess } from "./access.ts";
 export { FakeAppDevices } from "./app-devices.ts";
 export { accountSummary } from "./services/accounts.ts";

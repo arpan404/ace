@@ -122,7 +122,7 @@ test("the sidebar shows a plain ace label and profile connection actions", async
   const daemon = await screen.findByRole("menu", { name: "Connection" });
   expect(within(daemon).getByText(/Connected$/)).toBeTruthy();
   await userEvent.click(within(daemon).getByRole("menuitem", { name: "Pair a device…" }));
-  await screen.findByRole("heading", { level: 2, name: "Machines and devices" });
+  await screen.findByRole("heading", { level: 2, name: "Fleet" });
   await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
   await title("New thread");
 
@@ -137,7 +137,6 @@ test("the sidebar shows a plain ace label and profile connection actions", async
   ).toEqual([
     "Automations",
     "Skills",
-    "Pull requests",
     "Usage",
     "Archived threads",
     expect.stringMatching(/^Keyboard shortcuts/),
@@ -146,6 +145,9 @@ test("the sidebar shows a plain ace label and profile connection actions", async
   await userEvent.click(within(account).getByRole("menuitem", { name: "Usage" }));
   await title("Usage");
   expect(list("Threads")).toBeTruthy();
+  // Pull requests is its own row over the profile, not in the menu.
+  await userEvent.click(await screen.findByRole("link", { name: /^Pull requests/ }));
+  await title("Pull requests");
 });
 
 test("⌘K opens Automations and Skills as their own pages, each with its list and Back to app", async () => {

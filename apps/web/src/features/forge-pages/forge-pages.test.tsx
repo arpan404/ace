@@ -35,20 +35,15 @@ async function headings(name: ListName) {
 async function numbers(name: ListName) {
   return numbersIn(await screen.findByRole("navigation", { name }));
 }
-async function pick(menu: RegExp, option: RegExp) {
-  await userEvent.click(await screen.findByRole("button", { name: menu }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: option }));
-}
-
-test("by default open pull requests are ranked by how close they are to merging", async () => {
+test("by default open pull requests are grouped by what each needs next", async () => {
   const app = withRepository();
   await app.open("/pulls?project=ace");
   await waitFor(async () =>
     expect(await groups("Pull requests")).toEqual({
-      Ready: ["224"],
-      // #226 conflicts with its base but waits on review: it goes last in that tier.
-      "Waiting on review": ["231", "226"],
-      "Needs changes": ["229"],
+      // Reviews asked of you come before your own branch that fell behind.
+      "Needs you": ["229", "226", "222"],
+      "Ready to merge": ["233", "224"],
+      Waiting: ["231"],
       Drafts: ["227"],
     }),
   );
@@ -59,16 +54,16 @@ test("sorted by activity, open pull requests are grouped as yours, waiting on yo
   await app.open("/pulls?project=ace&sort=updated");
   await waitFor(async () =>
     expect(await groups("Pull requests")).toEqual({
-      "Authored by you": ["231", "227"],
+      "Authored by you": ["231", "227", "222"],
       "Review requested": ["229", "226"],
-      Others: ["224"],
+      Others: ["233", "224"],
     }),
   );
   await waitFor(async () =>
     expect(await headings("Pull requests")).toEqual([
-      "Authored by you2",
+      "Authored by you3",
       "Review requested2",
-      "Others1",
+      "Others2",
     ]),
   );
 });
@@ -78,14 +73,14 @@ test("Reviewing narrows the list to pull requests asking for your review", async
   await app.open("/pulls?project=ace");
   await screen.findByRole("navigation", { name: "Pull requests" });
   await userEvent.click(screen.getByRole("button", { name: "Reviewing" }));
-  await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["226", "229"]));
+  await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["229", "226"]));
 });
 
-test("the state menu counts each state and lists merged pull requests", async () => {
+test("the state choices count each state and Merged lists merged pull requests", async () => {
   const app = withRepository();
   await app.open("/pulls?project=ace");
   await screen.findByRole("navigation", { name: "Pull requests" });
-  await pick(/^State:/, /^Merged 1$/);
+  await userEvent.click(await screen.findByRole("button", { name: "Merged 1" }));
   await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["212"]));
 });
 
@@ -104,14 +99,16 @@ test("a row opens its pull request as a page, and Back returns to the list as it
   await app.open("/pulls?project=ace");
   await screen.findByRole("navigation", { name: "Pull requests" });
   await userEvent.click(screen.getByRole("button", { name: "Reviewing" }));
-  await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["226", "229"]));
+  await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["229", "226"]));
   const nav = screen.getByRole("navigation", { name: "Pull requests" });
   await userEvent.click(within(nav).getByRole("link", { name: /Reconnect the client worker/ }));
   expect(await screen.findByRole("article", { name: "Pull request #229" })).toBeTruthy();
   // The page takes the main column: the list is gone until Back.
   expect(screen.queryByRole("navigation", { name: "Pull requests" })).toBeNull();
+  // Once the PR has loaded: its placeholder's Back is replaced by the page's own.
+  await screen.findByRole("navigation", { name: "Merge gates" });
   await userEvent.click(await screen.findByRole("button", { name: "Back to pull requests" }));
-  await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["226", "229"]));
+  await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["229", "226"]));
   expect(screen.getByRole("button", { name: "Reviewing" }).getAttribute("aria-pressed")).toBe(
     "true",
   );
@@ -135,6 +132,8 @@ test("a link straight to a pull request opens its page, and Back opens its proje
   expect((await screen.findByRole("tab", { name: "Timeline" })).getAttribute("aria-selected")).toBe(
     "true",
   );
+  // Once the PR has loaded: its placeholder's Back is replaced by the page's own.
+  await screen.findByRole("navigation", { name: "Merge gates" });
   await userEvent.click(await screen.findByRole("button", { name: "Back to pull requests" }));
   await waitFor(async () => expect(await numbers("Pull requests")).toContain("229"));
 });
@@ -179,18 +178,50 @@ test("an issue closed on its page has left the open list when going back", async
   await waitFor(async () => expect(await numbers("Issues")).toEqual(["235", "238"]));
 });
 
-test("a new issue is created on GitHub and opens as its own page", async () => {
+test("creating an issue from the New issue page opens it, and Back returns to the list", async () => {
   const app = withRepository();
   await app.open("/issues?project=ace");
   await userEvent.click(await screen.findByRole("button", { name: "New issue" }));
-  const dialog = await screen.findByRole("dialog");
+  const form = await screen.findByRole("article", { name: "New issue" });
+  // The list gives way to the page, as an issue's own page does.
+  expect(screen.queryByRole("navigation", { name: "Issues" })).toBeNull();
+  await userEvent.type(within(form).getByRole("textbox", { name: "Title" }), "Keyboard focus lost");
   await userEvent.type(
-    within(dialog).getByRole("textbox", { name: "Title" }),
-    "Keyboard focus lost",
+    within(form).getByRole("textbox", { name: "Description" }),
+    "- after closing a dialog{Enter}in the sidebar",
   );
-  await userEvent.click(within(dialog).getByRole("button", { name: /Create issue/ }));
+  await userEvent.click(within(form).getByRole("button", { name: /Create issue/ }));
   const page = await screen.findByRole("article", { name: "Issue #241" });
   expect(await within(page).findByRole("heading", { name: /Keyboard focus lost/ })).toBeTruthy();
+  // Enter carried the list on, so the description reads as two items.
+  expect((await within(page).findByText("in the sidebar")).closest("li")).not.toBeNull();
   await userEvent.click(within(page).getByRole("button", { name: "Back to issues" }));
   await waitFor(async () => expect(await numbers("Issues")).toContain("241"));
+});
+
+test("a draft survives leaving the New issue page and coming back, and is gone once created", async () => {
+  const app = withRepository();
+  await app.open("/issues?project=ace");
+  await userEvent.click(await screen.findByRole("button", { name: "New issue" }));
+  let form = await screen.findByRole("article", { name: "New issue" });
+  await userEvent.type(within(form).getByRole("textbox", { name: "Title" }), "Half a thought");
+  await userEvent.type(within(form).getByRole("textbox", { name: "Description" }), "More later");
+  await userEvent.click(within(form).getByRole("button", { name: "Back to issues" }));
+  await userEvent.click(await screen.findByRole("button", { name: "New issue" }));
+  form = await screen.findByRole("article", { name: "New issue" });
+  expect(within(form).getByRole<HTMLInputElement>("textbox", { name: "Title" }).value).toBe(
+    "Half a thought",
+  );
+  expect(
+    within(form).getByRole<HTMLTextAreaElement>("textbox", { name: "Description" }).value,
+  ).toBe("More later");
+  await userEvent.click(within(form).getByRole("button", { name: /Create issue/ }));
+  const page = await screen.findByRole("article", { name: "Issue #241" });
+  await userEvent.click(within(page).getByRole("button", { name: "Back to issues" }));
+  await userEvent.click(await screen.findByRole("button", { name: "New issue" }));
+  form = await screen.findByRole("article", { name: "New issue" });
+  expect(within(form).getByRole<HTMLInputElement>("textbox", { name: "Title" }).value).toBe("");
+  expect(
+    within(form).getByRole<HTMLTextAreaElement>("textbox", { name: "Description" }).value,
+  ).toBe("");
 });

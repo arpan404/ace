@@ -30,6 +30,7 @@ import {
   ProvidersChanged,
 } from "./provider-login.ts";
 import { ActivityReadsChanged, ActivityReadsRequest, ActivityReadsResult } from "./activity.ts";
+import { VerifyChanged, VerifyRequest, VerifyResult } from "./pr-verify.ts";
 import { ProvidersRequest, ProvidersResult } from "./provider-status.ts";
 import {
   ProjectsRequest,
@@ -64,6 +65,7 @@ import {
   MachinesRequest,
   MachinesResult,
 } from "./machines.ts";
+import { FleetRequest, FleetResult } from "./fleet.ts";
 import { PreviewRequest, PreviewResult, PreviewSuggestions } from "./preview-client.ts";
 import { AutomationRequest, AutomationResponse } from "./automations.ts";
 import {
@@ -202,6 +204,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ThreadReadStateRequest,
   HostIdentityRequest,
   MachinesRequest,
+  FleetRequest,
   ProvidersRequest,
   ...ProviderLoginRequest.options,
   ...ProviderInstallRequest.options,
@@ -209,6 +212,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   PreviewRequest,
   ...AutomationRequest.options,
   ...ActivityReadsRequest.options,
+  VerifyRequest,
   QueueGet,
   PiControlRequest,
 
@@ -286,6 +290,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ThreadReadStateResponse,
   HostIdentityResult,
   MachinesResult,
+  FleetResult,
   ProvidersResult,
   ProviderLoginResult,
   ProviderLoginEvent,
@@ -298,6 +303,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   AutomationResponse,
   ActivityReadsResult,
   ActivityReadsChanged,
+  VerifyResult,
+  VerifyChanged,
   QueueResult,
   PiControlResult,
 

@@ -39,7 +39,7 @@ import {
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { openExternal } from "@/boot/open-external.ts";
+import { useOpenWebAddress } from "@/components/web-link.tsx";
 import type { PrWorkspaceExtensions } from "./pr-extensions.ts";
 import type { PrActions } from "./pr-actions.ts";
 import { lifecycleLabels } from "./pr-lifecycle.ts";
@@ -77,6 +77,7 @@ export function PrOverflowMenu(props: {
   const { detail } = context;
   const { status } = detail;
   const toast = useToast();
+  const openWeb = useOpenWebAddress();
   const navigate = useNavigate();
   const tasks = useProjectTasks(context.workspaceId);
   const [closing, setClosing] = useState(false);
@@ -104,7 +105,7 @@ export function PrOverflowMenu(props: {
         toast.error({ title: "Couldn't copy", description: "Clipboard access is blocked." }),
       );
   const openOnGitHub = (url: string) =>
-    void openExternal(url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
+    void openWeb(url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
   const lifecycleItem = (
     kind: "ready" | "draft" | "reopen" | "update.merge" | "update.rebase",
     glyph: typeof LinkIcon,

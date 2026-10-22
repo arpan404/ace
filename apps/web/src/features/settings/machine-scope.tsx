@@ -18,6 +18,8 @@ interface SettingsMachine {
   choose(id: string | undefined): void;
   /** The chosen machine is no longer paired, so nothing may stand in for it. */
   missing: boolean;
+  /** "All machines": pages read this window's machine and write to every connected one. */
+  all: boolean;
 }
 
 const ChosenMachine = createContext<SettingsMachine | undefined>(undefined);
@@ -30,11 +32,12 @@ const ChosenMachine = createContext<SettingsMachine | undefined>(undefined);
 export function SettingsMachineProvider(props: { children: ReactNode; initial?: string }) {
   const [id, choose] = useState<string | undefined>(props.initial);
   const machines = useMachines();
-  const machine = id === undefined ? machines[0] : machines.find((entry) => entry.id === id);
-  const missing = id !== undefined && !machine;
+  const all = id === allMachines;
+  const machine = id === undefined || all ? machines[0] : machines.find((entry) => entry.id === id);
+  const missing = id !== undefined && !all && !machine;
   const value = useMemo(
-    () => ({ machine, machines, choose, missing }),
-    [machine, machines, missing],
+    () => ({ machine, machines, choose, missing, all }),
+    [machine, machines, missing, all],
   );
   return <ChosenMachine value={value}>{props.children}</ChosenMachine>;
 }
@@ -53,7 +56,11 @@ const outsideSettings: SettingsMachine = {
   machines: [],
   choose: () => {},
   missing: false,
+  all: false,
 };
+
+/** The choice that makes Machine pages edit every connected machine at once. */
+export const allMachines = "all";
 
 /**
  * Each other machine gets its own query cache, so a cached read from one machine can never show
@@ -95,7 +102,7 @@ export function MachineScope(props: {
 /** Why a machine's settings can't show right now, in one line. */
 export function machineUnavailableText(machine: Machine): string {
   if (machine.status === "auth_failed")
-    return "This device's access was refused. Pair it again from Machines and devices.";
+    return "This device's access was refused. Pair it again from Settings › Fleet.";
   if (machine.status === "connecting") return "Connecting. Its settings appear once it answers.";
   return "Its settings appear when it's back online.";
 }

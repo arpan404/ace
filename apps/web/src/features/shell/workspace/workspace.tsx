@@ -21,6 +21,7 @@ import { bottomBounds, panelFloats, panelBounds } from "./bounds.ts";
 import { PanelControls } from "./panel-controls.tsx";
 import { useElementSize } from "@/lib/element-size.ts";
 import { WorkspaceHotkeys } from "./workspace-hotkeys.tsx";
+import { WorkspaceWebLinks } from "./web-link-opener.tsx";
 
 // The panel (strip, tabs, menus, views) loads the first time it shows, warmed while idle after
 // the screen's first paint: the thread route stays within its budget (ADR 0056).
@@ -210,87 +211,93 @@ export function Workspace(props: {
     </>
   );
   return (
-    <div ref={outer} data-workspace className="relative flex min-h-0 flex-1 flex-col">
-      <WorkspaceHotkeys
-        workspace={workspace}
-        definition={definition}
-        actions={actions}
-        root={() => outer.current}
-      />
-      <KindOverlays scope={scope} definition={definition} />
-      {(shown || bottomShown) && (
-        <LocalBoundary label="the close confirmation" fallback={null}>
-          <Suspense fallback={null}>
-            <CloseConfirm.Component />
-          </Suspense>
-        </LocalBoundary>
-      )}
-      <div
-        className={
-          bottom && !expanded
-            ? "relative flex min-h-0 flex-1 flex-col"
-            : "relative flex min-h-0 flex-1"
-        }
-      >
-        {/* In full view the column steps aside but stays mounted: the transcript keeps its place. */}
-        <div
-          hidden={expanded}
-          className="@container/work-body relative flex min-h-0 min-w-0 flex-1 flex-col"
-        >
-          {props.header(inline ? undefined : controls("header"))}
-          {props.notice}
-          {props.contextPanel ? (
-            <div className="flex min-h-0 flex-1 flex-col @min-[832px]/work-body:flex-row">
-              <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">{props.children}</div>
-              <Activity mode={workspace.open ? "hidden" : "visible"}>{props.contextPanel}</Activity>
-            </div>
-          ) : (
-            props.children
-          )}
-          {/* Under the conversation only: the side panel keeps the window's full height. */}
-          {bottomFits && bottomShown && (
+    <WorkspaceWebLinks scope={scope} definition={definition}>
+      <div ref={outer} data-workspace className="relative flex min-h-0 flex-1 flex-col">
+        <WorkspaceHotkeys
+          workspace={workspace}
+          definition={definition}
+          actions={actions}
+          root={() => outer.current}
+        />
+        <KindOverlays scope={scope} definition={definition} />
+        {(shown || bottomShown) && (
+          <LocalBoundary label="the close confirmation" fallback={null}>
             <Suspense fallback={null}>
-              <WhenKindsReady definition={definition}>
-                <BottomPanel.Component
+              <CloseConfirm.Component />
+            </Suspense>
+          </LocalBoundary>
+        )}
+        <div
+          className={
+            bottom && !expanded
+              ? "relative flex min-h-0 flex-1 flex-col"
+              : "relative flex min-h-0 flex-1"
+          }
+        >
+          {/* In full view the column steps aside but stays mounted: the transcript keeps its place. */}
+          <div
+            hidden={expanded}
+            className="@container/work-body relative flex min-h-0 min-w-0 flex-1 flex-col"
+          >
+            {props.header(inline ? undefined : controls("header"))}
+            {props.notice}
+            {props.contextPanel ? (
+              <div className="flex min-h-0 flex-1 flex-col @min-[832px]/work-body:flex-row">
+                <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+                  {props.children}
+                </div>
+                <Activity mode={workspace.open ? "hidden" : "visible"}>
+                  {props.contextPanel}
+                </Activity>
+              </div>
+            ) : (
+              props.children
+            )}
+            {/* Under the conversation only: the side panel keeps the window's full height. */}
+            {bottomFits && bottomShown && (
+              <Suspense fallback={null}>
+                <WhenKindsReady definition={definition}>
+                  <BottomPanel.Component
+                    scope={scope}
+                    definition={definition}
+                    bounds={bottomBounds(size.height)}
+                  />
+                </WhenKindsReady>
+              </Suspense>
+            )}
+          </div>
+          {shown && (
+            <Suspense fallback={null}>
+              <WhenKindsReady definition={definition} visible={workspace.open}>
+                <WorkspacePanel.Component
                   scope={scope}
                   definition={definition}
-                  bounds={bottomBounds(size.height)}
+                  workspace={workspace}
+                  actions={actions}
+                  layout={{
+                    overlay: overlay && !expanded,
+                    sheet,
+                    dock: bottom ? "bottom" : "side",
+                    bounds: bottom
+                      ? { min: 180, max: Math.max(180, size.height * 0.75) }
+                      : panelBounds(size.width, overlay),
+                    size: bottom ? (workspace.bottomSize ?? 360) : (workspace.size ?? preferred),
+                  }}
+                  leading={leading}
+                  controls={controls("panel")}
+                  notice={expanded ? props.notice : undefined}
+                  context={props.title}
+                  restoreFocus={() =>
+                    outer.current?.querySelector<HTMLElement>(
+                      'header button[aria-label="More actions"]',
+                    ) ?? null
+                  }
                 />
               </WhenKindsReady>
             </Suspense>
           )}
         </div>
-        {shown && (
-          <Suspense fallback={null}>
-            <WhenKindsReady definition={definition} visible={workspace.open}>
-              <WorkspacePanel.Component
-                scope={scope}
-                definition={definition}
-                workspace={workspace}
-                actions={actions}
-                layout={{
-                  overlay: overlay && !expanded,
-                  sheet,
-                  dock: bottom ? "bottom" : "side",
-                  bounds: bottom
-                    ? { min: 180, max: Math.max(180, size.height * 0.75) }
-                    : panelBounds(size.width, overlay),
-                  size: bottom ? (workspace.bottomSize ?? 360) : (workspace.size ?? preferred),
-                }}
-                leading={leading}
-                controls={controls("panel")}
-                notice={expanded ? props.notice : undefined}
-                context={props.title}
-                restoreFocus={() =>
-                  outer.current?.querySelector<HTMLElement>(
-                    'header button[aria-label="More actions"]',
-                  ) ?? null
-                }
-              />
-            </WhenKindsReady>
-          </Suspense>
-        )}
       </div>
-    </div>
+    </WorkspaceWebLinks>
   );
 }

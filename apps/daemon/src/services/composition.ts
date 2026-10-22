@@ -9,6 +9,7 @@ import { startCursorAuth } from "./cursor-auth.ts";
 import { startPreviewClient } from "./preview-client.ts";
 import { startAutomations } from "./automations.ts";
 import { startActivityReads } from "./activity-reads.ts";
+import { startVerify } from "./verify.ts";
 import { startIcons } from "./icons.ts";
 import { startWorkspaceActions } from "./workspace-actions.ts";
 import { startThreadOrganization } from "./thread-organization.ts";
@@ -80,6 +81,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     requires: [],
     after: ["files", "sourceControl"],
     start: startWorkspaceActions,
+  },
+  {
+    name: "verify",
+    phase: "core",
+    requires: ["workspaceActions"],
+    after: ["workspaceActions"],
+    start: startVerify,
   },
   {
     name: "projects",

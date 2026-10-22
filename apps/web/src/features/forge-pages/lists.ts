@@ -5,12 +5,16 @@ import type {
   ForgeIssueList,
   ForgeIssueSearch,
   ForgePrList,
+  ForgePrRow,
   ForgePrSearch,
+  ForgeIssueRow,
+  ForgeRepository,
 } from "@ace/protocol";
 import { useClient, useConnectionState } from "@ace/client-react";
-import { keepPreviousData, useQueries } from "@tanstack/react-query";
+import { keepPreviousData, useQueries, type QueryClient } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "@/lib/forge-read.ts";
+import { repositoryParam } from "@/lib/pull-request-route.ts";
 
 /** A list read again after half a minute; the last answer stays on screen while a new one reads. */
 const listed = { staleTime: 30_000, gcTime: 10 * 60_000, retry: false } as const;
@@ -135,24 +139,61 @@ export function useGroupCounts(project: string | undefined, grouping: ForgeGroup
   });
 }
 
-export const issueDetailKey = (project: string, number: number) =>
-  ["forge", project, "browse", "issueDetail", number] as const;
+export const issueDetailKey = (project: string, number: number, repo = "") =>
+  ["forge", project, "browse", "issueDetail", number, repo] as const;
 
-/** One issue: its body, labels, people, permissions and the threads linked to it. */
-export function useIssueDetail(project: string, number: number) {
+/**
+ * One issue: its body, labels, people, permissions and the threads linked to it. `repository`
+ * names a repository other than the project's own.
+ */
+export function useIssueDetail(project: string, number: number, repository?: ForgeRepository) {
   return useDaemonQuery<ForgeIssueDetail>({
-    queryKey: issueDetailKey(project, number),
+    queryKey: issueDetailKey(project, number, repository ? repositoryParam(repository) : ""),
     staleTime: 15_000,
     gcTime: 10 * 60_000,
     retry: false,
     read: async (client, signal) => {
       const value = await readForge(
         client,
-        { op: "forge.issue.detail", workspaceId: project, number },
+        {
+          op: "forge.issue.detail",
+          workspaceId: project,
+          number,
+          ...(repository ? { repository } : {}),
+        },
         signal,
       );
       if (value.resource !== "issueDetail") throw new Error("No issue.");
       return value.value;
     },
   });
+}
+
+const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
+/**
+ * A row a list already read for this pull request or issue, if any: its page shows what the row
+ * says (title, state, author) at once while the rest loads.
+ */
+export function cachedRow<K extends "prList" | "issueList">(
+  cache: QueryClient,
+  project: string,
+  kind: K,
+  number: number,
+  repository?: { owner: string; name: string },
+): (K extends "prList" ? ForgePrRow : ForgeIssueRow) | undefined {
+  type Row = K extends "prList" ? ForgePrRow : ForgeIssueRow;
+  for (const [, data] of cache.getQueriesData<{ items: Row[] }>({
+    queryKey: ["forge", project, "browse", kind],
+  })) {
+    const row = data?.items.find(
+      (item) =>
+        item.ref.number === number &&
+        (!repository ||
+          (same(item.ref.repository.owner, repository.owner) &&
+            same(item.ref.repository.name, repository.name))),
+    );
+    if (row) return row;
+  }
+  return undefined;
 }

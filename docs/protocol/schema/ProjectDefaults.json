@@ -13,6 +13,11 @@
     "browserProfileScope": {
       "$ref": "https://ace.local/protocol/v1/BrowserProfileScope.json"
     },
+    "checkCommand": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    },
     "model": {
       "maxLength": 256,
       "minLength": 1,

@@ -246,6 +246,15 @@ export class DaemonRuntime {
     return this.supervisor.drain(deadlineMs, 1_000, waiting);
   }
 
+  /**
+   * Threads still at work in the daemon this app started: the ones an update's restart stops.
+   * Any other daemon keeps running through the restart, so it counts none.
+   */
+  async busyForUpdate(): Promise<number> {
+    if (!this.supervisor || this.target.kind !== "managed") return 0;
+    return this.supervisor.busy();
+  }
+
   /** Stop only a daemon this app started. */
   async stop(): Promise<void> {
     await this.supervisor?.stop();
