@@ -117,27 +117,16 @@ test("saving a setting puts the kept settings out of date, so the next read show
   });
 });
 
-test("a refused answer is shown once and never kept", async () => {
-  const { client, daemon } = sheetFixture();
-  close = () => client.close();
-  await client.start();
-  await until(() => client.state === "ready", "connected");
-  daemon.refuseRequests("unavailable", "usage.limits");
-  const sink = new RecordingSink();
-  const reads = new NativeReads(client, sink, { now: () => 0, schedule: noSchedule });
-  const services = new NativeServices(
-    client,
-    sink,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    reads,
-  );
-  services.handle({ type: "service", id: "limits", request: { type: "usage.limits" }, cache: "l" });
-  await until(() => sink.read("service:limits") !== undefined, "answered");
-  expect(sink.read("service:limits")).not.toHaveProperty("cache");
-  expect(reads.fresh({ key: "l", family: "usage" })).toBeUndefined();
+test("a refused answer is shown once and never kept", () => {
+  const reads = new NativeReads(fakeOwner().owner, new RecordingSink(), {
+    now: () => 0,
+    schedule: noSchedule,
+  });
+  const read = reads.key(projectsRead, "projects");
+  if (!read) throw new Error("expected a kept read");
+  expect(reads.answered(read, { result: { kind: "error", code: "forbidden" } })).toBe(false);
+  expect(reads.answered(read, { ok: false, error: "automation_unavailable" })).toBe(false);
+  expect(reads.fresh(read)).toBeUndefined();
 });
 
 test("a daemon change event moves only its families' generations and puts their reads out of date", () => {

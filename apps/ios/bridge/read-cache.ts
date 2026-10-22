@@ -46,6 +46,11 @@ export class ReadCache {
     return entry.value;
   }
 
+  /** The kept answer however old, for drawing while it is read again. */
+  latest(key: string): unknown {
+    return this.#entries.get(key)?.value;
+  }
+
   put(key: string, family: ReadFamily, value: unknown): void {
     this.#entries.delete(key);
     this.#entries.set(key, { key, family, value, at: this.#now(), stale: false });

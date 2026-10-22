@@ -1,6 +1,8 @@
 import type { ConnectionState, Selection } from "@ace/client";
 import type { ServerMessage } from "@ace/protocol";
+import { z } from "zod";
 import type { PatchSink } from "./agents.ts";
+import type { NewThreadMemory } from "./new-thread.ts";
 import { ReadCache, ReadKeeper, type KeptRead, type ReadStorage } from "./read-cache.ts";
 import {
   eventFamilies,
@@ -33,7 +35,11 @@ export interface ReadKey {
   family: ReadFamily;
 }
 
-export class NativeReads {
+/** Answers the bridge keeps for itself, never handed to Swift's copy. */
+const ownPrefix = "bridge:";
+const Patch = z.record(z.string(), z.unknown());
+
+export class NativeReads implements NewThreadMemory {
   readonly #cache: ReadCache;
   readonly #keeper: ReadKeeper | undefined;
   readonly #sink: PatchSink;
@@ -63,7 +69,7 @@ export class NativeReads {
   /** Give Swift the answers an earlier run kept, before any screen asks. */
   async restore(): Promise<void> {
     const restored = (await this.#keeper?.restore()) ?? [];
-    for (const read of restored) this.#send(read);
+    for (const read of restored) if (!read.key.startsWith(ownPrefix)) this.#send(read);
   }
 
   /** The request's kept-read name, when Swift named it and its answer is kept. */
@@ -88,6 +94,15 @@ export class NativeReads {
   /** A request that changes daemon data succeeded: what it touched is read again. */
   wrote(request: unknown): void {
     if (this.#cache.invalidate(writeFamilies(request))) this.#publish();
+  }
+
+  /** New thread's last lists (`new-thread.ts`), kept beside Swift's reads. */
+  recall(key: string): Record<string, unknown> | undefined {
+    return Patch.safeParse(this.#cache.latest(ownPrefix + key)).data;
+  }
+  keep(key: string, family: ReadFamily, patch: Record<string, unknown>): void {
+    this.#cache.put(ownPrefix + key, family, patch);
+    this.#keeper?.changed();
   }
 
   dispose(): void {

@@ -157,7 +157,18 @@ async function start(json: string): Promise<void> {
   followMachine(client, pump, trust);
   machine = new MachineProviders(client, pump);
   archive = new ArchiveBrowser(client, pump);
-  compose = new ComposeActions(client, pump, preview, () => host.now());
+  const reads = new NativeReads(client, pump, {
+    now: () => host.now(),
+    schedule: scheduler.set,
+    storage: {
+      load: () => call("storage.reads.load"),
+      save: async (text) => {
+        await call("storage.reads.save", text);
+      },
+    },
+  });
+  void reads.restore();
+  compose = new ComposeActions(client, pump, preview, () => host.now(), nativeChunks, reads);
   const featureConfig = {
     deviceId: config.deviceId,
     hostId: config.hostId,
@@ -184,17 +195,6 @@ async function start(json: string): Promise<void> {
     search.complete(workspaceId, query, limit),
   );
   followFileChanges(client, pump);
-  const reads = new NativeReads(client, pump, {
-    now: () => host.now(),
-    schedule: scheduler.set,
-    storage: {
-      load: () => call("storage.reads.load"),
-      save: async (text) => {
-        await call("storage.reads.save", text);
-      },
-    },
-  });
-  void reads.restore();
   services = new NativeServices(
     client,
     pump,
