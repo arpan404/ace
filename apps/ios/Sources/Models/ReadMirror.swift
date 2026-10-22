@@ -1,0 +1,43 @@
+import Foundation
+import Observation
+
+/// Swift's copy of the daemon reads the bridge keeps (`bridge/native-reads.ts`), so a screen
+/// draws its last answer in its first frame while the bridge asks the daemon again. Each
+/// family's generation moves when its answers go out of date (a daemon change, a write, a
+/// reconnect); a screen showing one reads it again. The bridge decides what is kept and when it
+/// is out of date; this only holds what it sent.
+@MainActor @Observable final class ReadMirror {
+    struct Kept { let family: String; let value: ServiceValue; let revision: Int }
+    private(set) var values: [String: Kept] = [:]
+    private(set) var generations: [String: Int] = [:]
+    @ObservationIgnored private var decoded: [String: (revision: Int, value: Any)] = [:]
+    @ObservationIgnored private var revision = 0
+
+    func store(key: String, family: String, value: ServiceValue) {
+        revision += 1
+        values[key] = Kept(family: family, value: value, revision: revision)
+    }
+    func update(generations: [String: Int]) { if self.generations != generations { self.generations = generations } }
+    func reset() { values = [:]; generations = [:]; decoded = [:] }
+
+    /// The kept answer as a screen reads it; decoded once per answer.
+    func value<T: Decodable>(_ key: String, as type: T.Type) -> T? {
+        guard let kept = values[key] else { return nil }
+        if let memo = decoded[key], memo.revision == kept.revision, let value = memo.value as? T { return value }
+        guard let value = try? kept.value.decode(type) else { return nil }
+        decoded[key] = (kept.revision, value)
+        return value
+    }
+    /// Moves when the kept answer for `key` goes out of date.
+    func generation(_ key: String) -> Int { values[key].map { generations[$0.family] ?? 0 } ?? 0 }
+
+    /// A request's name in the bridge's cache: its JSON with sorted keys. Pull to refresh
+    /// (`fresh`) asks for the same answer, so it names the same read.
+    static func key(_ payload: [String: Any]) -> String? {
+        var named = payload
+        named["fresh"] = nil
+        guard JSONSerialization.isValidJSONObject(named),
+              let data = try? JSONSerialization.data(withJSONObject: named, options: [.sortedKeys, .withoutEscapingSlashes]) else { return nil }
+        return String(decoding: data, as: UTF8.self)
+    }
+}

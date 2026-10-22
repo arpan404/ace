@@ -21,6 +21,7 @@ import { ComposeActions } from "./compose-actions.ts";
 import { CheckoutFiles } from "./checkout-files.ts";
 import { followFileChanges } from "./checkout-request.ts";
 import { NativeServices, NativeServiceAction } from "./native-services.ts";
+import { NativeReads } from "./native-reads.ts";
 import { ForgeService } from "./forge-service.ts";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { BrowserLive } from "./browser-live.ts";
@@ -183,6 +184,17 @@ async function start(json: string): Promise<void> {
     search.complete(workspaceId, query, limit),
   );
   followFileChanges(client, pump);
+  const reads = new NativeReads(client, pump, {
+    now: () => host.now(),
+    schedule: scheduler.set,
+    storage: {
+      load: () => call("storage.reads.load"),
+      save: async (text) => {
+        await call("storage.reads.save", text);
+      },
+    },
+  });
+  void reads.restore();
   services = new NativeServices(
     client,
     pump,
@@ -190,6 +202,7 @@ async function start(json: string): Promise<void> {
     screen,
     files,
     new ForgeService(client, preview, () => host.now()),
+    reads,
   );
   terminal = new NativeTerminal(client, pump);
   browser = new BrowserLive(client, pump, preview, scheduler.set, {
