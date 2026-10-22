@@ -6,8 +6,9 @@
  * `ACE_SCREEN_HELPER` to the helper it built.
  */
 import { execFile } from "node:child_process";
+import { stat } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CallResult, EvalAgent } from "./evals/agent.ts";
@@ -18,6 +19,28 @@ const helper = process.env.ACE_SCREEN_HELPER;
 const enabled = process.platform === "linux" && !!session && !!helper;
 const graphical = session === "x11" || session === "wayland";
 const exec = promisify(execFile);
+
+/** The desktop's own apps: GNOME's by default, KDE Plasma's when the runner made a KDE session. */
+const kde = (process.env.XDG_CURRENT_DESKTOP ?? "").split(":").includes("KDE");
+const desktop = kde
+  ? {
+      calculator: "org.kde.kcalc",
+      editor: "org.kde.kwrite",
+      keys: ["Seven", "Add", "Eight", "Equals"],
+      terminals: ["konsole", "org.kde.konsole"],
+      terminal: /konsole/i,
+    }
+  : {
+      calculator: "org.gnome.Calculator",
+      editor: "org.gnome.TextEditor",
+      keys: ["7", "+", "8", "="],
+      terminals: ["xterm", "debian-xterm"],
+      terminal: /xterm/i,
+    };
+const portalDialog = new URL(
+  "../../../native/screen-helper-linux/tests/computer/portal_dialog.py",
+  import.meta.url,
+).pathname;
 
 const worlds: EvalWorld[] = [];
 const servers: Server[] = [];
@@ -124,7 +147,7 @@ describe.skipIf(!enabled)(`Linux desktop end to end (${session ?? "off"})`, () =
       expect(model.has("screen_state")).toBe(true);
       for (const [tool, args] of [
         ["screen_apps", {}],
-        ["screen_state", { app: "org.gnome.Calculator" }],
+        ["screen_state", { app: desktop.calculator }],
       ] as const) {
         const result = await model.call(tool, args);
         expect(result.failed, tool).toBe(true);
@@ -138,9 +161,11 @@ describe.skipIf(!enabled)(`Linux desktop end to end (${session ?? "off"})`, () =
     async () => {
       const { agent: model } = await agent({ browser: false });
       const apps = words(ok(await model.call("screen_apps", {}), "screen_apps"));
-      expect(apps).toContain("org.gnome.Calculator");
-      expect(apps).toContain("org.gnome.TextEditor");
-      expect(apps).not.toMatch(/xterm/i);
+      expect(apps).toContain(desktop.calculator);
+      expect(apps).toContain(desktop.editor);
+      expect(apps).not.toMatch(desktop.terminal);
+      // The desktop's own shell, launcher and services are never offered as apps.
+      expect(apps).not.toMatch(/plasmashell|krunner|kded|kwin|gnome-shell|portal/i);
     },
   );
 
@@ -149,7 +174,7 @@ describe.skipIf(!enabled)(`Linux desktop end to end (${session ?? "off"})`, () =
     async () => {
       const { agent: model } = await agent({ browser: false });
       const look = ok(
-        await model.call("screen_state", { app: "org.gnome.TextEditor", screenshot: true }),
+        await model.call("screen_state", { app: desktop.editor, screenshot: true }),
         "screen_state",
       );
       const outline = words(look);
@@ -165,14 +190,14 @@ describe.skipIf(!enabled)(`Linux desktop end to end (${session ?? "off"})`, () =
       const typed = "typed by ace in the background";
       ok(
         await model.call("screen_act", {
-          app: "org.gnome.TextEditor",
+          app: desktop.editor,
           actions: [{ type: "type", id: area, text: typed }],
           observe: false,
         }),
         "screen_act",
       );
       const after = words(
-        ok(await model.call("screen_state", { app: "org.gnome.TextEditor" }), "screen_state"),
+        ok(await model.call("screen_state", { app: desktop.editor }), "screen_state"),
       );
       expect(after).toContain("Changes since your last look");
       expect(after).toContain(typed);
@@ -182,12 +207,12 @@ describe.skipIf(!enabled)(`Linux desktop end to end (${session ?? "off"})`, () =
   it.skipIf(!graphical)("an agent presses 7 + 8 = in Calculator by ids and reads 15", async () => {
     const { agent: model } = await agent({ browser: false });
     const outline = words(
-      ok(await model.call("screen_state", { app: "org.gnome.Calculator" }), "screen_state"),
+      ok(await model.call("screen_state", { app: desktop.calculator }), "screen_state"),
     );
-    const keys = ["7", "+", "8", "="].map((key) => elementId(outline, "button", key));
+    const keys = desktop.keys.map((key) => elementId(outline, "button", key));
     const acted = ok(
       await model.call("screen_act", {
-        app: "org.gnome.Calculator",
+        app: desktop.calculator,
         actions: [
           ...keys.map((id) => ({ type: "click", id })),
           { type: "wait_for", text: "15", timeout_ms: 5_000 },
@@ -200,7 +225,7 @@ describe.skipIf(!enabled)(`Linux desktop end to end (${session ?? "off"})`, () =
 
   it.skipIf(!graphical)("a terminal is refused before any look or action reaches it", async () => {
     const { agent: model } = await agent({ browser: false });
-    for (const app of ["xterm", "debian-xterm"]) {
+    for (const app of desktop.terminals) {
       const refused = await model.call("screen_act", {
         app,
         actions: [{ type: "type", text: "touch /tmp/ace-e2e-terminal" }],
@@ -214,14 +239,43 @@ describe.skipIf(!enabled)(`Linux desktop end to end (${session ?? "off"})`, () =
     "a raw key for a window in the background is refused with what to do instead",
     async () => {
       const { agent: model } = await agent({ browser: false });
-      ok(await model.call("screen_state", { app: "org.gnome.Calculator" }), "screen_state");
+      ok(await model.call("screen_state", { app: desktop.calculator }), "screen_state");
       const refused = await model.call("screen_act", {
-        app: "org.gnome.Calculator",
+        app: desktop.calculator,
         actions: [{ type: "key", key: "Escape" }],
       });
       expect(refused.failed).toBe(true);
       // X11 sends raw input to the front window only; Wayland gives ace no raw input at all.
       expect(refused.text).toMatch(session === "x11" ? /activate/ : /not supported|Wayland/i);
+    },
+  );
+
+  it.skipIf(!kde || session !== "wayland")(
+    "on KDE Wayland the person picks the window in KDE's chooser once, and later looks come with a picture",
+    async () => {
+      const { world, agent: model } = await agent({ browser: false });
+      const first = ok(
+        await model.call("screen_state", { app: desktop.calculator, screenshot: true }),
+        "screen_state",
+      );
+      expect(first.images).toBe(0);
+      expect(words(first)).toMatch(/approve screen sharing for KCalc/);
+      // The person picks KCalc in the chooser, leaving "Allow restoring" ticked (test-only:
+      // answered through the dialog's accessibility tree, as a click would).
+      await exec("python3", [portalDialog, "approve", "KCalc"]);
+      const second = ok(
+        await model.call("screen_state", { app: desktop.calculator, screenshot: true }),
+        "screen_state",
+      );
+      expect(second.images, words(second)).toBe(1);
+      // The approval is kept in ace's data directory, so a restarted helper restores it.
+      const token = join(
+        dirname(world.daemon.tokenPath),
+        "screen",
+        "portal",
+        "computer-org.kde.kcalc.token",
+      );
+      expect((await stat(token)).mode & 0o777).toBe(0o600);
     },
   );
 });
