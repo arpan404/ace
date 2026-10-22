@@ -72,9 +72,13 @@ export async function providerAccounts(
       }
       progress = result.result.progress;
     } else if (request.type === "provider.accounts.remove") {
-      // These providers expose reviewed unattended logout. A failed logout retains metadata/home.
-      // Unavailable folders cannot be signed out. Forget their registration without touching them.
-      if (!homeUnavailable && ["codex", "claude", "cursor"].includes(request.provider)) {
+      // These providers expose reviewed unattended logout (Antigravity's through its ACP server).
+      // A failed logout retains metadata/home. Unavailable folders cannot be signed out. Forget
+      // their registration without touching them.
+      if (
+        !homeUnavailable &&
+        ["codex", "claude", "cursor", "antigravity"].includes(request.provider)
+      ) {
         const result = await login.handle(owner, {
           type: "provider.logout",
           requestId: request.requestId,

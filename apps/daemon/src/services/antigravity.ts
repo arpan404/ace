@@ -5,6 +5,11 @@ import { discoverAntigravity } from "@ace/provider-kit/discovery";
 import { checkCli } from "@ace/provider-kit/cli-requirements";
 import type { AdapterRegistry } from "../engine/index.ts";
 import type { ServiceContext } from "./types.ts";
+import {
+  registerAntigravityAccountCatalogs,
+  withAntigravityAccounts,
+  type AntigravityLaunch,
+} from "./antigravity-accounts.ts";
 
 export async function antigravityDiscovery(context: ServiceContext, signal?: AbortSignal) {
   const command = context.services.providerConfigurations?.for("antigravity").binaryPath;
@@ -74,28 +79,52 @@ export async function registerAntigravity(
   if (!cli.installed || !cli.path) return;
   const installation = "installation" in cli ? cli.installation : undefined;
   const agents = context.services.agentRegistry;
+  const accounts = context.services.accountRegistry;
   registry.register(
-    createAcpAdapter(antigravityQuirks, {
-      command: cli.path,
-      signInMethod: () => signInMethod(context).signInMethod,
-      ...(installation && agents
-        ? { resolveLaunch: (session) => agents.resolve(installation.metadata, session.env) }
-        : {}),
-    }),
+    withAntigravityAccounts(
+      createAcpAdapter(antigravityQuirks, {
+        command: cli.path,
+        // An added account uses only the method it signed in with; the CLI login, its own.
+        signInMethod: (session) =>
+          session.instanceId && session.instanceId !== antigravityIdentity.instanceId
+            ? accounts?.acpSignInMethod(session.instanceId)
+            : signInMethod(context).signInMethod,
+        ...(installation && agents
+          ? { resolveLaunch: (session) => agents.resolve(installation.metadata, session.env) }
+          : {}),
+      }),
+      accounts,
+    ),
     cli,
   );
+  const launch = antigravityLaunch(cli, cli.path);
   context.services.models?.registerInstance({
     id: "antigravity-cli-default",
     provider: "antigravity",
     label: "Antigravity",
-    executable: cli.path,
+    executable: launch.executable,
     cwd: context.config.dataDir,
+    args: [...launch.args],
+    env: launch.env,
+    loginRevision: launch.loginRevision,
+    ...signInMethod(context),
+  });
+  registerAntigravityAccountCatalogs(context, launch);
+  await registerAntigravityAccount(context);
+}
+
+/** How the installed Antigravity starts, for its catalogs: every account runs the same one. */
+export function antigravityLaunch(
+  cli: Awaited<ReturnType<typeof antigravityDiscovery>>,
+  executable: string,
+): AntigravityLaunch {
+  const installation = "installation" in cli ? cli.installation : undefined;
+  return {
+    executable,
     args: installation?.args ?? [],
     env: installation?.env ?? {},
     loginRevision: installation?.metadata.installationId ?? cli.version ?? "0",
-    ...signInMethod(context),
-  });
-  await registerAntigravityAccount(context);
+  };
 }
 
 /** The CLI login's account row, where `agy /usage` puts its limits. Never blocks the provider. */
