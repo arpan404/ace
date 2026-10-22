@@ -38,12 +38,16 @@ pub struct Accessibility {
 impl Accessibility {
     pub async fn connect() -> Result<Self> {
         let session = Connection::session().await.map_err(internal)?;
+        // As a screen reader does: Qt apps (all of KDE) expose nothing until this is on.
+        let was_enabled = crate::a11y_status::enable(&session).await;
         let bus = Proxy::new(&session, "org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus")
             .await
             .map_err(internal)?;
         let address: String = bus.call("GetAddress", &()).await.map_err(internal)?;
+        // A hung or busy app costs one bounded call, never the whole command.
         let conn = zbus::connection::Builder::address(address.as_str())
             .map_err(internal)?
+            .method_timeout(std::time::Duration::from_millis(1200))
             .build()
             .await
             .map_err(internal)?;
@@ -51,6 +55,14 @@ impl Accessibility {
         let registry = Proxy::new(&result.conn, "org.a11y.atspi.Registry", "/org/a11y/atspi/registry", "org.a11y.atspi.Registry").await.map_err(internal)?;
         for event in ["object:children-changed", "object:state-changed:defunct"] {
             registry.call::<_, _, ()>("RegisterEvent", &(event,)).await.map_err(internal)?;
+        }
+        if !was_enabled {
+            let root = Proxy::new(&result.conn, "org.a11y.atspi.Registry", "/org/a11y/atspi/accessible/root", "org.a11y.atspi.Accessible").await.map_err(internal)?;
+            crate::a11y_status::await_registrations(|| async {
+                // Read fresh each poll: the proxy would otherwise answer from its cache.
+                root.call::<_, _, Vec<(String, OwnedObjectPath)>>("GetChildren", &()).await.map(|apps| apps.len()).unwrap_or(0)
+            })
+            .await;
         }
         Ok(result)
     }
@@ -132,14 +144,20 @@ impl Accessibility {
         object: &Object,
         interface: &str,
     ) -> Result<Proxy<'static>> {
-        Proxy::new_owned(
-            self.conn.clone(),
-            object.0.clone(),
-            object.1.clone(),
-            format!("org.a11y.atspi.{interface}"),
-        )
-        .await
-        .map_err(|e| Fault::new("target_gone", e.to_string()))
+        let target = |e: zbus::Error| Fault::new("target_gone", e.to_string());
+        // Properties are read fresh: Qt's AT-SPI bridge (all of KDE) answers GetAll with an
+        // empty body, which a property cache would take for an error on every read.
+        zbus::proxy::Builder::new(&self.conn)
+            .destination(object.0.clone())
+            .map_err(target)?
+            .path(object.1.clone())
+            .map_err(target)?
+            .interface(format!("org.a11y.atspi.{interface}"))
+            .map_err(target)?
+            .cache_properties(zbus::proxy::CacheProperties::No)
+            .build()
+            .await
+            .map_err(target)
     }
     pub async fn scope(&mut self, pid: u32, bounds: &Bounds) -> Result<()> {
         self.clear();
