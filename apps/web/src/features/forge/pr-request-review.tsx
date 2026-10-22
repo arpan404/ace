@@ -111,8 +111,8 @@ export function RequestReviewDialog(props: { actions: PrActions; open: boolean; 
                 reviewers: request.reviewers,
                 ...(request.teams.length ? { teams: request.teams } : {}),
               })
+              // The PR then asks new people, and the PR view reads its reviewers again.
               .then((ok) => {
-                void reviewers.refetch({ cancelRefetch: false });
                 if (ok) setText("");
               });
           }}

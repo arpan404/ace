@@ -5,24 +5,18 @@ import type {
   CompletionReference,
   MarkdownCompletions,
 } from "./completion-source.ts";
-import { completionAt, completionChange, type CompletionMatch } from "./completions.ts";
+import {
+  completionAt,
+  completionChange,
+  referenceMatches,
+  type CompletionMatch,
+} from "./completions.ts";
 import { useSearch } from "./use-search.ts";
 
 /** One suggestion: what it inserts and what it shows. */
 export type CompletionItem =
   | { id: string; insert: string; kind: "person"; person: CompletionPerson }
   | { id: string; insert: string; kind: "reference"; reference: CompletionReference };
-
-/** A reference row whose title holds every word of `query`. */
-function titleHas(item: CompletionItem, query: string): boolean {
-  if (item.kind !== "reference") return true;
-  const title = item.reference.title.toLowerCase();
-  return query
-    .toLowerCase()
-    .split(" ")
-    .filter(Boolean)
-    .every((word) => title.includes(word));
-}
 
 function items(
   match: CompletionMatch,
@@ -91,11 +85,16 @@ export function useCompletions(
       : items(match, [], (await source?.references?.(match.query, signal)) ?? []);
   });
   // While the next search is on its way, the same word's earlier matches stay up rather than
-  // flicker; a title phrase keeps only the rows whose title holds every word typed so far, so
+  // flicker, narrowed to what is typed now: every word typed must start a word of the title, so
   // ordinary prose after a `#` closes the list.
   const kept = word && found?.key.startsWith(word) ? (found.value ?? []) : [];
   const phrase = match?.kind === "reference" && match.query.includes(" ");
-  const list = phrase && match ? kept.filter((item) => titleHas(item, match.query)) : kept;
+  const list =
+    match?.kind === "reference"
+      ? kept.filter(
+          (item) => item.kind !== "reference" || referenceMatches(item.reference, match.query),
+        )
+      : kept;
   const open = list.length > 0;
   const answer = found?.key ?? "";
   const current = highlight.answer === answer;

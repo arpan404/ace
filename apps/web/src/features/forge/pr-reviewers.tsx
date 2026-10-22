@@ -184,8 +184,11 @@ export function PrReviewers(props: {
   rows: readonly ReviewerRow[];
   value: ForgePrReviewers | undefined;
   disabled: boolean;
-  /** Read the reviewers again after a change. */
-  onChanged(): void;
+  /**
+   * Read the reviewers again after a dismissal, which may leave the PR itself unchanged.
+   * Requests and withdrawals change who the PR asks, and the PR view reads again then.
+   */
+  onDismissed(): void;
   onRequestReview: (() => void) | undefined;
 }) {
   const review = usePrReview();
@@ -194,7 +197,8 @@ export function PrReviewers(props: {
   const run = async (action: ForgeReviewAction) => {
     if (!review) return false;
     const ok = await review.run(action);
-    props.onChanged();
+    // Called once the write has ended, so this read starts after it.
+    if (action.kind === "review.dismiss") props.onDismissed();
     return ok;
   };
   const said = props.rows.map((row) => `${row.label}, ${reviewerWords(row)}`).join("; ");

@@ -69,7 +69,7 @@ export function PrPeople(props: {
             rows={rows}
             value={reviewers.data}
             disabled={disabled}
-            onChanged={() => void reviewers.refetch({ cancelRefetch: false })}
+            onDismissed={() => void reviewers.refetch()}
             onRequestReview={props.onRequestReview}
           />
         ) : (

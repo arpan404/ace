@@ -124,3 +124,47 @@ test("on the Code tab, an approval that arrives with the PR clears the Changes r
   await act(() => queryClient.refetchQueries({ queryKey: prDetailKey("api", repository, 31) }));
   await screen.findByRole("button", { name: "Reviews: 1 approved" }, { timeout: 5_000 });
 }, 30_000);
+
+const reviewersRead = {
+  op: "forge.pr.reviewers" as const,
+  workspaceId: WorkspaceId.parse("api"),
+  repository: { ...repository },
+  number: 31,
+};
+
+/** PR #31 open on Code, Mira's change request in force, then Mira approves on GitHub. */
+async function approvedWhileOnCode(queryClient: ReturnType<typeof createQueryClient>) {
+  const app = await openInstallPage(queryClient);
+  await userEvent.click(await screen.findByRole("tab", { name: "Code" }));
+  await screen.findByRole("button", { name: "Reviews: Changes requested" });
+  app.daemon.workspace.submitPullRequestReview(31, {
+    login: "mira",
+    state: "APPROVED",
+    at: "2026-10-22T12:00:00.000Z",
+  });
+  return app;
+}
+
+test("when the reviewers can't be read again, the approval in the PR still clears the gate", async () => {
+  const queryClient = createQueryClient();
+  const app = await approvedWhileOnCode(queryClient);
+  const reads = app.daemon.workspace.forgeReadCount(reviewersRead);
+  app.daemon.workspace.failForgeRead(reviewersRead, "forge_rate_limit");
+  await act(() => queryClient.refetchQueries({ queryKey: prDetailKey("api", repository, 31) }));
+  // The follow asked again and GitHub refused.
+  await waitFor(() =>
+    expect(app.daemon.workspace.forgeReadCount(reviewersRead)).toBeGreaterThan(reads),
+  );
+  await screen.findByRole("button", { name: "Reviews: 1 approved" }, { timeout: 5_000 });
+}, 30_000);
+
+test("while the reviewers are read again, the gate follows the PR's newer reviews", async () => {
+  const queryClient = createQueryClient();
+  const app = await approvedWhileOnCode(queryClient);
+  const release = app.daemon.workspace.holdForgeRead(reviewersRead);
+  await act(() => queryClient.refetchQueries({ queryKey: prDetailKey("api", repository, 31) }));
+  await screen.findByRole("button", { name: "Reviews: 1 approved" }, { timeout: 5_000 });
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  expect(screen.getByRole("button", { name: "Reviews: 1 approved" })).toBeTruthy();
+}, 30_000);

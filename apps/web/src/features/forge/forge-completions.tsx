@@ -7,6 +7,7 @@ import {
   type CompletionPerson,
   type MarkdownCompletions,
 } from "@/components/markdown-editor/completion-source.ts";
+import { referenceMatches, referenceSearch } from "@/components/markdown-editor/completions.ts";
 import { readForge } from "@/lib/forge-read.ts";
 
 /** How long a search's answer is reused: who can be mentioned rarely changes. */
@@ -126,19 +127,23 @@ export function ForgeCompletions(props: {
         return rankPeople(participants(), found, q);
       },
       async references(query, signal) {
-        const q = searchable(query);
-        return fetchUntil(cache, signal, {
-          queryKey: ["forge", workspaceId, repositoryKey, "references", q.toLowerCase()],
+        // GitHub matches whole words only: it is asked for the finished ones, and the word
+        // still being typed narrows its answer here.
+        const sent = searchable(referenceSearch(query));
+        const found = await fetchUntil(cache, signal, {
+          queryKey: ["forge", workspaceId, repositoryKey, "references", sent.toLowerCase()],
           staleTime: referencesFreshMs,
           queryFn: async ({ signal: reading }) => {
             const result = await readForge(
               client,
-              { op: "forge.references", ...scope, query: q },
+              { op: "forge.references", ...scope, query: sent },
               reading,
             );
             return result.resource === "references" ? result.references : [];
           },
         });
+        const typed = searchable(query);
+        return found.filter((reference) => referenceMatches(reference, typed));
       },
     };
     // `repositoryKey` stands for `repository`, which callers rebuild on every render.
