@@ -29,7 +29,7 @@ import CryptoKit
 @MainActor @Observable final class ClientModel {
     private(set) var hostId: String?
     @ObservationIgnored let liveActivity: ThreadLiveActivity
-    var inbox: [String: ThreadRow] = [:]
+    let inbox = InboxRowStore()
     var pending: [String: PendingRow] = [:]
     var connection = "connecting"
     /// Why the SDK's connection isn't ready (unreachable, revoked, pin mismatch), for a person.
@@ -87,7 +87,7 @@ import CryptoKit
         let epoch = connectionEpoch
         let closing = retireRuntime()
         hostId = target.hostId
-        inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset()
+        inbox.removeAll(); pending = [:]; thread = nil; inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset()
         inboxLayout = .empty
         machineStatus = nil; providers = nil
         connection = "connecting"; error = nil; problem = nil
@@ -235,7 +235,7 @@ import CryptoKit
             }
         }
         thread?.screen.commit()
-        if activityChanged, let hostId { liveActivity.update(rows: inbox, hostId: hostId, online: connection == "ready") }
+        if activityChanged, let hostId { liveActivity.update(rows: inbox.dictionary, hostId: hostId, online: connection == "ready") }
         if reorder, let thread {
             thread.order = thread.positions.keys.filter { thread.items[$0] != nil }.sorted {
                 (thread.positions[$0] ?? 0) < (thread.positions[$1] ?? 0)
@@ -246,11 +246,11 @@ import CryptoKit
     /// or jumps to the top while the rest arrive; it drops every other row. A kept row is no
     /// longer confirmed: only its fresh copy may say it is current again.
     private func resetInbox(keeping ids: [String]?) {
-        guard let ids else { inbox.removeAll(keepingCapacity: true); return }
+        guard let ids else { inbox.removeAll(); return }
         let listed = Set(ids)
-        for (id, row) in inbox {
+        for id in inbox.ids {
             if !listed.contains(id) { inbox[id] = nil }
-            else if row.confirmed != nil { var held = row; held.confirmed = nil; inbox[id] = held }
+            else if var held = inbox[id], held.confirmed != nil { held.confirmed = nil; inbox[id] = held }
         }
     }
     func open(_ id: String) {
@@ -346,7 +346,8 @@ import CryptoKit
     /// Drop held confirmations when leaving ready: a cached done row stays cached, but never
     /// confirmed, until its sidebar snapshot returns. Only a fresh inbox row may set it again.
     private func invalidateConfirmations() {
-        for (id, row) in inbox where row.confirmed == true {
+        for id in inbox.ids {
+            guard let row = inbox[id], row.confirmed == true else { continue }
             var cleared = row
             cleared.confirmed = nil
             inbox[id] = cleared
@@ -356,7 +357,8 @@ import CryptoKit
     /// before the row frames that invalidate it, so older confirmed rows never finish.
     /// One rule lives in `ThreadLiveActivity.effectiveRow`; the authority value stays here.
     private func normalizeGenerations() {
-        for (id, row) in inbox {
+        for id in inbox.ids {
+            guard let row = inbox[id] else { continue }
             let effective = ThreadLiveActivity.effectiveRow(row, latestGeneration: activityGeneration)
             if effective.confirmed != row.confirmed { inbox[id] = effective }
         }
@@ -366,7 +368,7 @@ import CryptoKit
         // The next runtime restarts the bridge fence at zero: explicit reset so counter
         // rows from a replaced runtime can never stay Syncing forever against an old max.
         activityGeneration = 0
-        if let hostId { liveActivity.update(rows: inbox, hostId: hostId, online: false) }
+        if let hostId { liveActivity.update(rows: inbox.dictionary, hostId: hostId, online: false) }
         services.cancel()
         admissions.cancel()
         approvalSubmissions = [:]; approvalRequests = [:]
