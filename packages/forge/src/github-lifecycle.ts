@@ -9,7 +9,12 @@ import {
 } from "@ace/protocol/forge-lifecycle";
 import { ForgePrRef, type ForgeRepository } from "@ace/protocol/forge";
 import { GhApi } from "./http.ts";
-import { ForgeError } from "./errors.ts";
+import { ForgeError, ForgeQueryRefused } from "./errors.ts";
+import { mapLifecycleExtras } from "./github-lifecycle-extras.ts";
+import {
+  GitHubLifecycleWrites,
+  isExtraLifecycleAction,
+} from "./github-lifecycle-writes.ts";
 import {
   lifecycleCapabilities,
   assertLifecycleAction,
@@ -17,8 +22,11 @@ import {
   metadataMatches,
 } from "./lifecycle-plan.ts";
 import {
+  LifecycleExtras,
   LifecycleHost,
   SupportedMutations,
+  lifecycleExtraPrFields,
+  lifecycleExtraRepositoryFields,
   lifecyclePrFields,
 } from "./github-lifecycle-schemas.ts";
 import { ReadBudget } from "./read-budget.ts";
@@ -35,9 +43,27 @@ export function lifecycleWriteMarker(operationId: string) {
 export class GitHubLifecycle {
   readonly #api: GhApi;
   readonly #repository: ForgeRepository;
+  readonly #writes: GitHubLifecycleWrites;
+  /** Whether the host answers the milestone, lock, branch and closing-issue fields. */
+  #extended = true;
   constructor(api: GhApi, repository: ForgeRepository) {
     this.#api = api;
     this.#repository = repository;
+    this.#writes = new GitHubLifecycleWrites(api, repository);
+  }
+  async #snapshotQuery(number: number, signal: AbortSignal) {
+    const document = (extended: boolean) =>
+      `query AceLifecycleSnapshot($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){isArchived viewerPermission ${extended ? lifecycleExtraRepositoryFields : ""} pullRequest(number:$number){${lifecyclePrFields} ${extended ? lifecycleExtraPrFields : ""}}} mutationType:__type(name:"Mutation"){fields{name}}}`;
+    const variables = { owner: this.#repository.owner, name: this.#repository.name, number };
+    if (this.#extended)
+      try {
+        return { response: await this.#graphql(document(true), variables, signal), extended: true };
+      } catch (error) {
+        // A host without these fields refuses the document itself, and will again.
+        if (!(error instanceof ForgeQueryRefused)) throw error;
+        this.#extended = false;
+      }
+    return { response: await this.#graphql(document(false), variables, signal), extended: false };
   }
   async #graphql(
     query: string,
@@ -58,12 +84,15 @@ export class GitHubLifecycle {
   async snapshot(number: number, signal: AbortSignal): Promise<ForgeLifecycleSnapshot> {
     const pr = ForgePrRef.parse({ repository: this.#repository, number });
     // The host's mutations come in the same query: one round trip, not two in a row.
-    const response = await this.#graphql(
-      `query AceLifecycleSnapshot($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){isArchived viewerPermission pullRequest(number:$number){${lifecyclePrFields}}} mutationType:__type(name:"Mutation"){fields{name}}}`,
-      { owner: this.#repository.owner, name: this.#repository.name, number },
-      signal,
-    );
+    const { response, extended } = await this.#snapshotQuery(number, signal);
     const repository = decode(LifecycleHost, response.body).data.repository;
+    const extras = extended
+      ? mapLifecycleExtras(
+          this.#repository,
+          decode(LifecycleExtras, response.body).data.repository,
+          repository.viewerPermission,
+        )
+      : undefined;
     const raw = repository.pullRequest;
     if (raw.number !== number) throw new ForgeError("invalid_data");
     if (raw.labels.pageInfo.hasNextPage || raw.assignees.pageInfo.hasNextPage)
@@ -86,6 +115,7 @@ export class GitHubLifecycle {
       baseBranch: raw.baseRefName,
       labels: raw.labels.nodes.map((l) => l.name).toSorted(),
       assignees: raw.assignees.nodes.map((u) => u.login).toSorted(),
+      ...(extras ? { milestone: extras.fields.milestone?.number ?? null } : {}),
     };
     const version = createHash("sha256")
       .update(
@@ -98,6 +128,7 @@ export class GitHubLifecycle {
           isDraft: raw.isDraft,
           updatedAt: raw.updatedAt,
           mergeCommit: raw.mergeCommit?.oid,
+          extras: extras?.fields,
         }),
       )
       .digest("hex");
@@ -109,6 +140,7 @@ export class GitHubLifecycle {
       baseSha: raw.baseRefOid,
       state,
       metadata,
+      ...extras?.fields,
       ...lifecycleCapabilities({
         state,
         archived: repository.isArchived,
@@ -123,6 +155,8 @@ export class GitHubLifecycle {
           Boolean(raw.mergeCommit) &&
           ["ADMIN", "MAINTAIN", "WRITE"].includes(repository.viewerPermission ?? ""),
         supported: new Set(supported.map((f) => f.name)),
+        permission: repository.viewerPermission,
+        extras: extras?.facts,
       }),
     });
   }
@@ -180,6 +214,29 @@ export class GitHubLifecycle {
     const action = ForgeLifecycleAction.parse(rawAction);
     const snapshot = await this.snapshot(number, signal);
     assertLifecycleAction(snapshot, expectedVersion, action);
+    if (isExtraLifecycleAction(action))
+      return this.#send(number, expectedVersion, action, snapshot, operationId, signal, allowed, () =>
+        this.#writes.prepare(snapshot, action, operationId, signal),
+      dispatch);
+    if (action.kind === "edit" && action.changes.milestone !== undefined)
+      return this.#send(number, expectedVersion, action, snapshot, operationId, signal, allowed, async () => {
+        // GitHub sets a milestone through the issue behind the PR, which takes these fields too.
+        const { milestone, baseBranch, ...rest } = action.changes;
+        if (baseBranch !== undefined) throw new ForgeError("invalid_data");
+        const body = { ...rest, milestone };
+        return (writeDispatch: WriteDispatch) =>
+          this.#api
+            .request(
+              `repos/${this.#repository.owner}/${this.#repository.name}/issues/${number}`,
+              signal,
+              body,
+              "PATCH",
+              writeDispatch,
+            )
+            .then((response) => {
+              if (response.identityChanged) throw new ForgeMutationOutcome({ dispatched: true });
+            });
+      }, dispatch);
     let mutation: string;
     let input: Record<string, unknown> = {
       pullRequestId: snapshot.id,
@@ -240,6 +297,33 @@ export class GitHubLifecycle {
         return { outcome: "head_changed", headSha: current.headSha };
       const observed = await this.observe(number, action, snapshot, operationId, signal);
       return observed ?? { outcome: "pending", headSha: current.headSha };
+    } catch (error) {
+      throw new Error("action_outcome_uncertain", { cause: error });
+    }
+  }
+  /**
+   * One write outside `updatePullRequest`: its reads first, then the same recheck as every
+   * lifecycle write, the write, and an observed result. Once sent, a failure is uncertain.
+   */
+  async #send(
+    number: number,
+    expectedVersion: string,
+    action: ForgeLifecycleAction,
+    snapshot: ForgeLifecycleSnapshot,
+    operationId: string,
+    signal: AbortSignal,
+    allowed: () => boolean,
+    prepare: () => Promise<(dispatch: WriteDispatch) => Promise<void>>,
+    dispatch: WriteDispatch,
+  ): Promise<ForgeLifecycleReceipt> {
+    const write = await prepare();
+    const latest = await this.snapshot(number, signal);
+    assertLifecycleAction(latest, expectedVersion, action);
+    if (signal.aborted || !allowed()) throw new ForgeError("cancelled");
+    await write(dispatch);
+    try {
+      const observed = await this.observe(number, action, snapshot, operationId, signal);
+      return observed ?? { outcome: "pending", headSha: snapshot.headSha };
     } catch (error) {
       throw new Error("action_outcome_uncertain", { cause: error });
     }
@@ -313,6 +397,24 @@ export class GitHubLifecycle {
       return compare.behind_by === 0
         ? { outcome: "accepted", headSha: current.headSha }
         : { outcome: "head_changed", headSha: current.headSha };
+    }
+    const done = { outcome: "accepted" as const, headSha: current.headSha };
+    if (action.kind === "lock" || action.kind === "unlock")
+      return current.conversation?.locked === (action.kind === "lock") ? done : null;
+    if (action.kind === "branch.delete" || action.kind === "branch.restore")
+      return current.headBranch?.exists === (action.kind === "branch.restore") ? done : null;
+    if (action.kind === "issue.link" || action.kind === "issue.unlink") {
+      const { owner, name } =
+        action.kind === "issue.link" ? this.#repository : action.issue.repository;
+      const issue = action.kind === "issue.link" ? action.issue : action.issue.number;
+      const linked = (current.closingIssues ?? []).some(
+        (each) =>
+          each.ref.number === issue &&
+          each.ref.repository.owner.toLowerCase() === owner.toLowerCase() &&
+          each.ref.repository.name.toLowerCase() === name.toLowerCase() &&
+          (action.kind === "issue.link" || each.manual),
+      );
+      return linked === (action.kind === "issue.link") ? done : null;
     }
     if (action.kind === "reopen")
       return current.state === "open" || current.state === "draft"

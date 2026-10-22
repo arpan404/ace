@@ -8,7 +8,22 @@ export const lifecycleMutations = {
   "update.merge": "updatePullRequestBranch",
   "update.rebase": "updatePullRequestBranch",
   revert: "revertPullRequest",
+  "issue.link": "addCloseIssueReferences",
+  "issue.unlink": "removeCloseIssueReferences",
 };
+/** Repository roles that may triage: label, set milestones, lock conversations. */
+export const triageRoles = ["TRIAGE", "WRITE", "MAINTAIN", "ADMIN"];
+/** Repository roles that may push, and still comment on a locked conversation. */
+export const writeRoles = ["WRITE", "MAINTAIN", "ADMIN"];
+/** Facts about the head branch and lock that only newer hosts report. */
+export interface LifecycleExtraFacts {
+  locked: boolean;
+  headExists: boolean;
+  sameRepository: boolean;
+  isDefault: boolean;
+  deleteOnMerge: boolean;
+  canRestoreHead: boolean;
+}
 /** One capability/state gate serves daemon writes and the public workspace snapshot. */
 export function lifecycleCapabilities(facts: {
   state: ForgeLifecycleSnapshot["state"];
@@ -22,10 +37,13 @@ export function lifecycleCapabilities(facts: {
   rebaseable: boolean;
   canRevert: boolean;
   supported: ReadonlySet<string>;
+  /** The viewer's repository role, as GitHub names it. */
+  permission?: string | null;
+  extras?: LifecycleExtraFacts | undefined;
 }): Pick<ForgeLifecycleSnapshot, "actions" | "editableFields" | "unsupported"> {
   const actions: ForgeLifecycleSnapshot["actions"] = [];
   const editableFields: ForgeLifecycleSnapshot["editableFields"] = [];
-  const unsupported = (
+  const unsupported: ForgeLifecycleSnapshot["unsupported"] = (
     Object.keys(lifecycleMutations) as (keyof typeof lifecycleMutations)[]
   ).filter((kind) => !facts.supported.has(lifecycleMutations[kind]));
   if (facts.archived) return { actions, editableFields, unsupported };
@@ -37,6 +55,11 @@ export function lifecycleCapabilities(facts: {
     if (facts.canLabel) editableFields.push("labels");
     if (facts.canAssign) editableFields.push("assignees");
   }
+  const extras = facts.extras;
+  const triage = triageRoles.includes(facts.permission ?? "");
+  const active = facts.state === "open" || facts.state === "draft";
+  // A milestone is set through the issue it shares its number with, by anyone who triages.
+  if (extras && triage) editableFields.push("milestone");
   if (facts.state === "draft" && facts.canUpdate) actions.push("ready");
   if (facts.state === "open" && facts.canUpdate) actions.push("draft");
   if ((facts.state === "open" || facts.state === "draft") && facts.canClose) actions.push("close");
@@ -46,6 +69,14 @@ export function lifecycleCapabilities(facts: {
     if (facts.rebaseable) actions.push("update.rebase");
   }
   if (facts.state === "merged" && facts.canRevert) actions.push("revert");
+  if (extras && triage) actions.push(extras.locked ? "unlock" : "lock");
+  if (extras && !active && extras.sameRepository && extras.canRestoreHead) {
+    // GitHub deletes a merged PR's branch itself when the repository asks it to: never race it.
+    const githubDeletes = facts.state === "merged" && extras.deleteOnMerge;
+    if (extras.headExists && !extras.isDefault && !githubDeletes) actions.push("branch.delete");
+    if (!extras.headExists) actions.push("branch.restore");
+  }
+  if (extras && active && facts.canUpdate) actions.push("issue.link", "issue.unlink");
   return {
     actions: actions.filter((kind) => !unsupported.includes(kind)),
     editableFields,

@@ -18,6 +18,7 @@
     "./forge-review": "./src/forge-review.ts",
     "./forge-checks": "./src/forge-checks.ts",
     "./forge-browser": "./src/forge-browser.ts",
+    "./forge-new-pr": "./src/forge-new-pr.ts",
     "./forge-file-content": "./src/forge-file-content.ts",
     "./queue": "./src/queue.ts",
     "./context-meter": "./src/context-meter.ts",
