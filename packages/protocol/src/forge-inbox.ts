@@ -38,7 +38,6 @@ export const ForgeInboxRow = z.object({
   lastReadAt: text.nullable(),
   /** Where the subject opens on GitHub, when its address could be worked out. */
   url: text.optional(),
-  raw: z.unknown().optional(),
 });
 export type ForgeInboxRow = z.infer<typeof ForgeInboxRow>;
 export const ForgeInboxQuery = z.object({
@@ -55,6 +54,8 @@ export const ForgeInboxQuery = z.object({
 export type ForgeInboxQuery = z.infer<typeof ForgeInboxQuery>;
 export const ForgeInboxList = z.object({
   host,
+  /** The project's own repository, so its rows open without naming it. */
+  projectRepository: ForgeRepository.optional(),
   items: z.array(ForgeInboxRow).max(50),
   nextPage: z.number().int().positive().optional(),
   /** How long GitHub asks clients to wait before asking again, in seconds. */

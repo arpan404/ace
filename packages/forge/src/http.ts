@@ -3,7 +3,7 @@ import { MutationDispatch, isForgeMutation } from "./mutation.ts";
 import { createHash } from "node:crypto";
 import { immutable } from "./immutable.ts";
 import { z } from "zod";
-import { ForgeError, ForgeQueryRefused } from "./errors.ts";
+import { ForgeAccessRefused, ForgeError, ForgeQueryRefused } from "./errors.ts";
 import { redactData } from "./redact.ts";
 import type { CommandRunner } from "./command.ts";
 
@@ -230,7 +230,7 @@ export class GhApi {
     }
     if ([401, 403, 404, 422].includes(code)) dispatch.reject();
     if (code === 404) throw new ForgeError("not_found", undefined, false);
-    if (code === 401 || code === 403) throw new ForgeError("forbidden", undefined, false);
+    if (code === 401 || code === 403) throw new ForgeAccessRefused(code);
     // Only a validated native result can turn an error status into acknowledgement.
     const nativeResultCandidate =
       (code === 409 || code === 400) &&

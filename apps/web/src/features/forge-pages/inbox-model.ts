@@ -62,19 +62,48 @@ export function repositoryChoices(rows: readonly ForgeInboxRow[], selected: stri
     .map((value) => ({ value, label: value.split("/").slice(1).join("/") }));
 }
 
-/** A page as it reads once a write lands: read rows lose their dot, done rows leave. */
+/**
+ * A page as it reads once a write lands: read rows lose their dot, done rows leave. Mark all read
+ * covers what GitHub had by `before`; anything newer stays unread, as it does on GitHub.
+ */
 export function afterWrite(
   page: ForgeInboxList,
-  change: { kind: "read" | "done"; ids: ReadonlySet<string> } | { kind: "read-all"; repo?: string },
+  change:
+    | { kind: "read" | "done"; ids: ReadonlySet<string> }
+    | { kind: "read-all"; before: number; repo?: string | undefined },
 ): ForgeInboxList {
   if (change.kind === "done")
     return { ...page, items: page.items.filter((row) => !change.ids.has(row.id)) };
   const reads = (row: ForgeInboxRow) =>
     "ids" in change
       ? change.ids.has(row.id)
-      : !change.repo || repositoryParam(row.repository) === change.repo;
+      : Date.parse(row.updatedAt) <= change.before &&
+        (!change.repo || repositoryParam(row.repository) === change.repo);
   const items = page.items.map((row) =>
     row.unread && reads(row) ? { ...row, unread: false } : row,
   );
   return { ...page, items };
+}
+
+/** Refusals asking again won't change: the person fixes them, then tries again. */
+const settled = new Set([
+  "forge_notifications_unavailable",
+  "forge_unsupported",
+  "forge_forbidden",
+]);
+/** Refusals that pass: a rate limit or a lost connection, asked again after a longer wait. */
+const passing = new Set(["forge_rate_limit", "forge_offline"]);
+export const inboxBackoffMs = 5 * 60_000;
+
+/**
+ * How long until the inbox asks again: GitHub's poll interval; never after a refusal that won't
+ * pass by itself; a few minutes after a rate limit or a lost connection.
+ */
+export function inboxPollMs(
+  data: ForgeInboxList | undefined,
+  failure: string | undefined,
+): number | false {
+  if (failure && settled.has(failure)) return false;
+  if (failure && passing.has(failure)) return inboxBackoffMs;
+  return (data?.pollSeconds ?? 60) * 1_000;
 }

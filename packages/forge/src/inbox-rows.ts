@@ -109,7 +109,6 @@ export function inboxRow(
     updatedAt: record.updated_at,
     lastReadAt: record.last_read_at ?? null,
     url: subjectWebUrl(host, repository, record.subject.type, record.subject.url),
-    raw: record,
   };
 }
 

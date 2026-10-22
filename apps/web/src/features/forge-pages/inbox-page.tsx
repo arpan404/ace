@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "@tanstack/react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import type { ForgeInboxList, ForgeInboxRow, ForgeIssueList, ForgePrList } from "@ace/protocol";
+import type { ForgeInboxList, ForgeInboxRow } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -11,7 +11,7 @@ import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { repositoryParam } from "@/lib/pull-request-route.ts";
-import { useNow } from "@/lib/time.ts";
+import { useClock } from "@/lib/time.ts";
 import { FiltersMenu } from "./filters-menu.tsx";
 import { inboxKey, useInboxPages, useInboxWrites } from "./inbox-data.ts";
 import { reasonChoices, repositoryChoices, type InboxSearch } from "./inbox-model.ts";
@@ -19,16 +19,6 @@ import { InboxRow } from "./inbox-row.tsx";
 import { ListFrame, ToolbarRule } from "./list-frame.tsx";
 import { RowsSkeleton } from "./list-skeletons.tsx";
 import { useProjectChoice } from "./project-choice.ts";
-
-/** The project's own repository, as a list already read for it says; `repo` names others. */
-function ownRepository(cache: QueryClient, project: string): string | undefined {
-  for (const kind of ["prList", "issueList"] as const)
-    for (const [, data] of cache.getQueriesData<ForgePrList | ForgeIssueList>({
-      queryKey: ["forge", project, "browse", kind],
-    }))
-      if (data?.repository) return repositoryParam(data.repository);
-  return undefined;
-}
 
 /** Every row any inbox read of this project holds, so a filtered list still offers the rest. */
 function seenRows(cache: QueryClient, project: string | undefined): ForgeInboxRow[] {
@@ -54,15 +44,17 @@ export function InboxPage(props: {
   const pages = paging.key === listKey ? paging.pages : 1;
   const list = useInboxPages(project, search, pages);
   const writes = useInboxWrites(project);
-  // The unfiltered first page the sidebar polls: shared, and it keeps the filters' choices whole.
+  // The unfiltered first page the sidebar polls: shared with it, and it keeps the filters'
+  // choices whole. With a filter on, the page therefore polls twice: the filtered list and this.
   const everything = useInboxPages(project, {}, 1);
   const keys = useViewListKeys<HTMLElement>();
   const cache = useQueryClient();
   const toast = useToast();
   const openWeb = useOpenWebAddress();
-  const now = useNow();
+  const clock = useClock();
   const listAddress = useLocation({ select: (location) => location.searchStr });
-  const own = project ? ownRepository(cache, project) : undefined;
+  const ownRepository = list.first?.projectRepository ?? everything.first?.projectRepository;
+  const own = ownRepository ? repositoryParam(ownRepository) : undefined;
   const allRows = list.first?.items ?? [];
   const filtered = !!(search.reason || search.repo || search.only);
   const unread = list.rows.some((row) => row.unread);
@@ -71,7 +63,7 @@ export function InboxPage(props: {
    * threads or one reason's, so then the rows on show are marked one by one.
    */
   const readAll = async () => {
-    if (!search.only && !search.reason) return writes.readAll(search.repo, now);
+    if (!search.only && !search.reason) return writes.readAll(search.repo, clock());
     for (const row of list.rows)
       if (row.unread && !(await writes.write({ action: "read", id: row.id }))) return false;
     return true;

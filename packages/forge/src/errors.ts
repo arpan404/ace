@@ -60,3 +60,17 @@ export class ForgeQueryRefused extends ForgeError {
     this.name = "ForgeQueryRefused";
   }
 }
+
+/**
+ * The host itself answered 401 or 403: a `forbidden` that names the HTTP status, so a reader can
+ * tell an account the token can't act for (403) from a sign-in that is gone (401, or gh's own
+ * "not signed in" exit, which stays a plain `forbidden`).
+ */
+export class ForgeAccessRefused extends ForgeError {
+  readonly status: 401 | 403;
+  constructor(status: 401 | 403) {
+    super("forbidden", undefined, false);
+    this.name = "ForgeAccessRefused";
+    this.status = status;
+  }
+}

@@ -28,13 +28,7 @@ export class WorkspaceForgeBrowse {
     operation: import("@ace/protocol").ForgeBrowserOperation,
     signal: AbortSignal,
   ): Promise<import("@ace/protocol").ForgeBrowserResult> {
-    if (operation.op === "forge.inbox.list")
-      return {
-        resource: "inboxList",
-        value: await (
-          await this.ctx.backends.inbox(cwd, operation.host)
-        ).list(operation.query, signal),
-      };
+    if (operation.op === "forge.inbox.list") return this.inbox(cwd, operation, signal);
     const repository = operation.repository ?? (await this.ctx.backends.repository(cwd));
     signal.throwIfAborted();
     const backend = await this.ctx.backends.backend(cwd, repository);
@@ -153,6 +147,27 @@ export class WorkspaceForgeBrowse {
         })),
         relatedThreadsTruncated: threads.length > 100,
       },
+    };
+  }
+  /**
+   * The account's notifications on the project's host (or the one asked for), with the project's
+   * own repository so its rows open without naming it.
+   */
+  private async inbox(
+    cwd: string,
+    operation: Extract<import("@ace/protocol").ForgeBrowserOperation, { op: "forge.inbox.list" }>,
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol").ForgeBrowserResult> {
+    const own = await this.ctx.backends.repository(cwd).catch((error: unknown) => {
+      // Without a GitHub remote the project still reads a host it was told.
+      if (operation.host) return undefined;
+      throw error;
+    });
+    const host = operation.host ?? own?.host ?? "";
+    const value = await (await this.ctx.backends.inbox(cwd, host)).list(operation.query, signal);
+    return {
+      resource: "inboxList",
+      value: own?.host === value.host ? { ...value, projectRepository: own } : value,
     };
   }
   publishStatus(status: ForgePrStatus): void {
