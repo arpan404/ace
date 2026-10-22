@@ -121,7 +121,7 @@ import Observation
         grants[entry.deviceId] = nil
         defaults.set(grants, forKey: Keys.grants)
         let database = ClientModel.database(hostId: entry.hostId, deviceId: entry.deviceId, in: storage)
-        for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(at: URL(fileURLWithPath: database.path + suffix)) }
+        for suffix in ["", "-wal", "-shm", InboxCheckpoint.suffix] { try? FileManager.default.removeItem(at: URL(fileURLWithPath: database.path + suffix)) }
     }
     /// Network changes reach every runtime; the SDK owns each reconnect.
     func network(online: Bool, interfaceChanged: Bool) {

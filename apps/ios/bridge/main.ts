@@ -152,6 +152,8 @@ async function start(json: string): Promise<void> {
     pump,
     { now: () => host.now(), set: scheduler.set },
     activityGeneration,
+    // What the phone draws first at its next launch, before this runtime starts.
+    (checkpoint) => void call("inbox.checkpoint", checkpoint).catch(() => {}),
   );
   followMachine(client, pump, trust);
   machine = new MachineProviders(client, pump);
