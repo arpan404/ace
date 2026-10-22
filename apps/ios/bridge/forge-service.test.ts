@@ -260,3 +260,10 @@ test("the phone asks for forge lists through its native service call and gets a 
   expect(refused).toMatchObject({ ok: false });
   expect(String(refused?.message)).not.toBe("");
 });
+
+test("the lists' project chip names the machine's projects, read as New thread reads them", async () => {
+  const { daemon, ask } = await connected();
+  daemon.createThread({ id: "in-ace", workspaceId: "ace", title: "Work", provider: "claude" });
+  const reply = (await ask({ type: "forge.projects" })) as { projects: { id: string }[] };
+  expect(reply.projects.map((project) => project.id)).toContain("ace");
+});

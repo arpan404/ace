@@ -71,23 +71,24 @@ export class ForgeService {
     }
   }
 
+  /** The machine's projects, read as New thread reads them (`workspaces.list`). */
   async #projects(signal: AbortSignal): Promise<ProjectsReply> {
-    const reply = await this.#owner.request(
-      {
-        type: "projects.request",
-        requestId: "forge-projects",
-        operation: { op: "workspace.list", limit: 100 },
-      },
-      { signal, timeoutMs: 15_000 },
-    );
-    if (reply.result.kind === "error") throw new ForgeRefusal(reply.result.code);
-    if (reply.result.kind !== "projects") throw new ForgeRefusal("forge_invalid_data");
-    return {
-      type: "forge.projects",
-      projects: reply.result.projects.map((project) => ({
-        id: project.id,
-        name: this.#preview(project.name, 200),
-      })),
-    };
+    const projects: { id: string; name: string }[] = [];
+    let after: string | undefined;
+    do {
+      const reply = await this.#owner.request(
+        {
+          type: "workspace.request",
+          operation: { op: "workspaces.list", limit: 100, ...(after ? { after } : {}) },
+        },
+        { signal, timeoutMs: 15_000 },
+      );
+      if (reply.result.kind === "error") throw new ForgeRefusal(reply.result.code);
+      if (reply.result.kind !== "workspaces") throw new ForgeRefusal("forge_invalid_data");
+      for (const project of reply.result.workspaces)
+        projects.push({ id: project.id, name: this.#preview(project.name, 200) });
+      after = reply.result.next;
+    } while (after && projects.length < 300);
+    return { type: "forge.projects", projects };
   }
 }
