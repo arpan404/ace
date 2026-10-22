@@ -24,10 +24,11 @@ import QuartzCore
             }
             .environment(\.threadDrafts, drafts)
             .modifier(PhoneAppearance())
+            .overlay(alignment: .topLeading) { PerfProbeView() }
         }
     }
     @ViewBuilder private var renderFixture: some View {
-        #if DEBUG
+        #if ACE_FIXTURE
         ChatRenderFixture()
         #else
         EmptyView()
@@ -53,8 +54,8 @@ import QuartzCore
                 let model = ClientModel(now: { Date().timeIntervalSince1970 * 1000 })
                 spikeInbox.attach(spike.target.hostId, name: spike.name, client: model)
                 await notificationDelegate.coordinator.attach(model, target: spike.target)
-                await model.connect(target: spike.target, directory: directory, itemLimit: 2200)
-                #if DEBUG
+                await model.connect(target: spike.target, directory: directory, itemLimit: SpikeConfiguration.itemLimit)
+                #if ACE_FIXTURE
                 if index == 0 {
                     let metrics = SpikeMetrics(model: model, now: { CACurrentMediaTime() }, output: directory.appendingPathComponent("spike-metrics.json"))
                     model.metrics = metrics

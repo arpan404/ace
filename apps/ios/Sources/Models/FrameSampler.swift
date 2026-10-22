@@ -38,6 +38,9 @@ import QuartzCore
     private func report(at now: CFTimeInterval) {
         if late > 0 || frames > 0 {
             let seconds = now - started
+            PerfProbe.record(["frames.late": "\(late)", "frames.hitchMsPerS": String(format: "%.1f", lost * 1000 / max(seconds, 0.001)),
+                              "frames.worstMs": String(format: "%.0f", worst * 1000)])
+            PerfProbe.add("frames.windows", 1)
             ThreadOpenTrace.log.notice("""
                 frames window=\(String(format: "%.1f", seconds), privacy: .public)s frames=\(self.frames) late=\(self.late) \
                 lostMs=\(String(format: "%.0f", self.lost * 1000), privacy: .public) \
