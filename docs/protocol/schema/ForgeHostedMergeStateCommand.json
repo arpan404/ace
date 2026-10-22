@@ -9,6 +9,9 @@
       ],
       "type": "string"
     },
+    "commit": {
+      "$ref": "https://ace.local/protocol/v1/ForgeMergeCommit.json"
+    },
     "headSha": {
       "pattern": "^[a-fA-F0-9]{40,64}$",
       "type": "string"

@@ -114,7 +114,7 @@ export const ForgeHostedPrCreateCommand = z.object({
   repository: ForgeRepository,
   base: branch,
   head: ForgeCompareHead,
-  title: z.string().trim().min(1).max(256),
+  title: z.string().min(1).max(256).regex(/\S/),
   body: text,
   draft: z.boolean().default(false),
   reviewers: z.array(login).max(100).default([]),

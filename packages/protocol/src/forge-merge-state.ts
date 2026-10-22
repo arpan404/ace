@@ -5,7 +5,7 @@ const text = z.string().max(65_536);
  * own. Rebase writes no new commit and takes none.
  */
 export const ForgeMergeCommit = z.object({
-  title: z.string().trim().min(1).max(1_024),
+  title: z.string().min(1).max(1_024).regex(/\S/),
   message: text,
 });
 export type ForgeMergeCommit = z.infer<typeof ForgeMergeCommit>;
