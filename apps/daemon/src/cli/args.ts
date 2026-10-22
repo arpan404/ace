@@ -4,6 +4,8 @@ export interface Args {
 }
 const switches = new Set([
   "json",
+  "fix",
+  "print",
   "console",
   "tree",
   "worktree",

@@ -22,16 +22,17 @@ Example:
 
 ```json
 {
-  "at": 5,
+  "at": 0,
   "id": "example",
   "payload": {
-    "paused": false,
-    "reason": null,
-    "resumeAt": 9,
-    "revision": 8,
-    "type": "queue.updated"
+    "closedAt": 9,
+    "expirationReason": "provider_disconnected",
+    "interactionId": "example",
+    "resolvedBy": "example",
+    "state": "expired",
+    "type": "interaction.closed"
   },
-  "seq": 4,
+  "seq": 8,
   "threadId": "example"
 }
 ```
@@ -52,10 +53,17 @@ Example:
 ```json
 {
   "changes": {
-    "activitySeq": 5,
-    "autoSettle": false,
+    "activityAt": 2,
+    "autoSettle": null,
+    "autoSettleAt": 0,
+    "listOrder": 4,
+    "live": {
+      "askingThreads": [],
+      "rootRunId": "example",
+      "waitingOn": 8
+    },
     "pinned": false,
-    "readAt": 0
+    "readAt": 5
   },
   "type": "thread.client.updated"
 }
@@ -73,15 +81,14 @@ Example:
 ```json
 {
   "thread": {
-    "acpAgentId": "example",
     "acpSupport": {
       "capabilities": {
         "imageInput": false,
-        "planMode": true,
-        "resume": false
+        "planMode": false,
+        "resume": true
       },
-      "coverage": "generic",
-      "mcp": "http",
+      "coverage": "source_profile",
+      "mcp": "stdio",
       "modeSelection": false,
       "modelSelection": false,
       "raw": {
@@ -90,87 +97,55 @@ Example:
       },
       "visibility": "limited"
     },
-    "autoSettleAt": 8,
-    "capabilities": {
-      "attachmentInput": {
-        "documents": [],
-        "embeddedContext": true,
-        "format": "claude",
-        "maxInlineBytes": 7
-      },
-      "backgroundTaskControl": false,
-      "backgroundVisibility": "full",
-      "fork": false,
-      "forkSubagents": false,
-      "goals": true,
-      "imageInput": false,
-      "interruptCascades": true,
-      "permissionModes": [],
-      "planMode": true,
-      "resume": false,
-      "rewindFiles": true,
-      "sessionOptions": true,
-      "steer": false,
-      "steerTiming": "after_tool",
-      "steeringMode": "interrupt-restart",
-      "subagentTranscripts": false,
-      "tokenUsage": true
-    },
+    "activitySeq": 7,
     "createdAt": 3,
-    "delegatedBy": "example",
-    "deletedAt": 7,
-    "details": {
-      "ahead": 3,
-      "behind": 0,
-      "branch": null,
-      "head": null,
-      "linkedIssues": [],
-      "machine": {
-        "host": "example",
-        "icon": {
-          "kind": "phone"
-        },
-        "name": "example"
-      },
-      "workspace": {
-        "defaultIcon": "https://example.invalid/icon.png",
-        "icon": "https://example.invalid/icon.png",
-        "id": "example",
-        "name": "example",
-        "path": "example"
+    "execution": {
+      "model": "example",
+      "provider": "claude"
+    },
+    "goal": {
+      "objective": "example",
+      "status": "budget_limited"
+    },
+    "handoff": {
+      "bytes": 6,
+      "sourceThreadId": "example",
+      "truncated": true
+    },
+    "id": "example",
+    "installationId": "example",
+    "instanceId": "example",
+    "lineage": {
+      "lossy": true,
+      "mode": "portable",
+      "parentAgentId": "example",
+      "parentThreadId": "example",
+      "point": {
+        "itemId": "example",
+        "type": "item"
       }
     },
-    "hasSentMessage": false,
-    "id": "example",
-    "imported": {
-      "importedAt": 8,
-      "instanceId": "example",
-      "native": {
-        "aliases": [],
-        "installationId": "example",
-        "path": "example",
-        "provider": "antigravity"
-      },
-      "sourceId": "example"
+    "live": {
+      "asking": [],
+      "askingThreads": [],
+      "backgroundTaskCount": 2,
+      "subagentCount": 5,
+      "waitingOn": 4,
+      "watching": []
     },
-    "installationId": "example",
-    "permission": {
-      "custom": "example",
-      "effective": "full-access",
-      "override": null,
-      "pending": true
+    "provider": "codex",
+    "queue": {
+      "paused": false,
+      "reason": "limit",
+      "resumeAt": null,
+      "revision": 1
     },
-    "provider": "cursor",
-    "settleWhenDone": true,
-    "settledAt": 2,
-    "settledReason": "manual",
+    "rootAgentId": "example",
     "status": {
-      "on": "queue",
-      "state": "waiting"
+      "state": "done"
     },
     "title": "example",
-    "unread": false,
-    "updatedAt": 3,
+    "updatedAt": 7,
     "workspaceId": "example"
   },
   "type": "thread.created"
@@ -204,73 +179,50 @@ Example:
 
 ```json
 {
-  "acp": {
-    "acpAgentId": "example",
-    "installationId": "example",
-    "instanceId": "example"
-  },
-  "acpSupport": {
-    "capabilities": {
-      "imageInput": true,
-      "planMode": true,
-      "resume": false
-    },
-    "coverage": "generic",
-    "mcp": "unavailable",
-    "modeSelection": true,
-    "modelSelection": false,
-    "raw": {
-      "json": "example",
-      "truncated": false
-    },
-    "visibility": "limited"
-  },
-  "capabilities": {
-    "approvals": "sandbox-only",
+  "effectiveCapabilities": {
+    "accessModes": [],
+    "approvals": "none",
     "attachmentInput": {
       "documents": [],
       "embeddedContext": true,
-      "format": "claude",
-      "maxInlineBytes": 0
+      "format": "opencode",
+      "maxInlineBytes": 5
     },
     "backgroundTaskControl": false,
-    "backgroundVisibility": "partial",
+    "backgroundVisibility": "full",
+    "childControls": "read-only",
+    "childFidelity": "full",
     "fork": true,
-    "forkSubagents": false,
+    "forkPoints": [],
+    "goals": false,
     "imageInput": false,
     "interruptCascades": true,
-    "planMode": false,
+    "permissionModes": [],
+    "planMode": true,
     "resume": false,
     "rewindFiles": false,
-    "steer": true,
-    "steerTiming": "after_tool",
-    "subagentTranscripts": true,
-    "tokenUsage": false
+    "sessionOptions": true,
+    "steer": false,
+    "subagentTranscripts": false,
+    "tokenUsage": true
   },
   "execution": {
     "instanceId": "example",
-    "provider": "acp"
+    "provider": "claude"
   },
   "lineage": {
-    "lossy": false,
+    "lossy": true,
     "mode": "native",
     "parentAgentId": "example",
     "parentThreadId": "example",
     "point": {
-      "runId": "example",
-      "type": "turn"
+      "itemId": "example",
+      "type": "item"
     }
   },
-  "switch": {
-    "at": 2,
-    "lossy": false,
-    "selection": {
-      "provider": "claude"
-    },
-    "state": "failed"
+  "status": {
+    "state": "new"
   },
-  "title": "example",
-  "titleSource": "provider",
   "type": "thread.updated"
 }
 ```
@@ -288,24 +240,23 @@ Example:
 {
   "agent": {
     "background": false,
-    "createdAt": 0,
+    "createdAt": 8,
     "cwd": "example",
-    "endedAt": 6,
-    "fidelity": "summary",
+    "fidelity": "full",
     "id": "example",
-    "name": "example",
+    "model": "example",
     "native": {
-      "instanceId": "example",
       "nativeId": "example",
-      "provider": "codex"
+      "path": "example",
+      "provider": "opencode"
     },
-    "origin": "ace",
-    "parentId": null,
-    "spawnedBy": null,
+    "origin": "provider_subagent",
+    "parentId": "example",
+    "role": "example",
     "status": {
-      "message": "example",
-      "on": "human",
-      "state": "blocked"
+      "activity": "compacting",
+      "detail": "example",
+      "state": "working"
     },
     "threadId": "example"
   },
@@ -327,9 +278,9 @@ Example:
 ```json
 {
   "agentId": "example",
-  "completionRelevant": true,
   "status": {
-    "state": "idle"
+    "lastSignalAt": 2,
+    "state": "unresponsive"
   },
   "type": "agent.status"
 }
@@ -360,30 +311,21 @@ Example:
 ```json
 {
   "agentId": "example",
-  "cwd": "example",
-  "fidelity": "full",
   "lineage": {
     "lossy": true,
     "mode": "native",
     "parentAgentId": "example",
     "parentThreadId": "example",
     "point": {
-      "runId": "example",
-      "type": "turn"
+      "itemId": "example",
+      "type": "item"
     }
   },
-  "model": "example",
   "name": "example",
   "native": {
-    "installationId": "example",
-    "instanceId": "example",
-    "nativeId": "example",
-    "path": "example",
-    "provider": "codex"
+    "provider": "opencode"
   },
-  "origin": "provider_subagent",
   "parentId": null,
-  "role": "example",
   "type": "agent.updated"
 }
 ```
@@ -401,8 +343,8 @@ Example:
 ```json
 {
   "checkpoints": {
-    "error": "example",
-    "state": "ready"
+    "before": "example",
+    "state": "pending"
   },
   "runId": "example",
   "type": "run.client.updated"
@@ -423,6 +365,7 @@ Example:
 ```json
 {
   "agentId": "example",
+  "commandId": "example",
   "nativeInputId": "example",
   "type": "input.admitted"
 }
@@ -441,21 +384,24 @@ Example:
 {
   "run": {
     "agentId": "example",
+    "endedAt": 8,
     "endedBy": "steer",
-    "executionSource": {
-      "nativeSessionId": "example",
-      "selection": {
-        "instanceId": "example",
+    "error": {
+      "details": {
+        "code": "example",
         "model": "example",
-        "provider": "opencode"
-      }
+        "provider": "codex"
+      },
+      "kind": "provider",
+      "message": "example"
     },
     "id": "example",
-    "provider": "opencode",
-    "startedAt": 4,
-    "state": "active",
+    "nativeId": "example",
+    "ordinal": 10,
+    "startedAt": 9,
+    "state": "failed",
     "threadId": "example",
-    "trigger": "parent_agent"
+    "trigger": "restart"
   },
   "type": "run.started"
 }
@@ -477,10 +423,9 @@ Example:
 
 ```json
 {
-  "endedAt": 9,
-  "endedBy": "steer",
+  "endedAt": 6,
   "runId": "example",
-  "state": "completed",
+  "state": "interrupted",
   "type": "run.ended"
 }
 ```
@@ -498,12 +443,22 @@ Example:
 {
   "item": {
     "agentId": "example",
+    "commandId": "example",
     "complete": false,
-    "createdAt": 0,
+    "createdAt": 9,
+    "diagnostic": false,
+    "executionSource": {
+      "nativeSessionId": "example",
+      "selection": {
+        "instanceId": "example",
+        "provider": "claude"
+      }
+    },
     "id": "example",
-    "tokensAfter": 8,
-    "tokensBefore": 7,
-    "type": "compaction"
+    "interactionId": "example",
+    "level": "info",
+    "text": "example",
+    "type": "notice"
   },
   "type": "item.created"
 }
@@ -525,7 +480,7 @@ Example:
 {
   "agentId": "example",
   "append": "example",
-  "field": "reasoning",
+  "field": "output",
   "itemId": "example",
   "type": "item.delta"
 }
@@ -545,22 +500,12 @@ Example:
   "item": {
     "agentId": "example",
     "complete": false,
-    "createdAt": 1,
+    "createdAt": 4,
     "id": "example",
-    "type": "html",
-    "visualization": {
-      "document": {
-        "bytes": 5,
-        "height": 5,
-        "mimeType": "example",
-        "name": "example",
-        "sha256": "ba162a86c802335a3f15dc6fdbf3c4c9511040b8cab8211a132335107536c015",
-        "thumbnailAvailable": true
-      },
-      "height": 80,
-      "mode": "static",
-      "title": "example"
-    }
+    "nativeId": "example",
+    "summary": true,
+    "text": "example",
+    "type": "reasoning"
   },
   "type": "item.updated"
 }
@@ -595,16 +540,20 @@ Example:
 {
   "interaction": {
     "agentId": "example",
-    "autoReviewed": false,
+    "autoReviewed": true,
     "blocking": true,
-    "closedAt": 6,
-    "createdAt": 0,
+    "createdAt": 9,
     "id": "example",
+    "raw": [],
     "request": {
       "kind": "question",
       "questions": []
     },
-    "state": "expired",
+    "resolution": {
+      "decision": "reject",
+      "kind": "plan_review"
+    },
+    "state": "resolved",
     "threadId": "example"
   },
   "type": "interaction.opened"
@@ -628,10 +577,13 @@ Example:
 
 ```json
 {
-  "closedAt": 0,
-  "expirationReason": "provider_disconnected",
+  "closedAt": 7,
   "interactionId": "example",
-  "state": "expired",
+  "resolution": {
+    "action": "decline",
+    "kind": "elicitation"
+  },
+  "state": "cancelled",
   "type": "interaction.closed"
 }
 ```
@@ -650,13 +602,12 @@ Example:
   "task": {
     "agentId": "example",
     "id": "example",
-    "internal": true,
-    "kind": "other",
-    "startedAt": 7,
-    "status": "failed",
-    "stoppable": false,
-    "title": "example",
-    "toolCallId": "example"
+    "kind": "monitor",
+    "outputPath": "example",
+    "startedAt": 8,
+    "status": "stopped",
+    "stoppable": true,
+    "title": "example"
   },
   "type": "background_task.started"
 }
@@ -675,7 +626,7 @@ Example:
 
 ```json
 {
-  "status": "running",
+  "status": "failed",
   "taskId": "example",
   "type": "background_task.updated"
 }
@@ -697,10 +648,11 @@ Example:
 
 ```json
 {
-  "paused": false,
+  "paused": true,
+  "pendingCount": 3,
   "reason": null,
-  "resumeAt": null,
-  "revision": 6,
+  "resumeAt": 2,
+  "revision": 0,
   "type": "queue.updated"
 }
 ```
@@ -719,17 +671,18 @@ Example:
   "card": {
     "blocker": "example",
     "criteria": [],
-    "criteriaCount": 7,
+    "criteriaCount": 6,
     "endpoint": "example",
-    "id": "wTE3G9cJSa8",
+    "id": "FW",
+    "next": "example",
     "outcome": "example",
     "outcomeTruncated": false,
     "pending": [],
-    "pendingCount": 1,
-    "phase": "plan",
+    "pendingCount": 8,
+    "phase": "delivery",
     "revision": "example",
-    "updatedAt": 0,
-    "version": 0
+    "updatedAt": 2,
+    "version": 5
   },
   "type": "offshift.updated"
 }
@@ -748,11 +701,10 @@ Example:
 {
   "meter": {
     "agentId": "example",
-    "epoch": 9,
-    "model": "example",
-    "source": "provider",
-    "usedTokens": null,
-    "windowTokens": null
+    "epoch": 2,
+    "source": "catalog",
+    "usedTokens": 3,
+    "windowTokens": 3
   },
   "type": "context_meter.updated"
 }
@@ -774,9 +726,9 @@ Example:
 ```json
 {
   "agentId": "example",
-  "sessionId": "example",
+  "model": "example",
   "type": "context.sampled",
-  "usedTokens": 5
+  "usedTokens": 0
 }
 ```
 
@@ -811,12 +763,14 @@ Example:
 {
   "accountId": "example",
   "agentId": "example",
-  "cacheWrite1hTokens": 9,
-  "cachedInputTokens": 3,
+  "cacheWrite1hTokens": 7,
   "contextSessionId": "example",
-  "costUsd": 6,
-  "inputTokens": 2,
-  "outputTokens": 5,
+  "contextWindow": 8,
+  "counterKey": "example",
+  "inputTokens": 9,
+  "model": "example",
+  "outputTokens": 6,
+  "reasoningTokens": 3,
   "type": "usage.updated"
 }
 ```

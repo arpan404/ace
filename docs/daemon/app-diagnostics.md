@@ -34,3 +34,9 @@ review against the source hash; saving never activates an edited version. The sh
 review accepts its exact commit and content hash through `plugins.accept`. Back, closing the
 review and leaving the page cancel pending reviews. A changed source keeps the draft and
 offers reload instead of overwriting the accepted file.
+
+The `fix` diagnostics operation requires admin scope and returns a fresh `report`
+and `repairs` array after creating missing ace/log folders or restoring private folder
+permissions. It does not compact the database. Run `ace doctor --fix` on the host for
+storage reclamation through its running daemon. Triage and provider handoffs are
+CLI-only. See [ADR 0092](../adr/0092-triage-and-doctor-repairs.md).

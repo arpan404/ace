@@ -279,3 +279,74 @@ and is never part of a cleanup plan. A run that hits its chunk limit returns
 `--abandon` to stop it. A database created before incremental vacuum reports
 `incrementalUnavailable` and is left unchanged. There is no full rebuild; see
 [Compaction](storage-cleanup.md#compaction).
+
+## Triage and doctor repairs
+
+`ace triage` starts a coding agent to help when ace isn't working. It needs neither the
+app nor the daemon, so it works when they crash or won't start.
+
+It asks nothing up front. It writes a playbook and this computer's facts to a temporary
+folder, then you pick an installed Claude Code, Codex, Cursor CLI or OpenCode. The facts
+cover versions, whether the daemon runs, agent CLIs, where logs and data live, which
+files never to open, recent warnings and errors, and anything it couldn't check. The
+agent starts in that folder, asks what went wrong, and investigates. Before changing
+anything on your computer or posting an issue, it shows you exactly what it will do
+and waits for a yes. Ctrl-C inside the agent interrupts the agent, not ace.
+
+```sh
+ace triage                     # pick an agent and start
+ace triage --provider opencode # skip the picker
+ace triage --print             # playbook and facts on stdout, to paste anywhere
+ace triage --json              # just the file paths
+```
+
+`ace doctor` checks this computer's ace setup, then lists the repairs it can make. It
+shows only problems by default; `--all` lists every check.
+
+```sh
+ace doctor            # report; in a terminal, choose repairs from a checklist
+ace doctor --all      # every check, passing ones included
+ace doctor --dry-run  # report and list repairs, change nothing
+ace doctor --fix      # run the recommended repairs without asking
+ace doctor --fix --json
+```
+
+What it checks:
+
+- **Setup**: Node, provider CLIs and their logins, git, node-pty, Chromium, disk, port,
+  ace folder access.
+- **Install**: the ace CLI, running daemon and desktop app are the same version; the data
+  folder's format is one this build reads; which `ace` commands are on PATH; Xcode and
+  the Android SDK (optional).
+- **Daemon**: if running, whether it answers, its event-loop delay, memory, queue
+  backlogs and log writes. If not, how its last run ended: a clean quit, a crash, a
+  failed or refused start with its error, or a stop that ran past its deadline.
+- **Recent errors**: warnings and errors from the last 24 hours, grouped.
+- **Storage**: database integrity (with time that scales with the database's size),
+  reusable space and WAL, what the data folder holds, leftover pre-upgrade backups, a
+  daemon lock naming a dead process, and free space for compaction.
+- **Accounts**: folders and sign-in for every configured account.
+- **Computer use** (macOS): the screen helper and its Accessibility and Screen Recording
+  grants.
+- **Remote access**: transport, Tailscale, relay, paired devices and certificate expiry.
+
+Checks that need the daemon say so when it isn't running; everything else reads files
+directly.
+
+- **Fix ace folder access** creates missing ace and log folders and makes them private
+  to you. It refuses links, non-directories and folders owned by someone else.
+- **Delete old database backups** removes copies made before an upgrade the current
+  database has finished. It is never preselected, since it gives up rolling back, and is
+  blocked while integrity is unconfirmed or an update is running.
+- **Reclaim database space** is offered when at least 1 MiB is reusable or the WAL
+  reaches 32 MiB. The running local daemon compacts in small journaled steps and
+  checkpoints the WAL; doctor reports the size before and after. If ace isn't running,
+  the repair is listed as unable to run and nothing is written. Legacy
+  `auto_vacuum=NONE` files keep their reusable pages; shrinking them needs a
+  rowid-preserving migration. No full VACUUM, WAL deletion or corrupt-file rebuild
+  runs. See [Compaction](storage-cleanup.md#compaction).
+
+Checks run again after repairs, and failures keep a nonzero exit status. If findings
+remain, doctor offers to start `ace triage` with them. JSON output has `planned` (what
+doctor would do) and `repairs` (what it did). Run both commands on the affected
+computer; `--remote` is refused. Triage is available only in the CLI.

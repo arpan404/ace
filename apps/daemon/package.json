@@ -70,6 +70,7 @@
     "@ace/terminal": "workspace:*",
     "@ace/usage": "workspace:*",
     "@ace/workspace": "workspace:*",
+    "@clack/prompts": "^1.8.1",
     "marked": "^18.0.14",
     "qrcode-generator": "2.0.4",
     "sharp": "0.34.5",

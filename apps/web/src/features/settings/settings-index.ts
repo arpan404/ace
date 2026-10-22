@@ -404,7 +404,17 @@ const entries = [
     id: "advanced.diagnostics",
     page: "/settings/advanced",
     title: "App diagnostics",
-    keywords: ["memory", "debug", "health", "doctor", "checks", "support", "export"],
+    keywords: [
+      "memory",
+      "debug",
+      "health",
+      "doctor",
+      "checks",
+      "support",
+      "export",
+      "fix",
+      "repair",
+    ],
   },
   {
     id: "advanced.reset",

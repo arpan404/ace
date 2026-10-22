@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readSqlitePageSpace } from "@ace/diagnostics";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { setImmediate } from "node:timers/promises";
@@ -81,10 +82,8 @@ export class StorageService {
         if (!missing(error)) throw error;
       }
     }
-    const store = this.owner.store;
-    const page = Number(store.statement("PRAGMA page_size").get()?.page_size);
-    const free = Number(store.statement("PRAGMA freelist_count").get()?.freelist_count);
-    return { databaseBytes, reclaimableDatabaseBytes: page * free };
+    const space = readSqlitePageSpace({ prepare: (sql) => this.owner.store.statement(sql) });
+    return { databaseBytes, reclaimableDatabaseBytes: space.reclaimableBytes };
   }
   /**
    * Admin-only incremental compaction. Never part of retention apply. An unfinished
