@@ -54,7 +54,10 @@ export async function picturesAsVideo(options: {
   const encodePictures = host.encodePictures;
   if (!encodePictures) return undefined;
   const size = { width: options.first.header.width, height: options.first.header.height };
-  const supported = await host.supported(codecs, size.width, size.height).catch(() => []);
+  // Asked at the size it will encode (even, as H.264 needs), not the picture's: a window can
+  // be any width, and encoders refuse an odd one.
+  const sized = pictureEncode(size, options.settings, "");
+  const supported = await host.supported(codecs, sized.width, sized.height).catch(() => []);
   const codec = supported[0];
   if (!codec) return undefined;
   let settings = options.settings;
