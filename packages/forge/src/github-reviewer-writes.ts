@@ -11,7 +11,10 @@ type ReviewerAction = Extract<
 const text = z.string().max(65_536);
 const Requested = z.looseObject({
   users: z.array(z.looseObject({ login: text })).max(1_000),
-  teams: z.array(z.looseObject({ slug: text })).max(1_000).optional(),
+  teams: z
+    .array(z.looseObject({ slug: text }))
+    .max(1_000)
+    .optional(),
 });
 const Review = z.looseObject({ id: z.number().int().positive(), state: text });
 /** Only a verdict can be dismissed: comments and pending reviews have nothing to take back. */
@@ -32,8 +35,9 @@ export class GitHubReviewerWrites {
     this.#io = io;
   }
   async #requested(number: number, signal: AbortSignal) {
-    const body = (await this.#io.request(`${this.#io.root}/pulls/${number}/requested_reviewers`, signal))
-      .body;
+    const body = (
+      await this.#io.request(`${this.#io.root}/pulls/${number}/requested_reviewers`, signal)
+    ).body;
     const requested = decode(Requested, body);
     return {
       users: new Set(requested.users.map((u) => u.login.toLowerCase())),
