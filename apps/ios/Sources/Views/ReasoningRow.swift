@@ -30,7 +30,7 @@ struct ReasoningRow: View {
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .frame(minHeight: AceTheme.Spacing.xxxl)
                 .padding(.horizontal, AceTheme.Spacing.sm)
-                .background(expanded ? AceTheme.Colours.fill : .clear, in: RoundedRectangle(cornerRadius: AceTheme.Radii.md, style: .continuous))
+                .background(expanded ? AceTheme.Colours.fill : .clear, in: RoundedRectangle(cornerRadius: AceTheme.Radii.lg, style: .continuous))
                 .padding(.horizontal, -AceTheme.Spacing.sm)
                 .contentShape(Rectangle())
             }

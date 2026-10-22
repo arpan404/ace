@@ -73,7 +73,7 @@ struct StreamingCaret: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dim = false
     var body: some View {
-        Capsule().fill(AceTheme.Colours.mutedForeground)
+        Capsule(style: .continuous).fill(AceTheme.Colours.mutedForeground)
             .frame(width: 3, height: AceTheme.Typography.body.size)
             .opacity(dim ? 0.3 : 1)
             .onAppear {

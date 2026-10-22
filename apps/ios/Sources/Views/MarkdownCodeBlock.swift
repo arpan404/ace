@@ -55,8 +55,8 @@ struct MarkdownCodeBlock: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.lg, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.lg, style: .continuous).stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+        .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.card, style: .continuous).strokeBorder(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
         .accessibilityIdentifier("markdown.code")
         .task(id: copied) {
             guard copied else { return }
