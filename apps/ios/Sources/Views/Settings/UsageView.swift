@@ -90,7 +90,7 @@ struct UsageView: View {
         }
         .insetGroupedList()
         .navigationTitle("Usage").navigationBarTitleDisplayMode(.inline)
-        .task(id: tab) {
+        .readWhenConnected(model, id: tab) {
             if tab == .limits { await readLimits() } else { await readTokens() }
         }
         .task(id: days) { if tab == .tokens { await readTokens() } }

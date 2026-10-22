@@ -55,7 +55,7 @@ struct ForgeIssuePageView: View {
                 }
             }
         }
-        .task { await load() }
+        .readWhenConnected(client) { await load() }
     }
 
     @ViewBuilder private func content(_ page: ForgeIssuePage) -> some View {
