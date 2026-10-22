@@ -29,7 +29,7 @@ struct ConversationFeed: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 if reading.loading, reading.operation == "older" || reading.operation == "newer" {
-                    Capsule().fill(AceTheme.Colours.fill).frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Spacing.sm)
+                    AceShape.capsule.fill(AceTheme.Colours.fill).frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Spacing.sm)
                         .padding(AceTheme.Spacing.lg).frame(maxWidth: .infinity)
                         .accessibilityLabel("Loading messages").accessibilityIdentifier("transcript.paging")
                 }
@@ -160,10 +160,10 @@ private struct ScrollToEndPill: View {
             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
             .padding(.leading, AceTheme.Spacing.md).padding(.trailing, AceTheme.Spacing.md + AceTheme.Spacing.xxs)
             .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs)
-            .contentShape(Capsule())
+            .contentShape(AceShape.capsule)
         }
         .buttonStyle(.plain)
-        .aceGlass(in: Capsule(), interactive: true)
+        .aceGlass(in: AceShape.capsule, interactive: true)
         .accessibilityIdentifier("transcript.latest")
     }
 }

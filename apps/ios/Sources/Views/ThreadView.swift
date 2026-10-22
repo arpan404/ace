@@ -128,7 +128,7 @@ struct ThreadView: View {
             .overlay(alignment: .topLeading) {
                 if SpikeConfiguration.enabled && ProcessInfo.processInfo.arguments.contains("--spike-metrics") {
                     Text(verbatim: "\(thread.items.count) items · \(model.connection)").aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                        .padding(AceTheme.Spacing.xs).background(.thinMaterial, in: Capsule()).allowsHitTesting(false)
+                        .padding(AceTheme.Spacing.xs).background(.thinMaterial, in: AceShape.capsule).allowsHitTesting(false)
                         .accessibilityLabel("Loaded transcript").accessibilityValue(String(thread.items.count))
                         .accessibilityIdentifier("spike.loaded")
                 }
