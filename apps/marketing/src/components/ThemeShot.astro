@@ -1,0 +1,38 @@
+---
+/*
+ * A screenshot of the app taken in both modes. The browser picks the one matching the
+ * reader's colour scheme, so the page and the picture never disagree.
+ */
+import type { ImageMetadata } from "astro";
+import { getImage } from "astro:assets";
+
+interface Props {
+  light: ImageMetadata;
+  dark: ImageMetadata;
+  alt: string;
+  sizes: string;
+  widths: number[];
+  eager?: boolean;
+}
+
+const { light, dark, alt, sizes, widths, eager = false } = Astro.props;
+const [lightSet, darkSet] = await Promise.all(
+  [light, dark].map((src) => getImage({ src, widths, format: "webp", quality: 82 })),
+);
+if (!lightSet || !darkSet) throw new Error("Couldn't build the screenshot.");
+---
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset={darkSet.srcSet.attribute} sizes={sizes} />
+  <img
+    src={lightSet.src}
+    srcset={lightSet.srcSet.attribute}
+    sizes={sizes}
+    alt={alt}
+    width={light.width}
+    height={light.height}
+    loading={eager ? "eager" : "lazy"}
+    fetchpriority={eager ? "high" : "auto"}
+    decoding="async"
+  />
+</picture>
