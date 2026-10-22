@@ -49,7 +49,7 @@ struct StepRow: View {
     private var open: Bool { thread.map { $0.disclosures.isOpen(key) } ?? localOpen }
     @ViewBuilder private var row: some View {
         if let opens = step.opens, !opens.isEmpty, let openStep {
-            Button { openStep(opens) } label: { line(open: false) }.buttonStyle(.plain).accessibilityHint("Opens its screen")
+            Button { openStep(opens) } label: { line(open: nil) }.buttonStyle(.plain).accessibilityHint("Opens its screen")
         } else if expandable {
             Button {
                 withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) {
@@ -59,10 +59,10 @@ struct StepRow: View {
             .buttonStyle(.plain)
             .accessibilityValue(open ? "Expanded" : "Collapsed")
         } else {
-            line(open: false)
+            line(open: nil)
         }
     }
-    private func line(open: Bool) -> some View {
+    private func line(open: Bool?) -> some View {
         LogRowBox(open: open) {
             StepGlyph(step: step, failed: failed)
         } title: {
