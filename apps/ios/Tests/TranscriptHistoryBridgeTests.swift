@@ -72,25 +72,16 @@ private struct HistoryDetail {
     let context: JSContext
     init() throws {
         context = try #require(JSContext())
-        context.setObject(NativeBytes.functions(), forKeyedSubscript: "nativeBytes" as NSString)
-        context.setObject(nativeHead, forKeyedSubscript: "nativeHead" as NSString)
-        context.setObject(nativeTail, forKeyedSubscript: "nativeTail" as NSString)
-        context.setObject(nativeEmit, forKeyedSubscript: "nativeEmit" as NSString)
-        context.setObject(nativeEncode, forKeyedSubscript: "nativeEncode" as NSString)
-        let parseURL: @convention(block) (String) -> String = { text in
-            guard let parsed = ParsedURL.parse(text), let data = try? JSONEncoder().encode(parsed) else { return "" }
-            return String(decoding: data, as: UTF8.self)
-        }
-        context.setObject(parseURL, forKeyedSubscript: "nativeParseURL" as NSString)
+        // The app's own stateless host functions, with virtual time and this harness's frames.
+        HostContract.install(HostContract.stateless().merging(["emit": nativeEmit]) { _, harness in harness }, in: context)
         context.evaluateScript("""
           let time = 0, nextID = 0;
           const timers = new Map();
-          globalThis.aceHost = {
+          Object.assign(globalThis.aceHost, {
             now: () => time, uuid: () => String(++nextID),
             timer: (id, delay, run) => timers.set(id, {at: time + delay, run}),
-            cancelTimer: id => timers.delete(id), emit: nativeEmit, utf8Base64: nativeEncode, encode: nativeBytes.encode, decode: nativeBytes.decode, inflate: nativeBytes.inflate,
-            previewHead: nativeHead, previewTail: nativeTail, parseURL: nativeParseURL
-          };
+            cancelTimer: id => timers.delete(id), call: () => {}, socket: () => {}
+          });
           function advance() {
             const pending = [...timers].sort((a,b) => a[1].at-b[1].at)[0];
             if (!pending) return;
@@ -125,13 +116,6 @@ private struct HistoryDetail {
     }
 
     var nativeEmit: @convention(block) (String) -> Void { { _ in } }
-    var nativeEncode: @convention(block) (String) -> String { { Data($0.utf8).base64EncodedString() } }
-    var nativeHead: @convention(block) (String, Int) -> String {
-        { DisplayText.head($0, limit: $1) }
-    }
-    var nativeTail: @convention(block) (String, Int) -> String {
-        { DisplayText.tail($0, limit: $1) }
-    }
 }
 
 private struct HistoryTimeout: Error {

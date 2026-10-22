@@ -1,3 +1,4 @@
+import "./test-host.ts";
 import { seedForgeBrowse } from "@ace/fake-daemon";
 import { WorkspaceId, type CommandPayload, type ThreadListEntry } from "@ace/protocol";
 import { issueQuery } from "@ace/ui-core";

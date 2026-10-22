@@ -1,5 +1,6 @@
 import { host, scheduler } from "./host.ts";
 import { degradedPatch } from "./degraded-patch.ts";
+import { base64 } from "./bytes.ts";
 
 type Reader = () => Record<string, unknown> | undefined;
 interface Task {
@@ -130,6 +131,8 @@ export class PatchPump {
       return;
     }
     const frame: Record<string, unknown>[] = [];
+    /** Each patch's JSON, made once to measure it and reused for the frame. */
+    const texts: string[] = [];
     const delivered: Delivery[] = [];
     let bytes = 2;
     const now = host.now();
@@ -154,9 +157,7 @@ export class PatchPump {
         const sticky = task.degraded && patch.row != null;
         const serializeAt = tracing ? host.now() : 0;
         const json = JSON.stringify(patch);
-        const encoded = host.utf8Base64(json);
-        const size =
-          (encoded.length / 4) * 3 - (encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0);
+        const size = host.utf8Length(json);
         if (tracing) serializing += host.now() - serializeAt;
         if (size > 32760) {
           if (frame.length) break outer;
@@ -165,7 +166,7 @@ export class PatchPump {
             read,
             sticky,
             id: host.uuid(),
-            data: encoded,
+            data: base64(host.encode(json)),
             offset: 0,
             index: 0,
           };
@@ -175,6 +176,7 @@ export class PatchPump {
         if (bytes + size + 1 > 32768 || frame.length >= 32) break outer;
         delivered.push({ task, read, sticky });
         frame.push(patch);
+        texts.push(json);
         bytes += size + 1;
         if (task.failures) break outer;
       }
@@ -187,7 +189,7 @@ export class PatchPump {
         },
       };
       const emitAt = tracing ? host.now() : 0;
-      host.emit(JSON.stringify(frame));
+      host.emit(`[${texts.join(",")}]`);
       if (tracing) {
         host.trace?.("pump.read", reading, 0);
         host.trace?.("pump.serialize", serializing, bytes);

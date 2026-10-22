@@ -1,4 +1,4 @@
-import { latest, native, until } from "./test-native.ts";
+import { latest, native, until } from "./test-host.ts";
 import { createHash } from "node:crypto";
 import { afterEach, expect, test } from "vitest";
 import { ClientCore } from "@ace/client";

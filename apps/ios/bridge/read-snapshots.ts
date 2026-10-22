@@ -1,7 +1,5 @@
 import type { ReadSnapshotStorage } from "@ace/client";
-
-/** A host call: an operation name and its JSON input, answered with text. */
-export type HostCall = (operation: string, input?: unknown) => Promise<string>;
+import type { HostRequest } from "@ace/native-host";
 
 /**
  * The SDK's read snapshots (ADR 0030) in the phone's own storage, as the web keeps them in
@@ -11,7 +9,7 @@ export type HostCall = (operation: string, input?: unknown) => Promise<string>;
  * daemon's verified identity on top. Values travel as JSON text, serialized before the first
  * await because the stores they come from keep changing. A failure of any kind is a miss.
  */
-export function nativeReadSnapshots(call: HostCall): ReadSnapshotStorage {
+export function nativeReadSnapshots(call: HostRequest): ReadSnapshotStorage {
   return {
     async get(key) {
       try {
@@ -29,7 +27,7 @@ export function nativeReadSnapshots(call: HostCall): ReadSnapshotStorage {
         return;
       }
       try {
-        await call("snapshot.set", { key, value: text });
+        await call("snapshot.set", { key }, text);
       } catch {
         // An optional cache: a write that fails is a miss next time.
       }

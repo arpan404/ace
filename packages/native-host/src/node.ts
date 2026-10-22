@@ -26,7 +26,8 @@ export interface NodeHostOptions {
   /** Called with each emitted frame, already parsed. */
   emit?: (frame: string) => void;
   socket?: (id: string, action: SocketAction, value: string) => void;
-  operations?: Partial<Record<HostOperation, NodeOperation>>;
+  /** Handlers by operation; a Map given here stays live, so a test can change it later. */
+  operations?: Partial<Record<HostOperation, NodeOperation>> | Map<string, NodeOperation>;
   /** Leave out optional capabilities, to test the logic without them. */
   without?: readonly OptionalCapability[];
 }
@@ -72,7 +73,9 @@ export interface NodeHost extends NativeHost {
 export function createNodeHost(options: NodeHostOptions = {}): NodeHost {
   let next = 0;
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
-  const operations = new Map<string, NodeOperation>(Object.entries(options.operations ?? {}));
+  const given = options.operations;
+  const operations =
+    given instanceof Map ? given : new Map<string, NodeOperation>(Object.entries(given ?? {}));
   const without = new Set(options.without ?? []);
   const capabilities = (["inflate", "trace"] as const).filter((name) => !without.has(name));
   const host: NodeHost = {
