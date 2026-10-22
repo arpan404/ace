@@ -1,4 +1,4 @@
-import { lstat, mkdir, readlink, rm, symlink } from "node:fs/promises";
+import { lstat, mkdir, readlink, realpath, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 
 /**
@@ -14,13 +14,26 @@ const skillFolders = [
 
 /**
  * Links an account home's skill folders to the person's. A folder the account already has of
- * its own is left alone; a link to somewhere else is pointed back at the person's folder.
+ * its own is left alone; a link to somewhere else is pointed back at the person's folder. Work
+ * happens only under real folders inside the account home: a linked `config` could otherwise
+ * lead the change into the person's own folders.
  */
 export async function linkPersonalSkills(accountHome: string, personal: string): Promise<void> {
+  const home = await realpath(accountHome);
   for (const folder of skillFolders) {
-    const link = join(accountHome, ...folder);
+    const parent = join(accountHome, folder[0]);
+    await mkdir(parent, { mode: 0o700 }).catch((error: unknown) => {
+      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+    });
+    const found = await lstat(parent);
+    if (
+      !found.isDirectory() ||
+      found.isSymbolicLink() ||
+      (await realpath(parent)) !== join(home, folder[0])
+    )
+      continue;
+    const link = join(parent, folder[1]);
     const target = join(personal, ...folder);
-    await mkdir(join(accountHome, folder[0]), { recursive: true, mode: 0o700 });
     const existing = await lstat(link).catch((error: unknown) => {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
       throw error;

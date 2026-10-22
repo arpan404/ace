@@ -1,4 +1,13 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -511,6 +520,25 @@ test("the daemon's own Google credentials never reach an added account's agent, 
     for (const [key, value] of Object.entries(before))
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
+    await f.close();
+  }
+});
+
+test("an added account whose config folder links to the person's own never changes their skill links", async () => {
+  const f = await antigravity();
+  try {
+    const personal = join(f.home, ".gemini");
+    const elsewhere = join(f.home, "shared-skills");
+    await mkdir(join(elsewhere, "review"), { recursive: true });
+    await mkdir(join(personal, "config"), { recursive: true });
+    // The person's own skills folder is itself a link to somewhere they chose.
+    await symlink(elsewhere, join(personal, "config", "skills"));
+    const work = await f.add("Work");
+    await symlink(join(personal, "config"), join(work.homeDir, "config"));
+
+    await (await f.open(work.id)).close("shutdown");
+    expect(await readlink(join(personal, "config", "skills"))).toBe(elsewhere);
+  } finally {
     await f.close();
   }
 });
