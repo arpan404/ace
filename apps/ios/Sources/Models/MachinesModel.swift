@@ -90,6 +90,9 @@ import Observation
         let database = ClientModel.database(hostId: entry.hostId, deviceId: entry.deviceId, in: storage)
         for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(at: URL(fileURLWithPath: database.path + suffix)) }
     }
+    /// Back from the background: a suspended socket may be dead without having closed, so every
+    /// machine checks its own now instead of at its next heartbeat.
+    func wake() { for session in inbox.sessions { session.client.wake() } }
     /// Network changes reach every runtime; the SDK owns each reconnect.
     func network(online: Bool, interfaceChanged: Bool) {
         for session in inbox.sessions {
