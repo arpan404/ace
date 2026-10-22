@@ -696,11 +696,11 @@ export class DelegationService {
   }
   /**
    * Cancel delegated work for the host (an automation stopping what its run's turn started):
-   * exactly these children, each on its own, and these reservations, durably, so their
-   * preparations never commit. Nothing cascades through the journal: work below a child that
-   * isn't the run's (the person's, or of unknown owner) is left alone, so the caller lists every
-   * owned descendant itself. As when their parent is stopped, the children's results never wake
-   * it, though `hostStop` left the parent no Stop marker. Whether every cancel was accepted.
+   * these reservations, durably, so their preparations never commit, and these children each
+   * with everything under it, by the same cascading cancel a person's Stop makes. The caller
+   * passes only children whose whole subtree is its own. Their results never wake the parent,
+   * as when it is stopped itself, though `hostStop` left it no Stop marker. Whether every
+   * cancel was accepted.
    */
   hostCancel(
     children: readonly ThreadId[],
@@ -717,27 +717,13 @@ export class DelegationService {
         .map((child) => {
           const edge = this.journal.get(child);
           if (!edge || edge.phase === "settled") return true;
-          this.journal.stopMember(child);
           this.journal.suppressWake(child);
-          if (edge.phase === "created") {
-            this.settleUnlaunched(edge, "cancelled");
-            return true;
-          }
-          if (this.deps.store.getThread(child)) this.deps.engine.discardRecovery(child);
-          edge.phase = "cancelling";
-          this.journal.save(edge);
-          const thread = this.deps.store.getThread(child);
-          if (thread) this.deps.engine.delegationStarted(edge, thread);
-          this.suspending.add(child);
-          try {
-            return this.command(controlCommandId(child, request, "host.cancel"), {
-              type: "thread.interrupt",
-              threadId: child,
-              cascade: true,
-            }).ok;
-          } finally {
-            this.suspending.delete(child);
-          }
+          this.cancelDescendants(child, request);
+          const result = this.command(
+            controlCommandId(child, `${request}:${edge.generation}`, "host.cancel"),
+            { type: "thread.interrupt", threadId: child, cascade: true },
+          );
+          return result.ok || result.error === "thread_not_found";
         })
         .every(Boolean);
     });

@@ -39,8 +39,8 @@ const stopTries = 5;
 
 /**
  * How the host stops a run's work in the delegation service, when there is one: a Stop of the
- * run's turn without the marker a person's Stop leaves (`hostStop`), and a cancel of the threads
- * the turn delegated to whose results never wake the thread again (`hostCancel`).
+ * run's turn without the marker a person's Stop leaves (`hostStop`), and the ordinary cascading
+ * cancel of delegated threads wholly the run's, whose results never wake the thread (`hostCancel`).
  */
 export interface HostStop {
   /** Whose delegations an automation's runs can see and cancel. */
@@ -313,8 +313,9 @@ async function reconcileStop(
       // Only tasks the engine can stop on their own; the others are left to end.
       tasks: open?.work.tasks.filter((task) => task.stoppable).map((task) => task.id) ?? [],
       agentRuns: open?.work.agentRuns ?? [],
-      liveChildren: open ? liveChildren(journal, open.delegations.children) : [],
-      reservations: open?.delegations.reservations ?? [],
+      // Only children whose whole subtree is the run's; others are left to end on their own.
+      liveChildren: open?.delegations.stoppable ?? [],
+      reservations: open?.delegations.stoppableReservations ?? [],
     });
     if (plan.kind === "wait") return false;
     if (plan.kind === "none") {
@@ -346,16 +347,6 @@ function readOpenWork(
   const delegations = turnDelegations(context.store, journal, threadId, turn);
   if (!delegations) return undefined;
   return { work: readTurnWork(context.store, threadId, turn, rootAgentId), delegations };
-}
-
-function liveChildren(
-  journal: DelegationJournal | undefined,
-  children: readonly ThreadId[],
-): ThreadId[] {
-  return children.filter((child) => {
-    const edge = journal?.get(child);
-    return edge !== undefined && edge.phase !== "settled" && edge.phase !== "cancelling";
-  });
 }
 
 function planTarget(plan: Exclude<StopPlan, { kind: "wait" | "none" }>, record: RunRecord) {

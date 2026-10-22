@@ -235,59 +235,98 @@ export function readTurnWork(
   });
 }
 
+/** The delegated work a run's turn began, as `turnDelegations` reads it. */
+export interface TurnDelegations {
+  /** Every delegated thread the run owns, at any level, settled or not. */
+  children: ThreadId[];
+  /**
+   * The run's direct children whose whole subtree is the run's: every current generation at
+   * every level was asked for through the run's chain. Only these are ever stopped for it.
+   */
+  stoppable: ThreadId[];
+  /** Preparations of children for threads the run owns, and those for its own thread. */
+  reservations: ThreadId[];
+  stoppableReservations: ThreadId[];
+  /** Live work whose owner nobody can establish: it holds the run open, never stopped for it. */
+  uncertain: ThreadId[];
+}
+
 /**
- * The delegated work the turn began (`DelegationOrigins`): children whose current generation
- * one of the turn's runs asked for, settled or not, so a child that failed still counts in how
- * the run went; then, level by level, each owned child's own children whose current generation
- * that child's agents asked for during its owned generation. Work someone else started or
- * reopened anywhere below is not the run's. `uncertain` is live work, at any level, whose owner
- * nobody can establish (from before owners were kept): it holds the run open and is never
- * stopped for it. Reservations are preparations of children for owned threads. Undefined while
- * delegated children can't be read.
+ * The delegated work the turn began (`DelegationOrigins`). A direct child is the run's when its
+ * current generation one of the turn's runs asked for; below an owned thread, a child is the
+ * run's when that thread's agents asked for its current generation during the owned one. Work
+ * someone else started or reopened anywhere below is not the run's, and makes the child above
+ * it not stoppable for the run: the run then waits for its own part instead. Live work of
+ * unknown owner (from before owners were kept) holds the run open. Settled children count too,
+ * so a child that failed still counts in how the run went. Undefined while delegated children
+ * can't be read.
  */
 export function turnDelegations(
   store: Store,
   journal: DelegationJournal | undefined,
   threadId: ThreadId,
   turn: TurnRead,
-): { children: ThreadId[]; reservations: ThreadId[]; uncertain: ThreadId[] } | undefined {
-  if (!journal)
-    return delegatedChildPersisted(store, threadId)
-      ? undefined
-      : { children: [], reservations: [], uncertain: [] };
+): TurnDelegations | undefined {
+  if (!journal) {
+    if (delegatedChildPersisted(store, threadId)) return undefined;
+    return {
+      children: [],
+      stoppable: [],
+      reservations: [],
+      stoppableReservations: [],
+      uncertain: [],
+    };
+  }
   const origins = journal.origins;
-  const children: ThreadId[] = [];
-  const reservations: ThreadId[] = [];
-  const uncertain: ThreadId[] = [];
-  const pending: { thread: ThreadId; since: number }[] = [];
-  const own = (child: ThreadId, generation: number) => {
-    children.push(child);
-    pending.push({ thread: child, since: origins.owner(child, generation)?.seq ?? 0 });
+  const found: TurnDelegations = {
+    children: [],
+    stoppable: [],
+    reservations: [],
+    stoppableReservations: [],
+    uncertain: [],
+  };
+  const seen = new Set<ThreadId>();
+  /** Walk owned thread `thread`'s subtree; whether all of it is the run's. */
+  const walk = (thread: ThreadId, since: number): boolean => {
+    let pure = true;
+    for (const edge of journal.children(thread)) {
+      if (seen.has(edge.childId)) continue;
+      seen.add(edge.childId);
+      const owner = origins.owner(edge.childId, edge.generation);
+      if (owner?.kind === "turn" && owner.seq >= since) {
+        found.children.push(edge.childId);
+        pure = walk(edge.childId, owner.seq) && pure;
+        continue;
+      }
+      pure = false;
+      if ((!owner || owner.kind === "uncertain") && edge.phase !== "settled")
+        found.uncertain.push(edge.childId);
+    }
+    for (const reservation of journal.reservations())
+      if (reservation.record.parentId === thread) {
+        const owner = origins.owner(reservation.record.childId, 0);
+        if (owner?.kind === "turn" && owner.seq >= since)
+          found.reservations.push(reservation.record.childId);
+      }
+    return pure;
   };
   for (const { child, generation } of origins.byRuns(threadId, turn.runIds)) {
     const edge = journal.get(child);
-    if (edge?.generation === generation) own(child, generation);
-    else if (!edge && generation === 0 && journal.reservationOf(child)) reservations.push(child);
+    if (edge?.generation === generation && !seen.has(child)) {
+      seen.add(child);
+      found.children.push(child);
+      const pure = walk(child, origins.owner(child, generation)?.seq ?? 0);
+      if (pure && edge.phase !== "settled" && edge.phase !== "cancelling")
+        found.stoppable.push(child);
+    } else if (!edge && generation === 0 && journal.reservationOf(child)) {
+      found.reservations.push(child);
+      found.stoppableReservations.push(child);
+    }
   }
   for (const edge of journal.liveChildren(threadId))
-    if (!children.includes(edge.childId) && origins.uncertain(edge.childId, edge.generation))
-      uncertain.push(edge.childId);
-  for (let next = pending.shift(); next && children.length < 64; next = pending.shift()) {
-    for (const edge of journal.children(next.thread)) {
-      const owner = origins.owner(edge.childId, edge.generation);
-      if (!owner || owner.kind === "uncertain") {
-        if (edge.phase !== "settled") uncertain.push(edge.childId);
-      } else if (owner.kind === "turn" && owner.seq >= next.since)
-        own(edge.childId, edge.generation);
-    }
-    for (const reservation of journal.reservations())
-      if (reservation.record.parentId === next.thread) {
-        const owner = origins.owner(reservation.record.childId, 0);
-        if (owner?.kind === "turn" && owner.seq >= next.since)
-          reservations.push(reservation.record.childId);
-      }
-  }
-  return { children, reservations, uncertain };
+    if (!seen.has(edge.childId) && origins.uncertain(edge.childId, edge.generation))
+      found.uncertain.push(edge.childId);
+  return found;
 }
 
 /**

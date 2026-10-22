@@ -96,36 +96,86 @@ test("a child a run's native helper asks for during a later turn is the run's, n
   }
 });
 
-test("pausing a run stops its child but not work the person reopened under that child", async () => {
+/** Alpha's turn delegates child C, and C delegates grandchild G. */
+async function childAndGrandchild(f: Fixture) {
+  await f.run("alpha", "alpha-1");
+  await expect.poll(() => f.h.inputs.get(f.caller.threadId)?.at(-1)).toBe("Run alpha");
+  const child = delegate(f, f.caller, "alpha-child");
+  await settle(f);
+  const grandchild = delegate(f, f.h.caller(child), "grandchild");
+  await settle(f);
+  return { child, grandchild };
+}
+
+const sendTo = (f: Fixture, id: string, thread: ThreadId, text: string) =>
+  person(f, id, { type: "thread.send", threadId: thread, input: [{ type: "text", text }] });
+
+test("pausing a run cancels a child whose whole subtree is the run's, grandchildren included", async () => {
   const f = await setUp();
   try {
-    await f.run("alpha", "alpha-1");
-    await expect.poll(() => f.h.inputs.get(f.caller.threadId)?.at(-1)).toBe("Run alpha");
-    const child = delegate(f, f.caller, "alpha-child");
-    await settle(f);
-    const grandchild = delegate(f, f.h.caller(child), "grandchild");
-    await settle(f);
+    const { child, grandchild } = await childAndGrandchild(f);
+    expect(working(f, grandchild)).toBe(true);
+    await f.answer(2, "alpha-answer", "Alpha waits on its child.");
+    await f.setEnabled("alpha", false);
+    await expect
+      .poll(() => f.latest("alpha"))
+      .toMatchObject({ status: "failed", result: "Stopped before it finished." });
+    expect(working(f, child)).toBe(false);
+    expect(working(f, grandchild)).toBe(false);
+  } finally {
+    await f.close();
+  }
+});
+
+test("pausing a run leaves a child alone when the person's work is below it, and the run waits", async () => {
+  const f = await setUp();
+  try {
+    const { child, grandchild } = await childAndGrandchild(f);
     await f.h.complete(grandchild, "Grandchild done.");
     await settle(f);
     // The person writes to the grandchild directly: that new work is theirs.
-    expect(
-      person(f, "person-to-grandchild", {
-        type: "thread.send",
-        threadId: grandchild,
-        input: [{ type: "text", text: "Also this" }],
-      }).ok,
-    ).toBe(true);
+    expect(sendTo(f, "person-to-grandchild", grandchild, "Also this").ok).toBe(true);
     await settle(f);
     expect(working(f, grandchild)).toBe(true);
+    await f.answer(2, "alpha-answer", "Alpha waits on its child.");
     await f.setEnabled("alpha", false);
-    await expect.poll(() => f.h.service.journal.get(child)?.phase).not.toBe("running");
     await settle(f);
-    // The child's own turn stopped; the person's work below it goes on.
-    expect(
-      Object.values(f.h.store.snapshotThread(child).runs).every((run) => run.state !== "active"),
-    ).toBe(true);
+    // Nothing of that subtree is stopped for the run, and the run isn't over while it works.
+    expect(f.h.service.journal.get(child)?.phase).toBe("running");
     expect(f.h.service.journal.get(grandchild)?.phase).toBe("running");
+    expect(working(f, child)).toBe(true);
     expect(working(f, grandchild)).toBe(true);
+    expect((await f.latest("alpha"))?.status).toBe("running");
+    // The person's own Stop of the child stops everything under it, their work included.
+    expect(
+      person(f, "person-stops-child", { type: "thread.interrupt", threadId: child, cascade: true })
+        .ok,
+    ).toBe(true);
+    await settle(f);
+    expect(working(f, grandchild)).toBe(false);
+    expect(f.h.service.journal.get(grandchild)?.phase).not.toBe("running");
+    await expect.poll(async () => (await f.latest("alpha"))?.status).toBe("failed");
+  } finally {
+    await f.close();
+  }
+});
+
+test("after a pause cancels a run's subtree, the person's message there is refused as after their own Stop", async () => {
+  const f = await setUp();
+  try {
+    const { child, grandchild } = await childAndGrandchild(f);
+    await f.h.complete(grandchild, "Grandchild done.");
+    await f.answer(2, "alpha-answer", "Alpha waits on its child.");
+    await f.setEnabled("alpha", false);
+    await expect.poll(async () => (await f.latest("alpha"))?.status).toBe("failed");
+    expect(working(f, child)).toBe(false);
+    // The person writes to the grandchild of the cancelled child, as after their own Stop.
+    const sent = sendTo(f, "person-after-pause", grandchild, "Pick this up");
+    await settle(f);
+    // Refused up front, as below any child a person's Stop cancelled: no work starts to be lost.
+    expect(sent).toMatchObject({ ok: false, error: "cancelled" });
+    expect(working(f, grandchild)).toBe(false);
+    expect(f.h.inputs.get(grandchild)).not.toContain("Pick this up");
   } finally {
     await f.close();
   }
