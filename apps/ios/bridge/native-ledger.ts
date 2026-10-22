@@ -53,6 +53,15 @@ export class NativeLedger {
   same(key: string, text: string): boolean {
     return this.#entries.get(key) === text;
   }
+  /** The patch native last confirmed for `key`, without its generation. */
+  confirmed(key: string): Record<string, unknown> | undefined {
+    const text = this.#entries.get(key);
+    return text === undefined ? undefined : (JSON.parse(text) as Record<string, unknown>);
+  }
+  /** Native's copy of `key` is no longer known, after it turned a frame down. */
+  forget(key: string): void {
+    this.#forget(key);
+  }
   /** Native confirmed delivery of `text` for `key` (a row of null removes what it held). */
   delivered(key: string, patch: Record<string, unknown>, text: string): void {
     if (key === "thread:reset") {

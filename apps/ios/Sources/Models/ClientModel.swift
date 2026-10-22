@@ -143,8 +143,28 @@ import QuartzCore
             error = "Could not read a client update"
             return false
         }
-        HostTrace.measure("main.apply") { apply(patches) }
+        // An edit made against text this model no longer shows turns the whole frame down, before
+        // anything applies; the bridge then sends that row whole.
+        guard let edited = resolveTextEdits(patches) else { return false }
+        HostTrace.measure("main.apply") { apply(edited) }
         return true
+    }
+    /// `patches` with each streaming text edit for the open thread turned into its whole row, or
+    /// nil when one was made against text other than the row shown.
+    private func resolveTextEdits(_ patches: [BridgePatch]) -> [BridgePatch]? {
+        var texts: [String: String] = [:]
+        var resolved: [BridgePatch] = []
+        resolved.reserveCapacity(patches.count)
+        for patch in patches {
+            guard case .itemText(let id, let epoch, let itemId, let edit, var row) = patch else { resolved.append(patch); continue }
+            // Another thread's or an older generation's edit is dropped like its whole row would be.
+            guard let thread, thread.id == id, thread.epoch == epoch else { continue }
+            guard let shown = texts[itemId] ?? thread.items[itemId]?.row.text, let text = edit.applied(to: shown) else { return nil }
+            texts[itemId] = text
+            row.text = text
+            resolved.append(.item(id, epoch, itemId, row))
+        }
+        return resolved
     }
     private func apply(_ patches: [BridgePatch]) {
         var reorder = false
@@ -160,6 +180,7 @@ import QuartzCore
             case .terminal(let patch):
                 if let offset = terminal.receive(patch) { action(["type": "terminal.credit", "id": patch.id, "offset": offset]) }
             case .fragment: break // BridgeFrames only returns complete patches.
+            case .itemText: break // `resolveTextEdits` turns these into whole rows first.
             case .inboxReset(let ids):
                 LaunchTrace.mark("inbox.reset", "\(inbox.count) rows held")
                 resetInbox(keeping: ids); inboxLoaded = true; activityChanged = true
