@@ -1126,7 +1126,7 @@ Example:
 
 ```json
 {
-  "key": "browser.backendLoss",
+  "key": "browser.profile",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -1188,7 +1188,7 @@ Example:
 ```json
 {
   "keys": [
-    "threads.useWorktree"
+    "worktree.preparationTimeoutMs"
   ],
   "requestId": "example",
   "scope": {

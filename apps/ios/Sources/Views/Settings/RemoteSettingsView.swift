@@ -32,6 +32,7 @@ struct RemoteSettingsCategory: Identifiable {
             .init(key: "host.displayName", title: "Machine name", control: .text),
             .init(key: "remote.enabled", title: "Remote connections", control: .toggle),
             .init(key: "remote.transport", title: "Transport", control: .choices(["local", "lan", "tailscale", "relay"])),
+            .init(key: "remote.hostedWebApp", title: "Hosted web app", control: .toggle),
             .init(key: "remote.agentAccess", title: "Other machines' agents", control: .choices(["off", "read", "operate"])),
             .init(key: "remote.relayUrl", title: "Relay address", control: .text),
         ]),

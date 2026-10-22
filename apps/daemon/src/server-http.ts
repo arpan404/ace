@@ -31,10 +31,12 @@ export function httpChains(
         options,
         auth,
         false,
+        access.allowedOrigins,
         iconsHttp(
           options,
           auth,
           false,
+          access.allowedOrigins,
           previewHttp(
             preview,
             accessHttp({
@@ -59,10 +61,12 @@ export function httpChains(
           options,
           auth,
           true,
+          access.allowedOrigins,
           iconsHttp(
             options,
             auth,
             true,
+            access.allowedOrigins,
             previewHttp(
               preview,
               accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),

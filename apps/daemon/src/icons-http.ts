@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { IconRef } from "@ace/protocol";
 import type { ServerOptions } from "./server-options.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
-import { webOriginAllowlist } from "./web-origins.ts";
+import type { WebOriginAllowlist } from "./web-origins.ts";
 import { allows } from "./devices.ts";
 
 /**
@@ -14,9 +14,9 @@ export function iconsHttp(
   options: ServerOptions,
   auth: RemoteAuth,
   remote: boolean,
+  origins: Pick<WebOriginAllowlist, "has">,
   next: (request: IncomingMessage, response: ServerResponse) => void,
 ) {
-  const origins = webOriginAllowlist(options.webOrigins);
   return (request: IncomingMessage, response: ServerResponse) => {
     void serve(request, response);
   };

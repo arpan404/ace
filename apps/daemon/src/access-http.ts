@@ -1,4 +1,5 @@
 import type { MaintenanceGate } from "@ace/service";
+import type { WebOriginAllowlist } from "./web-origins.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { PairingRedemption, type Device } from "@ace/protocol";
 import { AccessError, RemoteAuth } from "./remote-auth.ts";
@@ -43,7 +44,7 @@ export interface AccessHttpOptions {
   authenticate: (token: string) => Device | undefined;
   pairing: () => { origin: string; fingerprint: string } | undefined;
   /** Origins whose pages may read the cross-origin routes. */
-  allowedOrigins: ReadonlySet<string>;
+  allowedOrigins: Pick<WebOriginAllowlist, "has">;
   sourceAddress?: (request: IncomingMessage) => string;
   maintenance?: MaintenanceGate;
   version?: string;

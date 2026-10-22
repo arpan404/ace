@@ -2838,18 +2838,79 @@ Example:
 
 ```json
 {
-  "seq": 2,
+  "seq": 1,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "kind": "threads",
-    "seq": 2,
-    "threads": {},
-    "window": {
-      "before": null,
-      "counts": [],
-      "total": 7
-    }
+    "agentChildren": {},
+    "agents": {},
+    "backgroundTasks": {},
+    "contextMeters": {},
+    "interactions": {},
+    "itemOrder": [],
+    "items": {},
+    "kind": "thread",
+    "queue": {
+      "lastFailure": {
+        "code": "example",
+        "title": "example"
+      },
+      "paused": false,
+      "pendingCount": 4,
+      "reason": "uncertain",
+      "resumeAt": null,
+      "revision": 6
+    },
+    "runs": {},
+    "seq": 1,
+    "thread": {
+      "createdAt": 4,
+      "delegatedBy": "example",
+      "deletedAt": 3,
+      "hasSentMessage": true,
+      "id": "example",
+      "imported": {
+        "importedAt": 7,
+        "instanceId": "example",
+        "native": {
+          "aliases": [],
+          "path": "example",
+          "provider": "antigravity"
+        },
+        "sourceId": "example"
+      },
+      "instanceId": "example",
+      "pinned": true,
+      "prSettled": 8,
+      "provider": "opencode",
+      "rootAgentId": "example",
+      "run": {
+        "pendingCount": 2,
+        "phase": "delivery",
+        "state": "open"
+      },
+      "settledAt": 2,
+      "status": {
+        "state": "unresponsive"
+      },
+      "switch": {
+        "at": 4,
+        "error": "example",
+        "lossy": true,
+        "recommendation": "delegate",
+        "selection": {
+          "model": "example",
+          "provider": "claude"
+        },
+        "state": "failed"
+      },
+      "title": "example",
+      "titleSource": "agent",
+      "updatedAt": 1,
+      "workspaceId": "example"
+    },
+    "usage": {},
+    "usageSnapshots": {}
   }
 }
 ```
@@ -2870,10 +2931,10 @@ Example:
 
 ```json
 {
-  "afterSeq": 8,
+  "afterSeq": 0,
   "events": [],
   "subscriptionId": "example",
-  "throughSeq": 9,
+  "throughSeq": 2,
   "type": "events"
 }
 ```
@@ -2893,9 +2954,9 @@ Example:
 
 ```json
 {
-  "afterSeq": 1,
+  "afterSeq": 3,
   "subscriptionId": "example",
-  "throughSeq": 8,
+  "throughSeq": 4,
   "type": "progress"
 }
 ```
@@ -2937,22 +2998,24 @@ Example:
 ```json
 {
   "commandId": "example",
-  "error": "example",
-  "forgeLifecycle": {
-    "headSha": "2C3Bca2aa74aA2DF9420021cb02b3250e8994Acf341dddb1a43AEa",
-    "outcome": "accepted",
-    "revertPr": {
-      "number": 5,
-      "repository": {
-        "forge": "github",
-        "host": "P6Xbbq",
-        "name": "xDs9b",
-        "owner": "XZF/V/Um/sgp7r_5y"
-      }
-    }
+  "forkThreadId": "example",
+  "ok": true,
+  "prExisting": false,
+  "publication": {
+    "error": "example",
+    "input": {
+      "account": "af",
+      "description": "example",
+      "host": "q-4.s03e9dt.musn1c.z4l4aw2kv-9f4qmoxh.nongjh",
+      "name": "_wH",
+      "owner": "9AG6h",
+      "visibility": "private"
+    },
+    "phase": "origin_added",
+    "remote": null,
+    "updatedAt": 8,
+    "workspaceId": "example"
   },
-  "ok": false,
-  "title": "example",
   "type": "commandResult"
 }
 ```
@@ -2974,8 +3037,8 @@ Example:
 ```json
 {
   "code": "example",
+  "commandId": "example",
   "message": "example",
-  "requestId": "example",
   "type": "error"
 }
 ```
@@ -2998,8 +3061,8 @@ Example:
 {
   "bytes": "example",
   "eof": true,
-  "nextOffset": 4,
-  "offset": 7,
+  "nextOffset": 3,
+  "offset": 8,
   "requestId": "example",
   "streamId": "example",
   "type": "output.data"
@@ -3026,10 +3089,9 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": 2,
-  "omitted": [],
+  "itemsBefore": 6,
   "requestId": "example",
-  "seq": 4,
+  "seq": 8,
   "threadId": "example",
   "type": "items.page"
 }

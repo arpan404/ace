@@ -310,6 +310,12 @@ const entries = [
     keywords: ["lan", "tailscale", "relay", "transport", "network"],
   },
   {
+    id: "remote.hostedWebApp",
+    page: "/settings/remote",
+    title: "Hosted web app",
+    keywords: ["app.acehq.dev", "web", "browser", "pair", "phone", "hosted"],
+  },
+  {
     id: "remote.agentAccess",
     page: "/settings/remote",
     title: "Agents from other machines",

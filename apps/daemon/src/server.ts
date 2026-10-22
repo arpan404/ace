@@ -13,6 +13,7 @@ import type { IncomingMessage, Server } from "node:http";
 import { createServer as httpsServer } from "node:https";
 import { httpChains } from "./server-http.ts";
 import { webOriginAllowlist } from "./web-origins.ts";
+import { followHostedWebApp } from "./hosted-web-app.ts";
 import { PreAuthAdmission } from "./socket-admission.ts";
 import { activeDevice, allows, type Device } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
@@ -88,6 +89,8 @@ export async function startServer(options: ServerOptions): Promise<{
     ready = true;
   });
   if (options.maintenance) maintenance.enter();
+  const origins = webOriginAllowlist(options.webOrigins);
+  let stopHostedWebApp: (() => void) | undefined;
   const access = {
     auth,
     pairing,
@@ -99,7 +102,7 @@ export async function startServer(options: ServerOptions): Promise<{
         relayOverride: false,
         ...relayRoute(options.relay, options.hostId),
       },
-    allowedOrigins: webOriginAllowlist(options.webOrigins),
+    allowedOrigins: origins,
     ...(options.pairingAddress ? { sourceAddress: options.pairingAddress } : {}),
     ...(options.version === undefined ? {} : { version: options.version }),
     ...(options.eventLoop ? { eventLoop: options.eventLoop } : {}),
@@ -462,6 +465,7 @@ export async function startServer(options: ServerOptions): Promise<{
   let port: number;
   let transports: Awaited<ReturnType<typeof startTransports>> | undefined;
   try {
+    stopHostedWebApp = await followHostedWebApp(options.settings, origins);
     port = await bind(local, "127.0.0.1", options.port);
     if (remote && options.remote) {
       const remotePort = await bind(remote, options.remote.host, options.remote.port);
@@ -494,6 +498,7 @@ export async function startServer(options: ServerOptions): Promise<{
       preview = await createDaemonPreview(options.store, options.preview, auth.now);
   } catch (error) {
     stopTimer();
+    stopHostedWebApp?.();
     await dynamicRemote?.close();
     await transports?.close();
     await preview?.close();
@@ -543,6 +548,7 @@ export async function startServer(options: ServerOptions): Promise<{
     close() {
       closing ??= new Promise<void>((resolve, reject) => {
         stopTimer();
+        stopHostedWebApp?.();
         stopRevocation();
         for (const cleanup of cleanups.values()) cleanup();
         for (const server of servers)

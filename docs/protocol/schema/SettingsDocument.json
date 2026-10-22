@@ -280,6 +280,9 @@
         "remote.enabled": {
           "type": "boolean"
         },
+        "remote.hostedWebApp": {
+          "type": "boolean"
+        },
         "remote.relayUrl": {
           "examples": [
             "",

@@ -141,6 +141,11 @@
     "pinned": {
       "type": "boolean"
     },
+    "prSettled": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },
