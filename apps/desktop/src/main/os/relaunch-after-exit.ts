@@ -51,6 +51,7 @@ export function relaunchAfterExit(command: { execPath: string; args: readonly st
   child.on("error", () => {});
   child.unref();
   // The pipe must not keep this process alive; its write end closes when the process exits.
-  const stdin: { unref?: () => void } | null = child.stdin;
-  stdin?.unref?.();
+  // At runtime the stdin pipe is a net.Socket, which has unref.
+  const stdin = child.stdin;
+  if (stdin && "unref" in stdin && typeof stdin.unref === "function") stdin.unref();
 }
