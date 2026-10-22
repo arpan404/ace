@@ -132,7 +132,7 @@
     },
     "apps/desktop": {
       "name": "@ace/desktop",
-      "version": "0.0.5",
+      "version": "0.0.6",
       "dependencies": {
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
@@ -701,6 +701,12 @@
         "@ace/settings": "workspace:*",
       },
     },
+    "packages/native-host": {
+      "name": "@ace/native-host",
+      "dependencies": {
+        "zod": "^4.3.6",
+      },
+    },
     "packages/native-session": {
       "name": "@ace/native-session",
       "dependencies": {
@@ -1096,6 +1102,8 @@
     "@ace/mcp-server": ["@ace/mcp-server@workspace:packages/mcp-server"],
 
     "@ace/models": ["@ace/models@workspace:packages/models"],
+
+    "@ace/native-host": ["@ace/native-host@workspace:packages/native-host"],
 
     "@ace/native-session": ["@ace/native-session@workspace:packages/native-session"],
 
