@@ -18,12 +18,15 @@ import XCTest
         app.buttons["subagents.rollup"].firstMatch.tap()
         let review = app.buttons["subagent.Review PID-reuse safety"]
         XCTAssertTrue(review.waitForExistence(timeout: 10))
+        // The opened rows run two lines each: bring the last above the strip and composer.
+        clearOfComposer(review, in: app)
         review.tap()
         XCTAssertTrue(app.staticTexts["Review the kill-all change for PID-reuse safety."].waitForExistence(timeout: 25))
         screenshot("thread-child")
         app.navigationBars.buttons.firstMatch.tap()
         let tests = app.buttons["subagent.Write orphan-cleanup tests"]
         XCTAssertTrue(tests.waitForExistence(timeout: 25))
+        clearOfComposer(tests, in: app)
         tests.tap()
         XCTAssertTrue(app.staticTexts["Writing the PID-reuse regression."].waitForExistence(timeout: 10))
         screenshot("thread-agent-lane")
@@ -99,6 +102,13 @@ import XCTest
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
         app.launch()
         return app
+    }
+    /// Scrolls the transcript until `row` sits above the strip and composer at the bottom.
+    private func clearOfComposer(_ row: XCUIElement, in app: XCUIApplication) {
+        let input = app.textViews["composer.input"]
+        for _ in 0..<4 where input.exists && row.frame.maxY > input.frame.minY - 120 {
+            app.scrollViews["transcript"].swipeUp(velocity: .slow)
+        }
     }
     private func swipeToTop(_ app: XCUIApplication) {
         let transcript = app.scrollViews["transcript"]
