@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { MessageAvatar } from "@/components/ui/message.tsx";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Textarea } from "@/components/ui/input.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrAvatar } from "./pr-presentation.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
@@ -199,13 +200,15 @@ export function PrReviewers(props: {
   const said = props.rows.map((row) => `${row.label}, ${reviewerWords(row)}`).join("; ");
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        aria-label={`Reviewers: ${said}`}
-        title={said}
-        className="inline-flex rounded-full focus-ring"
-      >
-        <Stack rows={props.rows} />
-      </PopoverTrigger>
+      {/* The list says each verdict once open; until then the tooltip does. */}
+      <Tip label={said} disabled={open}>
+        <PopoverTrigger
+          aria-label={`Reviewers: ${said}`}
+          className="inline-flex rounded-full focus-ring"
+        >
+          <Stack rows={props.rows} />
+        </PopoverTrigger>
+      </Tip>
       <PopoverContent className="w-80 p-3">
         <PopoverTitle className="text-xs font-medium text-muted-foreground">Reviewers</PopoverTitle>
         <ul className="mt-1 flex flex-col">

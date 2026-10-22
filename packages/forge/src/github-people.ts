@@ -8,6 +8,8 @@ import type {
   ForgeRequestedReviewer,
 } from "@ace/protocol/forge-people";
 import type { GhApi } from "./http.ts";
+import { ForgeCompletionQuery } from "@ace/protocol/forge-people";
+import { ForgeError } from "./errors.ts";
 import { decode } from "./review-io.ts";
 
 const text = z.string().max(65_536);
@@ -159,12 +161,14 @@ function latestVerdicts(
   return [...reviews, ...[...verdicts.values()].filter((r) => !listed.has(r.login.toLowerCase()))];
 }
 
-/** Search words with GitHub's qualifier syntax taken out, so a query stays in this repository. */
+/**
+ * The search words, held to the protocol's rule: callers sanitize before the wire, and a query
+ * that could carry a search qualifier is refused rather than quietly rewritten.
+ */
 function searchWords(query: string): string {
-  return query
-    .replace(/[^\w .-]/g, " ")
-    .trim()
-    .slice(0, 100);
+  const parsed = ForgeCompletionQuery.safeParse(query);
+  if (!parsed.success) throw new ForgeError("invalid_data");
+  return parsed.data.trim();
 }
 
 /** Who can be mentioned, what `#` can point at, and who reviews a PR: one request each. */
@@ -192,8 +196,8 @@ export class GitHubPeople {
     const words = searchWords(query);
     const number = /^\d{1,9}$/.test(words) ? Number(words) : 0;
     const scope = `repo:${owner}/${name} sort:updated-desc`;
-    // A bare number is matched exactly rather than searched as words in titles.
-    const terms = number ? "" : ` ${words}`;
+    // A bare number is matched exactly; words are searched in titles only, never in bodies.
+    const terms = number || !words ? "" : ` in:title ${words}`;
     const response = await this.#api.request("graphql", signal, {
       query: `query AceReferences($owner:String!,$name:String!,$open:String!,$recent:String!,$number:Int!,$exact:Boolean!){ open: search(type:ISSUE,query:$open,first:10){ nodes { ${issueFields} } } recent: search(type:ISSUE,query:$recent,first:10){ nodes { ${issueFields} } } repository(owner:$owner,name:$name){ issueOrPullRequest(number:$number) @include(if:$exact) { ${issueFields} } } }`,
       variables: {

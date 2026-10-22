@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog.tsx";
@@ -11,6 +11,8 @@ const people = [
   { login: "mira", name: "Mira Okafor" },
   { login: "milo", name: "Milo Park" },
   { login: "sam", name: "Sam Lindqvist" },
+  { login: "bart", name: "Bart Visser" },
+  { login: "bob", name: "Bob Ito" },
 ];
 const references = [
   { number: 231, title: "Pull requests page", kind: "pr" as const, state: "open" as const },
@@ -20,12 +22,18 @@ const references = [
     kind: "issue" as const,
     state: "closed" as const,
   },
+  { number: 77, title: "Port bug in the daemon", kind: "issue" as const, state: "open" as const },
 ];
 const source: MarkdownCompletions = {
   people: async (query) =>
     people.filter((p) => p.login.startsWith(query) || p.name.toLowerCase().includes(query)),
+  // Like a search that also matches bodies: only the first word has to be in the title.
   references: async (query) =>
-    references.filter((r) => String(r.number).startsWith(query) || r.title.includes(query)),
+    references.filter(
+      (r) =>
+        String(r.number).startsWith(query) ||
+        r.title.toLowerCase().includes(query.split(" ")[0]?.toLowerCase() ?? ""),
+    ),
 };
 
 function Example(props: { initial?: string; sent?: string[] }) {
@@ -128,15 +136,90 @@ test("# after a deleted @ word never shows people: Enter inserts no one while th
   expect(field.value).toBe("#1\n");
 });
 
-test("# searches titles by words with spaces between them", async () => {
+test("# searches titles by words with spaces between them; Enter takes a row only once one is chosen", async () => {
   const { user, field } = setup();
   await user.type(field, "dupe of #Daemon forg");
   const rows = await options("Issues and pull requests");
   expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
     "#12 Daemon forgets the port, closed issue",
   ]);
+  // After a phrase, Enter is as likely the end of a sentence: it makes a new line.
   await user.keyboard("{Enter}");
+  expect(field.value).toBe("dupe of #Daemon forg\n");
+  await user.type(field, "{Backspace}");
+  await options("Issues and pull requests");
+  await user.keyboard("{ArrowDown}{Enter}");
   expect(field.value).toBe("dupe of #12 ");
+});
+
+test("prose after a # closes the list once no title holds every word", async () => {
+  const { user, field } = setup();
+  await user.type(field, "Tagging this #bug");
+  await options("Issues and pull requests");
+  await user.type(field, " because it crashes");
+  await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+  await user.keyboard("{Enter}");
+  expect(field.value).toBe("Tagging this #bug because it crashes\n");
+});
+
+test("Enter never takes a row from the answer to an earlier, shorter word", async () => {
+  const { user, field } = setup();
+  await user.type(field, "@b");
+  const rows = await options("People");
+  expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
+    "bart, Bart Visser",
+    "bob, Bob Ito",
+  ]);
+  // "o" then Enter before "@bo" has its own answer: no one is inserted.
+  await user.type(field, "o{Enter}");
+  expect(field.value).toBe("@bo\n");
+});
+
+test("picking with the caret inside a word replaces the whole word", async () => {
+  const { user, field } = setup("cc @mira please");
+  await user.click(field);
+  field.setSelectionRange(6, 6);
+  await user.keyboard("{Backspace}i");
+  expect(field.value).toBe("cc @mira please");
+  await options("People");
+  await user.keyboard("{Enter}");
+  expect(field.value).toBe("cc @mira please");
+  expect(field.selectionStart).toBe("cc @mira ".length);
+});
+
+test("the list's opening is announced politely", async () => {
+  const { user, field } = setup();
+  await user.type(field, "@mi");
+  await options("People");
+  expect(document.querySelector("[aria-live=polite]")?.textContent).toBe("2 people");
+  expect(field.getAttribute("aria-autocomplete")).toBe("list");
+});
+
+test("code never opens suggestions: fences of any kind and indent, indented blocks, and spans", async () => {
+  for (const text of [
+    "```\n~~~\n@mi",
+    "````\n```\n@mi",
+    "- item\n    ```\n    @mi",
+    "para\n\n    @mi",
+    "`` a ` @mi",
+  ]) {
+    const { user, field } = setup(text);
+    await user.click(field);
+    field.setSelectionRange(text.length, text.length);
+    await user.keyboard("r");
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(screen.queryByRole("listbox"), text).toBeNull();
+    cleanup();
+  }
+  // An escaped backtick opens no span, and a list item's indented line is not code.
+  for (const text of ["\\` @mi", "- item\n\n    @mi"]) {
+    const { user, field } = setup(text);
+    await user.click(field);
+    field.setSelectionRange(text.length, text.length);
+    await user.keyboard("r");
+    expect(await screen.findByRole("listbox"), text).toBeTruthy();
+    cleanup();
+  }
 });
 
 test("a link's #anchor target never opens suggestions", async () => {
