@@ -280,6 +280,9 @@
         "remote.enabled": {
           "type": "boolean"
         },
+        "remote.hostedPairingLink": {
+          "type": "boolean"
+        },
         "remote.relayUrl": {
           "examples": [
             "",
