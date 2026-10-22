@@ -10,10 +10,10 @@ import {
   blockedError,
   hardwareSerial,
   physicalIdPart,
-  physicalName,
   transportKind,
   type AdbTransport,
 } from "./adb-transports.ts";
+import { androidInventory, type DeviceHardware } from "./android-inventory.ts";
 import { avdNames, avdNameOrUndefined, nativeId, adbShell, androidDimensions } from "./commands.ts";
 export type DeviceCommand = (
   command: string,
@@ -50,7 +50,7 @@ export class AndroidPlatform {
   /** How each listed device is reached, and why it can't be used yet when it can't. */
   private readonly transports = new Map<string, Pick<AdbTransport, "kind" | "block">>();
   /** `ro.serialno` and the Android release of each phone or network device, by adb serial. */
-  private readonly hardware = new Map<string, { serialno: string; release?: string }>();
+  private readonly hardware = new Map<string, DeviceHardware>();
   private blocked: DeviceError[] = [];
   private noEmulator = false;
   diagnostics() {
@@ -106,32 +106,25 @@ export class AndroidPlatform {
     ]);
     this.noEmulator =
       !emulator && this.options.platform === "linux" && this.options.arch === "arm64";
-    const devices = new Map<string, Device>(
-      avdNames(installed?.stdout ?? "").map((name) => [
-        `android:${name}`,
-        { id: `android:${name}`, platform: "android", name, state: "shutdown" },
-      ]),
-    );
-    const kinds = new Map<string, Pick<AdbTransport, "kind" | "block">>();
-    for (const id of devices.keys()) kinds.set(id, { kind: "emulator" });
     const transports = adbTransports(connected.stdout);
     const connectedSerials = new Set(transports.map(({ serial }) => serial));
     for (const serial of this.serialNames.keys())
       if (!connectedSerials.has(serial)) this.serialNames.delete(serial);
     for (const serial of this.hardware.keys())
       if (!connectedSerials.has(serial)) this.hardware.delete(serial);
-    const emulators = transports.filter((transport) => transport.kind === "emulator");
     const physical = transports.filter((transport) => transport.kind !== "emulator");
     const [named] = await Promise.all([
       Promise.all(
-        emulators.map(async ({ serial, state }) => {
-          let name = this.serialNames.get(serial);
-          if (!name && state === "booted") {
-            name = await this.emulatorName(adb, serial);
-            if (name) this.serialNames.set(serial, name);
-          }
-          return { serial, state, name: name ?? serial };
-        }),
+        transports
+          .filter((transport) => transport.kind === "emulator")
+          .map(async ({ serial, state }) => {
+            let name = this.serialNames.get(serial);
+            if (!name && state === "booted") {
+              name = await this.emulatorName(adb, serial);
+              if (name) this.serialNames.set(serial, name);
+            }
+            return { serial, state, name: name ?? serial };
+          }),
       ),
       Promise.all(
         physical.map(async ({ serial, state }) => {
@@ -141,58 +134,34 @@ export class AndroidPlatform {
         }),
       ),
     ]);
-    this.duplicate = false;
     const bootingSerials = new Set([...this.pendingBoots].map((id) => this.ownedSerials.get(id)));
-    for (const { serial, state, name } of named) {
-      if (state === "offline" && bootingSerials.has(serial)) continue;
-      const id = `android:${name}`;
-      const existing = devices.get(id);
-      if (existing?.serial && existing.serial !== serial) {
-        this.duplicate = true;
-        devices.set(id, { ...existing, state: "offline" });
-        continue;
-      }
-      devices.set(id, { id, platform: "android", name, state, serial });
-      kinds.set(id, { kind: "emulator" });
-    }
-    const blocked = new Map<string, DeviceError>();
-    for (const transport of physical) {
-      const hardware = this.hardware.get(transport.serial);
-      const id = `android:${physicalIdPart(transport, hardware?.serialno)}`;
-      const existing = devices.get(id);
-      // One phone on USB and over Wi-Fi at once: a usable transport wins, then USB.
-      if (existing && !preferred(transport, existing, kinds.get(id)?.kind)) continue;
-      const name = physicalName(transport);
-      devices.set(id, {
-        id,
-        platform: "android",
-        name,
-        state: transport.state,
-        serial: transport.serial,
-        ...(hardware?.release ? { runtime: `Android ${hardware.release}` } : {}),
-      });
-      kinds.set(id, {
-        kind: transport.kind,
-        ...(transport.block ? { block: transport.block } : {}),
-      });
-      if (transport.block && !blocked.has(transport.block))
-        blocked.set(transport.block, blockedError(transport, name, this.options.platform));
-    }
-    this.blocked = [...blocked.values()];
+    const listed = androidInventory({
+      avds: avdNames(installed?.stdout ?? ""),
+      // An emulator ace is booting shows as the AVD it is, not as an offline transport.
+      emulators: named.filter(
+        ({ serial, state }) => !(state === "offline" && bootingSerials.has(serial)),
+      ),
+      physical,
+      hardware: this.hardware,
+      platform: this.options.platform,
+    });
+    this.duplicate = listed.duplicate;
+    this.blocked = listed.blocked;
     this.transports.clear();
-    for (const [id, kind] of kinds) this.transports.set(id, kind);
+    for (const [id, kind] of listed.transports) this.transports.set(id, kind);
+    const devices = listed.devices;
     for (const [id, shell] of this.inputs) {
-      const current = [...devices.values()].find((device) => device.id === id);
+      const current = devices.find((device) => device.id === id);
       if (current?.state !== "booted" || current.serial !== shell.serial) {
         this.inputs.delete(id);
         void shell.close();
       }
     }
     this.uiHelpers?.prune((id) => {
-      const current = [...devices.values()].find((device) => device.id === id);
+      const current = devices.find((device) => device.id === id);
       return current?.state === "booted" ? current.serial : undefined;
     });
-    const result = [...devices.values()].map((device) =>
+    const result = devices.map((device) =>
       DeviceSchema.parse({
         ...device,
         name: /^emulator-\d+$/.test(device.name) ? "Android emulator" : device.name,
@@ -326,10 +295,7 @@ export class AndroidPlatform {
     const found = await this.hardwareOf(adb, serial);
     return physicalIdPart({ serial }, found?.serialno);
   }
-  private async hardwareOf(
-    adb: string,
-    serial: string,
-  ): Promise<{ serialno: string; release?: string } | undefined> {
+  private async hardwareOf(adb: string, serial: string): Promise<DeviceHardware | undefined> {
     try {
       const { stdout } = await this.run(
         adb,
@@ -733,16 +699,4 @@ export class AndroidPlatform {
     this.transportWatchers.clear();
     this.ports.clear();
   }
-}
-
-/** Whether `transport` should list a phone already listed through another of its transports. */
-function preferred(
-  transport: AdbTransport,
-  existing: Device,
-  existingKind: AdbTransport["kind"] | undefined,
-): boolean {
-  if (existingKind === "emulator") return false;
-  if (transport.state === "booted" && existing.state !== "booted") return true;
-  if (transport.state !== "booted" && existing.state === "booted") return false;
-  return transport.kind === "usb" && existingKind !== "usb";
 }
