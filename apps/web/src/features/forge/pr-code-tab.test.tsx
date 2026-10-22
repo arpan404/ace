@@ -38,12 +38,13 @@ const changed = (path: string, added: string, patch?: string | null): ForgeFile 
 const filesPage = (
   files: ForgeFile[],
   nextPage?: number,
+  headSha = detail.status.headSha,
 ): { resource: "prFiles"; value: ForgePrFiles } => ({
   resource: "prFiles",
   value: {
     ref: detail.status.ref,
     baseSha: detail.baseSha,
-    headSha: detail.status.headSha,
+    headSha,
     files,
     truncated: false,
     ...(nextPage ? { nextPage } : {}),
@@ -60,15 +61,18 @@ const contextOf = (shown: Shown): PrWorkspaceContext => ({
 
 async function mount(app: ReturnType<typeof harness>, view: ReactNode) {
   await app.client.start();
-  render(
+  const query = createQueryClient();
+  const tree = (shown: ReactNode) => (
     <AppFrame environment={{ storage: app.storage, root: document.documentElement }}>
       <ClientProvider client={app.client}>
-        <QueryClientProvider client={createQueryClient()}>
-          <LayoutProvider storage={app.storage}>{view}</LayoutProvider>
+        <QueryClientProvider client={query}>
+          <LayoutProvider storage={app.storage}>{shown}</LayoutProvider>
         </QueryClientProvider>
       </ClientProvider>
-    </AppFrame>,
+    </AppFrame>
   );
+  const rendered = render(tree(view));
+  return (next: ReactNode) => rendered.rerender(tree(next));
 }
 const codeTab = (shown: Shown = detail) => (
   <PrFiles workspaceId="api" repository={repository} detail={shown} context={contextOf(shown)} />
@@ -234,29 +238,37 @@ const twoChanges = changed(
   "@@ -1,2 +1,2 @@\n-a\n+b\n c\n@@ -20,2 +20,2 @@\n-x\n+y\n z",
 );
 
-async function reviewing(app: ReturnType<typeof harness>) {
-  app.daemon.workspace.setForgeRead(page(1), filesPage([twoChanges]));
+const reviewed = (shown: Shown) => (
+  <PrUiProvider>
+    <PrReviewWorkspace workspaceId="api" detail={shown} onRefresh={() => {}}>
+      {codeTab(shown)}
+    </PrReviewWorkspace>
+  </PrUiProvider>
+);
+function serveReview(app: ReturnType<typeof harness>, headSha = detail.status.headSha) {
   app.daemon.workspace.setForgeRead(
     { op: "forge.pr.review-state", workspaceId, repository, number: 7 },
-    { resource: "prReviewState", value: reviewState({ headSha: detail.status.headSha }) },
+    { resource: "prReviewState", value: reviewState({ headSha }) },
   );
-  await mount(
-    app,
-    <PrUiProvider>
-      <PrReviewWorkspace workspaceId="api" detail={detail} onRefresh={() => {}}>
-        {codeTab()}
-      </PrReviewWorkspace>
-    </PrUiProvider>,
-  );
-  await screen.findByText("y");
+}
+
+async function reviewing(app: ReturnType<typeof harness>, files: ForgeFile[] = [twoChanges]) {
+  app.daemon.workspace.setForgeRead(page(1), filesPage(files));
+  serveReview(app);
+  return mount(app, reviewed(detail));
+}
+
+async function pickLine(name: string) {
+  const button = await screen.findByRole("button", { name });
+  button.focus();
+  await userEvent.keyboard("{Enter}");
 }
 
 test("a pick stops at lines the diff doesn't show rather than spanning them", async () => {
   const app = harness();
   await reviewing(app);
-  const first = await screen.findByRole("button", { name: "Comment on line 1" });
-  first.focus();
-  await userEvent.keyboard("{Enter}");
+  await screen.findByText("y");
+  await pickLine("Comment on line 1");
   await screen.findByText("Commenting on line 1");
   // Shift-click line 21, past the fold: the pick reaches line 2, the last line shown.
   fireEvent.pointerDown(screen.getByRole("button", { name: "Comment on line 21" }), {
@@ -270,9 +282,8 @@ test("a pick stops at lines the diff doesn't show rather than spanning them", as
 test("a comment being written keeps its text when its lines unmount and come back, without taking focus", async () => {
   const app = harness();
   await reviewing(app);
-  const first = await screen.findByRole("button", { name: "Comment on line 1" });
-  first.focus();
-  await userEvent.keyboard("{Enter}");
+  await screen.findByText("y");
+  await pickLine("Comment on line 1");
   const field = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Line comment" });
   // The pick asked for it, so focus arrives.
   await waitFor(() => expect(document.activeElement).toBe(field));
@@ -286,4 +297,70 @@ test("a comment being written keeps its text when its lines unmount and come bac
   ).toBe("Keep me");
   await new Promise((resolve) => setTimeout(resolve, 150));
   expect(document.activeElement).toBe(header);
+});
+
+test("after a push the picked lines are dropped, and the text waits for the next pick", async () => {
+  const app = harness();
+  const rerender = await reviewing(app);
+  await screen.findByText("y");
+  await pickLine("Comment on line 1");
+  await userEvent.type(await screen.findByRole("textbox", { name: "Line comment" }), "Keep me");
+  // The author pushes: the same line numbers now name other code.
+  const pushedHead = "e".repeat(40);
+  const pushed = { ...detail, status: { ...detail.status, headSha: pushedHead } };
+  app.daemon.workspace.setForgeRead(
+    { ...page(1), headSha: pushedHead },
+    filesPage([changed("src/first.ts", "", "@@ -1 +1 @@\n-a\n+pushed")], undefined, pushedHead),
+  );
+  serveReview(app, pushedHead);
+  rerender(reviewed(pushed));
+  await screen.findByText("pushed");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(screen.queryByRole("textbox", { name: "Line comment" })).toBeNull();
+  await pickLine("Comment on line 1");
+  expect(
+    (await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Line comment" })).value,
+  ).toBe("Keep me");
+});
+
+test("a pick on a line from an opened fold opens the comment and says GitHub can't take it", async () => {
+  const app = harness();
+  const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+  const after = lines.map((line, i) => (i === 14 ? "changed 15" : line));
+  app.daemon.workspace.setForgeRead(
+    page(1),
+    filesPage([{ ...changed("src/whole.ts", ""), patch: null, truncated: true }]),
+  );
+  for (const [sha, text] of [
+    [detail.baseSha, `${lines.join("\n")}\n`],
+    [detail.status.headSha, `${after.join("\n")}\n`],
+  ] as const)
+    app.daemon.workspace.setForgeRead(
+      { op: "forge.file.content", workspaceId, repository, sha, path: "src/whole.ts", page: 1 },
+      { resource: "fileContent", value: { kind: "text", text, size: text.length } },
+    );
+  serveReview(app);
+  await mount(app, reviewed(detail));
+  await screen.findByText("changed 15");
+  await userEvent.click(await screen.findByRole("button", { name: /11 unchanged lines/ }));
+  await pickLine("Comment on line 2");
+  await screen.findByText("Commenting on line 2");
+  await screen.findByText(
+    "GitHub didn't send this file's changes, so it can't take a comment on its lines.",
+  );
+});
+
+test("in split view a comment on the old side of an unchanged line sits in the left column", async () => {
+  const app = harness();
+  app.daemon.workspace.setForgeRead(page(1), filesPage([twoChanges]));
+  serveReview(app);
+  const leftThread = { ...thread(6, 2, false), side: "LEFT" as const };
+  const shown = { ...detail, status: { ...detail.status, reviewThreads: [leftThread] } };
+  await mount(app, reviewed(shown));
+  await screen.findByText("Note 6");
+  await userEvent.click(screen.getByRole("button", { name: "Split diff" }));
+  const before = await screen.findByRole("region", { name: "src/first.ts before" });
+  const after = screen.getByRole("region", { name: "src/first.ts after" });
+  expect(within(before).getByText("Note 6")).toBeTruthy();
+  expect(within(after).queryByText("Note 6")).toBeNull();
 });

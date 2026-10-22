@@ -47,15 +47,23 @@ export function PrFileReview(props: {
   file: ForgeFile;
   diff: FileDiff;
   context: PrDiffContext;
+  /** Split view draws each side's lines in its own column, so comments sit on their side. */
+  mode: "unified" | "split";
   children(comments: FileComments): ReactNode;
 }) {
   const review = usePrReview();
   const path = props.file.path;
-  const [writing, setWriting] = usePick(path);
+  const [picked, setPicked] = usePick(path);
   const askFocus = useAskFocus();
   const range = props.context.files;
   const { diff } = props;
   const current = !range.commit && review?.state?.headSha === range.headSha;
+  // A pick from another head or commit view names other code now: it isn't shown here. Its text
+  // stays in the file's draft for the next pick.
+  const writing =
+    current && picked?.headSha === range.headSha && picked.commit === (range.commit ?? "")
+      ? picked.range
+      : undefined;
   const allThreads = props.context.detail.status.reviewThreads;
   const threads = useSameList(
     useMemo(
@@ -78,9 +86,16 @@ export function PrFileReview(props: {
   const placed = useMemo(() => placeComments(diff, threads, drafts), [diff, threads, drafts]);
   const canComment =
     current && !!review?.state?.canComment && review.ready && !props.context.disabled;
-  const writingKey = writing && lineKeyOf(diff, writing.side, writing.end);
-  const pick = (picked: LineRange) => {
-    setWriting(picked);
+  const split = props.mode === "split";
+  const view = split ? placed.split : placed.unified;
+  // Under the picked line's row; a line from an opened fold has no row of the patch's, so the
+  // composer sits under the line itself (and says GitHub can't take a comment there).
+  const writingKey: LineKey | undefined =
+    writing &&
+    ((split ? undefined : lineKeyOf(diff, writing.side, writing.end)) ??
+      `${writing.side}:${writing.end}`);
+  const pick = (lines: LineRange) => {
+    setPicked({ headSha: range.headSha, commit: range.commit ?? "", range: lines });
     askFocus(lineComposerFocus(path));
   };
   return props.children({
@@ -95,8 +110,8 @@ export function PrFileReview(props: {
     onExtend: canComment ? pick : undefined,
     renderAnnotation: (target) => {
       const key = keyOf(target);
-      const here = placed.threads.get(key) ?? none;
-      const pending = placed.drafts.get(key) ?? none;
+      const here = view.threads.get(key) ?? none;
+      const pending = view.drafts.get(key) ?? none;
       const composing = writing && writingKey === key;
       if (!here.length && !pending.length && !composing) return null;
       return (
@@ -114,7 +129,7 @@ export function PrFileReview(props: {
               diff={diff}
               range={writing}
               headSha={range.headSha}
-              onClose={() => setWriting(undefined)}
+              onClose={() => setPicked(undefined)}
             />
           )}
         </div>

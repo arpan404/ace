@@ -7,7 +7,7 @@ import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/compone
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group.tsx";
 import { cn } from "@/lib/cn.ts";
 import { draftPlace } from "./pr-comment-model.ts";
-import { usePrReview } from "./pr-review-context.tsx";
+import { usePrDetail, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 
 type Verdict = "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
 const verdicts: readonly { value: Verdict; label: string }[] = [
@@ -38,10 +38,10 @@ export function PrReviewButton() {
   const review = usePrReview();
   const [open, setOpen] = useState(false);
   const [verdict, setVerdict] = useState<Verdict>("COMMENT");
-  const detail = review?.detail;
-  const prKey = JSON.stringify(detail?.status.ref ?? null);
+  const detail = usePrDetail();
+  const identity = usePrIdentity();
   const draft = useMarkdownDraft(
-    review ? `${draftKeys.prComment(review.workspaceId, prKey)}:review` : undefined,
+    identity ? `${draftKeys.prComment(identity.workspaceId, identity.prKey)}:review` : undefined,
   );
   const state = review?.state;
   if (!review || !detail || !state) return null;

@@ -64,7 +64,7 @@ export function PrCodeFile(props: {
   // GitHub counts the lines of every file it lists; files past its list are counted here.
   const counted = file.additions + file.deletions > 0;
   return (
-    <PrFileReview file={file} diff={diff} context={context}>
+    <PrFileReview file={file} diff={diff} context={context} mode={props.mode}>
       {(comments) => (
         <FileDiffBlock
           id={props.id}

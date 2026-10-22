@@ -40,6 +40,17 @@ class Keyed<V> {
   }
 }
 
+/**
+ * Lines picked for a new comment, with the head and commit view they were picked on. A pick is
+ * about those lines of that version only: after a push the same numbers name other code.
+ */
+export interface LinePick {
+  headSha: string;
+  /** The single commit shown, or "" for All commits. */
+  commit: string;
+  range: LineRange;
+}
+
 /** A comment's text being edited, with the text it replaces (the write's guard). */
 export interface CommentEdit {
   body: string;
@@ -52,8 +63,8 @@ export interface CommentEdit {
  * when it scrolls away; here it survives, and a row coming back doesn't take focus again.
  */
 interface PrUiState {
-  /** Per file path: the lines a new comment is being written on. */
-  picks: Keyed<LineRange>;
+  /** Per file path: the lines a new comment is being written on, and the version picked on. */
+  picks: Keyed<LinePick>;
   /** Per comment (`issue:7`, `inline:5`, `draft:<id>`): its text being edited. */
   edits: Keyed<CommentEdit>;
   /** Per reply field (`<thread id>`, `attention:<thread id>`): open. */

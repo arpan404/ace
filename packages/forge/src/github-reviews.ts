@@ -22,7 +22,12 @@ const positive = z.number().int().positive();
 const Comment = z.looseObject({
   id: positive,
   body: text,
-  node_id: text.optional(),
+  // GitHub's GraphQL node id, used only to hide a comment; anything else reads as missing.
+  node_id: z
+    .string()
+    .regex(/^[A-Za-z0-9_=-]{1,200}$/)
+    .optional()
+    .catch(undefined),
   user: z.looseObject({ login: text }).nullable(),
   pull_request_url: text.optional(),
   issue_url: text.optional(),

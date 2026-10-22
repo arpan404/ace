@@ -316,3 +316,28 @@ test("review comments show once, as their whole conversation, where it began", (
   expect(ids).not.toContain(32);
   expect(ids).toContain(33);
 });
+
+test("a conversation whose first comment wasn't read still shows, at its first comment that was", () => {
+  const root = inline(41, "2026-10-11T12:05:00Z", null);
+  const reply = inline(42, "2026-10-11T13:00:00Z", 41);
+  const shown = {
+    ...detail,
+    status: {
+      ...detail.status,
+      // The root is past the read cap: only the reply is among the PR's comments.
+      comments: [...detail.status.comments, reply],
+      reviewThreads: [
+        {
+          id: "T7",
+          resolved: false,
+          outdated: false,
+          file: "src/a.ts",
+          line: 3,
+          comments: [root, reply],
+        },
+      ],
+    },
+  };
+  const threads = prTimelineItems(shown, [], [], "oldest").filter((item) => item.kind === "thread");
+  expect(threads.map((item) => [item.id, item.at])).toEqual([["thread:T7", reply.createdAt]]);
+});
