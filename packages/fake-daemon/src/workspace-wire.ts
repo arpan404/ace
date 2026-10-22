@@ -2,6 +2,7 @@ import { FakeSourceControlDrafts } from "./source-control-drafts.ts";
 import { FakeProjects } from "./projects.ts";
 import {
   ForgeBrowserResult,
+  ForgeIssueSearch,
   type ForgeBrowserOperation,
   gitStatusLimit,
   ServerMessage,
@@ -21,7 +22,7 @@ import { FakePrCatalog } from "./pr-catalog-wire.ts";
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
 import { fakeOpenWork } from "./open-work-wire.ts";
 import { emptyIssueList, FakeIssueWire } from "./issue-wire.ts";
-import { catalogIssueList } from "./forge-list-wire.ts";
+import { catalogIssueList, matchingIssues } from "./forge-list-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import { FakeGitStates } from "./git-states.ts";
 import { FakeConflicts } from "./conflict-wire.ts";
@@ -224,10 +225,13 @@ export class FakeWorkspaceWire {
         },
       });
     }
-    const catalogued =
-      op.op.startsWith("forge.pr.") && !this.forgeReads.has(JSON.stringify(op))
-        ? this.pullRequests.read(op)
-        : undefined;
+    const catalogued = this.forgeReads.has(JSON.stringify(op))
+      ? undefined
+      : (this.pullRequests.peopleRead(op, (state) =>
+          "workspaceId" in op
+            ? (matchingIssues(op, ForgeIssueSearch.parse({ state }), this.forgeReads) ?? [])
+            : [],
+        ) ?? (op.op.startsWith("forge.pr.") ? this.pullRequests.read(op) : undefined));
     if (catalogued)
       return ServerMessage.parse({
         type: "workspace.result",
@@ -315,7 +319,10 @@ export class FakeWorkspaceWire {
       this.checkReruns.push(payload.action);
       return { ok: true };
     }
-    const merged = this.pullRequests.merge(payload) ?? this.pullRequests.mergeState(payload);
+    const merged =
+      this.pullRequests.merge(payload) ??
+      this.pullRequests.mergeState(payload) ??
+      this.pullRequests.review(payload);
     if (merged) return merged;
     const project = this.projects.command(payload);
     if (project) return project;
