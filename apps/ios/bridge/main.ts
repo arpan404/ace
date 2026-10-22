@@ -22,12 +22,14 @@ import { ComposeActions } from "./compose-actions.ts";
 import { CheckoutFiles } from "./checkout-files.ts";
 import { followFileChanges } from "./checkout-request.ts";
 import { NativeServices, NativeServiceAction } from "./native-services.ts";
+import { NativeReads } from "./native-reads.ts";
 import { ForgeService } from "./forge-service.ts";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { BrowserLive } from "./browser-live.ts";
 import { nativeChunks } from "./thread-attachments.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
+import { nativeReadSnapshots } from "./read-snapshots.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -137,6 +139,8 @@ async function start(json: string): Promise<void> {
         },
       },
     },
+    // The inbox and opened threads paint from what this phone read last time (ADR 0030).
+    readSnapshots: nativeReadSnapshots(call),
     scheduler,
     id: () => host.uuid(),
     random: () => host.random(),
@@ -159,11 +163,24 @@ async function start(json: string): Promise<void> {
     pump,
     { now: () => host.now(), set: scheduler.set },
     activityGeneration,
+    // What the phone draws first at its next launch, before this runtime starts.
+    (checkpoint) => void call("inbox.checkpoint", checkpoint).catch(() => {}),
   );
   followMachine(client, pump, trust);
   machine = new MachineProviders(client, pump);
   archive = new ArchiveBrowser(client, pump);
-  compose = new ComposeActions(client, pump, preview, () => host.now());
+  const reads = new NativeReads(client, pump, {
+    now: () => host.now(),
+    schedule: scheduler.set,
+    storage: {
+      load: () => call("storage.reads.load"),
+      save: async (text) => {
+        await call("storage.reads.save", text);
+      },
+    },
+  });
+  void reads.restore();
+  compose = new ComposeActions(client, pump, preview, () => host.now(), nativeChunks, reads);
   const featureConfig = {
     deviceId: config.deviceId,
     hostId: config.hostId,
@@ -197,6 +214,7 @@ async function start(json: string): Promise<void> {
     screen,
     files,
     new ForgeService(client, preview, () => host.now()),
+    reads,
   );
   terminal = new NativeTerminal(client, pump);
   browser = new BrowserLive(client, pump, preview, scheduler.set, {

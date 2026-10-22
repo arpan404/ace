@@ -25,4 +25,17 @@ import Testing
         #expect(throws: HostError.self) { _ = try store.perform("storage.host.save", input: JSONEncoder().encode("different")) }
         #expect(try store.perform("storage.host.load", input: Data("null".utf8)) == "original")
     }
+    @Test func keptReadsSurviveReopeningAndTheNewestRecordReplacesTheOld() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let path = root.appendingPathComponent("outbox.sqlite")
+        do {
+            let store = try DurableStore(url: path)
+            #expect(try store.perform("storage.reads.load", input: Data("null".utf8)) == "")
+            _ = try store.perform("storage.reads.save", input: JSONEncoder().encode(#"{"version":1,"reads":[]}"#))
+            _ = try store.perform("storage.reads.save", input: JSONEncoder().encode(#"{"version":1,"reads":[{"key":"k"}]}"#))
+        }
+        let reopened = try DurableStore(url: path)
+        #expect(try reopened.perform("storage.reads.load", input: Data("null".utf8)) == #"{"version":1,"reads":[{"key":"k"}]}"#)
+    }
 }

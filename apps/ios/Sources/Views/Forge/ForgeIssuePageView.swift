@@ -11,6 +11,15 @@ struct ForgeIssuePageView: View {
     @State private var page: ForgeIssuePage?
     @State private var failure: String?
     @Environment(\.openURL) private var openURL
+    private var request: [String: Any] { ClientModel.forgeIssueRead(project: route.project, number: route.number) }
+
+    /// Opens on the page this phone last saw for this issue, read again behind it.
+    init(client: ClientModel, route: ForgeRoute, actions: ForgeTabActions) {
+        self.client = client
+        self.route = route
+        self.actions = actions
+        _page = State(initialValue: client.kept(ClientModel.forgeIssueRead(project: route.project, number: route.number), as: ForgeIssuePage.self))
+    }
 
     var body: some View {
         ScrollView {
@@ -55,7 +64,7 @@ struct ForgeIssuePageView: View {
                 }
             }
         }
-        .task { await load() }
+        .task(id: client.readGeneration(request)) { await load() }
     }
 
     @ViewBuilder private func content(_ page: ForgeIssuePage) -> some View {

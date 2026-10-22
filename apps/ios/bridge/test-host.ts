@@ -3,6 +3,7 @@
  * acknowledges it, and answers host calls from `calls`. Imported before any bridge module, since
  * they read `globalThis.aceHost` when they load. Test-only.
  */
+import { nodeInflate } from "./test-inflate.ts";
 
 type Call = (input: unknown) => Promise<string>;
 
@@ -33,11 +34,13 @@ Object.assign(globalThis, {
     now: () => Date.now(),
     uuid: () => `id-${++next}`,
     random: () => 0.5,
-    encode: (text: string) => [...new TextEncoder().encode(text)],
     utf8Base64: (text: string) => Buffer.from(text, "utf8").toString("base64"),
     previewHead: (text: string, limit: number) => text.slice(0, limit),
     previewTail: (text: string, limit: number) => text.slice(-limit),
-    decode: (bytes: number[]) => new TextDecoder().decode(new Uint8Array(bytes)),
+    encode: (text: string) => new TextEncoder().encode(text),
+    decode: (bytes: Uint8Array, encoding: string, fatal: boolean) =>
+      new TextDecoder(encoding, { fatal }).decode(bytes),
+    inflate: nodeInflate,
     randomBytes: (count: number) => Array.from({ length: count }, () => 7),
     base64: (text: string, decode: boolean) =>
       decode

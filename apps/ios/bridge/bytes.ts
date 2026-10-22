@@ -25,8 +25,13 @@ export async function gather(
   return { bytes };
 }
 
-/** Standard base64 of `bytes`, built in 8 KiB slices so no call gets a huge argument list. */
+/**
+ * Standard base64 of `bytes`: natively where JavaScriptCore has `toBase64` (iOS 18.2 and
+ * later), else in 8 KiB slices so no call gets a huge argument list.
+ */
 export function base64(bytes: Uint8Array): string {
+  const native: { toBase64?: () => string } = bytes;
+  if (native.toBase64) return native.toBase64();
   const parts: string[] = [];
   for (let offset = 0; offset < bytes.length; offset += 8192)
     parts.push(String.fromCharCode(...bytes.subarray(offset, offset + 8192)));
