@@ -22,8 +22,8 @@ struct InboxView: View {
     /// Settings › Face ID; nil where the app has no lock (the debug fixture).
     var lock: AppLock?
     @State private var tab = InboxTab.threads
-    @State private var threadsPath: [String] = []
-    @State private var pullsPath: [String] = []
+    @State private var threadsPath: [InboxKey] = []
+    @State private var pullsPath: [InboxKey] = []
     /// The machine whose thread is open, and the tab it is open in: one open thread at a time.
     @State private var openMachine: String?
     @State private var openTab: InboxTab?
@@ -100,14 +100,17 @@ struct InboxView: View {
     /// The first machine with an error to show; each machine's error is its own.
     private var failing: MachineSession? { inbox.sessions.first { $0.client.error != nil } }
 
-    private func stack(_ tab: InboxTab, path: Binding<[String]>) -> some View {
+    private func stack(_ tab: InboxTab, path: Binding<[InboxKey]>) -> some View {
         InboxStack(inbox: inbox, path: path, pulls: tab == .pulls, machine: $machineFilter, project: $projectFilter,
                    shelves: $shelves, actions: actions(in: tab),
                    header: InboxHeaderActions(settings: { settingsStart = []; showingSettings = true },
-                                              machines: { settingsStart = [.machines]; showingSettings = true })) { id in
-            if let client = current, openTab == tab, let thread = client.thread, thread.id == id {
-                // Child threads open on the same machine's client as their parent.
-                ThreadView(model: client, thread: thread) { child in client.open(child); path.wrappedValue.append(child) }
+                                              machines: { settingsStart = [.machines]; showingSettings = true })) { key in
+            // Each page keeps drawing its thread while it slides away; child threads open on the
+            // same machine's client as their parent.
+            if let client = inbox.client(key.machineId) {
+                ThreadPage(client: client, id: key.id) { child in
+                    client.open(child); path.wrappedValue.append(InboxKey(machineId: key.machineId, id: child))
+                }
             }
         }
     }
@@ -171,13 +174,13 @@ struct InboxView: View {
         openTab = tab
         self.tab = tab
         client.open(key.id)
-        if tab == .pulls { threadsPath = []; pullsPath = [key.id] } else { pullsPath = []; threadsPath = [key.id] }
+        if tab == .pulls { threadsPath = []; pullsPath = [key] } else { pullsPath = []; threadsPath = [key] }
     }
-    private func pathChanged(_ tab: InboxTab, old: [String], new: [String]) {
+    private func pathChanged(_ tab: InboxTab, old: [InboxKey], new: [InboxKey]) {
         // Only the tab holding the open thread drives it; clearing the other tab is silent.
         guard openTab == tab else { return }
         if !old.isEmpty && new.isEmpty { current?.back(); openMachine = nil; openTab = nil }
         // Back from a child thread reopens its parent on that machine, under a new generation.
-        else if new.count < old.count, let parent = new.last { current?.open(parent) }
+        else if new.count < old.count, let parent = new.last { current?.open(parent.id) }
     }
 }
