@@ -28,7 +28,7 @@ export interface LivenessPorts {
 }
 
 /** Inputs that resume when their thread runs again; everything else needs a live session. */
-const resumable = new Set([
+export const resumable = new Set([
   "thread.send",
   "thread.create",
   "thread.fork",
@@ -45,7 +45,6 @@ const resumable = new Set([
  */
 export class ThreadLiveness {
   private ports: LivenessPorts;
-  private settling = new Map<ThreadId, Promise<void>>();
   constructor(ports: LivenessPorts) {
     this.ports = ports;
   }
@@ -142,46 +141,6 @@ export class ThreadLiveness {
       repo.sessionOpening(id)
     );
   }
-  /**
-   * A settled thread's whole tree stops, children first. A part that fails to stop never keeps
-   * the rest running; it goes to `failed` (the daemon's log), never to the person.
-   */
-  settleTree(id: ThreadId, failed: (thread: ThreadId, error: unknown) => void): Promise<void> {
-    const running = this.settling.get(id);
-    if (running) return running;
-    const flight = (async () => {
-      // Out of the settle event's own notification first.
-      await Promise.resolve();
-      for (const owner of this.tree(id).toReversed())
-        await this.stopSettled(owner).catch((error: unknown) => failed(owner, error));
-    })()
-      .catch((error: unknown) => failed(id, error))
-      .finally(() => this.settling.delete(id));
-    this.settling.set(id, flight);
-    return flight;
-  }
-  /** Every settled tree still stopping has finished. */
-  async settled(): Promise<void> {
-    await Promise.allSettled(this.settling.values());
-  }
-  /**
-   * Settling ends a thread's work for good: its provider session (and with it every background
-   * task and shell it owns), questions still open, and inputs that need a live session. Messages
-   * the person queued stay, held, for when they come back.
-   */
-  stopSettled(id: ThreadId): Promise<void> {
-    const { repo, clock } = this.ports;
-    if (!repo.state(id)) return Promise.resolve();
-    const holdQueued = () => {
-      if (repo.queue.count(id) > 0)
-        repo.queue.set(
-          id,
-          { paused: true, reason: "stopped", resumeAt: null, timerAction: null },
-          clock.now(),
-        );
-    };
-    return this.stopOwned(id, holdQueued, () => retireLiveIntents(repo, id));
-  }
   stopCancelled(id: ThreadId): Promise<void> {
     if (!this.unfinished(id)) return this.stop(id);
     if (!this.ports.repo.state(id)) return Promise.resolve();
@@ -200,21 +159,11 @@ export class ThreadLiveness {
     };
     return this.stopOwned(id, markCancelled);
   }
-  private async stopOwned(
-    id: ThreadId,
-    beforeExit: () => void,
-    retire: () => void = () =>
-      retireThreadIntents(
-        this.ports.repo,
-        id,
-        this.ports.clock.now(),
-        "Retired for thread deletion",
-      ),
-  ): Promise<void> {
+  private async stopOwned(id: ThreadId, beforeExit: () => void): Promise<void> {
     const { repo, sessions, clock } = this.ports;
     if (!repo.state(id)) return;
     this.ports.recovery.discard(id);
-    retire();
+    retireThreadIntents(repo, id, clock.now(), "Retired for thread deletion");
     // Session close can publish terminal facts before the final cleanup fold.
     beforeExit();
     const actor = this.ports.actor(id);
@@ -237,25 +186,13 @@ export class ThreadLiveness {
         ),
         { type: "process.exited", deliberate: true },
         { type: "queue.changed", source: "provider", count: 0 },
-        // Deletion retired every queued input; settling keeps the person's queued messages.
-        ...[repo.engineQueueFact(id)].filter((fact) => fact !== undefined),
+        { type: "queue.changed", source: "engine", count: 0 },
       ],
       clock.now(),
     );
     actor?.stop();
     repo.release(id);
   }
-}
-
-/** Inputs that need a live session end with it; queued sends wait for the thread's next run. */
-function retireLiveIntents(repo: EngineRepository, id: ThreadId): void {
-  repo.store.atomic(() => {
-    for (const intent of repo.pending.headers(id)) {
-      if (resumable.has(intent.kind)) continue;
-      repo.mark(intent, "failed", "The thread was settled");
-      repo.transitions.releaseGuards(intent.commandId);
-    }
-  });
 }
 
 /**

@@ -195,7 +195,7 @@ test("force deletion closes a live terminal before reporting success", async () 
   }
 });
 
-test("settling a thread kills the shells it still has running", async () => {
+test("settling a thread kills the shells it still has running and keeps their output readable", async () => {
   const f = await fixture();
   try {
     const terminalId = await f.runtime.openTerminal(f.thread.id, "Dev server");
@@ -213,6 +213,10 @@ test("settling a thread kills the shells it still has running", async () => {
     expect(settled.ok).toBe(true);
     await terminal.exited;
     expect(() => process.kill(pid, 0)).toThrow();
+    // The person can still read what the shell printed.
+    await f.lifecycle?.close();
+    expect(f.runtime.listTerminals(f.thread.id)).toMatchObject([{ id: terminalId, exited: true }]);
+    expect(f.runtime.listTerminals(f.thread.id)[0]?.nextOffset).toBeGreaterThan(0);
     expect(f.store.getThread(f.thread.id)?.deletedAt).toBeUndefined();
   } finally {
     await f.close();

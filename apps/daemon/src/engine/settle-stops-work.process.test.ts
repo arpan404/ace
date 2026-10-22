@@ -54,9 +54,9 @@ test("settling a thread with a background shell still running stops its session 
   expect(h.engine.liveWork(id)).toEqual({ agentsRunning: 0, operationsRunning: 0 });
 });
 
-test("a settled thread whose session won't close logs why and shows the person nothing", async () => {
+test("a settled thread whose provider fails to close logs why and shows the person nothing", async () => {
   const { h, id, logged } = await waitingOnShell();
-  // The provider CLI refuses to exit.
+  // The provider CLI fails its close.
   for (const session of h.adapter.sessions)
     Object.assign(session, { close: () => Promise.reject(new Error("provider did not exit")) });
   expect(settle(h.store, id, h.clock.now()).ok).toBe(true);
@@ -66,4 +66,38 @@ test("a settled thread whose session won't close logs why and shows the person n
   ]);
   expect(errorNotices(h, id)).toEqual([]);
   expect(h.store.getThread(id)?.settledAt).toBeDefined();
+  // The process itself ended when its lifetime did, and the thread says so.
+  expect(taskStatuses(h, id)).not.toContain("running");
+  expect(h.store.getThread(id)?.status.state).toBe("done");
+});
+
+test("a message sent while a settled thread is still stopping runs instead of being cut off", async () => {
+  const { h, id } = await waitingOnShell();
+  // The provider takes a while to exit.
+  const exit = Promise.withResolvers<void>();
+  for (const session of h.adapter.sessions) {
+    const close = session.close.bind(session);
+    Object.assign(session, {
+      close: async (reason: Parameters<typeof close>[0]) => {
+        await exit.promise;
+        await close(reason);
+      },
+    });
+  }
+  expect(settle(h.store, id, h.clock.now()).ok).toBe(true);
+  await Promise.resolve();
+  await Promise.resolve();
+  h.command(
+    { type: "thread.send", threadId: id, input: [{ type: "text", text: "one more thing" }] },
+    "device",
+    "again",
+  );
+  exit.resolve();
+  await h.engine.flush();
+  expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(2);
+  // The reopened thread's new session, and the shell its new turn started, keep running.
+  expect(h.engine.hasSession(id)).toBe(true);
+  expect(taskStatuses(h, id)).toEqual(["unknown", "running"]);
+  expect(h.engine.queue(id)).toMatchObject({ paused: false, lastFailure: null });
+  expect(errorNotices(h, id)).toEqual([]);
 });

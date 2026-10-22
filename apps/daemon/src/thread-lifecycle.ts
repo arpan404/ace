@@ -41,18 +41,22 @@ export class ThreadLifecycle {
     this.settling.add(done);
   }
   /**
-   * A settled thread keeps nothing running on the host: the terminals, dev-server previews and
-   * browser of it and every delegated child close. (The engine stops their agents.) A part that
-   * fails to close goes to the daemon's log only, never to the person.
+   * A settled thread keeps nothing running on the host: for it and every delegated child, the
+   * processes in its terminals end (their output stays readable), its dev-server previews are
+   * released and its browser closes. (The engine stops their agents.) Once the person unsettles
+   * the thread, whatever is left of this does nothing. A part that fails to close goes to the
+   * daemon's log only, never to the person.
    */
   private async closeSettled(id: ThreadId): Promise<void> {
     await Promise.resolve();
-    const { engine, workspaceActions, previewClient, browser } = this.options;
+    const { engine, workspaceActions, previewClient, browser, store } = this.options;
+    const settledAt = store.getThread(id)?.settledAt;
     for (const owner of (engine?.cleanupThreads(id) ?? [id]).toReversed()) {
-      if (this.stopped) return;
+      if (this.stopped || settledAt === undefined || store.getThread(id)?.settledAt !== settledAt)
+        return;
       const failed = (error: unknown) =>
         this.options.warn?.(`Closing settled thread ${owner} failed`, logError(error));
-      await workspaceActions?.closeThreadTerminals(owner).catch(failed);
+      await workspaceActions?.stopThreadTerminals(owner).catch(failed);
       try {
         previewClient?.releaseThread(owner);
       } catch (error) {
@@ -242,6 +246,8 @@ export class ThreadLifecycle {
         const id = ThreadId.parse(row.id);
         this.after = id;
         await engine.reconcileOwn(id).catch((error: unknown) => this.options.log?.(error));
+        // A settled tree whose provider refused to exit gets another try.
+        await engine.retrySettled(id).catch((error: unknown) => this.options.log?.(error));
       }
       if (rows.length < 64) this.after = "";
     })().finally(() => {
