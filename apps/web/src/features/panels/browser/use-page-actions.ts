@@ -1,3 +1,4 @@
+import { revealWords } from "@/lib/folder-actions.ts";
 import { z } from "zod";
 import { useState } from "react";
 import { desktopBrowserViews } from "@/boot/desktop-browser.ts";
@@ -45,7 +46,7 @@ export function usePageActions(input: {
       ...(reveal
         ? {
             actionProps: {
-              children: "Show in Finder",
+              children: revealWords().show,
               onClick: () => void reveal(path).catch(() => {}),
             },
           }

@@ -1,3 +1,4 @@
+import { revealWords } from "@/lib/folder-actions.ts";
 import {
   CopyIcon,
   DeviceMobileIcon,
@@ -78,8 +79,8 @@ function DownloadRow(props: {
       {path && reveal && (
         <IconButton
           icon={FolderOpenIcon}
-          label={`Show ${download.filename} in Finder`}
-          tip="Show in Finder"
+          label={revealWords().showFile(download.filename)}
+          tip={revealWords().show}
           size="sm"
           onClick={() =>
             void reveal(path).catch(() => toast.error({ title: "Couldn't show the file" }))
@@ -177,7 +178,7 @@ export function DownloadsButton(props: {
           {reveal && newest?.path && (
             <IconButton
               icon={FolderOpenIcon}
-              label="Show downloads in Finder"
+              label={revealWords().showFolder("downloads")}
               size="sm"
               onClick={() => void reveal(newest.path ?? "").catch(() => {})}
             />
