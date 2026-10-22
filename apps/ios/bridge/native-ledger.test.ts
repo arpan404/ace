@@ -138,18 +138,19 @@ test("a warm reopen the bridge no longer remembers resets native before sending 
   await client.close();
 });
 
+const itemPatch = (id: string) => ({
+  type: "thread.item",
+  id,
+  row: { text: id },
+  threadId: "thread",
+  epoch: 1,
+});
+
 test("a whole-thread pass removes what native holds that the thread no longer has", () => {
   const ledger = new NativeLedger("thread");
-  const row = (id: string) => ({
-    type: "thread.item",
-    id,
-    row: { text: id },
-    threadId: "thread",
-    epoch: 1,
-  });
   ledger.delivered("thread:reset", { type: "thread.reset", epoch: 1 }, "");
   for (const id of ["a", "b", "c"])
-    ledger.delivered(`thread:item:${id}`, row(id), ledgerText(row(id)));
+    ledger.delivered(`thread:item:${id}`, itemPatch(id), ledgerText(itemPatch(id)));
   expect(ledger.begin()).toBe(true);
   ledger.touch("thread:item:a");
   ledger.touch("thread:item:c");
