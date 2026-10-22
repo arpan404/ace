@@ -16,7 +16,8 @@ struct ThreadToolbar: ToolbarContent {
     var body: some ToolbarContent {
         if #available(iOS 26, *) {
             ToolbarItem(placement: .principal) { heading }.sharedBackgroundVisibility(.hidden)
-            ToolbarItem(placement: .topBarTrailing) { menu }.sharedBackgroundVisibility(.hidden)
+            // ⋯ sits in the same glass circle as the system's back button across from it.
+            ToolbarItem(placement: .topBarTrailing) { menu }
         } else {
             ToolbarItem(placement: .principal) { heading }
             ToolbarItem(placement: .topBarTrailing) { menu }
@@ -94,7 +95,7 @@ struct ThreadMenu: View {
             }
         } label: {
             AceIcon(.dotsThree, size: 20)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                .foregroundStyle(AceTheme.Colours.foreground)
                 .frame(width: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm, height: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
                 .contentShape(Rectangle())
         }

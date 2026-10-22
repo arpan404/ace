@@ -28,8 +28,10 @@ import Observation
     @ObservationIgnored var stopRequest: String?
     /// Finished turns' steps read on demand, by turn ordinal.
     var steps: [Int: TurnStepsModel] = [:]
-    /// The thread's live line and the strip's words while it only waits; nil when nothing is live.
-    var activity: ActivityRow?
+    /// The live pill over the composer; nil when nothing is live, queued or pursued.
+    var pill: PillRow?
+    /// The thread's goal, for its sheet; nil without one.
+    var goal: GoalRow?
     /// Subagent groups the person opened, by block id. Kept across a reload of the thread, so
     /// coming back from a child finds the group as it was left.
     var openGroups: Set<String> = []
@@ -48,7 +50,8 @@ import Observation
         blockOrder = []
         controls = nil
         queue = nil
-        activity = nil
+        pill = nil
+        goal = nil
         steps = [:]
         tune = nil
         attachments = []

@@ -19,6 +19,10 @@ struct ConversationFeed: View {
     let links: TranscriptLinks
     /// The composer and its strip, floating over the feed's bottom edge.
     var barHeight: CGFloat = 0
+    /// The person reads away from the live end; the composer's floaters offer Scroll to end.
+    @Binding var behind: Bool
+    /// Bumped by each Scroll to end the person taps.
+    var jumps = 0
     @State private var reading = TranscriptReading()
     @State private var position = ScrollPosition(idType: String.self)
     @State private var following = true
@@ -160,16 +164,11 @@ struct ConversationFeed: View {
             if pinned { position.scrollTo(edge: .bottom) }
         }
         .onDisappear { reading.cancel() }
-        .overlay(alignment: .bottom) {
-            if !following || reading.thread != nil {
-                ScrollToEndPill {
-                    reading.live(model: model, thread: thread)
-                    following = true
-                    position.scrollTo(edge: .bottom)
-                }
-                .padding(.bottom, AceTheme.Spacing.md + barHeight + keyboardLift)
-                .transition(.opacity)
-            }
+        .onChange(of: !following || reading.thread != nil, initial: true) { _, away in if behind != away { behind = away } }
+        .onChange(of: jumps) { _, _ in
+            reading.live(model: model, thread: thread)
+            following = true
+            position.scrollTo(edge: .bottom)
         }
         .modifier(TranscriptTopEdge())
     }
@@ -198,26 +197,6 @@ struct ConversationFeed: View {
             } else if reading.hasNewer { reading.read("newer", model: model, live: thread) }
             else { intent.consumed = false }
         }
-    }
-}
-
-/// Back to the live end, as the web's: a pill centred over the composer, "Scroll to end".
-private struct ScrollToEndPill: View {
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
-                AceIcon(.caretDown, size: 13, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                Text("Scroll to end").fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
-            }
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-            .padding(.leading, AceTheme.Spacing.md).padding(.trailing, AceTheme.Spacing.md + AceTheme.Spacing.xxs)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs)
-            .contentShape(AceShape.capsule)
-        }
-        .buttonStyle(.plain)
-        .aceGlass(in: AceShape.capsule, interactive: true)
-        .accessibilityIdentifier("transcript.latest")
     }
 }
 
