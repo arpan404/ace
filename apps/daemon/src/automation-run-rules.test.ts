@@ -84,23 +84,27 @@ test("a Stop marker never ends a run whose background task, subagent or preparat
       cancelling: true,
     }),
   ).toBe("needs-human");
-  // The thread itself still working beats its Stop marker too.
+  // A thread held to carry the turn on beats its Stop marker too.
   expect(
     runTreeState({
-      root: root({ attention: "stopped", status: { state: "working", agents: 1 } }),
+      root: root({ attention: "stopped", status: { state: "waiting", on: "rate_limit" } }),
       work: idle,
       children: none,
       cancelling: true,
     }),
   ).toBe("working");
+});
+
+test("the thread reading as working because of others' work never holds the run open", () => {
+  // Its status counts every working agent and delegated child; only the run's own are counted.
   expect(
     runTreeState({
-      root: root({ attention: "stopped", status: { state: "waiting", on: "background_task" } }),
+      root: root({ status: { state: "working", agents: 2 } }),
       work: idle,
       children: none,
-      cancelling: true,
+      cancelling: false,
     }),
-  ).toBe("working");
+  ).toBe("ok");
 });
 
 test("with nothing open, a run's own stop ends its turn, while a person's Stop waits on the person", () => {

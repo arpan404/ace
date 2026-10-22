@@ -65,6 +65,8 @@ export function setup(
   const contexts = new Map<ThreadId, SessionContext>();
   /** Native keys of background tasks ace asked a provider to stop. */
   const stoppedTasks: string[] = [];
+  /** How many of the next task stops the provider fails, as a dropped RPC would. */
+  let stopTaskFailures = 0;
   const registry = new AdapterRegistry();
   const capabilities = Capabilities.parse({
     steer,
@@ -169,6 +171,10 @@ export function setup(
                 );
             },
             async stopTask(task) {
+              if (stopTaskFailures > 0) {
+                stopTaskFailures--;
+                throw new Error("The provider lost the stop");
+              }
               await session.stopTask(task);
               stoppedTasks.push(task);
               // A Claude task ends once asked to stop, as the CLI reports it.
@@ -275,6 +281,9 @@ export function setup(
   return {
     home,
     stoppedTasks,
+    failNextTaskStops(count: number) {
+      stopTaskFailures = count;
+    },
     nativeHistories,
     inputs,
     inputMessages,

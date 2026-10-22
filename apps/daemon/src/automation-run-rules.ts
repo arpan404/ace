@@ -58,18 +58,17 @@ function rootState(root: RootFacts | undefined, cancelling: boolean): TreeState 
   const status = root.status;
   if (status.state === "unresponsive") return "uncertain";
   if (status.state === "needs_you" || root.attention === "restart") return "needs-human";
-  // The thread still works: no Stop or kill makes that over.
+  // Held to carry the turn on (a limit, or waiting on the network or upstream): not over. Its
+  // working agents, tasks and children are counted one by one, as the run's own or not, since
+  // the thread's status also counts work that isn't the run's.
   if (
-    status.state === "working" ||
     status.state === "limited" ||
-    status.state === "new" ||
-    (status.state === "waiting" && status.on !== "queue")
+    (status.state === "waiting" && ["rate_limit", "network", "upstream"].includes(status.on))
   )
     return "working";
   // Killed work never carries on: the run is over.
   if (root.cancelled || status.state === "failed") return "failed";
   if (root.attention === "stopped") return cancelling ? "failed" : "needs-human";
-  // Done, or waiting only on its queue, which holds others' messages: the run's turn is over.
   return "ok";
 }
 

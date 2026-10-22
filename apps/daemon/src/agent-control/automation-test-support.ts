@@ -22,7 +22,7 @@ import { setup } from "./test-support.ts";
  * answers it (`answer`), where a Codex turn ends as soon as it starts.
  */
 export async function automationFixture(provider: "codex" | "claude" = "codex") {
-  const h = setup();
+  let h = setup();
   const caller = provider === "claude" ? await claudeThread(h) : await h.parent();
   let sequence = 0;
   const open = async () => {
@@ -56,8 +56,23 @@ export async function automationFixture(provider: "codex" | "claude" = "codex") 
   };
   let owner = await open();
   return {
-    h,
+    get h() {
+      return h;
+    },
     caller,
+    /**
+     * Restart everything as after a crash: the automations, the delegation service, the engine
+     * and the store are closed and opened again on the same database and data directory.
+     */
+    async restartDaemon() {
+      const now = h.clock.now();
+      await owner.resources.close();
+      await h.close();
+      h = setup({}, h.dbPath);
+      h.clock.advance(now);
+      await h.engine.flush();
+      owner = await open();
+    },
     /** The agent saves a manual automation `id` that sends `prompt` into its thread. */
     async save(id: string, prompt: string) {
       const result = await owner.owners.execute(
