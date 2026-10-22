@@ -12,11 +12,13 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CallResult, EvalAgent } from "./evals/agent.ts";
 import { evalWorld, type EvalWorld } from "./evals/world.ts";
+import { answerChooser, scriptedChooser } from "./testing/portal-chooser.ts";
 
 const session = process.env.ACE_LINUX_DESKTOP_E2E;
 const helper = process.env.ACE_SCREEN_HELPER;
 const enabled = process.platform === "linux" && !!session && !!helper;
-const graphical = session === "x11" || session === "wayland";
+/** x11 (Openbox), wayland (GNOME Shell), hyprland (Omarchy's compositor) or sway. */
+const graphical = ["x11", "wayland", "hyprland", "sway"].includes(session ?? "");
 const exec = promisify(execFile);
 
 const worlds: EvalWorld[] = [];
@@ -148,6 +150,8 @@ describe.skipIf(!enabled)(`Linux desktop end to end (${session ?? "off"})`, () =
     "an agent types into the background text editor by element id and its next look shows the text",
     async () => {
       const { agent: model } = await agent({ browser: false });
+      // Where the chooser is scripted, the person picks the editor's window when asked.
+      if (scriptedChooser) await answerChooser({ window: "org.gnome.TextEditor" });
       const look = ok(
         await model.call("screen_state", { app: "org.gnome.TextEditor", screenshot: true }),
         "screen_state",
@@ -155,7 +159,7 @@ describe.skipIf(!enabled)(`Linux desktop end to end (${session ?? "off"})`, () =
       const outline = words(look);
       // X11 captures the window. On Wayland the first look opens the screen-sharing dialog
       // and asks the person to approve it; a remembered approval captures directly.
-      if (session === "x11") expect(look.images, outline).toBe(1);
+      if (session === "x11" || scriptedChooser) expect(look.images, outline).toBe(1);
       else
         expect(
           look.images === 1 || /No screenshot: .*approve screen sharing/i.test(outline),
