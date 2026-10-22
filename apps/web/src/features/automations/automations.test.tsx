@@ -299,6 +299,17 @@ test("a run is refused when this browser can only remember its retry key in memo
   expect(await runsOf(app, "auto-dependency-audit")).toHaveLength(before.length);
 });
 
+test("a second Run now while a run works waits as a queued turn", async () => {
+  const { app } = await open("/automations/auto-dependency-audit");
+  await heading("Nightly dependency audit");
+  await setAutomations(app, true);
+  await menu("Run now");
+  expect(await main().findByText(/^Working for /)).toBeTruthy();
+  await menu("Run now");
+  expect(await main().findByText("Queued")).toBeTruthy();
+  expect(main().getByText("Waits for the last run to finish, then starts.")).toBeTruthy();
+});
+
 test("Run now can't start a second run while the first is starting", async () => {
   const { app, runs } = await open("/automations/auto-dependency-audit");
   await heading("Nightly dependency audit");

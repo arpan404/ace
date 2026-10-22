@@ -63,6 +63,10 @@ export function setup(
     { commandId: string; nativeId: string; origin?: "ace"; delivery?: "steer" | "queue" }[]
   >();
   const contexts = new Map<ThreadId, SessionContext>();
+  /** Native keys of background tasks ace asked a provider to stop. */
+  const stoppedTasks: string[] = [];
+  /** How many of the next task stops the provider fails, as a dropped RPC would. */
+  let stopTaskFailures = 0;
   const registry = new AdapterRegistry();
   const capabilities = Capabilities.parse({
     steer,
@@ -160,8 +164,22 @@ export function setup(
             },
             async interrupt(target) {
               await session.interrupt(target);
+              // Claude ends the turn of the agent it was asked to stop.
               if (provider === "claude")
-                ctx.onFrame(frames.frame({ ...end, outcome: "interrupted" }));
+                ctx.onFrame(
+                  frames.frame({ ...end, agent: target.agent ?? "root", outcome: "interrupted" }),
+                );
+            },
+            async stopTask(task) {
+              if (stopTaskFailures > 0) {
+                stopTaskFailures--;
+                throw new Error("The provider lost the stop");
+              }
+              await session.stopTask(task);
+              stoppedTasks.push(task);
+              // A Claude task ends once asked to stop, as the CLI reports it.
+              if (provider === "claude")
+                ctx.onFrame(frames.frame({ type: "background.ended", task, status: "stopped" }));
             },
             close: async () => {
               ctx.onExit({ deliberate: true });
@@ -262,6 +280,10 @@ export function setup(
   }
   return {
     home,
+    stoppedTasks,
+    failNextTaskStops(count: number) {
+      stopTaskFailures = count;
+    },
     nativeHistories,
     inputs,
     inputMessages,

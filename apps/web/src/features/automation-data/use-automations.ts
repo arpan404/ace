@@ -67,7 +67,7 @@ export function useAutomation(id: string): {
 }
 
 const running = (runs: readonly AutomationRun[] | undefined) =>
-  runs?.some((run) => run.status === "running") ?? false;
+  runs?.some((run) => run.status === "running" || run.status === "queued") ?? false;
 
 export function useAutomationRuns() {
   return useDaemonQuery({

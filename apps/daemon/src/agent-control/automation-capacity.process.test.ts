@@ -1,4 +1,4 @@
-import { AutomationResponse, type Automation } from "@ace/protocol";
+import { AutomationResponse, type Automation, AgentAutomation } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { automationFixture } from "./automation-test-support.ts";
 
@@ -23,7 +23,11 @@ test("removed and rejected agent definitions do not permanently consume automati
         (
           await f.call({
             op: "automation.manage",
-            request: { type: "automation.put", requestId: `put-${automation.id}`, automation },
+            request: {
+              type: "automation.put",
+              requestId: `put-${automation.id}`,
+              automation: AgentAutomation.parse(automation),
+            },
           })
         ).data,
       );
@@ -90,7 +94,7 @@ test("removed and rejected agent definitions do not permanently consume automati
           request: {
             type: "automation.put",
             requestId: "steal",
-            automation: { ...base, id: "invalid-0" },
+            automation: AgentAutomation.parse({ ...base, id: "invalid-0" }),
           },
         },
         { sessionId: "foreign", threadId: foreign.threadId, agentId },
@@ -120,7 +124,11 @@ test("agents cannot pause, resume, or retry jobs they do not own", async () => {
     const manage = (request: import("@ace/protocol").AgentAutomationRequest) =>
       f.call({ op: "automation.manage", request });
     expect(
-      await manage({ type: "automation.put", requestId: "own-put", automation: base }),
+      await manage({
+        type: "automation.put",
+        requestId: "own-put",
+        automation: AgentAutomation.parse(base),
+      }),
     ).toMatchObject({ ok: true });
     const workspaceId = f.h.store.getThread(f.caller.threadId)?.workspaceId;
     if (!workspaceId) throw new Error("Missing caller workspace");

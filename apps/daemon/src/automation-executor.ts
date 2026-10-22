@@ -1,137 +1,125 @@
 import { createHash } from "node:crypto";
-import { Command, CommandId, ThreadId, WorkspaceId, DeviceId } from "@ace/protocol";
-import type { AutomationExecutor, ExecutionInput, ExecutionResult } from "@ace/automations";
+import { CommandId, ThreadId, WorkspaceId, DeviceId } from "@ace/protocol";
+import type { AutomationExecutor, ExecutionInput } from "@ace/automations";
+import { z } from "zod";
 import type { ServiceContext } from "./services/types.ts";
-import { commandContext } from "./commands.ts";
-import { readThreadTree } from "./thread-tree.ts";
-import { treeOutcome } from "./work-outcome.ts";
-import { systemClock } from "./engine/actor.ts";
+import { automationRunExecutor, hostControl } from "./automation-run-executor.ts";
 
-/** Idempotent native admission; monitors consume whole-tree status, never root completion. */
+const deviceId = DeviceId.parse("automation");
+
+/**
+ * Runs a person's automation in its own one thread: the first run creates the thread, and every
+ * later run sends its message into that same thread, queued behind any turn already going.
+ */
 export function automationExecutor(context: ServiceContext): AutomationExecutor {
-  const { store, services } = context;
-  const lookup = (commandId: string) =>
-    store.atomic((db) => {
-      const row = db
-        .prepare("SELECT result FROM command_receipts WHERE command_id=?")
-        .get(commandId);
-      if (!row) return undefined;
-      return importResult(row.result);
-    });
-  const monitor = (id: ThreadId, signal: AbortSignal): Promise<ExecutionResult> =>
-    new Promise((resolve, reject) => {
-      if (signal.aborted) {
-        reject(signal.reason);
-        return;
-      }
-      let stop = noop;
-      let cancelTimer = noop;
-      let settled = false;
-      let members = new Set<ThreadId>([id]);
-      const abort = () => {
-        settled = true;
-        cancelTimer();
-        stop();
-        signal.removeEventListener("abort", abort);
-        reject(signal.reason);
-      };
-      const inspect = () => {
-        if (settled) return;
-        const thread = store.getThread(id);
-        const facts = readThreadTree(context, id);
-        if (facts) members = new Set(facts.map((member) => member.threadId));
-        const outcome = facts && treeOutcome(facts);
-        if (!thread || thread.deletedAt !== undefined || outcome === "failed" || outcome === "ok") {
-          settled = true;
-          cancelTimer();
-          stop();
-          signal.removeEventListener("abort", abort);
-          resolve({
-            threadId: id,
-            status: outcome === "ok" ? "succeeded" : "failed",
-            result:
-              outcome === "ok"
-                ? "Thread tree completed"
-                : "Thread failed, cancelled or unavailable",
-          });
-        }
-      };
-      stop = store.subscribe((events) => {
-        if (
-          events.some(
-            (event) =>
-              members.has(event.threadId) &&
-              (event.payload.type === "thread.updated" ||
-                event.payload.type === "thread.client.updated" ||
-                event.payload.type === "queue.updated"),
-          )
-        )
-          inspect();
-      });
-      signal.addEventListener("abort", abort, { once: true });
-      const clock = context.options.engine?.clock ?? systemClock;
-      const refresh = () => {
-        inspect();
-        if (!settled) cancelTimer = clock.setTimer(refresh, 500);
-      };
-      refresh();
-    });
-  return {
-    async execute(input, signal) {
-      const handler = services.engine?.internalHandler ?? services.handler;
-      if (!handler) throw new Error("engine_unavailable");
-      const workspaceId = store.atomic((db) =>
-        WorkspaceId.parse(
-          db
-            .prepare("SELECT id FROM workspaces WHERE path=? OR id=? LIMIT 1")
-            .get(input.workspace, input.workspace)?.id,
-        ),
+  const { store } = context;
+  store.atomic((db) =>
+    db.exec(`CREATE TABLE IF NOT EXISTS automation_threads(
+      automation_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, settings TEXT
+    );`),
+  );
+  const threadRow = (automationId: string) =>
+    z
+      .object({ thread_id: ThreadId, settings: z.string().nullable() })
+      .optional()
+      .parse(
+        store
+          .statement("SELECT thread_id,settings FROM automation_threads WHERE automation_id=?")
+          .get(automationId),
       );
-      const command = Command.parse({
-        id: executionKey(input.idempotencyKey),
-        deviceId: DeviceId.parse("automation"),
-        payload: {
-          type: "thread.create",
-          workspaceId,
-          provider: input.provider,
-          ...(input.access ? { access: input.access } : {}),
-          trigger: "schedule",
-          origin: { kind: "automation", role: input.automationId },
-          ...(input.model ? { model: input.model } : {}),
-          ...launchChoices(input),
-          mode: input.worktree ? "worktree" : "local",
-          title: automationThreadTitle(input.title),
-          input: [{ type: "text", text: input.prompt }],
-        },
-      });
-      const result = await store.write(() =>
-        store.recordCommand(command.id, command.deviceId, () =>
-          handler.handle(command, commandContext(store)),
-        ),
-      );
-      if (!result.ok || !result.threadId)
-        throw new Error(result.error ?? "automation_admission_failed");
-      return monitor(result.threadId, signal);
-    },
-    async recover(idempotencyKey, signal) {
-      const result = lookup(executionKey(idempotencyKey));
-      if (!result) return undefined;
-      if (!result.ok || !result.threadId)
-        throw new Error(result.error ?? "automation_admission_failed");
-      return monitor(result.threadId, signal);
-    },
+  /** The automation's thread while it can still take a run: not deleted, not archived. */
+  const ownThread = (automationId: string): ThreadId | undefined => {
+    const row = threadRow(automationId);
+    const thread = row && store.getThread(row.thread_id);
+    return thread && thread.deletedAt === undefined && thread.archivedAt === undefined
+      ? thread.id
+      : undefined;
   };
+  const workspaceOf = (workspace: string) =>
+    WorkspaceId.parse(
+      store
+        .statement("SELECT id FROM workspaces WHERE path=? OR id=? LIMIT 1")
+        .get(workspace, workspace)?.id,
+    );
+  return automationRunExecutor(
+    context,
+    {
+      deviceId,
+      commandId: executionKey,
+      admission(input) {
+        const existing = ownThread(input.automationId);
+        const origin = { kind: "automation" as const, role: input.automationId };
+        if (existing)
+          return {
+            threadId: existing,
+            payload: {
+              type: "thread.send",
+              threadId: existing,
+              delivery: "queue",
+              trigger: "schedule",
+              origin,
+              // The thread keeps whatever model and effort it has, unless the automation's own
+              // changed since they were last given to it: then the run carries the new ones.
+              ...runSettings(input, threadRow(input.automationId)?.settings ?? undefined),
+              input: [{ type: "text", text: input.prompt }],
+            },
+          };
+        return {
+          payload: {
+            type: "thread.create",
+            workspaceId: workspaceOf(input.workspace),
+            provider: input.provider,
+            ...(input.access ? { access: input.access } : {}),
+            trigger: "schedule",
+            origin,
+            ...(input.model ? { model: input.model } : {}),
+            ...launchChoices(input),
+            mode: input.worktree ? "worktree" : "local",
+            title: automationThreadTitle(input.title),
+            input: [{ type: "text", text: input.prompt }],
+          },
+        };
+      },
+      admitted(input, threadId) {
+        const row = threadRow(input.automationId);
+        const settings = settingsKey(input);
+        if (row?.thread_id !== threadId || row.settings !== settings)
+          store
+            .statement(
+              "INSERT INTO automation_threads VALUES (?,?,?) ON CONFLICT(automation_id) DO UPDATE SET thread_id=excluded.thread_id, settings=excluded.settings",
+            )
+            .run(input.automationId, threadId, settings);
+      },
+    },
+    () => {
+      const delegations = context.services.agentControl?.delegations;
+      return delegations && hostControl(delegations);
+    },
+  );
 }
-import { CommandResult } from "@ace/protocol";
-function importResult(value: unknown) {
-  if (typeof value !== "string") throw new Error("Invalid receipt");
-  return CommandResult.parse(JSON.parse(value));
+
+/** The automation's model and effort as one comparable value. */
+const settingsKey = (input: Pick<ExecutionInput, "model" | "effort">) =>
+  JSON.stringify({ model: input.model ?? null, effort: input.effort ?? null });
+
+/**
+ * The model and effort a run sends into the automation's existing thread. The thread keeps
+ * whatever the person picked there, so a run sends nothing, unless the automation's own
+ * settings changed since `applied` (what was last given to the thread): then it sends them.
+ */
+export function runSettings(
+  input: Pick<ExecutionInput, "model" | "effort">,
+  applied: string | undefined,
+): { model?: string; options?: { effort: string } } {
+  if (applied === settingsKey(input)) return {};
+  return {
+    ...(input.model ? { model: input.model } : {}),
+    ...(input.effort ? { options: { effort: input.effort } } : {}),
+  };
 }
 
 const executionKey = (value: string) =>
   CommandId.parse(`automation-${createHash("sha256").update(value).digest("hex")}`);
-
-function noop(): void {}
 
 /**
  * The effort and account a run starts on, carried as New thread carries them: the account as

@@ -144,7 +144,10 @@ export class FakeAutomationStore {
       },
     };
   }
-  /** A manual run; one request id is one run, however often it is retried. */
+  /**
+   * A manual run; one request id is one run, however often it is retried. As in the daemon, a
+   * run fired while another works waits as `queued`, and one waiting is enough.
+   */
   run(request: Extract<AutomationRequest, { type: "automation.run" }>): Result {
     if (!this.enabled()) return { ok: false, error: "Automation service is stopped" };
     const automation = this.automations.get(request.id);
@@ -159,11 +162,17 @@ export class FakeAutomationStore {
         title: automation.title,
         eventKey: `manual:${request.requestId}`,
         trigger: "manual",
-        status: "running",
         startedAt: this.now(),
+        ...this.admission(automation.id),
       };
       this.runs.set(id, run);
     }
     return { run };
+  }
+  private admission(automationId: string): Pick<AutomationRun, "status" | "finishedAt" | "result"> {
+    const mine = [...this.runs.values()].filter((run) => run.automationId === automationId);
+    if (mine.some((run) => run.status === "queued"))
+      return { status: "skipped", finishedAt: this.now(), result: "A run was already waiting" };
+    return { status: mine.some((run) => run.status === "running") ? "queued" : "running" };
   }
 }

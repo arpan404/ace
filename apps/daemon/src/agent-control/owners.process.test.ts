@@ -53,7 +53,7 @@ test("daemon service manages owned projects and manual automation definitions", 
           request: { type: "automation.list", requestId: "list" },
         })
       ).data,
-    ).toEqual([automation]);
+    ).toEqual([{ ...automation, nextRunAt: null }]);
     expect(
       await f.call({
         op: "automation.manage",

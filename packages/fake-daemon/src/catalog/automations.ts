@@ -119,6 +119,8 @@ const run = (
 /** Recent runs, newest first, timed relative to `now`. */
 export function automationRuns(now: number, zone = "UTC"): AutomationRun[] {
   const audit = "Nightly dependency audit";
+  // Scheduled runs snap to their schedule's last time before `ago`; whole days apart, the
+  // nightly audit's runs land on four different nights at any hour of the day.
   const review = "Review pull requests on open";
   const runs = [
     run(
@@ -161,7 +163,7 @@ export function automationRuns(now: number, zone = "UTC"): AutomationRun[] {
       "run-audit-1",
       "auto-dependency-audit",
       audit,
-      6 * hour,
+      0,
       now,
       "succeeded",
       "Found 2 advisories: a moderate one in undici and a low one in semver. Opened a thread in ace with the undici upgrade; semver needs no change because the affected range isn't used.",

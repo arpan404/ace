@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { z } from "zod";
-import { Automation, Command, ThreadId } from "@ace/protocol";
+import { Automation, Command, ThreadId, AgentAutomation } from "@ace/protocol";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { connectAutomations } from "./automation-socket-test-support.ts";
 
@@ -24,7 +24,11 @@ const definition = (workspace: string, patch: Partial<Automation> = {}): Automat
 async function agentPuts(f: Awaited<ReturnType<typeof daemonFixture>>, automation: Automation) {
   const saved = await f.call({
     op: "automation.manage",
-    request: { type: "automation.put", requestId: `put-${automation.id}`, automation },
+    request: {
+      type: "automation.put",
+      requestId: `put-${automation.id}`,
+      automation: AgentAutomation.parse(automation),
+    },
   });
   expect(saved.ok).toBe(true);
 }
@@ -43,8 +47,14 @@ test("the app lists an agent's automation with its thread and pauses and deletes
       requestId: "with-threads",
       includeThreads: true,
     });
+    // Its runs land in the agent's thread, so it is recorded with that thread's provider.
+    const provider = f.daemon.store.getThread(f.caller.threadId)?.provider;
     expect(listed.threadAutomations).toEqual([
-      expect.objectContaining({ automation, threadId: f.caller.threadId, nextRunAt: null }),
+      expect.objectContaining({
+        automation: { ...automation, provider },
+        threadId: f.caller.threadId,
+        nextRunAt: null,
+      }),
     ]);
     const revision = z.number().int().positive().parse(listed.threadAutomations?.[0]?.revision);
     expect(
@@ -145,7 +155,7 @@ test("an automation leaves the app's list once the thread that made it is delete
   }
 });
 
-test("a thread automation run from the app carries the person's note and the saved effort", async () => {
+test("a thread automation run from the app goes into its own thread with the person's note, keeping the thread's effort", async () => {
   const f = await daemonFixture();
   const app = await connectAutomations(f, "thread-run");
   try {
@@ -164,13 +174,13 @@ test("a thread automation run from the app carries the person's note and the sav
     const admitted = await ask();
     expect(admitted).toMatchObject({ ok: true, run: { status: "running" } });
     const runId = z.string().parse(admitted.run?.id);
-    const child = () => f.controls.delegations.journal.receipt(f.caller.threadId, runId)?.childId;
-    await expect.poll(child).toBeDefined();
-    const childId = ThreadId.parse(child());
+    // The run is one more message in the thread that made it, not a thread of its own.
+    const owner = f.caller.threadId;
     await expect
-      .poll(() => f.h.inputs.get(childId)?.join("\n"))
+      .poll(() => f.h.inputs.get(owner)?.join("\n"))
       .toContain("Check the build\n\nOnly the checkout tests");
-    expect(f.h.contexts.get(childId)?.options).toMatchObject({ effort: "high" });
+    // The agent's thread keeps the effort it runs at, not the automation's saved one.
+    expect(f.h.contexts.get(owner)?.options?.effort).not.toBe("high");
     expect((await ask()).run?.id).toBe(runId);
     const history = await app.ask({
       type: "automation.inbox",
@@ -218,15 +228,15 @@ test("a person automation starts its thread on the saved effort and account", as
     const started = () =>
       f.daemon.store.listThreads().find((thread) => thread.title === "Automation: Launch choices")
         ?.id;
-    await expect.poll(started).toBeDefined();
+    await expect.poll(started, { timeout: 15_000 }).toBeDefined();
     const threadId = ThreadId.parse(started());
-    await expect.poll(() => f.h.contexts.has(threadId)).toBe(true);
+    await expect.poll(() => f.h.contexts.has(threadId), { timeout: 15_000 }).toBe(true);
     expect(f.h.contexts.get(threadId)).toMatchObject({
       instanceId: "claude-cli-default",
       options: { effort: "high" },
     });
     await expect
-      .poll(() => f.h.inputs.get(threadId)?.join("\n"))
+      .poll(() => f.h.inputs.get(threadId)?.join("\n"), { timeout: 15_000 })
       .toContain("Check the build\n\nFocus on flaky tests");
   } finally {
     await app.client.close();

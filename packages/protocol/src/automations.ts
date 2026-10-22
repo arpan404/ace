@@ -50,6 +50,10 @@ export const Automation = z.object({
   worktree: z.boolean(),
   trigger: AutomationTrigger,
   missedRun: z.enum(["skip", "run_once"]),
+  /**
+   * Kept for stored definitions. Every run goes into the automation's one thread, so one runs
+   * at a time whatever this says: a fire meanwhile waits behind it.
+   */
   concurrency: z.number().int().min(1).max(32),
   jitterMs: z.number().int().min(0).max(3_600_000),
 });
@@ -76,7 +80,11 @@ export const AutomationRun = z.object({
   title: text,
   eventKey: z.string().max(512),
   trigger: z.enum(["schedule", "github", "file", "manual"]),
-  status: z.enum(["running", "succeeded", "failed", "skipped"]),
+  /**
+   * `queued` waits for the run before it to finish, then starts; an automation sends one message
+   * at a time into its thread. `startedAt` is when it fired until it starts, then when it started.
+   */
+  status: z.enum(["queued", "running", "succeeded", "failed", "skipped"]),
   startedAt: instant,
   finishedAt: instant.optional(),
   threadId: text.optional(),

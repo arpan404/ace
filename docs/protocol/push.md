@@ -726,7 +726,7 @@ Example:
     "eventKey": "example",
     "id": "example",
     "startedAt": 7,
-    "status": "failed",
+    "status": "succeeded",
     "threadId": "example",
     "title": "example",
     "trigger": "schedule"

@@ -134,15 +134,22 @@ function RunTurn(props: {
           detail={took && `after ${took}`}
           threadId={threadId}
         />
+      ) : run.status === "queued" ? (
+        <TurnHead when={when} status={{ tone: "idle", word: "Queued" }} threadId={threadId} />
       ) : (
         <TurnHead when={when} status={{ tone: "idle", word: "Skipped" }} threadId={threadId} />
+      )}
+      {run.status === "queued" && (
+        <p role="status" className="text-ui text-muted-foreground">
+          Waits for the last run to finish, then starts.
+        </p>
       )}
       {run.status === "running" && (
         <p role="status" className="text-ui text-muted-foreground">
           <Working startedAt={run.startedAt} />
         </p>
       )}
-      {run.status !== "running" && (
+      {run.status !== "running" && run.status !== "queued" && (
         <div className={cn(answer, run.status !== "succeeded" && "text-muted-foreground")}>
           <Prose
             text={

@@ -25,7 +25,8 @@ export interface SidebarGroup {
 }
 
 function status(entry: AutomationEntry): SidebarRow["status"] {
-  if (entry.lastRun?.status === "running") return { tone: "working", word: "Running" };
+  if (entry.lastRun?.status === "running" || entry.lastRun?.status === "queued")
+    return { tone: "working", word: "Running" };
   if (entry.triggerError) return { tone: "failed", word: "Not watching" };
   if (entry.lastPollError) return { tone: "failed", word: "Can't check GitHub" };
   if (entry.lastRun?.status === "failed") return { tone: "failed", word: "Failed" };
