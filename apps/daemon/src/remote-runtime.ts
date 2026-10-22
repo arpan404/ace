@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { loadOrCreateHostKeys } from "@ace/secure-channel/node";
 import { SettingsValues } from "@ace/protocol";
 import { SettingsError } from "@ace/settings";
-import { remoteListener, urlHost } from "./network.ts";
+import { remoteListener, systemNetwork, urlHost } from "./network.ts";
+import { trustedCertificate, type TrustedCertificate } from "./tailscale-certificate.ts";
 import { bindListener, closeListener } from "./listener.ts";
 import { startRelayTransport } from "./services/transports.ts";
 import type { ServerOptions } from "./server-options.ts";
@@ -29,6 +30,7 @@ export function remoteRuntime(
   let retryMs = 1000;
   let error: string | undefined;
   let listener: Server | undefined;
+  let trusted: TrustedCertificate | undefined;
   let connection: { origin: string; fingerprint: string } | undefined;
   let relay: Awaited<ReturnType<typeof startRelayTransport>>;
   let preferences: Preferences = {
@@ -60,6 +62,8 @@ export function remoteRuntime(
     directTransport = "local";
     disconnect();
     auth.clearPending();
+    trusted?.stop();
+    trusted = undefined;
     await relay?.close();
     relay = undefined;
     options.relay = undefined;
@@ -107,7 +111,31 @@ export function remoteRuntime(
     }
     try {
       if (remote && !keepDirect) {
-        listener = createServer({ ...remote.identity, minVersion: "TLSv1.2" }, http);
+        const name = remote.tailnetName;
+        trusted = name
+          ? trustedCertificate({
+              name,
+              fetch: (host) => (options.network ?? systemNetwork).certificate(host),
+              now: options.now ?? options.runtime?.now ?? systemDeliveryRuntime.now,
+              delay,
+              log: (failure) => options.log?.(failure),
+            })
+          : undefined;
+        const certificates = trusted;
+        // Browsers asking for the ts.net name get Tailscale's trusted certificate; every other
+        // client (and every client until it arrives) gets ace's own, pinned certificate.
+        listener = createServer(
+          {
+            ...remote.identity,
+            minVersion: "TLSv1.2",
+            ...(certificates
+              ? {
+                  SNICallback: (servername, done) => done(null, certificates.select(servername)),
+                }
+              : {}),
+          },
+          http,
+        );
         listener.requestTimeout = 0;
         listener.headersTimeout = 10_000;
         attach(listener);
