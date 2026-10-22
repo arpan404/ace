@@ -45,6 +45,7 @@ final class NativeHost: @unchecked Sendable {
         let emit: @convention(block) (String) -> Void = { [weak self] json in
             guard let data = HostTrace.measure("host.emit", { json.data(using: .utf8) }), data.count <= 32768 else { return }
             HostTrace.add("host.emit.bytes", seconds: 0, bytes: data.count)
+            ThreadOpenTrace.emitted()
             self?.receive(data)
         }
         let socket: @convention(block) (String, String, String) -> Void = { [weak self] id, action, text in self?.socket(id, action: action, text: text) }
@@ -159,7 +160,10 @@ final class NativeHost: @unchecked Sendable {
         guard delay.isFinite, delay >= 0, timers.count < 4096 else { return }
         let timer = Timer(timeInterval: delay / 1000, repeats: false) { [weak self] _ in
             self?.timers.removeValue(forKey: id)
+            let began = CACurrentMediaTime()
             HostTrace.measure("js.timer") { _ = callback.value.call(withArguments: []) }
+            let spent = CACurrentMediaTime() - began
+            ThreadOpenTrace.scriptBusy.withLock { $0 += spent }
         }
         timers[id] = timer
         RunLoop.current.add(timer, forMode: .default)

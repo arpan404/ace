@@ -3,7 +3,7 @@ import { FollowUpBehavior, InteractionId, ThreadId, type CommandPayload } from "
 import { composerReply, isBusy, messageHasContent, modelLabel } from "@ace/ui-core";
 import { runsOn } from "@ace/ui-core/thread-execution";
 import { z } from "zod";
-import { host } from "./host.ts";
+import { host, scheduler } from "./host.ts";
 import { dispatchCommand } from "./commands.ts";
 import type { PatchPump } from "./patch-pump.ts";
 import { preview } from "./presentation.ts";
@@ -45,6 +45,15 @@ export class ThreadSession {
   readonly #tray: AttachmentTray;
   #lane: { agentId: string; tap: ChangeTap } | undefined;
   #setting: FollowUpBehavior | undefined;
+  /**
+   * Whether the thread's follow-up setting has been read (or given up on). Until then the composer
+   * gets no controls and a send waits, so neither offers nor sends a delivery the setting changes.
+   */
+  #settingKnown = false;
+  #known: () => void = () => {};
+  readonly #whenKnown = new Promise<void>((resolve) => {
+    this.#known = resolve;
+  });
   #loading = false;
   #models: { state: string; models: Record<string, unknown>[] } = { state: "idle", models: [] };
 
@@ -55,7 +64,6 @@ export class ThreadSession {
     epoch: number,
     pump: PatchPump,
     chunks: ChunkReader = nativeChunks,
-    initialItemLimit = 200,
   ) {
     this.#client = client;
     this.#store = store;
@@ -96,7 +104,7 @@ export class ThreadSession {
       if (keys === "all" || keys.has("order") || keys.has("history")) this.#history();
       if (keys === "all" || keys.has("queue") || keys.has("thread") || keys.has("agents"))
         this.#queue.update();
-      if (keys === "all" && initialItemLimit <= 200) this.#ready();
+      if (keys === "all") this.#ready();
     });
     this.#blocks.tap("all");
     this.#activity("all");
@@ -104,11 +112,15 @@ export class ThreadSession {
     this.#history();
     this.#queue.update();
     this.#tune.update();
-    if (initialItemLimit <= 200) this.#ready();
+    this.#ready();
     void this.#readSetting();
+    // Offline, the read waits for the connection; the composer must not wait with it.
+    const cancel = scheduler.set(1000, () => this.#knowSetting());
+    this.#abort.signal.addEventListener("abort", cancel, { once: true });
   }
 
-  // Queued after the snapshot's items AND blocks. Native can reveal one coherent transcript.
+  // Queued after the snapshot's items AND blocks, so native reveals one coherent transcript: the
+  // latest window, never waiting for older history (`thread-history.ts`).
   #ready(): void {
     if (this.#store.thread)
       this.#put("ready", () => ({ type: "thread.ready", count: this.#store.order.length }));
@@ -271,6 +283,10 @@ export class ThreadSession {
   }
   /** A message as the composer showed it: its delivery, the picked effort and speed, its files. */
   #send(text: string, opposite: boolean, id: string): void {
+    if (!this.#settingKnown) {
+      void this.#whenKnown.then(() => this.#send(text, opposite, id));
+      return;
+    }
     if (!messageHasContent(text, this.#tray.size)) {
       this.#admission(id, false, "Write a message or attach a file.");
       return;
@@ -314,10 +330,11 @@ export class ThreadSession {
     lane.tap("all");
   }
   #controls(): void {
-    this.#put("controls", () => ({
-      type: "thread.controls",
-      row: controlsRow(this.#store, this.#setting),
-    }));
+    this.#put("controls", () =>
+      this.#settingKnown
+        ? { type: "thread.controls", row: controlsRow(this.#store, this.#setting) }
+        : undefined,
+    );
   }
   #history(): void {
     this.#put("history", () => ({
@@ -341,10 +358,16 @@ export class ThreadSession {
       );
       const value = FollowUpBehavior.safeParse(entry?.value);
       this.#setting = value.success ? value.data : undefined;
-      this.#controls();
     } catch {
-      // Offline or refused: follow-ups queue until the daemon says otherwise.
+      // Offline or refused: the shared default applies until the daemon says otherwise.
     }
+    this.#knowSetting();
+  }
+  #knowSetting(): void {
+    if (this.#abort.signal.aborted) return;
+    this.#settingKnown = true;
+    this.#known();
+    this.#controls();
   }
   async #loadOlder(): Promise<void> {
     if (this.#loading || this.#store.itemsBefore == null) return;

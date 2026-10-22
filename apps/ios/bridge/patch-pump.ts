@@ -1,6 +1,7 @@
 import { host, scheduler } from "./host.ts";
 import { degradedPatch } from "./degraded-patch.ts";
 import { base64 } from "./bytes.ts";
+import { keptKey, ledgerText, type NativeLedger } from "./native-ledger.ts";
 
 type Reader = () => Record<string, unknown> | undefined;
 interface Task {
@@ -16,6 +17,10 @@ interface Delivery {
   task: Task;
   read: Reader;
   sticky: boolean;
+  /** What native will hold once this is confirmed, for the open thread's ledger. */
+  record?:
+    | { ledger: NativeLedger; epoch: number; patch: Record<string, unknown>; text: string }
+    | undefined;
 }
 interface Fragment extends Delivery {
   id: string;
@@ -23,6 +28,9 @@ interface Fragment extends Delivery {
   offset: number;
   index: number;
 }
+
+/** ADR 0074: a frame carries at most 32 patches and 32 KiB. */
+const framePatches = 32;
 
 function priority(key: string): 0 | 1 | 2 {
   if (key === "inbox:reset" || key === "thread:reset") return 0;
@@ -42,8 +50,16 @@ export class PatchPump {
     new Map(),
   ];
   #fragment: Fragment | undefined;
+  #drained: (() => void)[] = [];
+  /** The open thread's ledger and navigation generation, while native keeps that thread. */
+  #bound: { ledger: NativeLedger; epoch: number } | undefined;
 
+  /** Diff the open thread's patches against what native holds of it (`native-ledger.ts`). */
+  bind(ledger: NativeLedger | undefined, epoch: number): void {
+    this.#bound = ledger && { ledger, epoch };
+  }
   put(key: string, read: Reader): void {
+    if (this.#bound?.ledger.passing && keptKey(key)) this.#bound.ledger.touch(key);
     const queue = this.#queue(key);
     const existing = queue.get(key);
     if (existing) {
@@ -65,6 +81,13 @@ export class PatchPump {
         settled: false,
       });
     this.#schedule();
+  }
+  /** Resolves once nothing deliverable is waiting or in flight. */
+  drained(): Promise<void> {
+    return new Promise((resolve) => {
+      this.#drained.push(resolve);
+      this.#schedule();
+    });
   }
   ack(accepted: boolean): void {
     const delivery = this.#inFlight;
@@ -96,24 +119,32 @@ export class PatchPump {
         this.#queue("thread:reset").has("thread:reset"))
     );
   }
+  /**
+   * A few changes wait 8 ms so streaming deltas share a frame. A backlog of at least a full frame
+   * (opening a thread, a snapshot, history) or a fragmented patch goes at once: it is already
+   * coalesced, and each wait would only add to the frames it takes.
+   */
   #schedule(): void {
     if (this.#inFlight) return;
     const now = host.now();
     let next = this.#fragment ? now : Infinity;
+    let ready = this.#fragment ? framePatches : 0;
     for (const queue of this.#queues) {
       for (const task of queue.values()) {
-        if (!task.parked && !task.settled && !this.#blocked(task))
-          next = Math.min(next, task.readyAt);
-        if (next <= now) break;
+        if (task.parked || task.settled || this.#blocked(task)) continue;
+        next = Math.min(next, task.readyAt);
+        if (task.readyAt <= now) ready++;
+        if (ready >= framePatches) break;
       }
-      if (next <= now) break;
+      if (ready >= framePatches) break;
     }
     if (next === Infinity) {
       this.#timer?.cancel();
       this.#timer = undefined;
+      for (const resolve of this.#drained.splice(0)) resolve();
       return;
     }
-    const at = Math.max(now + 8, next);
+    const at = ready >= framePatches ? now : Math.max(now + 8, next);
     if (this.#timer && this.#timer.at <= at) return;
     this.#timer?.cancel();
     this.#timer = {
@@ -130,6 +161,10 @@ export class PatchPump {
       this.#emitFragment();
       return;
     }
+    const bound = this.#bound;
+    if (bound?.ledger.passing)
+      for (const [key, read] of bound.ledger.close(bound.epoch))
+        if (!this.#queue(key).has(key)) this.put(key, read);
     const frame: Record<string, unknown>[] = [];
     /** Each patch's JSON, made once to measure it and reused for the frame. */
     const texts: string[] = [];
@@ -155,6 +190,11 @@ export class PatchPump {
         }
         const patch = task.degraded ? degradedPatch(original) : original;
         const sticky = task.degraded && patch.row != null;
+        const record = this.#record(task, patch);
+        if (record && keptKey(task.key) && record.ledger.same(task.key, record.text)) {
+          queue.delete(task.key); // Native already shows exactly this.
+          continue;
+        }
         const serializeAt = tracing ? host.now() : 0;
         const json = JSON.stringify(patch);
         const size = host.utf8Length(json);
@@ -165,6 +205,7 @@ export class PatchPump {
             task,
             read,
             sticky,
+            record,
             id: host.uuid(),
             data: base64(host.encode(json)),
             offset: 0,
@@ -173,8 +214,8 @@ export class PatchPump {
           this.#emitFragment();
           return;
         }
-        if (bytes + size + 1 > 32768 || frame.length >= 32) break outer;
-        delivered.push({ task, read, sticky });
+        if (bytes + size + 1 > 32768 || frame.length >= framePatches) break outer;
+        delivered.push({ task, read, sticky, record });
         frame.push(patch);
         texts.push(json);
         bytes += size + 1;
@@ -219,7 +260,17 @@ export class PatchPump {
       JSON.stringify([{ type: "fragment", id: fragment.id, index: fragment.index, last, data }]),
     );
   }
-  #confirm({ task, read, sticky }: Delivery): void {
+  /** A thread patch for the bound generation, undegraded, can update the ledger once confirmed. */
+  #record(task: Task, patch: Record<string, unknown>): Delivery["record"] {
+    const bound = this.#bound;
+    if (!bound || task.degraded || !task.key.startsWith("thread:") || patch.epoch !== bound.epoch)
+      return undefined;
+    return { ...bound, patch, text: ledgerText(patch) };
+  }
+  #confirm({ task, read, sticky, record }: Delivery): void {
+    // Native applied it if its generation is still the open one (it drops older ones).
+    if (record && this.#bound?.ledger === record.ledger && this.#bound.epoch === record.epoch)
+      record.ledger.delivered(task.key, record.patch, record.text);
     const queue = this.#queue(task.key);
     if (queue.get(task.key) !== task) return; // A navigation reset replaced this task.
     queue.delete(task.key);
