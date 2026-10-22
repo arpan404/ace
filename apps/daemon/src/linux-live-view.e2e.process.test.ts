@@ -191,6 +191,38 @@ describe.skipIf(!enabled)(`Linux live view (${session ?? "off"})`, () => {
     );
   }, 120_000);
 
+  it.skipIf(!kde || session !== "wayland")(
+    "on KDE a person watching the whole screen is asked for the screen alone, and sees all of it",
+    async () => {
+      const ace = await world();
+      const viewer = await LiveViewer.connect(ace.daemon.url, ace.daemon.tokenPath);
+      cleanups.push(() => viewer.close());
+      const target: ScreenTarget = { kind: "display", displayId: 1, bundleIds: ["kcalc"] };
+      // KDE's screen chooser, not its "Remote Control" request: nothing asks for input.
+      const [started] = await Promise.all([
+        viewer.request({ op: "start", target }, 130_000),
+        exec("python3", [portalDialog, "approve", "Virtual"]),
+      ]);
+      const state = ScreenState.parse(started);
+      expect(state.capabilities?.input).toMatchObject({ pointer: false, keyboard: false });
+      await viewer.request({ op: "subscribe", sessionId: state.sessionId });
+      await viewer.request({
+        op: "stream.configure",
+        sessionId: state.sessionId,
+        settings: { codec: "h264", maxWidth: 1920, maxHeight: 1200, fps: 30, bitrate: 4_000_000 },
+      });
+      const decoded = await decode(
+        await viewer.frames(state.sessionId, { keyframes: 1, count: 1 }),
+      );
+      // The runner's whole 1280×800 desktop, not one window of it.
+      expect({ width: at(decoded, 0).width, height: at(decoded, 0).height }).toEqual({
+        width: 1280,
+        height: 800,
+      });
+    },
+    200_000,
+  );
+
   it.skipIf(session !== "wayland")(
     "a Wayland live view nobody approves on the desktop fails with the reason and leaves nothing running",
     async () => {
