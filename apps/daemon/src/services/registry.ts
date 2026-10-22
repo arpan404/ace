@@ -6,6 +6,7 @@ import { createPromptFilesSession } from "./prompt-files.ts";
 import { createProviderInstallsSession } from "./provider-install.ts";
 import { createProviderLoginSession } from "./provider-login.ts";
 import { createHostIdentitySession } from "./host-identity.ts";
+import { createFleetSession } from "./fleet.ts";
 import { createProviderStatusesSession } from "./provider-status.ts";
 import { createProjectsSession } from "./projects.ts";
 import { createLongThreadSession } from "./long-thread.ts";
@@ -51,6 +52,7 @@ import { createReviewSession } from "./review.ts";
 import { createEngineSession } from "./engine.ts";
 import { createDiagnosticsSession } from "./diagnostics.ts";
 import { createActivityReadsSession } from "./activity-reads.ts";
+import { createVerifySession } from "./verify.ts";
 import { createIconsSession } from "./icons.ts";
 import type { SocketContext, SocketMessage } from "./socket.ts";
 export const socketServiceFactories = [
@@ -59,10 +61,12 @@ export const socketServiceFactories = [
   createSourceControlSession,
   createRepositoriesSession,
   createHostIdentitySession,
+  createFleetSession,
   createLongThreadSession,
   createPreviewClientSession,
   createAutomationsSession,
   createActivityReadsSession,
+  createVerifySession,
   createIconsSession,
   createThreadOrganizationSession,
   createWorkspaceActionsSession,

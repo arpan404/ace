@@ -33,7 +33,7 @@ const addPages: Record<AddTab, PalettePage> = {
   github: "add-github",
 };
 
-export { useProjectDialogs } from "./projects-context.ts";
+export { useProjectDialogs, useProjectDialogsIfHosted } from "./projects-context.ts";
 
 /**
  * Projects across the app: Add project opens in the palette; the other dialogs load on first

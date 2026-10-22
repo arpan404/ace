@@ -46,6 +46,8 @@ export interface PrSketch {
   decision?: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED";
   assignees?: string[];
   conflicting?: boolean;
+  /** The branch is behind its base. */
+  behind?: boolean;
   /** GitHub lets the signed-in account turn auto-merge on. */
   autoMerge?: boolean;
   files: [string, number, number][];
@@ -103,7 +105,13 @@ function sketched(now: number, pr: PrSketch): PullRequestFixture {
     ...(open
       ? {
           mergeState: mergeState(headSha, {
-            mergeState: pr.conflicting ? "DIRTY" : pr.ci === "failure" ? "UNSTABLE" : "BLOCKED",
+            mergeState: pr.conflicting
+              ? "DIRTY"
+              : pr.behind
+                ? "BEHIND"
+                : pr.ci === "failure"
+                  ? "UNSTABLE"
+                  : "BLOCKED",
             reviewDecision: pr.decision ?? null,
             checksState:
               pr.ci === "failure" ? "FAILURE" : pr.ci === "pending" ? "PENDING" : "SUCCESS",
@@ -201,6 +209,33 @@ export function browsePullRequests(now: number): PullRequestFixture[] {
       branch: "fix/login-retry",
       body: "A login probe that hits a 502 is retried once before the provider shows as signed out.",
       files: [["apps/daemon/src/provider-login.ts", 18, 4]],
+    },
+    {
+      number: 233,
+      title: "Keep the composer draft per project",
+      state: "open",
+      author: "dana",
+      reviewers: [],
+      decision: "APPROVED",
+      ci: "success",
+      updated: 4 * hour,
+      branch: "fix/draft-per-project",
+      body: "A draft typed in one project no longer shows up in another's composer.",
+      files: [["apps/web/src/features/thread/composer/drafts.ts", 24, 6]],
+    },
+    {
+      number: 222,
+      title: "Bump Electron to 39",
+      state: "open",
+      author: "you",
+      reviewers: [],
+      decision: "APPROVED",
+      ci: "success",
+      behind: true,
+      updated: 4 * 24 * hour,
+      branch: "deps/electron-39",
+      body: "Electron 39 with its Chromium security fixes.",
+      files: [["apps/desktop/package.json", 1, 1]],
     },
     {
       number: 219,

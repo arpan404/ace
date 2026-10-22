@@ -13,6 +13,15 @@ export const allows = (device: Pick<Device, "scopes"> | undefined, scope: Scope)
       ? device.scopes.includes("desktop")
       : device.scopes.includes("admin")));
 
+/** Not revoked, and its access hasn't run out. */
+export const activeDevice = (
+  device: Pick<Device, "revokedAt" | "expiresAt"> | undefined,
+  at: number,
+): device is Device =>
+  device !== undefined &&
+  device.revokedAt === null &&
+  (device.expiresAt === undefined || device.expiresAt === null || device.expiresAt > at);
+
 function decode(row: Record<string, SQLOutputValue>): Device {
   return Device.parse({
     id: row.id,
@@ -21,6 +30,7 @@ function decode(row: Record<string, SQLOutputValue>): Device {
     createdAt: row.created_at,
     lastSeenAt: row.last_seen_at,
     revokedAt: row.revoked_at,
+    expiresAt: row.expires_at ?? null,
   });
 }
 
@@ -43,9 +53,13 @@ export class Devices {
   private revocation: StatementSync;
   constructor(db: DatabaseSync, runtime: CredentialRuntime) {
     this.runtime = runtime;
-    this.insert = db.prepare("INSERT INTO devices VALUES (?, ?, ?, ?, ?, ?, NULL)");
+    this.insert = db.prepare(
+      "INSERT INTO devices (id, name, token_hash, scopes, created_at, last_seen_at, revoked_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)",
+    );
     this.byId = db.prepare("SELECT * FROM devices WHERE id = ?");
-    this.byToken = db.prepare("SELECT * FROM devices WHERE token_hash = ? AND revoked_at IS NULL");
+    this.byToken = db.prepare(
+      "SELECT * FROM devices WHERE token_hash = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)",
+    );
     this.updateSeen = db.prepare(
       "UPDATE devices SET last_seen_at = ? WHERE id = ? AND revoked_at IS NULL",
     );
@@ -54,7 +68,13 @@ export class Devices {
       "UPDATE devices SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
     );
   }
-  create(name: string, granted: Scope[], at: number): { device: Device; token: string } {
+  /** `expiresAt` null: access lasts until revoked. */
+  create(
+    name: string,
+    granted: Scope[],
+    at: number,
+    expiresAt: number | null = null,
+  ): { device: Device; token: string } {
     const token = generateSecret(this.runtime.randomBytes);
     const id = DeviceId.parse(this.runtime.id());
     const device = Device.parse({
@@ -64,6 +84,7 @@ export class Devices {
       createdAt: at,
       lastSeenAt: at,
       revokedAt: null,
+      expiresAt,
     });
     this.insert.run(
       device.id,
@@ -72,6 +93,7 @@ export class Devices {
       JSON.stringify(device.scopes),
       device.createdAt,
       device.lastSeenAt,
+      device.expiresAt ?? null,
     );
     return { device, token };
   }
@@ -80,7 +102,7 @@ export class Devices {
     return row ? decode(row) : undefined;
   }
   authenticate(token: string, at: number): Device | undefined {
-    const row = this.byToken.get(hash(token));
+    const row = this.byToken.get(hash(token), at);
     if (!row) return undefined;
     const device = decode(row);
     this.touch(device.id, at);

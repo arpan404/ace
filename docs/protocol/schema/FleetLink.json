@@ -1,0 +1,50 @@
+{
+  "$id": "https://ace.local/protocol/v1/FleetLink.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "access": {
+      "enum": [
+        "read",
+        "operate"
+      ],
+      "type": "string"
+    },
+    "deviceId": {
+      "$ref": "https://ace.local/protocol/v1/DeviceId.json"
+    },
+    "hostId": {
+      "$ref": "https://ace.local/protocol/v1/HostId.json"
+    },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "origin": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "type": "string"
+    },
+    "profile": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "online",
+        "offline",
+        "refused"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "profile",
+    "name",
+    "origin",
+    "deviceId",
+    "status"
+  ],
+  "type": "object"
+}

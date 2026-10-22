@@ -32,6 +32,27 @@ test("an integration receipt returns the same immutable revision after replay wi
     await service.close();
   }
 });
+test("forgetting a finished run's integrations drops only its receipts", async () => {
+  const service = new GitService();
+  try {
+    const repo = await repository();
+    const base = await scalar(repo, "rev-parse", "HEAD");
+    const worker = join(dirname(repo), "card");
+    await service.createWorktree({ repo, path: worker, baseRef: base, branch: "work/card" });
+    await put(worker, "card.txt", "card works\n");
+    await git(worker, "add", "card.txt");
+    await git(worker, "commit", "-m", "card");
+    const revision = await scalar(worker, "rev-parse", "HEAD");
+    await service.integrate({ worktree: repo, revision, key: "verify-a.1" });
+    await service.integrate({ worktree: repo, revision, key: "other.1" });
+    await service.forgetIntegrations({ repo, prefix: "verify-a." });
+    expect(await scalar(repo, "for-each-ref", "--format=%(refname)", "refs/ace/conductor/")).toBe(
+      "refs/ace/conductor/other.1",
+    );
+  } finally {
+    await service.close();
+  }
+});
 test("conflicting integration leaves the private branch at its original clean revision", async () => {
   const service = new GitService();
   try {

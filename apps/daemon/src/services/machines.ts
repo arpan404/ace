@@ -1,5 +1,7 @@
 import { logError, logFields } from "@ace/diagnostics";
-import { ThreadId } from "@ace/protocol";
+import { HostId, MachineDescription, ThreadId } from "@ace/protocol";
+import { redeemPairing } from "../client-access.ts";
+import { FleetLinks } from "../machines/fleet-links.ts";
 import { computerName } from "../computer-name.ts";
 import { loadHostId } from "../local-files.ts";
 import { Profiles } from "../cli/profiles.ts";
@@ -67,6 +69,26 @@ export function startMachines(context: ServiceContext): void {
     },
     transport: options.machines?.transport ?? machineRequest,
     log: record("info"),
+  });
+  // Settings' links to other machines (`fleet.request`), checked through the same directory.
+  services.fleet = new FleetLinks({
+    profiles: () => new Profiles(config.dataDir),
+    describe: async (profile) =>
+      MachineDescription.parse(
+        await directory.call(
+          profile,
+          {
+            hostId: HostId.parse(hostId),
+            hostName: ((await hostName()) || "ace").slice(0, 256),
+            threadId: ThreadId.parse("settings"),
+            threadTitle: "Settings",
+          },
+          { op: "describe" },
+          { timeoutMs: 4000 },
+        ),
+      ),
+    redeem: options.machines?.redeem ?? redeemPairing,
+    hostName,
   });
   const pollMs = options.machines?.pollMs ?? 1000;
   let caller: MachineCaller | undefined;

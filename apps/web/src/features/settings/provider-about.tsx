@@ -39,7 +39,7 @@ export function ProviderAbout(props: {
   const entry = install.registry?.agent;
   return (
     <SettingSection label="About">
-      <dl className="divide-y">
+      <dl className="flex flex-col">
         {version && (
           <Fact term={install.kind === "cursor" ? "SDK version" : "Version"}>
             <span className={mono}>{version}</span>

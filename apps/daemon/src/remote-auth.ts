@@ -1,6 +1,6 @@
 import { TicketPool, defaultTicketLimits, type TicketLimits } from "./ticket-pool.ts";
-import { DeviceId } from "@ace/protocol";
-import { allows, hash, type Device, type Devices, type Scope } from "./devices.ts";
+import { DeviceId, PendingPairing } from "@ace/protocol";
+import { activeDevice, allows, hash, type Device, type Devices, type Scope } from "./devices.ts";
 import { validToken } from "./local-files.ts";
 
 export class AccessError extends Error {
@@ -10,8 +10,27 @@ export class AccessError extends Error {
     this.status = status;
   }
 }
+/** What a pairing link grants beyond its scopes. */
+export interface PairingTerms {
+  /** Names the redeemed device instead of the name it sends. */
+  label?: string | undefined;
+  /** How long the link can be redeemed; 5 minutes when omitted. */
+  ttlMs?: number | undefined;
+  /** How long the paired device keeps access; until revoked when omitted or null. */
+  deviceTtlMs?: number | null | undefined;
+}
+interface Pending {
+  id: string;
+  expiresAt: number;
+  scopes: Scope[];
+  label?: string | undefined;
+  deviceTtlMs?: number | undefined;
+}
+const localOnly = (device: Pick<Device, "scopes">) =>
+  device.scopes.includes("desktop") || device.scopes.includes("user-browser");
+
 export class RemoteAuth {
-  private codes = new Map<string, { expiresAt: number; scopes: Scope[] }>();
+  private codes = new Map<string, Pending>();
   private tickets: TicketPool;
   private ticketLimits: TicketLimits;
   private attempts = new Map<string, { count: number; resetsAt: number }>();
@@ -20,16 +39,19 @@ export class RemoteAuth {
   readonly now: () => number;
   private revoked = new Set<(id: string) => void>();
   private readonly secret: () => string;
+  private readonly id: () => string;
   constructor(
     devices: Devices,
     localToken: string,
-    runtime: { now: () => number; secret: () => string },
+    runtime: { now: () => number; secret: () => string; id?: () => string },
     limits: TicketLimits = defaultTicketLimits,
   ) {
     this.devices = devices;
     this.localToken = localToken;
     this.now = runtime.now;
     this.secret = runtime.secret;
+    let issued = 0;
+    this.id = runtime.id ?? (() => `pairing-${++issued}`);
     this.ticketLimits = limits;
     this.tickets = new TicketPool(limits);
   }
@@ -51,15 +73,44 @@ export class RemoteAuth {
   deviceBearer(token: string): Device | undefined {
     return this.devices.authenticate(token, this.now());
   }
-  pairing(granted: Scope[]): { code: string; expiresAt: number } {
+  /** A single-use pairing code. Callers check the creator may grant `granted` first. */
+  pairing(
+    granted: Scope[],
+    terms: PairingTerms = {},
+  ): { id: string; code: string; expiresAt: number } {
     if (granted.includes("desktop") || granted.includes("user-browser"))
       throw new AccessError(403, "Desktop credentials are local only");
     this.prune(this.codes);
     if (this.codes.size >= 100) throw new AccessError(429, "Too many pending pairings");
     const code = this.secret();
-    const expiresAt = this.now() + 300_000;
-    this.codes.set(hash(code), { expiresAt, scopes: granted });
-    return { code, expiresAt };
+    const id = this.id();
+    const expiresAt = this.now() + (terms.ttlMs ?? 300_000);
+    this.codes.set(hash(code), {
+      id,
+      expiresAt,
+      scopes: granted,
+      ...(terms.label ? { label: terms.label } : {}),
+      ...(terms.deviceTtlMs ? { deviceTtlMs: terms.deviceTtlMs } : {}),
+    });
+    return { id, code, expiresAt };
+  }
+  /** Links not yet redeemed or expired, oldest first. Never their codes. */
+  pendingPairings(): PendingPairing[] {
+    this.prune(this.codes);
+    return [...this.codes.values()]
+      .toSorted((a, b) => a.expiresAt - b.expiresAt)
+      .map(({ id, label, scopes, expiresAt, deviceTtlMs }) =>
+        PendingPairing.parse({ id, label, scopes, expiresAt, deviceTtlMs }),
+      );
+  }
+  /** False when no pending link has that id. */
+  cancelPairing(id: string): boolean {
+    for (const [key, pending] of this.codes)
+      if (pending.id === id) {
+        this.codes.delete(key);
+        return true;
+      }
+    return false;
   }
   pairingAttempt(address: string): void {
     this.limit(address);
@@ -71,7 +122,13 @@ export class RemoteAuth {
     this.codes.delete(key);
     if (!pairing || pairing.expiresAt <= this.now())
       throw new AccessError(401, "Invalid or expired pairing code");
-    return this.devices.create(name, pairing.scopes, this.now());
+    const at = this.now();
+    return this.devices.create(
+      pairing.label ?? name,
+      pairing.scopes,
+      at,
+      pairing.deviceTtlMs ? at + pairing.deviceTtlMs : null,
+    );
   }
   ticket(device: Device): { ticket: string; expiresAt: number } {
     if (device.scopes.includes("desktop") || device.scopes.includes("user-browser"))
@@ -86,13 +143,7 @@ export class RemoteAuth {
     const deviceId = this.tickets.consume(hash(ticket), this.now());
     if (!deviceId) return undefined;
     const device = this.devices.get(deviceId);
-    if (
-      !device ||
-      device.revokedAt !== null ||
-      device.scopes.includes("desktop") ||
-      device.scopes.includes("user-browser")
-    )
-      return undefined;
+    if (!activeDevice(device, this.now()) || localOnly(device)) return undefined;
     this.devices.touch(device.id, this.now());
     return device;
   }
@@ -108,6 +159,22 @@ export class RemoteAuth {
     this.tickets.revoke(id);
     for (const listener of this.revoked) listener(id);
     return true;
+  }
+  /**
+   * Revoke every paired device but `keep` and the daemon's local credentials (the desktop app,
+   * "Use my Chrome"). Returns how many were revoked.
+   */
+  revokeOthers(keep: string | undefined): number {
+    let count = 0;
+    for (const device of this.devices.list())
+      if (
+        device.id !== keep &&
+        device.revokedAt === null &&
+        !localOnly(device) &&
+        this.revoke(device.id)
+      )
+        count++;
+    return count;
   }
   onRevoke(listener: (id: string) => void): () => void {
     this.revoked.add(listener);

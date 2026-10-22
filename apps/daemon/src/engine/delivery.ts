@@ -268,21 +268,32 @@ export async function executeIntent(
       actor.effectiveCapabilities ??
       registry.get(state.config.provider, repo.backend(actor.id)).capabilities;
     const session = actor.session;
-    try {
-      if (p.cascade && !capabilities.interruptCascades) {
-        const target = p.agentId ?? state.agents[state.rootKey ?? ""]?.agent.id;
-        const descendants = (id: string): string[] =>
-          Object.keys(state.indexes.childrenByParent[id] ?? {})
-            .filter((key) => !state.agents[key]?.externalStatus)
-            .flatMap((key) => descendants(state.agents[key]?.agent.id ?? "").concat(key));
-        for (const key of target ? descendants(target) : [])
+    const failures: unknown[] = [];
+    if (p.cascade && !capabilities.interruptCascades) {
+      const target = p.agentId ?? state.agents[state.rootKey ?? ""]?.agent.id;
+      const descendants = (id: string): string[] =>
+        Object.keys(state.indexes.childrenByParent[id] ?? {})
+          .filter((key) => !state.agents[key]?.externalStatus)
+          .flatMap((key) => descendants(state.agents[key]?.agent.id ?? "").concat(key));
+      // One child the provider has lost track of never keeps the target itself running.
+      for (const key of target ? descendants(target) : [])
+        try {
           await session.interrupt({ agent: key, cascade: false });
-      }
+        } catch (error) {
+          failures.push(error);
+        }
+    }
+    try {
       await session.interrupt({
         ...(agent === undefined ? {} : { agent }),
         cascade: p.cascade,
       });
     } catch (error) {
+      failures.push(error);
+    }
+    if (failures.length) {
+      const error =
+        failures.length === 1 ? failures[0] : new AggregateError(failures, "Stop failed");
       if (!stopsWholeThread(p)) throw error;
       // A Stop always settles. When the provider can't stop the tree itself (its location was
       // lost, or it holds work it won't interrupt), ace ends the provider session: owned work is
@@ -341,10 +352,10 @@ export async function executeIntent(
 }
 
 /** A Stop of the whole thread, as opposed to interrupting one agent or one run. */
-function stopsWholeThread(p: {
-  cascade: boolean;
-  agentId?: string | undefined;
-  runId?: string | undefined;
-}): boolean {
-  return p.cascade && p.agentId === undefined && p.runId === undefined;
+/**
+ * A cascading Stop of the root stops the whole thread. Its run id only fences out a stale Stop,
+ * which is dropped before the provider is asked, so naming the run doesn't narrow it.
+ */
+function stopsWholeThread(p: { cascade: boolean; agentId?: string | undefined }): boolean {
+  return p.cascade && p.agentId === undefined;
 }

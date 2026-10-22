@@ -41,9 +41,7 @@ test("settings search reveals and highlights the pairing control before it opens
     await screen.findByRole("searchbox", { name: "Search settings" }),
     "Pair a device",
   );
-  await userEvent.click(
-    await screen.findByRole("link", { name: /Pair a device.*Machines and devices/ }),
-  );
+  await userEvent.click(await screen.findByRole("link", { name: /Pair a device.*Fleet/ }));
   const button = await screen.findByRole("button", { name: "Pair a device" });
   await waitFor(() => expect(button.closest(".bg-accent")).not.toBeNull());
   expect(screen.queryByRole("dialog", { name: "Pair a device" })).toBeNull();
@@ -56,7 +54,7 @@ test("pair opens pairing instead of a thread and creates a code only when reques
   await screen.findByRole("heading", { level: 2, name: "Pair a device" });
   expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull();
   expect(screen.queryByRole("textbox", { name: "Pairing link" })).toBeNull();
-  await userEvent.click(await screen.findByRole("button", { name: "Show pairing code" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Create link" }));
   expect(await screen.findByRole("textbox", { name: "Pairing link" })).toBeTruthy();
 });
 

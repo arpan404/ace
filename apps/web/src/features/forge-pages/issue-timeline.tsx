@@ -2,11 +2,11 @@ import { useState } from "react";
 import type { ForgeBrowserResult } from "@ace/protocol";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { SkeletonText } from "@/components/ui/skeleton.tsx";
 import { PersonAvatar as PrAvatar, RelativeTime as PrTime } from "@/components/person-avatar.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "@/lib/forge-read.ts";
 import { issueEventText } from "./issue-events.ts";
+import { CommentsSkeleton } from "./issue-skeletons.tsx";
 
 type TimelinePage = Extract<ForgeBrowserResult, { resource: "issueTimeline" }>;
 type IssueEvent = TimelinePage["events"][number];
@@ -82,7 +82,7 @@ function Page(props: { project: string; number: number; page: number }) {
         </Button>
       </p>
     );
-  if (!query.data) return props.page === 1 ? <SkeletonText lines={3} className="py-4" /> : null;
+  if (!query.data) return props.page === 1 ? <CommentsSkeleton /> : null;
   const page = query.data;
   return (
     <>

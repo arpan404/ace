@@ -49,6 +49,8 @@ export function PrPeople(props: {
         onClick={props.onEdit}
       />
     ));
+  // Nobody asked and no labels: nothing to show. Request review and Edit live in the ⋯ menu.
+  if (!detail.reviewers.length && !detail.labels.length) return null;
   return (
     <div
       id="pr-reviewers"
@@ -80,7 +82,7 @@ export function PrPeople(props: {
             })}
           </span>
         ) : (
-          <span className="text-xs text-muted-foreground">No reviewers</span>
+          <span className="text-xs text-muted-foreground">No reviewers yet</span>
         )}
         {reviewerPicker}
       </div>
@@ -88,7 +90,11 @@ export function PrPeople(props: {
         <div
           role="group"
           aria-label="Labels"
-          className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1"
+          // The picker's glyph, not its box, ends on the column's edge.
+          className={cn(
+            "ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1",
+            labelPicker && "-mr-1",
+          )}
         >
           {detail.labels.map((label) => (
             <LabelPill key={label} name={label} color={detail.labelColors?.[label]} />

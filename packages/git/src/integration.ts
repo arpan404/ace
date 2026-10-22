@@ -73,3 +73,27 @@ export async function integrateRevision(
     return { revision: head, conflict: null, trivial: false };
   });
 }
+
+/** Drop the receipts of every integration whose key starts with `prefix`, once its work is gone. */
+export async function forgetIntegrations(
+  repository: Repository,
+  input: { repo: string; prefix: string },
+): Promise<void> {
+  const prefix = z
+    .string()
+    .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/)
+    .parse(input.prefix);
+  const root = await repository.root(input.repo);
+  await repository.serial(root, async () => {
+    const listed = await repository.cli.call(root, [
+      "for-each-ref",
+      "--format=%(refname)",
+      "refs/ace/conductor/",
+    ]);
+    const refs = textOutput(listed)
+      .split("\n")
+      .filter((ref) => ref.startsWith(`refs/ace/conductor/${prefix}`));
+    for (const ref of refs)
+      await repository.cli.call(root, ["update-ref", "-d", ref], { write: true });
+  });
+}

@@ -31,7 +31,8 @@ ace thread wait ID... [--any|--all] [--tree]
 ace task spawn [PROMPT|-] --parent ID [--provider PROVIDER] [--model MODEL]
 ace task status|cancel ID
 ace task wait ID... [--any|--all]
-ace start|status|token|pair [SCOPES]|devices list|revoke ID
+ace start|status|token|devices list|revoke ID
+ace pair [SCOPES] [--label NAME] [--ttl 5m|1h|24h|7d] [--device-ttl 1d|7d|30d]
 ace service install|uninstall|start|stop|status
 ace accounts add|list|status|discover
 ace triage [--provider claude|codex|cursor|opencode] [--print]

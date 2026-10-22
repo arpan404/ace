@@ -18,6 +18,7 @@ import { unavailableGaps } from "./access-gaps.ts";
 import { accessSource } from "./access-source.ts";
 import { daemonSettingsBackend } from "./daemon-backend.ts";
 import { settingKeys, type SettingDef } from "./setting-keys.ts";
+import { useAllMachinesClients } from "./all-machines.ts";
 
 const backends = new WeakMap<ClientApi, SettingsBackend>();
 type FakeAccessModule = typeof import("./access-fake.ts");
@@ -44,16 +45,50 @@ const defaults = Object.fromEntries(
  */
 export function useSettingsBackend(): SettingsBackend {
   const client = useClient();
+  const make = useBackendFactory();
+  return make(client);
+}
+
+/** Makes (once per client) the settings backend for any client this window reaches. */
+function useBackendFactory(): (client: ClientApi) => SettingsBackend {
   const connection = useDaemonConnection();
   const module = connection.mode === "fake" ? use(loadFake()) : undefined;
-  let backend = backends.get(client);
-  if (!backend) {
-    const gaps = module ? withBrowserClock(module) : unavailableGaps();
-    const access = accessSource(connection.endpoint, gaps);
-    backend = daemonSettingsBackend(client, { access, defaults });
-    backends.set(client, backend);
-  }
-  return backend;
+  return (client) => {
+    let backend = backends.get(client);
+    if (!backend) {
+      const gaps = module ? withBrowserClock(module) : unavailableGaps();
+      const access = accessSource(connection.endpoint, gaps);
+      backend = daemonSettingsBackend(client, { access, defaults });
+      backends.set(client, backend);
+    }
+    return backend;
+  };
+}
+
+/**
+ * Under "All machines": whether any other connected machine holds a different value for `key`
+ * than `value`, so the row can say its machines differ. False when one machine is picked.
+ */
+function useDiffers(key: string, value: unknown): boolean {
+  const others = useAllMachinesClients();
+  const make = useBackendFactory();
+  const stores = others.map((client) => make(client).values);
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      const stops = stores.map((store) => store.subscribe(listener));
+      return () => {
+        for (const stop of stops) stop();
+      };
+    },
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the stores follow `others`
+    [others],
+  );
+  const snapshot = () =>
+    stores.map((store) => (key in store.get() ? JSON.stringify(store.get()[key]) : "")).join("\n");
+  const theirs = useSyncExternalStore(subscribe, snapshot, snapshot);
+  if (!others.length) return false;
+  const mine = JSON.stringify(value);
+  return theirs.split("\n").some((entry) => entry !== "" && entry !== mine);
 }
 
 /**
@@ -156,6 +191,8 @@ export interface SettingControl<T> {
   offline: boolean;
   /** A write has taken longer than 400ms. */
   pending: boolean;
+  /** Under "All machines": another connected machine holds a different value. */
+  differs?: boolean;
   set(next: T): void;
 }
 
@@ -170,10 +207,12 @@ export function useSettingControl<T>(setting: SettingDef<T>, title: string): Set
   );
   const offline = useConnectionState() !== "ready";
   const write = useSettingWrite(title);
+  const differs = useDiffers(setting.key, value);
   return {
     value,
     loaded,
     offline,
+    differs,
     pending: write.pending,
     set: (next) => write.run(() => set(next)),
   };

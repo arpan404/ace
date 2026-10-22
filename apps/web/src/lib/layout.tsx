@@ -230,3 +230,11 @@ export function useLayout(): LayoutValue {
   if (!value) throw new Error("useLayout needs a <LayoutProvider>");
   return value;
 }
+
+/**
+ * The injected storage where there is one. Pieces also rendered outside the shell (a PR's
+ * workspace on its own) keep their state in memory there instead.
+ */
+export function useOptionalStorage(): KeyValueStorage | undefined {
+  return useContext(LayoutContext)?.storage;
+}

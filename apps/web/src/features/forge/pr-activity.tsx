@@ -17,6 +17,7 @@ export function PrActivity(props: {
   order: "newest" | "oldest";
   /** Opens one commit's changes in the Code tab. */
   onOpenCommit?: ((sha: string) => void) | undefined;
+  className?: string | undefined;
 }) {
   const ref = props.detail.status.ref;
   const commits = usePrCommits({ ...props, repository: ref.repository });
@@ -54,7 +55,11 @@ export function PrActivity(props: {
   return (
     <section
       aria-label="Pull request timeline"
-      className={cn("mx-auto w-full max-w-3xl px-4 pt-5", composerClearance)}
+      className={cn(
+        "mx-auto w-full max-w-3xl px-[var(--forge-gutter,1rem)] pt-5",
+        composerClearance,
+        props.className,
+      )}
     >
       <QueryState label="commits" query={commits} />
       <QueryState label="timeline" query={activity} />

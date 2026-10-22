@@ -93,6 +93,8 @@ function ComposerBody({
   );
   const input = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLDivElement>(null);
+  // Menus open from the input itself, over any strip attached above it.
+  const surface = useRef<HTMLDivElement>(null);
   const addMenu = useRef<AddHandle>(null);
   const listId = useId();
   const message = useMessageState(
@@ -314,7 +316,7 @@ function ComposerBody({
     <div ref={box} className="relative">
       <ComposerOverlays
         thread={props.thread}
-        anchor={box}
+        anchor={surface}
         listId={listId}
         suggestions={suggestions}
         adding={adding}
@@ -343,6 +345,7 @@ function ComposerBody({
           {props.attached}
           {props.environment}
           <div
+            ref={surface}
             data-slot="composer"
             onDragOver={(event) => {
               if (carriesFiles(event.dataTransfer)) event.preventDefault();

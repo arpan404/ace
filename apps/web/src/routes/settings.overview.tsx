@@ -1,4 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { OverviewSettingsScreen } from "@/features/settings/index.ts";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/settings/overview")({ component: OverviewSettingsScreen });
+/** Overview was folded away: old links land on the first settings page. */
+export const Route = createFileRoute("/settings/overview")({
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/agents", replace: true });
+  },
+});
