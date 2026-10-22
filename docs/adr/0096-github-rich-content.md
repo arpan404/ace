@@ -36,19 +36,32 @@ responses, including a private repository. ace never reads, stores or proxies cr
   project. The daemon binds it to a plain read-only download from a files service rooted at its
   media cache, so it streams through the same pull channel as other downloads, including the
   encrypted relay. Paired devices and phones never contact GitHub.
-- The daemon looks each URL up by its media key: an attachment by its asset id (whether written
-  as the upload URL or a pasted signed URL), anything else by its URL without a fragment. A key
-  already cached answers at once and asks GitHub nothing. The rest are rendered in one
-  `gh api markdown` request whose text holds only those URLs, each after a marker
+- Access follows the repository. Cache keys are the repository (`host/owner/name`) plus the media
+  key, so what one repository's text resolved never answers another's: another repository asks
+  GitHub itself, through the user's own access. A hash is granted to the project whose resolve
+  answered with it, and a download is served only to a project granted that hash; knowing a hash
+  from elsewhere is not enough. Grants live in memory; after a restart a download answers
+  NOT_FOUND, and the client drops its saved answer and resolves once more, which answers from
+  the cache and grants it again (the same path recovers media the cache evicted).
+- The daemon looks each URL up by its key: an attachment by its asset id (whether written as the
+  upload URL or a pasted signed URL), anything else by its URL without a fragment. A key already
+  cached answers at once and asks GitHub nothing; one past its week answers with the kept bytes
+  while a refresh runs behind it. The rest are rendered in one `gh api markdown` request whose
+  text holds only those URLs, each after a marker paragraph carrying a per-request random nonce
   (`<img src>` for images, the bare URL for links); the media after each marker in GitHub's HTML
-  (parsed with parse5) is what to fetch. Only the URLs reach GitHub, never the surrounding text.
+  (parsed with parse5) is what to fetch, and only a paragraph that is exactly a marker counts,
+  so nothing in a URL can pose as one. Only the URLs reach GitHub, never the surrounding text.
+  A batch runs on its own, so one requester going away never fails it for others.
 - Polls are unchanged: no comment read asks for HTML. Rendering happens only when a page shows
   media that is not cached, and only for that media.
 - Fetching: only URLs on GitHub's media hosts (`private-user-images`, `camo`, `user-images`,
   `raw`, `objects`, `avatars` under `githubusercontent.com`, `github.githubassets.com`), or an
   Enterprise host and its subdomains for that host's repositories, over https, through the
-  public-web fetch: no cookies, credentials or referrer, every address and redirect hop checked,
-  15 s per hop. Bytes stream to a temporary file in the cache folder while they are hashed; past
+  public-web fetch: no cookies, credentials or referrer. Every redirect hop must pass the same
+  host check over https (a redirect elsewhere is refused, not followed), and every address is
+  checked and pinned: public addresses on 443, plus, for an Enterprise forge only, private
+  addresses of that host and its subdomains. The connection may sit idle 15 s; the whole fetch
+  may take 10 minutes as long as bytes keep arriving, so a slow link finishes a large video. Bytes stream to a temporary file in the cache folder while they are hashed; past
   32 MiB the fetch stops (`too_large`). The result is kept only if its leading bytes are PNG,
   JPEG, GIF, WebP, AVIF, BMP, ICO, SVG, MP4/QuickTime or WebM; the host's Content-Type is ignored.
 - A signed URL that fails (expired between render and fetch, or refused) is rendered once more
@@ -59,13 +72,15 @@ responses, including a private repository. ace never reads, stores or proxies cr
 
 ### Cache and limits
 
-- `<data>/forge-media/<sha256>` with an in-memory index persisted to `index.json`; at most 2,048
-  files and 512 MiB, least recently used first; temporary files from a crash are removed at
-  start. Attachment entries never go stale; other entries are fetched again after a week, the old
-  bytes standing until a fetch succeeds.
+- `<data>/forge-media/<sha256>` with an in-memory index persisted to `index.json` (writes gathered
+  over a second, recency order kept across restarts); at most 2,048 files and 512 MiB, least
+  recently used first; temporary files from a crash are removed at start. A hash is counted once
+  however many stores of the same bytes race. Attachment entries never go stale; other entries are
+  fetched again after a week, the old bytes answering until a fetch succeeds.
 - Misses that won't change soon (`none`, `not_found`, `unsupported`, `too_large`) are remembered
-  for ten minutes, passing failures for 15 s, at most 2,048 entries. Three fetches run at once.
-  Concurrent resolves of the same URL share one fetch.
+  for ten minutes; passing failures for 15 s, doubling with each further failure up to 30 minutes;
+  at most 2,048 entries. Kept bytes always answer before a remembered miss. Three fetches run at
+  once. Concurrent resolves of the same URL share one fetch.
 - Clients keep resolve answers for the session (passing failures for 15 s) and up to 64 files /
   96 MiB of bytes; byte reads share the transcript image loader's queue, budget, reconnect wait
   and retries.
@@ -85,44 +100,59 @@ dt em figcaption figure h1–h6 hr i img ins kbd li mark ol p picture pre q rp r
 source span strike strong sub summary sup table tbody td tfoot th thead time tr tt u ul var wbr`.
   Allowed attributes: `href title name id` (a; ids are prefixed per document), `src alt title
 width height align` (img), `srcset media type` (source), `open` (details), `colspan rowspan`,
-  `start type` (ol), `align` on block and cell elements, `dir`, `datetime`, `cite`. Everything
+  `start type` (ol; the type is drawn), `src` (video), `align` on block and cell elements, `dir`,
+  `datetime`, `cite`. A `<video src>` plays an upload through the daemon with controls forced;
+  anything inside it is dropped. Everything
   else is dropped: classes, inline styles and event handlers never reach the DOM. A tag outside
   the list is shown as its source text (`<script>…</script>` reads as text). HTML comments are
   hidden. Links are kept only for http(s), mailto and in-page anchors; images only for http(s);
   root-relative paths resolve against the forge host.
-- SVG is only ever drawn as an `<img>` from a blob URL, where its scripts never run.
+- SVG is only ever drawn as an `<img>` from a blob URL, where its scripts never run. The desktop
+  shell denies new windows for `blob:` URLs, and a `blob:` document inherits the app's content
+  policy, which allows no inline script in a release build, so an SVG can't run even if opened.
 - Images take the size their text asks for (`width`/`height`), else their own, never wider than
   the column, with their box held while loading (from the attributes or the daemon's header
   read). A click opens the existing lightbox; an image inside a link follows the link. A video
   plays inline with controls at its own size. `<picture>` picks the `<source>` whose
   `prefers-color-scheme` matches ace's resolved mode. Media that can't be shown leaves one quiet
-  line ("“alt” couldn't load.") with "Open on GitHub".
+  line ("“alt” couldn't load.") with "Open on GitHub", or "Open original" for media off the
+  forge.
 - Alerts are monochrome (an icon and the word): colour in ace means agent state (DESIGN.md).
   Emoji shortcodes use GitHub's published `gemoji` list, loaded as its own chunk only when text
-  holds a shortcode. @people and @org/team link to GitHub; `#123` links (the PR view opens its
-  own); footnotes are numbered in definition order with back links.
+  holds a shortcode; GitHub's image-only emoji (`:octocat:`) come from its emoji list
+  (`forge.emoji.images`, read once per host when a shortcode isn't Unicode) and load through the
+  daemon as media. @people and @org/team link to GitHub; `#123` and `owner/repo#123` link and open
+  inside ace where the page can; commit SHAs (40 characters, or 7 and up mixing digits and
+  letters, since ace can't ask GitHub whether each exists) and `owner/repo@sha` link to the
+  commit; footnotes are numbered in definition order with back links. None of these apply inside
+  link text or code, as on GitHub.
+- Mermaid diagrams draw as images: the renderer loads as its own chunk only when a page shows a
+  ```mermaid block, runs at `securityLevel: "strict"` with plain-text labels, and its SVG is shown
+  only as an `<img>` from a blob. The code block stays while it loads and if it can't be drawn.
 - Task boxes tick where the viewer may edit the text: the PR description through the lifecycle
   edit against the snapshot version (only while that version's body is the one shown), the
   viewer's own PR comments through the comment edit with its expected-body guard, and issue
-  bodies through the issue edit with its expected-updated-at guard. Only the box's mark changes;
-  if the boxes on the page can't be matched one to one with the source (outside fenced code),
-  they only show their state.
+  bodies through the issue edit with its expected-updated-at guard. Each box is placed in the
+  text by walking the lexer's own tokens through the source, so code, comments, quotes and
+  nested lists can't make a different box change; only that box's mark changes, and a box that
+  can't be placed only shows its state. Each box is named by its item's words.
 
 ## Consequences
 
 - Private screenshots and recordings show in ace on every device, with GitHub contacted once per
   file by the daemon and never by clients.
-- Mermaid diagrams stay code blocks: ace has no diagram renderer to reuse. Images by relative
-  repository path in comments are not fetched (GitHub resolves them against the page, which
-  usually breaks there too); repository files remain in the Code tab. Custom GitHub emoji that are
-  images (`:octocat:`) stay text. Commit SHAs and `owner/repo#123` are not linked yet.
+- Images by relative repository path in comments are not fetched (GitHub resolves them against
+  the page, which usually breaks there too); repository files remain in the Code tab.
+- Short commit SHAs that are all digits or all letters stay text, and a SHA-shaped word that
+  isn't a commit still links (to a page GitHub answers with not found).
 - The iOS client can adopt the same resolve and download operations later.
 
 ## Testing
 
-A fake `gh` serves recorded `POST /markdown` HTML; a local HTTP server stands in for the media
-host, refusing a lapsed token, so the re-render path, sniffing, size caps, host checks and the
-cache (budget, LRU, restart) run for real. Web tests render forge text against the fake daemon's
+A fake `gh` serves recorded `POST /markdown` HTML (echoing each request's nonce); a local HTTP
+server stands in for the media host, refusing a lapsed token, redirecting away, dripping slowly or
+stalling, so the re-render path, per-hop checks, idle timeout, backoff, stale answers, sniffing,
+size caps, per-repository keys, grants and the cache (budget, LRU, restart) run for real. Web tests render forge text against the fake daemon's
 resolve and download. A one-off run against a real private repository through the real forge and
 daemon code fetched two private screenshots, a recording and a camo image, wrote no signed URL to
 disk, and answered the second resolve from the cache without contacting GitHub.

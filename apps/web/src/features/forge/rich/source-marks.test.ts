@@ -30,6 +30,12 @@ test("the box ticked is the box drawn, even when code and nested lists would mis
   });
 });
 
+test("a box is named by its item's words, without markdown marks", () => {
+  expect(tick("- [ ] Update **the** [docs](https://x.dev)[^1]\n\n[^1]: n", 0).label).toBe(
+    "Update the docs",
+  );
+});
+
 test("text that no longer holds a box at the drawn place isn't rewritten", () => {
   expect(withTask("- [ ] a", { offset: 1, label: "a" }, true)).toBeUndefined();
 });
