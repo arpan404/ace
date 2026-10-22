@@ -68,6 +68,24 @@ async function centreOf(viewer: LiveViewer, deviceId: string, text: string) {
   };
 }
 
+/** The first element on screen whose class is `role` (Android roles are class names). */
+async function firstOfRole(viewer: LiveViewer, deviceId: string, role: string) {
+  const found = ScreenUITreeResult.parse(
+    await viewer.request({ op: "ui.find", deviceId, query: { role }, limit: 1 }),
+  );
+  return found.nodes[0];
+}
+
+/** Waits for `text` on screen; when it never shows, fails with what the screen held instead. */
+async function waitToShow(viewer: LiveViewer, deviceId: string, text: string) {
+  try {
+    await expect.poll(() => shows(viewer, deviceId, text), { timeout: 45_000 }).toBe(true);
+  } catch {
+    const tree = JSON.stringify(await viewer.request({ op: "ui.tree", deviceId }));
+    throw new Error(`"${text}" never showed; the screen held: ${tree.slice(0, 6000)}`);
+  }
+}
+
 /** Whether any element on screen shows `text`. */
 async function shows(viewer: LiveViewer, deviceId: string, text: string): Promise<boolean> {
   const found = ScreenUITreeResult.parse(
@@ -100,6 +118,20 @@ function emulatorCpuSeconds(): number | undefined {
 
 type Metrics = Record<string, number | string | undefined>;
 
+/** The GLES renderer SurfaceFlinger reports on `serial`: which GPU mode the guest really got. */
+function renderer(serial: string): string | undefined {
+  try {
+    const dump = execFileSync(
+      join(sdk ?? "", "platform-tools", "adb"),
+      ["-s", serial, "shell", "dumpsys SurfaceFlinger | grep -m1 GLES"],
+      { encoding: "utf8", timeout: 15_000 },
+    );
+    return dump.trim().slice(0, 200) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * What a person does with a booted device: watch its H.264, open settings with a tap, type into
  * search, scroll, and take a screenshot. Records first-picture latency, frame rate and CPU.
@@ -130,14 +162,28 @@ async function personDrives(viewer: LiveViewer, deviceId: string, metrics: Metri
   await expect.poll(() => shows(viewer, deviceId, "Airplane mode"), { timeout: 30_000 }).toBe(true);
   const tapped = await viewer.frames(deviceId, { count: before.length + 1, afterMs: 1_500 });
 
-  // Typing reaches the focused field: the settings search box.
+  // Typing reaches the focused field: the settings search box, once its text field is up.
   await viewer.request({ op: "input", deviceId, input: { kind: "key", key: "back" } });
-  await expect.poll(() => shows(viewer, deviceId, "Search"), { timeout: 30_000 }).toBe(true);
+  await waitToShow(viewer, deviceId, "Search");
   const search = await centreOf(viewer, deviceId, "Search");
   await viewer.request({ op: "input", deviceId, input: { kind: "tap", ...search } });
-  await new Promise((resolve) => setTimeout(resolve, 1_500));
+  await expect
+    .poll(() => firstOfRole(viewer, deviceId, "EditText"), { timeout: 45_000 })
+    .toBeDefined();
+  const field = await firstOfRole(viewer, deviceId, "EditText");
+  if (field)
+    await viewer.request({
+      op: "input",
+      deviceId,
+      input: {
+        kind: "tap",
+        x: Math.round(field.bounds.x + field.bounds.w / 2),
+        y: Math.round(field.bounds.y + field.bounds.h / 2),
+      },
+    });
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
   await viewer.request({ op: "input", deviceId, input: { kind: "type", text: "zebra42" } });
-  await expect.poll(() => shows(viewer, deviceId, "zebra42"), { timeout: 30_000 }).toBe(true);
+  await waitToShow(viewer, deviceId, "zebra42");
 
   // What the person watched is H.264 that decodes at the device's size and followed along.
   expect(tapped.every((frame) => frame.codec.startsWith("avc1."))).toBe(true);
@@ -245,10 +291,12 @@ describe.skipIf(!enabled || !bootAvd)("Android on Linux, an emulator ace boots",
       await viewer.request({ op: "boot", deviceId }, 600_000);
       metrics.bootMs = Math.round(performance.now() - bootStart);
       const booted = DeviceInventory.parse(await viewer.request({ op: "list" }));
-      expect(booted.devices.find((entry) => entry.id === deviceId)).toMatchObject({
+      const running = booted.devices.find((entry) => entry.id === deviceId);
+      expect(running).toMatchObject({
         state: "booted",
         serial: expect.stringMatching(/^emulator-\d+$/),
       });
+      metrics.renderer = renderer(running?.serial ?? "");
       const cpu = emulatorCpuSeconds();
       await new Promise((resolve) => setTimeout(resolve, 5_000));
       const idle = emulatorCpuSeconds();
