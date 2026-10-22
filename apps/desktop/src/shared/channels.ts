@@ -92,6 +92,11 @@ export const requests = {
   "visualization.open": { request: VisualizationWindow, result: None },
   "settings.get": { request: None, result: DesktopSettings },
   "settings.update": { request: DesktopSettingsPatch, result: DesktopSettings },
+  /**
+   * What the quick-thread shortcut still needs from the person on this desktop, in a sentence
+   * (Hyprland: the hyprland.conf line that gives it keys); null when nothing.
+   */
+  "settings.shortcutHint": { request: None, result: z.string().max(500).nullable() },
   "permissions.status": { request: None, result: Permissions },
   "permissions.open": { request: PermissionPane, result: z.boolean() },
   "browser.place": { request: BrowserPlacement, result: BrowserPlacementReceipt },

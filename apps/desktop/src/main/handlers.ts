@@ -67,6 +67,8 @@ export function createHandlers(options: {
   /** A chat visualization in its own window, in the locked visualization session. */
   openVisualization(request: VisualizationWindow): void;
   updates: AppUpdates;
+  /** What the quick-thread shortcut still needs from the person here (os/hyprland-shortcut.ts). */
+  shortcutHint?(): Promise<string | undefined>;
   /** Chromium's sandbox setup on a Linux AppImage or tar.gz (os/linux-sandbox-setup.ts). */
   sandbox: {
     current(): SandboxNotice;
@@ -193,6 +195,7 @@ export function createHandlers(options: {
       return undefined;
     },
     "settings.get": () => settings.get(),
+    "settings.shortcutHint": async () => (await options.shortcutHint?.()) ?? null,
     "settings.update": async (patch) => {
       // A downloads folder must be one this app can save in, now.
       if (patch.browserDownloads) await writableFolder(patch.browserDownloads);

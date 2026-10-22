@@ -155,6 +155,7 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
     settings: {
       get: () => call("settings.get"),
       update: (patch: RequestOf<"settings.update">) => call("settings.update", patch),
+      shortcutHint: () => call("settings.shortcutHint"),
       onChange: (listener: (value: EventOf<"settings.changed">) => void) =>
         subscribe("settings.changed", listener),
     },
