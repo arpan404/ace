@@ -44,18 +44,29 @@ export function PrMergeCommitDialog(props: {
   when: "now" | "auto" | undefined;
   onClose(): void;
 }) {
-  const { actions } = props;
+  const { actions, when } = props;
+  const method = actions.method;
+  const label = mergeMethods.find((each) => each.method === method)?.label ?? "Merge";
+  const base = actions.context.detail.baseBranch;
   return (
-    <Dialog open={props.when !== undefined} onOpenChange={(open) => !open && props.onClose()}>
+    <Dialog open={when !== undefined} onOpenChange={(open) => !open && props.onClose()}>
       <DialogContent size="lg">
-        {props.when && actions.method !== "rebase" && (
-          <CommitForm
-            // A new method or head starts again from GitHub's prefill.
-            key={`${actions.method}:${actions.context.detail.status.headSha}`}
-            actions={actions}
-            method={actions.method}
-            when={props.when}
-            onClose={props.onClose}
+        {when && method !== "rebase" && (
+          <MergeCommitForm
+            // A new method starts again from its own prefill; a push keeps what was written.
+            key={method}
+            heading={when === "now" ? `${label} into ${base}` : `${label} into ${base} automatically`}
+            confirm={when === "now" ? `Confirm ${label.toLowerCase()}` : "Enable auto-merge"}
+            prefill={defaultMergeCommit(actions.context.detail, method, actions.mergeState.state)}
+            headSha={actions.context.detail.status.headSha}
+            blocked={when === "now" ? actions.mergeBlocked : actions.autoMergeBlocked}
+            onCancel={props.onClose}
+            onSubmit={(commit) => {
+              props.onClose();
+              void (when === "now"
+                ? actions.writes.merge(method, commit)
+                : actions.mergeState.run("enable", method, commit));
+            }}
           />
         )}
       </DialogContent>
@@ -63,37 +74,72 @@ export function PrMergeCommitDialog(props: {
   );
 }
 
-function CommitForm(props: {
-  actions: PrActions;
-  method: Exclude<MergeMethod, "rebase">;
-  when: "now" | "auto";
-  onClose(): void;
+/**
+ * The commit's title and message. What the person writes stays through pushes and refreshes:
+ * a field still as GitHub prefilled it follows GitHub's new text; an edited one keeps its words
+ * and offers the new text instead. New commits on the branch are said, since the merge takes
+ * the branch as it is when confirmed.
+ */
+export function MergeCommitForm(props: {
+  heading: string;
+  confirm: string;
+  prefill: ForgeMergeCommit;
+  headSha: string;
+  blocked: string | undefined;
+  onCancel(): void;
+  onSubmit(commit: ForgeMergeCommit): void;
 }) {
-  const { actions, method } = props;
-  const prefill = defaultMergeCommit(actions.context.detail, method, actions.mergeState.state);
+  const { prefill } = props;
   const [title, setTitle] = useState(prefill.title);
   const [message, setMessage] = useState(prefill.message);
-  const label = mergeMethods.find((each) => each.method === method)?.label ?? "Merge";
-  const blocked = props.when === "now" ? actions.mergeBlocked : actions.autoMergeBlocked;
-  const base = actions.context.detail.baseBranch;
+  const [openedAt] = useState(props.headSha);
+  // The prefill the fields were last given, and GitHub's newer text an edit is keeping out.
+  const [seen, setSeen] = useState(prefill);
+  const [offer, setOffer] = useState<ForgeMergeCommit>();
+  if (prefill.title !== seen.title || prefill.message !== seen.message) {
+    const titleEdited = title !== seen.title;
+    const messageEdited = message !== seen.message;
+    if (!titleEdited) setTitle(prefill.title);
+    if (!messageEdited) setMessage(prefill.message);
+    setSeen(prefill);
+    const held =
+      (titleEdited && prefill.title !== seen.title) ||
+      (messageEdited && prefill.message !== seen.message);
+    setOffer(held ? prefill : undefined);
+  }
   return (
     <form
       className="flex flex-col gap-4"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!title.trim() || blocked) return;
-        const commit = { title: title.trim(), message };
-        props.onClose();
-        void (props.when === "now"
-          ? actions.writes.merge(method, commit)
-          : actions.mergeState.run("enable", method, commit));
+        if (!title.trim() || props.blocked) return;
+        props.onSubmit({ title: title.trim(), message });
       }}
     >
       <DialogHeader>
-        <DialogTitle>
-          {props.when === "now" ? `${label} into ${base}` : `${label} into ${base} automatically`}
-        </DialogTitle>
+        <DialogTitle>{props.heading}</DialogTitle>
       </DialogHeader>
+      {(props.headSha !== openedAt || offer) && (
+        <p role="status" className="flex flex-wrap items-center gap-x-2 text-ui text-muted-foreground">
+          {props.headSha !== openedAt &&
+            "The branch has new commits since this opened; the merge takes them."}
+          {offer && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              className="-ml-1.5"
+              onClick={() => {
+                setTitle(offer.title);
+                setMessage(offer.message);
+                setOffer(undefined);
+              }}
+            >
+              Use GitHub's new text
+            </Button>
+          )}
+        </p>
+      )}
       <label className="flex flex-col gap-1 text-sm">
         Commit title
         <Input
@@ -121,17 +167,21 @@ function CommitForm(props: {
           onChange={(event) => setMessage(event.target.value)}
         />
       </label>
-      {blocked && (
+      {props.blocked && (
         <p role="status" className="text-ui text-muted-foreground">
-          {blocked}
+          {props.blocked}
         </p>
       )}
       <DialogFooter>
-        <Button type="button" variant="ghost" onClick={props.onClose}>
+        <Button type="button" variant="ghost" onClick={props.onCancel}>
           Cancel
         </Button>
-        <Button type="submit" variant="primary" disabled={!title.trim() || blocked !== undefined}>
-          {props.when === "now" ? `Confirm ${label.toLowerCase()}` : "Enable auto-merge"}
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={!title.trim() || props.blocked !== undefined}
+        >
+          {props.confirm}
         </Button>
       </DialogFooter>
     </form>
