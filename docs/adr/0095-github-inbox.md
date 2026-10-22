@@ -23,38 +23,42 @@ request only names the host: the host of the project's own repository, or an exp
 The answer also names that repository (`projectRepository`), so rows in it open without naming
 it and a pull request has one address however it was reached. Pages stop at 20.
 
-Each notification becomes a typed row: repository, subject type, title, the number read from
-the subject's API address (`…/pulls/229`, `…/issues/31`), reason, unread, updated and last-read
-times, and the subject's GitHub address. The raw record is not sent to clients. Reasons and subject types are kept as GitHub sent
-them, so a reason or type GitHub adds later still shows (clients put unknown ones in plain
-words). A record missing the fields a row needs is skipped; the rest of the page still shows.
-The subject's API address is only parsed, never requested.
+Each notification becomes a typed row: repository, subject type, title, the number read from the
+subject's API address (`…/pulls/229`, `…/issues/31`), reason, unread, updated and last-read
+times, and the subject's GitHub address. The raw record is not sent to clients. Reasons and
+subject types are kept as GitHub sent them, so a reason or type GitHub adds later still shows
+(clients put unknown ones in plain words). A record missing the fields a row needs is skipped;
+the rest of the page still shows. The subject's API address is only parsed, never requested.
 
 Pull requests and issues also get their state (open, draft, merged, closed) from one GraphQL
-read per changed page, aliased by repository and number. A refused or partial answer leaves
-rows without a state; an inbox never fails because of it. States are kept with the page only
-when read in full, so the next poll asks again rather than leaving rows stateless until the
-notifications change.
+read per changed page, aliased by repository and number. A refused or partial answer leaves rows
+without a state; an inbox never fails because of it. States are kept with the page only when
+read in full or refused for good (the repository is gone, access was lost, the host lacks a
+field), so a passing failure is asked again on the next poll while a lasting one isn't asked on
+every 304.
 
 ### Polling and caching
 
-Notifications go through the forge's bounded `GhApi` transport. It now keeps `Last-Modified`
-and `X-Poll-Interval` with each cached page and sends `If-Modified-Since` (beside
-`If-None-Match`) on the next read, so an unchanged inbox costs a 304, which GitHub doesn't
-count against the rate limit. One `GitHubInbox` per host and signed-in account keeps its pages
-between reads. Within GitHub's poll interval a repeat read of a page is answered from the last
-answer without asking GitHub; concurrent reads of one page share one request (`ListCache`);
-pages are decoded once (`PageDecoder`). Any write clears both, so the next read asks GitHub at
-once. A rate limit is remembered until GitHub's reset: until then every read is answered with it
-without starting `gh`.
+Notifications go through the forge's bounded `GhApi` transport. It now keeps `Last-Modified` and
+`X-Poll-Interval` with each cached page and sends `If-Modified-Since` (beside `If-None-Match`)
+on the next read, so an unchanged inbox costs a 304, which GitHub doesn't count against the rate
+limit. One `GitHubInbox` per host and signed-in account keeps its pages between reads. Within
+GitHub's poll interval a repeat read of a page is answered from the last answer without asking
+GitHub; concurrent reads of one page share one request (`ListCache`); pages are decoded once
+(`PageDecoder`). Any write clears both and bumps a generation, so the next read asks GitHub at
+once, and a read that was already on its way when the write landed is returned but never kept
+(GitHub may have answered from before the write). A rate limit is remembered until GitHub's
+reset: until then every read is answered with it without starting `gh`.
 
 The client polls the first page at GitHub's interval (`pollSeconds` in the answer) only while
 the app is in front, never in the background. After a refusal that won't pass by itself
-(`forge_notifications_unavailable`, `forge_forbidden`, `forge_unsupported`) it stops until the
-person tries again; after a rate limit or a lost connection it waits five minutes. The sidebar's
-Inbox row reads that same page for its quiet unread count, so the count costs nothing extra;
-with a filter on, the page polls the filtered list as well. ace never notifies the operating
-system about GitHub notifications.
+(`forge_notifications_unavailable`, `forge_forbidden`, `forge_unsupported`, no GitHub remote,
+not a Git repository) it asks again only every 15 minutes, so a fixed sign-in shows up on its
+own; after a rate limit or a lost connection it waits five minutes. While rows from an earlier
+answer are on show and a refresh fails, one line above them says "Couldn't refresh
+notifications." with Try again. The sidebar's Inbox row reads that same page for its quiet
+unread count, so the count costs nothing extra; with a filter on, the page polls the filtered
+list as well. ace never notifies the operating system about GitHub notifications.
 
 ### Writes
 
@@ -68,32 +72,33 @@ system about GitHub notifications.
 | `read-all`    | `PUT /notifications` or `PUT /repos/{owner}/{name}/notifications` with `last_read_at` |
 
 GitHub's API has no way to mark a thread unread, so ace offers none. Every write passes the
-identity-checked runner (the account is verified before dispatch) and the device's authority
-is checked again just before the process starts. A write is never retried automatically. Its
+identity-checked runner (the account is verified before dispatch) and the device's authority is
+checked again just before the process starts. A write is never retried automatically. Its
 receipt (`inboxAction`) is `succeeded`, `failed` (refused, or never sent) or `uncertain` (sent,
 answer lost). Like every workspace command, an inbox write reserves its receipt before it runs,
 so a command the client sends again after a lost answer is answered from that receipt and never
-reaches GitHub twice. Unlike issue writes, inbox writes set a state rather than add one, so there
-is no reconciliation: the person may send an uncertain write again, and the next read shows what
-GitHub holds.
+reaches GitHub twice. Unlike issue writes, inbox writes set a state rather than add one, so
+there is no reconciliation: the person may send an uncertain write again, and the next read
+shows what GitHub holds.
 
 The page's Unsubscribe also marks the thread done, as GitHub's own inbox does. Mark all read
 uses `read-all` everywhere or in the chosen repository, with `last_read_at` read from the clock
 at the click; rows updated after it stay unread, as they do on GitHub. GitHub applies `read-all`
 in the background (202), so the client keeps its own result and lets the next poll catch up
 instead of reading at once. With the participating or reason filter on, GitHub has no matching
-bulk call, so the rows on show are marked one by one. A refused write puts the rows back by
-reading again.
+bulk call, so the rows on show are marked one by one. Before changing the rows the client drops
+any poll already on its way, so an answer from before the write can't undo it. A Mark done
+within a poll interval of Mark all read doesn't read again, so the rows GitHub is still marking
+read don't flash bold. A refused write puts the rows back by reading again.
 
 ### Error categories
 
 A 403 to the account's notifications (`/notifications…`) becomes
-`forge_notifications_unavailable`: gh's token can't reach them (a fine-grained or app token, or a
-classic token without `notifications` or `repo`). A 401, gh's "not signed in" exit, and a 403
+`forge_notifications_unavailable`: gh's token can't reach them (a fine-grained or app token, or
+a classic token without `notifications` or `repo`). A 401, gh's "not signed in" exit, and a 403
 for one repository's notifications stay `forge_forbidden`, whose fix is signing in or access to
-that repository. Clients say so in one sentence and name the fix
-(`gh auth refresh -s notifications`). Rate limits, offline and other failures keep the forge's
-existing categories.
+that repository. Clients say so in one sentence and name the fix (`gh auth refresh -s
+notifications`). Rate limits, offline and other failures keep the forge's existing categories.
 
 ### Web
 
