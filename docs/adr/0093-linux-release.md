@@ -145,6 +145,10 @@ The deb installs one; an AppImage and an extracted tar.gz have no installer. The
   `ace doctor` runs the helper's own `--preflight-only` there and prints `ace-cursor-sandbox`,
   attached to `ACE_HOME/releases/*/…/cursorsandbox` so updates keep it. The provider's
   refusal names AppArmor and both fixes.
+- `ace doctor`'s report is redacted for sharing, which breaks install commands (an AppArmor
+  `{…}` glob reads as a record, `ACE_HOME` becomes `<ENV>`). Where redaction changes a fix,
+  the report says to run `ace doctor fix <id>`, which prints that fix unredacted on the
+  person's own terminal and never goes into a support bundle.
 - Trade-off: these attachments are paths the person's account can write, so code running as
   that person could gain user namespaces by placing an executable there. Chromium's own
   guidance accepts the same for builds in a home folder; the alternative, a root-owned copy,

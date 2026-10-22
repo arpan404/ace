@@ -48,7 +48,7 @@ test("under Ubuntu's user-namespace restriction the refusal names AppArmor and t
     restricted: true,
   });
   expect(message).toBe(
-    "Ubuntu's AppArmor blocks the user namespaces Cursor's sandbox helper needs, so Cursor can't run in Auto review, its sandboxed mode, on this machine. Set up the sandbox in ace's desktop app, or run `ace doctor` for the one-time commands; Full access still works.",
+    "Ubuntu's AppArmor blocks the user namespaces Cursor's sandbox helper needs, so Cursor can't run in Auto review, its sandboxed mode, on this machine. Set up the sandbox in ace's desktop app, or run `ace doctor fix linux.cursor-sandbox` for the one-time commands; Full access still works.",
   );
 });
 

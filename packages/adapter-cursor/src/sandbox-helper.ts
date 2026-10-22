@@ -62,7 +62,7 @@ export function sandboxUnavailableMessage(problem: HelperProblem): string {
     case "library":
       return `Cursor's sandbox helper can't load ${problem.library}, ${affected}. Install the package that provides ${problem.library}, or use Full access.`;
     case "apparmor":
-      return `Ubuntu's AppArmor blocks the user namespaces Cursor's sandbox helper needs, ${affected}. Set up the sandbox in ace's desktop app, or run \`ace doctor\` for the one-time commands; ${fallback}.`;
+      return `Ubuntu's AppArmor blocks the user namespaces Cursor's sandbox helper needs, ${affected}. Set up the sandbox in ace's desktop app, or run \`ace doctor fix linux.cursor-sandbox\` for the one-time commands; ${fallback}.`;
     case "missing":
       return `Cursor's sandbox helper is not installed with this ace, ${affected}. ${fallback}.`;
     case "other":
