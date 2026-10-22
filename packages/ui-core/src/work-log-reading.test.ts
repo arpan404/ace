@@ -2,7 +2,7 @@ import { Item, type ToolCall } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { changedFileChips } from "./file-changes.ts";
 import { groupSteps } from "./step-groups.ts";
-import { shownStep } from "./step-shown.ts";
+import { shownStep, stepGlyphKind } from "./step-shown.ts";
 import { describeStep } from "./work-log.ts";
 import { readWorkLog } from "./work-log-reading.ts";
 
@@ -74,4 +74,16 @@ test("changed files show four chips and fold the rest, never into a +1 more", ()
     more: 2,
   });
   expect(changedFileChips(["a"]).label).toBe("Changed 1 file");
+});
+
+test("a step's glyph says what it did: a listing command lists, a spawn reaches an agent", () => {
+  expect(stepGlyphKind(call("ls", { kind: "shell", command: "ls src" }, "succeeded"))).toBe("list");
+  expect(stepGlyphKind(call("t", { kind: "shell", command: "bun run test" }, "succeeded"))).toBe(
+    "command",
+  );
+  expect(
+    stepGlyphKind(
+      call("s", { kind: "agent.spawn", prompt: "Audit" } as ToolCall["detail"], "succeeded"),
+    ),
+  ).toBe("agent");
 });

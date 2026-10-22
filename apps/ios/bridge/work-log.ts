@@ -50,7 +50,7 @@ export type LogRow =
       /** Call ids of the ended tasks, shown when the group opens. */
       listed: string[];
       /** Call ids of the tasks still running: each keeps its own line under the group. */
-      running: string[];
+      runningIds: string[];
     };
 
 /** The steps an ace call's earlier steps describe, worded as their log reads them. */
@@ -87,6 +87,10 @@ export interface LogFacts {
 
 export interface WorkLog {
   rows: LogRow[];
+  /** Failed steps a later step ran again with success: drawn as neither failed nor noted. */
+  retried: string[];
+  /** Every thought's header, by item: "Thinking…", "Thought for 12s". */
+  thoughts: { id: string; label: string; done: boolean }[];
   /** ace's own steps, worded with what earlier steps of the log said about them. */
   ace: AceSteps;
 }
@@ -117,7 +121,7 @@ export function workLog(ids: readonly string[], read: ReadItem, facts: LogFacts 
         items: [...group.ids],
         label: group.ids.length > 1 ? counted.label : "",
         listed: counted.listed.map(at),
-        running: counted.running.map(at),
+        runningIds: counted.running.map(at),
       };
     }
     if (group.single && group.icon === "think") {
@@ -138,5 +142,12 @@ export function workLog(ids: readonly string[], read: ReadItem, facts: LogFacts 
     const step = item && stepOf(item, { ...facts.context?.(item), ace: context });
     if (step) worded.push({ id, step });
   }
-  return { rows, ace: worded };
+  const thoughts = [];
+  for (const id of shown) {
+    const item = read(id);
+    if (item?.type !== "reasoning") continue;
+    const done = item.complete || ended(item);
+    thoughts.push({ id, done, label: thoughtLabel(done, done ? facts.took?.(id) : undefined) });
+  }
+  return { rows, retried: [...reading.retried], thoughts, ace: worded };
 }

@@ -1,5 +1,5 @@
 import type { Item, ToolSurface } from "@ace/protocol";
-import { exploreAction, displayCommand, isToolSearch, toolSearchRow } from "@ace/ui-core";
+import { stepGlyphKind, type StepGlyphKind } from "@ace/ui-core";
 import type { ToolMark } from "@ace/ui-core/ace-tools";
 import {
   BrainIcon,
@@ -31,70 +31,30 @@ import { useToolIcon } from "@/lib/tool-icons.ts";
  * step's glyph takes the failure tone; an image icon can't, so it fades.
  */
 
-const markGlyphs: Record<Extract<ToolMark, { kind: "glyph" }>["glyph"], PhosphorIcon> = {
-  screen: ComputerUseIcon,
+const glyphIcons: Record<StepGlyphKind, PhosphorIcon> = {
+  device: DeviceMobileIcon,
+  computer: ComputerUseIcon,
   browser: BrowserUseIcon,
-  agent: AceToolIcon,
-  thread: AceToolIcon,
-  pr: AceToolIcon,
   ace: AceToolIcon,
+  think: BrainIcon,
+  note: NoteIcon,
+  read: FileTextIcon,
+  search: MagnifyingGlassIcon,
+  list: FolderSimpleIcon,
+  command: TerminalIcon,
+  edit: NotePencilIcon,
+  web: GlobeIcon,
+  plan: ListChecksIcon,
+  question: ChatCircleIcon,
+  agent: RobotIcon,
+  image: ImageIcon,
+  tool: PlugIcon,
+  other: WrenchIcon,
 };
 
 /** The glyph for what an item did. */
 export function stepGlyph(item: Item | undefined, mark?: ToolMark): PhosphorIcon {
-  if (mark?.kind === "device") return DeviceMobileIcon;
-  if (mark?.kind === "glyph") return markGlyphs[mark.glyph];
-  // A site or app whose own icon can't be had (localhost, an unknown app): the surface's glyph.
-  if (mark?.kind === "site") return BrowserUseIcon;
-  if (mark?.kind === "app") return ComputerUseIcon;
-  if (item?.type === "reasoning") return BrainIcon;
-  if (item?.type === "notice") return NoteIcon;
-  if (item?.type !== "tool_call") return WrenchIcon;
-  const detail = item.call.detail;
-  switch (detail.kind) {
-    case "file.read":
-      return FileTextIcon;
-    case "search":
-      // Loading the agent's own tools by name is a tool step; a keyword search of them still looks.
-      return isToolSearch(item.call) && toolSearchRow(detail.query).loaded
-        ? PlugIcon
-        : MagnifyingGlassIcon;
-    case "shell": {
-      const explored = exploreAction(displayCommand(detail).command);
-      return explored === "search"
-        ? MagnifyingGlassIcon
-        : explored === "list"
-          ? FolderSimpleIcon
-          : explored === "read"
-            ? FileTextIcon
-            : TerminalIcon;
-    }
-    case "file.edit":
-    case "file.write":
-    case "file.delete":
-    case "file.move":
-    case "notebook":
-      return NotePencilIcon;
-    case "web.search":
-    case "web.fetch":
-      return GlobeIcon;
-    case "browser":
-      return BrowserUseIcon;
-    case "todo":
-    case "plan":
-      return ListChecksIcon;
-    case "ask_user":
-      return ChatCircleIcon;
-    case "agent.spawn":
-    case "agent.message":
-      return RobotIcon;
-    case "image":
-      return ImageIcon;
-    case "mcp":
-      return PlugIcon;
-    default:
-      return WrenchIcon;
-  }
+  return glyphIcons[stepGlyphKind(item, mark)];
 }
 
 /**

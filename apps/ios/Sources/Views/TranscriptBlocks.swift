@@ -26,14 +26,13 @@ struct BlockView: View {
     var body: some View {
         let row = block.row
         switch row.kind {
-        case "work": WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps, openMessage: links.openMessage)
+        case "work": WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps, openMedia: links.openMedia, openMessage: links.openMessage)
         case "subagents": if let agents = row.agents { SubagentGroupView(agents: agents, items: row.items, thread: thread, blockId: block.id, open: open, openAll: links.openAgents) }
         case "live": if links.live { LiveLine(activity: thread.screen.activity) }
-        case "end": if let ending = row.ending { EndingLine(ending: ending) }
+        case "end": if let ending = row.ending { EndingLine(ending: ending, row: row, thread: thread) }
         case "files":
-            if let openChanges = links.openChanges {
-                QuietLink(icon: .fileText, title: "Edited files", action: openChanges)
-                    .accessibilityIdentifier("transcript.changes")
+            if let files = row.files, !files.chips.isEmpty, let openChanges = links.openChanges {
+                ChangedFilesRow(files: files, open: openChanges)
             }
         case "started":
             if let started = row.started {

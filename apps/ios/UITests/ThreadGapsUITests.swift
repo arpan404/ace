@@ -43,7 +43,8 @@ import XCTest
         XCTAssertTrue(worked.waitForExistence(timeout: 25))
         app.scrollViews["transcript"].swipeDown(velocity: .fast)
         worked.tap()
-        XCTAssertTrue(app.staticTexts["Ran"].waitForExistence(timeout: 15))
+        // The turn's steps open grouped, as on the web: sentence rows on a rail.
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "work.group.")).firstMatch.waitForExistence(timeout: 15))
         screenshot("worked-full-steps")
         app.buttons["subagents.rollup"].firstMatch.tap()
         let review = app.buttons["subagent.Review PID-reuse safety"]

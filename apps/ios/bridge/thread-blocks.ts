@@ -159,6 +159,8 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
         log: log.rows,
         background,
         aceSteps: log.ace,
+        retried: log.retried,
+        thoughts: log.thoughts,
         ordinal: block.outcome === undefined ? null : (turnOf(store, blockItems(block)) ?? null),
       };
     }
@@ -168,15 +170,18 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
       return { ...base, items: [...blockItems(block)], interactionId: block.interactionId };
     case "end": {
       const items = block.itemIds ?? [];
+      // A usage-limit pause keeps the work it did, a tap away.
+      const background = block.ending === "paused" ? backgroundRows(store, items) : [];
+      const log = block.ending === "paused" ? workLog(items, read, { ...facts, background }) : null;
       return {
         ...base,
         items: [...items],
         ending: endingRow(store, block),
-        // A usage-limit pause keeps the work it did, a tap away.
-        log:
-          block.ending === "paused"
-            ? workLog(items, read, { ...facts, background: backgroundRows(store, items) }).rows
-            : null,
+        log: log?.rows ?? null,
+        background,
+        aceSteps: log?.ace ?? [],
+        retried: log?.retried ?? [],
+        thoughts: log?.thoughts ?? [],
       };
     }
     case "files":

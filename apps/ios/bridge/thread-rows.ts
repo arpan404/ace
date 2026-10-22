@@ -5,11 +5,13 @@ import {
   handoffMarker,
   opensAgentPage,
   shownStep,
+  stepGlyphKind,
   stepLabels,
   stepOpens,
   type StepContext,
 } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
+import { stepDetail } from "./step-detail.ts";
 
 /*
  * What a transcript row shows beyond its text: a step's one-line wording (shared with the web's
@@ -55,6 +57,8 @@ export function stepOf(item: Item, context: Omit<StepContext, "labels"> = {}) {
   const family = step.ace?.family;
   return {
     icon: family === "device" ? "device" : family === "screen" ? "computer" : step.icon,
+    /** What the row's glyph shows, as the web's step glyph picks it. */
+    glyph: stepGlyphKind(item, step.ace?.mark),
     opens: opensOf(step.ace),
     verb: preview(step.verb, 256),
     target: preview(step.target ?? "", 512),
@@ -66,6 +70,8 @@ export function stepOf(item: Item, context: Omit<StepContext, "labels"> = {}) {
     awaiting,
     /** The row opens to its output, diff or reasoning. */
     expandable: stepOpens(item),
+    /** What the opened row shows, bounded. */
+    detail: stepOpens(item) ? stepDetail(item, context) : null,
     added: step.added ?? null,
     removed: step.removed ?? null,
     /** An agent opened a page in the thread's browser: the row opens the browser. */

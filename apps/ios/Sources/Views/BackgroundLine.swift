@@ -10,8 +10,8 @@ struct BackgroundLine: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
             HStack(spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {
-                AceIcon(.terminalWindow, size: 16, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.decoration)
-                    .frame(width: AceTheme.Spacing.xxl).accessibilityHidden(true)
+                AceIcon(.terminal, size: 16, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.subtleForeground)
+                    .frame(minWidth: AceTheme.Spacing.xl).accessibilityHidden(true)
                 Text(line.label).lineLimit(1)
                 Spacer(minLength: AceTheme.Spacing.sm)
                 if line.running, line.stoppable, let stopBackground {
@@ -58,6 +58,59 @@ struct BackgroundLine: View {
         guard seconds >= 0, seconds < 7 * 24 * 3600 else { return "" }
         if seconds < 60 { return "\(seconds)s" }
         return Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes], width: .narrow))
+    }
+}
+
+/// Commands a log's calls left running, as a step of the log where they started: one task's
+/// line, or several started back to back as one group ("2 background tasks · 1 running") whose
+/// running lines stay in view, Stop and all; the ended ones open from the group. The rows
+/// update in place as the tasks end; they never move.
+struct BackgroundStep: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let row: BlockRow.LogRow
+    let source: LogSource
+    private var key: String { "group:\(row.id)" }
+    var body: some View {
+        let items = row.items ?? []
+        let lines = items.compactMap { source.background[$0] }
+        let running = Set(row.runningIds ?? [])
+        Group {
+            if items.count == 1, let line = lines.first {
+                BackgroundLine(line: line)
+            } else {
+                let open = source.thread.disclosures.isOpen(key)
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                    let listed = row.listed ?? []
+                    if listed.isEmpty {
+                        LogRowBox { AceIcon(.terminal, size: 16, relativeTo: .subheadline) } title: { Text(row.label ?? "") }
+                    } else {
+                        Button {
+                            withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { source.thread.disclosures.toggle(key) }
+                        } label: {
+                            LogRowBox(open: open) { AceIcon(.terminal, size: 16, relativeTo: .subheadline) } title: { Text(row.label ?? "") }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityValue(open ? "Expanded" : "Collapsed")
+                        .accessibilityIdentifier("background.group.\(row.id)")
+                    }
+                    if open {
+                        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                            ForEach(listed, id: \.self) { id in if let line = source.background[id] { BackgroundLine(line: line) } }
+                        }
+                        .rowDetailIndent()
+                    }
+                    VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                        ForEach(items.filter { running.contains($0) }, id: \.self) { id in
+                            if let line = source.background[id] { BackgroundLine(line: line) }
+                        }
+                    }
+                    .rowDetailIndent()
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(row.label ?? "")
+            }
+        }
+        .railMark(lines.contains { $0.running } ? .running : lines.contains { $0.status == "failed" } ? .failed : .done)
     }
 }
 
