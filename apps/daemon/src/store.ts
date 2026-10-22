@@ -61,6 +61,7 @@ import {
 } from "@ace/protocol";
 import { McpData } from "./mcp-data.ts";
 import { Devices } from "./devices.ts";
+import { SqlitePairingCodes } from "./pairing-codes.ts";
 import { migrate } from "./migrations.ts";
 import { StatusStore } from "./status-store.ts";
 import { UsageReplay } from "./usage-replay.ts";
@@ -86,6 +87,8 @@ type Listener = (events: Event[]) => void;
 const streamingRefreshPasses = 20;
 export class Store {
   readonly devices: Devices;
+  /** Pairing links waiting to be redeemed; they outlive a restart until they expire. */
+  readonly pairingCodes: SqlitePairingCodes;
   readonly workspaceReservations: WorkspaceReservations;
   private readonly db: DatabaseSync;
   private readonly usageReplay: UsageReplay;
@@ -246,6 +249,7 @@ export class Store {
         id: options.id ?? this.nextId,
         randomBytes: options.randomBytes ?? systemCredentials.randomBytes,
       });
+      this.pairingCodes = new SqlitePairingCodes(this.db);
       this.mcp = new McpData(this.db, (id) => this.getThread(id));
       this.searchReplay = new SearchReplay(this.db, this.history);
       this.search = new SearchIndex(this.db, {
