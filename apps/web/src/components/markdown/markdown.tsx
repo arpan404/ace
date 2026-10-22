@@ -63,9 +63,17 @@ function safeHref(href: string): string | undefined {
   }
 }
 
-function inline(tokens: readonly Token[] | undefined): ReactNode {
-  // Raw HTML among them is the extensions' to draw, when there are any (forge text).
-  if (tokens?.some((token) => token.type === "html")) return <HtmlInlines tokens={tokens} />;
+/**
+ * Inline tokens as elements. With extensions (forge text), a run that holds raw HTML is theirs to
+ * draw; without (agent prose) the run keeps its plain shape, HTML or not, so a message that
+ * gains an HTML token mid-stream never remounts its inline elements.
+ */
+function inline(
+  tokens: readonly Token[] | undefined,
+  extensions: MarkdownExtensions | undefined,
+): ReactNode {
+  if (extensions && tokens?.some((token) => token.type === "html"))
+    return <HtmlInlines tokens={tokens} extensions={extensions} />;
   return tokens?.map((token, index) => <Inline key={index} token={token} />);
 }
 
@@ -73,14 +81,14 @@ const Links = createContext<MarkdownLinks | undefined>(undefined);
 /** What a feature draws instead of the defaults; none for agent prose. */
 const Extensions = createContext<MarkdownExtensions | undefined>(undefined);
 
-function HtmlInlines(props: { tokens: readonly Token[] }): ReactNode {
-  const extensions = useContext(Extensions);
-  const draw = (index: number) => {
+function HtmlInlines(props: {
+  tokens: readonly Token[];
+  extensions: MarkdownExtensions;
+}): ReactNode {
+  return props.extensions.inlines(props.tokens, (index) => {
     const token = props.tokens[index];
     return token ? <Inline key={index} token={token} /> : null;
-  };
-  if (extensions) return extensions.inlines(props.tokens, draw);
-  return props.tokens.map((_, index) => draw(index));
+  });
 }
 
 function MarkdownImageToken(props: { href: string; alt: string }): ReactNode {
@@ -143,6 +151,7 @@ const linkClass =
 
 function Inline(props: { token: Token }): ReactNode {
   const links = useContext(Links);
+  const extensions = useContext(Extensions);
   const scope = useContext(ThreadReferenceScope);
   const token = props.token;
   if (isMathToken(token)) {
@@ -155,22 +164,26 @@ function Inline(props: { token: Token }): ReactNode {
   if (!isKnown(token)) return token.raw;
   switch (token.type) {
     case "strong":
-      return <strong className="font-semibold">{inline(token.tokens)}</strong>;
+      return <strong className="font-semibold">{inline(token.tokens, extensions)}</strong>;
     case "em":
-      return <em>{inline(token.tokens)}</em>;
+      return <em>{inline(token.tokens, extensions)}</em>;
     case "del":
-      return <del className="text-muted-foreground">{inline(token.tokens)}</del>;
+      return <del className="text-muted-foreground">{inline(token.tokens, extensions)}</del>;
     case "codespan":
       return <CodeSpan text={token.text} />;
     case "br":
       return <br />;
     case "link": {
-      const children = <Links value={undefined}>{inline(token.tokens)}</Links>;
+      const children = <Links value={undefined}>{inline(token.tokens, extensions)}</Links>;
       const custom = links?.link(token.href, children);
       if (custom !== undefined) return custom;
       const href = safeHref(token.href);
       if (!href)
-        return <ThreadReference reference={token.href}>{inline(token.tokens)}</ThreadReference>;
+        return (
+          <ThreadReference reference={token.href}>
+            {inline(token.tokens, extensions)}
+          </ThreadReference>
+        );
       // A pull request opens in a side panel: the enclosing PR tab's, or the thread's.
       const pr = pullRequestAt(href);
       if (pr)
@@ -188,7 +201,7 @@ function Inline(props: { token: Token }): ReactNode {
     case "image":
       return <MarkdownImageToken href={token.href} alt={token.text} />;
     case "text":
-      return token.tokens ? inline(token.tokens) : <ProseText text={token.text} />;
+      return token.tokens ? inline(token.tokens, extensions) : <ProseText text={token.text} />;
     case "escape":
       return token.text;
     case "html":
@@ -212,6 +225,7 @@ export { blockRhythm };
 /** A table as wide as its content up to the column; a clipped side fades when it scrolls. */
 function Table(props: { token: Extract<MarkedToken, { type: "table" }> }): ReactNode {
   const tail = useContext(Tail);
+  const extensions = useContext(Extensions);
   const token = props.token;
   const scroller = useRef<HTMLDivElement>(null);
   const fade = useEdgeFade(scroller);
@@ -230,7 +244,7 @@ function Table(props: { token: Extract<MarkedToken, { type: "table" }> }): React
                 style={{ textAlign: cell.align ?? undefined }}
                 className="border-b px-2 py-1.5 text-left font-semibold"
               >
-                {inline(cell.tokens)}
+                {inline(cell.tokens, extensions)}
               </th>
             ))}
           </tr>
@@ -244,7 +258,7 @@ function Table(props: { token: Extract<MarkedToken, { type: "table" }> }): React
                   style={{ textAlign: cell.align ?? undefined }}
                   className="border-b px-2 py-1.5"
                 >
-                  {inline(cell.tokens)}
+                  {inline(cell.tokens, extensions)}
                   {rowIndex === token.rows.length - 1 && index === row.length - 1 && tail}
                 </td>
               ))}
@@ -279,7 +293,7 @@ function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode
     case "paragraph": {
       const standard = () => (
         <p>
-          {inline(token.tokens)}
+          {inline(token.tokens, extensions)}
           {tail}
         </p>
       );
@@ -290,7 +304,7 @@ function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode
       const Tag = `h${Math.min(6, Math.max(3, token.depth + 2))}` as "h3" | "h4" | "h5" | "h6";
       return (
         <Tag className={headingClass[Math.min(3, token.depth)] ?? headingClass[3]}>
-          {inline(token.tokens)}
+          {inline(token.tokens, extensions)}
           {tail}
         </Tag>
       );
@@ -355,7 +369,7 @@ function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode
     case "text":
       return (
         <p>
-          {token.tokens ? inline(token.tokens) : token.text}
+          {token.tokens ? inline(token.tokens, extensions) : token.text}
           {tail}
         </p>
       );
@@ -454,7 +468,10 @@ export const Markdown = memo(function Markdown(props: {
   const extensions = props.extensions;
   const tokens = extensions ? doc.blocks.map((block) => block.token) : undefined;
   // Before any block renders: the extensions read the whole document once (task lists).
-  const after = extensions && tokens ? extensions.document(tokens, inline) : undefined;
+  const after =
+    extensions && tokens
+      ? extensions.document(tokens, (inner) => inline(inner, extensions))
+      : undefined;
   return (
     <Links value={props.links}>
       <Extensions value={extensions}>

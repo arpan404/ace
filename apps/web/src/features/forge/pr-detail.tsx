@@ -42,6 +42,7 @@ import { PrGatesLine, PrGatesRow } from "./pr-gates-row.tsx";
 import { prShortcut } from "./pr-shortcuts.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { ForgeContentScope } from "./rich/scope.ts";
+import { useTaskSave } from "./rich/use-task-save.ts";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import type { GateKey } from "./pr-gates.ts";
 
@@ -291,12 +292,14 @@ function PrDetailLoaded(props: {
   // A ticked task box edits the description against the version it was read at, and only
   // while that version's body is the one on screen.
   const snapshot = actions.lifecycle.snapshot;
-  const descriptionTasks =
+  const descriptionTasks = useTaskSave(
     snapshot?.editableFields.includes("body") &&
-    snapshot.metadata.body === detail.body &&
-    !actions.lifecycle.blocked
+      snapshot.metadata.body === detail.body &&
+      !actions.lifecycle.blocked
       ? (body: string) => actions.lifecycle.apply({ kind: "edit", changes: { body } })
-      : undefined;
+      : undefined,
+    snapshot?.version ?? "",
+  );
   const menu = (
     <PrOverflowMenu
       actions={actions}

@@ -2,14 +2,22 @@
 import { createContext, useContext, type MouseEvent, type ReactNode } from "react";
 import { WebLink } from "@/components/web-link.tsx";
 import { shortcodePattern, useEmojiNames } from "./emoji.ts";
-import { ForgeContentScope } from "./scope.ts";
-import { textSegments } from "./text-segments.ts";
+import { ForgeContentScope, InsideCode, InsideLink } from "./scope.ts";
+import { textSegments, type TextSegment } from "./text-segments.ts";
 
 /** One document's footnotes and the prefix that keeps its anchors apart from other documents'. */
 export const ForgeDocument = createContext<{
   footnotes: ReadonlyMap<string, number>;
   anchor: string;
 }>({ footnotes: new Map(), anchor: "" });
+
+/** A segment as the text it was written as. */
+function plainOf(segment: TextSegment): string {
+  if (segment.kind === "text" || segment.kind === "mention" || segment.kind === "reference")
+    return segment.text;
+  if (segment.kind === "footnote") return `[^${segment.label}]`;
+  return `:${segment.code}:`;
+}
 
 export const forgeLinkClass =
   "text-link underline decoration-ring/40 underline-offset-[3px] wrap-break-word hover:decoration-current";
@@ -30,9 +38,18 @@ export function ForgeText(props: {
   reference?: ((number: number, text: string) => ReactNode) | undefined;
 }): ReactNode {
   const scope = useContext(ForgeContentScope);
+  const inLink = useContext(InsideLink);
+  const inCode = useContext(InsideCode);
   const doc = useContext(ForgeDocument);
   const emoji = useEmojiNames(shortcodePattern.test(props.text));
-  const segments = textSegments(props.text, { emoji, footnotes: doc.footnotes });
+  // GitHub leaves code as written, and links nothing inside a link (no link in a link).
+  const segments = inCode
+    ? [{ kind: "text" as const, text: props.text }]
+    : textSegments(props.text, { emoji, footnotes: doc.footnotes }).map((segment) =>
+        inLink && segment.kind !== "emoji" && segment.kind !== "text"
+          ? { kind: "text" as const, text: plainOf(segment) }
+          : segment,
+      );
   if (segments.length === 1 && segments[0]?.kind === "text") return props.text;
   const host = scope?.repository.host ?? "github.com";
   return segments.map((segment, index) => {

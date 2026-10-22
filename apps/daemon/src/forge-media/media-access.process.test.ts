@@ -25,6 +25,10 @@ const scope = (workspaceId: string, repository = "github.com/octo/ace") => ({
   workspaceId,
 });
 const image = (url: string): ForgeMediaRequest => ({ url, role: "image" });
+/** GitHub's rendering of every item as one proxied file. */
+const renderedAs =
+  (kind: "image" | "video", url: string) => async (items: readonly ForgeMediaRequest[]) =>
+    items.map(() => ({ kind, url, expiresAt: undefined }));
 
 test("a redirect that leaves the forge's media hosts is refused, not followed", async () => {
   const host = await localMediaHost((_request, response, url) => {
@@ -95,15 +99,13 @@ test("a fetch that keeps failing is asked for less and less often", async () => 
     now: () => now,
     fetch: (url, temporary) => host.fetch(url, temporary),
   });
-  const render = async (items: readonly ForgeMediaRequest[]) =>
-    items.map(() => ({
-      kind: "video" as const,
-      url: "https://camo.githubusercontent.com/big.mp4",
-      expiresAt: undefined,
-    }));
   const ask = async (at: number) => {
     now = at;
-    return service.resolve(scope("ace"), render, [image("https://example.com/big.mp4")]);
+    return service.resolve(
+      scope("ace"),
+      renderedAs("video", "https://camo.githubusercontent.com/big.mp4"),
+      [image("https://example.com/big.mp4")],
+    );
   };
   expect(await ask(0)).toEqual([{ state: "unavailable", reason: "failed" }]);
   await ask(16_000);
@@ -127,13 +129,8 @@ test("bytes kept from before still answer after a refresh of them fails", async 
     now: () => now,
     fetch: (url, temporary) => host.fetch(url, temporary),
   });
-  const render = async (items: readonly ForgeMediaRequest[]) =>
-    items.map(() => ({
-      kind: "image" as const,
-      url: "https://camo.githubusercontent.com/a.png",
-      expiresAt: undefined,
-    }));
   const item = image("https://example.com/a.png");
+  const render = renderedAs("image", "https://camo.githubusercontent.com/a.png");
   const [first] = await service.resolve(scope("ace"), render, [item]);
   expect(first).toMatchObject({ state: "ready", bytes: png.length });
   gone = true;
