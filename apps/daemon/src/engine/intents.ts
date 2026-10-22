@@ -99,6 +99,19 @@ export class IntentStore {
         ).get(id)?.generation,
       );
   }
+  /** Where an input command's intent stands, with its error and whether delivery is uncertain. */
+  delivery(threadId: ThreadId, commandId: CommandId) {
+    const row = this.sql(
+      "SELECT status,uncertain,error FROM intents WHERE thread_id=? AND command_id=? LIMIT 1",
+    ).get(threadId, commandId);
+    return row
+      ? {
+          status: Header.shape.status.parse(row.status),
+          uncertain: row.uncertain === 1,
+          error: typeof row.error === "string" ? row.error : undefined,
+        }
+      : undefined;
+  }
   commandStatus(commandId: CommandId) {
     const row = this.sql("SELECT status FROM intents WHERE command_id=? LIMIT 1").get(commandId);
     return row ? Header.shape.status.parse(row.status) : undefined;

@@ -45,6 +45,7 @@ import { ThreadActor, systemClock, type EngineClock } from "./actor.ts";
 import { engineLimits, type EngineLimits } from "./limits.ts";
 import { IntentWorkers } from "./workers.ts";
 import { engineHandler } from "./handler.ts";
+import { inputFate, type InputFate } from "./input-fate.ts";
 import { AdapterRegistry } from "./registry.ts";
 import { EngineRepository, type IntentHeader } from "./repository.ts";
 import {
@@ -1167,6 +1168,18 @@ export class Engine {
       "threadId" in command.payload && command.payload.threadId
         ? ThreadId.parse(command.payload.threadId)
         : undefined,
+    );
+  }
+  /** What became of input `commandId` in thread `id`, and the run that took it (`InputFate`). */
+  inputFate(id: ThreadId, commandId: import("@ace/protocol").CommandId): InputFate {
+    const key = `input:${commandId}`;
+    return this.repo.store.atomic(() =>
+      inputFate({
+        replacement: this.repo.inputs.replacement(id, commandId),
+        written: this.repo.store.itemCreatedSeq(id, key) !== undefined,
+        runId: this.repo.inputs.runOf(id, key),
+        intent: this.repo.pending.delivery(id, commandId),
+      }),
     );
   }
   queue(id: ThreadId): QueueSnapshot {
