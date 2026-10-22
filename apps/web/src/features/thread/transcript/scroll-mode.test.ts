@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
   compensation,
   correction,
+  handOver,
   heldKey,
   heldSuccessor,
   joinedAtTop,
@@ -135,6 +136,16 @@ test("a held row dropped as older history loads hands the reader's place to the 
   expect(correction(mode, held, next, 0)).toEqual({ kind: "shift", by: 900 });
   // With nothing shown after it, there is no place to keep.
   expect(heldSuccessor(["work:turn-9", "results-9"], 1, (key) => now.get(key))).toBeUndefined();
+  // A jump to the gone row holds the row that took its place from then on, not the gone one.
+  const jumped = run(following, { ...jump, key: "results-9", itemId: "results-9" }).mode;
+  const after = handOver(jumped, { key: "message:answer-9", itemId: "answer-9" });
+  expect(heldKey(after, { key: "work:turn-9", itemId: "step-1" })).toEqual({
+    key: "message:answer-9",
+    itemId: "answer-9",
+  });
+  // A free reader's mode names no row; it holds whatever is first in view.
+  const free = run(following, wheel(true)).mode;
+  expect(handOver(free, { key: "message:answer-9", itemId: "answer-9" })).toEqual(free);
 });
 
 test("older rows that already moved the view as they measured are not counted again", () => {

@@ -2,7 +2,6 @@ import type { AgentFacts } from "@/lib/agent-facts.ts";
 import type { SidebarKey, SidebarReader } from "@ace/client";
 import { useSidebar } from "@ace/client-react";
 import {
-  delegatedState,
   rollupSubagent,
   subagentGroupCounts,
   subagentGroupStatus,
@@ -17,6 +16,7 @@ import { useAgentFacts } from "@/lib/use-agent-facts.ts";
 import { useCallback, useId, useMemo, useState } from "react";
 import { useThreadLiveState } from "../lib/live-state.ts";
 import {
+  listedSubagentState,
   readSubagentGroup,
   subagentEntriesEqual,
   type SubagentEntry,
@@ -48,25 +48,23 @@ const sameListed = (a: Listed, b: Listed) =>
   a.length === b.length && a.every((state, at) => state === b[at]);
 
 /**
- * Each delegated child's state as the thread list has it. After a reconnect the list can hear
- * first that a finished child took new work or asks the person, before the parent's copy on its
- * launch row does. Nothing from a list the daemon hasn't confirmed, or for a child not started.
+ * Each delegated child's state as the thread list has it (`listedSubagentState`): after a
+ * reconnect it can be newer than the parent's copy on the child's launch row.
  */
 function useListedStates(entries: readonly SubagentEntry[]): Listed | undefined {
   const ids = entries.map((entry) => entry.childThreadId ?? "").join("\n");
   const keys = useMemo<SidebarKey[]>(
     () => [
       "unconfirmed",
+      "sync",
+      "error",
       ...ids.split("\n").flatMap((id) => (id ? [`thread:${id}` as const] : [])),
     ],
     [ids],
   );
   const read = useCallback(
     (reader: SidebarReader): Listed =>
-      ids.split("\n").map((id) => {
-        const status = id && !reader.unconfirmed ? reader.thread(id)?.status : undefined;
-        return status && status.state !== "new" ? delegatedState(status) : undefined;
-      }),
+      ids.split("\n").map((id) => (id ? listedSubagentState(reader, id) : undefined)),
     [ids],
   );
   return useSidebar(keys, read, sameListed);

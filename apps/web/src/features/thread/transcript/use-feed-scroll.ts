@@ -15,6 +15,7 @@ import { listenScrollIntent } from "./scroll-intent.ts";
 import {
   compensation,
   correction,
+  handOver,
   heldKey,
   heldSuccessor,
   joinedAtTop,
@@ -356,6 +357,7 @@ export function useFeedScroll(options: FeedScrollOptions) {
       const row = rows[at.index];
       const itemId = succeeded && row ? blockItems(row.block)[0] : was.itemId;
       held.current = { ...was, key: at.key, itemId, top: at.start - el.scrollTop };
+      if (succeeded) mode.current = handOver(mode.current, { key: at.key, itemId });
       settling.current = structural && mode.current.kind === "free";
       const earlier = before.rows[before.indexOf.get(was.key) ?? -1];
       const shown = rows[at.index];

@@ -190,6 +190,17 @@ export function heldSuccessor<T>(
   return undefined;
 }
 
+/**
+ * The anchored row left the transcript and `next` took its place (`heldSuccessor`): a jump or an
+ * opened disclosure holds that row from now on, so the next look never goes back to the one gone.
+ */
+export function handOver(
+  mode: ScrollMode,
+  next: { key: string; itemId: string | undefined },
+): ScrollMode {
+  return mode.kind === "anchoring" ? { ...mode, key: next.key, itemId: next.itemId } : mode;
+}
+
 /** Where the held row is now, and whether older items just joined it at its top. */
 export interface HeldRow {
   index: number;
