@@ -432,6 +432,10 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   reconnectNow(): void {
     this.connection.reconnectNow();
   }
+  /** The app is in front again: check the socket now and skip a waiting backoff (`Connection.wake`). */
+  wake(): void {
+    this.connection.wake();
+  }
   /** Worker-owned allocation also supplies tab prefixes; no tab reaches for randomness. */
   commandId(): string {
     return CommandId.parse(this.options.id());

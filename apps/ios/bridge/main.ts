@@ -45,6 +45,7 @@ const Action = z.discriminatedUnion("type", [
     requestId: z.string().min(1).max(64),
   }),
   z.object({ type: z.literal("retry") }),
+  z.object({ type: z.literal("wake") }),
   z.object({ type: z.literal("machine.refresh") }),
   /** `epoch`: the navigation generation the action was sent for (`thread-route.ts`). */
   z.object({
@@ -331,6 +332,9 @@ function action(json: string): void {
         break;
       case "retry":
         client.reconnectNow();
+        break;
+      case "wake":
+        client.wake();
         break;
       case "machine.refresh":
         machine?.refresh();
