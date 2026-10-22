@@ -31,9 +31,12 @@ struct BackgroundLine: View {
                 }
             }
             HStack(spacing: AceTheme.Spacing.sm) {
-                Text(line.command).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
+                // The command, drawn as the work log's target chips are.
+                Text(line.command).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.foreground)
-                    .lineLimit(1).truncationMode(.middle)
+                    .lineLimit(1).truncationMode(.tail)
+                    .padding(.horizontal, AceTheme.Spacing.xs + AceTheme.Spacing.xxs).padding(.vertical, AceTheme.Spacing.xxs)
+                    .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.xs, style: .continuous))
                 Spacer(minLength: AceTheme.Spacing.sm)
                 age.aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.subtleForeground).monospacedDigit()
