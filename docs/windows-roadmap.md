@@ -29,10 +29,9 @@ spawns, provider installers and owner-only ACLs. These remain required even wher
 the slices below group them into broader workflow checks. Its upload containment
 fix stays owned by PR #1315; this branch does not duplicate that implementation.
 
-Two implementation gaps were identified when reconciling the plans. W02 currently
-selects `ComSpec`; it must prefer `pwsh`, then `powershell`, then `ComSpec` to meet
-the terminal plan. Runtime staging now uses the shared `runtime/node.exe` helper in `7eea3fbed`.
-PowerShell discovery must be wired into the terminal workflow before W02 is complete.
+PowerShell discovery is now wired into Windows terminal startup in `1c952d125`:
+`pwsh`, then `powershell`, then `ComSpec`. Runtime staging uses the shared
+`runtime/node.exe` helper. Both remain subject to native Windows verification.
 
 ## Delivery order
 
@@ -48,18 +47,12 @@ native CI build and process tests; ARM64 emulation is not x64 native evidence.
 
 ## Review and commit loop
 
-1. Assign one bounded behavior and explicit owned paths to a Muse Spark 1.3
-   Contributor worker at xhigh, in the implementation worktree.
-2. Inspect its diff. Two independent reviewers check correctness/security and
-   integration/regressions against the public behavior and repo rules.
-3. Resolve findings, run the applicable checks, then commit that behavior alone.
-   Review fixes can be their own small commits. Commit messages describe the
-   changed behavior in plain language, following the existing Arpan history.
-4. Verify effective author and committer are
-   `Luseefor <sapanakosansar18@gmail.com>` before every commit. Keep assistant
-   credits out of commits and PR text.
-5. Record the commit and verification evidence here. Keep native verification
-   pending until the matching Windows execution actually passes.
+Implementation proceeds directly in this worktree. Existing bounded worker
+results have been integrated; new delegation is paused at the owner's request.
+Each behavior gets a separate commit and immediate push after its source review
+and applicable static checks. Verify author and committer as
+`Luseefor <sapanakosansar18@gmail.com>` before every commit. Record native
+verification only after matching Windows execution passes.
 
 Workers write behavior tests and run static checks during development, following
 the repository's documented policy. The owner explicitly requested live Windows
@@ -152,16 +145,25 @@ restart/reconnect and errors where applicable.
 
 ## Evidence ledger
 
-| Slice                  | Implementation commit | Review                     | Verification                                                                                                                      |
-| ---------------------- | --------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Execution plan         | `b4595adf2`           | Reviewed                   | Pushed; reconciled with PR #1315 in this update                                                                                   |
-| W01 filesystem design  | Uncommitted           | In progress                | Native ABI and integration evidence pending                                                                                       |
-| W02 shell selection    | `f7cb073d8`           | Two reviewers passed       | Formatting, lint and terminal typecheck passed; PowerShell preference and Windows execution pending                               |
-| W03 process identity   | `ce7e13f9b`           | Two final reviewers passed | Formatting, lint, incremental typecheck and size checks passed; native marshalling and recovery pending                           |
-| Windows lexical policy | `20f57c084`           | Two final reviewers passed | Formatting, lint and incremental typecheck passed; behavioral execution pending                                                   |
-| W04 descriptor core    | Uncommitted           | Pending                    | Worker reports static checks; addon compilation and Windows execution pending                                                     |
-| W07 runtime staging    | `7eea3fbed`           | Two reviewers passed       | Formatting, lint, incremental typecheck and size checks passed; behavioral execution, ConPTY closure and native packaging pending |
-| W00 VM                 | Provisioning          | N/A                        | Windows 11 ARM64 reached the desktop; guest provisioning is running. SSH, compiler access and native checks remain pending.       |
+| Slice                                   | Pushed commit            | Verification                                                                                                                                                       |
+| --------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Execution plan                          | `b4595adf2`              | Reconciled with canonical PR #1315                                                                                                                                 |
+| W01 filesystem design and W04 read core | `14984e067`              | Source reviews and host probe passed; MSVC compilation and native execution pending                                                                                |
+| W02 shell selection and W09 ConPTY      | `f7cb073d8`, `1c952d125` | PowerShell discovery, ConPTY admission, I/O and Job ownership implemented; terminal formatting, lint and typecheck passed; Windows execution pending               |
+| W03 process identity                    | `ce7e13f9b`              | Real owner SID and creation time implemented; static checks passed; native marshalling and recovery pending                                                        |
+| Windows lexical policy                  | `20f57c084`              | Source reviews and static checks passed; behavioral execution pending                                                                                              |
+| W05 metadata and enumeration            | `96a5cabb2`              | Handle-relative stat and bounded multi-batch listing implemented; source review, static checks and host probe passed; native execution, mutations and ACLs pending |
+| W07 Node runtime staging                | `7eea3fbed`              | Official ARM64/x64 downloads staged and checksum-verified on macOS; native packaging pending                                                                       |
+| W07 ConPTY assets                       | `99e62306c`              | Shared module/DLL/worker staging implemented; source and static checks passed; installed-runtime validation pending                                                |
+| Shared synchronous command discovery    | `11169c6e4`              | Source reviews and static checks passed; used by terminal shell selection                                                                                          |
+| W10 retained Job ownership              | `f8cbc6af2`              | Source reviews and static checks passed; native descendant and kill-on-close fixtures pending                                                                      |
+| W08 native CI foundation                | `f27337e26`              | Native x64/ARM64 build and fixture workflow committed; YAML, formatting and lint passed; no successful runner result yet                                           |
+| W00 VM                                  | `094e7f182`              | Windows 11 ARM64 boots to desktop and VMware Tools runs; SSH and native compiler/test execution remain pending                                                     |
+
+The full Windows app is not usable yet. Production filesystem mutations and ACLs,
+safe process recovery, managed desktop daemon startup, packaging/install/update,
+and the remaining canonical workflows still block functional acceptance. No full
+workstream is marked complete from source changes alone.
 
 The VM uses encryption and a virtual TPM. After Windows booted from its disk,
 the used installer images were removed, recovering about 8 GiB. The older VM
