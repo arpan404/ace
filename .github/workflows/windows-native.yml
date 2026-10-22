@@ -1,0 +1,189 @@
+name: Windows native foundation
+
+# Bounded first native-verification cut, not the full Windows release gate.
+# Verifies the Windows handle core on real native hosts (x64 + ARM64):
+# full matching Node headers/node.lib, native MSVC build, then the bounded
+# Windows fixture set. See scripts/vitest-windows-native.config.ts for scope.
+#
+# Bun runs as x64 on both hosts; only native Node executes the fixtures.
+# Dependency staging skips root postinstall, whose production descriptor
+# backend remains POSIX-only. This is not the clean-install release gate.
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/windows-native.yml
+      - scripts/vitest-windows-native.config.ts
+      - scripts/test-home-global-setup.ts
+      - scripts/test-home-setup.ts
+      - scripts/test-failure-reporter.ts
+      - packages/workspace/**
+      - packages/provider-kit/src/windows*
+      - packages/provider-kit/src/process-windows*
+      - packages/terminal/**
+      - tools/release/src/pty-assets.ts
+      - packages/provider-kit/package.json
+      - packages/provider-kit/src/discovery/**
+      - packages/terminal/src/shell*
+      - package.json
+      - bun.lock
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-native:
+    name: Windows native (${{ matrix.os }} ${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: x64
+            node_arch: x64
+            bun_cpu: x64
+            msvc_arch: x64
+            node_subdir: win-x64
+          - os: windows-11-arm
+            arch: arm64
+            node_arch: arm64
+            bun_cpu: arm64
+            msvc_arch: arm64
+            node_subdir: win-arm64
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      NODE_VERSION: 24.13.0
+      BUN_VERSION: 1.4.0
+      TEMP: ${{ runner.temp }}
+      TMP: ${{ runner.temp }}
+      TMPDIR: ${{ runner.temp }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Node ${{ env.NODE_VERSION }} (${{ matrix.node_arch }})
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          architecture: ${{ matrix.node_arch }}
+          package-manager-cache: false
+
+      - name: Install Bun ${{ env.BUN_VERSION }}
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+          bun-download-url: https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-windows-x64.zip
+
+      - name: Assert native Node arch (fail closed on mismatch)
+        run: |
+          $ErrorActionPreference = "Stop"
+          $nodeArch = (node -p "process.arch").Trim()
+          $nodeVersion = (node -p "process.version").Trim()
+          Write-Host "node $nodeVersion arch=$nodeArch (expected arch=${{ matrix.arch }} node=${{ env.NODE_VERSION }})"
+          if ($nodeVersion -ne "v${{ env.NODE_VERSION }}") { throw "Node version mismatch: got $nodeVersion, want v${{ env.NODE_VERSION }}" }
+          if ($nodeArch -ne "${{ matrix.arch }}") { throw "Node arch mismatch: got $nodeArch, want ${{ matrix.arch }} (native evidence required)" }
+          Write-Host "--- Bun identity (informational only; NOT native evidence) ---"
+          $bunVersion = (bun --version).Trim()
+          if ($bunVersion -ne "${{ env.BUN_VERSION }}") { throw "Bun version mismatch: $bunVersion" }
+          bun -e "console.log(JSON.stringify({ bunArch: process.arch, platform: process.platform }))"
+          Write-Host "Native evidence = Node arch above. A Bun x64 binary under emulation does not count."
+
+      - name: Staging install (ignore-scripts; NOT the W06 clean-install gate)
+        run: |
+          $ErrorActionPreference = "Stop"
+          Write-Host "STAGING ONLY: dependency staging with --ignore-scripts so no postinstall runs yet."
+          Write-Host "This step is explicitly NOT the W06 clean `bun install` validation."
+          bun install --frozen-lockfile --ignore-scripts --os=win32 --cpu=${{ matrix.bun_cpu }}
+
+      - name: Fetch official Node headers + node.lib and verify SHASUMS256
+        id: headers
+        run: |
+          $ErrorActionPreference = "Stop"
+          $Version = "${{ env.NODE_VERSION }}"
+          $Dist = "https://nodejs.org/dist/v$Version"
+          $Temp = $env:RUNNER_TEMP
+          $Shasums = Join-Path $Temp "SHASUMS256.txt"
+          $HeadersTar = Join-Path $Temp "node-v$Version-headers.tar.gz"
+          $NodeLib = Join-Path $Temp "node.lib"
+          $Stage = Join-Path $Temp "node-headers"
+          Invoke-WebRequest -Uri "$Dist/SHASUMS256.txt" -OutFile $Shasums
+          Invoke-WebRequest -Uri "$Dist/node-v$Version-headers.tar.gz" -OutFile $HeadersTar
+          Invoke-WebRequest -Uri "$Dist/${{ matrix.node_subdir }}/node.lib" -OutFile $NodeLib
+          $expectedHeaders = ((Select-String -Path $Shasums -Pattern "node-v$Version-headers.tar.gz").Line -split '\s+')[0]
+          $expectedLib = ((Select-String -Path $Shasums -Pattern "${{ matrix.node_subdir }}/node.lib").Line -split '\s+')[0]
+          if ([string]::IsNullOrWhiteSpace($expectedHeaders)) { throw "headers entry missing from official SHASUMS256.txt" }
+          if ([string]::IsNullOrWhiteSpace($expectedLib)) { throw "node.lib entry missing from official SHASUMS256.txt" }
+          $actualHeaders = (Get-FileHash -Path $HeadersTar -Algorithm SHA256).Hash.ToLower()
+          $actualLib = (Get-FileHash -Path $NodeLib -Algorithm SHA256).Hash.ToLower()
+          if ($actualHeaders -ne $expectedHeaders) { throw "headers SHA256 mismatch: got $actualHeaders want $expectedHeaders" }
+          if ($actualLib -ne $expectedLib) { throw "node.lib SHA256 mismatch: got $actualLib want $expectedLib" }
+          if (Test-Path $Stage) { Remove-Item -Recurse -Force $Stage }
+          New-Item -ItemType Directory -Force -Path $Stage | Out-Null
+          tar -xzf $HeadersTar -C $Stage
+          $found = Get-ChildItem -Path $Stage -Filter "node_api.h" -Recurse | Select-Object -First 1
+          if ($null -eq $found) { throw "node_api.h not found after extracting official headers" }
+          $HeadersDir = $found.DirectoryName
+          if (!(Test-Path (Join-Path $HeadersDir "uv.h"))) { throw "uv.h missing: need the FULL official headers, not the minimal node-api-headers package" }
+          Write-Host "headers verified at $HeadersDir"
+          Write-Host "node.lib verified at $NodeLib"
+          "headers-dir=$HeadersDir" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "node-lib=$NodeLib" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Locate MSVC developer environment (vswhere, preinstalled VS)
+        id: msvc
+        run: |
+          $ErrorActionPreference = "Stop"
+          $VsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (!(Test-Path $VsWhere)) { throw "vswhere.exe not found at $VsWhere; runner image lacks Visual Studio" }
+          $Install = (& $VsWhere -latest -products * -property installationPath).Trim()
+          if ([string]::IsNullOrWhiteSpace($Install)) { throw "No Visual Studio installation found via vswhere" }
+          $DevCmd = Join-Path $Install "Common7\Tools\VsDevCmd.bat"
+          if (!(Test-Path $DevCmd)) { throw "VsDevCmd.bat not found at $DevCmd" }
+          Write-Host "VS install: $Install"
+          Write-Host "VsDevCmd: $DevCmd (arch=${{ matrix.msvc_arch }})"
+          "vs-devcmd=$DevCmd" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Probe and build windows-core with native cl
+        shell: cmd
+        env:
+          VS_DEVCMD: ${{ steps.msvc.outputs.vs-devcmd }}
+          HEADERS_DIR: ${{ steps.headers.outputs.headers-dir }}
+          NODE_LIB: ${{ steps.headers.outputs.node-lib }}
+          MSVC_ARCH: ${{ matrix.msvc_arch }}
+        run: |
+          @echo off
+          setlocal
+          call "%VS_DEVCMD%" -arch=%MSVC_ARCH% -host_arch=%MSVC_ARCH% || exit /b 1
+          where cl || exit /b 1
+          cl 2>&1 | findstr /C:"Version" || exit /b 1
+          echo INCLUDE=%INCLUDE%
+          set "CL_EXE="
+          for /f "delims=" %%C in ('where cl') do if not defined CL_EXE set "CL_EXE=%%C"
+          echo %CL_EXE% | findstr /I /L /C:"Host%MSVC_ARCH%" || exit /b 1
+          echo Actual cl: %CL_EXE%
+          node packages/workspace/build-windows-core.ts --probe-only --headers "%HEADERS_DIR%" --node-lib "%NODE_LIB%" --cl "%CL_EXE%" || exit /b 1
+          node packages/workspace/build-windows-core.ts --headers "%HEADERS_DIR%" --node-lib "%NODE_LIB%" --cl "%CL_EXE%" || exit /b 1
+
+      - name: Run bounded Windows-native Vitest suite
+        timeout-minutes: 25
+        run: |
+          $ErrorActionPreference = "Stop"
+          node -p "JSON.stringify({ nativeNodeArch: process.arch, platform: process.platform, version: process.version })"
+          node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-native.config.ts
+
+      - name: Native evidence summary
+        if: always()
+        run: |
+          node -p "JSON.stringify({ nativeNodeArch: process.arch, platform: process.platform, version: process.version })"
+          bun --version
+          Get-ChildItem packages/workspace/dist/windows-core.node | Format-List Name, Length, LastWriteTime
