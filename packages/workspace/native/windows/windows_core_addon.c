@@ -9,13 +9,13 @@
 // statAt(parentFd, name) -> { vol, id, mode, size, mtimeMs, attrs }
 // names(dirFd, cap) -> string[] (at most cap, no "." / "..")
 //
-// NAPI carries only ints (shared-UCRT CRT fds) and strings. HANDLEs never
+// NAPI carries only ints (Node-owned fds) and strings. HANDLEs never
 // cross NAPI. There is deliberately no native close/read/write: fd lifetime
-// stays with the Node side (Node close routes through libuv _close and
+// stays with the Node side (Node close routes through libuv and
 // releases the HANDLE), and Node fs operates on the bridged fds directly.
 // The only native close is error-only cleanup below (never exposed): when a
 // fresh fd was created but its NAPI int wrapper fails, the fd is closed with
-// the shared-UCRT _close so neither the CRT slot nor the HANDLE leaks.
+// Node's uv_fs_close so neither the CRT slot nor the HANDLE leaks.
 // CloseHandle alone is never used for this (it would orphan the CRT slot).
 // Borrowed parent/identity HANDLEs are never closed or stored.
 //
@@ -53,8 +53,8 @@ static napi_value throw_binding_error(napi_env env, const char *op) {
 }
 
 // Error-only fd cleanup for the narrow window where wcore_open_* succeeded
-// but wrapping the fresh fd as a JS int failed. Uses shared-UCRT _close
-// (matches uv_open_osfhandle/_open_osfhandle in the same CRT), never
+// but wrapping the fresh fd as a JS int failed. Uses the same Node libuv
+// runtime as uv_open_osfhandle, never
 // CloseHandle alone. Not exposed to JS.
 static void close_fd_quiet(int fd) {
   if (fd >= 0) (void)wcore_close_fd(fd);

@@ -16,7 +16,7 @@
 //   (https://docs.libuv.org/en/v1.x/fs.html) — uv_get_osfhandle (new 1.12.0,
 //   wraps _get_osfhandle, borrowed) and uv_open_osfhandle (new 1.23.0, wraps
 //   _open_osfhandle, consumes the HANDLE; never CloseHandle after the call).
-// - Sharing prerequisites (/MD shared UCRT, full Node headers shipping uv.h,
+// - Build prerequisites (/MD addon, full Node headers shipping uv.h,
 //   node.lib linkage): Node addons docs (https://nodejs.org/api/addons.html)
 //   and MSVC /MD docs
 //   (https://learn.microsoft.com/en-us/cpp/build/reference/md-mt-ld-use-run-time-library).
@@ -120,15 +120,10 @@ const char *wcore_names_collect(int dir_fd, int cap, wcore_name_sink_fn sink,
 // or store it; the fd must stay open for the call). Single shared wrapper
 // used by child opens and identity (see nt_bridge.c for the definition).
 //
-// Primary sources: _get_osfhandle invokes the CRT invalid-parameter handler
-// on a bad/closed fd and returns INVALID_HANDLE_VALUE (-1), or -2 for a
-// detached stdio fd 0/1/2 with no console (Microsoft Learn "_get_osfhandle");
-// libuv docs "Helper functions" (uv_get_osfhandle wraps _get_osfhandle,
-// borrowed, new 1.12.0). The wrapper installs a thread-local no-op handler
-// (_set_thread_local_invalid_parameter_handler, <stdlib.h>) around the
-// synchronous uv_get_osfhandle call and restores the previous handler, so a
-// bad fd fails closed with EBADF instead of aborting. Returns "EINVAL" for
-// fd < 0 or NULL out, else "EBADF" for -1/-2/0, else NULL with *out set.
+// Validation and borrowing both run through Node's libuv, never the addon
+// CRT. The caller must keep the fd open through this synchronous call.
+// Node 24's default Windows build uses /MT, so /MD on the addon does not
+// make CRT descriptor tables or invalid-parameter handlers interchangeable.
 const char *wcore_borrow_handle(int fd, HANDLE *out);
 
 // Close a newly acquired Node-owned fd through Node's libuv. The addon CRT

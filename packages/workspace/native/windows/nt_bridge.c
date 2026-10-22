@@ -265,36 +265,16 @@ const char *wcore_assert_dir_noreparse(HANDLE handle) {
   return NULL;
 }
 
-// Single shared fd borrow wrapper (declared in windows_core.h).
-//
-// Primary sources: _get_osfhandle invokes the CRT invalid-parameter handler
-// on a bad/closed fd and returns INVALID_HANDLE_VALUE (-1), or -2 for a
-// detached stdio fd 0/1/2 with no console (Microsoft Learn "_get_osfhandle");
-// libuv docs "Helper functions" documents uv_get_osfhandle as the borrowed
-// wrapper (new 1.12.0). The CRT parameter-validation docs note the default
-// handler terminates via Watson; _set_thread_local_invalid_parameter_handler
-// (<stdlib.h>) scopes a replacement to this thread. Node already initialized
-// the CRT, but this boundary still installs its own thread-local no-op
-// handler around the synchronous uv_get_osfhandle call and restores the
-// previous handler, so a bad fd fails closed with EBADF instead of aborting.
-// No global handler, no private CRT fd table use.
-static void __cdecl wcore_ignore_invalid_parameter(const wchar_t *expression,
-    const wchar_t *function, const wchar_t *file, unsigned int line,
-    uintptr_t reserved) {
-  (void)expression;
-  (void)function;
-  (void)file;
-  (void)line;
-  (void)reserved;
-}
-
+// Validate in Node's runtime before borrowing. An addon /MD CRT handler
+// cannot protect Node's static CRT. Public libuv fstat returns an error for
+// invalid fds; after success the caller keeps the fd open for this call.
 const char *wcore_borrow_handle(int fd, HANDLE *out) {
   if (fd < 0 || out == NULL) return "EINVAL";
-  _invalid_parameter_handler prev =
-      _set_thread_local_invalid_parameter_handler(
-          wcore_ignore_invalid_parameter);
+  uv_fs_t request;
+  int checked = uv_fs_fstat(NULL, &request, fd, NULL);
+  uv_fs_req_cleanup(&request);
+  if (checked < 0) return uv_err_name(checked);
   uv_os_fd_t borrowed = uv_get_osfhandle(fd);
-  _set_thread_local_invalid_parameter_handler(prev);
   if (borrowed == (uv_os_fd_t)INVALID_HANDLE_VALUE ||
       borrowed == (uv_os_fd_t)-2 || borrowed == 0)
     return "EBADF";

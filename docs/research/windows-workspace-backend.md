@@ -10,9 +10,9 @@ These call sites take numeric fds and cannot take raw `HANDLE`s without a rewrit
 
 Use the libuv helpers Node already ships instead of exporting private CRT fds or rewriting consumers: [uv_get_osfhandle](https://docs.libuv.org/en/v1.x/fs.html#c.uv_get_osfhandle) (CRT fd to OS `HANDLE`; still CRT-owned — never close it, never use it after the fd closes) and [uv_open_osfhandle](https://docs.libuv.org/en/v1.x/fs.html#c.uv_open_osfhandle) (OS `HANDLE` to CRT fd — consumes the argument; never `CloseHandle` after the call). They wrap [_get_osfhandle](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/get-osfhandle) and [_open_osfhandle](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/open-osfhandle); the latter transfers `HANDLE` ownership to the fd, which closes with `_close` (what libuv `fs__close` already does). Declarations are in the installed libuv header (`UV_EXTERN uv_os_fd_t uv_get_osfhandle(int fd);`, `UV_EXTERN int uv_open_osfhandle(uv_os_fd_t os_fd);`, new in libuv 1.12.0 / 1.23.0) and in the full Node headers shipped for addons.
 
-Sharing prerequisites (all normative): build with [/MD](https://learn.microsoft.com/en-us/cpp/build/reference/md-mt-ld-use-run-time-library) (shared UCRT — one process-wide fd table, so the addon-created fd is the fd Node fs and child stdio see; `/MT` gives each module a private fd table and cross-boundary fds are invalid); include the full Node headers (which ship `uv.h`, unlike the minimal `node-api-headers` package); link [node.lib](https://nodejs.org/api/addons.html) per the Node addons documentation so the libuv symbols resolve to the running Node's libuv.
+Runtime ownership is normative: build the addon with [/MD](https://learn.microsoft.com/en-us/cpp/build/reference/md-mt-ld-use-run-time-library), use full matching Node headers and link [node.lib](https://nodejs.org/api/addons.html). This does **not** make the addon's CRT descriptor table match Node's. [Node 24.13.0's build configuration](https://github.com/nodejs/node/blob/v24.13.0/common.gypi) defaults to a static CRT for its executable. A direct addon `_close(fd)` caused a native fast-fail in the directory creation fixture. Owned fd cleanup therefore uses Node's synchronous [uv_fs_close](https://docs.libuv.org/en/v1.x/fs.html#c.uv_fs_close), followed by `uv_fs_req_cleanup`; allocation uses `uv_open_osfhandle`, validation uses `uv_fs_fstat`, and borrowing uses `uv_get_osfhandle`. No addon CRT fd operation or invalid-parameter handler is a substitute.
 
-Ownership: `uv_open_osfhandle(h)` makes the CRT own both — closer is Node `close` / libuv `_close`. `uv_get_osfhandle(fd)` is a borrow — nobody closes it; it dies with the fd. Native handle-relative ops (§4) take the parent fd, borrow its `HANDLE` for the call, and store nothing. TS-side `close`/`read`/`write`/`fstat` and child stdio work unchanged.
+Ownership: successful `uv_open_osfhandle(h)` transfers the handle into Node's runtime. TS uses Node `close` / `read` / `write` / `fstat` / `fsync`. Temporary or error-path fd cleanup also goes through Node's libuv. Borrowed handles are never closed or retained past the synchronous call. NAPI carries numeric fds only.
 
 ## 3. Handle core: `NtCreateFile` + `RootDirectory` (normative)
 
@@ -41,7 +41,7 @@ Minimal safe changes, no consumer rewrite beyond types: Windows identity is `(Vo
 
 ## 6. Pipe: numeric fds for child stdio
 
-`pipe` keeps returning `{read, write}` numbers because §1 consumers pass them to [child stdio](https://nodejs.org/api/child_process.html#optionsstdio), `new Socket({fd})`, and `fstatSync(fd).isFIFO()`. The fds must be inheritable CRT fds in the shared UCRT (§2) — not `HANDLE`s, and not `_O_NOINHERIT` fds a child can never inherit. Exact backing (`uv_pipe` vs CRT `_pipe`) and the inheritability flag are unresolved (U4).
+`pipe` keeps returning `{read, write}` numbers because §1 consumers pass them to [child stdio](https://nodejs.org/api/child_process.html#optionsstdio), `new Socket({fd})`, and `fstatSync(fd).isFIFO()`. The fds must be Node-owned fds (§2), with backing handles usable by Node child stdio and sockets. Do not assume addon CRT `_pipe` fds share Node's table. Exact backing and explicit stdio duplication remain unresolved (U4).
 
 ## 7. Real ACL private-file invariants
 
@@ -55,12 +55,12 @@ TS `readBytes(owner)` / `privateFileMetadata` call `checkPrivateAt` where mode/`
 
 ## 9. Rejected alternatives
 
-`GetFinalPathNameByHandle` + child join plus parent recheck: ancestor ABA between join and open acts before detection — rejected. `DeleteFileW` / `RemoveDirectory` / `MoveFileExW` path joins for descriptor ops: same TOCTOU — rejected. HANDLE-only backend: breaks every §1 numeric-fd consumer — rejected (§2 bridges instead). Private-CRT fd export without `/MD` + `node.lib` shared-UCRT gates: cross-CRT invalidation — rejected (§2). `chmodMetadata` no-op success: fakes permissions — rejected (§7 uses real DACLs). 128-bit `FileId` in JS doubles: precision loss / ReFS aliasing — rejected (§5 strings). Reparse tag-allowlist: over-broad class, deny-all unless link-itself — rejected. koffi-per-call paths for pinned ops: cannot pin handles — rejected (native addon only).
+`GetFinalPathNameByHandle` + child join plus parent recheck: ancestor ABA between join and open acts before detection — rejected. `DeleteFileW` / `RemoveDirectory` / `MoveFileExW` path joins for descriptor ops: same TOCTOU — rejected. HANDLE-only backend: breaks every §1 numeric-fd consumer — rejected (§2 bridges instead). Addon-CRT fd operations, including direct `_close`, `_pipe`, or `_open_osfhandle`: cross-runtime invalidation — rejected (§2 uses Node libuv). `chmodMetadata` no-op success: fakes permissions — rejected (§7 uses real DACLs). 128-bit `FileId` in JS doubles: precision loss / ReFS aliasing — rejected (§5 strings). Reparse tag-allowlist: over-broad class, deny-all unless link-itself — rejected. koffi-per-call paths for pinned ops: cannot pin handles — rejected (native addon only).
 
 ## 10. Smallest native core task interface
 
 ```c
-// napi carries only ints (shared-UCRT CRT fds) and strings. HANDLEs never
+// napi carries only ints (Node-owned fds) and strings. HANDLEs never
 // cross napi; each call borrows via uv_get_osfhandle(fd) and stores nothing.
 int openRoot(const char* volumePath);                 // walk -> uv_open_osfhandle -> fd
 int openAt(int parentFd, const char* name, int kind); // RootDirectory open -> fd
@@ -77,7 +77,7 @@ void checkPrivateAt(int parentFd, const char* name);  // §7, fails closed
 void securePrivateAt(int parentFd, const char* name); // §7, fails closed
 ```
 
-No native `close`: fd lifetime stays with TS `Descriptor` via Node `close`, which routes through libuv `_close` and releases the `HANDLE`. No native read/write: Node fs operates on the bridged fds directly.
+No public native `close`: ordinary fd lifetime stays with TS `Descriptor` via Node `close`. Native temporary/error cleanup uses Node's `uv_fs_close`. No native read/write: Node fs operates on the bridged fds directly.
 
 ## 11. Unresolved contracts (verify on a Windows host; not normative)
 

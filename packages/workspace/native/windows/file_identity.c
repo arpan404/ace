@@ -13,7 +13,7 @@
 //   bytes are formatted in stored order.
 //
 // The HANDLE is borrowed via the single shared wcore_borrow_handle wrapper
-// (thread-local invalid-parameter guard, see windows_core.h; still CRT-owned;
+// (Node libuv fd validation, see windows_core.h; still CRT-owned;
 // never closed here). The fd must stay open for the call.
 
 #ifdef _WIN32

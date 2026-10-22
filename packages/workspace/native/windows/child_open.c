@@ -5,9 +5,9 @@
 // libuv fd bridge ownership (https://docs.libuv.org/en/v1.x/fs.html).
 //
 // Each op borrows the parent HANDLE via the single shared wcore_borrow_handle
-// wrapper (thread-local invalid-parameter guard, see windows_core.h) — the
+// wrapper (Node libuv fd validation, see windows_core.h) — the
 // fd must stay open for the call — and stores nothing. The parent fd itself
-// stays a plain CRT fd owned by the Node side.
+// stays a plain fd owned by Node's libuv.
 //
 // DesiredAccess follows the NtCreateFile remarks: generic rights apply to
 // files only, so directories use specific rights (FILE_LIST_DIRECTORY |
@@ -22,7 +22,7 @@
 
 static const char *bridge_to_fd(HANDLE handle, int *out_fd) {
   // uv_open_osfhandle consumes the HANDLE; Node close releases it via the
-  // shared-UCRT fd table (requires /MD + node.lib; see build probe).
+  // Node-owned fd table (requires linkage to Node's libuv; see build probe).
   int fd = uv_open_osfhandle((uv_os_fd_t)handle);
   if (fd < 0) {
     CloseHandle(handle);

@@ -19,9 +19,8 @@
  * must already be installed — run from a VS Developer Prompt or pass --cl.
  *
  * Normative build gates (docs/research/windows-workspace-backend.md section 2):
- * - /MD (shared UCRT: one process-wide fd table, so an addon-created fd is
- *   the fd Node fs and child stdio see; /MT gives each module a private fd
- *   table and cross-boundary fds are invalid).
+ * - /MD for the addon runtime. Node can use a separate static CRT, so all
+ *   fd allocation, validation and closing go through Node's libuv exports.
  * - uv.h declares uv_open_osfhandle/uv_get_osfhandle (the probe greps for
  *   both; the link against node.lib is gate U1).
  * - No private-CRT fd table use: sources must go through the uv_ wrappers
@@ -108,7 +107,7 @@ function probeLayout(nativeDir: string): Finding[] {
   // the uv_open_osfhandle/uv_get_osfhandle wrappers are required instead.
   // Matches a bare _open_osfhandle( / _get_osfhandle( call outside // comments
   // while ignoring the uv_-prefixed wrappers and prose mentions.
-  const directCrt = /(^|[^A-Za-z0-9_])_((open)|(get))_osfhandle\s*\(/;
+  const directCrt = /(^|[^A-Za-z0-9_])(?:_(?:open|get)_osfhandle|_close|_pipe)\s*\(/;
   for (const file of [...SOURCES, "windows_core.h"]) {
     const path = join(nativeDir, file);
     if (!existsSync(path)) {
@@ -231,7 +230,7 @@ function runBuild(options: Options): void {
     cl,
     [
       "/nologo",
-      "/MD", // Shared UCRT: one process-wide fd table (normative, see header).
+      "/MD", // Addon runtime only; descriptors stay in Node's libuv runtime.
       "/LD", // Build a DLL (.node).
       "/O2",
       "/W4",
