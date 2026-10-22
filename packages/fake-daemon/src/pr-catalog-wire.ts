@@ -6,6 +6,9 @@ import type {
 } from "@ace/protocol";
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
 import { catalogGroupCounts, catalogPrList } from "./forge-list-wire.ts";
+import { applyManagement, catalogPrOptions, withManagement } from "./catalog/pr-management.ts";
+import { compareBranches, newPrContext } from "./catalog/new-pr.ts";
+import { sketchPullRequests } from "./catalog/forge-browse.ts";
 import { colors } from "./forge-list-rows.ts";
 
 /**
@@ -15,6 +18,10 @@ import { colors } from "./forge-list-rows.ts";
  */
 export class FakePrCatalog {
   private fixtures: PullRequestFixture[] = [];
+  /** Bumped by every accepted lifecycle write: GitHub's new version of the PR. */
+  private revision = 0;
+  /** The commit each merge wrote, as the person edited it: what GitHub would show. */
+  readonly mergeCommits: { number: number; title: string; message: string }[] = [];
   seed(fixtures: readonly PullRequestFixture[]): void {
     // As GitHub answers: each label with its colour.
     this.fixtures = fixtures.map((fixture) => ({
@@ -47,6 +54,8 @@ export class FakePrCatalog {
       return { ok: false, error: "forge_conflict" };
     if (status.mergeability === "conflicting" || status.ci === "failure")
       return { ok: false, error: "forge_write_refused" };
+    if (payload.commit && payload.method !== "rebase")
+      this.mergeCommits.push({ number: payload.pr.number, ...payload.commit });
     return { ok: true, pr: payload.pr, prStatus: this.markMerged(fixture).detail.status };
   }
   /** A catalog PR as merged, as a merge from anywhere (Verify's included) leaves it. */
@@ -62,13 +71,126 @@ export class FakePrCatalog {
       ...(fixture.mergeState
         ? { mergeState: { ...fixture.mergeState, state: "MERGED", mergeState: "UNKNOWN" } }
         : {}),
-      lifecycle: {
+      lifecycle: this.managed(fixture, {
         ...fixture.lifecycle,
         snapshot: { ...fixture.lifecycle.snapshot, state: "merged", actions: ["revert"] },
-      },
+      }),
     };
     this.fixtures = this.fixtures.map((entry) => (entry === fixture ? merged : entry));
     return merged;
+  }
+  /** `state` with the PR's milestone, issues and lock carried over, and what they allow now. */
+  private managed(fixture: PullRequestFixture, state: PullRequestFixture["lifecycle"]) {
+    const before = fixture.lifecycle.snapshot;
+    const conversation = before.conversation;
+    return withManagement(state, {
+      milestone: before.milestone ?? null,
+      closingIssues: before.closingIssues ?? [],
+      ...(conversation?.locked
+        ? {
+            locked: { reason: conversation.reason, viewerCanComment: conversation.viewerCanComment },
+          }
+        : {}),
+    });
+  }
+  /**
+   * `forge.hosted.lifecycle` on a catalog PR, as GitHub answers it: a write chosen from an older
+   * version is refused; an accepted one changes the PR in every later read.
+   */
+  lifecycle(
+    payload: CommandPayload,
+    issueTitle: (number: number) => string | undefined,
+  ): Omit<CommandResult, "commandId"> | undefined {
+    if (payload.type !== "forge.hosted.lifecycle") return undefined;
+    const fixture = this.find(payload.pr);
+    if (!fixture) return undefined;
+    const operation = payload.operation;
+    if (operation.kind !== "apply") return { ok: false, error: "forge_not_found" };
+    const snapshot = fixture.lifecycle.snapshot;
+    if (operation.expectedVersion !== snapshot.version) return { ok: false, error: "forge_conflict" };
+    const action = operation.action;
+    const handled =
+      action.kind === "edit" ||
+      ["lock", "unlock", "branch.delete", "branch.restore", "issue.link", "issue.unlink"].includes(
+        action.kind,
+      );
+    if (!handled) return { ok: false, error: "forge_unsupported" };
+    this.revision += 1;
+    const next = applyManagement(fixture.lifecycle, action, this.revision, issueTitle);
+    if (typeof next === "string") return { ok: false, error: next };
+    const metadata = next.snapshot.metadata;
+    const updated: PullRequestFixture = {
+      ...fixture,
+      detail: {
+        ...fixture.detail,
+        body: metadata.body,
+        labels: metadata.labels,
+        baseBranch: metadata.baseBranch,
+        status: { ...fixture.detail.status, title: metadata.title },
+      },
+      lifecycle: next,
+    };
+    this.fixtures = this.fixtures.map((entry) => (entry === fixture ? updated : entry));
+    return {
+      ok: true,
+      forgeLifecycle: { outcome: "accepted", headSha: fixture.detail.status.headSha },
+    };
+  }
+  /**
+   * `forge.hosted.pr.create`: a new PR in the catalog from a branch, or the open one the branch
+   * already has into that base. Labels, assignees, milestone and reviewers land with it.
+   */
+  create(payload: CommandPayload, now: number): Omit<CommandResult, "commandId"> | undefined {
+    if (payload.type !== "forge.hosted.pr.create") return undefined;
+    const existing = this.fixtures.find(
+      (entry) =>
+        entry.detail.headBranch === payload.head.branch &&
+        entry.detail.baseBranch === payload.base &&
+        (entry.detail.status.state === "open" || entry.detail.status.state === "draft"),
+    );
+    if (existing)
+      return {
+        ok: true,
+        pr: existing.detail.status.ref,
+        prStatus: existing.detail.status,
+        prExisting: true,
+      };
+    const compared = compareBranches(now, payload.base, payload.head, 1, () => undefined, () => undefined);
+    if (!compared.totalCommits) return { ok: false, error: "forge_no_commits" };
+    const number = Math.max(240, ...this.fixtures.map((entry) => entry.detail.status.ref.number)) + 1;
+    const [created] = sketchPullRequests(now, [
+      {
+        number,
+        title: payload.title,
+        state: payload.draft ? "draft" : "open",
+        author: "you",
+        reviewers: payload.reviewers,
+        ci: "pending",
+        updated: 0,
+        body: payload.body,
+        labels: payload.labels,
+        assignees: payload.assignees,
+        branch: payload.head.branch,
+        files: [],
+      },
+    ]);
+    if (!created) return { ok: false, error: "forge_invalid_data" };
+    const ref = created.detail.status.ref;
+    // Its changed files are the comparison's, as GitHub lists them.
+    const files = compared.files;
+    const fixture: PullRequestFixture = {
+      ...created,
+      detail: { ...created.detail, baseBranch: payload.base, changedFiles: compared.totalFiles, commits: compared.totalCommits },
+      files,
+      lifecycle: withManagement(
+        { ...created.lifecycle, snapshot: { ...created.lifecycle.snapshot, pr: ref } },
+        {
+          milestone: catalogPrOptions().milestones.find((each) => each.number === payload.milestone) ?? null,
+        },
+      ),
+    };
+    this.fixtures = [...this.fixtures, fixture];
+    return { ok: true, pr: ref, prStatus: fixture.detail.status };
   }
   /**
    * `forge.hosted.merge-state` on a catalog PR: auto-merge on where GitHub allows it (as "you",
@@ -109,8 +231,30 @@ export class FakePrCatalog {
       ? catalogGroupCounts(op, this.fixtures, reads)
       : undefined;
   }
-  read(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
+  read(op: WorkspaceActionRequest["operation"], now = 0): ForgeBrowserResult | undefined {
     if (op.op === "forge.pr.list") return catalogPrList(op, this.fixtures);
+    if (op.op === "forge.repo.pr-options") return { resource: "repoPrOptions", value: catalogPrOptions() };
+    if (op.op === "forge.pr.new-context")
+      return {
+        resource: "newPrContext",
+        value: newPrContext(this.fixtures.map((entry) => entry.detail.headBranch)),
+      };
+    if (op.op === "forge.compare") {
+      const pr = (branch: string) =>
+        this.fixtures.find((entry) => entry.detail.headBranch === branch);
+      return {
+        resource: "compare",
+        value: compareBranches(
+          now,
+          op.base,
+          op.head,
+          op.page,
+          (branch) =>
+            pr(branch)?.files.map((each) => [each.path, each.additions, each.deletions] as [string, number, number]),
+          (branch) => pr(branch)?.detail.status.title,
+        ),
+      };
+    }
     if (op.op === "forge.pr.stack-memberships") {
       const known = op.numbers.filter((number) => this.find({ ...op, number }));
       return known.length === op.numbers.length
@@ -128,7 +272,10 @@ export class FakePrCatalog {
         return { resource: "prDetail", value: fixture.detail };
       case "forge.pr.merge-state":
         return fixture.mergeState
-          ? { resource: "prMergeState", value: fixture.mergeState }
+          ? {
+              resource: "prMergeState",
+              value: { ...fixture.mergeState, commitMessages: commitMessages(fixture) },
+            }
           : undefined;
       case "forge.pr.lifecycle":
         return { resource: "prLifecycle", value: fixture.lifecycle };
@@ -153,4 +300,21 @@ export class FakePrCatalog {
         return undefined;
     }
   }
+}
+
+/** GitHub's prefill for a catalog PR's merge and squash commits. */
+function commitMessages(fixture: PullRequestFixture) {
+  const { detail } = fixture;
+  const number = detail.status.ref.number;
+  const repository = detail.status.ref.repository;
+  return {
+    merge: {
+      title: `Merge pull request #${number} from ${repository.owner}/${detail.headBranch}`,
+      message: detail.status.title,
+    },
+    squash: {
+      title: `${detail.status.title} (#${number})`,
+      message: detail.body,
+    },
+  };
 }

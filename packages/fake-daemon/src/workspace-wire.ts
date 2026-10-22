@@ -78,6 +78,12 @@ export class FakeWorkspaceWire {
   mergePullRequest(number: number): void {
     this.pullRequests.mergeNumber(number);
   }
+  /** An issue's title, as the seeded issue reads have it. */
+  private issueTitle(number: number): string | undefined {
+    for (const read of this.forgeReads.values())
+      if (read.resource === "issueDetail" && read.value.ref.number === number) return read.value.title;
+    return undefined;
+  }
   private seededRead(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
     return (
       this.issues.read(op) ??
@@ -225,8 +231,9 @@ export class FakeWorkspaceWire {
       });
     }
     const catalogued =
-      op.op.startsWith("forge.pr.") && !this.forgeReads.has(JSON.stringify(op))
-        ? this.pullRequests.read(op)
+      (op.op.startsWith("forge.pr.") || op.op === "forge.repo.pr-options" || op.op === "forge.compare") &&
+      !this.forgeReads.has(JSON.stringify(op))
+        ? this.pullRequests.read(op, this.context.now())
         : undefined;
     if (catalogued)
       return ServerMessage.parse({
@@ -315,7 +322,11 @@ export class FakeWorkspaceWire {
       this.checkReruns.push(payload.action);
       return { ok: true };
     }
-    const merged = this.pullRequests.merge(payload) ?? this.pullRequests.mergeState(payload);
+    const merged =
+      this.pullRequests.merge(payload) ??
+      this.pullRequests.mergeState(payload) ??
+      this.pullRequests.lifecycle(payload, (number) => this.issueTitle(number)) ??
+      this.pullRequests.create(payload, this.context.now());
     if (merged) return merged;
     const project = this.projects.command(payload);
     if (project) return project;
