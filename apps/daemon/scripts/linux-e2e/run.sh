@@ -6,7 +6,7 @@
 # Usage, from anywhere inside a Linux checkout after `bun install`:
 #   apps/daemon/scripts/linux-e2e/run.sh [x11|wayland|headless|all] [extra vitest args]
 # Needs: cargo, Xvfb, openbox, at-spi2-core, dbus, gnome-calculator, gnome-text-editor, xterm,
-# xdpyinfo, ffmpeg (decodes the live view); for wayland gnome-shell, pipewire, wireplumber, xdg-desktop-portal-gnome; sudo for
+# xdpyinfo, xdotool, ffmpeg (decodes the live view); for wayland gnome-shell, pipewire, wireplumber, xdg-desktop-portal-gnome; sudo for
 # the AppArmor profile when the kernel restricts user namespaces (it is removed afterwards).
 # Environment: ACE_E2E_DISPLAY (X display number, default 51), ACE_E2E_APPARMOR_PROFILE
 # (default ace-chromium-e2e), ACE_E2E_CHROME_HOME (where the pinned Chrome is kept, default
@@ -15,7 +15,7 @@ set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
 self="$root/apps/daemon/scripts/linux-e2e/run.sh"
 # ACE_E2E_SUITES (space separated test files) runs only those.
-read -r -a suites <<<"${ACE_E2E_SUITES:-apps/daemon/src/linux-desktop.e2e.process.test.ts apps/daemon/src/linux-live-view.e2e.process.test.ts}"
+read -r -a suites <<<"${ACE_E2E_SUITES:-apps/daemon/src/linux-desktop.e2e.process.test.ts apps/daemon/src/linux-live-view.e2e.process.test.ts apps/daemon/src/linux-live-view-control.e2e.process.test.ts}"
 
 # One file at a time, in this order: they share the desktop, and a live view brings its window
 # to the front, which the desktop suite expects in the background.
@@ -36,6 +36,15 @@ wait_for() { # <seconds> <command...>
   return 1
 }
 
+# The live-view fixture (a window that reports the input reaching it), launched as a desktop
+# launcher would so X11 and GNOME both name it dev.ace.LiveViewFixture. Its log is the suite's.
+fixture() {
+  export ACE_E2E_FIXTURE_LOG="$logs/fixture.jsonl"
+  : >"$ACE_E2E_FIXTURE_LOG"
+  GIO_LAUNCHED_DESKTOP_FILE="$fixture_data/applications/dev.ace.LiveViewFixture.desktop" \
+    python3 "$root/apps/daemon/scripts/linux-e2e/live-view-fixture.py" >"$logs/fixture.log" 2>&1 &
+}
+
 # Inside dbus-run-session: one desktop, its apps, then the suite.
 inner_x11() {
   local display=$1
@@ -50,6 +59,7 @@ inner_x11() {
   sleep 0.5
   gnome-calculator >"$logs/calculator.log" 2>&1 &
   gnome-text-editor --standalone >"$logs/text-editor.log" 2>&1 &
+  fixture
   sleep 3
   # A terminal takes focus, so the apps sit in the background as an agent usually finds them.
   xterm >"$logs/xterm.log" 2>&1 &
@@ -77,7 +87,14 @@ inner_wayland() {
   sleep 4
   gnome-calculator >"$logs/calculator.log" 2>&1 &
   gnome-text-editor --standalone >"$logs/text-editor.log" 2>&1 &
+  sleep 2
+  # Opened last, the fixture is in front of the others, covering the middle of Calculator.
+  fixture
   sleep 3
+  # The shell starts in the overview; the person at the machine closes it, as before using apps.
+  python3 "$root/native/screen-helper-linux/tests/computer/seed_portal.py" press-escape \
+    dev.ace.LiveViewFixture.desktop "Live view fixture" >>"$logs/session.log" 2>&1 || true
+  sleep 1
   local status=0
   run_suite wayland "$@" 2>&1 || status=$?
   kill $(jobs -p) 2>/dev/null || true
@@ -138,9 +155,15 @@ session() { # <mode> [vitest args]: one session with a private runtime dir, stat
   runtime=$(mktemp -d /tmp/ace-e2e-rt.XXXXXX)
   state=$(mktemp -d /tmp/ace-e2e-state.XXXXXX)
   logs=${ACE_E2E_LOGS:-$(mktemp -d /tmp/ace-e2e-logs.XXXXXX)}/$which
-  mkdir -p "$logs"
+  # The fixture's desktop file, where the session's apps and its helper look for desktop files.
+  fixture_data=$state/fixture-data
+  mkdir -p "$logs" "$fixture_data/applications"
+  export fixture_data
   export logs
   chmod 700 "$runtime"
+  printf '[Desktop Entry]\nType=Application\nName=Live view fixture\nExec=python3 %s\n' \
+    "$root/apps/daemon/scripts/linux-e2e/live-view-fixture.py" \
+    >"$fixture_data/applications/dev.ace.LiveViewFixture.desktop"
   local status=0
   echo "=== $which (logs: $logs)"
   case $which in
@@ -151,11 +174,13 @@ session() { # <mode> [vitest args]: one session with a private runtime dir, stat
       fi
       XDG_RUNTIME_DIR=$runtime XDG_CONFIG_HOME=$state/config XDG_STATE_HOME=$state/state \
         XDG_CACHE_HOME=$state/cache XDG_DATA_HOME=$state/data \
+        XDG_DATA_DIRS=$fixture_data:$XDG_DATA_DIRS \
         dbus-run-session -- "$self" __x11 "$display" "$@" 2>>"$logs/session.log" || status=$?
       ;;
     wayland)
       XDG_RUNTIME_DIR=$runtime XDG_CONFIG_HOME=$state/config XDG_STATE_HOME=$state/state \
         XDG_CACHE_HOME=$state/cache XDG_DATA_HOME=$state/data \
+        XDG_DATA_DIRS=$fixture_data:$XDG_DATA_DIRS \
         dbus-run-session -- "$self" __wayland "$@" 2>>"$logs/session.log" || status=$?
       ;;
     headless)

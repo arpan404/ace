@@ -85,7 +85,9 @@ try:
         conn.next_event()
     # Enabling the accessibility bridge happens before starting GTK.
     subprocess.run(["gdbus", "call", "--session", "--dest", "org.a11y.Bus", "--object-path", "/org/a11y/bus", "--method", "org.freedesktop.DBus.Properties.Set", "org.a11y.Status", "IsEnabled", "<true>"], check=True, stdout=subprocess.DEVNULL)
-    app = launch(["python3", "docker/test_app.py"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    # Launched as a desktop launcher would, so the app has a desktop id (its live-view name).
+    app = launch(["python3", "docker/test_app.py"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+                 env=dict(os.environ, GIO_LAUNCHED_DESKTOP_FILE="/usr/share/applications/AceScreenTest.desktop"))
     line_until(app.stdout, "READY")
     while True:
         clients = root.get_full_property(conn.intern_atom("_NET_CLIENT_LIST"), X.AnyPropertyType)

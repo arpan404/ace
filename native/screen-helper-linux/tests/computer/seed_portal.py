@@ -14,6 +14,11 @@ Usage: python3 seed_portal.py grant <token-file> <app-id> <window-title>
        python3 seed_portal.py grant-remote-desktop <token-file> <app-id> <window-title>
        python3 seed_portal.py revoke <token-file>
        python3 seed_portal.py revoke-remote-desktop <token-file>
+       python3 seed_portal.py press-escape <app-id> <window-title>
+
+press-escape stands in for the person at the machine pressing Escape once, through a
+RemoteDesktop session it approves the same way: headless GNOME Shell starts in the overview,
+which a person closes before using their apps.
 """
 import os
 import sys
@@ -62,8 +67,85 @@ def revoke(token_file: str, table: str = "screencast") -> None:
     store("Delete", GLib.Variant("(ss)", (table, token)))
 
 
+def press_escape(app_id: str, title: str) -> None:
+    token_file = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "ace-seed-escape-token")
+    grant(token_file, app_id, title, "remote-desktop")
+    try:
+        with open(token_file) as file:
+            token = file.read().strip()
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        sender = bus.get_unique_name()[1:].replace(".", "_")
+        loop = GLib.MainLoop()
+
+        def portal(interface: str, method: str, args: GLib.Variant) -> None:
+            bus.call_sync(
+                "org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop",
+                f"org.freedesktop.portal.{interface}", method, args, None,
+                Gio.DBusCallFlags.NONE, 10000, None,
+            )
+
+        def ask(interface: str, method: str, build) -> dict:
+            handle = "ace" + uuid.uuid4().hex[:8]
+            path = f"/org/freedesktop/portal/desktop/request/{sender}/{handle}"
+            answer: dict = {}
+
+            def responded(_c, _s, _p, _i, _n, params):
+                code, results = params.unpack()
+                answer.update(results, code=code)
+                loop.quit()
+
+            watch = bus.signal_subscribe(
+                "org.freedesktop.portal.Desktop", "org.freedesktop.portal.Request", "Response",
+                path, None, Gio.DBusSignalFlags.NONE, responded,
+            )
+            portal(interface, method, build(handle))
+            GLib.timeout_add_seconds(20, loop.quit)
+            loop.run()
+            bus.signal_unsubscribe(watch)
+            if answer.get("code") != 0:
+                raise RuntimeError(f"{method} was not approved: {answer}")
+            return answer
+
+        def options(handle: str, **extra) -> dict:
+            return {"handle_token": GLib.Variant("s", handle), **extra}
+
+        session = ask("RemoteDesktop", "CreateSession", lambda h: GLib.Variant(
+            "(a{sv})", (options(h, session_handle_token=GLib.Variant("s", "s" + h)),)
+        ))["session_handle"]
+        ask("RemoteDesktop", "SelectDevices", lambda h: GLib.Variant("(oa{sv})", (session, options(
+            h, types=GLib.Variant("u", KEYBOARD_AND_POINTER), persist_mode=GLib.Variant("u", 2),
+            restore_token=GLib.Variant("s", token),
+        ))))
+        ask("ScreenCast", "SelectSources", lambda h: GLib.Variant("(oa{sv})", (session, options(
+            h, types=GLib.Variant("u", WINDOW),
+        ))))
+        restored = ask("RemoteDesktop", "Start", lambda h: GLib.Variant("(osa{sv})", (session, "", options(h))))
+        # A new virtual keyboard loses its first keys: a lone Shift wakes it, then Escape.
+        for keysym, settle in ((0xFFE1, 0.4), (0xFF1B, 0.3)):
+            for pressed in (1, 0):
+                portal("RemoteDesktop", "NotifyKeyboardKeysym", GLib.Variant("(oa{sv}iu)", (session, {}, keysym, pressed)))
+                time.sleep(0.05)
+            time.sleep(settle)
+        bus.call_sync(
+            "org.freedesktop.portal.Desktop", session, "org.freedesktop.portal.Session", "Close",
+            None, None, Gio.DBusCallFlags.NONE, 5000, None,
+        )
+        if restored.get("restore_token"):
+            store("Delete", GLib.Variant("(ss)", ("remote-desktop", restored["restore_token"])))
+    finally:
+        # A restore already replaced the seeded grant; one left unused is removed here.
+        try:
+            revoke(token_file, "remote-desktop")
+        except GLib.Error:
+            pass
+        os.remove(token_file)
+
+
 if __name__ == "__main__":
     command = sys.argv[1]
+    if command == "press-escape":
+        press_escape(sys.argv[2], sys.argv[3])
+        sys.exit(0)
     table = "remote-desktop" if command.endswith("-remote-desktop") else "screencast"
     if command.startswith("grant"):
         grant(sys.argv[2], sys.argv[3], sys.argv[4], table)

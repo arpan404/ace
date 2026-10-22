@@ -301,7 +301,12 @@ export const ScreenInput = z.discriminatedUnion("kind", [
 ]);
 export type ScreenInput = z.infer<typeof ScreenInput>;
 
-const Envelope = z.object({ version: z.literal(2), id: ScreenId });
+const Envelope = z.object({
+  version: z.literal(2),
+  id: ScreenId,
+  /** The person at a live view sent this input, not an agent (Linux X11 pointer input). */
+  person: z.boolean().optional(),
+});
 export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [
   Envelope.extend({ op: z.literal("hello") }),
   Envelope.extend({ op: z.literal("permissions") }),
@@ -379,6 +384,8 @@ export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [
   Envelope.extend({ op: z.literal("text.type"), text: z.string().max(4096) }),
   Envelope.extend({
     op: z.literal("scroll"),
+    x: z.number().finite().nonnegative().optional(),
+    y: z.number().finite().nonnegative().optional(),
     dx: z.number().int().min(-1000).max(1000),
     dy: z.number().int().min(-1000).max(1000),
   }),

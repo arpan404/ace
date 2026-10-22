@@ -59,11 +59,12 @@ struct ServiceFailure: LocalizedError {
 }
 
 extension ClientModel {
-    func service<T: Decodable>(_ payload: [String: Any], as type: T.Type) async throws -> T {
+    /// `timeout` bounds the wait; a start in the machine's sharing dialog waits for the person there.
+    func service<T: Decodable>(_ payload: [String: Any], as type: T.Type, timeout: Duration = .seconds(30)) async throws -> T {
         let id = "native-\(admissions.nextId())"
         // The SDK bounds network waits. This also bounds native decoding/delivery failures.
         let deadline = Task { @MainActor in
-            do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            do { try await Task.sleep(for: timeout) } catch { return }
             services.fail(id, message: "The request timed out. Your input is still available; retry when connected.")
             action(["type": "service.cancel", "id": id])
         }

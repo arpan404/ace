@@ -29,6 +29,12 @@ export interface ScreenSessionView {
   error: string | undefined;
   /** Stop can still matter: live, starting, or a failure that may still be capturing. */
   stoppable: boolean;
+  /** The machine's sharing dialog is waiting for the person to choose (Linux on Wayland). */
+  awaitingChoice: boolean;
+  /** A whole display captured without a sharing dialog: watch only, nobody can take control. */
+  viewOnly: boolean;
+  /** A screen the person shared in the machine's sharing dialog: theirs to control, never an agent's. */
+  personOnly: boolean;
 }
 
 const lifecycleOrder: Record<ScreenState["lifecycle"], number> = {
@@ -40,9 +46,35 @@ const lifecycleOrder: Record<ScreenState["lifecycle"], number> = {
 };
 
 export function targetBundle(state: ScreenState): string {
-  return state.target.kind === "display"
-    ? (state.target.bundleIds[0] ?? "")
-    : state.target.bundleId;
+  const target = state.target;
+  if (target.kind === "display") return target.bundleIds[0] ?? "";
+  if (target.kind === "chooser") return target.picked?.bundleId ?? "";
+  return target.bundleId;
+}
+
+/**
+ * A sharing-dialog target (Linux on Wayland) by what the person picked: the window's app when
+ * the desktop named it, else the kind of source; before the pick, what they are asked for.
+ */
+function chooserName(target: Extract<ScreenState["target"], { kind: "chooser" }>): string {
+  if (target.picked?.bundleId) return appName(target.picked.bundleId);
+  if (target.picked) return target.picked.source === "display" ? "Shared screen" : "Shared window";
+  return "Window or screen";
+}
+
+/** What a remote person is told while the machine's sharing dialog waits for a choice. */
+export function chooserWaitingCopy(machine: string | undefined): string {
+  return `Waiting for approval on ${machine || "that computer"} — choose the window in the sharing dialog there`;
+}
+
+/**
+ * Why a sharing-dialog start ended without a live view, as one sentence: the machine's own
+ * words for a decline or no answer, else the usual problem.
+ */
+export function chooserFailure(code: string | undefined, message: string): string {
+  if ((code === "denied" || code === "timeout") && message.endsWith(".")) return message;
+  const problem = screenProblem(code, message);
+  return `${problem.title}. ${problem.hint ?? "Try again."}`;
 }
 
 /** One session in words. `agentLabel` names a holder (the agent's name, from its thread). */
@@ -64,8 +96,8 @@ export function screenSession(
   let tone: Tone;
   switch (state.lifecycle) {
     case "starting":
-      status = "Starting";
-      tone = "working";
+      status = state.target.kind === "chooser" ? "Waiting for approval" : "Starting";
+      tone = state.target.kind === "chooser" ? "needs-you" : "working";
       break;
     case "stopping":
       status = "Stopping";
@@ -93,10 +125,20 @@ export function screenSession(
     sessionId: state.sessionId,
     bundleId,
     app:
-      state.target.kind === "display" && state.target.bundleIds.length > 1
-        ? `${appName(bundleId)} and ${state.target.bundleIds.length - 1} more`
-        : appName(bundleId),
-    detail: state.target.kind === "display" ? `Display ${state.target.displayId}` : undefined,
+      state.target.kind === "chooser"
+        ? chooserName(state.target)
+        : state.target.kind === "display" && state.target.bundleIds.length > 1
+          ? `${appName(bundleId)} and ${state.target.bundleIds.length - 1} more`
+          : appName(bundleId),
+    detail:
+      state.target.kind === "display"
+        ? `Display ${state.target.displayId}`
+        : state.target.kind === "chooser"
+          ? state.target.picked?.title
+          : undefined,
+    awaitingChoice: state.target.kind === "chooser" && state.lifecycle === "starting",
+    viewOnly: state.target.kind === "display",
+    personOnly: state.target.kind === "chooser" && state.target.picked?.source === "display",
     controller: state.controller,
     holder: state.holder,
     lifecycle: state.lifecycle,
@@ -227,7 +269,7 @@ export function screenProblem(
     case "not_supported":
       return { title: "Not supported here", hint: undefined };
     case "denied":
-      return { title: "Denied", hint: undefined };
+      return { title: fallback || "Denied", hint: undefined };
     case "timeout":
       return {
         title: "No answer in time",

@@ -23,7 +23,7 @@ mod act_text;
 #[cfg(target_os = "linux")]
 mod act_window;
 #[cfg(target_os = "linux")]
-mod apps;
+pub(crate) mod apps;
 #[cfg(target_os = "linux")]
 mod bus;
 #[cfg(target_os = "linux")]
@@ -49,7 +49,7 @@ mod session;
 #[cfg(target_os = "linux")]
 mod walk;
 #[cfg(target_os = "linux")]
-mod xdisplay;
+pub(crate) mod xdisplay;
 
 #[cfg(target_os = "linux")]
 pub use run::run;

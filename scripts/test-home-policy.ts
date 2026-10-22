@@ -109,6 +109,8 @@ function linuxDesktopSession(ambient: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     "ACE_SCREEN_HELPER",
     // Where the suite keeps what a viewer received, for a person to look at.
     "ACE_E2E_ARTIFACTS",
+    // What reached the live-view suites' fixture window.
+    "ACE_E2E_FIXTURE_LOG",
     "XDG_RUNTIME_DIR",
     "XDG_DATA_DIRS",
     "XDG_SESSION_TYPE",

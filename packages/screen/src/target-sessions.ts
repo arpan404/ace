@@ -2,6 +2,7 @@ import { releaseControllerBinding } from "./controller-binding.ts";
 import {
   ScreenTarget,
   ScreenCapabilities,
+  ScreenChooserPick,
   type ScreenState,
   type ScreenAgentScope,
 } from "@ace/protocol";
@@ -188,6 +189,10 @@ export class TargetSessions {
               throw new Error("Missing capture capabilities");
             startingHelper.capabilities = ScreenCapabilities.parse(result.capabilities);
             startingSession.state.capabilities = startingHelper.capabilities;
+            // What the person picked in the sharing dialog names the session from now on.
+            const picked = ScreenChooserPick.safeParse("picked" in result ? result.picked : null);
+            if (target.kind === "chooser" && picked.success)
+              startingSession.state.target = { ...target, picked: picked.data };
           }
         }
       });

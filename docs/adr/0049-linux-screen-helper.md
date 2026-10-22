@@ -22,7 +22,25 @@ Linux backend selection prefers Wayland when `WAYLAND_DISPLAY` is set, otherwise
 
 ## Security
 
-Only the local daemon can reach the private frame endpoint. X11 itself has no isolation between clients, so the helper checks application identity, target lifetime, focus and coordinate bounds before input. Whole-display capture requires explicit approval and is view-only. Accessibility refs cannot authorize another application. The Wayland chooser is the final authority on capture scope. Input is advertised only when the portal grants it. Persisting a restore token does not grant new capabilities or remove the compositor's right to prompt again.
+Only the local daemon can reach the private frame endpoint. X11 itself has no isolation between clients, so the helper checks application identity, target lifetime, focus and coordinate bounds before input. Whole-display capture requires explicit approval; without a sharing dialog it is view-only, and a screen picked in the dialog takes only the person's input. Accessibility refs cannot authorize another application. The Wayland chooser is the final authority on capture scope. Input is advertised only when the portal grants it. Persisting a restore token does not grant new capabilities or remove the compositor's right to prompt again.
+
+### X11 pointer input (revised 2026-10-22)
+
+The first revision refused all X11 pointer input, because XTest events carry no recipient and land wherever a physical click at that point would. That left a person unable to use their own app from a live view. Pointer input is now split by who sends it. The daemon marks input from the person at a live view (`person: true`, set only when the session's controller is the human and the request comes from the client holding control); agents' pointer input stays refused, and agents act through accessibility.
+
+A person's click, drag or wheel is delivered only under a server grab, so nothing changes between the checks and the events: the shared window is still the same application's window (identity and lifetime), it is the active window, the point is inside it, it is the topmost window at that point (no other app's window or overlay covers it), no other client holds the pointer, and no other client has a passive grab of that button on the root window. What remains is what the person's own mouse would do there. When the shared window is behind another app, a person's input first asks the window manager to activate it, as a click with their own mouse would, and is sent only once it is active.
+
+### Wayland: the sharing dialog picks (revised 2026-10-22)
+
+On Wayland the helper cannot list windows, so `targets` returns empty lists and says the machine's sharing dialog picks (`chooser`). Clients offer "Share a window or screen", which starts a `chooser` target: the helper opens one portal session offering windows and screens, and the person picks in the dialog on that machine. The start waits up to two minutes; clients say they are waiting for approval on that machine, with Cancel, which stops the starting session and closes the dialog. A decline or no answer ends the start with the helper's sentence. The restore token makes later starts silent. What was picked comes back with the start, named by the desktop id GNOME records for the window.
+
+The portal's input lands wherever that point of the screen is, so it is sent to a shared window only while that window is the active one, as its accessibility says. Otherwise the app is asked to come forward (`org.freedesktop.Application.Activate`); GNOME keeps focus from apps without an activation token, so a window behind another app usually stays there, and the person's input is refused with a sentence: bring it to the front on that computer, or share the screen. On a desktop whose only keyboard is the portal's (headless GNOME), no window is active until that keyboard exists, so the helper wakes the portal's keyboard and pointer before the check.
+
+A screen picked in the dialog is the person's to control: they granted remote control of that desktop there, and the compositor routes their clicks exactly where they see them. Agents never send it input. A whole display captured without a dialog (X11) stays view-only.
+
+### One name per app
+
+Live view and computer use name an application by its desktop id (`org.gnome.Calculator`), from the same identity code (`computer/identity.rs`, `computer/desktop.rs`), never by WM_CLASS.
 
 The executable is installed once, never rewritten during a session. macOS releases require a stable bundle id, Developer ID signing, hardened runtime and notarization of an app bundle with Info.plist. Windows releases require Authenticode. Development builds use a stable signing identity; build scripts must not repeatedly ad-hoc sign production helpers.
 

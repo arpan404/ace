@@ -65,8 +65,8 @@ for await (const line of createInterface({ input: process.stdin })) {
       break;
     case "start":
       captured =
-        request.target.kind === "display"
-          ? "display"
+        request.target.kind === "display" || request.target.kind === "chooser"
+          ? request.target.kind
           : `${request.target.bundleId}:${request.target.kind === "window" ? request.target.windowId : "app"}`;
       break;
     case "input":

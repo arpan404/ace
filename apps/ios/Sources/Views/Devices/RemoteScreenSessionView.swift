@@ -70,12 +70,26 @@ struct RemoteScreenSessionView: View {
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, AceTheme.Spacing.xl)
             }
-            if let session, session.lifecycle == "live" {
+            if let session, session.waiting {
+                HStack(spacing: AceTheme.Spacing.md) {
+                    Text(session.status).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                        .foregroundStyle(AceTheme.Colours.foreground).lineLimit(3)
+                    Spacer(minLength: AceTheme.Spacing.sm)
+                    if model.canOperate {
+                        Button("Cancel") { Task { await screen.cancelChoice(model, id: sessionId) } }
+                            .buttonStyle(.borderless)
+                            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                            .foregroundStyle(AceTheme.Colours.foreground).fontWeight(.semibold)
+                            .accessibilityIdentifier("screen.cancelChoice")
+                    }
+                }
+                .padding(.horizontal, AceTheme.Spacing.xl).frame(minHeight: AceTheme.Dimensions.touchTarget)
+            } else if let session, session.lifecycle == "live" {
                 HStack(spacing: AceTheme.Spacing.md) {
                     Text(session.status).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                         .foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
                     Spacer(minLength: AceTheme.Spacing.sm)
-                    if model.canOperate {
+                    if model.canOperate, session.controllable {
                         Button(actionTitle) { Task { await control() } }
                             .buttonStyle(.borderless)
                             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)

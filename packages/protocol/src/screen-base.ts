@@ -5,6 +5,13 @@ export const ScreenPermissions = z.object({
   screenRecording: z.boolean(),
   accessibility: z.boolean(),
 });
+/** What the person shared through a sharing dialog: a window (and its app, when known) or a screen. */
+export const ScreenChooserPick = z.object({
+  source: z.enum(["window", "display"]),
+  bundleId: ScreenBundle.optional(),
+  title: z.string().max(1024).optional(),
+});
+export type ScreenChooserPick = z.infer<typeof ScreenChooserPick>;
 export const ScreenTarget = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("app"),
@@ -20,6 +27,17 @@ export const ScreenTarget = z.discriminatedUnion("kind", [
     kind: z.literal("display"),
     displayId: z.number().int().positive(),
     bundleIds: z.array(ScreenBundle).min(1).max(64),
+  }),
+  /**
+   * A window or screen the person picks in the sharing dialog on that machine (Linux on
+   * Wayland, where `targets` lists nothing to pick). `restore: false` asks again even when the
+   * desktop could reuse the last choice silently. Once live, `picked` says what was shared:
+   * a window (named by its app when the desktop records it) or a whole screen, view-only.
+   */
+  z.object({
+    kind: z.literal("chooser"),
+    restore: z.boolean().optional(),
+    picked: ScreenChooserPick.optional(),
   }),
 ]);
 export type ScreenTarget = z.infer<typeof ScreenTarget>;
