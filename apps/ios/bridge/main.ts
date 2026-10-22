@@ -248,17 +248,17 @@ async function hydrate(
     signal.addEventListener("abort", cancelled, { once: true });
     if (signal.aborted) cancelled();
   });
-  while (store.itemsBefore != null && store.order.length < itemLimit) {
-    if (generation !== epoch || signal.aborted) return;
-    await owner.loadOlder(id, Math.min(200, itemLimit - store.order.length), { signal });
+  try {
+    while (store.itemsBefore != null && store.order.length < itemLimit) {
+      if (generation !== epoch || signal.aborted) return;
+      await owner.loadOlder(id, Math.min(200, itemLimit - store.order.length), { signal });
+    }
+  } catch {
+    // An older page that failed (or raced a reopen of the same thread) leaves history to load
+    // later; it never keeps the snapshot already here hidden behind the loading state.
   }
-  if (generation === epoch)
-    pump.put("thread:ready", () => ({
-      type: "thread.ready",
-      threadId: id,
-      epoch: generation,
-      count: store.order.length,
-    }));
+  // The session keeps the transcript revealed through later snapshots, which clear its ready.
+  if (generation === epoch && session?.epoch === generation) session.hydrated();
 }
 function action(json: string): void {
   try {
