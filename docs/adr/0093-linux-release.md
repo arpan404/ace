@@ -200,7 +200,17 @@ RemoteDesktop, so there the live view is watch-only and raw agent input is unsup
 ace never works around the portal with compositor IPC or virtual input. KDE Plasma 6 runs
 in the same suites (`run.sh kde`); its live view is watch-only too. Person control in a live
 view is X11 and GNOME on Wayland only (ADR 0049, Live view by desktop), and clients say why
-elsewhere instead of offering a take-over. Arch with Hyprland
+elsewhere instead of offering a take-over. The desktop app's e2e
+(`apps/desktop/scripts/linux-e2e.sh`) runs on X11, GNOME Wayland, KDE, Hyprland and Sway, with
+Electron Wayland-native on the Wayland ones. The tar.gz was smoke-tested by hand in the VM as a
+fresh user on GNOME Wayland and Openbox: self-registration, `ace://` links with the app running
+and closed, the sandbox setup through run0 (the VM has no pkexec) then restart into a sandboxed
+renderer, the autostart entry and the `ace` command after quitting. In that VM every Vulkan
+client under KWin Wayland (on vgem, with only Mesa's software Vulkan) crashes in Mesa's
+device-select layer, `vulkaninfo` included: headless Chrome's GPU process dumps core there and
+falls back, and the GTK 4 fixture runs with `GSK_RENDERER=cairo`. One Vitest worker SIGSEGV
+in the KDE Wayland live-view suite was never reproduced (20 runs after it, Node 24.13.0); the
+daemon runner keeps core dumps so another one can be read. Arch with Hyprland
 (Omarchy) on x86 is still checked by hand before the first release: AT-SPI outline and
 actions, the real share picker, portal capture, and the AppImage.
 
