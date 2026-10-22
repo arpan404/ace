@@ -23,7 +23,7 @@
 // - Component lexical rules: Microsoft Learn "Naming Files, Paths, and
 //   Namespaces" (https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file).
 // - Identity: GetFileInformationByHandleEx + FILE_ID_INFO
-//   (https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandleex).
+//   (https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex).
 //
 // First-cut limitations (explicit, no silent fallback):
 // - UNC roots (\\server\share\...) are refused with ENOTSUP and a UNC-specific
@@ -84,6 +84,32 @@ const char *wcore_open_file_at(int parent_fd, const char *name, int *out_fd);
 // chars plus the 128-bit FileId as 32 lowercase hex chars (raw identifier
 // byte order, string equality only — never truncated to JS doubles).
 const char *wcore_identity_of(int fd, char vol_hex[17], char id_hex[33]);
+
+// Shared lossless identity formatting (single owner: file_identity.c).
+// VolumeSerialNumber as 16 zero-padded lowercase hex chars (MSB first);
+// 128-bit FileId as 32 lowercase hex chars in stored byte order.
+void wcore_format_vol(ULONGLONG vol, char out[17]);
+void wcore_format_id(const FILE_ID_128 *id, char out[33]);
+
+// Metadata: stat one validated component relative to a borrowed parent fd.
+// Opens with NtCreateFile(RootDirectory=parent, OPEN_REPARSE_POINT) and no
+// absolute join; queries FileIdInfo + FileBasicInfo + FileStandardInfo +
+// FileAttributeTagInformation on the SAME handle (never Node Stats doubles).
+// Any reparse point reports S_IFLNK; callers deny. Returns vol/id hex
+// (same lossless stored-order format as identityOf) plus synthesized POSIX
+// mode, size bytes, Unix mtimeMs double, and raw FileAttributes.
+const char *wcore_stat_at(int parent_fd, const char *name, char vol_hex[17],
+    char id_hex[33], unsigned int *mode, unsigned long long *size,
+    double *mtime_ms, unsigned int *attrs);
+
+// Directory enumeration: FileIdExtdDirectoryInfo on the borrowed
+// directory handle; skips "." / ".."; cap 1..10000 else EINVAL; more than
+// cap accepted entries is E2BIG. Calls sink once per accepted name
+// (UTF-8, len bytes, NUL-terminated; Unicode preserved). Malformed UTF-16,
+// embedded NUL, or bounds violations fail closed. Count in out_count.
+typedef int (*wcore_name_sink_fn)(const char *utf8, size_t len, void *ctx);
+const char *wcore_names_collect(int dir_fd, int cap, wcore_name_sink_fn sink,
+    void *ctx, int *out_count);
 
 // Borrow the OS HANDLE for a CRT fd without taking ownership (never close
 // or store it; the fd must stay open for the call). Single shared wrapper
