@@ -5,7 +5,7 @@ import SwiftUI
 struct InboxConnectionProblem: Equatable {
     /// The machine's name when one is out, else how many.
     let text: String
-    /// Still trying (spinner) rather than out of reach.
+    /// Still trying (spinner) rather than out of reach (wifi.slash).
     let trying: Bool
     /// `inbox.connection.<name>` when machines are named, for UI tests.
     let identifier: String
@@ -26,7 +26,7 @@ struct InboxConnectionProblem: Equatable {
     }
 }
 
-/// The inbox's leading title: the "ace" wordmark, or, once a connection problem has lasted
+/// The inbox's leading title: the ace wordmark, or, once a connection problem has lasted
 /// 800ms, what is wrong in its place. Tapping the problem opens Machines.
 struct InboxTitle: View {
     let problem: InboxConnectionProblem?
@@ -38,7 +38,7 @@ struct InboxTitle: View {
             if let shown {
                 Button(action: openMachines) {
                     HStack(spacing: AceTheme.Spacing.sm) {
-                        if shown.trying { ProgressView().controlSize(.small) } else { AceIcon(.wifiSlash, size: 16, relativeTo: .subheadline) }
+                        if shown.trying { ProgressView().controlSize(.small) } else { Image(systemName: "wifi.slash") }
                         Text(shown.text).lineLimit(1)
                     }
                     .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
@@ -50,11 +50,13 @@ struct InboxTitle: View {
                 .accessibilityHint("Opens Machines")
                 .accessibilityIdentifier(shown.identifier)
             } else {
-                Text("ace")
-                    .aceFont(AceTheme.Typography.title, relativeTo: .title3)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                    .fixedSize()
-                    .accessibilityHidden(true)
+                HStack(alignment: .center, spacing: 6) {
+                    AceMark().frame(width: 22, height: 20)
+                    Text("ace").aceFont(AceTheme.Typography.wordmark, relativeTo: .title3)
+                }
+                .foregroundStyle(AceTheme.Colours.foreground)
+                .fixedSize()
+                .accessibilityHidden(true)
             }
         }
         .task(id: problem) {
@@ -66,71 +68,68 @@ struct InboxTitle: View {
     }
 }
 
-/// Which threads the list shows: "All projects ⌄" at the foot of the screen, one native menu
-/// with every scope. Pull requests in review are a scope of the same list, not a page; the
-/// machine choice shows only while more than one is paired.
-struct InboxScopeMenu: View {
+/// "All machines ⌄" and "All projects ⌄" under the header, each a native menu with checkmarks.
+/// The machine chip shows only while more than one machine is paired.
+struct InboxFilters: View {
     let inbox: MachineInbox
-    @Binding var scope: InboxScope
+    @Binding var machine: String
+    @Binding var project: String
 
     private struct Choice: Hashable { let id: String; let name: String }
     private var projects: [Choice] {
         var seen = Set<String>()
-        return inbox.sessions.filter { scope.machine.isEmpty || $0.hostId == scope.machine }.flatMap { $0.client.inbox.values }.compactMap { row in
+        return inbox.sessions.filter { machine.isEmpty || $0.hostId == machine }.flatMap { $0.client.inbox.values }.compactMap { row in
             guard let id = row.workspaceId, seen.insert(id).inserted else { return nil }
             return Choice(id: id, name: row.project)
         }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
-    /// "All projects", "billing-api", "Pulls · billing-api", "Mac mini · All projects".
-    private var title: String {
-        let project = projects.first { $0.id == scope.project }?.name
-        let parts = [scope.machine.isEmpty ? nil : inbox.name(scope.machine),
-                     scope.pulls ? "Pulls" : nil,
-                     project ?? (scope.pulls ? nil : "All projects")]
-        return parts.compactMap { $0 }.joined(separator: " · ")
-    }
 
     var body: some View {
-        Menu {
-            Picker("Show", selection: $scope.pulls) {
-                Label("Threads", ace: .chatText).tag(false)
-                Label("Pull requests in review", ace: .gitPullRequest).tag(true)
-            }
-            .pickerStyle(.inline)
+        HStack(spacing: AceTheme.Spacing.sm) {
             if inbox.showsMachineNames {
-                Picker(selection: $scope.machine) {
-                    Text("All machines").tag("")
-                    ForEach(inbox.sessions) { Text(inbox.name($0.hostId)).tag($0.hostId) }
-                } label: { Label("Machine", ace: .desktop) }
-                .pickerStyle(.menu)
-                .accessibilityIdentifier("inbox.machines.filter")
+                Menu {
+                    Picker("Machine", selection: $machine) {
+                        Text("All machines").tag("")
+                        ForEach(inbox.sessions) { Text(inbox.name($0.hostId)).tag($0.hostId) }
+                    }
+                } label: { chip(machine.isEmpty ? "All machines" : inbox.name(machine)) }
+                    .accessibilityIdentifier("inbox.machines.filter")
             }
-            Picker(selection: $scope.project) {
-                Text("All projects").tag("")
-                ForEach(projects, id: \.id) { Text($0.name).tag($0.id) }
-            } label: { Label("Project", ace: .folder) }
-            .pickerStyle(.menu)
-        } label: {
-            HStack(spacing: AceTheme.Spacing.xs) {
-                Text(title).lineLimit(1)
-                AceIcon(.caretDown, size: 12, weight: .bold, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.faintForeground)
-            }
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-            .foregroundStyle(AceTheme.Colours.mutedForeground)
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
+            Menu {
+                Picker("Project", selection: $project) {
+                    Text("All projects").tag("")
+                    ForEach(projects, id: \.id) { Text($0.name).tag($0.id) }
+                }
+            } label: { chip(projects.first { $0.id == project }?.name ?? "All projects") }
+                .accessibilityIdentifier("inbox.projects")
+            Spacer(minLength: AceTheme.Spacing.none)
         }
-        .accessibilityLabel(title)
-        .accessibilityHint("Chooses which threads show")
-        .accessibilityIdentifier("inbox.projects")
+        .padding(.horizontal, 18)
+        .padding(.bottom, AceTheme.Spacing.xs)
+    }
+
+    private func chip(_ title: String) -> some View {
+        HStack(spacing: 6) {
+            Text(title).lineLimit(1)
+            Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
+        }
+        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+        .foregroundStyle(AceTheme.Colours.mutedForeground)
+        .padding(.horizontal, 14)
+        .frame(minHeight: 36)
+        .aceGlass(in: Capsule(), interactive: true)
+        .contentShape(Capsule())
     }
 }
 
-/// What the list shows: every thread or only those with a pull request in review, on one
-/// machine or all, in one project or all.
-struct InboxScope: Equatable {
-    var pulls = false
-    var machine = ""
-    var project = ""
+extension View {
+    /// Pins `bar` under the navigation bar. On iOS 26 it joins the bar's scroll-edge effect, so
+    /// rows pass under it; iOS 18 gives it the page colour.
+    @ViewBuilder func inboxTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+        if #available(iOS 26, *) {
+            safeAreaBar(edge: .top, spacing: AceTheme.Spacing.none, content: bar)
+        } else {
+            safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) { bar().background(AceTheme.Colours.background) }
+        }
+    }
 }
