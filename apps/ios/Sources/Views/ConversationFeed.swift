@@ -31,8 +31,8 @@ struct ConversationFeed: View {
     /// keyboard's own animation carries the rows there.
     @State private var keyboardMoving = false
     @State private var feedBottom: CGFloat = 0
-    private var shown: ThreadModel { reading.thread ?? thread.placeholder ?? thread }
-    private var ready: Bool { thread.loaded || thread.placeholder != nil }
+    private var shown: ThreadModel { reading.thread ?? thread }
+    private var ready: Bool { thread.loaded }
     private var pinned: Bool { following && reading.thread == nil }
 
     var body: some View {
@@ -51,6 +51,7 @@ struct ConversationFeed: View {
                 if ready {
                     ForEach(TranscriptFeedRow.rows(shown)) { row in
                         TranscriptFeedRowView(row: row, thread: shown, links: links).id(row.id)
+                            .onAppear { ThreadOpenTrace.shared.painted(thread.id) }
                             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("transcript.viewport")) } action: { frame in
                                 anchor.frames[row.id] = frame
                             }
@@ -108,6 +109,7 @@ struct ConversationFeed: View {
                 viewport: frame, topInset: insets.top, bottomInset: insets.bottom)
         } action: { old, new in
             intent.metrics = new
+            if thread.loaded, new.bottom <= 1 { ThreadOpenTrace.shared.settled(thread.id) }
             if intent.active {
                 // Scrolling up only stops following: the live list stays in place until the
                 // person nears its top, where the older page opens the reading window.

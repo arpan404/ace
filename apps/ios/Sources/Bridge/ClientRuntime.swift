@@ -146,7 +146,10 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
         guard let runLoop else { return }
         CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) { [weak self] in
             guard let self, !self.lock.withLock({ self.stopped }), let context = self.context else { return }
+            let began = CACurrentMediaTime()
             HostTrace.measure("js.run") { autoreleasepool { work(context) } }
+            let spent = CACurrentMediaTime() - began
+            ThreadOpenTrace.scriptBusy.withLock { $0 += spent }
         }
         CFRunLoopWakeUp(runLoop)
     }

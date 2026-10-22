@@ -76,7 +76,9 @@ simulator screenshots.
   `-ace-host-trace` to log the time each host function and the script take.
 - `Sources/Bridge/` owns a VM and run loop. Swift callbacks return to that thread;
   SwiftUI receives decoded, owned data. A single acknowledged frame carries at most
-  32 patches and 32 KiB. Pending changes retain keys and readers, not transcript copies.
+  32 patches and 32 KiB. A backlog of a full frame, or a fragmented patch, goes frame after
+  frame; fewer changes wait 8 ms so streaming deltas share a frame. Pending changes retain
+  keys and readers, not transcript copies.
   Oversized updates use acknowledged base64 fragments carrying up to 18 KiB UTF-8.
   Native assembly holds one patch, with a 512 MiB UTF-8 allowance covering the SDK's
   64 MiB UTF-16 reassembly budget and DTO identity duplication. The 2 MiB socket
@@ -93,7 +95,9 @@ simulator screenshots.
 - Native item models preserve identity across deltas. Membership and position updates
   change the order separately. The SDK bounds the spike window to 2,200 items and text
   to 8,192 code units. Snapshots remain capped at 200; the spike calls the SDK's history
-  paging API to admit the rest.
+  paging API to admit the rest after the latest window is on screen
+  (`bridge/thread-history.ts`), one page at a time once native has the one before. Rows keep
+  their sort numbers while older pages land above them (`bridge/anchored-positions.ts`).
 - Composer drafts clear after `ClientCore.enqueue()` confirms local persistence.
   Failure preserves the input. Approval controls recover through correlated
   admission/receipt results; canonical interaction updates close the card.
@@ -165,7 +169,13 @@ copies go once the start is saved, or when a file is removed or another project 
 Thread actions carry their navigation generation (`bridge/thread-route.ts`): a log or lane released
 after its thread was left is dropped, and a submitted action is refused on its own admission.
 A native subagent's lane sheet groups its own blocks (`createBlockReader(agentId)`). Going back from
-a child keeps the parent's last transcript (`ThreadTrail`) until the reopened session's first block.
+a child, or opening any of the last six threads shown, draws the kept copy at once
+(`ThreadShelf`), as the web keeps its thread stores warm. The bridge keeps a ledger of what native
+confirmed for each kept thread (`bridge/native-ledger.ts`); reopening one, or a fresh snapshot while
+it is open, sends only the patches that differ and removes what the thread no longer has. A
+thread the bridge no longer remembers resets as before. `Sources/Models/ThreadOpenTrace.swift`
+times each open (signposts and one `perf` log line: ready, first rows, settled, frames, bytes,
+main-thread and JavaScript time, hops across the bridge, footprint) and samples late frames.
 Request threads live in `scripts/request-scenarios.ts`; `POST /review/fresh {"scenario": …}` seeds a
 new one per contract test, so suites pass in any order.
 
