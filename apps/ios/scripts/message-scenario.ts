@@ -2,7 +2,7 @@ import { facts, type FakeDaemon } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 
 /*
- * A thread of message rows for the spike daemon, matching what the web's demo threads show: a
+ * Threads of message rows for the spike daemon, matching what the web's demo threads show: a
  * steered, long bubble with code, a thought with its time, a Markdown answer (headings, a list,
  * inline code, a long code block, a link), a repeated failure, a compaction and a
  * provider handoff. Facts are dated in the past. No provider process runs.
@@ -40,11 +40,13 @@ The budget now lives in the daemon's \`retry-state.json\`, so a restart reads it
 2. A restart no longer calls \`reset()\`.
 3. The test restarts the server three times.
 
+See [ADR 0065](https://example.com/adr-0065) for the delivery rules.`;
+
+const codeAnswer = `Here is the class as it stands:
+
 \`\`\`ts
 ${code}
-\`\`\`
-
-See [ADR 0065](https://example.com/adr-0065) for the delivery rules.`;
+\`\`\``;
 
 const failure = (item: string): Fact =>
   upsert(item, {
@@ -55,19 +57,24 @@ const failure = (item: string): Fact =>
     raw: [],
   });
 
-export function seedMessages(daemon: FakeDaemon, details: Details): void {
+function thread(daemon: FakeDaemon, details: Details, id: string, title: string): void {
   daemon.createThread(
     {
       hasSentMessage: true,
-      id: "ios-messages",
+      id,
       workspaceId: "ace",
-      title: "Keep the retry budget across restarts",
+      title,
       provider: "codex",
       details: details("fix/retry-budget"),
     },
     20 * minute,
   );
-  daemon.apply("ios-messages", [facts.rootAgent("codex"), facts.turn("root")], 18 * minute);
+  daemon.apply(id, [facts.rootAgent("codex"), facts.turn("root")], 18 * minute);
+}
+
+/** Three short threads, each one screen tall: the bubble and answer, a long code block, and events. */
+export function seedMessages(daemon: FakeDaemon, details: Details): void {
+  thread(daemon, details, "ios-messages", "Keep the retry budget across restarts");
   daemon.apply(
     "ios-messages",
     [
@@ -91,9 +98,25 @@ export function seedMessages(daemon: FakeDaemon, details: Details): void {
     [facts.message("root", "answer", "assistant", answer), facts.endTurn("root")],
     16 * minute + 48_000,
   );
+
+  thread(daemon, details, "ios-code", "Show the retry budget class");
   daemon.apply(
-    "ios-messages",
+    "ios-code",
     [
+      facts.message("root", "ask", "user", "Show me `RetryBudget` as it is now."),
+      facts.message("root", "answer", "assistant", codeAnswer),
+      facts.endTurn("root"),
+    ],
+    15 * minute,
+  );
+
+  thread(daemon, details, "ios-events", "Verify the retry budget after a handoff");
+  daemon.apply(
+    "ios-events",
+    [
+      facts.message("root", "first", "user", "Persist the retry budget."),
+      facts.message("root", "done", "assistant", "Persisted in `retry-state.json`."),
+      facts.endTurn("root"),
       upsert("compacted", { type: "compaction", complete: true }),
       upsert("handoff", {
         type: "message",
