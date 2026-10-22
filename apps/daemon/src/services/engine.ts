@@ -344,6 +344,10 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     },
     onError:
       engineOptions.onError ?? ((error) => log.log("error", "Engine failure", logError(error))),
+    onSettleCleanupFailure:
+      engineOptions.onSettleCleanupFailure ??
+      ((thread, error) =>
+        log.log("warn", `Stopping settled thread ${thread} failed`, logError(error))),
   });
   resources.own(() => engine.close());
   // DB recovery orders startup; each projection's kernel process lease separately gates deletion.

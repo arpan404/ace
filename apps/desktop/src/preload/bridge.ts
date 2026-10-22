@@ -74,6 +74,7 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
     },
     app: {
       quit: () => call("app.quit"),
+      reload: () => call("app.reload"),
     },
     daemon: {
       connection: () => call("daemon.connection"),

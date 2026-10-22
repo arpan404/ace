@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { Select } from "@/components/ui/select.tsx";
-import { openExternal } from "@/boot/open-external.ts";
+import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { actionErrorText } from "@ace/ui-core";
 import { usePrStackQuery } from "./pr-stack-query.ts";
 import { QueryState } from "./query-state.tsx";
@@ -63,6 +63,7 @@ export function PrStack(props: {
   onOpen(number: number): void;
 }) {
   const client = useClient();
+  const openWeb = useOpenWebAddress();
   const ready = useConnectionState() === "ready";
   const ref = props.detail.status.ref;
   const [threadId, setThread] = useState(props.detail.relatedThreads[0]?.id ?? "");
@@ -195,8 +196,8 @@ export function PrStack(props: {
             icon={ArrowSquareOutIcon}
             size="sm"
             label="Open stack on GitHub"
-            onClick={() =>
-              void openExternal(props.detail.status.url).catch(() =>
+            onClick={(event) =>
+              void openWeb(props.detail.status.url, event).catch(() =>
                 setMessage("Couldn't open GitHub."),
               )
             }

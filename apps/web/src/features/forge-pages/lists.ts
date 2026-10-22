@@ -8,11 +8,13 @@ import type {
   ForgePrRow,
   ForgePrSearch,
   ForgeIssueRow,
+  ForgeRepository,
 } from "@ace/protocol";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { keepPreviousData, useQueries, type QueryClient } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "@/lib/forge-read.ts";
+import { repositoryParam } from "@/lib/pull-request-route.ts";
 
 /** A list read again after half a minute; the last answer stays on screen while a new one reads. */
 const listed = { staleTime: 30_000, gcTime: 10 * 60_000, retry: false } as const;
@@ -137,20 +139,28 @@ export function useGroupCounts(project: string | undefined, grouping: ForgeGroup
   });
 }
 
-export const issueDetailKey = (project: string, number: number) =>
-  ["forge", project, "browse", "issueDetail", number] as const;
+export const issueDetailKey = (project: string, number: number, repo = "") =>
+  ["forge", project, "browse", "issueDetail", number, repo] as const;
 
-/** One issue: its body, labels, people, permissions and the threads linked to it. */
-export function useIssueDetail(project: string, number: number) {
+/**
+ * One issue: its body, labels, people, permissions and the threads linked to it. `repository`
+ * names a repository other than the project's own.
+ */
+export function useIssueDetail(project: string, number: number, repository?: ForgeRepository) {
   return useDaemonQuery<ForgeIssueDetail>({
-    queryKey: issueDetailKey(project, number),
+    queryKey: issueDetailKey(project, number, repository ? repositoryParam(repository) : ""),
     staleTime: 15_000,
     gcTime: 10 * 60_000,
     retry: false,
     read: async (client, signal) => {
       const value = await readForge(
         client,
-        { op: "forge.issue.detail", workspaceId: project, number },
+        {
+          op: "forge.issue.detail",
+          workspaceId: project,
+          number,
+          ...(repository ? { repository } : {}),
+        },
         signal,
       );
       if (value.resource !== "issueDetail") throw new Error("No issue.");
