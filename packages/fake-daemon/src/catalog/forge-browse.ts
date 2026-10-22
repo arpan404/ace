@@ -120,7 +120,7 @@ function sketched(now: number, pr: PrSketch): PullRequestFixture {
         }
       : {}),
     lifecycle: state,
-    review: review(headSha, open),
+    review: review(headSha, open, { detail }),
     files: pr.files.map(([path, add, del]) => file(path, add, del)),
     activity,
   };

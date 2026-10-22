@@ -59,6 +59,9 @@ export const ReviewThreadsPage = z.object({
                 isOutdated: z.boolean(),
                 path: str,
                 line: z.number().int().nullable(),
+                // Older hosts and fixtures may leave these out; a missing side stays unknown.
+                diffSide: str.nullable().optional(),
+                startLine: z.number().int().nullable().optional(),
                 comments: z.object({
                   pageInfo: PageInfo,
                   nodes: z
@@ -67,7 +70,8 @@ export const ReviewThreadsPage = z.object({
                         databaseId: z.number().int().positive(),
                         body: str,
                         updatedAt: str,
-                        author: z.object({ login: str }).nullable(),
+                        createdAt: str.optional(),
+                        author: z.object({ login: str, avatarUrl: str.optional() }).nullable(),
                       }),
                     )
                     .max(100),
@@ -91,7 +95,8 @@ export const ReviewCommentConnection = z.object({
               databaseId: z.number().int().positive(),
               body: str,
               updatedAt: str,
-              author: z.object({ login: str }).nullable(),
+              createdAt: str.optional(),
+              author: z.object({ login: str, avatarUrl: str.optional() }).nullable(),
             }),
           )
           .max(100),
