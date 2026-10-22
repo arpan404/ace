@@ -96,6 +96,31 @@ fn unlabelled_wrappers_fold_into_their_only_child_and_empty_ones_vanish() {
 }
 
 #[test]
+fn the_editor_keeps_the_focus_over_buttons_that_only_proxy_it() {
+    // KWrite's walk meets a focused wrapper, then the editor, then status-bar buttons whose
+    // focus proxy is the editor (Qt reports them focused too).
+    let wrapper = FocusClaim { text_input: false, line: false, depth: 1 };
+    let editor = FocusClaim { text_input: true, line: true, depth: 1 };
+    let proxy_button = FocusClaim { text_input: false, line: true, depth: 1 };
+    assert!(focus_outranks(editor, wrapper));
+    assert!(!focus_outranks(proxy_button, editor));
+    // Among equals the first stays, unless the later one sits inside it.
+    assert!(!focus_outranks(proxy_button, proxy_button));
+    assert!(focus_outranks(FocusClaim { depth: 2, ..proxy_button }, proxy_button));
+    assert!(focus_outranks(proxy_button, wrapper));
+}
+
+#[test]
+fn split_panes_fold_into_the_views_they_hold_instead_of_hiding_them() {
+    // KWrite and Kate keep their editor inside nested QSplitters; dropping the pane dropped the
+    // editor with it.
+    assert!(!is_noise("split pane"));
+    assert_eq!(keep("split pane", false, false, 2), Keep::Fold);
+    assert_eq!(keep("split pane", false, false, 0), Keep::Drop);
+    assert!(is_noise("scroll bar"));
+}
+
+#[test]
 fn labels_carry_their_text_as_the_name_and_nothing_repeats() {
     let (name, value, detail) = texts("label", None, None, Some("42".into()));
     assert_eq!((name.as_deref(), value, detail), (Some("42"), None, None));

@@ -6,13 +6,16 @@
 #                  `--ozone-platform=wayland`
 #   wayland-auto   the same desktop, Electron left to pick its platform (the default)
 #   all            the three in turn
+#   kde-wayland    KDE Plasma 6 on KWin Wayland, through
+#   kde-x11        native/screen-helper-linux/tests/computer/kde-session.sh (which lists what
+#                  KDE needs); KDE is not part of `all`
 # The browser scenarios need ace's pinned Chrome for the daemon's headless engine; it is
 # fetched into ACE_E2E_CHROME_HOME. Where the kernel restricts unprivileged user namespaces
 # (Ubuntu 23.10+), Electron's and Chrome's sandboxes need AppArmor profiles: one is loaded for
 # each for the run and removed afterwards (sudo).
 #
 # Usage, from anywhere inside a Linux checkout after `bun install`:
-#   apps/desktop/scripts/linux-e2e.sh [x11|wayland|wayland-auto|all] [vitest filters]
+#   apps/desktop/scripts/linux-e2e.sh [x11|wayland|wayland-auto|all|kde-wayland|kde-x11] [vitest filters]
 # Needs: Xvfb, openbox, xdotool, dbus; for Wayland gnome-shell, pipewire, wireplumber,
 # xdg-desktop-portal-gnome. Environment: ACE_E2E_DISPLAY (X display number, default 52),
 # ACE_E2E_APPARMOR_PROFILE (profile name prefix, default ace-desktop-e2e),
@@ -99,7 +102,7 @@ esac
 
 mode=x11
 case "${1:-}" in
-  x11 | wayland | wayland-auto | all)
+  x11 | wayland | wayland-auto | all | kde-wayland | kde-x11)
     mode=$1
     shift
     ;;
@@ -178,6 +181,14 @@ session() { # <mode> [vitest filters]
     wayland-auto)
       env "${xdg[@]}" dbus-run-session -- "$self" __wayland "$@" \
         2>>"$logs/session.log" || status=$?
+      ;;
+    kde-wayland | kde-x11)
+      # kde-session.sh makes its own runtime and XDG folders; the screen is sized for scale 2.
+      (cd "$root/apps/desktop" && ACE_KDE_DISPLAY=$display ACE_KDE_SIZE=3200x2000 \
+        ACE_KDE_LOGS="$logs" ACE_E2E_ELECTRON=1 \
+        "$root/native/screen-helper-linux/tests/computer/kde-session.sh" "${which#kde-}" \
+        node "$root/node_modules/vitest/vitest.mjs" run --config vitest.e2e.config.ts "$@") \
+        || status=$?
       ;;
   esac
   # The document portal mounts itself in the runtime directory.

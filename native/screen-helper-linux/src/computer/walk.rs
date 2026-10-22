@@ -5,7 +5,7 @@ use crate::computer::bus::{Bus, BusError, Obj, key};
 use crate::computer::element::{self, Element};
 use crate::computer::error::clip;
 use crate::computer::ids::Ids;
-use crate::computer::outline::{self, Keep, Node, Rect};
+use crate::computer::outline::{self, FocusClaim, Keep, Node, Rect};
 use std::collections::HashSet;
 use std::time::Instant;
 
@@ -29,6 +29,7 @@ pub struct Focused {
     pub role: String,
     pub name: Option<String>,
     pub selected_text: Option<String>,
+    pub claim: FocusClaim,
 }
 
 #[derive(Default)]
@@ -75,8 +76,14 @@ impl<'a> Walker<'a> {
         self.visit(root.clone(), depth, true, None).await;
     }
 
-    pub fn finish(self) -> Tree {
+    pub fn finish(mut self) -> Tree {
         self.ids.prune();
+        // Only the element that has the focus says so; see `outline::focus_outranks`.
+        if let Some(id) = self.tree.focused.as_ref().and_then(|focused| focused.id) {
+            for node in self.tree.nodes.iter_mut().filter(|node| node.id != id) {
+                node.flags.retain(|flag| flag != "focused");
+            }
+        }
         self.tree
     }
 
@@ -143,7 +150,7 @@ impl<'a> Walker<'a> {
                         inherited = node.name.clone();
                     }
                     if element.states.focused {
-                        self.note_focus(&element, Some(node.id), node.name.clone(), &node.role)
+                        self.note_focus(&element, depth, Some(node.id), node.name.clone(), &node.role)
                             .await;
                     }
                     self.tree.nodes.push(node);
@@ -151,7 +158,7 @@ impl<'a> Walker<'a> {
                 }
                 Described::Fold => {
                     if element.states.focused {
-                        self.note_focus(&element, None, None, &element.role.clone()).await;
+                        self.note_focus(&element, depth, None, None, &element.role.clone()).await;
                     }
                     depth
                 }
@@ -167,7 +174,17 @@ impl<'a> Walker<'a> {
         })
     }
 
-    async fn note_focus(&mut self, element: &Element, id: Option<u64>, name: Option<String>, role: &str) {
+    async fn note_focus(&mut self, element: &Element, depth: usize, id: Option<u64>, name: Option<String>, role: &str) {
+        let claim = FocusClaim {
+            text_input: outline::is_text_input(&element.role, &element.states),
+            line: id.is_some(),
+            depth,
+        };
+        if let Some(current) = &self.tree.focused {
+            if !outline::focus_outranks(claim, current.claim) {
+                return;
+            }
+        }
         let mut selected_text = None;
         if element.interfaces.text && element.role != "password text" {
             if let Some((start, end)) = element::selection(self.bus, &element.obj).await {
@@ -183,13 +200,15 @@ impl<'a> Walker<'a> {
             role: role.to_owned(),
             name,
             selected_text,
+            claim,
         });
     }
 
     /// Reads what the role can show and decides whether the element gets a line.
     async fn describe(&mut self, element: &Element, depth: usize, children: usize) -> Option<Described> {
         let role = element.role.as_str();
-        let structural_only = matches!(role, "panel" | "grouping" | "filler" | "section" | "frame" | "window");
+        let structural_only =
+            matches!(role, "panel" | "grouping" | "filler" | "section" | "split pane" | "frame" | "window");
         let text_input = outline::is_text_input(role, &element.states);
         let wants_actions =
             element.interfaces.action && !matches!(role, "label" | "static" | "frame" | "window" | "dialog");

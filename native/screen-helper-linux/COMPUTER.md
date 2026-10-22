@@ -153,8 +153,9 @@ Calculator, Mousepad, xterm, xdotool):
   this: the drift is in GTK4's own extents.
 - The portal doesn't say which app a window stream shows. If the person picks another window in
   the dialog, that window is what the agent sees for that app until the grant is revoked.
-- The restore path was verified in a headless GNOME Shell with a seeded grant; the dialog click
-  itself, KDE and xdg-desktop-portal-hyprland are still to be checked by hand.
+- The restore path was verified in a headless GNOME Shell with a seeded grant, and end to end on
+  headless KDE Plasma 6 (Wayland and X11) with KDE's chooser answered through its accessibility
+  tree (`tests/computer/run-kde.sh`); xdg-desktop-portal-hyprland is still to be checked by hand.
 - Each Wayland screenshot opens and closes a portal session (about half a second).
 - GTK4 apps have no menu bar; their menus are buttons in the window, so `menu` paths fail with
   `no_menu_bar` and the agent clicks the menu button and item by id.

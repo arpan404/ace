@@ -60,17 +60,7 @@ impl Bus {
             .await
             .map_err(|e| unavailable(&e))?
             .map_err(|e| unavailable(&e))?;
-        let body = ("org.a11y.Status", "IsEnabled", Value::from(true));
-        let enable = session.call_method(
-            Some("org.a11y.Bus"),
-            "/org/a11y/bus",
-            Some("org.freedesktop.DBus.Properties"),
-            "Set",
-            &body,
-        );
-        if let Ok(Err(e)) = tokio::time::timeout(Duration::from_secs(2), enable).await {
-            eprintln!("computer: could not set org.a11y.Status.IsEnabled: {e}");
-        }
+        let was_enabled = crate::a11y_status::enable(&session).await;
         let address = tokio::time::timeout(
             Duration::from_secs(3),
             session.call_method(
@@ -92,7 +82,20 @@ impl Bus {
             .await
             .map_err(|e| unavailable(&e))?
             .map_err(|e| unavailable(&e))?;
-        Ok(Self { conn })
+        let bus = Self { conn };
+        if !was_enabled {
+            bus.await_registrations().await;
+        }
+        Ok(bus)
+    }
+
+    /// Apps that skip the bus until accessibility is on (Qt's, so all of KDE) register a moment
+    /// after this helper turns it on; wait for them so the first look sees every running app.
+    async fn await_registrations(&self) {
+        crate::a11y_status::await_registrations(|| async {
+            self.applications().await.map(|apps| apps.len()).unwrap_or(0)
+        })
+        .await;
     }
 
     pub async fn call<B, R>(&self, obj: &Obj, interface: &str, method: &str, body: &B) -> BusResult<R>
@@ -210,3 +213,4 @@ fn classify(error: zbus::Error) -> BusError {
         _ => BusError::Failed(error.to_string()),
     }
 }
+

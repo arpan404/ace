@@ -75,13 +75,84 @@ pub struct PortalPolicy {
     pub pointer: bool,
     pub persistent: bool,
 }
-pub fn portal_policy(sources: u32, devices: u32, version: u32) -> PortalPolicy {
+/// What the desktop's xdg-desktop-portal offers. RemoteDesktop is optional: GNOME and KDE
+/// implement it, xdg-desktop-portal-hyprland and xdg-desktop-portal-wlr do not.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PortalOffer {
+    /// ScreenCast `AvailableSourceTypes` (1 monitor, 2 window, 4 virtual).
+    pub sources: u32,
+    pub screencast_version: u32,
+    pub remote_desktop: Option<RemoteDesktopOffer>,
+}
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RemoteDesktopOffer {
+    /// `AvailableDeviceTypes` (1 keyboard, 2 pointer, 4 touchscreen).
+    pub devices: u32,
+    pub version: u32,
+}
+
+/// How a Wayland live view asks the portal for its source.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PortalRoute {
+    /// One RemoteDesktop session with a ScreenCast source: the picture and the person's input.
+    RemoteDesktop,
+    /// ScreenCast alone: the person picks the source and watches it; no input goes through the
+    /// portal, for the reason given.
+    ScreenCastOnly(&'static str),
+}
+
+/// Why a live view on KDE takes no input. KDE's RemoteDesktop portal ignores the source a
+/// session asks for and shares whole outputs, so the window the person picked would not be
+/// what their clicks reach.
+pub const KDE_WATCH_ONLY: &str = "KDE's remote control shares the whole desktop rather than the window or screen you pick, so on KDE ace shows what you share but can't send it your clicks or keys. Use the app on the desktop itself; agents act through element ids.";
+/// Why a live view takes no input where the portal has no RemoteDesktop. ace never sends
+/// input around the compositor's consent (ADR 0049).
+pub const NO_REMOTE_DESKTOP: &str = "This desktop's screen-sharing portal has no remote control (RemoteDesktop; e.g. xdg-desktop-portal-hyprland or -wlr), so ace can show what you share here but can't send it your clicks or keys. Use the app on the desktop itself; agents act through element ids.";
+
+/// GNOME's portal shares the picked window or screen together with input to it. KDE's would
+/// share the whole desktop for a window (`KDE_WATCH_ONLY`), and Hyprland's and wlroots'
+/// portals have no RemoteDesktop at all: both are asked of ScreenCast alone and are watch-only.
+pub fn portal_route(desktop: &str, offer: &PortalOffer) -> PortalRoute {
+    if desktop.split(':').any(|name| name.eq_ignore_ascii_case("KDE")) {
+        PortalRoute::ScreenCastOnly(KDE_WATCH_ONLY)
+    } else if offer.remote_desktop.is_none() {
+        PortalRoute::ScreenCastOnly(NO_REMOTE_DESKTOP)
+    } else {
+        PortalRoute::RemoteDesktop
+    }
+}
+
+/// What a live view can do on this desktop: the sources its dialog offers, the input the
+/// person can be given, and whether the grant can be remembered.
+pub fn portal_policy(offer: &PortalOffer, route: PortalRoute) -> PortalPolicy {
+    let devices = match (route, offer.remote_desktop) {
+        (PortalRoute::RemoteDesktop, Some(rd)) => rd.devices,
+        _ => 0,
+    };
     PortalPolicy {
-        windows: sources & 2 != 0,
-        displays: sources & 1 != 0,
+        windows: offer.sources & 2 != 0,
+        displays: offer.sources & 1 != 0,
         keyboard: devices & 1 != 0,
         pointer: devices & 2 != 0,
-        persistent: version >= 2,
+        // A combined session persists through RemoteDesktop (v2); a ScreenCast-only one through
+        // ScreenCast's own persist_mode (v4).
+        persistent: match (route, offer.remote_desktop) {
+            (PortalRoute::RemoteDesktop, Some(rd)) => rd.version >= 2,
+            _ => offer.screencast_version >= 4,
+        },
+    }
+}
+
+/// Whether the portal shared the kind of source that was asked for (`asked`: 1 monitor,
+/// 2 window, 3 either), from the stream's `source_type` (1 monitor, 2 window, 4 virtual;
+/// absent before ScreenCast version 3). A window never stands in for a screen, nor a screen
+/// for a window.
+pub fn stream_matches(asked: u32, source_type: Option<u32>) -> bool {
+    match (asked, source_type) {
+        (_, None) => true,
+        (2, Some(kind)) => kind == 2,
+        (1, Some(kind)) => kind != 2,
+        _ => true,
     }
 }
 

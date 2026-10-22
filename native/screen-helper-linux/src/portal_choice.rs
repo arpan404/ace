@@ -109,9 +109,10 @@ fn unwrap<'a>(value: &'a Value<'a>) -> &'a Value<'a> {
     }
 }
 
-/// What the desktop recorded with this restore token, read from the permission store the
-/// portal keeps it in. Best effort: a desktop without such a record gives `None`.
-pub async fn recorded_choice(conn: &Connection, token: &str) -> Option<Recorded> {
+/// What the desktop recorded with this restore token, read from the permission store's
+/// `table` (`remote-desktop` or `screencast`) the portal keeps it in. Best effort: a desktop
+/// without such a record gives `None`.
+pub async fn recorded_choice(conn: &Connection, table: &str, token: &str) -> Option<Recorded> {
     let store = Proxy::new(
         conn,
         "org.freedesktop.impl.portal.PermissionStore",
@@ -120,7 +121,7 @@ pub async fn recorded_choice(conn: &Connection, token: &str) -> Option<Recorded>
     )
     .await
     .ok()?;
-    let args = ("remote-desktop", token);
+    let args = (table, token);
     let lookup = store.call::<_, _, (std::collections::HashMap<String, Vec<String>>, OwnedValue)>(
         "Lookup", &args,
     );

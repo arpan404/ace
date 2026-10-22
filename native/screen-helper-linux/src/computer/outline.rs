@@ -25,6 +25,26 @@ pub struct States {
     pub selectable: bool,
 }
 
+/// How strongly a focused element claims the keyboard focus.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FocusClaim {
+    /// It takes typed text.
+    pub text_input: bool,
+    /// It has an outline line (not a folded wrapper).
+    pub line: bool,
+    pub depth: usize,
+}
+
+/// Whether `new` is the element with the focus rather than `current`, both reported focused.
+/// Qt reports every widget whose focus proxy has the focus as focused too (KTextEditor's
+/// status-bar buttons proxy the editor), so several elements claim it: a text input beats
+/// anything else, a line beats a folded wrapper, an element inside the other wins, and
+/// otherwise the first in document order stays.
+pub fn focus_outranks(new: FocusClaim, current: FocusClaim) -> bool {
+    let rank = |claim: FocusClaim| (claim.text_input, claim.line);
+    rank(new) > rank(current) || rank(new) == rank(current) && new.depth > current.depth
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Rect {
     pub x: f64,
@@ -137,12 +157,11 @@ pub fn is_text_input(role: &str, states: &States) -> bool {
         || (role == "combo box" && states.editable)
 }
 
-/// Chrome that restates what scrolling and layout already show.
+/// Chrome that restates what scrolling and layout already show. Skipped with everything inside,
+/// so never a container of content: a split pane (Qt's QSplitter, GTK's GtkPaned) holds the
+/// app's views and folds like any other wrapper instead.
 pub fn is_noise(role: &str) -> bool {
-    matches!(
-        role,
-        "scroll bar" | "separator" | "tool tip" | "redundant object" | "split pane" | "invalid"
-    )
+    matches!(role, "scroll bar" | "separator" | "tool tip" | "redundant object" | "invalid")
 }
 
 /// Containers kept even without a label, so their contents stay visibly grouped.
@@ -327,7 +346,7 @@ pub fn keep(role: &str, actionable: bool, labelled: bool, children: usize) -> Ke
     }
     // GTK4 nests every control in several unnamed boxes; a line for each costs tokens and
     // says nothing, so plain containers always fold into their children.
-    let plain = matches!(role, "panel" | "grouping" | "filler" | "section" | "generic");
+    let plain = matches!(role, "panel" | "grouping" | "filler" | "section" | "generic" | "split pane");
     match children {
         0 => Keep::Drop,
         1 => Keep::Fold,

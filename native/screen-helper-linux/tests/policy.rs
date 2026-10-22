@@ -1,5 +1,8 @@
 use ace_screen_helper_linux::{
-    policy::{Backend, DamageGate, backend, point, portal_policy},
+    policy::{
+        Backend, DamageGate, KDE_WATCH_ONLY, NO_REMOTE_DESKTOP, PortalOffer, PortalRoute,
+        RemoteDesktopOffer, backend, point, portal_policy, portal_route,
+    },
     portal::{read_token, save_token},
     protocol::{Request, packet},
 };
@@ -52,19 +55,55 @@ fn coordinates_reject_edges_nonfinite_values_and_negative_positions() {
         assert_eq!(point(x, y, 100, 80).unwrap_err().code, "bounds");
     }
 }
+fn combined(sources: u32, devices: u32, version: u32) -> PortalOffer {
+    PortalOffer {
+        sources,
+        screencast_version: 5,
+        remote_desktop: Some(RemoteDesktopOffer { devices, version }),
+    }
+}
 #[test]
 fn portal_support_and_persistence_follow_advertised_versions_and_device_masks() {
-    let old = portal_policy(1, 1, 1);
+    let old = portal_policy(&combined(1, 1, 1), PortalRoute::RemoteDesktop);
     assert!(!old.windows);
     assert!(old.displays);
     assert!(old.keyboard);
     assert!(!old.pointer);
     assert!(!old.persistent);
-    let new = portal_policy(3, 2, 2);
+    let new = portal_policy(&combined(3, 2, 2), PortalRoute::RemoteDesktop);
     assert!(new.windows);
     assert!(new.pointer);
     assert!(!new.keyboard);
     assert!(new.persistent);
+}
+#[test]
+fn a_portal_without_remote_desktop_shares_the_screen_but_offers_no_input() {
+    // xdg-desktop-portal-hyprland 1.3: monitors and windows, ScreenCast v5, no RemoteDesktop.
+    let offer = PortalOffer { sources: 3, screencast_version: 5, remote_desktop: None };
+    let route = portal_route("Hyprland", &offer);
+    assert_eq!(route, PortalRoute::ScreenCastOnly(NO_REMOTE_DESKTOP));
+    let hyprland = portal_policy(&offer, route);
+    assert!(hyprland.windows && hyprland.displays && hyprland.persistent);
+    assert!(!hyprland.pointer && !hyprland.keyboard);
+    // Before ScreenCast v4 a sharing grant can't be remembered.
+    let old = PortalOffer { sources: 1, screencast_version: 3, remote_desktop: None };
+    assert!(!portal_policy(&old, portal_route("sway", &old)).persistent);
+}
+#[test]
+fn kde_is_watched_through_screencast_because_its_remote_desktop_shares_whole_screens() {
+    let kde = combined(3, 3, 2);
+    for desktop in ["KDE", "ubuntu:KDE"] {
+        let route = portal_route(desktop, &kde);
+        assert_eq!(route, PortalRoute::ScreenCastOnly(KDE_WATCH_ONLY));
+        let policy = portal_policy(&kde, route);
+        // The person can still watch windows and screens, remembered through ScreenCast.
+        assert!(policy.windows && policy.displays && policy.persistent);
+        assert!(!policy.pointer && !policy.keyboard);
+    }
+    // GNOME shares windows through RemoteDesktop, with the person's input.
+    assert_eq!(portal_route("ubuntu:GNOME", &kde), PortalRoute::RemoteDesktop);
+    assert_eq!(portal_route("", &kde), PortalRoute::RemoteDesktop);
+    assert!(portal_policy(&kde, PortalRoute::RemoteDesktop).pointer);
 }
 #[test]
 fn malformed_commands_cannot_start_capture_or_exceed_the_memory_bound() {
@@ -177,4 +216,18 @@ fn frame_connection_rejects_public_directories_and_symlink_endpoints() {
     assert_eq!(endpoint::connect(&link).unwrap_err().code, "permission_denied");
     drop(listener);
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn a_shared_source_of_the_wrong_kind_is_never_shown() {
+    use ace_screen_helper_linux::policy::stream_matches;
+    assert!(stream_matches(2, Some(2)));
+    assert!(!stream_matches(2, Some(1)), "a whole screen given for a window");
+    assert!(!stream_matches(1, Some(2)), "a window given for a screen");
+    assert!(stream_matches(1, Some(1)));
+    assert!(stream_matches(1, Some(4)));
+    // A dialog offering both may share either.
+    assert!(stream_matches(3, Some(1)) && stream_matches(3, Some(2)));
+    // Portals before ScreenCast version 3 don't say.
+    assert!(stream_matches(2, None));
 }

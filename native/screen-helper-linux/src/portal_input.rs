@@ -76,9 +76,10 @@ impl Portal {
         Ok(())
     }
     pub async fn motion(&self, x: f64, y: f64) -> Result<()> {
+        // Refused first: a watch-only view says why, not that the point is out of bounds.
+        self.require(2)?;
         let (w, h) = self.input_size();
         point(x, y, w, h)?;
-        self.require(2)?;
         let first = !self.pointer_ready.load(Ordering::Acquire);
         self.wake_pointer().await?;
         let path = self.path()?;

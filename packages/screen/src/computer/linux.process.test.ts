@@ -88,3 +88,17 @@ it("refused Linux apps are left out of the app list", async () => {
   expect(listed.text).not.toContain("org.gnome.Ptyxis");
   expect(listed.text).not.toContain("KeePassXC");
 });
+
+it("on KDE an agent sees KCalc but never Konsole or the wallet's password prompt", async () => {
+  const { call, ops } = await world({ client: { environment: manager("DISPLAY=:0\n") } });
+  const listed = await call("screen_apps", {});
+  expect(listed.text).toContain("org.kde.kcalc");
+  expect(listed.text).not.toContain("Konsole");
+  expect(listed.text).not.toContain("Secret Prompter");
+  for (const app of ["konsole", "Secret Prompter"]) {
+    const refused = await call("screen_act", { app, actions: [{ type: "type", text: "ls" }] });
+    expect(refused.result.isError, app).toBe(true);
+    expect(refused.text, app).toContain("does not operate this app");
+  }
+  expect((await ops()).filter((op) => !op.startsWith("resolve") && op !== "apps")).toEqual([]);
+});

@@ -114,8 +114,10 @@ unsafe extern "C" fn on_frame(
             )
             .map_err(internal)?;
         // Picture pixels per logical point of what it shows.
-        let logical_shown = f64::from(rw) * f64::from(frames.logical_width) / f64::from(w);
-        let logical_high = f64::from(rh) * f64::from(frames.logical_width) / f64::from(w);
+        // A logical width of 0 is unknown (the portal gave none): one point per pixel.
+        let logical_width = if frames.logical_width == 0 { w } else { frames.logical_width };
+        let logical_shown = f64::from(rw) * f64::from(logical_width) / f64::from(w);
+        let logical_high = f64::from(rh) * f64::from(logical_width) / f64::from(w);
         frames.shown.store(
             ((logical_shown.round() as u64) << 32) | (logical_high.round() as u64 & 0xffff_ffff),
             Ordering::Release,

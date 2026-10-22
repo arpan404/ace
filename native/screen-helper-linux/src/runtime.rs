@@ -197,7 +197,7 @@ impl Runtime {
                 } else {
                     // Nothing to list: the sharing dialog on this desktop picks the source.
                     let p = self.portal.as_ref().ok_or_else(|| internal("No backend"))?;
-                    let policy = crate::policy::portal_policy(p.sources, p.devices, p.version);
+                    let policy = crate::policy::portal_policy(&p.offer, p.route());
                     Ok(json!({"windows":[],"displays":[],"chooser":{"windows":policy.windows,"displays":policy.displays}}))
                 }
             }
