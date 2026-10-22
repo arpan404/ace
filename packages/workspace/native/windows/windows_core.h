@@ -131,6 +131,10 @@ const char *wcore_names_collect(int dir_fd, int cap, wcore_name_sink_fn sink,
 // fd < 0 or NULL out, else "EBADF" for -1/-2/0, else NULL with *out set.
 const char *wcore_borrow_handle(int fd, HANDLE *out);
 
+// Close a newly acquired Node-owned fd through Node's libuv. The addon CRT
+// can have a different descriptor table even when it is built with /MD.
+const char *wcore_close_fd(int fd);
+
 // --- NT-bridge internals shared by volume_root.c and child_open.c ---
 // CreateOptions values from the NtCreateFile docs table; CreateDisposition
 // FILE_OPEN from WDK ntifs.h (only FILE_OPEN is used: missing names must

@@ -29,7 +29,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <io.h>
 #include "windows_core.h"
 
 // True when a JS exception is already pending; callers preserve it by
@@ -58,7 +57,7 @@ static napi_value throw_binding_error(napi_env env, const char *op) {
 // (matches uv_open_osfhandle/_open_osfhandle in the same CRT), never
 // CloseHandle alone. Not exposed to JS.
 static void close_fd_quiet(int fd) {
-  if (fd >= 0) (void)_close(fd);
+  if (fd >= 0) (void)wcore_close_fd(fd);
 }
 
 static napi_value fail_with(napi_env env, const char *code, const char *message) {

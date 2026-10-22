@@ -301,4 +301,11 @@ const char *wcore_borrow_handle(int fd, HANDLE *out) {
   *out = (HANDLE)borrowed;
   return NULL;
 }
+
+const char *wcore_close_fd(int fd) {
+  uv_fs_t request;
+  int result = uv_fs_close(NULL, &request, fd, NULL);
+  uv_fs_req_cleanup(&request);
+  return result < 0 ? uv_err_name(result) : NULL;
+}
 #endif

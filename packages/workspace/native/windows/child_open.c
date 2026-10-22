@@ -19,7 +19,6 @@
 #include <windows.h>
 #include "windows_core.h"
 #include <string.h>
-#include <io.h>
 
 static const char *bridge_to_fd(HANDLE handle, int *out_fd) {
   // uv_open_osfhandle consumes the HANDLE; Node close releases it via the
@@ -106,6 +105,6 @@ const char *wcore_mkdir_at(int parent_fd, const char *name) {
       FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | SYNCHRONIZE, 1,
       wcore_nt_create_new_child, &fd);
   if (code != NULL) return code;
-  return _close(fd) == 0 ? NULL : "EIO";
+  return wcore_close_fd(fd);
 }
 #endif
