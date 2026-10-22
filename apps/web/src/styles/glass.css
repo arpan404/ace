@@ -128,11 +128,15 @@
   }
 
   /*
-   * A short glass confirmation (`.ace-modal-thin`): only a sentence and buttons, so it takes the
-   * thin floating tint and the blurred page reads through it.
+   * A short glass confirmation (`.ace-modal-thin`): only a sentence and buttons, so it is glass
+   * like any floating layer, its tint and blur following Translucency, over the blurred page.
    */
   :root[data-surface="translucent"] :is(.ace-floating, .glass).ace-modal.ace-modal-thin {
     background: var(--glass-tint);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate))
+      contrast(var(--glass-contrast)) brightness(var(--glass-brightness));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate))
+      contrast(var(--glass-contrast)) brightness(var(--glass-brightness));
   }
 
   /*

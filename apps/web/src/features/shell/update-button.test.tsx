@@ -124,7 +124,6 @@ test("a downloaded update restarts only after the person confirms", async () => 
   const app = desktop(offer({ state: "downloaded", percent: 100 }));
   await userEvent.click(await restartButton());
   expect(await screen.findByText("Restart to update?")).toBeTruthy();
-  expect(screen.getByText("1.0.0 → 1.1.0")).toBeTruthy();
   expect(await screen.findByText("Nothing is running. ace is back in a few seconds.")).toBeTruthy();
   expect(app.calls).toEqual([]);
   await userEvent.click(screen.getByRole("button", { name: "Restart" }));
@@ -142,7 +141,7 @@ test("Restart warns how many agents on this computer it stops, then stops them",
   await waitFor(() =>
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" })),
   );
-  await userEvent.click(screen.getByRole("button", { name: "Stop and restart" }));
+  await userEvent.click(screen.getByRole("button", { name: "Restart anyway" }));
   expect(app.calls).toEqual(["install"]);
 });
 
@@ -154,7 +153,7 @@ test("when the agent count is unknown, Restart still warns that agents stop", as
       "Agents running on this computer will stop. Their threads keep their progress.",
     ),
   ).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Stop and restart" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Restart anyway" })).toBeTruthy();
 });
 
 test("while agents finish, the button says how many it waits for", async () => {

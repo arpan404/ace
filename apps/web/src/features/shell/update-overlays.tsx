@@ -76,18 +76,15 @@ export function UpdateOverlays(props: {
         initialFocus={cancel}
         className="w-[min(400px,calc(100vw-2rem))] gap-3 rounded-[20px] p-[22px]"
       >
-        <DialogHeader className="items-start gap-1.5 pr-0">
-          <span className="rounded-full bg-tint px-2 py-0.5 font-mono text-xs font-medium text-tint-foreground">
-            {status.currentVersion} → {status.version}
-          </span>
-          <DialogTitle className="mt-1">Restart to update?</DialogTitle>
+        <DialogHeader className="pr-0">
+          <DialogTitle>Restart to update?</DialogTitle>
           <DialogDescription>{restartWords(busy)}</DialogDescription>
         </DialogHeader>
         <DialogFooter className="mt-2 grid grid-cols-2 gap-2">
           <Button
             ref={cancel}
             type="button"
-            variant="ghost"
+            variant="secondary"
             onClick={() => onConfirmingChange(false)}
           >
             Cancel
@@ -101,7 +98,7 @@ export function UpdateOverlays(props: {
               onInstall();
             }}
           >
-            {stops ? "Stop and restart" : "Restart"}
+            {stops ? "Restart anyway" : "Restart"}
           </Button>
         </DialogFooter>
       </DialogContent>
