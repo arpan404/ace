@@ -5,6 +5,7 @@ import {
   ledgerOf,
   startedThreadOf,
   subagentLabels,
+  subagentStatusCounts,
   subagentStatusLine,
   summarizeWork,
   workCounts,
@@ -17,6 +18,7 @@ import { createBlockReader } from "@ace/ui-core/transcript-block-reader";
 import { blockItems, type Block } from "@ace/ui-core/transcript-blocks";
 import { preview } from "./presentation.ts";
 import { workGroups } from "./work-groups.ts";
+import { backgroundCalls, backgroundRows } from "./background-rows.ts";
 
 /*
  * The transcript's blocks as the web builds them (`@ace/ui-core` transcript grouping): "Worked
@@ -35,6 +37,8 @@ const live = (key: string) =>
   key === "agents" ||
   key === "interactions" ||
   key === "tasks" ||
+  // A background command ending moves its line in a running log.
+  key.startsWith("task:") ||
   key.startsWith("agent:") ||
   key.startsWith("run:");
 
@@ -85,6 +89,11 @@ function subagents(store: ThreadSource, ids: readonly string[]) {
   const entries = readSubagentGroup(store, ids).value;
   return {
     status: preview(subagentStatusLine(entries.map((entry) => entry.state)), 256),
+    /** The status line's parts, worst first, each in its own status colour: "2 working". */
+    counts: subagentStatusCounts(entries.map((entry) => entry.state)).map((part) => ({
+      text: `${part.count} ${part.word}`,
+      token: tokens[part.state],
+    })),
     entries: entries.slice(0, 32).map((entry) => ({
       id: entry.id,
       agentId: entry.agentId ?? "",
@@ -137,7 +146,9 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
             const run = item.runId ? store.run(item.runId) : undefined;
             return run !== undefined && run.state !== "active";
           },
+          backgroundCalls(store, items),
         ),
+        background: backgroundRows(store, items),
         ordinal: block.outcome === undefined ? null : (turnOf(store, blockItems(block)) ?? null),
       };
     }

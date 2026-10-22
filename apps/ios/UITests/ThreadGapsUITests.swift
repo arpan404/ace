@@ -18,12 +18,12 @@ import XCTest
         screenshot("plan-revise")
         XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 25))
         app.buttons["composer.model"].tap()
-        let tune = app.buttons["composer.tune"]
+        // Effort is a stepped slider over the model's levels (minimal … ultra); High is the fourth.
+        let tune = app.sliders["composer.tune"]
         XCTAssertTrue(tune.waitForExistence(timeout: 25))
-        tune.tap()
-        XCTAssertTrue(app.buttons["High"].waitForExistence(timeout: 10))
-        screenshot("tune-menu")
-        app.buttons["High"].tap()
+        tune.adjust(toNormalizedSliderPosition: 0.75)
+        XCTAssertTrue(app.staticTexts["High"].waitForExistence(timeout: 10))
+        screenshot("tune-slider")
         app.buttons["modelSheet.close"].tap()
         XCTAssertTrue(app.buttons["composer.attach"].waitForExistence(timeout: 10))
         app.buttons["composer.attach"].tap()

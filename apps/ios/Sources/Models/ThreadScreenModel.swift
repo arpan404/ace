@@ -26,8 +26,11 @@ import Observation
     @ObservationIgnored var stopRequest: String?
     /// Finished turns' steps read on demand, by turn ordinal.
     var steps: [Int: TurnStepsModel] = [:]
-    /// The live line the capsule above the composer shows; nil when nothing is live.
+    /// The thread's live line and the strip's words while it only waits; nil when nothing is live.
     var activity: ActivityRow?
+    /// Subagent groups the person opened, by block id. Kept across a reload of the thread, so
+    /// coming back from a child finds the group as it was left.
+    var openGroups: Set<String> = []
     /// Effort and speed for the next message.
     var tune: TuneRow?
     /// Files on the next message and their uploads.

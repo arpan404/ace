@@ -30,7 +30,7 @@ import XCTest
         app.launch()
         let group = app.buttons["work.group.fixture-tools"]
         XCTAssertTrue(group.waitForExistence(timeout: 20))
-        // A running turn has no fold of its own: the live capsule carries its timer.
+        // A running turn has no fold of its own: its live "Working for" line carries the timer.
         XCTAssertFalse(app.buttons["work.toggle"].exists)
         XCTAssertTrue(app.staticTexts["Checking the phone result."].exists)
         XCTAssertFalse(app.staticTexts["Ran physical phone build"].exists)

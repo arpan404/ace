@@ -1,22 +1,25 @@
 import SwiftUI
 
-/// The solid card every request sits in, right above the composer (a question takes the
-/// composer's place): one surface, a hairline edge and a soft lift off the transcript.
+/// A request's content inside the composer's strip (or, for a question, the composer's own
+/// frame): the surface is the strip's; an answer on its way taps the haptic.
 struct RequestCardFrame: ViewModifier {
-    @Environment(\.colorScheme) private var colourScheme
     let submission: ApprovalSubmission?
     func body(content: Content) -> some View {
         content
-            .padding(.horizontal, AceTheme.Spacing.lg).padding(.top, AceTheme.Spacing.lg + AceTheme.Spacing.xxs).padding(.bottom, AceTheme.Spacing.lg)
-            // The lift belongs to the card's surface alone: on the whole card it would blur the
-            // edge of every pill, inset and line of text inside it.
-            .background {
-                RoundedRectangle(cornerRadius: AceTheme.Radii.approval, style: .continuous).fill(AceTheme.Colours.card)
-                    .shadow(color: AceTheme.Colours.shadow.opacity(AceTheme.Opacity.shadow(colourScheme)), radius: AceTheme.Elevation.floating, y: AceTheme.Elevation.card)
-            }
-            .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.approval, style: .continuous).stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
-            .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .sensoryFeedback(.selection, trigger: submission?.requestId)
+    }
+}
+
+/// The composer's frame: the dock's glass at `rounded-xl`, inset from the screen's edges. The
+/// composer, a question in its place, and the notes that replace it share it.
+struct ComposerFrame: ViewModifier {
+    var padding = EdgeInsets()
+    func body(content: Content) -> some View {
+        content
+            .padding(padding)
+            .aceGlass(in: RoundedRectangle(cornerRadius: StripMetrics.radius, style: .continuous))
+            .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.sm)
     }
 }
 
@@ -34,15 +37,18 @@ extension View {
     func requestInset(cornerRadius: CGFloat) -> some View { modifier(RequestInset(cornerRadius: cornerRadius)) }
 }
 
-/// The request's bold title and one muted line under it.
+/// The request's title (500) and one muted line under it.
 struct RequestHeader: View {
     let title: String
     var detail = ""
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            Text(title).aceFont(AceTheme.Typography.title, relativeTo: .headline).fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+            Text(title).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                .foregroundStyle(AceTheme.Colours.foreground)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
             if !detail.isEmpty {
-                Text(detail).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+                Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.mutedForeground).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -62,18 +68,14 @@ struct RequestFooter: View {
         }
     }
 }
-/// A full-width card pill: the primary choice in ink, the rest quiet.
+/// A request card's answer: the primary choice in ink, the rest outlined.
 struct CardButton: View {
     let title: String
     var primary = false
     var enabled = true
     let action: () -> Void
     var body: some View {
-        if primary {
-            Button(title, action: action).buttonStyle(.pillPrimary).disabled(!enabled)
-        } else {
-            Button(title, action: action).buttonStyle(.pillSecondary).disabled(!enabled)
-        }
+        Button(title, action: action).buttonStyle(RequestButtonStyle(primary: primary)).disabled(!enabled)
     }
 }
 
@@ -99,20 +101,20 @@ struct PlanReviewCard: View {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
                     MarkdownView(text: plan?.markdown ?? "")
                     ForEach(Array((plan?.todos ?? []).enumerated()), id: \.offset) { _, todo in
-                        Label(todo.text, systemImage: todo.status == "completed" ? "checkmark.circle.fill" : todo.status == "in_progress" ? "circle.lefthalf.filled" : "circle")
+                        Label(todo.text, ace: todo.status == "completed" ? .checkCircle : todo.status == "in_progress" ? .circleHalf : .circle)
                             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                     }
                     if plan?.truncated == true { Text("The full plan is on your machine").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: planHeight)
-            .padding(AceTheme.Spacing.md).requestInset(cornerRadius: AceTheme.Radii.code)
+            .padding(AceTheme.Spacing.md).requestInset(cornerRadius: AceTheme.Radii.lg)
             .accessibilityIdentifier("plan.body")
             if revising {
                 TextField("What should change?", text: $feedback, axis: .vertical)
                     .aceFont(AceTheme.Typography.body, relativeTo: .body).lineLimit(2...5)
                     .padding(AceTheme.Spacing.md).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                    .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.button))
+                    .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.md))
                     .accessibilityIdentifier("plan.feedback")
             }
             HStack(spacing: AceTheme.Spacing.sm) {
@@ -154,7 +156,7 @@ struct FormRequestCard: View {
                     .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.StatusText.failed)
             }
             if let form, form.mode == "url", let url = URL(string: form.url), !form.url.isEmpty {
-                Link(destination: url) { Label("Open consent page", systemImage: "safari") }
+                Link(destination: url) { Label("Open consent page", ace: .compass) }
                     .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
             }
             ForEach(form?.fields ?? []) { field in fieldView(field) }
@@ -179,30 +181,12 @@ struct FormRequestCard: View {
                     .keyboardType(field.type == "string" ? .default : field.type == "integer" ? .numberPad : .decimalPad)
                     .aceFont(AceTheme.Typography.body, relativeTo: .body)
                     .padding(AceTheme.Spacing.md).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                    .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.button))
+                    .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.md))
             } else {
-                // Drawn like the text fields beside it, so the card reads as one form.
-                let chosen = field.choices.first { $0.value == value.wrappedValue }
-                Menu {
-                    Picker(field.title, selection: value) {
-                        ForEach(field.choices) { choice in Text(choice.label).tag(choice.value) }
-                    }
-                } label: {
-                    HStack(spacing: AceTheme.Spacing.sm) {
-                        Text(chosen?.label ?? "Choose…")
-                            .foregroundStyle(chosen == nil ? AceTheme.Colours.subtleForeground : AceTheme.Colours.foreground)
-                            .lineLimit(1)
-                        Spacer(minLength: AceTheme.Spacing.sm)
-                        Image(systemName: "chevron.up.chevron.down").font(.footnote.weight(.semibold))
-                            .foregroundStyle(AceTheme.Colours.subtleForeground)
-                    }
-                    .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                    .padding(.horizontal, AceTheme.Spacing.md).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                    .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.button))
-                    .contentShape(Rectangle())
-                }
-                .accessibilityLabel(field.title)
-                .accessibilityValue(chosen?.label ?? "Not chosen")
+                Picker(field.title, selection: value) {
+                    Text("Choose…").tag("")
+                    ForEach(field.choices) { choice in Text(choice.label).tag(choice.value) }
+                }.pickerStyle(.menu).frame(minHeight: AceTheme.Dimensions.touchTarget)
             }
             if !field.detail.isEmpty { Text(field.detail).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
         }

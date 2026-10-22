@@ -2,13 +2,13 @@ import SwiftUI
 
 /// Tool work reads quietly: a grey glyph in a fixed column and one muted line, about 30pt tall.
 struct QuietRow<Content: View>: View {
-    let icon: String
+    let icon: AceIcon.Name
     var tint: Color = AceTheme.Colours.decoration
     @ViewBuilder var content: () -> Content
     var body: some View {
         HStack(alignment: .center, spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {
-            Image(systemName: icon).font(.body).foregroundStyle(tint)
-                .frame(width: AceTheme.Spacing.xxl).accessibilityHidden(true)
+            AceIcon(icon, size: 16, relativeTo: .subheadline).foregroundStyle(tint)
+                .frame(width: AceTheme.Spacing.xxl)
             content()
         }
         .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
@@ -54,27 +54,27 @@ struct StepRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityValue(step.settled ? "" : "Running")
     }
-    static func symbol(_ icon: String) -> String {
+    static func symbol(_ icon: String) -> AceIcon.Name {
         switch icon {
-        case "read": "doc.text"
-        case "search", "explore": "magnifyingglass"
-        case "list": "list.bullet"
-        case "shell", "command": "apple.terminal"
-        case "edit": "square.and.pencil"
-        case "web", "fetch", "websearch": "globe"
-        case "browser": "safari"
-        case "computer": "display"
-        case "device": "iphone"
-        case "plan": "checklist"
-        case "think": "brain"
-        case "note": "info.circle"
-        default: "wrench.and.screwdriver"
+        case "read": .fileText
+        case "search", "explore": .magnifyingGlass
+        case "list": .listBullets
+        case "shell", "command": .terminalWindow
+        case "edit": .notePencil
+        case "web", "fetch", "websearch": .globe
+        case "browser": .compass
+        case "computer": .monitor
+        case "device": .deviceMobile
+        case "plan": .listChecks
+        case "think": .brain
+        case "note": .info
+        default: .wrench
         }
     }
 }
 
-/// A turn's work. While it runs, its grouped steps show in place (the capsule above the composer
-/// carries the timer); once it settles it folds to "Worked for 3m 12s ›" over a hairline.
+/// A turn's work. While it runs, its grouped steps show in place under the live "Working for"
+/// line; once it settles it folds to "Worked for 3m 12s ›" over a hairline.
 struct WorkBlockView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let row: BlockRow
@@ -86,7 +86,7 @@ struct WorkBlockView: View {
     private var expanded: Bool { thread.disclosures.isOpen(blockId) }
     var body: some View {
         if row.work?.ongoing == true, let groups = row.groups {
-            WorkProgressView(groups: groups, thread: thread, openMessage: openMessage)
+            WorkProgressView(groups: groups, thread: thread, background: row.background ?? [], openMessage: openMessage)
         } else {
             settled
         }
@@ -96,7 +96,7 @@ struct WorkBlockView: View {
             Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { thread.disclosures.toggle(blockId) } } label: {
                 HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
                     Text(row.work?.label ?? "Worked").lineLimit(1)
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                    AceIcon(.caretRight, size: 12, relativeTo: .caption)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
                     Spacer(minLength: AceTheme.Spacing.sm)
@@ -122,7 +122,7 @@ struct WorkBlockView: View {
                     if let ordinal = row.ordinal, let steps {
                         DaemonSteps(ordinal: ordinal, blockId: blockId, links: steps)
                     } else if let groups = row.groups, !groups.isEmpty {
-                        WorkProgressView(groups: groups, thread: thread, openMessage: openMessage)
+                        WorkProgressView(groups: groups, thread: thread, background: row.background ?? [], openMessage: openMessage)
                     } else {
                         ForEach(row.items, id: \.self) { id in
                             if let item = thread.items[id] { WorkStep(item: item) }
