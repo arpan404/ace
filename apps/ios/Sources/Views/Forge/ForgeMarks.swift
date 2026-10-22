@@ -122,8 +122,8 @@ struct ForgeDiffStat: View {
     let deletions: Int
     var body: some View {
         HStack(spacing: AceTheme.Spacing.xxs) {
-            Text("+\(additions)").foregroundStyle(AceTone.done.text)
-            Text("−\(deletions)").foregroundStyle(AceTone.failed.text)
+            Text(verbatim: "+\(additions)").foregroundStyle(AceTone.done.text)
+            Text(verbatim: "−\(deletions)").foregroundStyle(AceTone.failed.text)
         }
         .monospacedDigit()
         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)

@@ -40,7 +40,7 @@ struct ForgeIssuePageView: View {
                 .accessibilityIdentifier("forge.issue.start")
             }
         }
-        .navigationTitle("#\(route.number)")
+        .navigationTitle(Text(verbatim: "#\(route.number)"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let page, let link = URL(string: page.url) {
