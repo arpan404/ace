@@ -23,15 +23,21 @@ const queryChars = {
 
 const listItem = /^\s*(?:[-*+]|\d+[.)])\s/;
 const indented = /^(?: {4}|\t)/;
+/** A blockquote's markers (`> `, `> > `): what follows them is read as its own line. */
+const quoteMarkers = /^ {0,3}(?:> ?)+/;
 
 /**
- * Whether the line `at` is on is code as CommonMark reads it: inside a fence (``` or ~~~, at
- * any indent so fences inside list items count, closed only by a fence of the same character at
- * least as long), or an indented code block (four spaces or a tab after a blank line, outside a
- * list, where indentation continues the item instead).
+ * Whether the line `at` is on is code as CommonMark reads it, inside blockquotes too: inside a
+ * fence (``` or ~~~, at any indent so fences inside list items count, closed only by a fence of
+ * the same character at least as long), or an indented code block (four spaces or a tab after
+ * a blank line, outside a list, where indentation continues the item instead). A fence line
+ * inside an indented code block is that block's text, not a fence.
  */
 function inCodeBlock(value: string, at: number): boolean {
-  const lines = value.slice(0, at).split("\n");
+  const lines = value
+    .slice(0, at)
+    .split("\n")
+    .map((line) => line.replace(quoteMarkers, ""));
   const current = lines.pop() ?? "";
   let fence: { char: string; length: number } | undefined;
   let afterBlank = true;
@@ -48,12 +54,12 @@ function inCodeBlock(value: string, at: number): boolean {
       if (closes) fence = undefined;
       continue;
     }
-    if (marker?.[1]) {
+    const blank = !line.trim();
+    indentedCode = !blank && indented.test(line) && !inList && (afterBlank || indentedCode);
+    if (!indentedCode && marker?.[1]) {
       fence = { char: marker[1][0] ?? "`", length: marker[1].length };
       continue;
     }
-    const blank = !line.trim();
-    indentedCode = !blank && indented.test(line) && !inList && (afterBlank || indentedCode);
     if (!blank && !indented.test(line)) inList = listItem.test(line);
     afterBlank = blank;
   }
@@ -70,8 +76,9 @@ function inCodeSpan(value: string, lineStart: number, at: number): boolean {
   let open = 0;
   for (const run of text.matchAll(/(\\*)(`+)/g)) {
     const ticks = run[2]?.length ?? 0;
-    // An odd number of backslashes escapes the first backtick of the run.
-    const escaped = (run[1]?.length ?? 0) % 2 === 1;
+    // Outside a span, an odd number of backslashes escapes the run's first backtick; inside
+    // one, a backslash is just text (CommonMark), so it can't keep the span from closing.
+    const escaped = !open && (run[1]?.length ?? 0) % 2 === 1;
     const length = escaped ? ticks - 1 : ticks;
     if (!length) continue;
     if (!open) open = length;

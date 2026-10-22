@@ -163,6 +163,8 @@ export class FakePrPeople {
   }
 }
 
+const titleWords = (title: string) => title.toLowerCase().split(/[^\w.-]+/);
+
 function references(
   op: Extract<Op, { op: "forge.references" }>,
   fixtures: readonly PullRequestFixture[],
@@ -196,7 +198,6 @@ function references(
   // As the forge asks GitHub: a number finds that item exactly, ahead of the recent ones, and
   // words match whole title words only, never a word's beginning.
   const words = query.split(" ").filter(Boolean);
-  const titleWords = (title: string) => title.toLowerCase().split(/[^\w.-]+/);
   const matches = /^\d+$/.test(query)
     ? [...all.filter((r) => String(r.number) === query), ...all]
     : all.filter((r) => words.every((word) => titleWords(r.title).includes(word)));

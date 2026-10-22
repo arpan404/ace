@@ -143,7 +143,10 @@ test("# searches titles by words with spaces between them; Enter takes a row onl
   expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
     "#12 Daemon forgets the port, closed issue",
   ]);
-  // After a phrase, Enter is as likely the end of a sentence: it makes a new line.
+  // After a phrase, Enter is as likely the end of a sentence: no row is highlighted or named,
+  // and Enter makes a new line.
+  expect(rows.some((row) => row.getAttribute("aria-selected") === "true")).toBe(false);
+  expect(field.hasAttribute("aria-activedescendant")).toBe(false);
   await user.keyboard("{Enter}");
   expect(field.value).toBe("dupe of #Daemon forg\n");
   await user.type(field, "{Backspace}");
@@ -191,8 +194,13 @@ test("the list's opening is announced politely", async () => {
   const { user, field } = setup();
   await user.type(field, "@mi");
   await options("People");
-  expect(document.querySelector("[aria-live=polite]")?.textContent).toBe("2 people");
+  const live = document.querySelector("[aria-live=polite]");
+  expect(live?.textContent).toBe("2 people");
   expect(field.getAttribute("aria-autocomplete")).toBe("list");
+  // Said once as the list opened, not again as typing narrows it.
+  await user.type(field, "r");
+  await waitFor(async () => expect(await options("People")).toHaveLength(1));
+  expect(live?.textContent).toBe("2 people");
 });
 
 test("code never opens suggestions: fences of any kind and indent, indented blocks, and spans", async () => {
@@ -202,6 +210,7 @@ test("code never opens suggestions: fences of any kind and indent, indented bloc
     "- item\n    ```\n    @mi",
     "para\n\n    @mi",
     "`` a ` @mi",
+    "> ```\n> @mi",
   ]) {
     const { user, field } = setup(text);
     await user.click(field);
@@ -211,8 +220,10 @@ test("code never opens suggestions: fences of any kind and indent, indented bloc
     expect(screen.queryByRole("listbox"), text).toBeNull();
     cleanup();
   }
-  // An escaped backtick opens no span, and a list item's indented line is not code.
-  for (const text of ["\\` @mi", "- item\n\n    @mi"]) {
+  // An escaped backtick opens no span, a backslash inside a span doesn't keep it open, a list
+  // item's indented line is not code, and a fence line inside indented code is that code's
+  // text, opening no fence.
+  for (const text of ["\\` @mi", "`a\\` @mi", "- item\n\n    @mi", "para\n\n    ```\n\n@mi"]) {
     const { user, field } = setup(text);
     await user.click(field);
     field.setSelectionRange(text.length, text.length);
