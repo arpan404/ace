@@ -1,5 +1,4 @@
 import type { ForgeComment, ForgePrStatus } from "@ace/protocol";
-import type { ReviewOutcome } from "@ace/ui-core";
 import { checkFixRequest } from "./pr-check-model.ts";
 
 /*
@@ -8,36 +7,8 @@ import { checkFixRequest } from "./pr-check-model.ts";
  * filters and paging the tab offers. Pure.
  */
 
-const outcomes: Record<string, ReviewOutcome> = {
-  APPROVED: "approved",
-  CHANGES_REQUESTED: "changes",
-  COMMENTED: "commented",
-  DISMISSED: "dismissed",
-};
-
 const time = (comment: Pick<ForgeComment, "createdAt" | "updatedAt">) =>
   comment.createdAt ?? comment.updatedAt;
-
-/** Each reviewer's most recent review verdict, by login. */
-export function reviewerOutcomes(comments: readonly ForgeComment[]): Map<string, ReviewOutcome> {
-  const latest = new Map<string, { at: string; outcome: ReviewOutcome }>();
-  for (const comment of comments) {
-    if (comment.kind !== "review" || !comment.reviewState) continue;
-    const outcome = outcomes[comment.reviewState.toUpperCase()];
-    if (!outcome) continue;
-    const seen = latest.get(comment.author);
-    if (!seen || time(comment) >= seen.at)
-      latest.set(comment.author, { at: time(comment), outcome });
-  }
-  return new Map([...latest].map(([author, value]) => [author, value.outcome]));
-}
-
-export const reviewOutcomeLabels: Record<ReviewOutcome, string> = {
-  approved: "Approved",
-  changes: "Changes requested",
-  commented: "Commented",
-  dismissed: "Dismissed",
-};
 
 /** Something on the PR an agent could fix: a failing check or an open review thread. */
 export type AttentionItem =

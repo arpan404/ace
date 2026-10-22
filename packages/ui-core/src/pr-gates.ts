@@ -1,4 +1,4 @@
-import type { ForgeMergeState, ForgePrStatus } from "@ace/protocol";
+import type { ForgeComment, ForgeMergeState, ForgePrStatus } from "@ace/protocol";
 import type { LocalCheckResult } from "./pr-next-step.ts";
 
 /** A reviewer's latest verdict on a pull request. */
@@ -133,3 +133,34 @@ export function mergeBlockers(gates: readonly Gate[]): string[] {
     .filter((gate) => (gate.key === "checks" || gate.key === "reviews") && gate.tone === "failed")
     .map((gate) => `${gate.label}: ${gate.value}`);
 }
+
+const outcomes: Record<string, ReviewOutcome> = {
+  APPROVED: "approved",
+  CHANGES_REQUESTED: "changes",
+  COMMENTED: "commented",
+  DISMISSED: "dismissed",
+};
+
+const time = (comment: Pick<ForgeComment, "createdAt" | "updatedAt">) =>
+  comment.createdAt ?? comment.updatedAt;
+
+/** Each reviewer's most recent review verdict, by login. */
+export function reviewerOutcomes(comments: readonly ForgeComment[]): Map<string, ReviewOutcome> {
+  const latest = new Map<string, { at: string; outcome: ReviewOutcome }>();
+  for (const comment of comments) {
+    if (comment.kind !== "review" || !comment.reviewState) continue;
+    const outcome = outcomes[comment.reviewState.toUpperCase()];
+    if (!outcome) continue;
+    const seen = latest.get(comment.author);
+    if (!seen || time(comment) >= seen.at)
+      latest.set(comment.author, { at: time(comment), outcome });
+  }
+  return new Map([...latest].map(([author, value]) => [author, value.outcome]));
+}
+
+export const reviewOutcomeLabels: Record<ReviewOutcome, string> = {
+  approved: "Approved",
+  changes: "Changes requested",
+  commented: "Commented",
+  dismissed: "Dismissed",
+};

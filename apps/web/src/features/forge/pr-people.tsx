@@ -1,4 +1,4 @@
-import type { ReviewOutcome } from "@ace/ui-core";
+import { type ReviewOutcome, reviewerOutcomes, reviewOutcomeLabels } from "@ace/ui-core";
 import { PlusIcon, TagIcon } from "@phosphor-icons/react";
 import { LabelPill } from "@/components/forge-marks.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -6,7 +6,6 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrAvatar } from "./pr-presentation.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
-import { reviewerOutcomes, reviewOutcomeLabels } from "./pr-summary-model.ts";
 
 /** The verdict's colour, drawn as a 2px band around the avatar. */
 const band: Record<ReviewOutcome, string> = {
