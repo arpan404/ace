@@ -193,10 +193,17 @@ struct AceSwitchStyle: ToggleStyle {
             .overlay(Capsule().strokeBorder(on ? Color.clear : AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
             .frame(width: 46, height: 28)
             .overlay(alignment: on ? .trailing : .leading) {
-                Circle().fill(on ? AceTheme.Colours.onAccent : AceTheme.Colours.mutedForeground)
+                Circle().fill(knob(on))
                     .frame(width: 22, height: 22)
+                    .shadow(color: AceTheme.Colours.shadow.opacity(on || scheme == .dark ? 0 : 0.25), radius: 1, y: 1)
                     .padding(AceTheme.Spacing.xs - 1)
             }
             .animation(reduceMotion ? nil : AceTheme.Motion.spring, value: on)
+    }
+    /// On: the accent's own ink. Off: the page's white in light (as the web's thumb), the muted
+    /// tier in dark where white would glare.
+    private func knob(_ on: Bool) -> Color {
+        if on { return AceTheme.Colours.onAccent }
+        return scheme == .dark ? AceTheme.Colours.mutedForeground : AceTheme.Colours.background
     }
 }
