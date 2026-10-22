@@ -55,8 +55,8 @@ export function PrCommentMenu(props: {
   const { comment, actions } = props;
   const toast = useToast();
   const [confirming, setConfirming] = useState(false);
-  // A quote moves focus to the box it lands in; the menu mustn't take it back.
-  const quoting = useRef(false);
+  // Quote reply and Edit move focus to the box they open; the menu mustn't take it back.
+  const handedOff = useRef(false);
   const copy = () => {
     const url = commentUrl(props.prUrl, comment);
     void (navigator.clipboard?.writeText(url) ?? Promise.reject(new Error("No clipboard"))).then(
@@ -87,9 +87,9 @@ export function PrCommentMenu(props: {
         <MenuContent
           align="end"
           finalFocus={() => {
-            const quoted = quoting.current;
-            quoting.current = false;
-            return !quoted;
+            const moved = handedOff.current;
+            handedOff.current = false;
+            return !moved;
           }}
         >
           {actions.quote && (
@@ -97,7 +97,7 @@ export function PrCommentMenu(props: {
               icon={<ArrowBendUpLeftIcon aria-hidden size={16} />}
               disabled={actions.disabled}
               onClick={() => {
-                quoting.current = true;
+                handedOff.current = true;
                 actions.quote?.();
               }}
             >
@@ -112,7 +112,10 @@ export function PrCommentMenu(props: {
             <MenuItem
               icon={<PencilSimpleIcon aria-hidden size={16} />}
               disabled={actions.disabled}
-              onClick={actions.edit}
+              onClick={() => {
+                handedOff.current = true;
+                actions.edit?.();
+              }}
             >
               Edit
             </MenuItem>

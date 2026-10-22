@@ -60,12 +60,15 @@ interface PrUiState {
   replies: Keyed<true>;
   /** Per text box: focus the person's last action asked for, taken once by that box. */
   focus: Keyed<true>;
+  /** Per conversation: opened or folded by the person, while it stayed (un)resolved. */
+  folds: Keyed<{ open: boolean; resolved: boolean }>;
 }
 const createState = (): PrUiState => ({
   picks: new Keyed(),
   edits: new Keyed(),
   replies: new Keyed(),
   focus: new Keyed(),
+  folds: new Keyed(),
 });
 
 const Context = createContext<PrUiState | null>(null);
@@ -100,6 +103,8 @@ function useKeyed<V>(
 export const usePick = (path: string) => useKeyed((s) => s.picks, path);
 /** A comment's edit in progress; `key` names the comment (`issue:7`, `draft:<id>`). */
 export const useEdit = (key: string) => useKeyed((s) => s.edits, key);
+/** A conversation's fold the person chose, and whether it was resolved when they chose it. */
+export const useFold = (threadId: string) => useKeyed((s) => s.folds, threadId);
 /** Whether a reply field is open. */
 export const useReplyOpen = (key: string) => useKeyed((s) => s.replies, key);
 

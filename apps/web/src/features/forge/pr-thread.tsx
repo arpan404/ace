@@ -9,7 +9,7 @@ import { PrComment } from "./pr-comment.tsx";
 import { plural, previewOf, threadPlace } from "./pr-comment-model.ts";
 import { appendTo, useQuotedInto } from "./pr-quote.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
-import { useFocusAsk, useReplyOpen } from "./pr-ui-store.tsx";
+import { useFocusAsk, useFold, useReplyOpen } from "./pr-ui-store.tsx";
 
 type ReviewThread = ForgePrStatus["reviewThreads"][number];
 
@@ -151,13 +151,11 @@ export function PrThread(props: {
   className?: string | undefined;
 }) {
   const { thread } = props;
-  const [open, setOpen] = useState(!thread.resolved);
-  // Resolving folds the conversation away; reopening it unfolds it.
-  const [seen, setSeen] = useState(thread.resolved);
-  if (seen !== thread.resolved) {
-    setSeen(thread.resolved);
-    setOpen(!thread.resolved);
-  }
+  // Resolved conversations start folded. The person's own choice holds until the conversation
+  // is resolved or reopened, and survives the row scrolling away (`pr-ui-store`).
+  const [fold, setFold] = useFold(thread.id);
+  const open = fold && fold.resolved === thread.resolved ? fold.open : !thread.resolved;
+  const setOpen = (next: boolean) => setFold({ open: next, resolved: thread.resolved });
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(() => new Set());
   const state = usePrReview()?.state;
   const first = thread.comments[0];
