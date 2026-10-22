@@ -131,9 +131,20 @@ The deb installs one; an AppImage and an extracted tar.gz have no installer. The
   profile's children stay in it unless another attaches, `security/apparmor/domain.c`), so
   AppRun's probe passes. A versioned file name also covers `ace-*.AppImage` in its folder,
   the names electron-updater gives updates. A tar.gz's profile attaches to its launcher and
-  Electron. After a restart (asked like an update's) the sandbox is on. Without a prompt, or
-  if it fails, the same setup is offered as commands to copy. ace never disables the kernel
-  restriction and never runs without the sandbox silently.
+  Electron. After a restart (asked like an update's) the sandbox is on. The restart can't use
+  `app.relaunch`: its waiting helper is the Electron binary, which in an AppImage is on the
+  FUSE mount that disappears with the app. A detached shell from the host waits for the app's
+  exit (EOF on a pipe only the app holds), closes every inherited descriptor above stderr
+  (Chromium leaves IndexedDB locks, the old mount and the devtools socket open across exec),
+  then starts the AppImage or the tar.gz launcher. Without a prompt, or if it fails, the same
+  setup is offered as commands to copy. ace never disables the kernel restriction and never
+  runs without the sandbox silently.
+- Cursor's sandbox helper (`cursorsandbox`, Auto review) creates user namespaces too, so the
+  same restriction blocks it whatever the glibc. Under the desktop app it inherits the app's
+  profile (the deb's, or the one the setup installs). A standalone daemon has no app profile:
+  `ace doctor` runs the helper's own `--preflight-only` there and prints `ace-cursor-sandbox`,
+  attached to `ACE_HOME/releases/*/…/cursorsandbox` so updates keep it. The provider's
+  refusal names AppArmor and both fixes.
 - Trade-off: these attachments are paths the person's account can write, so code running as
   that person could gain user namespaces by placing an executable there. Chromium's own
   guidance accepts the same for builds in a home folder; the alternative, a root-owned copy,
