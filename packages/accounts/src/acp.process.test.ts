@@ -39,7 +39,7 @@ test("ACP default accounts share the user's existing home with distinct agent id
       HOME: root,
       CLI_OWNED_SETTING: "retained",
     });
-    expect(acpIsolation()).toMatchObject({ status: "unsupported" });
+    expect(acpIsolation("local:one")).toMatchObject({ status: "unsupported" });
     expect(() =>
       createAcpInstance({
         identity: identity("one"),
@@ -59,7 +59,7 @@ test("ACP default accounts share the user's existing home with distinct agent id
     ).toBeUndefined();
     await expect(
       registry.register({ ...one, env: { CODEX_HOME: join(root, "unverified-home") } }),
-    ).rejects.toThrow("no unverified selectors");
+    ).rejects.toThrow("default home with no selectors");
     await expect(registry.register({ ...one, acpAgentId: "local:two" })).rejects.toThrow(
       "identity",
     );

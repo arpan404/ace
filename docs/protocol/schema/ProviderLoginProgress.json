@@ -96,6 +96,10 @@
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },
+    "returnUrlEntry": {
+      "const": true,
+      "type": "boolean"
+    },
     "sequence": {
       "maximum": 9007199254740991,
       "minimum": 0,

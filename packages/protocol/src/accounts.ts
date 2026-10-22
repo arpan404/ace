@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AcpIdentity } from "./agent-registry.ts";
 import { AccountId, AccountInstanceId } from "./account-ids.ts";
 import { BadgeColor } from "./badge-color.ts";
+import { AntigravitySignInMethod } from "./antigravity-sign-in.ts";
 
 export { AccountId, AccountInstanceId } from "./account-ids.ts";
 
@@ -45,6 +46,17 @@ export const AccountShortLabel = z.union([AccountBadgeInput, z.string().regex(/^
 
 export const NativeAccountProvider = z.enum(["codex", "claude", "opencode", "cursor", "pi"]);
 export const AccountProvider = z.enum([...NativeAccountProvider.options, "acp"]);
+/**
+ * Providers whose Settings page manages accounts: the native CLIs, and Antigravity, whose extra
+ * accounts are ACP accounts in their own homes.
+ */
+export const ManagedAccountProvider = z.enum([...NativeAccountProvider.options, "antigravity"]);
+export type ManagedAccountProvider = z.infer<typeof ManagedAccountProvider>;
+/**
+ * How an ACP account finds its login: the agent CLI's own default home, or an ace-managed home
+ * selected by a verified profile (ADR 0044).
+ */
+export const AcpHomeStrategy = z.enum(["default_cli", "managed"]);
 export const AccountAssignment = z.object({
   instanceId: AccountInstanceId.optional(),
   role: z.string().min(1).max(64),
@@ -68,6 +80,8 @@ export const AccountEnvKey = z.enum([
   "XDG_CACHE_HOME",
   "CURSOR_DATA_DIR",
   "PI_CODING_AGENT_DIR",
+  // Antigravity's ACP server keeps its login, settings and sessions under this home.
+  "GEMINI_HOME",
 ]);
 export const ProviderInstance = z
   .object({
@@ -75,7 +89,7 @@ export const ProviderInstance = z
     implicit: z.literal(true).optional(),
     managed: z.literal(true).optional(),
     ...AcpIdentity.partial().shape,
-    homeStrategy: z.literal("default_cli").optional(),
+    homeStrategy: AcpHomeStrategy.optional(),
     authMethod: z.enum(["browser", "api_key", "unknown"]).optional(),
     signedInAs: z.string().max(256).optional(),
     loginRevision: z.string().max(128).optional(),
@@ -99,15 +113,23 @@ export const ProviderInstance = z
         message: "Implicit native CLI accounts have no isolated selectors",
       });
     if (instance.provider === "acp") {
+      const managedHome =
+        instance.homeStrategy === "managed" &&
+        instance.managed === true &&
+        Object.keys(instance.env).length > 0;
+      const defaultHome =
+        instance.homeStrategy === "default_cli" &&
+        !instance.managed &&
+        !Object.keys(instance.env).length;
       if (
         !AcpIdentity.safeParse(instance).success ||
         instance.instanceId !== instance.id ||
-        instance.homeStrategy !== "default_cli" ||
-        Object.keys(instance.env).length
+        !(managedHome || defaultHome)
       )
         ctx.addIssue({
           code: "custom",
-          message: "ACP identity requires a CLI-owned default home and no unverified selectors",
+          message:
+            "ACP identity requires the CLI's default home with no selectors, or a managed home with its profile's selectors",
         });
     } else if (
       !AccountId.safeParse(instance.id).success ||
@@ -120,7 +142,7 @@ export const ProviderInstance = z
   })
   .meta({
     "x-ace-constraint":
-      "Native instances use native account IDs. ACP instances require matching agent, installation and instance references, id equal to instanceId, default_cli home strategy and an empty selector environment.",
+      "Native instances use native account IDs. ACP instances require matching agent, installation and instance references and id equal to instanceId, with either the default_cli home strategy and an empty selector environment, or the managed strategy, managed: true and the selectors of the agent's verified profile.",
     examples: [
       {
         id: "codex-default",
@@ -236,10 +258,13 @@ export const AccountSummary = z.object({
   isDefault: z.boolean().optional(),
   id: AccountInstanceId,
   ...AcpIdentity.partial().shape,
-  homeStrategy: z.literal("default_cli").optional(),
+  homeStrategy: AcpHomeStrategy.optional(),
+  /** An ACP account on the agent CLI's default home: its login can't be told apart from others. */
   isolation: z.literal("unsupported").optional(),
   authMethod: z.enum(["browser", "api_key", "unknown"]).optional(),
   signedInAs: z.string().max(256).optional(),
+  /** How an Antigravity account last signed in, while it stays signed in. */
+  antigravitySignIn: AntigravitySignInMethod.optional(),
   loginRevision: z.string().max(128).optional(),
   profileRevision: z.string().max(256).optional(),
   installationVersion: z.string().max(256).optional(),
@@ -275,7 +300,7 @@ export const AccountManagementRequest = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("accounts.add"),
     requestId: z.string().max(128),
-    provider: NativeAccountProvider,
+    provider: ManagedAccountProvider,
     label: z.string().min(1).max(128).regex(/\S/),
     shortLabel: AccountBadgeInput.optional(),
   }),
@@ -299,7 +324,7 @@ export const AccountManagementRequest = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("accounts.setDefault"),
     requestId: z.string().max(128),
-    provider: NativeAccountProvider,
+    provider: ManagedAccountProvider,
     instanceId: AccountInstanceId,
   }),
   z.object({

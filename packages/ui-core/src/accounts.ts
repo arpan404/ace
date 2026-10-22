@@ -4,7 +4,8 @@ import type { ProviderKind } from "@ace/protocol";
 import type { AccountQuota, AccountSummary } from "@ace/protocol/accounts";
 import type { z } from "zod";
 import type { ReadinessTone } from "./provider-readiness.ts";
-import { providerDisplayName } from "./providers.ts";
+import { accountProvider } from "@ace/accounts/acp-instances";
+import { antigravityIdentity, providerDisplayName } from "./providers.ts";
 
 type Summary = z.infer<typeof AccountSummary>;
 
@@ -25,6 +26,10 @@ export interface AccountView {
   provider: ProviderKind;
   /** The ACP registry agent behind an `acp` account. */
   acpAgentId?: string | undefined;
+  /** The agent installation behind an `acp` account. */
+  installationId?: string | undefined;
+  /** An `acp` account on the agent CLI's own login, or one ace added in its own home. */
+  acpHome?: "default_cli" | "managed" | undefined;
   /** "Claude Code"; for an ACP agent, its registry name or id. */
   providerLabel: string;
   /** CLI version discovery reported, if any. */
@@ -37,6 +42,8 @@ export interface AccountView {
   badgeIcon?: Summary["badgeIcon"] | undefined;
   authMethod?: Summary["authMethod"] | undefined;
   signedInAs?: string | undefined;
+  /** How an Antigravity account signed in, while it stays signed in. */
+  antigravitySignIn?: Summary["antigravitySignIn"] | undefined;
   /** The CLI's own login (its normal home), not an account ace added. */
   implicit?: boolean | undefined;
   cliHome?: string | undefined;
@@ -157,8 +164,10 @@ export function accountView(summary: Summary): AccountView {
     .map(({ rank: _rank, ...window }) => window);
   return {
     id: summary.id,
-    provider: summary.provider,
+    provider: accountProvider(summary),
     acpAgentId: summary.acpAgentId,
+    ...(summary.installationId ? { installationId: summary.installationId } : {}),
+    ...(summary.homeStrategy ? { acpHome: summary.homeStrategy } : {}),
     providerLabel: providerDisplayName(summary.provider, summary.acpAgentId),
     version: summary.installationVersion,
     label: accountDisplayName(summary),
@@ -171,6 +180,7 @@ export function accountView(summary: Summary): AccountView {
     badgeIcon: summary.badgeIcon,
     authMethod: summary.authMethod,
     signedInAs: summary.signedInAs,
+    ...(summary.antigravitySignIn ? { antigravitySignIn: summary.antigravitySignIn } : {}),
     ...(summary.implicit ? { implicit: true, cliHome: summary.cliHome } : {}),
     ...(summary.isDefault ? { isDefault: true } : {}),
     availability: summary.availability,
@@ -231,11 +241,33 @@ export function isPlainCliLogin(account: {
   /** The short label is only the name's initial, not one the person chose. */
   badgeUsesInitial?: boolean | undefined;
   badgeIcon?: unknown;
+  /** Antigravity's CLI login, ace's built-in Antigravity, keeps its name until renamed. */
+  acpAgentId?: string | undefined;
+  acpHome?: "default_cli" | "managed" | undefined;
+  providerLabel?: string | undefined;
 }): boolean {
-  return (
-    account.implicit === true &&
-    cliLoginLabels.has(account.label) &&
-    (!account.shortLabel || account.badgeUsesInitial === true) &&
-    !account.badgeIcon
+  const named =
+    account.implicit === true
+      ? cliLoginLabels.has(account.label)
+      : account.acpAgentId === antigravityIdentity.acpAgentId &&
+        account.acpHome === "default_cli" &&
+        account.label === account.providerLabel;
+  return named && (!account.shortLabel || account.badgeUsesInitial === true) && !account.badgeIcon;
+}
+
+/** The accounts a provider's page and the model picker list; an ACP agent's, by its agent. */
+export { accountProvider };
+export function providerAccountViews(
+  accounts: readonly AccountView[],
+  provider: ProviderKind,
+  acpAgentId?: string,
+): AccountView[] {
+  return accounts.filter(
+    (account) =>
+      account.provider === provider && (provider !== "acp" || account.acpAgentId === acpAgentId),
   );
 }
+
+/** An account ace added for an agent, in its own home: it can be removed, unlike the CLI login. */
+export const isAddedAgentAccount = (account: Pick<AccountView, "acpHome">) =>
+  account.acpHome === "managed";

@@ -56,8 +56,7 @@
       "$ref": "https://ace.local/protocol/v1/AccountDirectory.json"
     },
     "homeStrategy": {
-      "const": "default_cli",
-      "type": "string"
+      "$ref": "https://ace.local/protocol/v1/AcpHomeStrategy.json"
     },
     "id": {
       "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
@@ -116,5 +115,5 @@
     "env"
   ],
   "type": "object",
-  "x-ace-constraint": "Native instances use native account IDs. ACP instances require matching agent, installation and instance references, id equal to instanceId, default_cli home strategy and an empty selector environment."
+  "x-ace-constraint": "Native instances use native account IDs. ACP instances require matching agent, installation and instance references and id equal to instanceId, with either the default_cli home strategy and an empty selector environment, or the managed strategy, managed: true and the selectors of the agent's verified profile."
 }
