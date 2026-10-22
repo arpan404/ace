@@ -42,9 +42,17 @@ import XCTest
         input.tap()
         input.typeText("Then update the docs")
         app.buttons["composer.send"].tap()
-        // A queued message takes the strip above the composer; one that went in now is in the transcript.
-        XCTAssertTrue(app.descendants(matching: .any)["queue.strip"].waitForExistence(timeout: 15) || app.staticTexts["Then update the docs"].waitForExistence(timeout: 5))
-        screenshot("thread-queue")
+        // A queued message joins the pill over the composer, whose "1 queued" opens the queue; one
+        // that went in now is in the transcript.
+        let queued = app.buttons["pill.queue"]
+        if queued.waitForExistence(timeout: 15) {
+            queued.tap()
+            XCTAssertTrue(app.descendants(matching: .any)["queue.strip"].waitForExistence(timeout: 10))
+            screenshot("thread-queue")
+            app.buttons["queue.close"].tap()
+        } else {
+            XCTAssertTrue(app.staticTexts["Then update the docs"].waitForExistence(timeout: 5))
+        }
         app.buttons["thread.menu"].tap()
         XCTAssertTrue(app.buttons["Stop all agents"].waitForExistence(timeout: 10))
         screenshot("thread-menu")
@@ -67,8 +75,8 @@ import XCTest
         let last = app.staticTexts["Wiring the filters while the agents work"]
         XCTAssertTrue(last.waitForExistence(timeout: 5))
         let input = app.textViews["composer.input"]
-        let strip = app.descendants(matching: .any)["strip.waiting"]
-        let barTop = strip.exists ? min(strip.frame.minY, input.frame.minY) : input.frame.minY
+        let pill = app.descendants(matching: .any)["thread.pill"]
+        let barTop = pill.exists ? min(pill.frame.minY, input.frame.minY) : input.frame.minY
         XCTAssertLessThanOrEqual(last.frame.maxY, barTop, "the last line sits under the composer")
         XCTAssertFalse(app.buttons["transcript.latest"].exists, "Scroll to end shows at the end")
         // Opened again while at the end, the rows push the end up rather than under the composer.
@@ -146,6 +154,55 @@ import XCTest
         XCTAssertTrue(restored.waitForExistence(timeout: 25))
         XCTAssertEqual(restored.value as? String, "Half a thought")
         screenshot("thread-draft-restored")
+    }
+    /// What's live floats over the composer as one pill, never a line in the transcript; a goal
+    /// joins it, and its sheet pauses and resumes the goal. A request takes the pill's place.
+    func testLivePillGoalSheetAndRequestTakingItsPlace() {
+        let app = launch()
+        app.revealRow("thread.ios-waiting").tap()
+        let status = app.descendants(matching: .any)["pill.status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 25))
+        XCTAssertTrue(status.label.hasPrefix("Waiting on"), "the main agent only waits: \(status.label)")
+        XCTAssertFalse(app.descendants(matching: .any)["thread.live"].exists, "no live line in the transcript")
+        app.buttons["pill.status"].tap()
+        XCTAssertTrue(app.buttons["agents.close"].waitForExistence(timeout: 10), "Waiting on opens the agent tree")
+        app.buttons["agents.close"].tap()
+        app.navigationBars.buttons.firstMatch.tap()
+
+        app.revealRow("thread.ios-goal").tap()
+        let goal = app.buttons["pill.goal"]
+        XCTAssertTrue(goal.waitForExistence(timeout: 25))
+        XCTAssertEqual(goal.label, "Pursuing goal")
+        goal.tap()
+        XCTAssertTrue(app.staticTexts["Not met yet: the two refund tests still fail on a fixed clock"].waitForExistence(timeout: 10))
+        screenshot("thread-goal")
+        app.buttons["goal.pause"].tap()
+        XCTAssertTrue(app.buttons["goal.resume"].waitForExistence(timeout: 10), "a paused goal offers Resume")
+        XCTAssertTrue(app.navigationBars["Goal paused"].exists)
+        app.buttons["goal.close"].tap()
+        XCTAssertEqual(app.buttons["pill.goal"].label, "Goal paused")
+        app.navigationBars.buttons.firstMatch.tap()
+
+        app.revealRow("thread.ios-approval").tap()
+        XCTAssertTrue(app.buttons["approval.allow_session"].waitForExistence(timeout: 25))
+        XCTAssertFalse(app.descendants(matching: .any)["thread.pill"].exists, "a request takes the pill's place")
+    }
+    /// A long press on an answer offers Copy, Select text and Share; Select text opens the words
+    /// where any part of them can be selected.
+    func testLongPressOnAnAnswerOffersCopySelectAndShare() {
+        let app = launch()
+        reveal("thread.ios-code", in: app)
+        app.buttons["thread.ios-code"].tap()
+        let prose = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Here is the class'")).firstMatch
+        XCTAssertTrue(prose.waitForExistence(timeout: 25))
+        prose.press(forDuration: 1.2)
+        XCTAssertTrue(app.buttons["Copy"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Share"].exists)
+        app.buttons["Select text"].tap()
+        let words = app.textViews["select.text"]
+        XCTAssertTrue(words.waitForExistence(timeout: 5))
+        XCTAssertTrue((words.value as? String)?.contains("export class RetryBudget") == true)
+        app.buttons["select.done"].tap()
     }
     /// Ended in the background, as the system ends apps for memory, the app comes back on the
     /// thread it showed instead of the inbox; back at the inbox, the next launch starts there.
