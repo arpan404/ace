@@ -23,7 +23,9 @@ test("a pull request no thread is linked to merges from the page and leaves the 
   const merge = await within(panel).findByRole("button", { name: "Squash and merge" });
   await userEvent.click(merge);
   await userEvent.click(await within(panel).findByRole("button", { name: "Confirm merge?" }));
-  expect(await within(panel).findByRole("button", { name: "Merged: Merged" })).toBeTruthy();
+  // Merged: the state shows once, as the badge under the title, and the merge button is gone.
+  expect(await within(panel).findByText("Merged")).toBeTruthy();
+  expect(within(panel).queryByRole("button", { name: /merge/i })).toBeNull();
   await userEvent.click(within(panel).getByRole("button", { name: "Back to pull requests" }));
   await waitFor(async () => expect(await listed()).not.toContain("224"));
 });

@@ -35,7 +35,7 @@ function Cell(props: { gate: Gate; loading: boolean; onSelect(key: GateKey): voi
       type="button"
       onClick={() => props.onSelect(gate.key)}
       aria-label={`${gate.label}: ${gate.value}${gate.detail ? `, ${gate.detail}` : ""}`}
-      className="flex min-w-0 flex-col gap-0.5 bg-panel py-2 pr-2 pl-4 text-left transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover"
+      className="flex min-w-0 flex-col gap-0.5 bg-panel py-2 pr-2 pl-4 text-left first:pl-[var(--forge-gutter,1rem)] transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover"
     >
       <span className="text-meta text-subtle-foreground">{gate.label}</span>
       {props.loading ? (
@@ -86,6 +86,7 @@ export function PrGatesRow(props: { actions: PrActions; onSelect(key: GateKey): 
     outcomes: reviewerOutcomes(detail.status.comments),
     ended,
     branchDeleted,
+    local: actions.local.result,
   });
   const open = detail.status.state === "open" || detail.status.state === "draft";
   const branchLoading = open && actions.mergeState.query.isPending;
@@ -105,6 +106,62 @@ export function PrGatesRow(props: { actions: PrActions; onSelect(key: GateKey): 
           onSelect={props.onSelect}
         />
       ))}
+    </nav>
+  );
+}
+
+/**
+ * The merge gates as one line of words under a page's byline, each its name and state with a
+ * status dot ("Checks 1 failing · Reviews Approved · …"), each jumping to its detail. Only
+ * while the PR is open: a merged or closed PR's byline already says how it ended.
+ */
+export function PrGatesLine(props: { actions: PrActions; onSelect(key: GateKey): void }) {
+  const { actions } = props;
+  const { detail } = actions.context;
+  const open = detail.status.state === "open" || detail.status.state === "draft";
+  if (!open) return null;
+  const gates = prGates({
+    status: detail.status,
+    reviewDecision: detail.reviewDecision,
+    mergeState: actions.mergeState.state,
+    baseBranch: detail.baseBranch,
+    outcomes: reviewerOutcomes(detail.status.comments),
+    ended: undefined,
+    branchDeleted: undefined,
+    local: actions.local.result,
+  });
+  const branchLoading = actions.mergeState.query.isPending;
+  return (
+    <nav aria-label="Merge gates" className="-ml-1.5 mt-3 flex flex-wrap items-center gap-x-1">
+      {gates.map((gate) => {
+        const loading = gate.key === "branch" && branchLoading;
+        return (
+          <button
+            key={gate.key}
+            type="button"
+            onClick={() => props.onSelect(gate.key)}
+            aria-label={`${gate.label}: ${loading ? "checking" : gate.value}`}
+            className="inline-flex h-6 items-center gap-1.5 rounded-sm px-1.5 text-xs tabular-nums transition-colors duration-(--motion-fast) focus-ring hover:bg-hover"
+          >
+            <span
+              aria-hidden
+              data-tone={gate.tone === "idle" || loading ? undefined : gate.tone}
+              className={cn(
+                "size-1.5 shrink-0 rounded-full",
+                gate.tone === "idle" || loading ? "bg-faint-foreground" : "bg-(--tone)",
+              )}
+            />
+            <span className="text-subtle-foreground">{gate.label}</span>
+            <span
+              className={
+                gate.tone === "idle" || loading ? "text-muted-foreground" : "text-foreground"
+              }
+            >
+              {loading ? "…" : gate.value}
+            </span>
+          </button>
+        );
+      })}
     </nav>
   );
 }

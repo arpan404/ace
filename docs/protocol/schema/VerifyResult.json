@@ -1,0 +1,60 @@
+{
+  "$id": "https://ace.local/protocol/v1/VerifyResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "command": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "error": {
+      "enum": [
+        "not_found",
+        "forbidden",
+        "invalid",
+        "no_command",
+        "busy",
+        "settled",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "log": {
+      "$ref": "https://ace.local/protocol/v1/ForgeCheckLog.json"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "run": {
+      "$ref": "https://ace.local/protocol/v1/VerifyRun.json"
+    },
+    "runs": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/VerifyRun.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "type": {
+      "const": "verify.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "ok"
+  ],
+  "type": "object"
+}

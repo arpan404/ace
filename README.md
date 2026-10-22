@@ -91,11 +91,13 @@ Every development command runs its processes side by side with prefixed logs (`d
 | `bun run release:publish <v>`    | The staged release as a GitHub release, which installed apps update from                                              |
 | `bun run smoke:real`             | Headless Chromium tour against a protected copy of owner data; [options and fixture mode](tools/real-smoke/README.md) |
 
-**Dev data is isolated.** The dev daemon uses `ACE_HOME=.ace-dev/home` on port 4343, and
-Electron keeps its window state, sessions and settings in `.ace-dev/electron`. Both are
-git-ignored and never touch `~/.ace` or an installed app. Set `ACE_DEV_SEED=1` to copy the fake
+**Dev data is isolated and persistent.** The dev daemon uses `ACE_HOME=~/.ace/dev` on port 4343,
+and Electron keeps its window state, sessions and settings in `~/.ace/dev-electron`. Every
+checkout and worktree shares this home, so dev threads and settings survive across branches,
+and none of it touches `~/.ace` or an installed app. Set `ACE_DEV_SEED=1` to copy the fake
 daemon's demo threads into an empty dev store before the daemon starts
-(`ACE_DEV_SEED=1 bun run dev`). Reset everything with `rm -rf .ace-dev`.
+(`ACE_DEV_SEED=1 bun run dev`). Reset everything with `rm -rf ~/.ace/dev ~/.ace/dev-electron`;
+set `ACE_DEV_DIR` for a throwaway home elsewhere.
 
 **Pointing the app at another daemon.** `bun run dev` attaches to the dev daemon and never
 spawns one. The packaged app reuses a daemon already serving `ACE_HOME` (the CLI, or the login
@@ -118,10 +120,10 @@ has no prebuilds: run `bun run desktop:rebuild-native` before `desktop:build` th
   your shell exports `ELECTRON_RUN_AS_NODE=1` (some Electron-based terminals and tools do). The
   dev scripts strip it; unset it when you launch Electron yourself.
 - **Port 4343 or 5173 is busy:** set `ACE_DEV_DAEMON_PORT` / `ACE_DEV_WEB_PORT`.
-- **"Cannot acquire daemon lock":** another dev daemon owns `.ace-dev/home`. Stop it, or use
+- **"Cannot acquire daemon lock":** another dev daemon owns `~/.ace/dev` (perhaps from another worktree). Stop it, or use
   `ACE_DEV_DIR=/tmp/ace-dev-2`.
 - **The desktop window shows the connection screen:** the daemon had not published
-  `.ace-dev/home/daemon-endpoint` within 15 seconds. The window reloads by itself once the daemon
+  `~/.ace/dev/daemon-endpoint` within 15 seconds. The window reloads by itself once the daemon
   is up; check the `daemon │` lines meanwhile.
 - **Screen helper skipped during a build:** the Swift (macOS) or Rust (Windows, Linux) toolchain
   is missing. The app works without it; screen and computer use stay off.

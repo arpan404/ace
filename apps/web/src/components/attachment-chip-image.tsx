@@ -90,9 +90,9 @@ export function AttachmentChipImage(props: {
         type="button"
         aria-label={`Remove ${item.name}`}
         onClick={(event) => props.onRemove(item.key, event.currentTarget)}
-        className="focus-ring absolute top-1.5 right-1.5 grid size-6 place-items-center rounded-full border border-sidebar-border bg-background text-foreground hover:bg-accent"
+        className="ace-glass-badge focus-ring absolute top-2 right-2 grid size-5 place-items-center rounded-full transition-colors duration-(--motion-fast) touch-hit hover:bg-surface-1"
       >
-        <XIcon aria-hidden size={12} />
+        <XIcon aria-hidden size={10} weight="bold" />
       </button>
       {failed && (
         <p role="status" className="px-0.5 text-xs wrap-break-word text-status-failed">

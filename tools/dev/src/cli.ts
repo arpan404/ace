@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
@@ -17,10 +18,11 @@ import { ProcessGroup, runUntilInterrupted } from "./runner.ts";
 
 /**
  * `bun run dev`, `dev:web`, `dev:fake`, `dev:desktop:fake` and `daemon`. Everything the
- * development daemon writes lives under `.ace-dev/`, never in `~/.ace`.
+ * development daemon writes lives under `~/.ace/dev/` (or `ACE_DEV_DIR`), never in `~/.ace`
+ * itself, and is shared by every checkout so it persists across worktrees.
  */
 const repo = resolve(import.meta.dirname, "../../..");
-const layout = devLayout(repo, process.env);
+const layout = devLayout(repo, process.env, homedir());
 mkdirSync(layout.home, { recursive: true, mode: 0o700 });
 mkdirSync(layout.electron, { recursive: true });
 

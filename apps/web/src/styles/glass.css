@@ -93,6 +93,29 @@
     clip-path: inset(-24px -24px calc(var(--surface-gap) * 2) -24px);
   }
 
+  /*
+   * A small control on top of media (`.ace-glass-badge`), such as an attachment's remove button
+   * over its preview. It sits over the image, never over another glass layer, so it frosts
+   * even inside the composer: the image blurred under a thin tint, a lit rim and a hairline.
+   * Solid: the floating surface with its edge.
+   */
+  .ace-glass-badge {
+    color: var(--popover-foreground);
+    background: var(--surface-2);
+    box-shadow: 0 0 0 1px var(--float-edge);
+  }
+  :root[data-surface="translucent"] .ace-glass-badge {
+    color: var(--glass-foreground);
+    background: var(--glass-tint);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate))
+      contrast(var(--glass-contrast)) brightness(var(--glass-brightness));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate))
+      contrast(var(--glass-contrast)) brightness(var(--glass-brightness));
+    box-shadow:
+      var(--glass-rim),
+      0 0 0 0.5px var(--glass-edge);
+  }
+
   /* --liquid-filter is this layer's own rim filter, after the blur; frosted alone until it's set. */
   :root[data-surface="translucent"][data-glass-engine="liquid"]
     :is(.ace-floating, .glass):not(.ace-modal, :is(.ace-floating, .glass, .ace-glass-dock) *) {
@@ -125,6 +148,15 @@
     background: var(--glass-tint-modal, var(--surface-2));
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
+  }
+
+  /*
+   * A short glass confirmation (`.ace-modal-thin`): only a sentence and buttons, so it takes the
+   * Translucency tint and no blur of its own: the page its backdrop blurred shows through. A
+   * second blur over that one would wash it to a flat colour and read as solid.
+   */
+  :root[data-surface="translucent"] :is(.ace-floating, .glass).ace-modal.ace-modal-thin {
+    background: var(--glass-tint);
   }
 
   /*

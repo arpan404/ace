@@ -5,7 +5,9 @@ import { useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog.tsx";
+import { useQueryClient } from "@tanstack/react-query";
 import { useProjectDirectory } from "@/lib/projects.ts";
+import { verifyRunsKey } from "@/lib/verify.ts";
 import { Footer, Problem, TextField } from "./form-parts.tsx";
 import { iconChoiceOf, iconEdit, type IconChoice } from "./icon-choice.ts";
 import { projectFailure, useProjectCommands } from "./project-commands.ts";
@@ -30,6 +32,7 @@ export function EditProjectDialog(props: {
 }) {
   const project = useProjectDirectory().projects.find((each) => each.id === props.projectId);
   const commands = useProjectCommands();
+  const cache = useQueryClient();
   const [name, setName] = useState<string>();
   const [icon, setIcon] = useState<IconChoice>();
   const [defaults, setDefaults] = useState<ProjectDefaults>();
@@ -60,6 +63,9 @@ export function EditProjectDialog(props: {
     setProblem(undefined);
     try {
       await commands.update(project.id, edit);
+      // Verify answers with the command its runs use: read it again once it may have changed.
+      if (edit.defaults?.checkCommand !== project.defaults?.checkCommand)
+        void cache.invalidateQueries({ queryKey: verifyRunsKey(project.id) });
       props.onOpenChange(false);
     } catch (error) {
       setProblem(projectFailure(error).message);

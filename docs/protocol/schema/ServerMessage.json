@@ -51,6 +51,9 @@
       "$ref": "https://ace.local/protocol/v1/MachinesResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/FleetResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ProvidersResult.json"
     },
     {
@@ -85,6 +88,12 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/ActivityReadsChanged.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/VerifyResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/VerifyChanged.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/QueueResult.json"

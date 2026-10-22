@@ -1,13 +1,9 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { ForgePrDetail } from "@ace/protocol";
-import { insertTextInComposer } from "@/lib/composer-insert.ts";
+import { insertTextInComposer, insertTextWhenMounted } from "@/lib/composer-insert.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { fixRequest, type AttentionItem } from "./pr-summary-model.ts";
-
-/** How long to wait for a task's composer to mount after opening it. */
-const mountWaitMs = 3_000;
-const mountPollMs = 100;
 
 /**
  * "Fix with agent": the request goes into the composer of the task working on this PR (the
@@ -41,17 +37,13 @@ export function useFixWithAgent(props: {
     if (insertTextInComposer(target.id, request)) return;
     if (!here) void navigate({ to: "/t/$threadId", params: { threadId: target.id } });
     // The task's composer mounts once its page shows; hand the request over then.
-    const started = performance.now();
-    const timer = setInterval(() => {
-      if (insertTextInComposer(target.id, request)) clearInterval(timer);
-      else if (performance.now() - started > mountWaitMs) {
-        clearInterval(timer);
+    void insertTextWhenMounted(target.id, request).then((inserted) => {
+      if (!inserted)
         toast.error({
           title: "Couldn't add the request",
           description: "Open the task and try again.",
         });
-      }
-    }, mountPollMs);
+    });
   };
   return {
     /** The task the request goes to, if one is linked. */

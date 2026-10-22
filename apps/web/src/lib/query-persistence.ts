@@ -30,12 +30,18 @@ const keptKeys: readonly { prefix: readonly string[]; exact?: true }[] = [
 
 /*
  * A pull request panel's reads are kept too, so a PR opened again after a reload paints its
- * last-known header, gates, reviewers and commits at once and is read again behind them. Their
- * keys are `["forge", workspaceId, subject, kind, ...]`, where the subject is the PR's ref or
- * repository. Provider payloads (`raw`) are dropped from what is kept, and diffs and timelines
- * are never kept.
+ * last-known header, gates, reviewers and commits at once and is read again behind them. So
+ * are the Pull requests and Issues pages' list pages, group counts and issue pages, so those
+ * pages open on their last rows instead of a skeleton. Their keys are
+ * `["forge", workspaceId, subject, kind, ...]`, where the subject is the PR's ref, the
+ * repository, or `"browse"` for the list pages. Provider payloads (`raw`) are dropped from what
+ * is kept, and diffs and timelines are never kept.
  */
 const keptForgeKinds = new Set([
+  "prList",
+  "issueList",
+  "groupCounts",
+  "issueDetail",
   "pr",
   "lifecycle",
   "merge-state",
@@ -44,8 +50,8 @@ const keptForgeKinds = new Set([
   "stack-memberships",
   "workspace-commits",
 ]);
-/** At most this many PR panel reads are kept; the newest win. */
-export const keptForgeLimit = 64;
+/** At most this many PR and list reads are kept; the newest win. */
+export const keptForgeLimit = 96;
 /** How long a PR panel's reads stay in memory unwatched, and so in what is kept. */
 export const keptForgeMs = 2 * 60 * 60_000;
 

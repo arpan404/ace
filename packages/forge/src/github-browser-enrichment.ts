@@ -17,6 +17,12 @@ export const PrIndicator = z.looseObject({
   additions: count,
   deletions: count,
   mergeable: z.string().max(100).optional().catch(undefined),
+  mergeStateStatus: z.string().max(100).optional().catch(undefined),
+  headRefOid: z
+    .string()
+    .regex(/^[a-fA-F0-9]{40,64}$/)
+    .optional()
+    .catch(undefined),
   reviewRequests: z
     .looseObject({
       nodes: z.array(z.looseObject({ requestedReviewer: z.unknown().nullable() }).nullable()),
@@ -27,12 +33,15 @@ export const PrIndicator = z.looseObject({
 const Indicators = z.looseObject({
   data: z.looseObject({ repository: z.record(z.string(), PrIndicator.nullable()).optional() }),
 });
-/** One alias per listed PR: its counts, checks, review decision, branches, size and reviewers. */
+/**
+ * One alias per listed PR: its counts, checks, review decision, branches, head, size, merge
+ * state and reviewers.
+ */
 export function prIndicatorFields(repository: ForgeRepository, numbers: readonly number[]): string {
   if (!numbers.length) return "";
   const fields = numbers.map(
     (number, i) =>
-      `p${i}: pullRequest(number:${number}) { comments { totalCount } reviews { totalCount } statusCheckRollup { state } reviewDecision headRefName baseRefName additions deletions mergeable reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login avatarUrl } } } } }`,
+      `p${i}: pullRequest(number:${number}) { comments { totalCount } reviews { totalCount } statusCheckRollup { state } reviewDecision headRefName baseRefName headRefOid additions deletions mergeable mergeStateStatus reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login avatarUrl } } } } }`,
   );
   return `repository(owner:${JSON.stringify(repository.owner)}, name:${JSON.stringify(repository.name)}) { ${fields.join(" ")} }`;
 }
@@ -68,6 +77,8 @@ export function prIndicator(row: z.infer<typeof PrIndicator>): Partial<ForgePrRo
     ...(row.additions === undefined ? {} : { additions: row.additions }),
     ...(row.deletions === undefined ? {} : { deletions: row.deletions }),
     ...(row.mergeable ? { conflicting: row.mergeable === "CONFLICTING" } : {}),
+    ...(row.mergeStateStatus ? { behind: row.mergeStateStatus === "BEHIND" } : {}),
+    ...(row.headRefOid ? { headSha: row.headRefOid } : {}),
     ...(row.reviewRequests ? { reviewers, avatars: avatars(requested) } : {}),
   };
 }

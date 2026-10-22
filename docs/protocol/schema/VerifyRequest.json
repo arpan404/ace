@@ -1,0 +1,178 @@
+{
+  "$id": "https://ace.local/protocol/v1/VerifyRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "op": {
+      "oneOf": [
+        {
+          "properties": {
+            "action": {
+              "const": "list",
+              "type": "string"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "action",
+            "workspaceId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "log",
+              "type": "string"
+            },
+            "runId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "runId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "start",
+              "type": "string"
+            },
+            "target": {
+              "oneOf": [
+                {
+                  "properties": {
+                    "kind": {
+                      "const": "check",
+                      "type": "string"
+                    },
+                    "pr": {
+                      "properties": {
+                        "headSha": {
+                          "pattern": "^[a-fA-F0-9]{40,64}$",
+                          "type": "string"
+                        },
+                        "pr": {
+                          "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
+                        },
+                        "title": {
+                          "maxLength": 512,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "pr",
+                        "headSha"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "pr"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "kind": {
+                      "const": "merge",
+                      "type": "string"
+                    },
+                    "method": {
+                      "enum": [
+                        "merge",
+                        "squash",
+                        "rebase"
+                      ],
+                      "type": "string"
+                    },
+                    "prs": {
+                      "items": {
+                        "properties": {
+                          "headSha": {
+                            "pattern": "^[a-fA-F0-9]{40,64}$",
+                            "type": "string"
+                          },
+                          "pr": {
+                            "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
+                          },
+                          "title": {
+                            "maxLength": 512,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "pr",
+                          "headSha"
+                        ],
+                        "type": "object"
+                      },
+                      "maxItems": 10,
+                      "minItems": 1,
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "prs",
+                    "method"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "action",
+            "workspaceId",
+            "target"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "cancel",
+              "type": "string"
+            },
+            "runId": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "runId"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "verify.request",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "op"
+  ],
+  "type": "object"
+}

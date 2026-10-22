@@ -9,6 +9,7 @@ import { useProviderStatuses, useStartingProvider } from "@/lib/provider-statuse
 import { AccessDefaultRow } from "./access-default.tsx";
 import { settingKeys, type AutoSettle, type SortBy } from "./data/setting-keys.ts";
 import { useSettingControl, useSettingWrite } from "./data/use-settings.ts";
+import { useSettingsMachine } from "./machine-scope.tsx";
 import { ProjectFolders } from "./project-folders.tsx";
 import { RecoverySettings } from "./recovery-settings.tsx";
 import { RoleSettings } from "./role-settings.tsx";
@@ -43,6 +44,7 @@ const sortByOptions: { value: SortBy; label: string }[] = [
  * new projects come from. Every device that uses the machine follows these.
  */
 export function AgentsSettings() {
+  const { all } = useSettingsMachine();
   const note = useNotConnectedNote();
   return (
     <>
@@ -63,7 +65,8 @@ export function AgentsSettings() {
       <SettingSection label="Automations" card scope="daemon">
         <SettingSwitch setting={settingKeys.automations} entry="automations.enabled" />
       </SettingSection>
-      <ProjectFolders />
+      {/* Folders are paths on one machine: they don't carry across machines. */}
+      {!all && <ProjectFolders />}
     </>
   );
 }

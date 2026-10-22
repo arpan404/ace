@@ -7,6 +7,8 @@ import { AccessSelect } from "@/components/access-select.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
 import { useBaseRefs } from "@/lib/branches.ts";
 import { useNewThreadOptions } from "@/features/models/index.ts";
+import { Input } from "@/components/ui/input.tsx";
+import { useVerifyRuns } from "@/lib/verify.ts";
 
 const inherit = "inherit";
 const separator = "\n";
@@ -69,6 +71,64 @@ export function ProjectDefaultsFields(props: {
     for (const key of keys) delete next[key];
     return next;
   };
+  return (
+    <>
+      <NewThreadFields
+        value={value}
+        onChange={onChange}
+        model={model}
+        models={models}
+        branches={branches}
+        without={without}
+      />
+      <CheckCommandField projectId={props.projectId} value={value} onChange={onChange} />
+    </>
+  );
+}
+
+/**
+ * The command Verify runs against pull requests. Empty, the project's own `check` script is
+ * used: the field shows the command Verify detected.
+ */
+function CheckCommandField(props: {
+  projectId: string;
+  value: ProjectDefaults;
+  onChange(value: ProjectDefaults): void;
+}) {
+  const { value, onChange } = props;
+  const detected = useVerifyRuns(props.projectId).data?.command;
+  return (
+    <div role="group" aria-label="Pull requests" className="grid gap-1">
+      <h3 className="text-sm font-medium text-muted-foreground">Pull requests</h3>
+      <Row label="Check command">
+        <Input
+          aria-label="Check command"
+          className="w-56 font-mono text-xs"
+          value={value.checkCommand ?? ""}
+          placeholder={value.checkCommand ? undefined : (detected ?? undefined)}
+          maxLength={1024}
+          onChange={(event) => {
+            const text = event.target.value;
+            const next = { ...value };
+            if (text.trim()) next.checkCommand = text;
+            else delete next.checkCommand;
+            onChange(next);
+          }}
+        />
+      </Row>
+    </div>
+  );
+}
+
+function NewThreadFields(props: {
+  value: ProjectDefaults;
+  onChange(value: ProjectDefaults): void;
+  model: string;
+  models: SelectOption<string>[];
+  branches: { value: string; label: string }[];
+  without: <K extends keyof ProjectDefaults>(...keys: K[]) => ProjectDefaults;
+}) {
+  const { value, onChange, model, models, branches, without } = props;
   return (
     <div role="group" aria-label="New threads" className="grid gap-1">
       <h3 className="text-sm font-medium text-muted-foreground">New threads</h3>
