@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useRef, useState, type RefObject } from "react";
 import { applyChange, selectionOf } from "./apply-change.ts";
 import type {
   CompletionPerson,
@@ -6,14 +6,12 @@ import type {
   MarkdownCompletions,
 } from "./completion-source.ts";
 import { completionAt, completionChange, type CompletionMatch } from "./completions.ts";
+import { useSearch } from "./use-search.ts";
 
 /** One suggestion: what it inserts and what it shows. */
 export type CompletionItem =
   | { id: string; insert: string; kind: "person"; person: CompletionPerson }
   | { id: string; insert: string; kind: "reference"; reference: CompletionReference };
-
-/** How long typing pauses before a search goes out. */
-const searchDelayMs = 90;
 
 function items(
   match: CompletionMatch,
@@ -45,8 +43,8 @@ export function useCompletions(
   source: MarkdownCompletions | undefined,
 ) {
   const [match, setMatch] = useState<CompletionMatch>();
-  const [found, setFound] = useState<{ key: string; from: number; items: CompletionItem[] }>();
-  const [active, setActive] = useState(0);
+  // The highlighted row, for the answer it was moved in; a new answer starts at its first row.
+  const [highlight, setHighlight] = useState({ answer: "", index: 0 });
   // Escape closes the list for that word until the caret leaves it.
   const dismissed = useRef<number | undefined>(undefined);
   const searchable = (m: CompletionMatch | undefined) =>
@@ -71,40 +69,26 @@ export function useCompletions(
     });
   }, [field]);
 
-  const key = match && searchable(match) ? `${match.kind}:${match.query}` : undefined;
-  useEffect(() => {
-    if (!key || !match) return;
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      const search =
-        match.kind === "mention"
-          ? source
-              ?.people?.(match.query, controller.signal)
-              .then((people) => items(match, people, []))
-          : source
-              ?.references?.(match.query, controller.signal)
-              .then((references) => items(match, [], references));
-      void search
-        ?.then((next) => {
-          if (controller.signal.aborted) return;
-          setFound({ key, from: match.from, items: next });
-          setActive(0);
-        })
-        .catch(() => {
-          if (!controller.signal.aborted) setFound({ key, from: match.from, items: [] });
-        });
-    }, searchDelayMs);
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-    // `match` is read for its kind and query, both in `key`.
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, source]);
-
-  // While the next search is on its way, the word's earlier matches stay up rather than flicker.
-  const list = key && found && (found.key === key || found.from === match?.from) ? found.items : [];
+  // The word's kind and place are in the key: a new word, or `#` typed where `@` was, never
+  // shows the old word's answer.
+  const word = match && searchable(match) ? `${match.kind}:${match.from}:` : undefined;
+  const key = word && match ? `${word}${match.query}` : undefined;
+  const found = useSearch(key, async (signal) => {
+    if (!match) return [];
+    return match.kind === "mention"
+      ? items(match, (await source?.people?.(match.query, signal)) ?? [], [])
+      : items(match, [], (await source?.references?.(match.query, signal)) ?? []);
+  });
+  // While the next search is on its way, the same word's earlier matches stay up rather than
+  // flicker.
+  const list = word && found?.key.startsWith(word) ? (found.value ?? []) : [];
   const open = list.length > 0;
+  const answer = found?.key ?? "";
+  const active = Math.min(
+    highlight.answer === answer ? highlight.index : 0,
+    Math.max(list.length - 1, 0),
+  );
+  const setActive = useCallback((index: number) => setHighlight({ answer, index }), [answer]);
   const close = useCallback(() => {
     setMatch(undefined);
   }, []);
@@ -123,9 +107,9 @@ export function useCompletions(
     if (event.metaKey || event.ctrlKey || event.altKey) return false;
     const move = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
     if (move) {
-      setActive((index) => (index + move + list.length) % list.length);
+      setActive((active + move + list.length) % list.length);
     } else if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
-      const item = list[Math.min(active, list.length - 1)];
+      const item = list[active];
       if (item) choose(item);
     } else if (event.key === "Escape") {
       dismissed.current = match?.from;
@@ -141,7 +125,7 @@ export function useCompletions(
   return {
     match: open ? match : undefined,
     items: list,
-    active: Math.min(active, Math.max(list.length - 1, 0)),
+    active,
     setActive,
     choose,
     close,

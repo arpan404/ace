@@ -169,11 +169,13 @@ export function parseReviewers(text: string): { reviewers: string[] } | { error:
 }
 
 /**
- * "@mira, acme/core" → the people and teams to ask for review: `org/team` (or `@org/team`)
- * names a team by its slug; anything else must be a login. The first bad name is the error.
+ * "@mira, acme/core" → the people and teams to ask for review on a repository of `owner`:
+ * `org/team` (or `@org/team`) names a team, which must belong to `owner`, since only its own
+ * teams can review there; anything else must be a login. The first bad name is the error.
  */
 export function parseReviewRequest(
   text: string,
+  owner: string,
 ): { reviewers: string[]; teams: string[] } | { error: string } {
   const names = text
     .split(/[\s,]+/)
@@ -182,9 +184,12 @@ export function parseReviewRequest(
   const reviewers: string[] = [];
   const teams: string[] = [];
   for (const name of names) {
-    const team = /^[\w-]{1,39}\/([\w.-]{1,100})$/.exec(name);
-    if (team?.[1]) teams.push(team[1]);
-    else if (/^[\w-]{1,39}$/.test(name)) reviewers.push(name);
+    const team = /^([\w-]{1,39})\/([\w.-]{1,100})$/.exec(name);
+    if (team?.[1] && team[2]) {
+      if (team[1].toLowerCase() !== owner.toLowerCase())
+        return { error: `“${name}” isn't a team of ${owner}` };
+      teams.push(team[2]);
+    } else if (/^[\w-]{1,39}$/.test(name)) reviewers.push(name);
     else return { error: `“${name}” isn't a GitHub username or team` };
   }
   return {

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { parseReviewRequest } from "@ace/ui-core";
 import {
   useMarkdownCompletions,
   type CompletionPerson,
 } from "@/components/markdown-editor/completion-source.ts";
+import { useSearch } from "@/components/markdown-editor/use-search.ts";
 import {
   Dialog,
   DialogContent,
@@ -45,25 +46,17 @@ function toggled(text: string, login: string): string {
 }
 
 /** Who to offer: GitHub's suggestions before anything is typed, else the people matching it. */
-function useCandidates(typing: string, suggested: readonly Candidate[]) {
+function useCandidates(
+  typing: string,
+  suggested: readonly Candidate[],
+): { title: string; people: readonly Candidate[] } {
   const source = useMarkdownCompletions();
-  const [found, setFound] = useState<{ query: string; people: readonly Candidate[] }>();
-  useEffect(() => {
-    if (!typing || !source?.people) return;
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      void source.people?.(typing, controller.signal).then(
-        (people) => !controller.signal.aborted && setFound({ query: typing, people }),
-        () => !controller.signal.aborted && setFound({ query: typing, people: [] }),
-      );
-    }, 90);
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [typing, source]);
+  const people = source?.people;
+  const found = useSearch(typing && people ? typing : undefined, (signal) =>
+    people ? people(typing, signal) : Promise.resolve([]),
+  );
   if (!typing) return { title: "Suggested", people: suggested };
-  return { title: "People", people: found?.query === typing ? found.people : [] };
+  return { title: "People", people: found?.key === typing ? (found.value ?? []) : [] };
 }
 
 /**
@@ -74,8 +67,8 @@ function useCandidates(typing: string, suggested: readonly Candidate[]) {
 export function RequestReviewDialog(props: { actions: PrActions; open: boolean; onClose(): void }) {
   const [text, setText] = useState("");
   const field = useRef<HTMLInputElement>(null);
-  const parsed = parseReviewRequest(text);
   const { writes, context } = props.actions;
+  const parsed = parseReviewRequest(text, context.detail.status.ref.repository.owner);
   const review = usePrReview();
   const reviewers = usePrReviewers(context.workspaceId, context.detail);
   const author = context.detail.author.toLowerCase();

@@ -106,4 +106,19 @@ export interface ForgeBrowser {
     },
     signal: AbortSignal,
   ): Promise<import("@ace/protocol/forge-file-content").ForgeFileContent>;
+  /** Mentionable people whose login or name matches `query`, 20 at most, for `@`. */
+  people(
+    query: string,
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol/forge-people").ForgePerson[]>;
+  /** Issues and PRs matching a number or title words, for `#`: exact number, open, recent. */
+  references(
+    query: string,
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol/forge-people").ForgeReference[]>;
+  /** Who is asked to review, each reviewer's standing review, and GitHub's suggestions. */
+  prReviewers(
+    number: number,
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol/forge-people").ForgePrReviewers>;
 }

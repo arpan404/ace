@@ -12,8 +12,14 @@ export interface CompletionMatch {
 }
 
 const triggers = { "@": "mention", "#": "reference" } as const;
-/** GitHub logins: letters, digits and single dashes; a reference: a number or title words. */
-const queryChars = { mention: /^[\w-]*$/, reference: /^[\w.-]*$/ };
+/**
+ * What may follow the trigger. A login: letters, digits and dashes. A reference: a number
+ * (ended by a space), or title words with single spaces between them ("#retry budg").
+ */
+const queryChars = {
+  mention: /^[\w-]*$/,
+  reference: /^(?:\d+|[A-Za-z_.-][\w.-]*(?: [\w.-]+)* ?)?$/,
+};
 
 /** Inside a fenced code block: an odd number of fence lines before `at`. */
 function inFence(value: string, at: number): boolean {
@@ -47,6 +53,8 @@ export function completionAt(selection: Selection): CompletionMatch | undefined 
   if (query.length > 60 || !queryChars[kind].test(query)) return undefined;
   const previous = at === 0 ? "" : (before[at - 1] ?? "");
   if (previous && !/[\s([{]/.test(previous)) return undefined;
+  // `[text](#anchor)` and `[text](@x)` are a link's target, not a reference or a mention.
+  if (before.slice(Math.max(0, at - 2), at) === "](") return undefined;
   if (kind === "reference" && /^\s*#*$/.test(before.slice(0, at))) {
     // "#" opening a line is a heading unless a word already follows it ("#12", "#fix").
     if (query === "" || before.slice(0, at).trim() !== "") return undefined;
