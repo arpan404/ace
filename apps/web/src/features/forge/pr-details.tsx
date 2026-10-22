@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { ForgeClosingIssue } from "@ace/protocol";
+import { prUrl } from "@ace/forge/pr-reference";
 import { Button } from "@/components/ui/button.tsx";
 import { WebLink } from "@/components/web-link.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -164,7 +165,10 @@ export function PrDetails(props: { actions: PrActions; onDialog(dialog: PrDialog
   if (
     done &&
     branch?.sameRepository &&
-    (lifecycle.can("branch.delete") || lifecycle.can("branch.restore") || !branch.exists)
+    (lifecycle.can("branch.delete") ||
+      lifecycle.can("branch.restore") ||
+      !branch.exists ||
+      !!branch.usedBy?.length)
   )
     rows.push(
       <Row
@@ -206,6 +210,21 @@ export function PrDetails(props: { actions: PrActions; onDialog(dialog: PrDialog
           </span>
           {!branch.exists && (
             <span className="shrink-0 text-xs text-subtle-foreground">Deleted</span>
+          )}
+          {branch.exists && !!branch.usedBy?.length && (
+            // Deleting it would close these, so it stays while they are open.
+            <span className="flex min-w-0 items-center gap-1 text-xs text-subtle-foreground">
+              Used by
+              {branch.usedBy.map((number) => (
+                <WebLink
+                  key={number}
+                  href={prUrl({ repository: snapshot.pr.repository, number })}
+                  className="rounded-xs text-muted-foreground tabular-nums focus-ring hover:underline"
+                >
+                  #{number}
+                </WebLink>
+              ))}
+            </span>
           )}
         </span>
       </Row>,

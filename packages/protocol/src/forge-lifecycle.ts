@@ -92,6 +92,8 @@ export const ForgeLifecycleSnapshot = z.object({
       isDefault: z.boolean(),
       /** GitHub deletes head branches itself once a PR merges. */
       deleteOnMerge: z.boolean(),
+      /** Other open PRs whose head is this branch: it is kept while they are open. */
+      usedBy: z.array(z.number().int().positive()).max(10).optional(),
     })
     .optional(),
   /** Issues this PR closes when merged, as GitHub links them. */

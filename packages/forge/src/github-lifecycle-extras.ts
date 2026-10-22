@@ -26,6 +26,7 @@ export function mapLifecycleExtras(
   repository: ForgeRepository,
   extras: Extras,
   permission: string | null,
+  number: number,
 ): { fields: Mapped; facts: LifecycleExtraFacts } {
   const pr = extras.pullRequest;
   const manual = new Set(
@@ -63,6 +64,9 @@ export function mapLifecycleExtras(
     deleteOnMerge: extras.deleteBranchOnMerge,
     // GitHub's one flag covers both: it may delete the head branch, or restore it once deleted.
     canRestoreHead: pr.viewerCanDeleteHeadRef,
+    openPrsOnHead: (pr.headRef?.associatedPullRequests.nodes ?? []).flatMap((node) =>
+      node && node.number !== number ? [node.number] : [],
+    ),
   };
   return {
     facts,
@@ -87,6 +91,7 @@ export function mapLifecycleExtras(
         sameRepository: facts.sameRepository,
         isDefault: facts.isDefault,
         deleteOnMerge: facts.deleteOnMerge,
+        usedBy: [...facts.openPrsOnHead],
       },
       closingIssues,
     },
