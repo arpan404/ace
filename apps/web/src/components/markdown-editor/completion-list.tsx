@@ -95,6 +95,7 @@ export function CompletionList(props: {
       >
         <div id={props.id} role="listbox" aria-label={props.label}>
           {props.items.map((item, index) => (
+            // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- keys pick through the field's aria-activedescendant
             <div
               key={item.id}
               id={`${props.id}-${index}`}

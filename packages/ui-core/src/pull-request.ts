@@ -167,3 +167,28 @@ export function parseReviewers(text: string): { reviewers: string[] } | { error:
   if (invalid) return { error: `“${invalid}” isn't a GitHub username` };
   return { reviewers: [...new Set(names)].slice(0, 100) };
 }
+
+/**
+ * "@mira, acme/core" → the people and teams to ask for review: `org/team` (or `@org/team`)
+ * names a team by its slug; anything else must be a login. The first bad name is the error.
+ */
+export function parseReviewRequest(
+  text: string,
+): { reviewers: string[]; teams: string[] } | { error: string } {
+  const names = text
+    .split(/[\s,]+/)
+    .map((name) => name.replace(/^@/, ""))
+    .filter(Boolean);
+  const reviewers: string[] = [];
+  const teams: string[] = [];
+  for (const name of names) {
+    const team = /^[\w-]{1,39}\/([\w.-]{1,100})$/.exec(name);
+    if (team?.[1]) teams.push(team[1]);
+    else if (/^[\w-]{1,39}$/.test(name)) reviewers.push(name);
+    else return { error: `“${name}” isn't a GitHub username or team` };
+  }
+  return {
+    reviewers: [...new Set(reviewers)].slice(0, 100),
+    teams: [...new Set(teams)].slice(0, 100),
+  };
+}
