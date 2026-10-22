@@ -389,9 +389,14 @@ test("a repeating automation can start at a later day and time, on its first run
   await userEvent.click(popover.getByRole("button", { name: "Starts: Now" }));
   // The calendar opens on today: two weeks on, then 10:30 AM, after that day's 9:00 AM run.
   await userEvent.keyboard("{ArrowDown}{ArrowDown}{Enter}");
-  const clock = await screen.findByRole("textbox", { name: "Time" });
-  await userEvent.clear(clock);
-  await userEvent.type(clock, "10:30 AM{Enter}");
+  await userEvent.click(await screen.findByRole("button", { name: /^Time: / }));
+  await userEvent.click(
+    within(screen.getByRole("listbox", { name: "Hour" })).getByRole("option", { name: "10" }),
+  );
+  await userEvent.click(
+    within(screen.getByRole("listbox", { name: "Minute" })).getByRole("option", { name: "30" }),
+  );
+  await userEvent.click(screen.getByRole("option", { name: "AM" }));
   await userEvent.keyboard("{Escape}");
   expect(popover.getByRole("button", { name: /^Starts: .*10:30 AM/ })).toBeTruthy();
   await userEvent.keyboard("{Escape}");

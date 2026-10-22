@@ -3,10 +3,10 @@ import { useState } from "react";
 import { cn } from "@/lib/cn.ts";
 import { Calendar } from "./calendar.tsx";
 import type { DateKey } from "./date-grid.ts";
-import { Input } from "./input.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover.tsx";
 import { selectTrigger } from "./select.tsx";
-import { displayTime, readTime } from "./time-picker.tsx";
+import { TimeColumns } from "./time-columns.tsx";
+import { displayTime } from "./time-picker.tsx";
 import { cityOf, ZoneSearch } from "./zone-search.tsx";
 
 export interface DateTime {
@@ -20,8 +20,8 @@ export interface DateTime {
 
 /**
  * One moment, picked in one panel: a month calendar, an exact time and the zone it's read in.
- * Picking a day keeps the panel open so the time and zone can follow. The zone is searched in
- * place of the calendar, so the panel never stacks another popup on top. `text` is the trigger's
+ * Picking a day keeps the panel open so the time and zone can follow. The time and the zone are
+ * picked in place of the calendar, so the panel never stacks another popup on top. `text` is the trigger's
  * words, which the caller owns ("Now", "Oct 25, 9:00 AM"). With `onClear`, the panel offers a
  * way back to no date ("Start now").
  */
@@ -41,7 +41,7 @@ export function DateTimePicker(props: {
   "aria-describedby"?: string | undefined;
 }) {
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState<"moment" | "zone">("moment");
+  const [view, setView] = useState<"moment" | "time" | "zone">("moment");
   return (
     <Popover
       open={open}
@@ -67,7 +67,13 @@ export function DateTimePicker(props: {
         aria-label={props.label}
         className="flex w-64 flex-col gap-2 p-2"
       >
-        {view === "zone" ? (
+        {view === "time" ? (
+          <TimeColumns
+            value={props.value.time}
+            onChange={(time) => props.onChange({ time })}
+            onBack={() => setView("moment")}
+          />
+        ) : view === "zone" ? (
           <ZoneSearch
             value={props.value.timezone}
             zones={props.zones}
@@ -86,29 +92,19 @@ export function DateTimePicker(props: {
               onPick={(date) => props.onChange({ date })}
             />
             <div className="flex flex-col gap-1 border-t border-border pt-2">
-              <Row label="Time" htmlFor={`${props.id ?? "date-time"}-clock`}>
-                <ClockInput
-                  // A new value from outside replaces whatever was half typed.
-                  key={props.value.time}
-                  id={`${props.id ?? "date-time"}-clock`}
-                  value={props.value.time}
-                  onCommit={(time) => props.onChange({ time })}
+              <Row label="Time">
+                <ViewButton
+                  label={`Time: ${displayTime(props.value.time)}`}
+                  text={displayTime(props.value.time)}
+                  onClick={() => setView("time")}
                 />
               </Row>
               <Row label="Zone">
-                <button
-                  type="button"
-                  aria-label={`Time zone: ${props.value.timezone}`}
+                <ViewButton
+                  label={`Time zone: ${props.value.timezone}`}
+                  text={cityOf(props.value.timezone)}
                   onClick={() => setView("zone")}
-                  className={cn(selectTrigger, "h-7 w-full min-w-0")}
-                >
-                  <span className="truncate">{cityOf(props.value.timezone)}</span>
-                  <CaretRightIcon
-                    aria-hidden
-                    size={12}
-                    className="shrink-0 text-subtle-foreground"
-                  />
-                </button>
+                />
               </Row>
             </div>
             {props.onClear && props.value.date && (
@@ -130,39 +126,26 @@ export function DateTimePicker(props: {
   );
 }
 
-function Row(props: { label: string; htmlFor?: string; children: React.ReactNode }) {
+function Row(props: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3 px-1">
-      <label htmlFor={props.htmlFor} className="w-10 shrink-0 text-ui text-muted-foreground">
-        {props.label}
-      </label>
+      <span className="w-10 shrink-0 text-ui text-muted-foreground">{props.label}</span>
       <div className="min-w-0 flex-1">{props.children}</div>
     </div>
   );
 }
 
-/** A typed time, to the minute: "9:07 pm" or "21:07". It takes effect on Enter or leaving. */
-function ClockInput(props: { id: string; value: string; onCommit(time: string): void }) {
-  const [text, setText] = useState(displayTime(props.value));
-  const parsed = readTime(text);
-  const commit = () => {
-    if (parsed && parsed !== props.value) props.onCommit(parsed);
-  };
+/** A row's value that opens its own view in place of the calendar. */
+function ViewButton(props: { label: string; text: string; onClick(): void }) {
   return (
-    <Input
-      id={props.id}
-      value={text}
-      onValueChange={setText}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          commit();
-        }
-      }}
-      placeholder="9:00 AM"
-      aria-invalid={parsed ? undefined : true}
-      className="h-7 tabular-nums"
-    />
+    <button
+      type="button"
+      aria-label={props.label}
+      onClick={props.onClick}
+      className={cn(selectTrigger, "h-7 w-full min-w-0 tabular-nums")}
+    >
+      <span className="truncate">{props.text}</span>
+      <CaretRightIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
+    </button>
   );
 }
