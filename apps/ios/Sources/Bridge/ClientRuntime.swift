@@ -17,6 +17,8 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
     private let services: HostServices
     private let receive: @Sendable (Data) -> Void
     private let fail: @Sendable (String) -> Void
+    /// How the VM thread competes for the CPU: below the machines' runtimes for background reads.
+    private let priority: QualityOfService
     /// Browser stream messages this runtime's sockets decode natively, for the live view.
     let browserStreams: BrowserStreamHub? = BrowserStreamHub()
 
@@ -27,9 +29,12 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
         self.services = .connection(target)
         self.receive = receive
         self.fail = fail
+        priority = .userInitiated
     }
     /// A pairing or machine-directory runtime: no outbox database and no client patches.
-    init(access target: ConnectionTarget?, services: HostServices, fail: @escaping @Sendable (String) -> Void) {
+    init(access target: ConnectionTarget?, services: HostServices, priority: QualityOfService = .userInitiated,
+         fail: @escaping @Sendable (String) -> Void) {
+        self.priority = priority
         self.target = target
         self.storageURL = nil
         self.services = services
@@ -92,7 +97,7 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
             for callback in callbacks { callback() }
         }
         worker.name = "ace.client.javascript"
-        worker.qualityOfService = .userInitiated
+        worker.qualityOfService = priority
         thread = worker
         worker.start()
         ready.wait()
