@@ -1525,6 +1525,29 @@ Example:
 }
 ```
 
+### forge.inbox.write
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"forge.inbox.write"` |  |
+| workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| host | no | string | {"maxLength":253,"pattern":"^[a-zA-Z0-9.-]+$"} |
+| input | yes | [ForgeInboxWrite.json](schema/ForgeInboxWrite.json) |  |
+
+Example:
+
+```json
+{
+  "host": "YMzmfx0Q",
+  "input": {
+    "action": "read",
+    "id": "93116238418132396277087702799769"
+  },
+  "type": "forge.inbox.write",
+  "workspaceId": "example"
+}
+```
+
 ### review.open
 
 | Field | Required | Type | Constraints |
@@ -1538,13 +1561,12 @@ Example:
 {
   "source": {
     "from": {
-      "id": "example",
-      "kind": "checkpoint"
+      "kind": "commit",
+      "ref": "example"
     },
-    "threadId": "example",
     "to": {
-      "id": "example",
-      "kind": "checkpoint"
+      "kind": "commit",
+      "ref": "example"
     },
     "workspaceId": "example"
   },
@@ -1574,7 +1596,6 @@ Example:
     "start": 1
   },
   "sessionId": "example",
-  "suggestion": "example",
   "text": "example",
   "type": "review.comment"
 }
@@ -1697,8 +1718,7 @@ Example:
   },
   "sessionId": "example",
   "to": {
-    "id": "example",
-    "kind": "checkpoint"
+    "kind": "working-tree"
   },
   "type": "review.refresh"
 }
@@ -1717,7 +1737,7 @@ Example:
 ```json
 {
   "sessionId": "example",
-  "status": "changes-requested",
+  "status": "approved",
   "type": "review.status"
 }
 ```
@@ -1737,8 +1757,6 @@ Example:
 
 ```json
 {
-  "limit": 2,
-  "threadId": "example",
   "type": "review.list"
 }
 ```
@@ -1755,29 +1773,29 @@ Example:
 ```json
 {
   "input": {
-    "baseRef": "e71c7d0e093d65a766ad589648400640f4c56f906c13e4649122bc2e002a039f",
+    "baseRef": "3e4649122bc2e002a039fcaa287859f220177110",
     "prompt": "example",
     "targetBranch": "example",
     "template": {
       "budget": {
-        "cost": 6,
-        "durationMs": 10,
-        "maxAttempts": 8,
-        "maxDepth": 7,
-        "maxLanes": 9,
-        "tokens": 4
+        "cost": 7,
+        "durationMs": 5,
+        "maxAttempts": 7,
+        "maxDepth": 6,
+        "maxLanes": 7,
+        "tokens": 10
       },
       "checks": {
         "command": [
           "example"
-        ]
+        ],
+        "review": "example"
       },
       "kind": "fanout",
       "lanes": [
         {
-          "access": "auto-review",
           "model": "example",
-          "provider": "claude"
+          "provider": "pi"
         }
       ]
     },
@@ -1798,7 +1816,7 @@ Example:
 
 ```json
 {
-  "orchestrationId": "HE14D",
+  "orchestrationId": "OeurIr",
   "type": "orchestration.cancel"
 }
 ```
@@ -1816,9 +1834,8 @@ Example:
 
 ```json
 {
-  "laneId": "QRF_SPIeu",
-  "merge": false,
-  "orchestrationId": "Bg5xg",
+  "laneId": "a",
+  "orchestrationId": "UN",
   "type": "orchestration.pick"
 }
 ```
@@ -1855,57 +1872,37 @@ Example:
 
 ```json
 {
-  "access": "ask",
-  "account": "example",
+  "accountId": "example",
+  "acpAgentId": "example",
   "base": {
-    "ref": "example"
+    "ref": "example",
+    "remote": "2L"
   },
-  "context": {
-    "draftId": "zHmeFl"
-  },
+  "baseBranch": "example",
   "input": [
     {
-      "arguments": "example",
-      "entryId": "example",
-      "icon": "example",
-      "invocation": {
-        "reason": "example",
-        "type": "unavailable"
+      "source": {
+        "bytes": 9,
+        "encoding": "utf-16le",
+        "streamId": "example"
       },
-      "kind": "agent",
-      "name": "example",
-      "type": "mention"
+      "text": "example",
+      "type": "text"
     }
   ],
-  "issue": {
-    "number": 6,
-    "repository": {
-      "forge": "gitlab",
-      "host": "8Hg",
-      "name": "1fm0V",
-      "owner": "zlE7EmK6/gMSPy9Jo/NMwE8b21f/S3E/5CLslYgsw/Y_lbMTqM70Z/c3S/_OjdUd0L3D-/2/D2eW"
-    }
-  },
-  "mode": "local",
+  "instanceId": "example",
   "origin": {
-    "interactionId": "example",
-    "kind": "spawn",
+    "from": {
+      "model": "example",
+      "provider": "codex"
+    },
+    "kind": "steer",
+    "parentThreadId": "example",
+    "role": "example",
     "sources": []
   },
-  "provider": "pi",
-  "pullRequest": {
-    "headSha": "499cdc4b6541109799c481d70e61d77943fe975845b5dac8fef8b3d6d5d89ae",
-    "ref": {
-      "number": 7,
-      "repository": {
-        "forge": "gitlab",
-        "host": "Ma",
-        "name": "OaTj",
-        "owner": "M/IVv.cew/U/QSbbgjeD/-fz/Pz/ephh2LA/Dc8Es/4"
-      }
-    }
-  },
-  "threadId": "example",
+  "provider": "opencode",
+  "trigger": "spawn",
   "type": "thread.create",
   "workspaceId": "example"
 }
@@ -1931,16 +1928,20 @@ Example:
 {
   "input": [
     {
-      "source": {
-        "bytes": 3,
-        "encoding": "utf-16le",
-        "streamId": "example"
-      },
-      "text": "example",
-      "type": "text"
+      "entryId": "example",
+      "kind": "skill",
+      "name": "example",
+      "type": "mention"
     }
   ],
+  "model": "example",
   "options": {},
+  "origin": {
+    "commandId": "example",
+    "kind": "queue",
+    "lossy": true,
+    "threadIds": []
+  },
   "threadId": "example",
   "type": "thread.send"
 }
@@ -1961,8 +1962,6 @@ Example:
 
 ```json
 {
-  "beforeSeq": 3,
-  "cascade": false,
   "threadId": "example",
   "type": "thread.interrupt"
 }
@@ -2033,7 +2032,7 @@ Example:
 ```json
 {
   "change": {
-    "status": "paused"
+    "objective": "\\"
   },
   "threadId": "example",
   "type": "thread.goal.set"
@@ -2070,9 +2069,8 @@ Example:
 {
   "interactionId": "example",
   "resolution": {
-    "decision": "approve",
-    "feedback": "example",
-    "kind": "plan_review"
+    "kind": "browser_help",
+    "outcome": "done"
   },
   "type": "interaction.resolve"
 }
@@ -2102,6 +2100,7 @@ Example:
 | --- | --- | --- | --- |
 | issue | no | [ForgeIssueRef.json](schema/ForgeIssueRef.json) |  |
 | issueAction | no | [ForgeIssueAction.json](schema/ForgeIssueAction.json) |  |
+| inboxAction | no | [ForgeInboxAction.json](schema/ForgeInboxAction.json) |  |
 | publication | no | [RepositoryPublication.json](schema/RepositoryPublication.json) |  |
 | workspace | no | [Project.json](schema/Project.json) |  |
 | inspection | no | [ProjectInspection.json](schema/ProjectInspection.json) |  |
@@ -2133,66 +2132,142 @@ Example:
 {
   "code": "example",
   "commandId": "example",
-  "editor": {
-    "editor": {
-      "command": "example",
-      "id": "example",
-      "name": "example"
-    },
-    "path": "example"
-  },
-  "error": "example",
+  "detail": "example",
+  "forkThreadId": "example",
   "health": {
-    "activeSessions": 5,
-    "at": 0,
+    "activeSessions": null,
+    "at": 7,
     "eventLoop": {
-      "maxMs": 9,
+      "maxMs": null,
       "meanMs": 2,
-      "p99Ms": 7
+      "p99Ms": 9
     },
     "logs": {
-      "directory": "example",
-      "dropped": 3,
-      "failed": 0,
-      "queued": 1
+      "dropped": 8,
+      "failed": 1,
+      "queued": 0
     },
     "memory": {
-      "heapTotalBytes": 6,
-      "heapUsedBytes": 9,
-      "rssBytes": 9
+      "heapTotalBytes": 0,
+      "heapUsedBytes": 1,
+      "rssBytes": 0
     },
-    "openHandles": 5,
+    "openHandles": 6,
     "queues": {},
     "sqlite": {
       "pageBytes": null,
-      "walBytes": null
+      "walBytes": 6
+    }
+  },
+  "issue": {
+    "number": 3,
+    "repository": {
+      "forge": "gitlab",
+      "host": "sXDo0",
+      "name": "NMwE8b21f",
+      "owner": "7RNur.2U5Q/Tm/i/wpt6fJlYmUo/._riYn8GgSz/E7E/K61/gMSPy9Jo"
     }
   },
   "ok": false,
   "pr": {
-    "number": 8,
+    "number": 6,
     "repository": {
       "forge": "gitlab",
-      "host": "OqpL",
-      "name": "4Xc1zc",
-      "owner": "x-LBoi/Zi-/qoyEfmSys/Xop/0YA_wV9p/j5f20K/1-FZaIKHD/NpS8L."
+      "host": "1gn0V",
+      "name": "giz3gYVQfz",
+      "owner": "nyM6lNB/5_QQ/P7q.TOA"
     }
   },
   "prExisting": true,
-  "publication": {
-    "error": null,
-    "input": {
-      "account": "6tosXDEmpY",
-      "description": "example",
-      "host": "9a98rz40b.eyyh7uqp7",
-      "name": "Ot",
-      "owner": "mk9MC",
-      "visibility": "private"
+  "prStatus": {
+    "checks": [],
+    "ci": "success",
+    "comments": [],
+    "headSha": "example",
+    "mergeState": {
+      "autoMerge": {
+        "actor": "example",
+        "enabledAt": "example",
+        "method": "example"
+      },
+      "blockers": [],
+      "canDequeue": true,
+      "canDisable": false,
+      "canEnable": true,
+      "checksState": "example",
+      "deployments": [],
+      "headSha": "1Dd2A6D33529364aacfe3D8781010D0ECbdecDB2C9e2B1ff1FC90Dfd3e5d95Af",
+      "mergeState": "example",
+      "queue": null,
+      "raw": null,
+      "reviewDecision": "example",
+      "state": "example",
+      "writeState": "uncertain"
     },
-    "phase": "remote_created",
-    "remote": null,
-    "updatedAt": 7,
-    "workspaceId": "example"
-  }
+    "mergeability": "mergeable",
+    "raw": null,
+    "ref": {
+      "number": 3,
+      "repository": {
+        "forge": "github",
+        "host": "d8ds",
+        "name": "XDEm",
+        "owner": "zImeFl/T7gS0/itK/Tkywr70L/ioQAk/-_.8ES2Tb/5Z/RR/7KD/782tn"
+      }
+    },
+    "reviewThreads": [],
+    "state": "unknown",
+    "title": "example",
+    "url": "example"
+  },
+  "review": {
+    "comment": {
+      "anchor": {
+        "fingerprint": {
+          "after": [],
+          "before": [],
+          "lines": [
+            "example"
+          ]
+        },
+        "position": {
+          "end": 1,
+          "file": "example.ts",
+          "side": "new",
+          "start": 1
+        },
+        "revision": {
+          "kind": "working-tree"
+        },
+        "state": "active"
+      },
+      "id": "example",
+      "originalAnchor": {
+        "fingerprint": {
+          "after": [],
+          "before": [],
+          "lines": [
+            "example"
+          ]
+        },
+        "position": {
+          "end": 1,
+          "file": "example.ts",
+          "side": "new",
+          "start": 1
+        },
+        "revision": {
+          "kind": "working-tree"
+        },
+        "state": "active"
+      },
+      "resolved": true,
+      "sessionId": "example",
+      "text": "example"
+    },
+    "replies": [],
+    "sessions": []
+  },
+  "terminalId": "example"
 }
 ```
