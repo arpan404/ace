@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ForgeRepository } from "@ace/protocol/forge";
 import {
+  ForgeBranchName,
   ForgeCompare,
   ForgeRepoPrOptions,
   type ForgeBranch,
@@ -180,11 +181,16 @@ export class GitHubNewPr {
     page: number,
     signal: AbortSignal,
   ): Promise<ForgeCompare> {
+    // Both names reach the URL path: only names git itself would take are sent.
+    if (!ForgeBranchName.safeParse(base).success || !ForgeBranchName.safeParse(head.branch).success)
+      throw new ForgeError("unprocessable");
     // A fork's branch is named `owner:branch`, as GitHub documents for comparisons.
     const headRef =
       head.owner.toLowerCase() === this.#repository.owner.toLowerCase()
         ? branchPath(head.branch)
         : `${head.owner}:${branchPath(head.branch)}`;
+    // No paging parameters: GitHub then lists up to 250 commits and documents the last one as
+    // the newest of the whole comparison, which is what `headSha` names.
     const response = await this.#api.request(
       `${this.#root}/compare/${branchPath(base)}...${headRef}`,
       signal,
