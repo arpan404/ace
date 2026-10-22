@@ -245,7 +245,7 @@ test("a delegate's finished result reads once, on its launch row, never as a sec
   expect(
     blocks.filter((block) => block.kind === "subagents").map((block) => block.itemIds),
   ).toEqual([["review"]]);
-  expect(shown(blocks).filter((row) => row.startsWith("settled-"))).toEqual([
+  expect(shown(blocks).filter((row) => row?.startsWith("settled-"))).toEqual([
     "settled-earlier",
     "settled-mixed",
   ]);

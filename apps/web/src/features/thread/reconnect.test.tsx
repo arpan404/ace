@@ -46,9 +46,10 @@ test("after a dropped connection the transcript catches up by replay, without du
   ])
     expect(within(feed).getAllByText(text)).toHaveLength(1);
   expect(within(feed).queryByText(/The payment poller retries/)).toBeNull();
-  // One subagent is its row alone, with no "1 subagent" header text (#637), listed once
-  // (getByRole throws on a duplicate).
-  const subagents = within(feed).getByRole("region", { name: "1 subagent" });
+  // The finished subagent is one folded line, listed once (getByRole throws on a duplicate),
+  // opening to its one row.
+  const subagents = within(feed).getByRole("region", { name: "1 subagent ran" });
+  await userEvent.click(within(subagents).getByRole("button", { name: "1 subagent ran" }));
   expect(within(subagents).getAllByRole("listitem")).toHaveLength(1);
   // The ask, the turn's one log (the plan, the search, the finding and the approval call, in
   // order), the subagents line and the watcher.
@@ -67,9 +68,7 @@ test("after a dropped connection the transcript catches up by replay, without du
   expect(within(feed).queryByRole("note")).toBeNull();
   expect(screen.getByRole("button", { name: /^Model:/ })).toBeTruthy();
   // The child's finding reads on its own transcript, opened from its card.
-  const card = within(feed).getByRole("region", { name: "1 subagent" });
-  const disclosure = within(card).queryByRole("button", { name: "1 subagent" });
-  if (disclosure) await userEvent.click(disclosure);
+  const card = within(feed).getByRole("region", { name: "1 subagent ran" });
   await userEvent.click(within(card).getByRole("link", { name: /^Open / }));
   const own = await screen.findByRole("feed", { name: "Transcript" });
   expect(await within(own).findByText(/The payment poller retries/)).toBeTruthy();

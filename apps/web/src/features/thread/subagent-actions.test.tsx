@@ -44,7 +44,7 @@ test("a subagent stopped by its session limit shows the limit and its reset quie
     facts.toolDone("root", "spawn-layout", "failed"),
   ]);
   await app.open("/t/triage");
-  const bar = await openSubagent("1 subagent", "layout-fixer");
+  const bar = await openSubagent("1 subagent ran", "layout-fixer");
 
   // The failure is in the body, named as a limit with when it lifts, not "Turn failed".
   const row = await screen.findByRole("group", { name: /^Usage limit reached/ });

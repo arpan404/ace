@@ -74,10 +74,11 @@ test.each(["child", "descendant"])(
     app.play(scenario([...spawn("first"), ...nested, facts.endTurn("first")])).runUntilBlocked();
     await app.open("/t/inline-subagents");
     const feed = await screen.findByRole("feed", { name: "Transcript" });
-    const card = await group(feed, "1 subagent");
-    // One subagent is just its row: no disclosure, no count line.
+    const card = await group(feed, "1 subagent ran");
+    // A finished subagent folds into one row; its own row waits behind it.
+    expect(within(card).queryByRole("link")).toBeNull();
+    await userEvent.click(within(card).getByRole("button", { name: "1 subagent ran" }));
     expect(await within(card).findByRole("link", { name: "Open Review first, Done" })).toBeTruthy();
-    expect(within(card).queryByRole("button", { name: "1 subagent" })).toBeNull();
 
     const lease = app.client.thread("inline-subagents");
     try {
@@ -123,6 +124,8 @@ test.each(["child", "descendant"])(
       expect(
         await within(card).findByRole("link", { name: "Open Review first, Running" }),
       ).toBeTruthy();
+      // At work again: its row alone, never folded as if it had ended.
+      expect(within(card).queryByRole("button", { name: "1 subagent ran" })).toBeNull();
       expect(within(card).queryByText("Done")).toBeNull();
       expect(source.agent(agent.id)?.status.state).toBe("idle");
       await deliver({ type: "background_task.updated", taskId: task.id, status: "unknown" });
@@ -136,9 +139,8 @@ test.each(["child", "descendant"])(
         },
         7000,
       );
-      expect(
-        await within(card).findByRole("link", { name: "Open Review first, Done" }),
-      ).toBeTruthy();
+      expect(await within(card).findByRole("button", { name: "1 subagent ran" })).toBeTruthy();
+      expect(within(card).getByRole("link", { name: "Open Review first, Done" })).toBeTruthy();
       expect(source.agent(agent.id)?.status.state).toBe("idle");
     } finally {
       lease.release();
@@ -310,7 +312,8 @@ test.each(["child", "descendant"])(
         },
       ]),
     );
-    expect(await within(card).findByRole("link", { name: "Open Review first, Done" })).toBeTruthy();
+    await userEvent.click(await within(card).findByRole("button", { name: "1 subagent ran" }));
+    expect(within(card).getByRole("link", { name: "Open Review first, Done" })).toBeTruthy();
     // Opening a question on an already idle owner must update the disclosure too.
     await act(async () =>
       app.daemon.apply("inline-subagents", [
@@ -327,7 +330,7 @@ test.each(["child", "descendant"])(
   },
 );
 
-test("one subagent is one row with its status word; several fold into one row with worst-first counts", async () => {
+test("a finished subagent folds into one row with its mark; several fold into one row with worst-first counts", async () => {
   const app = harness();
   app
     .play(
@@ -343,11 +346,14 @@ test("one subagent is one row with its status word; several fold into one row wi
     .runUntilBlocked();
   await app.open("/t/inline-subagents");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const solo = await group(feed, "1 subagent");
-  // No disclosure and no count line: the row alone, its status word always in view.
-  expect(within(solo).queryByRole("button")).toBeNull();
-  expect(within(solo).queryByRole("status")).toBeNull();
-  expect(within(solo).getAllByRole("listitem")).toHaveLength(1);
+  const solo = await group(feed, "1 subagent ran");
+  // Its provider's mark and "1 subagent ran", no count: nothing in it failed or still runs.
+  const folded = within(solo).getByRole("button", { name: "1 subagent ran" });
+  expect(within(folded).getByRole("img", { name: "Codex" })).toBeTruthy();
+  expect(within(solo).getByRole("status").textContent).toBe("");
+  expect(solo.getAttribute("data-group-status")).toBe("done");
+  expect(folded.getAttribute("aria-expanded")).toBe("false");
+  await userEvent.click(folded);
   const soloRow = within(solo).getByRole("link", { name: "Open Review solo, Done" });
   expect(within(soloRow).getByText("Done")).toBeTruthy();
 
@@ -454,24 +460,31 @@ test("collapsed status counts follow child completion and human waits through du
       },
     ]),
   );
-  await within(card).findByText("2 done");
+  // Both ended: the row says they ran, and counts only what didn't finish (nothing here).
+  await within(card).findByRole("button", { name: "2 subagents ran" });
+  expect(within(card).getByRole("status").textContent).toBe("");
   expect(card.getAttribute("data-group-status")).toBe("done");
 });
 
-test("a finished result is a compact child-thread link with its summary", async () => {
+test("a finished delegate reads once: one folded row, opening to its thread link and summary", async () => {
   const timestamp = Date.parse("2026-10-11T14:35:00.000Z");
   const app = harness({ clock: () => timestamp });
   for (const script of delegatedDocs()) app.play(script).runUntilBlocked();
   await app.open(`/t/${delegatedDocsIds.parent}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const results = await within(feed).findByRole("list", { name: "Subagent results" });
-  const link = within(results).getByRole("link", {
+  const card = await group(feed, "1 subagent ran");
+  // Its settled receipt adds no second row: the launch row carries the result.
+  expect(within(feed).queryByRole("list", { name: "Subagent results" })).toBeNull();
+  await userEvent.click(within(card).getByRole("button", { name: "1 subagent ran" }));
+  const link = within(card).getByRole("link", {
     name: "Open Relay protocol reference's thread, Done",
   });
+  expect(within(feed).getAllByRole("link", { name: /^Open Relay protocol reference/ })).toEqual([
+    link,
+  ]);
   expect(link.textContent).toContain(
     "Wrote docs/protocol/relay.md and documented reconnect behavior.",
   );
-  expect(within(feed).getAllByRole("region", { name: "1 subagent" })).toHaveLength(1);
   await act(async () =>
     app.daemon.apply(delegatedDocsIds.parent, [
       {
@@ -482,13 +495,15 @@ test("a finished result is a compact child-thread link with its summary", async 
       },
     ]),
   );
-  const waiting = await within(results).findByRole("link", {
+  const waiting = await within(card).findByRole("link", {
     name: "Open Relay protocol reference's thread, Needs you",
   });
-  // Revived and waiting on the person: its second line says so, and Review opens it there.
+  // Revived and waiting on the person: no longer folded as ended, its second line says so, and
+  // Review opens it there.
+  expect(within(card).queryByRole("button", { name: "1 subagent ran" })).toBeNull();
   expect(waiting.textContent).toContain("Waiting for you");
   expect(
-    within(results).getByRole("link", { name: "Review what Relay protocol reference needs" }),
+    within(card).getByRole("link", { name: "Review what Relay protocol reference needs" }),
   ).toBeTruthy();
   await userEvent.click(waiting);
   expect(await screen.findByText(/Drafted the frame table/)).toBeTruthy();

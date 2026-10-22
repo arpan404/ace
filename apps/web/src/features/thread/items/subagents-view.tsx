@@ -1,7 +1,8 @@
 import type { AgentFacts } from "@/lib/agent-facts.ts";
 import {
+  subagentGroupCounts,
   subagentGroupStatus,
-  subagentStatusCounts,
+  subagentGroupTitle,
   subagentTerminal,
   type SubagentGroupStatus,
 } from "@ace/ui-core";
@@ -34,11 +35,12 @@ export const groupStyles = {
 } as const;
 
 /**
- * A launch's subagents in the transcript. One subagent is just its row. Several fold into one
- * row led by their providers' marks: "3 subagents", each status count in its tone, how long they
- * have run, opening to their rows under a hairline. The counts carry the state: the group reads
- * as its worst child (needs you, failed, working, done), so it never reads done while any child
- * works or waits.
+ * A launch's subagents in the transcript. One still at work is just its row, its live activity in
+ * view. Several, or any number once all have ended, fold into one row led by their providers'
+ * marks: "3 subagents" with each status count in its tone while they run, "3 subagents ran" with
+ * only what didn't finish once they all have, how long they ran, opening to their rows under a
+ * hairline. The counts carry the state: the group reads as its worst child (needs you, failed,
+ * working, done), so it never reads done while any child works or waits.
  */
 export function Subagents(props: { threadId: string; itemIds: readonly string[] }) {
   const read = useCallback(
@@ -50,9 +52,11 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
   const body = useId();
   const live = useThreadLiveState(props.threadId);
   if (!entries.length) return null;
-  const title = `${entries.length} ${entries.length === 1 ? "subagent" : "subagents"}`;
+  const states = entries.map((entry) => entry.state);
+  const running = states.some((state) => !subagentTerminal(state));
+  const title = subagentGroupTitle(states);
   const [only] = entries;
-  if (entries.length === 1 && only)
+  if (running && entries.length === 1 && only)
     return (
       <section aria-label={title}>
         <ul aria-label="Subagents">
@@ -60,8 +64,6 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
         </ul>
       </section>
     );
-  const states = entries.map((entry) => entry.state);
-  const running = states.some((state) => !subagentTerminal(state));
   const startedAt = Math.min(...entries.map((entry) => entry.startedAt));
   const ends = entries.flatMap((entry) => (entry.endedAt === undefined ? [] : [entry.endedAt]));
   const endedAt = !running && ends.length === entries.length ? Math.max(...ends) : undefined;
@@ -90,7 +92,7 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
             className={groupStyles.counts}
           >
             {!live.fresh && running && "Last seen: "}
-            {subagentStatusCounts(states).map((part, index) => (
+            {subagentGroupCounts(states).map((part, index) => (
               <span key={part.state}>
                 {index > 0 && <span className={groupStyles.separator}> · </span>}
                 <span data-tone={subagentTones[part.state]} className="text-(--tone-text)">
