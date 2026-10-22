@@ -1,5 +1,14 @@
+import type { ThreadSource } from "@ace/client";
 import type { Item } from "@ace/protocol";
-import { describeStep, handoffMarker, opensAgentPage, stepLabels } from "@ace/ui-core";
+import {
+  describeStep,
+  handoffMarker,
+  opensAgentPage,
+  shownStep,
+  stepLabels,
+  stepOpens,
+  type StepContext,
+} from "@ace/ui-core";
 import { preview } from "./presentation.ts";
 
 /*
@@ -20,20 +29,43 @@ function opensOf(ace: ReturnType<typeof describeStep>["ace"]): string {
   return key?.startsWith("device:") && key.length > 7 ? key : "";
 }
 
-/** The step line for tools, thinking and notices: "Ran `bun test`  exit 0". */
-function stepOf(item: Item) {
+/**
+ * What a step reads with beyond its item: paths relative to where its agent works, and the
+ * approval that gated it (the newest offered for the call).
+ */
+export function stepContext(store: ThreadSource, item: Item): StepContext {
+  const cwd = item.agentId ? store.agent(item.agentId)?.cwd : undefined;
+  if (item.type !== "tool_call") return { cwd };
+  let interaction;
+  for (const id of store.interactionIds()) {
+    const candidate = store.interaction(id);
+    if (candidate?.toolCallId === item.id && candidate.request.kind === "approval")
+      interaction = candidate;
+  }
+  return { cwd, interaction };
+}
+
+/** The step line for tools, thinking and notices, as the web's step row reads it. */
+export function stepOf(item: Item, context: Omit<StepContext, "labels"> = {}) {
   if (item.type !== "tool_call" && item.type !== "reasoning" && item.type !== "notice") return null;
-  const step = describeStep(item, { labels: stepLabels });
+  const { step, awaiting } = shownStep(
+    item,
+    describeStep(item, { ...context, labels: stepLabels }),
+  );
   const family = step.ace?.family;
   return {
     icon: family === "device" ? "device" : family === "screen" ? "computer" : step.icon,
     opens: opensOf(step.ace),
     verb: preview(step.verb, 256),
     target: preview(step.target ?? "", 512),
-    note: preview(step.note ?? "", 128),
+    note: preview(step.note === "Waiting for your approval" ? "" : (step.note ?? ""), 128),
     settled: step.settled,
     failed: step.failed,
     needsYou: step.needsYou === true,
+    /** Waits on an approval nobody has answered: the row steps aside for the composer's request. */
+    awaiting,
+    /** The row opens to its output, diff or reasoning. */
+    expandable: stepOpens(item),
     added: step.added ?? null,
     removed: step.removed ?? null,
     /** An agent opened a page in the thread's browser: the row opens the browser. */
@@ -77,13 +109,13 @@ function handoffOf(item: Item) {
   };
 }
 
-export function itemDetail(item: Item) {
+export function itemDetail(item: Item, context?: StepContext) {
   return {
     handoff: handoffOf(item),
     runId: item.runId ?? "",
     synthetic: item.type === "message" && item.synthetic === true,
     level: item.type === "notice" ? item.level : "",
-    step: stepOf(item),
+    step: stepOf(item, context),
     ...attachmentsOf(item),
   };
 }

@@ -49,7 +49,7 @@ export interface WorkLogReading {
 /** The log's facts; `calls` are its calls that left a command running in the background. */
 export function readWorkLog(
   items: readonly (Item | undefined)[],
-  calls: ReadonlyMap<string, string> | ReadonlySet<string>,
+  calls: { has(id: string): boolean },
 ): WorkLogReading {
   const loaded = items.filter((item): item is Item => item !== undefined);
   // Only a log with a failure looks for retries: the common case reads each item once.

@@ -60,6 +60,9 @@ test("opening a finished turn reads all its steps from the daemon, in pages", as
     return header?.state === "ready" ? header : undefined;
   }, "the steps");
   expect(steps).toMatchObject({ count: 60, pages: 3 });
+  // Grouped as the web's opened log groups them: sixty reads read as one sentence row.
+  const log = (latest("thread.steps") as { log: { kind: string; items: string[] }[] }).log;
+  expect(log.map((row) => [row.kind, row.items.length])).toEqual([["group", 60]]);
   const pages = native.frames
     .filter((frame) => frame.type === "thread.stepsPage")
     .toSorted((a, b) => Number(a.page) - Number(b.page));
