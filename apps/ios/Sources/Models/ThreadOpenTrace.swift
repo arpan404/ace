@@ -29,8 +29,9 @@ import Darwin
     private var painted: Double?
     private var warm = false
     private let frameSampler = FrameSampler()
-    /// Sample frames while a thread is on screen.
-    func showing(_ on: Bool) { frameSampler.run(on) }
+    /// Sample frames while a thread is on screen, only when asked: a display link firing every
+    /// frame keeps an idle phone awake.
+    func showing(_ on: Bool) { if FrameSampler.enabled { frameSampler.run(on) } }
 
     func open(_ id: String, warm: Bool) {
         finish(reason: "left")
@@ -55,7 +56,8 @@ import Darwin
             PerfProbe.record(["bridge.windowS": String(format: "%.1f", now - window.started), "bridge.frames": "\(window.frames)",
                               "bridge.patches": "\(window.patches)", "bridge.bytes": "\(window.bytes)",
                               "bridge.mainMs": String(format: "%.1f", window.mainMs),
-                              "bridge.scriptMs": String(format: "%.1f", (script - window.script) * 1000)])
+                              "bridge.scriptMs": String(format: "%.1f", (script - window.script) * 1000),
+                              "footprintMiB": Self.footprint()])
             PerfProbe.add("bridge.windows", 1)
             window = Window(started: now, script: script)
         }
@@ -87,6 +89,19 @@ import Darwin
         if ready != nil { finish(reason: "settled") }
     }
     private var settledAt: Double?
+    /// Agents and Changes: from the sheet asking the bridge to its first rows applied.
+    private var sheets: [String: (asked: Double, interval: OSSignpostIntervalState)] = [:]
+    func sheetAsked(_ kind: String) {
+        sheets[kind] = (CACurrentMediaTime(), Self.signposter.beginInterval("sheet.open", id: Self.signposter.makeSignpostID(), "\(kind, privacy: .public)"))
+    }
+    func sheetFilled(_ kind: String) {
+        guard let sheet = sheets.removeValue(forKey: kind) else { return }
+        Self.signposter.endInterval("sheet.open", sheet.interval)
+        let ms = (CACurrentMediaTime() - sheet.asked) * 1000
+        Self.log.notice("sheet \(kind, privacy: .public) filledMs=\(String(format: "%.0f", ms), privacy: .public)")
+        PerfProbe.record(["sheet.\(kind)Ms": String(format: "%.0f", ms)])
+        PerfProbe.add("sheets", 1)
+    }
     /// A page of history read into the transcript, from asking to the window replaced.
     static func page(_ operation: String, items: Int, blocks: Int, seconds: Double) {
         log.notice("page \(operation, privacy: .public) items=\(items) blocks=\(blocks) ms=\(String(format: "%.0f", seconds * 1000), privacy: .public) footprintMiB=\(footprint(), privacy: .public)")
