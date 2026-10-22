@@ -4,6 +4,7 @@ import {
   desktopConnection,
   desktopDaemon,
   hasDesktopBridge,
+  reloadApp,
 } from "./desktop.ts";
 
 const token = "ab".repeat(32);
@@ -105,5 +106,38 @@ describe("desktop daemon hand-off", () => {
     await expect(daemon?.diagnose()).resolves.toEqual([
       { id: "node", status: "ok", message: "Node 24.1", fix: "" },
     ]);
+  });
+});
+
+describe("reloading the app", () => {
+  it("asks the desktop to reload, not the page itself", async () => {
+    const effects: string[] = [];
+    const scope = { ace: { app: { reload: async () => void effects.push("desktop") } } };
+    reloadApp(scope, () => effects.push("page"));
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(effects).toEqual(["desktop"]);
+  });
+
+  it("reloads the page in a browser or on a desktop build without the call", () => {
+    const effects: string[] = [];
+    reloadApp({}, () => effects.push("browser"));
+    reloadApp({ ace: { app: { quit: async () => {} } } }, () => effects.push("old desktop"));
+    expect(effects).toEqual(["browser", "old desktop"]);
+  });
+
+  it("reloads the page when the desktop refuses", async () => {
+    const effects: string[] = [];
+    const scope = {
+      ace: {
+        app: {
+          reload: async () => {
+            throw new Error("No handler registered for 'ace:app.reload'");
+          },
+        },
+      },
+    };
+    reloadApp(scope, () => effects.push("page"));
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(effects).toEqual(["page"]);
   });
 });

@@ -137,6 +137,25 @@ export function setDesktopWindowBackground(
 }
 
 /**
+ * Reload the app as a browser's reload does: a fresh page with a fresh daemon connection. The
+ * desktop reloads from its main process (restarting a daemon that failed); a browser, or a
+ * desktop build that predates it, reloads the page.
+ */
+export function reloadApp(
+  scope: object = globalThis,
+  reloadPage: () => void = () => location.reload(),
+): void {
+  const reload = call(record(record(Reflect.get(scope, "ace"))?.app), "reload");
+  if (!reload) {
+    reloadPage();
+    return;
+  }
+  void Promise.resolve()
+    .then(() => reload())
+    .catch(() => reloadPage());
+}
+
+/**
  * The desktop's clipboard for images (PNG or JPEG as base64), which works without the page
  * having focus or a user gesture; undefined in a browser or a desktop build that predates it.
  */

@@ -62,6 +62,8 @@ export function connectBrowser(
      * false is backpressure. Without it, every viewer gets frames as JSON.
      */
     sendStream?: (pieces: readonly Uint8Array[]) => boolean;
+    /** The connection is on this machine (the daemon's loopback listener, never a client claim). */
+    local?: boolean;
     /**
      * Opens a thread attachment this connection uploaded (the files a person picks for a page's
      * file input). Without it, picking files is refused.
@@ -102,6 +104,7 @@ export function connectBrowser(
                   ? sendStream(service.streamAudio(threadId, chunk))
                   : false,
             },
+            ...(options.local === true ? { local: true } : {}),
           }
         : {},
       (state) => options.send({ type: "browser.state", state }),

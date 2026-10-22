@@ -40,7 +40,7 @@ import { PrPageSkeleton, type PrSeed } from "./pr-page-skeleton.tsx";
 import { PrGatesLine, PrGatesRow } from "./pr-gates-row.tsx";
 import { prShortcut } from "./pr-shortcuts.ts";
 import { useToast } from "@/components/ui/toast.tsx";
-import { openExternal } from "@/boot/open-external.ts";
+import { useOpenWebAddress } from "@/components/web-link.tsx";
 import type { GateKey } from "./pr-gates.ts";
 
 export type PrTab = "summary" | "timeline" | "code";
@@ -258,6 +258,7 @@ function PrDetailLoaded(props: {
     });
   const refresh = () => void actions.refresh();
   const toast = useToast();
+  const openWeb = useOpenWebAddress();
   const status = detail.status;
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const shortcut = prShortcut(event);
@@ -266,7 +267,7 @@ function PrDetailLoaded(props: {
     if (shortcut === "summary" || shortcut === "timeline" || shortcut === "code")
       props.onTab(shortcut);
     else if (shortcut === "open")
-      void openExternal(status.url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
+      void openWeb(status.url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
     else if (shortcut === "copy-checkout") {
       const repository = status.ref.repository;
       void navigator.clipboard

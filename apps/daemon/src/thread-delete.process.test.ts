@@ -9,6 +9,7 @@ import { startServer, type ServerOptions } from "./server.ts";
 import { stubHandler } from "./commands.ts";
 import { Client, token } from "./socket-test-support.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
+import { organizeThread } from "./thread-organization.ts";
 async function command(client: Client, payload: CommandPayload, id: string, deviceId = "desktop") {
   client.send({ type: "command", command: Command.parse({ id, deviceId, payload }) });
   return client.next();
@@ -189,6 +190,34 @@ test("force deletion closes a live terminal before reporting success", async () 
     expect(() => process.kill(pid, 0)).toThrow();
     expect(f.runtime.listTerminals(f.thread.id)).toEqual([]);
     expect(f.store.getThread(f.thread.id)?.deletedAt).toBeDefined();
+  } finally {
+    await f.close();
+  }
+});
+
+test("settling a thread kills the shells it still has running and keeps their output readable", async () => {
+  const f = await fixture();
+  try {
+    const terminalId = await f.runtime.openTerminal(f.thread.id, "Dev server");
+    const terminal = f.runtime.terminal(terminalId, f.thread.id);
+    const pid = terminal.pid;
+    const settled = organizeThread(
+      f.store,
+      Command.parse({
+        id: "settle-shell",
+        deviceId: "desktop",
+        payload: { type: "thread.settle", threadId: f.thread.id },
+      }),
+      1000,
+    );
+    expect(settled.ok).toBe(true);
+    await terminal.exited;
+    expect(() => process.kill(pid, 0)).toThrow();
+    // The person can still read what the shell printed.
+    await f.lifecycle?.close();
+    expect(f.runtime.listTerminals(f.thread.id)).toMatchObject([{ id: terminalId, exited: true }]);
+    expect(f.runtime.listTerminals(f.thread.id)[0]?.nextOffset).toBeGreaterThan(0);
+    expect(f.store.getThread(f.thread.id)?.deletedAt).toBeUndefined();
   } finally {
     await f.close();
   }

@@ -29,6 +29,8 @@ export const shortcuts: readonly Shortcut[] = [
   { keymapId: "terminal", label: "Terminal", accelerator: "Ctrl+`" },
   { keymapId: "terminalPanel", label: "Terminal Panel", accelerator: "CmdOrCtrl+J" },
   { keymapId: "settings", label: "Settings…", accelerator: "CmdOrCtrl+," },
+  // An embedded browser page reloads itself on ⌘R (its toolbar's Reload).
+  { keymapId: "reloadApp", label: "Reload", accelerator: "CmdOrCtrl+R", pageOwned: true },
   // Not menu items: the app still answers them while an embedded browser page has focus.
   { keymapId: "newTab", accelerator: "CmdOrCtrl+Alt+T" },
   { keymapId: "closeTab", accelerator: "CmdOrCtrl+Alt+W" },

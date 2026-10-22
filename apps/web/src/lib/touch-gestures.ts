@@ -1,6 +1,6 @@
 /**
  * A touch sequence on a live picture (a thread's browser page, a device's screen) read as the
- * touches the target gets plus the gesture they make, for local echo. Pure: no DOM, no clock,
+ * touches the target gets plus the gesture they make (a tap to echo, a long press to take). Pure: no DOM, no clock,
  * no timers; the shells feed it events and times and act on what it returns.
  */
 
@@ -23,8 +23,6 @@ export type TouchEffect =
   | { type: "input"; input: TouchInput }
   /** A tap landed here: show it. */
   | { type: "tap"; at: PointerAt }
-  /** One finger drags the page by this much since the last pan (screen and page pixels). */
-  | { type: "pan"; screen: { x: number; y: number }; page: { x: number; y: number } }
   /** One finger held still long enough: the page's long press. */
   | { type: "longPress"; at: PointerAt };
 
@@ -53,7 +51,6 @@ export class TouchGestures {
   private readonly fingers = new Map<number, Finger>();
   private phase: Phase = "idle";
   private start: { at: PointerAt; time: number } | undefined;
-  private last: PointerAt | undefined;
 
   /** A finger touches down. `time` is in ms on any monotonic clock. */
   down(pointerId: number, at: PointerAt, time: number): TouchEffect[] {
@@ -64,7 +61,6 @@ export class TouchGestures {
     if (this.fingers.size === 1) {
       this.phase = "pressing";
       this.start = { at, time };
-      this.last = at;
     } else this.phase = "pinching";
     return [this.send("touchStart")];
   }
@@ -74,19 +70,9 @@ export class TouchGestures {
     const finger = this.fingers.get(pointerId);
     if (!finger) return [];
     finger.at = at;
-    const effects: TouchEffect[] = [];
     if (this.phase === "pressing" && this.start && distance(this.start.at, at) > touchSlop)
       this.phase = "dragging";
-    if (this.phase === "dragging" && this.last) {
-      effects.push({
-        type: "pan",
-        screen: { x: at.screen.x - this.last.screen.x, y: at.screen.y - this.last.screen.y },
-        page: { x: at.page.x - this.last.page.x, y: at.page.y - this.last.page.y },
-      });
-      this.last = at;
-    }
-    effects.push(this.send("touchMove"));
-    return effects;
+    return [this.send("touchMove")];
   }
 
   /** A finger lifted. The last one up ends the sequence; a short still press was a tap. */
@@ -151,7 +137,6 @@ export class TouchGestures {
   private reset(): void {
     this.phase = "idle";
     this.start = undefined;
-    this.last = undefined;
   }
 }
 

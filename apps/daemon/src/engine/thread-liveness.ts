@@ -28,7 +28,7 @@ export interface LivenessPorts {
 }
 
 /** Inputs that resume when their thread runs again; everything else needs a live session. */
-const resumable = new Set([
+export const resumable = new Set([
   "thread.send",
   "thread.create",
   "thread.fork",
