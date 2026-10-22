@@ -12,22 +12,24 @@ function commandLine(initial?: string): FeatureSwitches & { value(): string } {
   };
 }
 
-test("Linux enables the GlobalShortcuts portal so Wayland sessions can register the quick-thread shortcut", () => {
+test("Linux enables the GlobalShortcuts portal, with GNOME's trigger, so Wayland sessions can register the quick-thread shortcut", () => {
   const line = commandLine();
   enableFeatures(line, linuxFeatures("linux"));
-  expect(line.value()).toBe("GlobalShortcutsPortal");
+  expect(line.value()).toBe("GlobalShortcutsPortal,GlobalShortcutsPortalPreferredTrigger");
 });
 
 test("features someone already enabled survive adding the portal", () => {
   const line = commandLine("WaylandWindowDecorations, VaapiVideoDecoder");
   enableFeatures(line, linuxFeatures("linux"));
-  expect(line.value()).toBe("WaylandWindowDecorations,VaapiVideoDecoder,GlobalShortcutsPortal");
+  expect(line.value()).toBe(
+    "WaylandWindowDecorations,VaapiVideoDecoder,GlobalShortcutsPortal,GlobalShortcutsPortalPreferredTrigger",
+  );
 });
 
 test("an already enabled portal is not listed twice", () => {
   const line = commandLine("GlobalShortcutsPortal");
   enableFeatures(line, linuxFeatures("linux"));
-  expect(line.value()).toBe("GlobalShortcutsPortal");
+  expect(line.value()).toBe("GlobalShortcutsPortal,GlobalShortcutsPortalPreferredTrigger");
 });
 
 test.each(["darwin", "win32"] as const)("%s leaves Chromium's features alone", (platform) => {

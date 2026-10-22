@@ -74,8 +74,9 @@ await writeFile(
       author: "ace",
       // The deb's Homepage field; electron-builder requires one for Linux packages.
       homepage: "https://github.com/arpan404/ace",
-      // Linux window class / Wayland app_id: matches the installed ace-desktop.desktop entry.
-      desktopName: "ace-desktop.desktop",
+      // Linux window class / Wayland app_id and the installed entry's name. Reverse-DNS, as
+      // portals require: GNOME refuses global shortcuts to an app id like `ace-desktop`.
+      desktopName: "dev.ace.app.desktop",
       main: mainEntry,
     },
     null,
