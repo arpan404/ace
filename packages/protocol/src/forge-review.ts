@@ -161,7 +161,9 @@ export const ForgeReviewState = z.object({
   hidden: z.array(ForgeHiddenComment).max(4_000).nullable().optional(),
   /** Comments the viewer may hide or unhide (GitHub's viewerCanMinimize); null when unread. */
   hideable: z
-    .array(z.object({ source: z.enum(["issue", "inline"]), commentId: z.number().int().positive() }))
+    .array(
+      z.object({ source: z.enum(["issue", "inline"]), commentId: z.number().int().positive() }),
+    )
     .max(4_000)
     .nullable()
     .optional(),

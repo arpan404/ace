@@ -18,10 +18,8 @@ import { PrCodeFile, type HostedFileRead } from "./pr-code-file.tsx";
 import { hostedFileShow, renderedKind } from "./pr-file-kind.ts";
 import { sideTexts, usePrFileSides } from "./pr-file-sides.ts";
 import { PrCodeToolbar, type CodeOptions } from "./pr-code-toolbar.tsx";
-import type { PrDiffContext, PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
+import type { PrDiffContext, PrWorkspaceContext } from "./pr-extensions.ts";
 import { usePrFilePages } from "./pr-file-pages.ts";
-import { composerClearance } from "./pr-composer.tsx";
-import { cn } from "@/lib/cn.ts";
 import { PrMoreFiles } from "./pr-more-files.tsx";
 import { PrOffDiffThreads } from "./pr-off-diff-threads.tsx";
 import { usePrViewedMarks } from "./pr-viewed-marks.ts";
@@ -43,7 +41,6 @@ interface PrFilesProps {
   repository: ForgeRepository;
   detail: ForgePrDetail;
   context: PrWorkspaceContext;
-  extensions?: PrWorkspaceExtensions | undefined;
   /** A file to scroll to (the Summary's Changes); a new `seq` asks again. */
   focus?: { path: string; seq: number } | undefined;
 }
@@ -113,7 +110,7 @@ function PrCodeRange(
   const diffs = useFileChanges(inputs);
   const byPath = useMemo(() => new Map(diffs.files.map((diff) => [diff.path, diff])), [diffs]);
   const context: PrDiffContext | undefined = range && { ...props.context, files: range };
-  const marks = usePrViewedMarks(context, props.extensions);
+  const marks = usePrViewedMarks(context);
   const markByPath = new Map(files.map((file) => [file.path, marks.markOf(file)]));
   // A file marked viewed folds; unmarking it, or a new version of its diff, opens it again.
   const versions = new Map(
@@ -187,7 +184,6 @@ function PrCodeRange(
           file={file}
           diff={diff}
           context={context}
-          extensions={props.extensions}
           view={diff ? views.viewOf(diff) : freshView}
           onView={(next) => views.setView(file.path, next)}
           mode={props.options.mode}
@@ -233,12 +229,12 @@ function PrCodeRange(
       )}
       {range && context && (
         <>
-          <PrOffDiffThreads threads={threads} onFile={jump} />
+          <PrOffDiffThreads threads={threads} />
           <div className="flex min-h-0 flex-1">
             <div
               ref={scroller}
               data-diff-scroller=""
-              className={cn("min-h-0 min-w-0 flex-1 overflow-auto", composerClearance)}
+              className="min-h-0 min-w-0 flex-1 overflow-auto pb-16"
             >
               <p className="sr-only">
                 {props.commit

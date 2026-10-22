@@ -5,6 +5,7 @@ import type { PrActions } from "./pr-actions.ts";
 import type { PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { BehindBase, PrPrimaryControl, PrTitle } from "./pr-header.tsx";
 import { PrAgentChip } from "./pr-agent-chip.tsx";
+import { PrReviewButton } from "./pr-review-popover.tsx";
 import { PrMergeLines } from "./pr-merge-lines.tsx";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 
@@ -37,6 +38,7 @@ export function PrPageHeader(props: {
           <>
             {props.extensions?.headerActions?.(context)}
             <PrAgentChip detail={detail} compact={false} />
+            <PrReviewButton />
             {/* A merged or closed PR's state is the badge under the title, not a button. */}
             {actions.primary.kind !== "state" && <PrPrimaryControl actions={actions} />}
             {props.menu}
