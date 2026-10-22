@@ -75,6 +75,7 @@ import QuartzCore
     }
     static func make() -> ProductionApp? {
         guard !SpikeConfiguration.enabled, let directory = try? storageDirectory() else { return nil }
+        LaunchTrace.mark("app.init")
         return ProductionApp(directory: directory)
     }
     nonisolated static func storageDirectory() throws -> URL {

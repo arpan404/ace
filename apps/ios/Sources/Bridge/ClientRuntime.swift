@@ -53,19 +53,27 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
             lock.withLock { loop = runLoop }
             ready.signal()
             autoreleasepool {
+                let creating = LaunchTrace.begin("vm.create", entry)
                 guard let context = JSContext(virtualMachine: JSVirtualMachine()) else {
                     fail("Could not create the JavaScript runtime"); ready.signal(); return
                 }
                 self.context = context
+                creating.end()
                 context.exceptionHandler = { [weak self] _, _ in self?.fail("The client runtime encountered a JavaScript error") }
                 let native = NativeHost(runtime: self, target: target, storageURL: storageURL, services: services, receive: receive)
                 host = native
                 native.install(in: context)
                 do {
                     guard let path = Bundle.main.url(forResource: "client", withExtension: "js") else { throw HostError.unsupported }
+                    let reading = LaunchTrace.begin("script.read", entry)
                     let script = try String(contentsOf: path, encoding: .utf8)
+                    reading.end()
+                    let evaluating = LaunchTrace.begin("script.evaluate", entry)
                     context.evaluateScript(script, withSourceURL: path)
+                    evaluating.end()
+                    let starting = LaunchTrace.begin("script.start", entry)
                     context.objectForKeyedSubscript(entry)?.call(withArguments: [json])
+                    starting.end()
                 } catch { fail("Could not load the shared client") }
             }
             CFRunLoopRun()

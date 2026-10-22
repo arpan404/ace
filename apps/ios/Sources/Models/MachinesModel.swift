@@ -38,7 +38,10 @@ import Observation
 
     /// Load the directory, then connect every paired machine. An offline one gates nothing.
     func load() async {
-        switch await access.perform(.list) {
+        let listing = LaunchTrace.begin("machines.list")
+        let listed = await access.perform(.list)
+        listing.end()
+        switch listed {
         case .success(let outcome): machines = outcome.machines ?? []
         case .failure(let notice): problem = notice
         }

@@ -113,7 +113,11 @@ final class NativeHost: @unchecked Sendable {
               let request = try? JSONDecoder().decode(PinnedHTTPRequest.self, from: Data(json.utf8)) else {
             reply(.failure(.invalid)); return
         }
-        PinnedHTTP.send(origin: origin, pin: target.pin, request: request, now: services.now, completion: reply)
+        let tracing = LaunchTrace.begin("http", request.path)
+        PinnedHTTP.send(origin: origin, pin: target.pin, request: request, now: services.now) { result in
+            tracing.end()
+            reply(result)
+        }
     }
     private func socket(_ id: String, action: String, text: String) {
         switch action {
