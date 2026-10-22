@@ -133,9 +133,14 @@ scheme (`ace-<version>-<arch>.<ext>`) with `latest-linux.yml` / `latest-linux-ar
 Linux verification runs in a local Ubuntu 26.04 arm64 VM (Lima) and on CI's x64 and arm64
 runners: the helper against Xvfb, Openbox and GTK apps with the accessibility bus; the
 browser engine with and without the sandbox restriction; the daemon archive smoke test; and
-the desktop AppImage under a headless GNOME Wayland session. Arch with Hyprland (Omarchy)
-is checked manually before the first release: AT-SPI outline and actions, portal capture,
-and the AppImage.
+the desktop AppImage under a headless GNOME Wayland session. The daemon's Linux end to end
+(`apps/daemon/scripts/linux-e2e/run.sh`) also runs Hyprland (on a virtual KMS display, with
+the distro's xdg-desktop-portal-hyprland or a build of Arch's version) and Sway, with
+waybar, mako and hypridle running and a scripted screen-sharing chooser. Neither portal has
+RemoteDesktop, so there the live view is watch-only and raw agent input is unsupported;
+ace never works around the portal with compositor IPC or virtual input. Arch with Hyprland
+(Omarchy) on x86 is still checked by hand before the first release: AT-SPI outline and
+actions, the real share picker, portal capture, and the AppImage.
 
 ## Consequences
 
