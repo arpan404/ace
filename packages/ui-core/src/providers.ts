@@ -2,6 +2,9 @@ import { modelDisplayName } from "@ace/models/display-name";
 import type { ProviderKind } from "@ace/protocol";
 import { acpAgentBrands, acpRegistryId } from "./acp-agents.ts";
 
+/** ace's own Antigravity sign-in: the CLI login its built-in Antigravity provider runs on. */
+export { antigravityIdentity } from "@ace/accounts/acp-instances";
+
 /** The provider's product name, as people know it. */
 export const providerNames: Record<ProviderKind, string> = {
   claude: "Claude Code",

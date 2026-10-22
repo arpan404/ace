@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./opencode-auth": "./src/opencode-auth.ts",
     "./labels": "./src/labels.ts",
-    "./availability": "./src/availability.ts"
+    "./availability": "./src/availability.ts",
+    "./acp-instances": "./src/acp-instances.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
