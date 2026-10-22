@@ -7,7 +7,7 @@ import {
   type McpAttribution,
   type ThreadId,
 } from "@ace/protocol";
-import { automationRunExecutor } from "../automation-run-executor.ts";
+import { automationRunExecutor, hostControl } from "../automation-run-executor.ts";
 import type { ServiceContext } from "../services/types.ts";
 import type { DelegationService } from "./delegations.ts";
 import { controlCommandId } from "./command-id.ts";
@@ -99,6 +99,6 @@ export function ownerThreadExecutor(
         },
       },
     },
-    () => (thread, command) => delegations.hostStop(thread, command),
+    () => hostControl(delegations),
   );
 }

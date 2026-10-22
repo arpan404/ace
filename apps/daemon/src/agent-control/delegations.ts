@@ -683,6 +683,25 @@ export class DelegationService {
       this.suspending.delete(thread);
     }
   }
+  /**
+   * Cancel delegated threads for the host (an automation stopping the children its run's turn
+   * started), each with its subtree. As when their parent is stopped, their results never wake
+   * it, though `hostStop` left the parent no Stop marker. Whether every cancel was accepted.
+   */
+  hostCancel(children: readonly ThreadId[], request: string): boolean {
+    return this.deps.store.atomic(() =>
+      children
+        .map((child) => {
+          this.journal.suppressWake(child);
+          return this.command(controlCommandId(child, request, "host.cancel"), {
+            type: "thread.interrupt",
+            threadId: child,
+            cascade: true,
+          }).ok;
+        })
+        .every(Boolean),
+    );
+  }
   onRemoteCancel: ((thread: ThreadId) => void) | undefined;
   private cancelPreparations(thread: ThreadId): void {
     this.reservationLifetimes.cancel(thread, (target, ancestor) =>

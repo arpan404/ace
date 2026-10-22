@@ -7,6 +7,7 @@ import { end } from "../engine/test-support.ts";
 import { Resources } from "../services/resources.ts";
 import type { ServiceContext } from "../services/types.ts";
 import { createAgentOwners } from "./owners.ts";
+import { ownerThreadExecutor } from "./owner-thread-executor.ts";
 import type { ExtensionOperation } from "./tools.ts";
 import { setup } from "./test-support.ts";
 
@@ -46,12 +47,23 @@ export async function automationFixture(provider: "codex" | "claude" = "codex") 
     } satisfies ServiceContext;
     const owners = createAgentOwners(context, h.service);
     for (const listen of onListen) await listen();
-    return { resources, settings, owners };
+    return { resources, settings, owners, context };
   };
   let owner = await open();
   return {
     h,
     caller,
+    /** Where the agent automations' own store lives. */
+    get dataDir() {
+      return owner.context.config.dataDir;
+    },
+    /** An executor for automations made from the fixture's thread, driven directly. */
+    executor() {
+      return ownerThreadExecutor(owner.context, h.service, () => ({
+        thread_id: caller.threadId,
+        agent_id: caller.agentId,
+      }));
+    },
     /** The agent ends the thread's open turn with `text`, once it has taken `turn` inputs. */
     async answer(turn: number, item: string, text: string) {
       for (let i = 0; i < 200 && (h.inputs.get(caller.threadId)?.length ?? 0) < turn; i++)

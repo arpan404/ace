@@ -33,8 +33,15 @@ import type { RunRecord, RunRecords } from "./automation-run-record.ts";
 /** A check now and then in case a change came without an event the monitor listens for. */
 const reconcileMs = 5_000;
 
-/** Records a Stop the host makes, without the marker a person's Stop leaves (`hostStop`). */
-export type HostStop = (thread: ThreadId, command: Command) => CommandResult;
+/**
+ * How the host stops a run's work in the delegation service, when there is one: a Stop of the
+ * run's turn without the marker a person's Stop leaves (`hostStop`), and a cancel of the threads
+ * the turn delegated to whose results never wake the thread again (`hostCancel`).
+ */
+export interface HostStop {
+  stop(thread: ThreadId, command: Command): CommandResult;
+  cancel(children: readonly ThreadId[], request: string): boolean;
+}
 
 export interface FollowOptions {
   records: RunRecords;
@@ -77,7 +84,9 @@ export function followRun(
     let settled = false;
     let running = false;
     let dirty = false;
-    let members = new Set<ThreadId>();
+    // The run's own thread from the start, so no change in it is missed before the first look.
+    const own = options.records.get(commandId)?.threadId;
+    let members = new Set<ThreadId>(own ? [own] : []);
     let cancelTimer = noop;
     const clock = context.options.engine?.clock ?? systemClock;
     const close = () => {
@@ -197,9 +206,12 @@ async function inspect(
             cancelling: record.cancel !== undefined,
           });
   }
-  let again = false;
-  if (record.cancel === "requested" || record.cancel === "sent")
-    again = await reconcileStop(context, options, commandId, thread);
+  // A stop just sent changes what the run is: look again before deciding anything.
+  if (
+    (record.cancel === "requested" || record.cancel === "sent") &&
+    (await reconcileStop(context, options, commandId, thread))
+  )
+    return { members, again: true };
   const latest = options.records.get(commandId) ?? record;
   const decision = decideRun({
     threadDeleted: false,
@@ -209,7 +221,7 @@ async function inspect(
     turn: turn?.facts,
     tree,
   });
-  if (decision.kind === "wait") return { members, again };
+  if (decision.kind === "wait") return { members };
   if (decision.kind === "follow") {
     await store.write(() => options.records.replace(commandId, decision.commandId));
     return { members, again: true };
@@ -226,7 +238,7 @@ async function inspect(
 /**
  * Carry out the run's cancellation as things stand now, reading them again inside the write
  * that sends the stop, so it can only reach the run's own message, turn or children. Returns
- * whether to look again soon (a stop was refused because the queue or turn moved on).
+ * whether a stop was sent, so the run is looked at again before anything is decided.
  */
 async function reconcileStop(
   context: ServiceContext,
@@ -268,7 +280,8 @@ async function reconcileStop(
     const accepted = sendStop(context, options, threadId, record, plan, stopId);
     if (accepted) options.records.stopSent(commandId, target);
     else options.records.stopRefused(commandId);
-    return !accepted;
+    // A refused stop changed nothing: the next change in the thread, or the slow check, retries.
+    return accepted;
   });
 }
 
@@ -332,14 +345,16 @@ function sendStop(
         },
       });
       // The automation's own stop leaves no Stop marker, so its later runs aren't held.
-      const hostStop = options.hostStop();
-      return hostStop
-        ? hostStop(threadId, command).ok
+      const host = options.hostStop();
+      return host
+        ? host.stop(threadId, command).ok
         : store.recordCommand(command.id, command.deviceId, () =>
             handle.handle(command, commandContext(store)),
           ).ok;
     }
-    case "cancel-children":
+    case "cancel-children": {
+      const host = options.hostStop();
+      if (host) return host.cancel(plan.children, stopId);
       return plan.children
         .map((child) =>
           send(
@@ -350,5 +365,6 @@ function sendStop(
           ),
         )
         .every((result) => result.ok);
+    }
   }
 }

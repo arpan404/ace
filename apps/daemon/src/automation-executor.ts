@@ -3,7 +3,7 @@ import { CommandId, ThreadId, WorkspaceId, DeviceId } from "@ace/protocol";
 import type { AutomationExecutor, ExecutionInput } from "@ace/automations";
 import { z } from "zod";
 import type { ServiceContext } from "./services/types.ts";
-import { automationRunExecutor } from "./automation-run-executor.ts";
+import { automationRunExecutor, hostControl } from "./automation-run-executor.ts";
 
 const deviceId = DeviceId.parse("automation");
 
@@ -93,7 +93,7 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
     },
     () => {
       const delegations = context.services.agentControl?.delegations;
-      return delegations && ((thread, command) => delegations.hostStop(thread, command));
+      return delegations && hostControl(delegations);
     },
   );
 }

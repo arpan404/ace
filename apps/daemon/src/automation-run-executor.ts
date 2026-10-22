@@ -8,6 +8,7 @@ import {
 } from "@ace/protocol";
 import type { ServiceContext } from "./services/types.ts";
 import { commandContext } from "./commands.ts";
+import type { DelegationService } from "./agent-control/delegations.ts";
 import { RunRecords } from "./automation-run-record.ts";
 import { followRun, type HostStop } from "./automation-run-monitor.ts";
 
@@ -131,5 +132,15 @@ export function automationRunExecutor(
       );
       monitors.get(commandId)?.();
     },
+  };
+}
+
+/** The delegation service's host stops, for a run's monitor (`HostStop`). */
+export function hostControl(
+  delegations: Pick<DelegationService, "hostStop" | "hostCancel">,
+): HostStop {
+  return {
+    stop: (thread, command) => delegations.hostStop(thread, command),
+    cancel: (children, request) => delegations.hostCancel(children, request),
   };
 }

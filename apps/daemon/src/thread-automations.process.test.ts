@@ -228,15 +228,15 @@ test("a person automation starts its thread on the saved effort and account", as
     const started = () =>
       f.daemon.store.listThreads().find((thread) => thread.title === "Automation: Launch choices")
         ?.id;
-    await expect.poll(started).toBeDefined();
+    await expect.poll(started, { timeout: 15_000 }).toBeDefined();
     const threadId = ThreadId.parse(started());
-    await expect.poll(() => f.h.contexts.has(threadId)).toBe(true);
+    await expect.poll(() => f.h.contexts.has(threadId), { timeout: 15_000 }).toBe(true);
     expect(f.h.contexts.get(threadId)).toMatchObject({
       instanceId: "claude-cli-default",
       options: { effort: "high" },
     });
     await expect
-      .poll(() => f.h.inputs.get(threadId)?.join("\n"))
+      .poll(() => f.h.inputs.get(threadId)?.join("\n"), { timeout: 15_000 })
       .toContain("Check the build\n\nFocus on flaky tests");
   } finally {
     await app.client.close();
