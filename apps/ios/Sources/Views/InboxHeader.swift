@@ -117,8 +117,8 @@ struct InboxFilters: View {
         .foregroundStyle(AceTheme.Colours.mutedForeground)
         .padding(.horizontal, 14)
         .frame(minHeight: 36)
-        .aceGlass(in: Capsule(), interactive: true)
-        .contentShape(Capsule())
+        .aceGlass(in: AceShape.capsule, interactive: true)
+        .contentShape(AceShape.capsule)
     }
 }
 
