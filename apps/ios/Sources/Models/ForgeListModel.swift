@@ -15,10 +15,17 @@ import Observation
     @ObservationIgnored private var key = ""
     @ObservationIgnored private var generation = 0
 
+    /// Starts on the list this phone last saw for `key`, so the page opens on its rows.
+    init(list: List? = nil, key: String = "") { self.list = list; self.key = key }
+
     /// Reads the list for `key` (machine, project, filters, query). A new key starts again at
-    /// one screenful; the same key reads again (pull to refresh with `fresh`).
-    func load(_ key: String, fresh: Bool = false, read: @escaping (_ screens: Int, _ fresh: Bool) async throws -> List) async {
-        if key != self.key { self.key = key; screens = 1; stale = list != nil; failure = nil }
+    /// one screenful, on its `kept` rows when the phone has them, else dimming the old ones;
+    /// the same key reads again (pull to refresh with `fresh`).
+    func load(_ key: String, fresh: Bool = false, kept: List? = nil, read: @escaping (_ screens: Int, _ fresh: Bool) async throws -> List) async {
+        if key != self.key {
+            self.key = key; screens = 1; failure = nil
+            if let kept { list = kept; stale = false } else { stale = list != nil }
+        }
         await run(fresh: fresh, read: read)
     }
     /// One more screenful of the same list.
@@ -49,21 +56,35 @@ import Observation
 }
 
 extension ClientModel {
-    /// The machine's registered projects, for the lists' project chip.
+    /// The machine's registered projects, for the lists' project chip. Kept by the bridge, like
+    /// the lists and pages below, so each opens on its last answer (`bridge/read-policy.ts`).
+    static let forgeProjectsRead: [String: Any] = ["type": "forge.projects"]
     func forgeProjects() async throws -> [ForgeProject] {
-        try await service(["type": "forge.projects"], as: ForgeProjects.self).projects
+        try await read(Self.forgeProjectsRead, as: ForgeProjects.self).projects
+    }
+    static func forgePullsRead(project: String, filter: PullsFilter, query: String, screens: Int = 1, fresh: Bool = false) -> [String: Any] {
+        ["type": "forge.pulls", "project": project, "search": filter.json(query: query), "screens": screens, "fresh": fresh]
+    }
+    static func forgeIssuesRead(project: String, filter: IssuesFilter, query: String, screens: Int = 1, fresh: Bool = false) -> [String: Any] {
+        ["type": "forge.issues", "project": project, "search": filter.json(query: query), "screens": screens, "fresh": fresh]
+    }
+    static func forgePullRead(project: String, number: Int, method: String) -> [String: Any] {
+        ["type": "forge.pull", "project": project, "number": number, "method": method]
+    }
+    static func forgeIssueRead(project: String, number: Int) -> [String: Any] {
+        ["type": "forge.issue", "project": project, "number": number]
     }
     func forgePulls(project: String, filter: PullsFilter, query: String, screens: Int, fresh: Bool) async throws -> ForgePullList {
-        try await service(["type": "forge.pulls", "project": project, "search": filter.json(query: query), "screens": screens, "fresh": fresh], as: ForgePullList.self)
+        try await read(Self.forgePullsRead(project: project, filter: filter, query: query, screens: screens, fresh: fresh), as: ForgePullList.self)
     }
     func forgeIssues(project: String, filter: IssuesFilter, query: String, screens: Int, fresh: Bool) async throws -> ForgeIssueList {
-        try await service(["type": "forge.issues", "project": project, "search": filter.json(query: query), "screens": screens, "fresh": fresh], as: ForgeIssueList.self)
+        try await read(Self.forgeIssuesRead(project: project, filter: filter, query: query, screens: screens, fresh: fresh), as: ForgeIssueList.self)
     }
     func forgePull(project: String, number: Int, method: String) async throws -> ForgePullPage {
-        try await service(["type": "forge.pull", "project": project, "number": number, "method": method], as: ForgePullPage.self)
+        try await read(Self.forgePullRead(project: project, number: number, method: method), as: ForgePullPage.self)
     }
     func forgeIssue(project: String, number: Int) async throws -> ForgeIssuePage {
-        try await service(["type": "forge.issue", "project": project, "number": number], as: ForgeIssuePage.self)
+        try await read(Self.forgeIssueRead(project: project, number: number), as: ForgeIssuePage.self)
     }
     /// Merge, or switch auto-merge, at the head the page showed. The answer says what happened.
     func forgeWrite(project: String, page: ForgePullPage, kind: String, method: String) async -> ForgeWrite {

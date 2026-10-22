@@ -50,6 +50,14 @@ export interface NewThreadFiles {
   tray(workspaceId: string): AttachmentTray | undefined;
   adopt(draftId: string): void;
 }
+/**
+ * The sheet's last project and agent lists (`native-reads.ts`), kept between openings and
+ * launches so the sheet opens on them while they are read again.
+ */
+export interface NewThreadMemory {
+  recall(key: string): Record<string, unknown> | undefined;
+  keep(key: string, family: "projects" | "catalog", patch: Record<string, unknown>): void;
+}
 
 const id = z.string().min(1).max(128);
 const choiceFields = {
@@ -101,18 +109,21 @@ export class NewThread {
   #projectAccess = new Map<string, AccessMode>();
   /** Each command id once: a repeated send waits on the first. */
   #flights = new Map<string, Promise<void>>();
+  #memory: NewThreadMemory | undefined;
   constructor(
     owner: NewThreadOwner,
     sink: PatchSink,
     preview: Preview,
     now: () => number,
     files: NewThreadFiles,
+    memory?: NewThreadMemory,
   ) {
     this.#owner = owner;
     this.#sink = sink;
     this.#preview = preview;
     this.#now = now;
     this.#files = files;
+    this.#memory = memory;
     this.#access = new NewThreadAccessReader(owner, sink);
   }
 
@@ -146,7 +157,12 @@ export class NewThread {
   }
 
   async projects(): Promise<void> {
-    this.#put("compose:projects", { type: "compose.projects", state: "loading", projects: [] });
+    // The last list stays on screen while it is read again; only a first read says loading.
+    const last = this.#memory?.recall("compose:projects");
+    this.#put(
+      "compose:projects",
+      last ?? { type: "compose.projects", state: "loading", projects: [] },
+    );
     try {
       const listed: Project[] = [];
       let after: string | undefined;
@@ -178,15 +194,24 @@ export class NewThread {
         path: this.#preview(row.path, 1024),
         recent: row.recent,
       }));
-      this.#put("compose:projects", { type: "compose.projects", state: "ready", projects });
+      const patch = { type: "compose.projects", state: "ready", projects };
+      this.#put("compose:projects", patch);
+      this.#memory?.keep("compose:projects", "projects", patch);
       void this.#access.target(this.#accessTarget(this.#choice));
     } catch {
-      this.#put("compose:projects", { type: "compose.projects", state: "failed", projects: [] });
+      if (!last)
+        this.#put("compose:projects", { type: "compose.projects", state: "failed", projects: [] });
     }
   }
 
   async agents(): Promise<void> {
-    this.#put("compose:agents", { type: "compose.agents", state: "loading", providers: [] });
+    // As with projects: the last agents show while they are read again. Starting a thread
+    // still waits for this read, so a choice is never checked against an old list.
+    const last = this.#memory?.recall("compose:agents");
+    this.#put(
+      "compose:agents",
+      last ?? { type: "compose.agents", state: "loading", providers: [] },
+    );
     try {
       const [readiness, accounts, catalog] = await Promise.all([
         this.#owner.request({ type: "providers.request", operation: "readiness" }, quiet),
@@ -209,10 +234,16 @@ export class NewThread {
       this.#agents = agents;
       this.#catalog = catalog.models;
       this.#emitAgents(agents);
+      this.#memory?.keep(
+        "compose:agents",
+        "catalog",
+        agentsPatch(agents, this.#choice, this.#preview),
+      );
       void this.#access.target(this.#accessTarget(this.#choice));
     } catch {
       this.#agents = undefined;
-      this.#put("compose:agents", { type: "compose.agents", state: "failed", providers: [] });
+      if (!last)
+        this.#put("compose:agents", { type: "compose.agents", state: "failed", providers: [] });
     }
   }
 

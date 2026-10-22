@@ -19,6 +19,7 @@ struct RootView: View {
         }
         .onChange(of: machines.machines.isEmpty) { _, empty in if !empty { lock.enable() } }
         .onChange(of: phase) { _, phase in
+            LaunchTrace.mark("scene", "\(phase)")
             if phase == .background { lock.didEnterBackground(); machines.inbox.recordSeen(); backgrounded = true }
             if phase == .active {
                 lock.didBecomeActive()

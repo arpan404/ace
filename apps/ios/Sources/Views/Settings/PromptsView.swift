@@ -22,6 +22,13 @@ struct PromptsView: View {
     @State private var files: [PromptFileRow] = []
     @State private var problem: String?
     @State private var adding = false
+    private static let listRead: [String: Any] = ["type": "prompts.request", "operation": ["op": "list"]]
+
+    /// Opens on the last prompts this phone saw, read again behind them.
+    init(model: ClientModel) {
+        self.model = model
+        _files = State(initialValue: model.kept(Self.listRead, as: PromptsReply.self)?.result.files ?? [])
+    }
     var body: some View {
         List {
             ServiceProblem(message: problem).listRowBackground(Color.clear)
@@ -44,11 +51,11 @@ struct PromptsView: View {
         }
         .insetGroupedList()
         .navigationTitle("Prompts").navigationBarTitleDisplayMode(.inline)
-        .readWhenConnected(model) { await read() }.refreshable { await read() }
+        .task(id: model.readGeneration(Self.listRead)) { await read() }.refreshable { await read() }
     }
     private func read() async {
         do {
-            let reply = try await model.service(["type": "prompts.request", "operation": ["op": "list"]], as: PromptsReply.self)
+            let reply = try await model.read(Self.listRead, as: PromptsReply.self)
             guard reply.result.kind == "list" else { throw ServiceFailure(message: reply.result.message ?? "Couldn't read prompts") }
             files = reply.result.files ?? []; problem = nil
         } catch { problem = error.localizedDescription }

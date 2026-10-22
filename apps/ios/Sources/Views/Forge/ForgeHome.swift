@@ -34,8 +34,30 @@ struct ForgeHome: View {
     @State private var issues = ForgeListModel<ForgeIssueList>()
     @AppStorage(ForgeProjectChoice.key) private var remembered = ""
 
+    /// Opens on the projects and lists this phone last saw on the machine, read again behind
+    /// them, so coming back to Pulls never starts from a spinner.
+    init(inbox: MachineInbox, machine: Binding<String>, project: Binding<String>, query: String, kind: Binding<ForgeKind>, actions: ForgeTabActions) {
+        self.inbox = inbox
+        _machine = machine
+        _project = project
+        self.query = query
+        _kind = kind
+        self.actions = actions
+        guard let session = Self.session(inbox, machine.wrappedValue) else { return }
+        let client = session.client
+        let projects = client.kept(ClientModel.forgeProjectsRead, as: ForgeProjects.self)?.projects ?? []
+        _projects = State(initialValue: projects)
+        let remembered = UserDefaults.standard.string(forKey: ForgeProjectChoice.key) ?? ""
+        guard let chosen = ForgeProjectChoice.pick(chip: project.wrappedValue, remembered: remembered, projects: projects) else { return }
+        let pulls = client.kept(ClientModel.forgePullsRead(project: chosen, filter: PullsFilter(), query: query), as: ForgePullList.self)
+        let issues = client.kept(ClientModel.forgeIssuesRead(project: chosen, filter: IssuesFilter(), query: query), as: ForgeIssueList.self)
+        _pulls = State(initialValue: ForgeListModel(list: pulls, key: Self.listKey(session.hostId, chosen, .pulls, String(describing: PullsFilter()), query)))
+        _issues = State(initialValue: ForgeListModel(list: issues, key: Self.listKey(session.hostId, chosen, .issues, String(describing: IssuesFilter()), query)))
+    }
+
     /// The machine the lists read: the chip's, else the first that is connected.
-    private var session: MachineSession? {
+    private var session: MachineSession? { Self.session(inbox, machine) }
+    private static func session(_ inbox: MachineInbox, _ machine: String) -> MachineSession? {
         inbox.sessions.first { $0.hostId == machine }
             ?? inbox.sessions.first { $0.client.connection == "ready" } ?? inbox.sessions.first
     }
@@ -45,12 +67,22 @@ struct ForgeHome: View {
         content
             .inboxTopBar { chips }
             .task(id: "\(session?.hostId ?? "")|\(session?.client.connection ?? "")") { await loadProjects() }
-            .task(id: "\(listKey)|\(session?.client.readyCount ?? 0)") { await load(fresh: false) }
+            .task(id: "\(listKey)|\(listGeneration)") { await load(fresh: false) }
     }
 
     private var listKey: String {
         let filter = kind == .pulls ? String(describing: pullsFilter) : String(describing: issuesFilter)
-        return [session?.hostId ?? "", chosen ?? "", kind.rawValue, filter, query].joined(separator: "|")
+        return Self.listKey(session?.hostId ?? "", chosen ?? "", kind, filter, query)
+    }
+    private static func listKey(_ machine: String, _ project: String, _ kind: ForgeKind, _ filter: String, _ query: String) -> String {
+        [machine, project, kind.rawValue, filter, query].joined(separator: "|")
+    }
+    /// Moves when the daemon says pull requests changed; the list on screen is read again.
+    private var listGeneration: Int {
+        guard let client = session?.client, let chosen else { return 0 }
+        return client.readGeneration(kind == .pulls
+            ? ClientModel.forgePullsRead(project: chosen, filter: pullsFilter, query: query)
+            : ClientModel.forgeIssuesRead(project: chosen, filter: issuesFilter, query: query))
     }
 
     @ViewBuilder private var content: some View {
@@ -124,11 +156,13 @@ struct ForgeHome: View {
         let (pullsFilter, issuesFilter, query) = (pullsFilter, issuesFilter, query)
         switch kind {
         case .pulls:
-            await pulls.load(listKey, fresh: fresh) { screens, fresh in
+            let kept = client.kept(ClientModel.forgePullsRead(project: chosen, filter: pullsFilter, query: query), as: ForgePullList.self)
+            await pulls.load(listKey, fresh: fresh, kept: kept) { screens, fresh in
                 try await client.forgePulls(project: chosen, filter: pullsFilter, query: query, screens: screens, fresh: fresh)
             }
         case .issues:
-            await issues.load(listKey, fresh: fresh) { screens, fresh in
+            let kept = client.kept(ClientModel.forgeIssuesRead(project: chosen, filter: issuesFilter, query: query), as: ForgeIssueList.self)
+            await issues.load(listKey, fresh: fresh, kept: kept) { screens, fresh in
                 try await client.forgeIssues(project: chosen, filter: issuesFilter, query: query, screens: screens, fresh: fresh)
             }
         }
