@@ -263,7 +263,7 @@ function NewPrForm(props: {
                     <button
                       type="button"
                       onClick={() => openExisting(existing)}
-                      className="rounded-xs text-ring-text focus-ring hover:underline"
+                      className="rounded-xs text-link focus-ring hover:underline"
                     >
                       {`#${existing} is already open`}
                     </button>

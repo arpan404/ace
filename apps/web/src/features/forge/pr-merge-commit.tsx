@@ -55,7 +55,9 @@ export function PrMergeCommitDialog(props: {
           <MergeCommitForm
             // A new method starts again from its own prefill; a push keeps what was written.
             key={method}
-            heading={when === "now" ? `${label} into ${base}` : `${label} into ${base} automatically`}
+            heading={
+              when === "now" ? `${label} into ${base}` : `${label} into ${base} automatically`
+            }
             confirm={when === "now" ? `Confirm ${label.toLowerCase()}` : "Enable auto-merge"}
             prefill={defaultMergeCommit(actions.context.detail, method, actions.mergeState.state)}
             headSha={actions.context.detail.status.headSha}
@@ -120,7 +122,10 @@ export function MergeCommitForm(props: {
         <DialogTitle>{props.heading}</DialogTitle>
       </DialogHeader>
       {(props.headSha !== openedAt || offer) && (
-        <p role="status" className="flex flex-wrap items-center gap-x-2 text-ui text-muted-foreground">
+        <p
+          role="status"
+          className="flex flex-wrap items-center gap-x-2 text-ui text-muted-foreground"
+        >
           {props.headSha !== openedAt &&
             "The branch has new commits since this opened; the merge takes them."}
           {offer && (

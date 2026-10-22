@@ -368,7 +368,10 @@ export class GitHubForge implements Forge, ForgeBrowser {
   ): Promise<ForgePrRef> {
     z.string().min(1).max(100).parse(headOwner);
     const branch = input.branch;
-    if (!ForgeBranchName.safeParse(branch).success || !ForgeBranchName.safeParse(input.base).success)
+    if (
+      !ForgeBranchName.safeParse(branch).success ||
+      !ForgeBranchName.safeParse(input.base).success
+    )
       throw new ForgeError("unprocessable");
     const response = await this.#api.request(
       `${this.#root}/pulls`,
