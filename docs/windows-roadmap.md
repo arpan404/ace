@@ -31,8 +31,8 @@ fix stays owned by PR #1315; this branch does not duplicate that implementation.
 
 Two implementation gaps were identified when reconciling the plans. W02 currently
 selects `ComSpec`; it must prefer `pwsh`, then `powershell`, then `ComSpec` to meet
-the terminal plan. The uncommitted runtime staging must use a shared
-`runtime/node.exe` path helper rather than introducing `runtime/bin/node.exe`.
+the terminal plan. Runtime staging now uses the shared `runtime/node.exe` helper in `7eea3fbed`.
+PowerShell discovery must be wired into the terminal workflow before W02 is complete.
 
 ## Delivery order
 
@@ -152,15 +152,15 @@ restart/reconnect and errors where applicable.
 
 ## Evidence ledger
 
-| Slice                 | Implementation commit | Review                                   | Verification                                                                                                                                           |
-| --------------------- | --------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Execution plan        | `b4595adf2`           | Reviewed                                 | Pushed; reconciled with PR #1315 in this update                                                                                                        |
-| W01 filesystem design | Uncommitted           | In progress                              | Native ABI and integration evidence pending                                                                                                            |
-| W02 shell selection   | `f7cb073d8`           | Two reviewers passed                     | Formatting, lint and terminal typecheck passed; PowerShell preference and Windows execution pending                                                    |
-| W03 process identity  | Uncommitted           | Findings corrected; final review pending | Real SID ownership implemented; native Windows marshalling and recovery pending                                                                        |
-| W04 descriptor core   | Uncommitted           | Pending                                  | Worker reports static checks; addon compilation and Windows execution pending                                                                          |
-| W07 runtime staging   | Uncommitted           | Findings open                            | Runtime path alignment and cache handling pending                                                                                                      |
-| W00 VM                | Provisioning          | N/A                                      | Official ARM64 ISO checksum verified; guest installation and tooling pending. PR #1315 describes an older VM, which has not been located on this host. |
+| Slice                 | Implementation commit | Review                                   | Verification                                                                                                                                                                                                    |
+| --------------------- | --------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Execution plan        | `b4595adf2`           | Reviewed                                 | Pushed; reconciled with PR #1315 in this update                                                                                                                                                                 |
+| W01 filesystem design | Uncommitted           | In progress                              | Native ABI and integration evidence pending                                                                                                                                                                     |
+| W02 shell selection   | `f7cb073d8`           | Two reviewers passed                     | Formatting, lint and terminal typecheck passed; PowerShell preference and Windows execution pending                                                                                                             |
+| W03 process identity  | Uncommitted           | Findings corrected; final review pending | Real SID ownership implemented; native Windows marshalling and recovery pending                                                                                                                                 |
+| W04 descriptor core   | Uncommitted           | Pending                                  | Worker reports static checks; addon compilation and Windows execution pending                                                                                                                                   |
+| W07 runtime staging   | `7eea3fbed`           | Two reviewers passed                     | Formatting, lint, incremental typecheck and size checks passed; behavioral execution, ConPTY closure and native packaging pending                                                                               |
+| W00 VM                | Provisioning          | N/A                                      | Official ARM64 ISO checksum verified; encrypted VM and virtual TPM configured. Windows installation is running; guest tooling pending. PR #1315 describes an older VM, which has not been located on this host. |
 
 Related contracts: [desktop shell](adr/0054-desktop-shell.md),
 [distribution](adr/0041-packaging-and-distribution.md),
