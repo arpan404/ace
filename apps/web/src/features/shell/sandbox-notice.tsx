@@ -1,9 +1,14 @@
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { desktopSandbox, type SandboxNotice as Notice } from "@/boot/desktop-sandbox.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useCopy } from "@/components/use-copy.ts";
-import { RestartConfirm } from "./restart-confirm.tsx";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
+
+/** The restart question loads only when asked: dialogs stay out of the first paint. */
+const RestartConfirm = deferredComponent(() =>
+  import("./restart-confirm.tsx").then((module) => module.RestartConfirm),
+);
 
 /**
  * Chromium's sandbox on a Linux AppImage or tar.gz where AppArmor blocks it (desktop only):
@@ -35,6 +40,9 @@ export function SandboxNotice(props: { scope?: object }) {
       stop();
     };
   }, [sandbox]);
+  useEffect(() => {
+    if (notice.state === "restart") void RestartConfirm.preload().catch(() => {});
+  }, [notice.state]);
   if (!sandbox || notice.state === "hidden") return null;
   const failed = (title: string) => () => toast.error({ title });
   const hide = (
@@ -84,13 +92,17 @@ export function SandboxNotice(props: { scope?: object }) {
           >
             Restart
           </Button>
-          <RestartConfirm
-            open={confirming}
-            title="Restart to turn on the sandbox?"
-            busy={busy}
-            onOpenChange={setConfirming}
-            onRestart={() => void sandbox.restart().catch(failed("Couldn't restart ace"))}
-          />
+          {confirming && (
+            <Suspense fallback={null}>
+              <RestartConfirm.Component
+                open={confirming}
+                title="Restart to turn on the sandbox?"
+                busy={busy}
+                onOpenChange={setConfirming}
+                onRestart={() => void sandbox.restart().catch(failed("Couldn't restart ace"))}
+              />
+            </Suspense>
+          )}
         </>
       )}
     </div>
