@@ -58,6 +58,8 @@ import CryptoKit
     /// The open thread's live browser view (`Sources/Browser`, `bridge/browser-live.ts`).
     let browser = BrowserLiveModel()
     let devices = DevicesModel()
+    /// The daemon reads the bridge keeps, for each screen's first frame (`ReadMirror`).
+    let reads = ReadMirror()
     @ObservationIgnored private var generation = 0
     /// Confirmation fence: the newest activity generation the bridge has reported, on any
     /// connection or inbox row. Older confirmed rows read as unconfirmed until their snapshot
@@ -87,7 +89,7 @@ import CryptoKit
         let epoch = connectionEpoch
         let closing = retireRuntime()
         hostId = target.hostId
-        inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset()
+        inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset()
         inboxLayout = .empty
         machineStatus = nil; providers = nil
         connection = "connecting"; error = nil; problem = nil
@@ -125,7 +127,11 @@ import CryptoKit
         for patch in patches {
             patchCount += 1
             switch patch {
-            case .service(let reply): services.receive(reply)
+            case .service(let reply):
+                if reply.ok, let cache = reply.cache, let value = reply.value { reads.store(key: cache.key, family: cache.family, value: value) }
+                services.receive(reply)
+            case .serviceCache(let cache, let value): reads.store(key: cache.key, family: cache.family, value: value)
+            case .serviceGenerations(let generations): reads.update(generations: generations)
             case .terminal(let patch):
                 if let offset = terminal.receive(patch) { action(["type": "terminal.credit", "id": patch.id, "offset": offset]) }
             case .fragment: break // BridgeFrames only returns complete patches.

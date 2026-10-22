@@ -18,6 +18,17 @@ struct ForgePullPageView: View {
     @Environment(\.openURL) private var openURL
 
     private var method: String { savedMethod.isEmpty ? "squash" : savedMethod }
+    private var request: [String: Any] { ClientModel.forgePullRead(project: route.project, number: route.number, method: method) }
+
+    /// Opens on the page this phone last saw for this pull request, read again behind it.
+    init(client: ClientModel, route: ForgeRoute, openThread: @escaping (InboxKey) -> Void) {
+        self.client = client
+        self.route = route
+        self.openThread = openThread
+        let saved = UserDefaults.standard.string(forKey: "ace.git.mergeMethod") ?? ""
+        let method = saved.isEmpty ? "squash" : saved
+        _page = State(initialValue: client.kept(ClientModel.forgePullRead(project: route.project, number: route.number, method: method), as: ForgePullPage.self))
+    }
 
     var body: some View {
         ScrollView {
@@ -48,7 +59,7 @@ struct ForgePullPageView: View {
                 }
             }
         }
-        .task(id: method) { await load() }
+        .task(id: "\(method)|\(client.readGeneration(request))") { await load() }
         .confirmationDialog(confirming?.label ?? "", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
                             titleVisibility: .visible, presenting: confirming) { action in
             Button(action.label) { Task { await write(action) } }
