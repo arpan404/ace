@@ -287,6 +287,8 @@ export class FakePrCatalog {
   }
   read(op: WorkspaceActionRequest["operation"], now = 0): ForgeBrowserResult | undefined {
     if (op.op === "forge.pr.list") return catalogPrList(op, this.fixtures);
+    if (op.op === "forge.repo.milestones")
+      return { resource: "repoMilestones", value: catalogPrOptions().milestones };
     if (op.op === "forge.repo.pr-options")
       return { resource: "repoPrOptions", value: catalogPrOptions() };
     if (op.op === "forge.pr.new-context")
@@ -297,9 +299,17 @@ export class FakePrCatalog {
     if (op.op === "forge.compare") {
       const pr = (branch: string) =>
         this.fixtures.find((entry) => entry.detail.headBranch === branch);
-      return {
-        resource: "compare",
-        value: compareBranches(
+      // The open PR these branches already have, as GitHub's head-and-base lookup finds it.
+      const existing =
+        op.page === 1
+          ? this.fixtures.find(
+              (entry) =>
+                entry.detail.headBranch === op.head.branch &&
+                entry.detail.baseBranch === op.base &&
+                (entry.detail.status.state === "open" || entry.detail.status.state === "draft"),
+            )
+          : undefined;
+      const compared = compareBranches(
           now,
           op.base,
           op.head,
@@ -309,7 +319,12 @@ export class FakePrCatalog {
               (each) => [each.path, each.additions, each.deletions] as [string, number, number],
             ),
           (branch) => pr(branch)?.detail.status.title,
-        ),
+      );
+      return {
+        resource: "compare",
+        value: existing
+          ? { ...compared, existingPr: existing.detail.status.ref.number }
+          : compared,
       };
     }
     if (op.op === "forge.pr.stack-memberships") {

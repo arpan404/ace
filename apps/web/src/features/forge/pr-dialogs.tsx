@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import type { PrActions } from "./pr-actions.ts";
 import { PrMetadataEditor } from "./pr-metadata-editor.tsx";
-import { useRepoPrOptions } from "./pr-repo-options.ts";
+import { useRepoMilestones } from "./pr-repo-options.ts";
 import { PrRevertForm } from "./pr-revert-form.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
 import { PrConflictsDialog } from "./pr-conflicts-view.tsx";
@@ -48,7 +48,7 @@ export function PrDialogs(props: {
     return ok;
   };
   const key = JSON.stringify(context.detail.status.ref);
-  const options = useRepoPrOptions(
+  const milestones = useRepoMilestones(
     context.workspaceId,
     context.detail.status.ref.repository,
     props.open === "edit" && !!snapshot?.editableFields.includes("milestone"),
@@ -71,7 +71,7 @@ export function PrDialogs(props: {
                 if (ok) props.onClose();
                 return ok;
               }}
-              milestones={options.data?.milestones}
+              milestones={milestones.data}
             />
           )}
         </DialogContent>

@@ -6,6 +6,7 @@ import {
   ForgeRepoPrOptions,
   type ForgeBranch,
   type ForgeCompareHead,
+  type ForgeMilestone,
 } from "@ace/protocol/forge-new-pr";
 import type { GhApi } from "./http.ts";
 import { ForgeError, ForgeQueryRefused } from "./errors.ts";
@@ -138,15 +139,25 @@ export class GitHubNewPr {
     );
     return (named ?? (templates.length === 1 ? templates[0] : undefined))?.body ?? null;
   }
+  /** The repository's open milestones, soonest due first; one page of 100. */
+  async milestones(signal: AbortSignal): Promise<ForgeMilestone[]> {
+    const response = await this.#api.request(
+      `${this.#root}/milestones?state=open&sort=due_on&direction=asc&per_page=100`,
+      signal,
+    );
+    return decode(z.array(Milestone).max(100), response.body).map((milestone) => ({
+      number: milestone.number,
+      title: milestone.title,
+      state: milestone.state,
+      dueOn: milestone.due_on,
+    }));
+  }
   /** Labels, assignable people and open milestones, each list bounded. */
   async options(signal: AbortSignal) {
     const [labels, people, milestones] = await Promise.all([
       this.#pages(`${this.#root}/labels?per_page=100`, Label, signal),
       this.#pages(`${this.#root}/assignees?per_page=100`, Person, signal),
-      this.#api.request(
-        `${this.#root}/milestones?state=open&sort=due_on&direction=asc&per_page=100`,
-        signal,
-      ),
+      this.milestones(signal),
     ]);
     return ForgeRepoPrOptions.parse({
       labels: labels.items.slice(0, 500).map((label) => {
@@ -162,12 +173,7 @@ export class GitHubNewPr {
             ? { login: person.login, avatarUrl: person.avatar_url }
             : { login: person.login },
         ),
-      milestones: decode(z.array(Milestone).max(100), milestones.body).map((milestone) => ({
-        number: milestone.number,
-        title: milestone.title,
-        state: milestone.state,
-        dueOn: milestone.due_on,
-      })),
+      milestones,
       truncated: labels.truncated || people.truncated,
     });
   }

@@ -29,3 +29,27 @@ export function useRepoPrOptions(
     },
   });
 }
+
+/** The repository's open milestones alone, for a PR's milestone picker. */
+export function useRepoMilestones(
+  workspaceId: string,
+  repository: ForgeRepository,
+  enabled: boolean,
+) {
+  return useDaemonQuery({
+    queryKey: ["forge", workspaceId, repository, "milestones"],
+    enabled,
+    retry: false,
+    staleTime: 5 * 60_000,
+    gcTime: keptForgeMs,
+    read: async (reader, signal) => {
+      const result = await readForge(
+        reader,
+        { op: "forge.repo.milestones", workspaceId, repository },
+        signal,
+      );
+      if (result.resource !== "repoMilestones") throw new Error("No milestones returned.");
+      return result.value;
+    },
+  });
+}

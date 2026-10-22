@@ -244,6 +244,7 @@ export class FakeWorkspaceWire {
     const catalogued =
       (op.op.startsWith("forge.pr.") ||
         op.op === "forge.repo.pr-options" ||
+        op.op === "forge.repo.milestones" ||
         op.op === "forge.compare") &&
       !this.forgeReads.has(JSON.stringify(op))
         ? this.pullRequests.read(op, this.context.now())
