@@ -41,7 +41,11 @@ export function bubbleOf(item: Item) {
           ? { kind: "text", text: segment.text, mention: "" }
           : { kind: "mention", text: segment.name, mention: segment.mention },
       )
-    : bubbleSegments(content.text).map((segment) => ({ ...segment, mention: "" }));
+    : bubbleSegments(content.text).map((segment) => ({
+        kind: segment.kind,
+        text: segment.text,
+        mention: "",
+      }));
   let room = bubbleChars;
   const segments = runs.flatMap((segment) => {
     if (room <= 0) return [];

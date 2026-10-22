@@ -19,45 +19,6 @@ struct EndingLine: View {
     }
 }
 
-struct EventLine: View {
-    @Bindable var item: ItemModel
-    var body: some View {
-        if let handoff = item.row.handoff {
-            HandoffDivider(handoff: handoff)
-        } else {
-            QuietRow(icon: .gitBranch) { Text(item.row.text).lineLimit(2) }
-        }
-    }
-}
-
-/// "⇄ Context handoff  GPT-6.1-Sol, Muse Spark → Claude Opus 5.5" between two hairlines, as on
-/// the web.
-private struct HandoffDivider: View {
-    let handoff: HandoffLine
-    var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
-            rule
-            HStack(spacing: AceTheme.Spacing.xs) {
-                AceIcon(.arrowsLeftRight, size: 14, relativeTo: .footnote)
-                Text(handoff.label).fontWeight(.medium)
-                if !handoff.from.isEmpty {
-                    Text(handoff.from.map(\.name).joined(separator: ", ")).lineLimit(1).truncationMode(.middle)
-                    AceIcon(.arrowRight, size: 14, relativeTo: .footnote)
-                }
-                Text(handoff.to.name).fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-            }
-            .layoutPriority(1)
-            rule
-        }
-        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(handoff.text)
-    }
-    private var rule: some View {
-        Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border).frame(minWidth: AceTheme.Spacing.lg).accessibilityHidden(true)
-    }
-}
-
 /// A question where it was asked, once settled: open ones are answered in place of the composer.
 struct QuestionLine: View {
     let interaction: ApprovalRow?
