@@ -181,12 +181,15 @@ export function followInbox(
     } else {
       // A thread joining or leaving the list touches only its own row. A reset here would
       // blank every row on the phone until the rest arrive, throwing the list to the top.
+      // The SDK names "ids" on every thread patch, so only rows that joined are sent beside the
+      // changed ones; each row's rank depends on that row alone, so the rest stay as they are.
       if (keys.has("ids")) {
         const now = new Set(store.ids);
         for (const id of listed) if (!now.has(id)) gone(id);
+        if (!flipped) for (const id of now) if (!listed.has(id)) row(id);
         listed = now;
       }
-      if (flipped || keys.has("ids")) for (const id of store.ids) row(id);
+      if (flipped) for (const id of store.ids) row(id);
       else for (const key of keys) if (key.startsWith("thread:")) row(key.slice(7));
     }
     sections();
