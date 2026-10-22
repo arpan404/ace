@@ -328,6 +328,7 @@ export class FakeDaemon implements Host {
     | "forgeReadCount"
     | "seedPullRequests"
     | "mergePullRequest"
+    | "pushPullRequest"
     | "setDraftGenerator"
     | "setIssueOutcome"
     | "checkReruns"

@@ -74,6 +74,10 @@ export class FakeWorkspaceWire {
   seedPullRequests(fixtures: readonly PullRequestFixture[]): void {
     this.pullRequests.seed(fixtures);
   }
+  /** Push to a catalog PR's branch: a new head with every new-side line moved down by ten. */
+  pushPullRequest(number: number): boolean {
+    return this.pullRequests.push(number);
+  }
   /** Mark a catalog PR merged, as a Verify merge run does on GitHub. */
   mergePullRequest(number: number): void {
     this.pullRequests.mergeNumber(number);

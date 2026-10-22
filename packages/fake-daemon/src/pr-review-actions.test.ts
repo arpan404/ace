@@ -207,3 +207,25 @@ test("a PR whose review state a test scripted still leaves its review commands t
     await f.client.close();
   }
 });
+
+test("a push moves the sample PR to a new head, its added-side conversations down with their lines", async () => {
+  const f = await connect();
+  try {
+    const before = await f.review();
+    expect(f.daemon.workspace.pushPullRequest(31)).toBe(true);
+    const after = await f.review();
+    expect(after.headSha).not.toBe(before.headSha);
+    // Drafts stay on the head they were written on.
+    expect(after.drafts.every((d) => d.anchor.commit === before.headSha)).toBe(true);
+    const threads = await f.threads();
+    expect(threads.map((t) => [t.side, t.startLine, t.line])).toEqual([
+      ["RIGHT", null, 22],
+      ["RIGHT", 13, 16],
+      ["LEFT", null, 4],
+      ["RIGHT", null, 15],
+      ["RIGHT", null, null],
+    ]);
+  } finally {
+    await f.client.close();
+  }
+});
