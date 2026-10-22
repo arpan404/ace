@@ -6,6 +6,7 @@ import { thoughtOf } from "./thread-messages.ts";
 
 import { PatchPump } from "./patch-pump.ts";
 import type { NativeLedger } from "./native-ledger.ts";
+import { anchoredOffset } from "./anchored-positions.ts";
 export { PatchPump } from "./patch-pump.ts";
 
 /**
@@ -69,15 +70,17 @@ export function followThread(
           if (id !== undefined && store.item(id)?.type === "reasoning") row(id);
         };
         const retained = new Set(store.order);
+        const offset = anchoredOffset(positions, store.order);
         for (const id of positions.keys())
           if (!retained.has(id)) {
             positions.delete(id);
             row(id);
           }
-        store.order.forEach((id, index) => {
+        store.order.forEach((id, at) => {
+          const index = at - offset;
           if (!positions.has(id)) {
             row(id, index);
-            thought(index);
+            thought(at);
           } else if (positions.get(id) !== index) {
             positions.set(id, index);
             put(`position:${id}`, () => ({
