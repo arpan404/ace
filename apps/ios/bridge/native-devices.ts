@@ -276,7 +276,8 @@ export class NativeDevices {
     } catch {
       // The snapshot carries a refusal; a channel that never opened has none, so the view would
       // spin forever. Say so, and try again while the screen stays open.
-      if (this.#view && !this.client.getSnapshot().connected) {
+      const snapshot = this.client.getSnapshot();
+      if (this.#view && (!snapshot.connected || !snapshot.inventoryLoaded)) {
         this.#unreachable = true;
         this.#retry = scheduler.set(retryMs, () => {
           this.#retry = undefined;
@@ -321,7 +322,9 @@ export class NativeDevices {
         view: phoneDevicesView({
           snapshot: this.client.getSnapshot(),
           closed: this.#closed,
-          unreachable: this.#unreachable && !this.client.getSnapshot().connected,
+          unreachable:
+            this.#unreachable &&
+            (!this.client.getSnapshot().connected || !this.client.getSnapshot().inventoryLoaded),
           threadId: current.threadId,
           deviceId: current.deviceId,
           query: current.query,

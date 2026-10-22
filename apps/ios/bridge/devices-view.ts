@@ -40,7 +40,8 @@ export interface DevicesViewInput {
   >;
   /** The channel was up and closed since. */
   closed: boolean;
-  /** The channel never opened in its time: the screen says so while ace keeps trying. */
+  /** The channel never opened, or never answered its first reads, in their time: the screen
+   * says so while ace keeps trying. */
   unreachable?: boolean;
   threadId: string | undefined;
   /** The device whose screen is open. */
@@ -257,7 +258,12 @@ export function phoneDevicesView(input: DevicesViewInput): PhoneDevicesView {
     .map((row) => tile(input, row, states.get(row.id)));
   const selected = input.deviceId ? rows.find((row) => row.id === input.deviceId) : undefined;
   const offline: DeviceProblem | null = snapshot.connected
-    ? null
+    ? input.unreachable && !snapshot.inventoryLoaded
+      ? {
+          message: "Can't read this machine's simulators and emulators.",
+          hint: "ace keeps trying.",
+        }
+      : null
     : snapshot.error
       ? deviceProblem({
           code: snapshot.error.code,

@@ -215,3 +215,22 @@ test("a channel that never opened says it can't reach the devices instead of loa
     hint: "ace keeps trying.",
   });
 });
+
+test("a channel that opened but never answered its first reads says so instead of loading forever", () => {
+  const input = {
+    snapshot: { connected: true, inventoryLoaded: false, devices: [], states: [], issues: [] },
+    closed: false,
+    threadId: "thread-1",
+    deviceId: undefined,
+    query: "",
+    platform: "all" as const,
+    now: 0,
+    agent: () => undefined,
+    previous: new Map(),
+  };
+  expect(phoneDevicesView(input).offline).toBeNull();
+  expect(phoneDevicesView({ ...input, unreachable: true }).offline).toEqual({
+    message: "Can't read this machine's simulators and emulators.",
+    hint: "ace keeps trying.",
+  });
+});
