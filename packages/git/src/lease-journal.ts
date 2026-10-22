@@ -135,6 +135,30 @@ async function journals(path: string): Promise<string[]> {
   }
 }
 
+/** Reads of a lease another process may still be writing before it counts as invalid. */
+const leaseReads = 5;
+
+/**
+ * One journal lease, or undefined once it is gone. A lease an older daemon is still writing in
+ * place reads empty, partial or growing for a moment; only one that stays unreadable is
+ * invalid, and fences the checkout.
+ */
+async function leaseRecord(file: string, name: string): Promise<MutationLease | undefined> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const content = await text(file);
+      if (content === undefined) return undefined;
+      const record = MutationLease.parse(JSON.parse(content));
+      if (name !== record.id) throw new Error("lease identity mismatch");
+      return record;
+    } catch {
+      if (attempt >= leaseReads)
+        throw new GitError("git_quarantined", "Invalid Git ownership journal", { file });
+      await new Promise((wake) => setTimeout(wake, 20 * attempt));
+    }
+  }
+}
+
 export interface JournalEntry {
   record: MutationLease;
   file: string;
@@ -160,15 +184,8 @@ export async function records(path: string): Promise<JournalEntry[]> {
         result.push({ record: running.record, file });
         continue;
       }
-      const content = await text(file);
-      if (content === undefined) continue;
-      try {
-        const record = MutationLease.parse(JSON.parse(content));
-        if (name !== record.id) throw new Error("lease identity mismatch");
-        result.push({ record, file });
-      } catch {
-        throw new GitError("git_quarantined", "Invalid Git ownership journal", { file });
-      }
+      const record = await leaseRecord(file, name);
+      if (record) result.push({ record, file });
     }
   }
   return result;

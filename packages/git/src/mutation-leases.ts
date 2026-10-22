@@ -17,7 +17,7 @@ import {
 } from "./lease-journal.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import { mkdir, open, rename, rm } from "node:fs/promises";
+import { link, mkdir, open, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { CleanupResult, MutationLease, type CleanupReceipt } from "@ace/provider-kit/cleanup";
 import { GitError } from "./types.ts";
@@ -93,13 +93,21 @@ export async function withMutationLease<T>(
   live.set(record.id, owned);
   let created = false;
   try {
-    const handle = await open(file, "wx", 0o600);
-    created = true;
+    // Written whole under a name readers skip, then linked into place: another daemon reading
+    // the journal never sees an empty or half-written lease. The link keeps creation exclusive.
+    const pending = file + ".next";
+    const handle = await open(pending, "wx", 0o600);
     try {
-      await handle.writeFile(JSON.stringify(record));
-      await handle.sync();
+      try {
+        await handle.writeFile(JSON.stringify(record));
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await link(pending, file);
+      created = true;
     } finally {
-      await handle.close();
+      await rm(pending, { force: true });
     }
     await syncDirectory(directory);
     return await scope.run([...(scope.getStore() ?? []), owned], operation);
