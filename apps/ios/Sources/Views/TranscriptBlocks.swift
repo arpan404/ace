@@ -28,24 +28,26 @@ struct BlockView: View {
     var body: some View {
         let row = block.row
         switch row.kind {
-        case "work": WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps, openMessage: links.openMessage)
+        case "work": WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps, openMedia: links.openMedia, openMessage: links.openMessage)
         case "subagents": if let agents = row.agents { SubagentGroupView(agents: agents, thread: thread, blockId: block.id, open: open) }
         case "live": if links.live { LiveLine(activity: thread.screen.activity) }
-        case "end": if let ending = row.ending { EndingLine(ending: ending) }
+        case "end": if let ending = row.ending { EndingLine(ending: ending, row: row, thread: thread) }
         case "files":
-            if let openChanges = links.openChanges {
-                QuietLink(icon: .fileText, title: "Edited files", action: openChanges)
-                    .accessibilityIdentifier("transcript.changes")
+            if let files = row.files, !files.chips.isEmpty, let openChanges = links.openChanges {
+                ChangedFilesRow(files: files, open: openChanges)
             }
         case "started":
             if let started = row.started {
                 StartedThreadRow(started: started, status: links.threadStatus?(started.threadId), open: links.openThread)
             }
         case "question": if let question = row.question { QuestionAskedLine(question: question) }
-        case "event":
-            ForEach(row.items, id: \.self) { id in
-                if let item = thread.items[id] { EventLine(item: item) }
+        case "user", "message", "event", "item":
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+                ForEach(row.items, id: \.self) { id in
+                    if let item = thread.items[id] { BlockItemView(item: item, block: row, links: links) }
+                }
             }
+            .environment(\.readMessage, reader)
         default:
             VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
                 ForEach(row.items, id: \.self) { id in
@@ -54,10 +56,37 @@ struct BlockView: View {
             }
         }
     }
+    /// Where a long answer reads its whole text: the thread's own model, when the feed has one.
+    private var reader: (@MainActor (String) async throws -> String)? {
+        guard let model = links.steps?.model else { return nil }
+        let threadId = thread.id
+        return { id in
+            try await model.service(["type": "native.message", "threadId": threadId, "itemId": id], as: MessageText.self).text
+        }
+    }
     private func open(_ entry: BlockRow.Agents.Entry) {
         if !entry.threadId.isEmpty { links.openThread(entry.threadId) }
         else if !entry.agentId.isEmpty { links.openAgent(entry) }
         else { links.openAgents?() }
+    }
+}
+
+/// A one-item block's item, observed on its own so streaming text re-renders this row alone: the
+/// person's bubble, the agent's answer, or an event as the bridge decided it.
+private struct BlockItemView: View {
+    @Bindable var item: ItemModel
+    let block: BlockRow
+    let links: TranscriptLinks
+    var body: some View {
+        if let event = block.event {
+            EventRowView(event: event, item: item, openMedia: links.openMedia, openMessage: links.openMessage)
+        } else if block.kind == "user" {
+            UserMessageRow(row: item.row)
+        } else if block.kind == "message" {
+            AnswerRow(row: item.row, streaming: block.streaming ?? false, openMessage: links.openMessage)
+        } else {
+            ItemRowView(item: item, openMedia: links.openMedia, openMessage: links.openMessage)
+        }
     }
 }
 
@@ -70,8 +99,10 @@ struct ItemRowView: View {
     var body: some View {
         let row = item.row
         switch row.type {
-        case "message": MessageRow(row: row, openMessage: openMessage)
-        case "reasoning": ThoughtRow(row: row, openMessage: openMessage, workEnded: workEnded)
+        case "message":
+            // In a work log, what the agent says between its steps: plain prose.
+            if row.role == "user" { UserMessageRow(row: row) } else { AnswerRow(row: row, between: true, openMessage: openMessage) }
+        case "reasoning": ReasoningRow(row: row, openMessage: openMessage, workEnded: workEnded)
         case "html", "image":
             if let openMedia {
                 QuietLink(icon: row.type == "html" ? .chartBarHorizontal : .image, title: row.text) { openMedia(row) }
@@ -84,65 +115,5 @@ struct ItemRowView: View {
     }
 }
 
-/// The person's words: a filled bubble on the right, at most about 85% of the column.
-struct UserBubble: View {
-    let text: String
-    var body: some View {
-        HStack(spacing: AceTheme.Spacing.none) {
-            Spacer(minLength: AceTheme.Spacing.xxxl * 2)
-            Text(text).aceFont(AceTheme.Typography.body, relativeTo: .body).textSelection(.enabled)
-                .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
-                .background(AceTheme.Colours.fill, in: AceShape.bubble)
-        }
-    }
-}
-
-/// A user bubble, or the agent's bare full-width Markdown.
-struct MessageRow: View {
-    let row: TranscriptRow
-    var openMessage: ((TranscriptRow) -> Void)? = nil
-    @Environment(\.fileLinks) private var fileLinks
-    var body: some View {
-        let user = row.role == "user"
-        VStack(alignment: user ? .trailing : .leading, spacing: AceTheme.Spacing.xs) {
-            if user {
-                UserBubble(text: row.text)
-            } else if !row.text.isEmpty {
-                MarkdownView(text: row.text).fileLinks(fileLinks, itemId: row.id)
-            }
-            if let attachments = row.attachments, !attachments.isEmpty {
-                AttachmentChips(attachments: attachments, more: row.moreAttachments ?? 0)
-            }
-            if row.truncated, let openMessage {
-                Button("Read full message") { openMessage(row) }.aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .accessibilityIdentifier("message.full.\(row.id)")
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: user ? .trailing : .leading)
-        .contextMenu {
-            Button(row.truncated ? "Copy visible text" : "Copy message", ace: .copy) { UIPasteboard.general.string = row.text }
-            ShareLink(item: row.text) { Label(row.truncated ? "Share visible text" : "Share message", ace: .export) }
-            if row.truncated, let openMessage { Button("Read full message") { openMessage(row) } }
-            Text(Date(timeIntervalSince1970: row.createdAt / 1000), format: .dateTime.month().day().hour().minute())
-        }
-    }
-}
-
-struct AttachmentChips: View {
-    let attachments: [AttachmentLine]
-    let more: Int
-    var body: some View {
-        HStack(spacing: AceTheme.Spacing.xs) {
-            ForEach(Array(attachments.enumerated()), id: \.offset) { _, attachment in
-                Label(attachment.name.isEmpty ? "Attachment" : attachment.name, ace: attachment.kind == "image" ? .image : attachment.kind == "pdf" ? .fileText : .file)
-                    .lineLimit(1).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .padding(.horizontal, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.xs)
-                    .background(AceTheme.Colours.fill, in: AceShape.capsule)
-            }
-            if more > 0 { Text("+\(more)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit() }
-        }
-        .foregroundStyle(AceTheme.Colours.mutedForeground)
-        .accessibilityElement(children: .combine)
-    }
-}
+/// `native.message`'s reply: an item's whole text.
+struct MessageText: Decodable { let text: String }

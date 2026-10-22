@@ -1,5 +1,10 @@
-import type { Item, ProviderKind } from "@ace/protocol";
-import { describeProviderError, isLimitError, type ErrorInput, type ErrorView } from "@ace/ui-core";
+import {
+  describeProviderError,
+  errorRowText,
+  isLimitError,
+  type ErrorInput,
+  type ErrorView,
+} from "@ace/ui-core";
 import { HourglassMediumIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
@@ -16,26 +21,6 @@ const quietLinkButton = buttonVariants({ variant: "ghost", size: "sm" });
 function openModelPicker(from: HTMLElement | null) {
   const scope = from?.closest("main") ?? document;
   scope.querySelector<HTMLButtonElement>('button[aria-label^="Model:"]')?.click();
-}
-
-/** A notice's structured error fields (C-A `code`/`title`/`detail`, #116 `details`), if any. */
-export function noticeError(item: Extract<Item, { type: "notice" }>): ErrorInput {
-  const record = item as Record<string, unknown>;
-  const text = (key: string) =>
-    typeof record[key] === "string" ? (record[key] as string) : undefined;
-  const details =
-    typeof record["details"] === "object" && record["details"] !== null
-      ? (record["details"] as Record<string, unknown>)
-      : {};
-  return {
-    text: item.text,
-    code: text("code") ?? (typeof details["code"] === "string" ? details["code"] : undefined),
-    title: text("title"),
-    detail: text("detail"),
-    provider:
-      typeof details["provider"] === "string" ? (details["provider"] as ProviderKind) : undefined,
-    model: typeof details["model"] === "string" ? details["model"] : undefined,
-  };
 }
 
 /**
@@ -60,9 +45,7 @@ export function ErrorRow(props: {
   const [open, setOpen] = useState(false);
   const details = useId();
   const [row, setRow] = useState<HTMLDivElement | null>(null);
-  const title = props.heading ?? view.title;
-  const message = props.heading ? (view.message ?? view.title) : view.message;
-  const raw = view.raw && view.raw !== title && view.raw !== message ? view.raw : undefined;
+  const { title, message, details: raw } = errorRowText(view, props.heading);
   return (
     <div
       ref={setRow}

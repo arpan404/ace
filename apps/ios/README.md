@@ -118,8 +118,22 @@ only, and the bridge builds `thread.send`, `thread.interrupt`, `interaction.reso
 the shared Allow once / Always allow / Deny verbs by option index, so large option sets are
 sent once with exact canonical ids.
 
+A work log reaches Swift as the web draws it (`bridge/work-log.ts`, over the shared
+`@ace/ui-core/work-log-reading`): sentence groups with their icon and failures, the live group
+titled by its step in flight, thoughts with their time, background commands as one group, ace's
+audits folded away. Each step's own line (glyph, verb, target, stat, note, bounded detail from
+`bridge/step-detail.ts`) travels on its item row, so streaming touches that row alone. Turn
+endings and changed-file chips come from `bridge/turn-ending.ts`.
+
+Message rows follow the web's (`bridge/thread-messages.ts`): item rows carry the person's
+bubble (`bubbleContent`: word, code and mention runs, the long fold, Steer or Queued) and a
+thought's header (`thoughtLabel`); event blocks carry the web's own event decision
+(`eventView`: system rows, errors with ×N and Details, refusals, Not sent, notices, the handoff
+divider), re-read when the order around them changes; answer blocks say whether they still
+stream. A truncated finished answer reads its whole text in place (`native.message`).
+
 SwiftUI renders blocks with native Markdown (`Models/Markdown.swift`, SF Mono code blocks),
-collapsible work logs, inline subagent rows worded as the web's (`@ace/ui-core`
+work logs on a step rail, inline subagent rows worded as the web's (`@ace/ui-core`
 subagent-row: meta, live detail, elapsed; a delegated child thread pushes, a native
 subagent's lane opens a sheet), question and approval cards on the strip above the composer
 (words typed while a question waits answer it through the shared `composerReply`), a model
@@ -133,7 +147,7 @@ behavior tests run with `bunx vitest run apps/ios/bridge/thread-*.test.ts` (shar
 Plan reviews, MCP forms and browser requests answer on their own cards
 (`bridge/thread-requests.ts`, validated with the shared `@ace/ui-core` form rules). An opened
 settled "Worked for" log reads its turn's full steps (`turn.steps` through the SDK's bounded
-`TurnStepsCache`), sent in 25-step page patches. While the log is open, a change to one of the
+`TurnStepsCache`), sent in 25-step page patches, its groups in the steps header. While the log is open, a change to one of the
 turn's own items reads the turn's summary (`turns.page`) and holds the turn with its `endSeq`, so
 the cache reads it again only when its copy is older, as the web does. The effort and speed chip follows the web's
 capability rules (`threadTuning`, `followUpTurnOptions` in `@ace/ui-core`); a pick goes with the next
@@ -166,6 +180,23 @@ come from `@ace/ui-core/mobile`, which Android also uses. Swift filters by searc
 maps token keys to theme colours and draws the rows. Archive, unarchive (Undo), snooze
 presets and wake go through the SDK's durable outbox. `InboxContractTests` and
 `InboxUITests` exercise the inbox against the fixture.
+
+## Pull requests and Issues
+
+The second tab (Pulls) holds the web's Pull requests and Issues pages for one machine and
+project at a time: a segmented switch between them, the project and Filters chips (state with
+GitHub's counts, involvement, sort, drafts, review, checks, author, labels), and the system
+search field. `bridge/forge-service.ts` answers native service calls (`forge.pulls`,
+`forge.issues`, `forge.pull`, `forge.issue`, `forge.merge`, `forge.auto-merge`,
+`forge.projects`) through the daemon's forge reads, the person's own `gh`. Searches, groups,
+next steps, merge gates, the primary control and the marks' words and tones come from
+`@ace/ui-core` (`forge-lists`, `pr-readiness`, `pr-row-steps`, `pr-gates`,
+`pr-primary-action`, `forge-marks`), the same modules the web pages use. List pages are kept
+half a minute; pull to refresh reads again. Merge and auto-merge go through the PR's linked
+thread when there is one, else its project (`forge.hosted.*`), pinned to the head shown and
+confirmed first. Start thread on an issue opens New thread with the issue written in and
+linked (`thread.create`'s `issue`). Linked threads open on the Threads tab. Bridge behaviour is
+covered by `bridge/forge-service.test.ts` on the fake daemon.
 
 ## Several machines
 

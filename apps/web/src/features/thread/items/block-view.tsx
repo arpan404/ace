@@ -2,7 +2,7 @@ import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { useItem } from "@ace/client-react";
 import { mayBeSystemInput } from "@ace/ui-core";
 import { memo, Suspense } from "react";
-import { usageWarning } from "../lib/usage-warning.ts";
+import { usageWarning } from "@ace/ui-core";
 import { DeferredEvent } from "./deferred-review.ts";
 import type { Block } from "../transcript/blocks.ts";
 import { TurnEnd } from "../transcript/turn-end.tsx";

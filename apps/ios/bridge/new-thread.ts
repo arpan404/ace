@@ -1,6 +1,7 @@
 import type { ClientCore } from "@ace/client";
 import {
   AccessMode,
+  ForgeIssueRef,
   KnownSpeed,
   WorkspaceId,
   type CatalogModel,
@@ -76,6 +77,8 @@ export const CreateAction = z.object({
   base: z.object({ ref: z.string().min(1).max(1024), remote: id.optional() }).optional(),
   /** Empty when the first message carries only files. */
   text: z.string().max(100_000),
+  /** The GitHub issue the thread works on, linked as the web's New thread from an issue does. */
+  issue: ForgeIssueRef.optional(),
 });
 type Create = z.infer<typeof CreateAction>;
 type Choice = z.infer<typeof ChoiceAction>;
@@ -313,6 +316,7 @@ export class NewThread {
       permission: access.permission,
       text: action.text,
       context: files.context,
+      ...(action.issue ? { issue: action.issue } : {}),
     });
     const draftId = files.context?.draftId;
     try {

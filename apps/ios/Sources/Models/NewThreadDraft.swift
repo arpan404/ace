@@ -25,6 +25,17 @@ struct NewThreadDraft: Codable, Equatable, Sendable {
     var commandId: String?
     /// Files picked for the first message, each in the project it was picked for.
     var files: [NewThreadFile] = []
+    /// The GitHub issue the thread works on (started from an issue's page); it goes with the
+    /// project it was picked in.
+    var issue: NewThreadIssue?
+}
+
+/// An issue a new thread links, and its title for the sheet to name it.
+struct NewThreadIssue: Codable, Equatable, Sendable {
+    let repository: ForgeRepository
+    let number: Int
+    let title: String
+    var json: [String: Any] { ["repository": repository.json, "number": number] }
 }
 
 /// The draft as a small JSON file, written atomically and protected until first unlock, with its
@@ -38,6 +49,22 @@ struct NewThreadDraftStore: Sendable {
     }
     func load() -> NewThreadDraft {
         DraftFile<NewThreadDraft>(url: url).load() ?? NewThreadDraft()
+    }
+    /// New thread from an issue: its machine, project, first message and link, keeping the
+    /// person's agent and model choices. Files picked for another draft let go when it opens.
+    func seed(machineId: String, projectId: String, text: String, issue: NewThreadIssue) {
+        var draft = load()
+        if draft.machineId != machineId {
+            draft.provider = nil; draft.model = nil; draft.account = nil; draft.effort = nil; draft.speed = nil; draft.access = nil
+        }
+        draft.machineId = machineId
+        if draft.projectId != projectId { draft.base = nil }
+        draft.projectId = projectId
+        draft.text = text
+        draft.issue = issue
+        draft.commandId = nil
+        draft.files.removeAll { $0.workspaceId != projectId }
+        save(draft)
     }
     func save(_ draft: NewThreadDraft) {
         try? DraftFile<NewThreadDraft>(url: url).save(draft)
@@ -64,8 +91,9 @@ struct NewThreadDraftStore: Sendable {
         var next = draft
         change(&next)
         next.commandId = draft.commandId
-        // Files go with the project they were picked for.
+        // Files and the issue go with the project they were picked for.
         next.files.removeAll { $0.workspaceId != next.projectId }
+        if next.projectId != draft.projectId { next.issue = nil }
         guard next != draft else { return }
         next.commandId = nil
         commit(next)
@@ -94,6 +122,7 @@ struct NewThreadDraftStore: Sendable {
         next.text = ""
         next.commandId = nil
         next.files = []
+        next.issue = nil
         commit(next)
     }
     /// Saves the draft first, then lets go of the copies it no longer names.

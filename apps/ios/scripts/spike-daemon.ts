@@ -17,6 +17,8 @@ import { seedNativeMedia } from "./media-scenario.ts";
 import { answerScreenshot, browserControl, realVideo, seedBrowser } from "./spike-browser.ts";
 import { featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
 import { seedFiles } from "./files-scenario.ts";
+import { seedWorkLogs } from "./worklog-scenario.ts";
+import { seedMessages } from "./message-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
 const port = z.coerce
@@ -137,6 +139,8 @@ seedProjects(daemon);
 seedNativeMedia(daemon);
 seedBrowser(daemon, details);
 seedFiles(daemon, details);
+seedWorkLogs(daemon);
+seedMessages(daemon, details);
 requestScenarios(daemon, details);
 spikeDevices(daemon, details);
 let fresh = 0;

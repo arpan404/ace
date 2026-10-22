@@ -10,7 +10,7 @@ import { connect, fixture, open, reset, rows, until } from "./thread-harness.ts"
 afterEach(reset);
 
 type Line = { itemId: string; label: string; command: string; running: boolean };
-type Work = { kind: string; background?: Line[]; groups?: { items: string[] }[] };
+type Work = { kind: string; background?: Line[]; log?: { kind: string; items?: string[] }[] };
 const work = () => rows("thread.block").find((row) => row.kind === "work") as Work | undefined;
 
 test("a command left running is its own line in the log, and reads finished once it ends", async () => {
@@ -48,9 +48,11 @@ test("a command left running is its own line in the log, and reads finished once
     command: "bun run dev:relay",
     running: true,
   });
-  // It stands alone where it started, never folded into a group with the read before it.
-  expect(work()?.groups?.find((group) => group.items.includes(running.itemId))?.items).toEqual([
-    running.itemId,
+  // It stands alone where it started, a background row, never folded into a group with the
+  // read before it.
+  expect(work()?.log?.map((row) => [row.kind, row.items ?? []])).toEqual([
+    ["step", []],
+    ["background", [running.itemId]],
   ]);
 
   fake.apply("relay", [{ type: "background.ended", task: "relay", status: "completed" }]);

@@ -1,4 +1,5 @@
 import type { ChangeTap, ThreadSource } from "@ace/client";
+import type { Item } from "@ace/protocol";
 import {
   turnHeadLabel,
   turnTreeOf,
@@ -21,6 +22,7 @@ import {
   subagentToolId,
   providerSlots,
   summarizeWork,
+  thoughtMs,
   workCounts,
   type SubagentGroupStatus,
   type SubagentState,
@@ -31,8 +33,11 @@ import { rootRunOf } from "@ace/ui-core";
 import { createBlockReader } from "@ace/ui-core/transcript-block-reader";
 import { blockItems, type Block } from "@ace/ui-core/transcript-blocks";
 import { preview } from "./presentation.ts";
-import { workGroups } from "./work-groups.ts";
-import { backgroundCalls, backgroundRows } from "./background-rows.ts";
+import { endingRow, filesRow } from "./turn-ending.ts";
+import { backgroundRows } from "./background-rows.ts";
+import { stepContext } from "./thread-rows.ts";
+import { workLog, type LogFacts } from "./work-log.ts";
+import { eventFollows, messageBlock, streamingOf } from "./thread-messages.ts";
 
 /*
  * The transcript's blocks as the web builds them (`@ace/ui-core` transcript grouping): "Worked
@@ -67,11 +72,6 @@ const tokens: Record<SubagentState, StatusToken> = {
   failed: "failed",
   cancelled: "neutral",
   done: "done",
-};
-const endings = {
-  failed: "Turn failed",
-  interrupted: "Interrupted by you",
-  paused: "Paused · Usage limit",
 };
 
 /** A folded head's steps, without the answer shown under it. */
@@ -201,6 +201,18 @@ function questionLine(store: ThreadSource, interactionId: string) {
   };
 }
 
+/** What a log of this thread reads with: its turns' ends, thoughts' times, steps' contexts. */
+export function logFacts(store: ThreadSource): LogFacts {
+  return {
+    ended: (item: Item) => {
+      const run = item.runId ? store.run(item.runId) : undefined;
+      return run !== undefined && run.state !== "active";
+    },
+    took: (id) => thoughtMs(store, id),
+    context: (item) => stepContext(store, item),
+  };
+}
+
 /** The root turn a block's items belong to: the first item whose run is still known. */
 function turnOf(store: ThreadSource, ids: readonly string[]): number | undefined {
   for (const id of ids) {
@@ -211,6 +223,9 @@ function turnOf(store: ThreadSource, ids: readonly string[]): number | undefined
 }
 
 export function blockRow(store: ThreadSource, block: Block, index: number | undefined) {
+  const read = (id: string) => store.item(id);
+  // A step whose turn is over is settled, whatever its stream last said.
+  const facts = logFacts(store);
   const base = {
     index: index ?? null,
     kind: block.kind,
@@ -221,7 +236,8 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
     interactionId: "",
     work: null as ReturnType<typeof workSummary> | null,
     agents: null as ReturnType<typeof subagents> | null,
-    ending: null as { label: string; automatic: boolean; error: string } | null,
+    ending: null as ReturnType<typeof endingRow> | null,
+    files: null as ReturnType<typeof filesRow> | null,
     started: null as { threadId: string; title: string } | null,
     /** A settled work head's root turn, which `turn.steps` reads its full steps by. */
     ordinal: null as number | null,
@@ -229,20 +245,17 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
   switch (block.kind) {
     case "work": {
       const items = workItems(block);
+      const background = backgroundRows(store, items);
+      const log = workLog(items, read, { ...facts, background });
       return {
         ...base,
         items,
         work: workSummary(store, block, items),
-        groups: workGroups(
-          items,
-          (id) => store.item(id),
-          (item) => {
-            const run = item.runId ? store.run(item.runId) : undefined;
-            return run !== undefined && run.state !== "active";
-          },
-          backgroundCalls(store, items),
-        ),
-        background: backgroundRows(store, items),
+        log: log.rows,
+        background,
+        aceSteps: log.ace,
+        retried: log.retried,
+        thoughts: log.thoughts,
         ordinal: block.outcome === undefined ? null : (turnOf(store, blockItems(block)) ?? null),
       };
     }
@@ -256,20 +269,23 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
         question: questionLine(store, block.interactionId),
       };
     case "end": {
-      const error = block.errorId ? store.item(block.errorId) : undefined;
+      const items = block.itemIds ?? [];
+      // A usage-limit pause keeps the work it did, a tap away.
+      const background = block.ending === "paused" ? backgroundRows(store, items) : [];
+      const log = block.ending === "paused" ? workLog(items, read, { ...facts, background }) : null;
       return {
         ...base,
-        ending: {
-          // A restart, not the person, cut it short.
-          label:
-            block.ending === "interrupted" && block.automatic
-              ? "Interrupted"
-              : endings[block.ending],
-          automatic: block.automatic === true,
-          error: preview(error?.type === "notice" ? error.text : "", 512),
-        },
+        items: [...items],
+        ending: endingRow(store, block),
+        log: log?.rows ?? null,
+        background,
+        aceSteps: log?.ace ?? [],
+        retried: log?.retried ?? [],
+        thoughts: log?.thoughts ?? [],
       };
     }
+    case "files":
+      return { ...base, items: [...block.itemIds], files: filesRow(store, block.itemIds) };
     case "started": {
       const started = startedThreadOf(store.item(block.itemId));
       return {
@@ -289,8 +305,10 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
     }
     case "live":
       return base;
-    default:
-      return { ...base, items: [...blockItems(block)] };
+    default: {
+      const items = [...blockItems(block)];
+      return { ...base, items, ...messageBlock(store, block.kind, items[0]) };
+    }
   }
 }
 
@@ -323,6 +341,10 @@ export function followBlocks(
   const counted = new Map<string, Set<string>>();
   /** Blocks whose display follows agent, run and interaction state. */
   const following = new Set<string>();
+  /** Event blocks whose row reads the rows around it (×N, repeats). */
+  const ordered = new Set<string>();
+  /** An event block's one item → that block, which redraws when the item does. */
+  const single = new Map<string, string>();
   const emit = (key: string) =>
     put(`${prefix}block:${key}`, () => {
       const block = blocks.get(key);
@@ -335,12 +357,22 @@ export function followBlocks(
     });
   const forget = (key: string) => {
     following.delete(key);
+    ordered.delete(key);
     const block = blocks.get(key);
+    if (block?.kind === "user" || block?.kind === "event" || block?.kind === "item")
+      if (single.get(block.itemId) === key) single.delete(block.itemId);
     if (block?.kind === "work") for (const id of workItems(block)) counted.get(id)?.delete(key);
   };
   const remember = (block: Block) => {
     if (block.kind === "subagents" || block.kind === "live" || block.kind === "question")
       following.add(block.key);
+    // An answer's streaming ends with its turn; its own deltas never touch the block.
+    if (block.kind === "message" && streamingOf(store, store.item(block.itemId)))
+      following.add(block.key);
+    if (block.kind === "user" || block.kind === "event" || block.kind === "item") {
+      single.set(block.itemId, block.key);
+      if (eventFollows(store, block.kind, block.itemId)) ordered.add(block.key);
+    }
     if (block.kind !== "work") return;
     if (block.ongoing || block.outcome === undefined) following.add(block.key);
     for (const id of workItems(block))
@@ -397,8 +429,12 @@ export function followBlocks(
         if (structural.has(key) || watch.has(key)) regroup = true;
         else if (key.startsWith("run:") || key.startsWith("agent:")) regroup = true;
         if (live(key)) for (const block of following) touched.add(block);
-        if (key.startsWith("item:"))
+        if (key.startsWith("item:")) {
           for (const block of counted.get(key.slice(5)) ?? []) touched.add(block);
+          const block = single.get(key.slice(5));
+          if (block) touched.add(block);
+        }
+        if (key === "order") for (const block of ordered) touched.add(block);
         if (key.startsWith("interaction:"))
           for (const block of following)
             if (blocks.get(block)?.kind === "question") touched.add(block);

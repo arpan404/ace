@@ -108,7 +108,14 @@ struct InboxFilters: View {
         .padding(.bottom, AceTheme.Spacing.xs)
     }
 
-    private func chip(_ title: String) -> some View {
+    private func chip(_ title: String) -> some View { InboxChip(title: title) }
+}
+
+/// The inbox's glass chip: a menu's current choice and a chevron. The Pull requests and Issues
+/// tab uses the same chips.
+struct InboxChip: View {
+    let title: String
+    var body: some View {
         HStack(spacing: 6) {
             Text(title).lineLimit(1)
             Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))

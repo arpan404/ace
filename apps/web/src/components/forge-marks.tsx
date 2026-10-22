@@ -5,24 +5,15 @@ import {
   GitPullRequestIcon,
   RecordIcon,
 } from "@phosphor-icons/react";
+import { prTone, prWords, type IssueState, type PrState } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 
 /*
  * GitHub's marks for a pull request or issue, in ace's status hues: open green, draft grey,
  * merged violet, closed red; issues open green, completed violet. Each carries its word, never
- * colour alone. Shared by the Pull requests view's lists and pages and by the PR view.
+ * colour alone (words and tones from `@ace/ui-core`). Shared by the Pull requests view's lists and
+ * pages and by the PR view.
  */
-
-export type PrState = "open" | "draft" | "merged" | "closed";
-export type IssueState = "open" | "closed";
-
-export const prTone = { open: "done", draft: "idle", merged: "waiting", closed: "failed" } as const;
-export const prWords = {
-  open: "Open",
-  draft: "Draft",
-  merged: "Merged",
-  closed: "Closed",
-} as const;
 
 /** The state as GitHub's pill: glyph and word on the state's colour. */
 export function StateBadge(

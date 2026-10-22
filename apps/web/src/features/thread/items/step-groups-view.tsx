@@ -1,11 +1,8 @@
-import { toolSurface } from "@ace/projection";
 import type { Item, ToolSurface } from "@ace/protocol";
 import {
-  backgroundFact,
   groupSteps,
-  retriedStepIds,
-  sameFact,
-  stepFact,
+  thoughtLabel,
+  thoughtMs,
   type GroupIcon,
   type GroupedSteps as Grouped,
   type StepFact,
@@ -13,8 +10,12 @@ import {
 } from "@ace/ui-core";
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
-import { thoughtLabel, thoughtMs } from "./thought-time.ts";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
+import {
+  readWorkLog,
+  sameWorkLogReading,
+  type WorkLogReading,
+} from "@ace/ui-core/work-log-reading";
 import {
   BrainIcon,
   ChatTeardropTextIcon,
@@ -56,83 +57,6 @@ import { StaticRow, TranscriptRow, pressableRowClass, rowDetailIndent } from "./
  * of that step, so streaming costs what changed, not the turn's length.
  */
 
-/** Per item object: what it counts as, and the surface it drove. Items change by replacement. */
-const facts = new WeakMap<Item, StepFact | null>();
-const surfaces = new WeakMap<Item, ToolSurface | null>();
-
-function factOf(item: Item): StepFact | undefined {
-  let fact = facts.get(item);
-  if (fact === undefined) {
-    fact = stepFact(item) ?? null;
-    facts.set(item, fact);
-  }
-  return fact ?? undefined;
-}
-
-function surfaceOf(item: Item): ToolSurface | undefined {
-  let surface = surfaces.get(item);
-  if (surface === undefined) {
-    surface = item.type === "tool_call" ? (toolSurface(item.call) ?? null) : null;
-    surfaces.set(item, surface);
-  }
-  return surface ?? undefined;
-}
-
-const noIds: ReadonlySet<string> = new Set();
-
-interface LogReading {
-  facts: readonly StepFact[];
-  /** Each step's surface, a URL-less browser step on the site its agent was last on. */
-  surfaces: ReadonlyMap<string, ToolSurface>;
-  /** Failed steps a later step ran again with success: not shown as failed. */
-  retried: ReadonlySet<string>;
-}
-
-/** The log's facts; `calls` are its calls that left a command running in the background. */
-function readLog(
-  items: readonly (Item | undefined)[],
-  calls: ReadonlyMap<string, string>,
-): LogReading {
-  const loaded = items.filter((item): item is Item => item !== undefined);
-  // Only a log with a failure looks for retries: the common case reads each item once.
-  const retried = loaded.some((item) => factOf(item)?.failed) ? retriedStepIds(loaded) : undefined;
-  const out: StepFact[] = [];
-  const shown = new Map<string, ToolSurface>();
-  const sites = new Map<string, string>();
-  for (const item of loaded) {
-    const known = factOf(item);
-    if (!known) continue;
-    const fact = calls.has(item.id) ? backgroundFact(known) : known;
-    out.push(retried?.has(item.id) ? { ...fact, failed: false } : fact);
-    const surface = surfaceOf(item);
-    if (!surface) continue;
-    const agent = item.agentId ?? "";
-    const carried = sites.get(agent);
-    const drawn =
-      surface.kind === "browser" && !surface.icon && carried
-        ? { ...surface, icon: { kind: "site" as const, origin: carried } }
-        : surface;
-    if (drawn.icon?.kind === "site") sites.set(agent, drawn.icon.origin);
-    shown.set(item.id, drawn);
-  }
-  return { facts: out, surfaces: shown, retried: retried ?? noIds };
-}
-
-const sameReading = (a: LogReading, b: LogReading) =>
-  a.retried.size === b.retried.size &&
-  [...a.retried].every((id) => b.retried.has(id)) &&
-  a.facts.length === b.facts.length &&
-  a.facts.every((fact, index) => sameFact(fact, b.facts[index] ?? fact)) &&
-  a.surfaces.size === b.surfaces.size &&
-  [...a.surfaces].every(([id, surface]) => {
-    const other = b.surfaces.get(id);
-    return (
-      other?.kind === surface.kind &&
-      JSON.stringify(other.icon) === JSON.stringify(surface.icon) &&
-      other.iconRef === surface.iconRef
-    );
-  });
-
 /** The log's groups, regrouped from the first changed step only. */
 function useGroups(steps: readonly StepFact[]): readonly StepGroup[] {
   // Remembers the facts it last grouped, apart from the grouping: an unchanged grouping comes back
@@ -147,7 +71,7 @@ function useGroups(steps: readonly StepFact[]): readonly StepGroup[] {
   return grouped.groups;
 }
 
-const nothing: LogReading = { facts: [], surfaces: new Map(), retried: new Set() };
+const nothing: WorkLogReading = { facts: [], surfaces: new Map(), retried: new Set() };
 
 export function GroupedSteps(props: {
   threadId: string;
@@ -168,10 +92,10 @@ export function GroupedSteps(props: {
   );
   const calls = useBackgroundCalls(props.threadId, shown);
   const read = useCallback(
-    (items: readonly (Item | undefined)[]) => readLog(items, calls),
+    (items: readonly (Item | undefined)[]) => readWorkLog(items, calls),
     [calls],
   );
-  const log = useStepItemsSelect(props.threadId, shown, read, sameReading) ?? nothing;
+  const log = useStepItemsSelect(props.threadId, shown, read, sameWorkLogReading) ?? nothing;
   const groups = useGroups(log.facts);
   const opened = useOpenSteps();
   const rows = groups.map((group, index) => (
