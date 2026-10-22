@@ -143,7 +143,7 @@ private struct ForgeSkeleton: View {
         .accessibilityLabel("Loading")
     }
     private func pill(width: CGFloat, height: CGFloat) -> some View {
-        Capsule(style: .continuous).fill(AceTheme.Colours.fill).frame(width: width, height: height)
+        AceShape.capsule.fill(AceTheme.Colours.fill).frame(width: width, height: height)
     }
 }
 

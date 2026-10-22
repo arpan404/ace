@@ -14,6 +14,8 @@ import SwiftUI
     static let strip = UnevenRoundedRectangle(topLeadingRadius: AceTheme.Radii.composer, topTrailingRadius: AceTheme.Radii.composer, style: .continuous)
     /// The person's message: a capsule for a short line, the bubble radius once it wraps.
     static let bubble = TextCapsule(maxRadius: AceTheme.Radii.bubble)
+    /// Code inside the person's message: concentric with the bubble's padding.
+    static let bubbleInset = rounded(nested(in: AceTheme.Radii.bubble, inset: AceTheme.Spacing.md))
     /// Code blocks, cards and screenshots: the content block radius.
     static let block = rounded(AceTheme.Radii.card)
     /// A row's pressed or selected fill: this radius on iOS 18, and the floor of its concentric

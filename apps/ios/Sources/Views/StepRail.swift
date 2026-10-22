@@ -22,7 +22,7 @@ struct LogRowBox<Lead: View, Title: View, Meta: View>: View {
         .lineLimit(1)
         .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs)
         .padding(.horizontal, AceTheme.Spacing.sm)
-        .background(open ? AceTheme.Colours.fill : .clear, in: Capsule(style: .continuous))
+        .background(open ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
         .contentShape(Rectangle())
         .padding(.horizontal, -AceTheme.Spacing.sm)
     }

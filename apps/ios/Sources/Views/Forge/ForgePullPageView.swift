@@ -165,8 +165,8 @@ struct ForgePullPageView: View {
                             }
                         } label: {
                             Image(ace: .caretDown).frame(width: 44, height: 44)
-                                .aceGlass(in: Capsule(style: .continuous), interactive: true)
-                                .contentShape(Capsule(style: .continuous))
+                                .aceGlass(in: AceShape.capsule, interactive: true)
+                                .contentShape(AceShape.capsule)
                         }
                             .accessibilityLabel("Merge method").accessibilityIdentifier("forge.pull.method")
                     }

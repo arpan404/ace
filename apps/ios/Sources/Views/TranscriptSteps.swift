@@ -112,7 +112,7 @@ struct TargetChip: View {
         .aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
         .foregroundStyle(AceTheme.Colours.foreground)
         .padding(.horizontal, AceTheme.Spacing.xs + AceTheme.Spacing.xxs).padding(.vertical, AceTheme.Spacing.xxs)
-        .background(AceTheme.Colours.fill, in: Capsule(style: .continuous))
+        .background(AceTheme.Colours.fill, in: AceShape.capsule)
     }
 }
 
@@ -174,7 +174,7 @@ struct StepDetailView: View {
                         .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.sm)
                 }
                 .frame(maxHeight: 288)
-                .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.code, style: .continuous))
+                .background(AceTheme.Colours.fill, in: AceShape.block)
                 .accessibilityLabel("Output")
             }
             ForEach(Array(detail.diffs.enumerated()), id: \.offset) { _, diff in StepDiff(diff: diff) }
@@ -219,8 +219,8 @@ private struct StepDiff: View {
             }
             .frame(maxHeight: 320)
         }
-        .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.code, style: .continuous).stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
-        .clipShape(RoundedRectangle(cornerRadius: AceTheme.Radii.code, style: .continuous))
+        .overlay(AceShape.block.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+        .clipShape(AceShape.block)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Diff of \(diff.path)")
     }

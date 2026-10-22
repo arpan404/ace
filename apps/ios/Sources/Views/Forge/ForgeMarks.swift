@@ -16,8 +16,8 @@ struct ForgeLabelPill: View {
             .padding(.horizontal, 7)
             .frame(height: 18)
             .foregroundStyle(hue.map { $0.mix(with: AceTheme.Colours.foreground, by: 0.45) } ?? AceTheme.Colours.mutedForeground)
-            .background(Capsule(style: .continuous).fill(hue?.opacity(0.2) ?? .clear))
-            .overlay(Capsule(style: .continuous).strokeBorder(hue?.opacity(0.45) ?? AceTheme.Colours.separator, lineWidth: 1))
+            .background(AceShape.capsule.fill(hue?.opacity(0.2) ?? .clear))
+            .overlay(AceShape.capsule.strokeBorder(hue?.opacity(0.45) ?? AceTheme.Colours.separator, lineWidth: 1))
             .accessibilityLabel("Label \(label.name)")
     }
 }

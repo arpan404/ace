@@ -82,7 +82,7 @@ struct UserBubble: View {
             }
             .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.sm)
             // Round as a capsule while it's one line; continuous corners once it wraps.
-            .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.bubble, style: .continuous))
+            .background(AceTheme.Colours.fill, in: AceShape.bubble)
         }
     }
 }
@@ -106,7 +106,7 @@ private struct BubbleText: View {
                     }
                     // Concentric with the bubble: its radius less the bubble's padding.
                     .background(AceTheme.Colours.background.opacity(0.5),
-                                in: RoundedRectangle(cornerRadius: AceTheme.Radii.bubble - AceTheme.Spacing.md, style: .continuous))
+                                in: AceShape.bubbleInset)
                 }
             }
         }
@@ -182,7 +182,7 @@ struct AttachmentChips: View {
                 Label(attachment.name.isEmpty ? "Attachment" : attachment.name, ace: attachment.kind == "image" ? .image : attachment.kind == "pdf" ? .fileText : .file)
                     .lineLimit(1).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .padding(.horizontal, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.xs)
-                    .background(AceTheme.Colours.fill, in: Capsule(style: .continuous))
+                    .background(AceTheme.Colours.fill, in: AceShape.capsule)
             }
             if more > 0 { Text("+\(more)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit() }
         }
