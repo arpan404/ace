@@ -49,6 +49,29 @@ import XCTest
         XCTAssertTrue(app.buttons["Stop all agents"].waitForExistence(timeout: 10))
         screenshot("thread-menu")
     }
+    /// With the subagents opened at the thread's end, the feed still scrolls the last line fully
+    /// above the strip and composer, and "Scroll to end" stays away while the end is in view.
+    func testLastLineClearsComposerWithSubagentsOpen() {
+        let app = launch()
+        reveal("thread.ios-agents", in: app)
+        app.buttons["thread.ios-agents"].tap()
+        let rollup = app.buttons["subagents.rollup"].firstMatch
+        XCTAssertTrue(rollup.waitForExistence(timeout: 25))
+        clearOfComposer(rollup, in: app)
+        rollup.tap()
+        XCTAssertTrue(app.buttons["subagent.Review PID-reuse safety"].waitForExistence(timeout: 10))
+        let transcript = app.scrollViews["transcript"]
+        for _ in 0..<3 { transcript.swipeUp(velocity: .fast) }
+        sleep(2)
+        screenshot("thread-end-subagents-open")
+        let last = app.staticTexts["Wiring the filters while the agents work"]
+        XCTAssertTrue(last.waitForExistence(timeout: 5))
+        let input = app.textViews["composer.input"]
+        let strip = app.descendants(matching: .any)["strip.waiting"]
+        let barTop = strip.exists ? min(strip.frame.minY, input.frame.minY) : input.frame.minY
+        XCTAssertLessThanOrEqual(last.frame.maxY, barTop, "the last line sits under the composer")
+        XCTAssertFalse(app.buttons["transcript.latest"].exists, "Scroll to end shows at the end")
+    }
     func testQuestionAndApprovalCards() {
         let app = launch()
         reveal("thread.ios-question", in: app)
