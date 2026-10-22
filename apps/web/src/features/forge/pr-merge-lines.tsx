@@ -37,6 +37,8 @@ export function PrMergeLines(props: { actions: PrActions }) {
       {deployments.map((deployment) => {
         const label = `${deployment.environment} · ${humanize(deployment.state)}`;
         const url = deployment.url;
+        // Stacked rows: on touch each row is a 44px target of its own. An area spilling past
+        // the row (touch-hit) would cover its neighbours and open the wrong environment.
         return url ? (
           <button
             key={deployment.environment}
@@ -46,7 +48,7 @@ export function PrMergeLines(props: { actions: PrActions }) {
                 toast.error({ title: "Couldn't open the deployment" }),
               )
             }
-            className="flex max-w-full items-center gap-1 rounded-xs focus-ring touch-hit hover:underline"
+            className="flex max-w-full items-center gap-1 rounded-xs focus-ring hover:underline pointer-coarse:min-h-11"
           >
             <span className="truncate">{label}</span>
             <ArrowSquareOutIcon aria-hidden size={12} className="shrink-0" />
