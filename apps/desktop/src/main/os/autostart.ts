@@ -91,12 +91,16 @@ function desktopEntry(executable: string): string {
 }
 
 /**
- * One `Exec` argument, quoted by the Desktop Entry rules: inside double quotes `"`, `` ` ``,
- * `$` and `\` take a backslash; the string-value escape then doubles every backslash, and a
- * literal `%` is written `%%` so it isn't read as a field code.
+ * One `Exec` argument by the Desktop Entry rules. A value holding none of the spec's reserved
+ * characters is written bare: xdg-open's generic mode (bare window managers, Hyprland, Sway)
+ * runs the program word as written, quotes included, so a quoted path opens nothing there.
+ * Otherwise it is quoted: inside double quotes `"`, `` ` ``, `$` and `\` take a backslash; the
+ * string-value escape then doubles every backslash. A literal `%` is written `%%` either way so
+ * it isn't read as a field code.
  */
 export function execArgument(value: string): string {
   if (/[\n\r]/.test(value)) throw new Error("The executable path contains a line break");
+  if (!/[\s"'\\><~|&;$*?#()`]/.test(value)) return value.replace(/%/g, "%%");
   const quoted = `"${value.replace(/["`$\\]/g, "\\$&")}"`;
   return quoted.replace(/\\/g, "\\\\").replace(/%/g, "%%");
 }

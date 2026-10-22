@@ -64,7 +64,7 @@ test("a moved AppImage points the entry at its new place", () => {
   const where = machine();
   install(where, { APPIMAGE: "/home/me/Downloads/ace.AppImage" });
   install(where, { APPIMAGE: "/home/me/Apps/ace.AppImage" });
-  expect(line(where.entry, "Exec")).toBe('Exec="/home/me/Apps/ace.AppImage" %U');
+  expect(line(where.entry, "Exec")).toBe("Exec=/home/me/Apps/ace.AppImage %U");
 });
 
 test("the entry follows XDG_DATA_HOME", () => {
@@ -105,7 +105,7 @@ test("an extracted tar.gz adds itself too, opening links with its launcher and s
   mkdirSync(folder);
   writeFileSync(join(folder, "ace-desktop.png"), "tar icon");
   install(where, { APPIMAGE: undefined, APPDIR: undefined }, join(folder, "ace-desktop-bin"));
-  expect(line(where.entry, "Exec")).toBe(`Exec="${join(folder, "ace-desktop")}" %U`);
+  expect(line(where.entry, "Exec")).toBe(`Exec=${join(folder, "ace-desktop")} %U`);
   expect(line(where.entry, "Icon")).toBe("Icon=ace-desktop");
   expect(
     readFileSync(

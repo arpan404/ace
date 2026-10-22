@@ -52,7 +52,7 @@ test("turning Open at login on and off adds and removes an entry that starts ace
 
   apply(DesktopSettings.parse({ openAtLogin: true }));
   expect(readFileSync(entry, "utf8")).toMatch(/^\[Desktop Entry\]\nType=Application\n/);
-  expect(execLine(entry)).toBe('Exec="/opt/ace/ace" --background');
+  expect(execLine(entry)).toBe("Exec=/opt/ace/ace --background");
   expect(item.enabled()).toBe(true);
 
   apply(DesktopSettings.parse({ openAtLogin: false }));
@@ -79,7 +79,7 @@ test("under an AppImage the entry starts the AppImage file, not its temporary mo
   });
   item.setEnabled(true);
   expect(execLine(join(root, ".config", "autostart", "dev.ace.app.desktop"))).toBe(
-    'Exec="/home/me/Apps/ace.AppImage" --background',
+    "Exec=/home/me/Apps/ace.AppImage --background",
   );
 });
 
@@ -88,7 +88,7 @@ test("from a tar.gz the entry starts its launcher, which works where the sandbox
   const { item } = loginItem({ home: root, execPath: "/home/me/ace-1.0.0-x64/ace-desktop-bin" });
   item.setEnabled(true);
   expect(execLine(join(root, ".config", "autostart", "dev.ace.app.desktop"))).toBe(
-    'Exec="/home/me/ace-1.0.0-x64/ace-desktop" --background',
+    "Exec=/home/me/ace-1.0.0-x64/ace-desktop --background",
   );
 });
 
@@ -100,7 +100,17 @@ test("an entry left by an AppImage that has since moved is rewritten with the ne
   expect(item.enabled()).toBe(false);
 
   applyWith(item)(DesktopSettings.parse({ openAtLogin: true }));
-  expect(execLine(entry)).toBe('Exec="/new/ace.AppImage" --background');
+  expect(execLine(entry)).toBe("Exec=/new/ace.AppImage --background");
+});
+
+// xdg-open's generic mode (bare window managers, Hyprland, Sway) runs Exec's first word as
+// written, quotes included, so only a path that needs quoting gets them.
+test("a plain path is written bare and a percent sign still can't read as a field code", () => {
+  const root = home();
+  loginItem({ home: root, execPath: "/opt/ace-100%/ace" }).item.setEnabled(true);
+  expect(execLine(join(root, ".config", "autostart", "dev.ace.app.desktop"))).toBe(
+    "Exec=/opt/ace-100%%/ace --background",
+  );
 });
 
 test("paths with spaces, quotes, dollars, backslashes and percent signs survive Exec quoting", () => {
