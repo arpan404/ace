@@ -86,3 +86,24 @@ export function summarizeChanges(
     }
   return [...files].map(([path, stat]) => ({ path, stat }));
 }
+
+/**
+ * A turn's changed files as chips: the first four, the rest folded into "+N more", never a
+ * "+1 more" that takes the place of the one file it stands for. `label` names them all.
+ */
+export function changedFileChips<T>(
+  files: readonly T[],
+  shown = 4,
+): { chips: readonly T[]; more: number; label: string } {
+  const rest = files.length - shown;
+  return {
+    chips: rest > 1 ? files.slice(0, shown) : files,
+    more: rest > 1 ? rest : 0,
+    label: `Changed ${files.length} ${files.length === 1 ? "file" : "files"}`,
+  };
+}
+
+/** A file's name for its chip: the last part of its path. */
+export function fileChipName(path: string): string {
+  return path.split("/").at(-1) || path;
+}

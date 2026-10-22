@@ -1,5 +1,5 @@
 import type { Item, Run } from "@ace/protocol";
-import { formatElapsed } from "@ace/ui-core";
+import { formatElapsed } from "./time.ts";
 
 /*
  * How long a thought took, for its folded header. Items carry when they began, not when they
