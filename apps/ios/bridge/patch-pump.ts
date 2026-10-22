@@ -50,6 +50,8 @@ export class PatchPump {
     new Map(),
   ];
   #fragment: Fragment | undefined;
+  /** The last frame was full, so what remains is backlog rather than a fresh change. */
+  #backlog = false;
   #drained: (() => void)[] = [];
   /** The open thread's ledger and navigation generation, while native keeps that thread. */
   #bound: { ledger: NativeLedger; epoch: number } | undefined;
@@ -144,7 +146,8 @@ export class PatchPump {
       for (const resolve of this.#drained.splice(0)) resolve();
       return;
     }
-    const at = ready >= framePatches ? now : Math.max(now + 8, next);
+    // The rest of a backlog that filled the last frame is coalesced already: it goes at once too.
+    const at = ready >= framePatches || this.#backlog ? now : Math.max(now + 8, next);
     if (this.#timer && this.#timer.at <= at) return;
     this.#timer?.cancel();
     this.#timer = {
@@ -168,6 +171,8 @@ export class PatchPump {
     const frame: Record<string, unknown>[] = [];
     /** Each patch's JSON, made once to measure it and reused for the frame. */
     const texts: string[] = [];
+    /** Whether this frame filled up, leaving a backlog behind it. */
+    let full = false;
     const delivered: Delivery[] = [];
     let bytes = 2;
     const now = host.now();
@@ -214,7 +219,10 @@ export class PatchPump {
           this.#emitFragment();
           return;
         }
-        if (bytes + size + 1 > 32768 || frame.length >= framePatches) break outer;
+        if (bytes + size + 1 > 32768 || frame.length >= framePatches) {
+          full = true;
+          break outer;
+        }
         delivered.push({ task, read, sticky, record });
         frame.push(patch);
         texts.push(json);
@@ -222,6 +230,7 @@ export class PatchPump {
         if (task.failures) break outer;
       }
     }
+    this.#backlog = full;
     if (frame.length) {
       this.#inFlight = {
         delivered,
