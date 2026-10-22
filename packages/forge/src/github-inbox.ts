@@ -7,7 +7,7 @@ import {
   type ForgeInboxSubjectState,
 } from "@ace/protocol/forge-inbox";
 import type { CommandRunner } from "./command.ts";
-import { ForgeAccessRefused, ForgeError } from "./errors.ts";
+import { ForgeAccessRefused, ForgeError, ForgeQueryRefused } from "./errors.ts";
 import { GhApi, type Page } from "./http.ts";
 import { GitHubNotification, inboxRow, pollSeconds, subjectState } from "./inbox-rows.ts";
 import { ListCache } from "./list-cache.ts";
@@ -44,6 +44,8 @@ export class GitHubInbox {
   /** Reads of one page while another is on its way share it. */
   readonly #flights: ListCache<ForgeInboxList>;
   readonly #recent = new Map<string, Remembered>();
+  /** Bumped by every write: a read that began before one never keeps what it read. */
+  #generation = 0;
   readonly #decoder = new PageDecoder(z.array(z.unknown()).max(100));
   readonly #states = new WeakMap<Page, Map<string, ForgeInboxSubjectState>>();
   /** GitHub's rate limit, until its reset: no read asks again before then. */
@@ -62,6 +64,7 @@ export class GitHubInbox {
       // A write changes what every page shows: the next read asks GitHub at once. The rate
       // limit stays: it belongs to the account, not to a page.
       onWrite: () => {
+        this.#generation++;
         this.#recent.clear();
         this.#flights.invalidate();
       },
@@ -85,6 +88,7 @@ export class GitHubInbox {
     return this.#flights.read(path, signal, (shared) => this.#read(path, query.page, shared));
   }
   async #read(path: string, number: number, signal: AbortSignal): Promise<ForgeInboxList> {
+    const generation = this.#generation;
     const recent = this.#recent.get(path);
     const now = this.#now();
     if (recent && now - recent.at < recent.list.pollSeconds * 1_000)
@@ -126,6 +130,9 @@ export class GitHubInbox {
       pollSeconds: pollSeconds(page.headers["x-poll-interval"]),
       unchanged: recent?.page === page,
     };
+    // A write landed while this read was on its way: GitHub may have answered from before it,
+    // so the next read asks again instead of repeating this page for a poll interval.
+    if (generation !== this.#generation) return list;
     this.#recent.delete(path);
     this.#recent.set(path, { page, at: this.#now(), list });
     if (this.#recent.size > maxRemembered) {
@@ -178,7 +185,12 @@ export class GitHubInbox {
     } catch (error) {
       signal.throwIfAborted();
       if (error instanceof ForgeError && error.kind === "offline") throw error;
-      return { states, complete: false };
+      // A refusal that asking again won't change (the repository is gone, access was lost,
+      // the host lacks a field) settles the page without states; anything else is asked again.
+      const settled =
+        error instanceof ForgeQueryRefused ||
+        (error instanceof ForgeError && (error.kind === "not_found" || error.kind === "forbidden"));
+      return { states, complete: settled };
     }
     const data = z
       .object({ data: z.record(z.string(), z.record(z.string(), z.unknown()).nullable()) })

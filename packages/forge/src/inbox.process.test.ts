@@ -405,3 +405,65 @@ test("a sign-in that is gone, or a refusal for one repository, keeps its own cat
     await gh.cleanup();
   }
 });
+
+test("a read that was on its way when a write landed isn't repeated: the next read asks GitHub", async () => {
+  const { gh, reader } = await inbox({
+    [firstPage]: [
+      {
+        barrier: "held-read",
+        headers: { "X-Poll-Interval": "60" },
+        body: [notification("1", "Issue", "assign", `${api}/acme/ace/issues/240`)],
+      },
+      { headers: { "X-Poll-Interval": "60" }, body: [] },
+    ],
+    "notifications/threads/1": [{ status: 204, raw: "" }],
+    "graphql:InboxStates": [
+      { body: { data: { r0: { n240: { __typename: "Issue", state: "OPEN" } } } } },
+    ],
+  });
+  try {
+    const held = reader.list(ForgeInboxQuery.parse({}), signal());
+    await gh.waitForRequest(firstPage);
+    await reader.write({ action: "done", id: "1" }, signal());
+    await gh.release("held-read");
+    // GitHub answered from before the write; that answer is never kept.
+    expect((await held).items.map((row) => row.id)).toEqual(["1"]);
+    expect(await reader.list(ForgeInboxQuery.parse({}), signal())).toMatchObject({
+      items: [],
+      unchanged: false,
+    });
+    expect((await gh.requests()).filter((r) => r.path === firstPage)).toHaveLength(2);
+  } finally {
+    await gh.cleanup();
+  }
+});
+
+test("a state read GitHub refuses for good is not asked again on every poll", async () => {
+  const { gh, reader, clock } = await inbox({
+    [firstPage]: [
+      {
+        headers: { "Last-Modified": "Thu, 22 Oct 2026 09:00:00 GMT", "X-Poll-Interval": "30" },
+        body: [notification("1", "PullRequest", "mention", `${api}/acme/gone/pulls/3`, "gone")],
+      },
+      { status: 304, raw: "" },
+    ],
+    "graphql:InboxStates": [
+      {
+        body: {
+          data: { r0: null },
+          errors: [{ type: "NOT_FOUND", path: ["r0"], message: "Could not resolve" }],
+        },
+      },
+    ],
+  });
+  try {
+    await reader.list(ForgeInboxQuery.parse({}), signal());
+    clock.now += 31_000;
+    const again = await reader.list(ForgeInboxQuery.parse({}), signal());
+    expect(again).toMatchObject({ unchanged: true, items: [{ id: "1" }] });
+    expect(again.items[0]?.state).toBeUndefined();
+    expect((await gh.requests()).filter((r) => r.path === "graphql")).toHaveLength(1);
+  } finally {
+    await gh.cleanup();
+  }
+});
