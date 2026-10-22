@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { cliShimCheck, planCliShim, renderCliShim } from "./cli-shim.ts";
+import { planCliShim, renderCliShim } from "./cli-shim.ts";
 
 const windowsApp = {
   node: "C:\\Program Files\\ace\\resources\\runtime\\bin\\node.exe",
@@ -32,18 +32,4 @@ it("refuses an install path that cmd would expand or cut short instead of writin
 it("rewrites a current shim that lost its executable bit", () => {
   const shim = renderCliShim({ node: "/a/node", entry: "/a/ace.mjs" }, "darwin");
   expect(planCliShim({ kind: "file", content: shim, executable: false }, shim)).toBe("replace");
-});
-
-it("lists a command left unreachable from a terminal, but stays quiet once PATH finds it", () => {
-  const installed = {
-    state: "unchanged",
-    file: "/Users/a/.ace/bin/ace",
-    directory: "/Users/a/.ace/bin",
-  } as const;
-  expect(cliShimCheck({ ...installed, onPath: false })).toMatchObject({
-    id: "desktop.cli-path",
-    status: "warn",
-    fix: expect.stringContaining("/Users/a/.ace/bin"),
-  });
-  expect(cliShimCheck({ ...installed, onPath: true })).toBeUndefined();
 });

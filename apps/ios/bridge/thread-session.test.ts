@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { facts } from "@ace/fake-daemon";
+import { ThreadId } from "@ace/protocol";
 import {
   commands,
   connect,
@@ -104,6 +105,84 @@ test("a subagent group reads working while its child still runs after the parent
   expect(agents.entries[0]?.state).toBe("working");
   expect(agents.entries[0]?.agentId).not.toBe("");
   expect(agents.status).toBe("1 working");
+});
+
+/** The first agent of the transcript's subagent group, as Swift holds it. */
+const firstAgent = () => {
+  const group = rows("thread.block").find((row) => row.kind === "subagents");
+  return (group?.agents as { entries: { state: string; result: string }[] } | undefined)
+    ?.entries[0];
+};
+
+test("a delegate's group follows its launch in place to its failure and result, with no second row", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "delegate", workspaceId: "ace", title: "Delegate", provider: "codex" });
+  const child = ThreadId.parse("child-review");
+  const launch = (settled: boolean) => ({
+    type: "item.upsert" as const,
+    agent: "root",
+    item: "launch-review",
+    draft: {
+      type: "delegation.started" as const,
+      origin: "ace" as const,
+      childThreadId: child,
+      provider: "codex" as const,
+      title: "Review the diff",
+      role: "review",
+      phase: settled ? ("settled" as const) : ("running" as const),
+      status: settled ? { state: "failed" as const } : { state: "working" as const, agents: 1 },
+      updatedAt: settled ? 2000 : 1000,
+      generation: 0,
+      complete: settled,
+      outcome: settled
+        ? {
+            threadId: child,
+            outcome: "failed" as const,
+            result: "Couldn't fetch the branch",
+            truncated: false,
+            before: null,
+          }
+        : null,
+    },
+  });
+  fake.apply("delegate", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Have Codex review it."),
+    launch(false),
+  ]);
+  open(connect(fake), "delegate");
+  expect((await until(firstAgent, "the running delegate")).state).toBe("working");
+  fake.apply("delegate", [
+    launch(true),
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "results-review",
+      draft: {
+        type: "delegation.settled",
+        origin: "ace",
+        delivery: "tool",
+        complete: true,
+        results: [
+          {
+            threadId: child,
+            outcome: "failed",
+            result: "Couldn't fetch the branch",
+            truncated: false,
+            before: null,
+          },
+        ],
+      },
+    },
+  ]);
+  const failed = await until(
+    () => firstAgent()?.state === "failed" && firstAgent(),
+    "the failed delegate",
+  );
+  expect(failed.result).toBe("Couldn't fetch the branch");
+  expect(rows("thread.block").filter((row) => row.kind === "subagents")).toHaveLength(1);
+  expect(rows("thread.block").map((row) => row.items)).not.toContainEqual(["results-review"]);
 });
 
 test("while the agent works a send queues by default and steers when the person asks", async () => {
