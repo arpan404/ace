@@ -98,10 +98,14 @@ struct ConversationFeed: View {
             }
         }
         .onScrollGeometryChange(for: TranscriptScrollIntent.Metrics.self) { geometry in
-            TranscriptScrollIntent.Metrics(y: geometry.contentOffset.y,
-                top: geometry.contentOffset.y + geometry.contentInsets.top,
-                bottom: geometry.contentSize.height + geometry.contentInsets.bottom - geometry.contentOffset.y - geometry.containerSize.height,
-                viewport: geometry.containerSize.height, topInset: geometry.contentInsets.top, bottomInset: geometry.contentInsets.bottom)
+            // The container is the area inside the insets; the feed runs under the header and
+            // the home indicator, so its frame is the container with both insets around it.
+            let insets = geometry.contentInsets
+            let frame = geometry.containerSize.height + insets.top + insets.bottom
+            return TranscriptScrollIntent.Metrics(y: geometry.contentOffset.y,
+                top: geometry.contentOffset.y + insets.top,
+                bottom: geometry.contentSize.height + insets.bottom - geometry.contentOffset.y - frame,
+                viewport: frame, topInset: insets.top, bottomInset: insets.bottom)
         } action: { old, new in
             intent.metrics = new
             if intent.active {
