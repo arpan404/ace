@@ -79,7 +79,10 @@ struct BridgeMachineAccess: MachineAccess {
                 guard let value = try? JSONDecoder().decode(AccessOutcome.self, from: Data(json.utf8)) else { finish(.failure(.unknown)); return }
                 finish(value.ok ? .success(value) : .failure(value.problem ?? .unknown))
             }
-            let runtime = ClientRuntime(access: target, services: services, fail: { _ in finish(.failure(.unknown)) })
+            // Listing follows machines that are already connecting: it never competes with their
+            // runtimes for the CPU. Pairing, renaming and removing are what the person waits on.
+            let priority: QualityOfService = if case .list = request { .utility } else { .userInitiated }
+            let runtime = ClientRuntime(access: target, services: services, priority: priority, fail: { _ in finish(.failure(.unknown)) })
             once.runtime = runtime
             runtime.startAccess(String(decoding: data, as: UTF8.self))
         }

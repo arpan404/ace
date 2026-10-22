@@ -33,6 +33,24 @@ struct SourceControlView: View {
     @State private var project = ""
     @State private var problem: String?
     @State private var busy = false
+    private static let projectsRead: [String: Any] = ["type": "projects.request", "operation": ["op": "workspace.list", "limit": 100]]
+    private static func readinessRead(_ project: String) -> [String: Any] {
+        var operation: [String: Any] = ["op": "readiness"]
+        if !project.isEmpty { operation["workspaceId"] = project }
+        return ["type": "source-control.request", "operation": operation]
+    }
+
+    /// Opens on the last check this phone saw, checked again behind it.
+    init(model: ClientModel) {
+        self.model = model
+        _projects = State(initialValue: model.kept(Self.projectsRead, as: ProjectListReply.self)?.result.projects ?? [])
+        if let status = model.kept(Self.readinessRead(""), as: NativeSourceControlReply.self)?.result.readiness {
+            _status = State(initialValue: status)
+            _host = State(initialValue: status.preferences.host)
+            _remote = State(initialValue: status.preferences.remote)
+            _account = State(initialValue: status.preferences.hosts.first { $0.host == status.preferences.host }?.account ?? "")
+        }
+    }
     var body: some View {
         Form {
             Group {
@@ -62,17 +80,17 @@ struct SourceControlView: View {
                         Text(status.transportInstructions).textSelection(.enabled)
                     }
                 } header: { InsetHeader("Repository transport") }
-                if busy { ProgressView("Checking source control…") }
+                if busy, status == nil { ProgressView("Checking source control…") }
                 ServiceProblem(message: problem)
             }
             .insetRowBackground()
         }
         .insetGroupedList()
         .navigationTitle("Source control").navigationBarTitleDisplayMode(.inline)
-        .task(id: model.connection) {
+        .task(id: [model.connection == "ready" ? 1 : 0, model.readGeneration(Self.readinessRead(project))]) {
             guard model.connection == "ready" else { return }
             do {
-                let reply = try await model.service(["type": "projects.request", "operation": ["op": "workspace.list", "limit": 100]], as: ProjectListReply.self)
+                let reply = try await model.read(Self.projectsRead, as: ProjectListReply.self)
                 projects = reply.result.projects ?? []
             } catch { if !Task.isCancelled { problem = error.localizedDescription } }
             await read()
@@ -83,9 +101,7 @@ struct SourceControlView: View {
         busy = true; problem = nil
         defer { busy = false }
         do {
-            var operation: [String: Any] = ["op": "readiness"]
-            if !project.isEmpty { operation["workspaceId"] = project }
-            let reply = try await model.service(["type": "source-control.request", "operation": operation], as: NativeSourceControlReply.self)
+            let reply = try await model.read(Self.readinessRead(project), as: NativeSourceControlReply.self)
             guard let status = reply.result.readiness else { throw ServiceFailure(message: "Couldn't check source control: \(reply.result.code ?? "unavailable")") }
             self.status = status; host = status.preferences.host; remote = status.preferences.remote
             account = status.preferences.hosts.first { $0.host == host }?.account ?? ""

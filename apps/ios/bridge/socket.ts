@@ -28,24 +28,24 @@ export function nativeTransport(trust?: TrustMonitor): Transport {
   };
 }
 
-/** Native socket callbacks, delivered on the JavaScriptCore run loop. */
-export function socketEvent(id: string, type: string, value: string): void {
+/**
+ * Native socket callbacks, delivered on the JavaScriptCore run loop. Binary messages arrive as a
+ * Uint8Array Swift filled; everything else as text.
+ */
+export function socketEvent(id: string, type: string, value: string | Uint8Array): void {
   const socket = sockets.get(id);
   if (!socket) return;
+  if (typeof value !== "string") {
+    if (type === "binary") socket.events.binary?.(value);
+    return;
+  }
   if (type === "open") socket.events.open();
   else if (type === "message") socket.events.message(value);
-  else if (type === "binary") socket.events.binary?.(latin1Bytes(host.base64(value, true)));
   else if (type === "trust") socket.trust?.report(value);
   else if (type === "close") {
     sockets.delete(id);
     socket.events.close(Number(value));
   }
-}
-
-function latin1Bytes(text: string): Uint8Array {
-  const bytes = new Uint8Array(text.length);
-  for (let index = 0; index < text.length; index++) bytes[index] = text.charCodeAt(index);
-  return bytes;
 }
 
 /** Adapt the same pinned native transport to the SDK's dedicated feature channels. */

@@ -43,6 +43,13 @@ final class DurableStore {
             let value = try JSONDecoder().decode(String.self, from: input)
             try transaction { try write("INSERT OR REPLACE INTO metadata(id,value) VALUES ('legacy',?)", [value]) }
             return ""
+        // The bridge's kept reads (`bridge/read-cache.ts`): a cache, so a plain replace.
+        case "storage.reads.load": return try query("SELECT value FROM metadata WHERE id='reads'").first ?? ""
+        case "storage.reads.save":
+            let value = try JSONDecoder().decode(String.self, from: input)
+            guard value.utf8.count <= 8 * 1_048_576 else { throw HostError.storage }
+            try transaction { try write("INSERT OR REPLACE INTO metadata(id,value) VALUES ('reads',?)", [value]) }
+            return ""
         default: throw HostError.unsupported
         }
     }

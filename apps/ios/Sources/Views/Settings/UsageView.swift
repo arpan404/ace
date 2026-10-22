@@ -70,6 +70,13 @@ struct UsageView: View {
     @State private var limits: UsageLimitsReply?
     @State private var limitsProblem: String?
     @State private var limitsLoading = false
+    private static let limitsRead: [String: Any] = ["type": "usage.limits"]
+
+    /// Opens on the last limits this phone saw, read again behind them.
+    init(model: ClientModel) {
+        self.model = model
+        _limits = State(initialValue: model.kept(Self.limitsRead, as: UsageLimitsReply.self))
+    }
     var body: some View {
         List {
             Picker("View", selection: $tab) {
@@ -90,7 +97,7 @@ struct UsageView: View {
         }
         .insetGroupedList()
         .navigationTitle("Usage").navigationBarTitleDisplayMode(.inline)
-        .task(id: tab) {
+        .task(id: [tab == .limits ? 0 : 1, model.readGeneration(Self.limitsRead)]) {
             if tab == .limits { await readLimits() } else { await readTokens() }
         }
         .task(id: days) { if tab == .tokens { await readTokens() } }
@@ -102,7 +109,7 @@ struct UsageView: View {
         Picker("Period", selection: $days) { Text("7 days").tag(7); Text("30 days").tag(30); Text("90 days").tag(90) }
             .pickerStyle(.segmented)
             .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
-        if loading { HStack { Spacer(); ProgressView().accessibilityLabel("Reading usage"); Spacer() }.listRowBackground(Color.clear) }
+        if loading, result == nil { HStack { Spacer(); ProgressView().accessibilityLabel("Reading usage"); Spacer() }.listRowBackground(Color.clear) }
         ServiceProblem(message: problem)
         if let result {
             if result.rows.isEmpty { ContentUnavailableView("No usage in this period", systemImage: "chart.bar").listRowBackground(Color.clear) }
@@ -148,14 +155,19 @@ struct UsageView: View {
             }
         }
     }
-    private func readTokens() async {
-        loading = true; problem = nil
-        defer { loading = false }
+    private var tokensRead: [String: Any] {
         let now = Date(timeIntervalSince1970: model.now() / 1000)
         let start = now.addingTimeInterval(-Double(days - 1) * 86400)
         let format = Date.ISO8601FormatStyle().year().month().day().dateSeparator(.dash)
+        return ["type": "usage.summary", "query": ["from": start.formatted(format), "to": now.formatted(format), "groupBy": ["provider"], "limit": 100]]
+    }
+    private func readTokens() async {
+        let read = tokensRead
+        if let kept = model.kept(read, as: UsageReply.self) { result = kept.result }
+        loading = true; problem = nil
+        defer { loading = false }
         do {
-            let reply = try await model.service(["type": "usage.summary", "query": ["from": start.formatted(format), "to": now.formatted(format), "groupBy": ["provider"], "limit": 100]], as: UsageReply.self)
+            let reply = try await model.read(read, as: UsageReply.self)
             result = reply.result
         } catch { problem = error.localizedDescription }
     }
@@ -163,7 +175,7 @@ struct UsageView: View {
         limitsLoading = true; limitsProblem = nil
         defer { limitsLoading = false }
         do {
-            limits = try await model.service(["type": "usage.limits"], as: UsageLimitsReply.self)
+            limits = try await model.read(Self.limitsRead, as: UsageLimitsReply.self)
         } catch { limitsProblem = error.localizedDescription }
     }
 }

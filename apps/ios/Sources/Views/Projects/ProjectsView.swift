@@ -19,6 +19,16 @@ struct ProjectsView: View {
     @State private var problem: String?
     @State private var query = ""
     @State private var adding = false
+    private static let firstPage: [String: Any] = ["type": "projects.request", "operation": ["op": "workspace.list", "limit": 100]]
+
+    /// Opens on the last projects this phone saw, read again behind them.
+    init(model: ClientModel) {
+        self.model = model
+        let kept = model.kept(Self.firstPage, as: ProjectListReply.self)?.result
+        _projects = State(initialValue: kept?.projects ?? [])
+        _next = State(initialValue: kept?.next)
+        _loaded = State(initialValue: kept != nil)
+    }
     var body: some View {
         List {
             if model.connection != "ready" { InboxConnectionBanner(connection: model.connection, retry: model.retry).listRowBackground(Color.clear) }
@@ -39,7 +49,7 @@ struct ProjectsView: View {
             }
             .insetRowBackground()
             Group {
-                if loading { HStack { Spacer(); ProgressView().accessibilityLabel("Loading projects"); Spacer() } }
+                if loading, !loaded { HStack { Spacer(); ProgressView().accessibilityLabel("Loading projects"); Spacer() } }
                 if loaded && !loading && projects.isEmpty && problem == nil { ContentUnavailableView("No projects", systemImage: "folder") }
             }
             .listRowBackground(Color.clear)
@@ -54,7 +64,8 @@ struct ProjectsView: View {
                 }
             }
         }
-        .task(id: model.connection) { if model.connection == "ready" { await read() } }.refreshable { await read() }
+        .task(id: [model.connection == "ready" ? 1 : 0, model.readGeneration(Self.firstPage)]) { if model.connection == "ready" { await read() } }
+        .refreshable { await read() }
         .sheet(isPresented: $adding) {
             NavigationStack {
                 AddProjectView(client: model) { _ in adding = false; Task { await read() } }
@@ -75,7 +86,8 @@ struct ProjectsView: View {
         do {
             var operation: [String: Any] = ["op": "workspace.list", "limit": 100]
             if more, let next { operation["after"] = next }
-            let reply = try await model.service(["type": "projects.request", "operation": operation], as: ProjectListReply.self)
+            let request: [String: Any] = ["type": "projects.request", "operation": operation]
+            let reply = try await model.read(request, as: ProjectListReply.self)
             guard reply.result.kind == "projects" else {
                 throw ServiceFailure(message: reply.result.code == "forbidden" ? "This pairing doesn't include Projects access. Pair again with Projects enabled on your computer." : "Couldn't read projects: \(reply.result.code ?? "unavailable"). Retry when your machine is ready.")
             }

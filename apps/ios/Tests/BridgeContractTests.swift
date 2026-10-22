@@ -179,6 +179,21 @@ import SQLite3
         try await until { model.thread?.interactions[approval.id]?.state == "resolved" }
         #expect(model.thread?.approvals.isEmpty == true)
     }
+    @Test func aMachineThatAdoptsAWarmRuntimeConnectsAndListsItsThreads() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let warmup = RuntimeWarmup()
+        warmup.prepare(1)
+        // The bundle evaluates before the machine is known; the machine then adopts it.
+        try await Task.sleep(for: .milliseconds(300))
+        let model = ClientModel(now: { 0 }, makeRuntime: warmup.makeRuntime)
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        await model.connect(target: try target(), directory: root)
+        try await until("warm runtime ready") { model.connection == "ready" && model.inbox["ios-tree"] != nil }
+        #expect(model.inbox["ios-tree"]?.state == "working")
+        #expect(model.error == nil)
+        // Its outbox database is the machine's own: the warm runtime was bound before any host call.
+        #expect(database(in: root) != root)
+    }
     private func target() throws -> ConnectionTarget {
         ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:\(SpikeFixture.port)")), hostId: "ios-spike-host", deviceId: "ios-contract-device", pin: nil,
                          credential: { "{\"token\":\"ios-spike-token\"}" })
