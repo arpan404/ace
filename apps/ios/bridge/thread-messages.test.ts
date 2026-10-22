@@ -31,6 +31,9 @@ const thought = (item: string, complete = true): Fact => ({
 const event = (row: Record<string, unknown>) =>
   row.event as { kind: string; text: string; count: number } | null;
 
+const thoughtRow = () => rows("thread.item").find((item) => item.type === "reasoning");
+const answerBlock = () => rows("thread.block").find((row) => row.kind === "message");
+
 function start(id: string) {
   const fake = fixture();
   fake.createThread({ id, workspaceId: "ace", title: id, provider: "codex" });
@@ -55,10 +58,9 @@ test("a thought's header reads how long it took once what follows it arrives", a
   const fake = start("thought");
   fake.apply("thought", [facts.message("root", "ask", "user", "Go"), thought("t1")], 12_000);
   open(connect(fake), "thought");
-  const row = () => rows("thread.item").find((item) => item.type === "reasoning");
-  expect((await until(row, "the thought row")).thought).toBe("Thought");
+  expect((await until(thoughtRow, "the thought row")).thought).toBe("Thought");
   fake.apply("thought", [facts.message("root", "answer", "assistant", "Done.")]);
-  await until(() => row()?.thought === "Thought for 12s", "the thought's time");
+  await until(() => thoughtRow()?.thought === "Thought for 12s", "the thought's time");
 });
 
 test("a thought still going reads Thinking…", async () => {
@@ -100,8 +102,7 @@ test("an answer streams while its turn runs and stops when the turn ends", async
     facts.message("root", "reply", "assistant", "Working", false),
   ]);
   open(connect(fake), "answer");
-  const block = () => rows("thread.block").find((row) => row.kind === "message");
-  expect((await until(block, "the answer block")).streaming).toBe(true);
+  expect((await until(answerBlock, "the answer block")).streaming).toBe(true);
   fake.apply("answer", [facts.endTurn("root")]);
-  await until(() => block()?.streaming === false, "the answer settled");
+  await until(() => answerBlock()?.streaming === false, "the answer settled");
 });

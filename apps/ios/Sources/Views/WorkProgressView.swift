@@ -84,36 +84,3 @@ private struct RunningStepLine: View {
         }
     }
 }
-
-/// The agent's reasoning, folded to one quiet row; it shimmers while the agent still thinks.
-struct ThoughtRow: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let row: TranscriptRow
-    var openMessage: ((TranscriptRow) -> Void)? = nil
-    var workEnded = false
-    @State private var expanded = false
-    var body: some View {
-        let settled = row.complete || row.step?.settled == true || workEnded
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { expanded.toggle() } } label: {
-                QuietRow(icon: .brain) {
-                    Text(settled ? "Thought" : "Thinking…").shimmer(!settled)
-                    if !row.text.isEmpty {
-                        AceIcon(.caretRight, size: 12, relativeTo: .caption)
-                            .rotationEffect(.degrees(expanded ? 90 : 0))
-                            .foregroundStyle(AceTheme.Colours.subtleForeground)
-                    }
-                    Spacer(minLength: AceTheme.Spacing.none)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain).disabled(row.text.isEmpty)
-            .accessibilityIdentifier("thought.\(row.id)").accessibilityValue(expanded ? "Expanded" : "Collapsed")
-            if expanded, !row.text.isEmpty {
-                MarkdownView(text: row.text).foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .padding(.leading, AceTheme.Spacing.xxl + AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
-                if row.truncated, let openMessage { Button("Read full thought") { openMessage(row) } }
-            }
-        }
-    }
-}
