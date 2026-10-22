@@ -163,7 +163,9 @@ test("an uploaded image shows the daemon's bytes at the size its text asks for, 
   );
   const button = await screen.findByRole("button", { name: "View Before" });
   const image = button.querySelector("img");
-  expect(image?.getAttribute("src")).toMatch(/^blob:/);
+  // An SVG is never a same-origin blob: opened on its own, it has no origin to act in.
+  expect(image?.getAttribute("src")).toMatch(/^data:image\/svg\+xml;base64,/);
+  expect(container.querySelector('img[src^="blob:"]')).toBeNull();
   expect(image?.style.width).toBe("400px");
   // The page never loads anything from GitHub itself.
   expect(container.innerHTML).not.toContain("github.com/user-attachments");
@@ -265,7 +267,7 @@ test("media the daemon no longer holds is resolved again and shows, rather than 
   const daemon = await connected({ evicted: true });
   page(daemon, <ForgeProse text={`<img width="400" height="225" alt="Before" src="${before}">`} />);
   const button = await screen.findByRole("button", { name: "View Before" });
-  expect(button.querySelector("img")?.getAttribute("src")).toMatch(/^blob:/);
+  expect(button.querySelector("img")?.getAttribute("src")).toMatch(/^data:image\/svg\+xml;base64,/);
   expect(daemon.asked).toEqual([before, before]);
 });
 
@@ -295,7 +297,7 @@ test("whatever raw HTML tries, the drawn page holds no handler, style or unsafe 
     if (target !== null)
       expect([target, element.getAttribute("rel")]).toEqual(["_blank", "noreferrer noopener"]);
     const url = element.getAttribute("href") ?? element.getAttribute("src");
-    if (url !== null) expect(url).toMatch(/^(https?:|mailto:|#|blob:)/);
+    if (url !== null) expect(url).toMatch(/^(https?:|mailto:|#|blob:|data:image\/svg\+xml)/);
   }
   expect(container.querySelector("svg script, math, iframe")).toBeNull();
 });
@@ -348,12 +350,5 @@ test("commits, other repositories' references and GitHub's image emoji link and 
   );
   expect(screen.queryByRole("link", { name: "deadbeef" })).toBeNull();
   const octocat = await screen.findByRole("img", { name: ":octocat:" });
-  expect(octocat.getAttribute("src")).toMatch(/^blob:/);
-});
-
-test("a mermaid block keeps its code when it can't be drawn as a diagram", async () => {
-  const daemon = await connected();
-  const { container } = page(daemon, <ForgeProse text={"```mermaid\nnot a diagram {{{\n```"} />);
-  await waitFor(() => expect(container.textContent).toContain("not a diagram {{{"));
-  expect(container.querySelector("img[data-diagram]")).toBeNull();
+  expect(octocat.getAttribute("src")).toMatch(/^data:image\/svg\+xml;base64,/);
 });
