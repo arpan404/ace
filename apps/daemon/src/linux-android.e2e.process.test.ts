@@ -118,12 +118,12 @@ function emulatorCpuSeconds(): number | undefined {
 
 type Metrics = Record<string, number | string | undefined>;
 
-/** The GLES renderer SurfaceFlinger reports on `serial`: which GPU mode the guest really got. */
-function renderer(serial: string): string | undefined {
+/** The GLES renderer SurfaceFlinger reports on `transport`: which GPU mode the guest really got. */
+function renderer(transport: string): string | undefined {
   try {
     const dump = execFileSync(
       join(sdk ?? "", "platform-tools", "adb"),
-      ["-s", serial, "shell", "dumpsys SurfaceFlinger | grep -m1 GLES"],
+      ["-s", transport, "shell", "dumpsys SurfaceFlinger | grep -m1 GLES"],
       { encoding: "utf8", timeout: 15_000 },
     );
     return dump.trim().slice(0, 200) || undefined;
