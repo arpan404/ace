@@ -29,6 +29,7 @@ import { ForgeBackends } from "./forge-backends.ts";
 import { WorkspaceForgeBrowse } from "./workspace-forge-browse.ts";
 import { WorkspacePrAssociations } from "./workspace-pr-associations.ts";
 import { WorkspacePrCreation } from "./workspace-pr-creation.ts";
+import { WorkspaceNewPr } from "./workspace-pr-new.ts";
 import type { WorkspaceForgeContext, WorkspaceForgeGit } from "./workspace-forge-context.ts";
 
 /** The daemon's forge surface: routes commands and reads to the parts that own them. */
@@ -49,6 +50,7 @@ export class WorkspaceForge {
   private browser: WorkspaceForgeBrowse;
   private associations: WorkspacePrAssociations;
   private creation: WorkspacePrCreation;
+  private newPr: WorkspaceNewPr;
   private lifetime = new AbortController();
   private stopPreferences: (() => void) | undefined;
   private sourceControl: import("./source-control.ts").SourceControl | undefined;
@@ -91,7 +93,9 @@ export class WorkspaceForge {
       projection: this.projection,
       links: this.links,
     };
+    this.newPr = new WorkspaceNewPr(context);
     this.browser = new WorkspaceForgeBrowse(context, {
+      newPr: this.newPr,
       actions: this.actions,
       issueActions: this.issueActions,
       issueLinks: this.issueLinks,
@@ -360,6 +364,17 @@ export class WorkspaceForge {
     return this.actions.execute(p, backend, this.lifetime.signal, allowed, (status) =>
       this.browser.publishStatus(status),
     );
+  }
+
+  /** A pull request from any branch, opened from the project's Pull requests page. */
+  async hostedPrCreate(
+    command: Command & { payload: import("@ace/protocol").ForgeHostedPrCreateCommand },
+    cwd: string,
+    allowed: () => boolean,
+  ): Promise<Omit<CommandResult, "commandId">> {
+    this.lifetime.signal.throwIfAborted();
+    if (!allowed()) return commandNotDispatched(command, "forbidden");
+    return this.newPr.create(command.payload, cwd, allowed);
   }
 
   async hostedLifecycle(

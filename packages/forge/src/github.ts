@@ -14,6 +14,7 @@ import { GitHubReviews } from "./github-reviews.ts";
 import { GitHubChecks } from "./github-checks.ts";
 import { GitHubBrowser } from "./github-browser.ts";
 import { GitHubFileContent } from "./github-file-content.ts";
+import { GitHubNewPr } from "./github-new-pr.ts";
 import { ForgeGroupCounting, ForgePrSearch } from "@ace/protocol/forge-browser";
 import { ForgeMergeCommit } from "@ace/protocol/forge-merge-state";
 import { readGroupCounts } from "./github-group-counts.ts";
@@ -53,6 +54,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
   readonly #root: string;
   readonly #browser: GitHubBrowser;
   readonly #content: GitHubFileContent;
+  readonly #newPr: GitHubNewPr;
   readonly #issues: GitHubIssues;
   readonly #mergeState: GitHubMergeState;
   readonly #stacks: GitHubStacks;
@@ -89,6 +91,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
     this.#localStacks = new LocalStacks(options.runner, options.command, options.publishStack);
     this.#browser = new GitHubBrowser(this.#api, this.repository);
     this.#content = new GitHubFileContent(this.#api, this.#root);
+    this.#newPr = new GitHubNewPr(this.#api, this.repository);
     this.lifecycle = new GitHubLifecycle(this.#api, this.repository);
     this.reviews = new GitHubReviews(this.#api, (number) => this.#ref(number));
     this.checks = new GitHubChecks(this.#api, this.repository);
@@ -346,17 +349,82 @@ export class GitHubForge implements Forge, ForgeBrowser {
       });
     const title = z.string().min(1).max(256).parse(render(value.template.title));
     const body = z.string().max(65_536).parse(render(value.template.body));
-    const response = await this.#api.request(`${this.#root}/pulls`, signal, {
-      head: headOwner === this.repository.owner ? value.branch : `${headOwner}:${value.branch}`,
-      base: value.base,
-      title,
-      body,
-      draft: value.draft,
-    });
+    return this.openPr(
+      { branch: value.branch, base: value.base, title, body, draft: value.draft },
+      signal,
+      headOwner,
+    );
+  }
+  /**
+   * Open a pull request from `headOwner:branch` into `base` as written: the one create every
+   * entry point shares. Callers look for an open PR of the same head and base first.
+   */
+  async openPr(
+    input: { branch: string; base: string; title: string; body: string; draft: boolean },
+    signal: AbortSignal,
+    headOwner = this.repository.owner,
+    dispatch?: WriteDispatch,
+  ): Promise<ForgePrRef> {
+    z.string().min(1).max(100).parse(headOwner);
+    const branch = z.string().min(1).max(256).parse(input.branch);
+    const response = await this.#api.request(
+      `${this.#root}/pulls`,
+      signal,
+      {
+        head: headOwner === this.repository.owner ? branch : `${headOwner}:${branch}`,
+        base: z.string().min(1).max(256).parse(input.base),
+        title: z.string().min(1).max(256).parse(input.title),
+        body: z.string().max(65_536).parse(input.body),
+        draft: input.draft,
+      },
+      "POST",
+      dispatch,
+    );
     const parsed = GitHubPr.safeParse(response.body);
     if (!parsed.success) throw new ForgeMutationOutcome({ dispatched: true });
     if (response.identityChanged) throw new ForgeMutationOutcome(this.#ref(parsed.data.number));
     return this.#ref(parsed.data.number);
+  }
+  /**
+   * Labels, assignees and a milestone on a pull request, set through the issue it shares its
+   * number with. Only the named fields change.
+   */
+  async setIssueFields(
+    number: number,
+    fields: { labels?: string[]; assignees?: string[]; milestone?: number },
+    signal: AbortSignal,
+    dispatch?: WriteDispatch,
+  ): Promise<void> {
+    this.#ref(number);
+    const response = await this.#api.request(
+      `${this.#root}/issues/${number}`,
+      signal,
+      fields,
+      "PATCH",
+      dispatch,
+    );
+    if (response.identityChanged) throw new ForgeMutationOutcome({ dispatched: true });
+  }
+  /** Branches this repository holds, the default first. */
+  branches(defaultBranch: string, signal: AbortSignal) {
+    return this.#newPr.branches(defaultBranch, signal);
+  }
+  /** The repository's pull request template, or null. */
+  prTemplate(signal: AbortSignal) {
+    return this.#newPr.template(signal);
+  }
+  /** Labels, assignable people and open milestones. */
+  prOptions(signal: AbortSignal) {
+    return this.#newPr.options(signal);
+  }
+  /** What a pull request from `head` into `base` would show, one page of files at a time. */
+  compare(
+    base: string,
+    head: import("@ace/protocol/forge-new-pr").ForgeCompareHead,
+    page: number,
+    signal: AbortSignal,
+  ) {
+    return this.#newPr.compare(base, head, page, signal);
   }
   async replyComment(
     number: number,

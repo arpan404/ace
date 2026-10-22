@@ -7,6 +7,7 @@ import type { WorkspaceForgeLifecycle } from "./workspace-forge-lifecycle.ts";
 import type { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
 import type { WorkspaceForgeStacks } from "./workspace-forge-stacks.ts";
 import type { WorkspaceIssueLinks } from "./workspace-issue-links.ts";
+import type { WorkspaceNewPr } from "./workspace-pr-new.ts";
 
 /** Hosted PR and issue reads, and publishing what they show to every linked thread. */
 export class WorkspaceForgeBrowse {
@@ -18,6 +19,7 @@ export class WorkspaceForgeBrowse {
     lifecycle: WorkspaceForgeLifecycle;
     reviews: WorkspaceForgeReviews;
     stacks: WorkspaceForgeStacks;
+    newPr: WorkspaceNewPr;
   };
   constructor(ctx: WorkspaceForgeContext, parts: WorkspaceForgeBrowse["parts"]) {
     this.ctx = ctx;
@@ -28,6 +30,21 @@ export class WorkspaceForgeBrowse {
     operation: import("@ace/protocol").ForgeBrowserOperation,
     signal: AbortSignal,
   ): Promise<import("@ace/protocol").ForgeBrowserResult> {
+    // A new pull request reads where it would open, which may be a fork's parent.
+    if (operation.op === "forge.pr.new-context")
+      return { resource: "newPrContext", value: await this.parts.newPr.context(cwd, signal) };
+    if (
+      (operation.op === "forge.repo.pr-options" || operation.op === "forge.compare") &&
+      operation.repository === undefined
+    ) {
+      const target = await this.parts.newPr.targetBackend(cwd);
+      return operation.op === "forge.compare"
+        ? {
+            resource: "compare",
+            value: await target.compare(operation.base, operation.head, operation.page, signal),
+          }
+        : { resource: "repoPrOptions", value: await target.prOptions(signal) };
+    }
     const repository = operation.repository ?? (await this.ctx.backends.repository(cwd));
     signal.throwIfAborted();
     const backend = await this.ctx.backends.backend(cwd, repository);
@@ -42,6 +59,13 @@ export class WorkspaceForgeBrowse {
       if (this.ctx.owner.current(ref, revision)) this.publishLifecycle(value.snapshot);
       return { resource: "prLifecycle", value };
     }
+    if (operation.op === "forge.repo.pr-options")
+      return { resource: "repoPrOptions", value: await backend.prOptions(signal) };
+    if (operation.op === "forge.compare")
+      return {
+        resource: "compare",
+        value: await backend.compare(operation.base, operation.head, operation.page, signal),
+      };
     if (operation.op === "forge.issue.list")
       return { resource: "issueList", value: await backend.listIssues(operation.query, signal) };
     if (operation.op === "forge.issue.timeline")
