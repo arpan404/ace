@@ -7,9 +7,10 @@ function digit(code: number): number {
 }
 /** The platform's own base64 decoder (ES2026), where it has one. */
 interface NativeBase64 {
-  fromBase64?: (text: string, options: { lastChunkHandling: "strict" }) => Uint8Array<ArrayBuffer>;
+  fromBase64(text: string, options: { lastChunkHandling: "strict" }): Uint8Array<ArrayBuffer>;
 }
-const platform: NativeBase64 = Uint8Array;
+const decodesNatively = (constructor: object): constructor is NativeBase64 =>
+  typeof Reflect.get(constructor, "fromBase64") === "function";
 
 /**
  * Decode bounded wire chunks without Buffer: natively where the platform can (JavaScriptCore
@@ -19,10 +20,10 @@ export function decodeBase64(text: string, limit: number): Uint8Array<ArrayBuffe
   const padding = text.endsWith("==") ? 2 : text.endsWith("=") ? 1 : 0;
   const length = (text.length / 4) * 3 - padding;
   if (text.length % 4 || length > limit || length < 0) throw new ClientError("protocol");
-  if (platform.fromBase64) {
+  if (decodesNatively(Uint8Array)) {
     let bytes: Uint8Array<ArrayBuffer>;
     try {
-      bytes = platform.fromBase64(text, { lastChunkHandling: "strict" });
+      bytes = Uint8Array.fromBase64(text, { lastChunkHandling: "strict" });
     } catch {
       throw new ClientError("protocol");
     }
