@@ -51,6 +51,10 @@ import XCTest
         reveal("thread.ios-question", in: app)
         app.buttons["thread.ios-question"].tap()
         XCTAssertTrue(app.buttons["question.answer"].waitForExistence(timeout: 25))
+        // The question sits on the strip with the composer still under it, as on the web; the
+        // transcript says who asks it.
+        XCTAssertTrue(app.textViews["composer.input"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["transcript.question"].waitForExistence(timeout: 10))
         app.buttons["question.archive.skip"].tap()
         screenshot("thread-question")
         app.navigationBars.buttons.firstMatch.tap()
