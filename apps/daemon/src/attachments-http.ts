@@ -4,7 +4,7 @@ import { z } from "zod";
 import { ThreadId } from "@ace/protocol";
 import type { ServerOptions } from "./server-options.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
-import type { WebOriginAllowlist } from "./web-origins.ts";
+import { webOriginAllowlist } from "./web-origins.ts";
 import { allows } from "./devices.ts";
 import { attachmentResponse } from "./attachment-response.ts";
 import { attachmentsUpload } from "./attachments-upload.ts";
@@ -14,10 +14,10 @@ export function attachmentsHttp(
   options: ServerOptions,
   auth: RemoteAuth,
   remote: boolean,
-  origins: Pick<WebOriginAllowlist, "has">,
   next: (request: IncomingMessage, response: ServerResponse) => void,
 ) {
   let active = 0;
+  const origins = webOriginAllowlist(options.webOrigins);
   return (request: IncomingMessage, response: ServerResponse) => {
     if (!request.url?.startsWith("/v1/attachments/")) {
       next(request, response);

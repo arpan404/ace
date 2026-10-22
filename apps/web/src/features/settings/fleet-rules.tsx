@@ -69,7 +69,10 @@ export function AccessRows(props: { remote: readonly Machine[] }) {
   const enabled = useSettingControl(settingKeys.remoteEnabled, "Remote access");
   const transport = useSettingControl(settingKeys.remoteTransport, "Reached over");
   const relay = useSettingControl(settingKeys.relayUrl, "Relay address");
-  const hosted = useSettingControl(settingKeys.hostedWebApp, "Hosted web app");
+  const hosted = useSettingControl(
+    settingKeys.hostedPairingLink,
+    "Pairing links open app.acehq.dev",
+  );
   const agents = useSettingControl(settingKeys.agentAccess, "Agents from other machines");
   // "local" is remote access off; the choice shows the network it would open on.
   const selected = transport.value === "local" ? "lan" : transport.value;
@@ -136,9 +139,9 @@ export function AccessRows(props: { remote: readonly Machine[] }) {
         </SettingRow>
       )}
       <SettingRow
-        id="remote.hostedWebApp"
-        title="Hosted web app"
-        description="Let app.acehq.dev pair and connect. Off, devices use the web app this computer serves, which always matches its version."
+        id="remote.hostedPairingLink"
+        title="Pairing links open app.acehq.dev"
+        description="Off, links open the web app this computer serves, which always matches its version."
         htmlFor={`${id}-hosted`}
         inline
       >

@@ -1,5 +1,4 @@
 import type { MaintenanceGate } from "@ace/service";
-import type { WebOriginAllowlist } from "./web-origins.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { PairingRedemption, type Device } from "@ace/protocol";
 import { AccessError, RemoteAuth } from "./remote-auth.ts";
@@ -44,7 +43,9 @@ export interface AccessHttpOptions {
   authenticate: (token: string) => Device | undefined;
   pairing: () => { origin: string; fingerprint: string } | undefined;
   /** Origins whose pages may read the cross-origin routes. */
-  allowedOrigins: Pick<WebOriginAllowlist, "has">;
+  allowedOrigins: ReadonlySet<string>;
+  /** Origin of the web app new pairing links open; the daemon's own when it resolves undefined. */
+  pairingApp?: () => Promise<string | undefined>;
   sourceAddress?: (request: IncomingMessage) => string;
   maintenance?: MaintenanceGate;
   version?: string;
@@ -62,6 +63,7 @@ export function accessHttp({
   authenticate,
   pairing,
   allowedOrigins,
+  pairingApp,
   sourceAddress = (request) => request.socket.remoteAddress ?? "unknown",
   maintenance,
   version = "development",
@@ -134,12 +136,14 @@ export function accessHttp({
           const connection = pairing();
           const input = connection ? await body(request) : undefined;
           const creator = actor();
+          const app = connection ? await pairingApp?.() : undefined;
           const { id, url, expiresAt } = issuePairing(
             auth,
             connection,
             input,
             // The host token holds every scope; a device grants only what it has.
             (scope) => auth.local(token) || allows(creator, scope),
+            app,
           );
           result = { url, expiresAt, id };
         } else if (path === "/v1/devices" && request.method === "GET") result = auth.list();

@@ -52,7 +52,7 @@
     "remote.enabled",
     "remote.transport",
     "remote.agentAccess",
-    "remote.hostedWebApp",
+    "remote.hostedPairingLink",
     "remote.relayUrl",
     "automations.enabled",
     "generation.model",

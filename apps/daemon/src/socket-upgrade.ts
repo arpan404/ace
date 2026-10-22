@@ -1,5 +1,4 @@
 import type { Server } from "node:http";
-import type { WebOriginAllowlist } from "./web-origins.ts";
 import type { Duplex } from "node:stream";
 import type { WebSocket, WebSocketServer } from "ws";
 import type { PreAuthAdmission } from "./socket-admission.ts";
@@ -40,7 +39,7 @@ export function admitUpgrades(
   isLocal: boolean,
   options: {
     wss: WebSocketServer;
-    allowedOrigins: Pick<WebOriginAllowlist, "has">;
+    allowedOrigins: ReadonlySet<string>;
     /** The listener serves the web app (`webRoot`): its page may open the socket. */
     servesRenderer?: boolean;
     preAuth: PreAuthAdmission;

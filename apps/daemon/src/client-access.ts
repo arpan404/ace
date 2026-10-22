@@ -1,4 +1,5 @@
 import { DeviceCredential } from "@ace/protocol";
+import { parsePairingLink } from "@ace/client/access";
 import { Agent, request as httpsRequest } from "node:https";
 import { request as httpRequest } from "node:http";
 import { connect, type ConnectionOptions } from "node:tls";
@@ -141,15 +142,14 @@ export async function accessRequest(
   }
 }
 export async function redeemPairing(url: string, name: string): Promise<DeviceCredential> {
-  const pairing = new URL(url);
-  if (pairing.protocol !== "https:" || pairing.search)
+  const link = parsePairingLink(url);
+  if (!link.daemon.startsWith("https:"))
     throw new Error("Pairing requires an HTTPS URL with credentials in its fragment");
-  const fragment = new URLSearchParams(pairing.hash.slice(1));
   return DeviceCredential.parse(
-    await accessRequest(pairing.origin, "/v1/pair", {
+    await accessRequest(new URL(link.daemon).origin, "/v1/pair", {
       method: "POST",
-      fingerprint: fragment.get("fingerprint") ?? "",
-      body: { code: fragment.get("code"), name },
+      fingerprint: link.fingerprint,
+      body: { code: link.code, name },
     }),
   );
 }

@@ -272,7 +272,7 @@
     "remote.enabled": {
       "type": "boolean"
     },
-    "remote.hostedWebApp": {
+    "remote.hostedPairingLink": {
       "type": "boolean"
     },
     "remote.relayUrl": {
@@ -415,7 +415,7 @@
     "remote.enabled",
     "remote.transport",
     "remote.agentAccess",
-    "remote.hostedWebApp",
+    "remote.hostedPairingLink",
     "remote.relayUrl",
     "automations.enabled",
     "generation.model",

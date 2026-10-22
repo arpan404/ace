@@ -310,9 +310,9 @@ const entries = [
     keywords: ["lan", "tailscale", "relay", "transport", "network"],
   },
   {
-    id: "remote.hostedWebApp",
+    id: "remote.hostedPairingLink",
     page: "/settings/remote",
-    title: "Hosted web app",
+    title: "Pairing links open app.acehq.dev",
     keywords: ["app.acehq.dev", "web", "browser", "pair", "phone", "hosted"],
   },
   {

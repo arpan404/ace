@@ -1,6 +1,7 @@
-import { expect, it, vi } from "vitest";
-import { DeviceCredential, SocketTicket } from "@ace/protocol";
+import { expect, it } from "vitest";
+import { DeviceCredential, PairingResponse, SocketTicket } from "@ace/protocol";
 import { SettingsService } from "@ace/settings";
+import { redeemPairing } from "./client-access.ts";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -136,14 +137,22 @@ it("the desktop renderer can redeem a link, request a ticket and read remote sta
   }
 });
 
-it("the desktop app's renderer is allowed without configuration; other origins are not", async () => {
+it("the desktop app and the hosted web app are allowed without configuration; other origins are not", async () => {
   const f = await setup();
 
-  const desktop = await preflight(`${f.server.httpUrl}/v1/devices`, "app://ace", "GET");
-  expect(desktop.status).toBe(204);
-  expect(desktop.headers.get("access-control-allow-origin")).toBe("app://ace");
+  for (const origin of ["app://ace", "https://app.acehq.dev"]) {
+    const allowed = await preflight(`${f.server.httpUrl}/v1/pair`, origin, "POST");
+    expect(allowed.status).toBe(204);
+    expect(allowed.headers.get("access-control-allow-origin")).toBe(origin);
+  }
 
-  for (const origin of [page, "https://app.acehq.dev", "ace://thread", "null"]) {
+  for (const origin of [
+    page,
+    "http://app.acehq.dev",
+    "https://evil.acehq.dev",
+    "ace://thread",
+    "null",
+  ]) {
     const refused = await preflight(`${f.server.httpUrl}/v1/devices`, origin, "GET");
     expect(refused.status).toBe(403);
     expect(refused.headers.get("access-control-allow-origin")).toBeNull();
@@ -169,40 +178,28 @@ it("ACE_WEB_ORIGINS configures the allowlist and rejects anything that is not an
     expect(() => readConfig({ ACE_HOME: home, ACE_WEB_ORIGINS: value })).toThrow();
 });
 
-it("the hosted web app can pair only while remote.hostedWebApp is on, applied without a restart", async ({
+it("pairing links open this computer's web app until they are set to open app.acehq.dev", async ({
   onTestFinished,
 }) => {
-  const home = await mkdtemp(join(tmpdir(), "ace-cors-hosted-"));
+  const home = await mkdtemp(join(tmpdir(), "ace-hosted-link-"));
   const settings = new SettingsService({ dataDir: home });
   onTestFinished(async () => {
     await settings.close();
     await rm(home, { recursive: true, force: true });
   });
   const f = await setup({ settings });
-  const hosted = "https://app.acehq.dev";
-  const pairPreflight = () => preflight(`${f.server.httpUrl}/v1/pair`, hosted, "POST");
+  const issue = async () =>
+    PairingResponse.parse(
+      await f.request("/v1/pairings", { method: "POST", token, body: { scopes: ["read"] } }),
+    ).url;
 
-  expect((await pairPreflight()).status).toBe(403);
+  const own = new URL(await issue());
+  expect(own.origin).toBe(new URL(f.server.remoteUrl.replace("wss:", "https:")).origin);
 
-  await settings.set("remote.hostedWebApp", true, { kind: "global" });
-  await vi.waitFor(async () => expect((await pairPreflight()).status).toBe(204));
-  const pairing = await f.pairing(["read", "operate"]);
-  const code = new URLSearchParams(new URL(pairing.url).hash.slice(1)).get("code");
-  const redeemed = await fetch(`${f.server.httpUrl}/v1/pair`, {
-    method: "POST",
-    headers: { origin: hosted, "content-type": "application/json" },
-    body: JSON.stringify({ code, name: "iPhone" }),
-  });
-  expect(redeemed.status).toBe(200);
-  expect(redeemed.headers.get("access-control-allow-origin")).toBe(hosted);
-  const issued = DeviceCredential.parse(await redeemed.json());
-  const ticket = await fetch(`${f.server.httpUrl}/v1/tickets`, {
-    method: "POST",
-    headers: { origin: hosted, authorization: `Bearer ${issued.token}` },
-  });
-  expect(ticket.status).toBe(200);
-  expect(ticket.headers.get("access-control-allow-origin")).toBe(hosted);
-
-  await settings.set("remote.hostedWebApp", false, { kind: "global" });
-  await vi.waitFor(async () => expect((await pairPreflight()).status).toBe(403));
+  await settings.set("remote.hostedPairingLink", true, { kind: "global" });
+  const hosted = await issue();
+  expect(new URL(hosted).origin).toBe("https://app.acehq.dev");
+  expect(new URL(hosted).search).toBe("");
+  const credential = await redeemPairing(hosted, "iPhone");
+  expect(credential.device.name).toBe("iPhone");
 });

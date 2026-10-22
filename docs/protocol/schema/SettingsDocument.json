@@ -280,7 +280,7 @@
         "remote.enabled": {
           "type": "boolean"
         },
-        "remote.hostedWebApp": {
+        "remote.hostedPairingLink": {
           "type": "boolean"
         },
         "remote.relayUrl": {
