@@ -19,8 +19,16 @@ const repository: ForgeRepository = {
   name: "ace",
 };
 const minute = 60_000;
-const sha = (seed: string) =>
-  [...seed].reduce((hex, char) => hex + char.charCodeAt(0).toString(16), "").padEnd(40, "0").slice(0, 40);
+/** A stable 40-hex commit id per seed (FNV-1a, repeated with a salt). */
+const sha = (seed: string) => {
+  let out = "";
+  for (let salt = 0; out.length < 40; salt++) {
+    let hash = 0x811c9dc5;
+    for (const char of `${salt}:${seed}`) hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193);
+    out += (hash >>> 0).toString(16).padStart(8, "0");
+  }
+  return out.slice(0, 40);
+};
 
 /** Branches that have no pull request yet, with the commits and files each would bring. */
 const unpublished: Record<
