@@ -6,8 +6,6 @@ import { PrDescription } from "./pr-description.tsx";
 import { PrStackSummary } from "./pr-stack-summary.tsx";
 import { PrChecks } from "./pr-checks.tsx";
 import { PrComments } from "./pr-comments.tsx";
-import { composerClearance } from "./pr-composer.tsx";
-import { cn } from "@/lib/cn.ts";
 
 /**
  * The Summary tab, top to bottom: what needs attention, reviewers and labels, the biggest
@@ -33,7 +31,7 @@ export function PrSummary(props: {
   const { context } = props;
   const { detail } = context;
   return (
-    <div className={cn("space-y-3 px-[var(--forge-gutter,1rem)] pt-2", composerClearance)}>
+    <div className="space-y-3 px-[var(--forge-gutter,1rem)] pt-2 pb-10">
       <PrAttention
         workspaceId={context.workspaceId}
         detail={detail}

@@ -14,6 +14,9 @@ import { readForge } from "@/lib/forge-read.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { readFailureText } from "./query-state.tsx";
 const Context = createContext<{
+  /** The pull request the review acts on, as last read. */
+  detail: ForgePrDetail;
+  workspaceId: string;
   state?: ForgeReviewState | undefined;
   pending: boolean;
   ready: boolean;
@@ -77,7 +80,8 @@ export function PrReviewWorkspace(props: {
             action,
           }),
         );
-        setMessage("Saved.");
+        // The result shows where it was made (the new comment, the resolved thread).
+        setMessage("");
         void refetch();
         onRefresh();
         return true;
@@ -103,8 +107,11 @@ export function PrReviewWorkspace(props: {
     [],
   );
   const clearBatch = useCallback(() => setBatch([]), []);
+  const detail = props.detail;
   const value = useMemo(
     () => ({
+      detail,
+      workspaceId,
       state: query.data,
       pending: pending || disabled,
       ready: ready && !disabled,
@@ -113,7 +120,18 @@ export function PrReviewWorkspace(props: {
       toggleBatch,
       clearBatch,
     }),
-    [query.data, pending, ready, run, disabled, batch, toggleBatch, clearBatch],
+    [
+      detail,
+      workspaceId,
+      query.data,
+      pending,
+      ready,
+      run,
+      disabled,
+      batch,
+      toggleBatch,
+      clearBatch,
+    ],
   );
   const uncertain = (query.data?.operations ?? []).filter((op) => op.state === "uncertain");
   return (

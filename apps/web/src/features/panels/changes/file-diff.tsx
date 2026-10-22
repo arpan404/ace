@@ -188,7 +188,8 @@ export function FileDiffBlock(props: {
               props.wrap
                 ? "whitespace-pre-wrap [word-break:normal] [overflow-wrap:normal]"
                 : "whitespace-pre",
-              props.mode === "unified" && "overflow-x-auto overflow-y-hidden",
+              // A container, so a comment under a line can span the visible width (100cqw).
+              props.mode === "unified" && "@container overflow-x-auto overflow-y-hidden",
             )}
           >
             {props.mode === "unified" ? (
@@ -288,7 +289,7 @@ function Split(props: RowsProps) {
           tabIndex={0}
           data-diff-side={side}
           className={cn(
-            "min-w-0 overflow-x-auto overflow-y-hidden focus-ring-inset",
+            "@container min-w-0 overflow-x-auto overflow-y-hidden focus-ring-inset",
             side === "new" && "border-l",
           )}
         >

@@ -80,15 +80,52 @@ export function joinFilePages(pages: readonly ForgePrFiles[]): ForgePrFiles | un
 
 type ReviewThread = ForgePrStatus["reviewThreads"][number];
 
-/** Whether the diff draws `line` of `diff` on either side, outside folded runs. */
-function draws(diff: FileDiff, line: number): boolean {
-  return diff.rows.some((row) => row.kind !== "fold" && (row.new === line || row.old === line));
+/** A diff line a comment can sit under: the side and number its row is addressed by. */
+export type LineKey = `${"old" | "new"}:${number}`;
+
+/**
+ * The row a comment on `line` of `side` hangs under, as the diff addresses its rows: a deleted
+ * line by its old number, every other line by its new one (so a comment on the old side of an
+ * unchanged line still finds it). Undefined when the diff doesn't draw that line.
+ */
+export function lineKeyOf(diff: FileDiff, side: "old" | "new", line: number): LineKey | undefined {
+  for (const row of diff.rows) {
+    if (row.kind === "fold") continue;
+    if (
+      side === "new"
+        ? row.kind !== "del" && row.new === line
+        : row.kind !== "add" && row.old === line
+    )
+      return row.kind === "del" ? `old:${line}` : `new:${row.new ?? line}`;
+  }
+  return undefined;
+}
+
+const sideOf = (side: "LEFT" | "RIGHT" | undefined) => (side === "LEFT" ? "old" : "new");
+
+/**
+ * Where each current review thread of `diff`'s file sits: under the row of its last line.
+ * Outdated threads and those on lines the diff doesn't draw aren't placed (`offDiffThreads`
+ * lists them above the files).
+ */
+export function placeThreads(
+  threads: readonly ReviewThread[],
+  diff: FileDiff,
+): ReadonlyMap<LineKey, ReviewThread[]> {
+  const placed = new Map<LineKey, ReviewThread[]>();
+  for (const thread of threads) {
+    if (thread.file !== diff.path || thread.outdated || thread.line === null) continue;
+    const key = lineKeyOf(diff, sideOf(thread.side), thread.line);
+    if (key) placed.set(key, [...(placed.get(key) ?? []), thread]);
+  }
+  return placed;
 }
 
 /**
- * Open review threads the diff can't show beside their line: outdated, without a line, on a
- * line the patch doesn't draw, or on a file the range doesn't touch (known only once every page
- * has loaded). A file whose diff is still being prepared keeps its threads until it is ready.
+ * Review threads the diff can't show beside their line: outdated, without a line, on a line
+ * the patch doesn't draw, or on a file the range doesn't touch (known only once every page has
+ * loaded). A file whose diff is still being prepared keeps its threads until it is ready.
+ * Resolved threads are left out.
  */
 export function offDiffThreads(
   threads: readonly ReviewThread[],
@@ -101,7 +138,7 @@ export function offDiffThreads(
     if (thread.outdated || thread.line === null) return true;
     if (!listed.has(thread.file)) return range.complete;
     const diff = diffs.get(thread.file);
-    return diff !== undefined && !draws(diff, thread.line);
+    return diff !== undefined && !lineKeyOf(diff, sideOf(thread.side), thread.line);
   });
 }
 
