@@ -21,17 +21,19 @@ extension XCUIApplication {
     /// Drags the list without letting it coast until `element` sits clear of the floating header
     /// and the tab bar. A swipe coasts on, and a tap made before it stops lands on whichever row
     /// slid under the finger.
-    @MainActor func bringToMiddle(_ element: XCUIElement, attempts: Int = 16) {
+    @MainActor func bringToMiddle(_ element: XCUIElement, attempts: Int = 30) {
         let lower = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.72))
         let upper = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.38))
-        for _ in 0..<attempts {
+        for attempt in 0..<attempts {
             // A row the lazy list hasn't loaded has no frame to read yet.
             let exists = element.exists
             let frame = exists ? element.frame : .zero
             let visible = exists && frame.minY > self.frame.height * 0.2 && frame.maxY < self.frame.height * 0.82
             if visible && element.isHittable { return }
-            // Below (or not yet loaded): drag up. Above: drag down.
-            if exists && frame.maxY <= self.frame.height * 0.2 {
+            // Above: drag down. Below: drag up. Not loaded yet: look further down the list first,
+            // then back up it, since the row may have scrolled off either way.
+            let above = exists ? frame.maxY <= self.frame.height * 0.2 : attempt >= attempts / 2
+            if above {
                 upper.press(forDuration: 0.1, thenDragTo: lower, withVelocity: .slow, thenHoldForDuration: 0.2)
             } else {
                 lower.press(forDuration: 0.1, thenDragTo: upper, withVelocity: .slow, thenHoldForDuration: 0.2)
