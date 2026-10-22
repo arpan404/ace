@@ -169,7 +169,11 @@ test("changed UID or group retains a live provider, while a recycled PID does no
       ...skillProcessRuntime,
       identity(pid) {
         return pid === identity.pid
-          ? { ...identity, uid: identity.uid + 1, group: identity.group + 1 }
+          ? {
+              ...identity,
+              uid: typeof identity.uid === "number" ? identity.uid + 1 : identity.uid + "-1",
+              group: identity.group + 1,
+            }
           : skillProcessRuntime.identity(pid);
       },
       groupGone() {
