@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { accessSync, constants } from "node:fs";
+import { delimiter, isAbsolute, join } from "node:path";
 import { browserEngineRepairs, type EngineRepairs } from "@ace/browser/engine-check";
 import {
   appArmorInstallCommands,
@@ -26,6 +28,8 @@ export type LinuxFeatureOptions = {
   runAsRoot?(argv: string[]): Promise<number | null>;
   /** Already root: commands run without sudo. */
   root?: boolean;
+  /** Whether AppArmor's parser is installed; a container usually has none. */
+  hasParser?(env: NodeJS.ProcessEnv): boolean;
 };
 
 /**
@@ -39,6 +43,7 @@ export function createLinuxFeature(options: LinuxFeatureOptions = {}): DoctorFea
   const root = options.root ?? process.getuid?.() === 0;
   const run = options.runAsRoot ?? ((argv) => runOnTerminal(root ? argv : ["sudo", ...argv]));
   const shown = (argv: string[]) => (root ? "" : "sudo ") + argv.join(" ");
+  const hasParser = options.hasParser ?? parserInstalled;
   return {
     id: "linux",
     checks: () => [],
@@ -59,6 +64,12 @@ export function createLinuxFeature(options: LinuxFeatureOptions = {}): DoctorFea
           title: `Install ace's AppArmor ${found.profiles.length === 1 ? "profile" : "profiles"} (${found.profiles.map((profile) => profile.name).join(", ")})`,
           detail: `Lets these sandboxes create user namespaces; AppArmor checks each profile before it is written. Same as running:\n${appArmorInstallCommands(found.profiles)}`,
           recommended: true,
+          ...(hasParser(context.env)
+            ? {}
+            : {
+                blocked:
+                  "apparmor_parser isn't installed here (in a container, install the profile on the host instead).",
+              }),
         });
       return plan;
     },
@@ -116,6 +127,19 @@ async function machineNeeds(report: DiagnosticReport, context: DoctorContext): P
       : {}),
     profiles: [browser.profile, cursor].filter((profile) => profile !== undefined),
   };
+}
+
+function parserInstalled(env: NodeJS.ProcessEnv): boolean {
+  const dirs = [...(env.PATH ?? "").split(delimiter), "/usr/sbin", "/sbin"];
+  return dirs.some((dir) => {
+    if (!isAbsolute(dir)) return false;
+    try {
+      accessSync(join(dir, "apparmor_parser"), constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** Runs on the person's terminal so sudo and the package manager can ask and show progress. */

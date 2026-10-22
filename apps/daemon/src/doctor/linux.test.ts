@@ -31,7 +31,7 @@ async function linuxContext() {
   cleanups.push(cleanup);
   return context;
 }
-function feature(found: LinuxNeeds, codes: number[] = []) {
+function feature(found: LinuxNeeds, codes: number[] = [], parser = true) {
   const ran: string[][] = [];
   return {
     ran,
@@ -42,6 +42,7 @@ function feature(found: LinuxNeeds, codes: number[] = []) {
         return codes.shift() ?? 0;
       },
       root: false,
+      hasParser: () => parser,
     }),
   };
 }
@@ -125,4 +126,13 @@ it("a repair whose need went away is skipped without running anything", async ()
   ];
   expect(results.map((result) => result.status)).toEqual(["skipped", "skipped"]);
   expect(done.ran).toEqual([]);
+});
+
+it("without AppArmor's parser (a container) the profile is listed but blocked, so --fix skips it", async () => {
+  const context = await linuxContext();
+  const plan = (await feature(needs, [], false).feature.repairs?.(report, context)) ?? [];
+  expect(plan.find((repair) => repair.id === APPARMOR_REPAIR)?.blocked).toMatch(
+    /apparmor_parser isn't installed/,
+  );
+  expect(recommendedRepairs(plan)).toEqual([PACKAGES_REPAIR]);
 });
