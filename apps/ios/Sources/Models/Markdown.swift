@@ -45,7 +45,7 @@ struct MarkdownParser {
     /// Feeds one line, without its newline, that starts `offset` bytes into the text.
     mutating func feed(_ raw: Substring, at offset: Int) {
         let line = String(raw)
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let trimmed = Markdown.trimmed(line)
         if var open = fence {
             let mark = open.marker.first
             let run = trimmed.prefix { $0 == mark }
@@ -126,6 +126,14 @@ enum Markdown {
         return parser.finish().map(\.block)
     }
 
+    /// `line` without the whitespace at its ends, as `trimmingCharacters(in: .whitespaces)`, but
+    /// reading only the ends: a long streaming line costs nothing to trim.
+    static func trimmed(_ line: String) -> String {
+        let scalars = line.unicodeScalars, space = CharacterSet.whitespaces
+        guard let first = scalars.firstIndex(where: { !space.contains($0) }),
+              let last = scalars.lastIndex(where: { !space.contains($0) }) else { return "" }
+        return String(scalars[first...last])
+    }
     static func fenceMarker(_ line: String) -> String? {
         for character in ["`", "~"] {
             let run = line.prefix { String($0) == character }
@@ -135,6 +143,7 @@ enum Markdown {
     }
     /// Escaped pipes and pipes inside inline code belong to the cell, not its boundary.
     static func tableCells(_ line: String) -> [String]? {
+        guard line.utf8.contains(0x7C) else { return nil }
         var cells: [String] = [], cell = "", escaped = false, code = false, divided = false
         for character in line.trimmingCharacters(in: .whitespaces) {
             if escaped { cell.append(character); escaped = false; continue }
@@ -158,6 +167,7 @@ enum Markdown {
         return .heading(level: hashes, text: rest.trimmingCharacters(in: .whitespaces))
     }
     static func isRule(_ line: String) -> Bool {
+        guard let lead = line.utf8.first, lead == 0x2D || lead == 0x2A || lead == 0x5F else { return false }
         let marks = line.filter { $0 != " " }
         guard marks.count >= 3, let first = marks.first, "-*_".contains(first) else { return false }
         return marks.allSatisfy { $0 == first }
