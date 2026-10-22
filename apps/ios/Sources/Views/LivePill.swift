@@ -35,7 +35,9 @@ struct LivePillCapsule: View {
     var body: some View {
         HStack(spacing: AceTheme.Spacing.none) {
             if let status = pill.status {
+                // At large text sizes the other parts give way first: the status always reads.
                 part(opens: status.opens, label: status.label) { StatusWords(status: status) }
+                    .layoutPriority(1)
                     .accessibilityAddTraits(.updatesFrequently)
                     .accessibilityIdentifier("pill.status")
             }
@@ -46,7 +48,8 @@ struct LivePillCapsule: View {
             }
         }
         .padding(.horizontal, AceTheme.Spacing.xs)
-        .frame(height: Self.height)
+        .frame(minHeight: Self.height)
+        .padding(.horizontal, AceTheme.Spacing.md)
         .aceGlass(in: AceShape.capsule, interactive: true)
         .sensoryFeedback(.selection, trigger: tapped)
         .accessibilityElement(children: .contain)
