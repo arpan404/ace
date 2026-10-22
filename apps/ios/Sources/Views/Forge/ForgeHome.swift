@@ -45,7 +45,7 @@ struct ForgeHome: View {
         content
             .inboxTopBar { chips }
             .task(id: "\(session?.hostId ?? "")|\(session?.client.connection ?? "")") { await loadProjects() }
-            .task(id: listKey) { await load(fresh: false) }
+            .task(id: "\(listKey)|\(session?.client.readyCount ?? 0)") { await load(fresh: false) }
     }
 
     private var listKey: String {

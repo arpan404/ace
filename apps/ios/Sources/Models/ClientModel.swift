@@ -32,6 +32,8 @@ import CryptoKit
     var inbox: [String: ThreadRow] = [:]
     var pending: [String: PendingRow] = [:]
     var connection = "connecting"
+    /// How many times this machine's connection has become ready; screens read again when it moves.
+    private(set) var readyCount = 0
     /// Why the SDK's connection isn't ready (unreachable, revoked, pin mismatch), for a person.
     var problem: ProblemNotice?
     var error: String?
@@ -144,6 +146,7 @@ import CryptoKit
                 activityChanged = true
             case .inboxSections(let layout): if inboxLayout != layout { inboxLayout = layout }
             case .connection(let state, let generation):
+                if state == "ready" && connection != "ready" { readyCount += 1 }
                 connection = state
                 if let generation, generation > activityGeneration {
                     activityGeneration = generation
@@ -268,6 +271,8 @@ import CryptoKit
     }
     func network(_ online: Bool) { action(["type": "network", "online": online]) }
     func retry() { action(["type": "retry"]) }
+    /// The app is in front again: the SDK checks the socket now and skips a waiting backoff.
+    func wake() { action(["type": "wake"]) }
     /// Ask the computer for its CLIs and usage; runs on the next ready connection if offline.
     func refreshMachine() { action(["type": "machine.refresh"]) }
     func send(_ text: String, delivery: String) async -> Bool {

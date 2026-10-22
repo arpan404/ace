@@ -205,7 +205,7 @@ struct AutomationsView: View {
         } message: { _ in
             Text("Its run history stays on this machine.")
         }
-        .task { await read() }.refreshable { await read() }
+        .readWhenConnected(model) { await read() }.refreshable { await read() }
     }
     private func read() async {
         defer { loading = false }

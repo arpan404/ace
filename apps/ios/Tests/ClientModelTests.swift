@@ -46,6 +46,19 @@ import Foundation
         model.receive(try frame([["type": "thread.reset", "threadId": "a", "epoch": 3]]))
         #expect(model.thread?.items.isEmpty == true)
     }
+    @Test func screensAreAskedToReadAgainOnlyWhenTheMachineComesBack() throws {
+        let model = ClientModel(now: { 0 })
+        let connection = { (state: String) in try frame([["type": "connection", "state": state]]) }
+        model.receive(try connection("connecting"))
+        let atLaunch = model.readyCount
+        model.receive(try connection("ready"))
+        #expect(model.readyCount == atLaunch + 1)
+        model.receive(try connection("ready"))
+        model.receive(try connection("reconnecting"))
+        #expect(model.readyCount == atLaunch + 1) // dropping keeps what screens show
+        model.receive(try connection("ready"))
+        #expect(model.readyCount == atLaunch + 2)
+    }
     private func item(_ id: String, text: String, index: Int) -> [String: Any] {
         ["type": "thread.item", "threadId": "a", "epoch": 1, "id": id,
          "row": ["id": id, "index": index, "type": "message", "role": "assistant", "text": text, "complete": false, "createdAt": 0, "agentId": "root", "truncated": false]]

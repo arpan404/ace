@@ -48,7 +48,7 @@ struct ForgePullPageView: View {
                 }
             }
         }
-        .task(id: method) { await load() }
+        .readWhenConnected(client, id: method) { await load() }
         .confirmationDialog(confirming?.label ?? "", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
                             titleVisibility: .visible, presenting: confirming) { action in
             Button(action.label) { Task { await write(action) } }

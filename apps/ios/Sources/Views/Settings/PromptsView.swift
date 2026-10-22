@@ -44,7 +44,7 @@ struct PromptsView: View {
         }
         .insetGroupedList()
         .navigationTitle("Prompts").navigationBarTitleDisplayMode(.inline)
-        .task { await read() }.refreshable { await read() }
+        .readWhenConnected(model) { await read() }.refreshable { await read() }
     }
     private func read() async {
         do {
@@ -78,7 +78,7 @@ private struct PromptEditor: View {
         }
         .insetGroupedList()
         .navigationTitle(file?.title ?? "New prompt").navigationBarTitleDisplayMode(.inline)
-        .task { await read() }
+        .readWhenConnected(model) { await read() }
         .onChange(of: text) { saved = false }
     }
     private var scope: Any {
