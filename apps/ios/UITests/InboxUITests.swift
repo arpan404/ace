@@ -48,9 +48,9 @@ import XCTest
         XCTAssertTrue(app.buttons["inbox.undoSettle"].waitForExistence(timeout: 10))
         let settled = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: done)
         wait(for: [settled], timeout: 10)
-        let shelf = app.buttons["inbox.settled"]
-        for _ in 0..<4 where !shelf.exists { app.swipeUp() }
-        XCTAssertTrue(shelf.exists)
+        let settledShelf = app.buttons["inbox.settled"]
+        for _ in 0..<4 where !settledShelf.exists { app.swipeUp() }
+        XCTAssertTrue(settledShelf.exists)
         screenshot("inbox-settled")
         app.buttons["inbox.undoSettle"].tap()
         XCTAssertTrue(done.waitForExistence(timeout: 10))
