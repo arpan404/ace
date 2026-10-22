@@ -8,8 +8,8 @@ import { immutable } from "./immutable.ts";
 import { ReviewThreadsPage, ReviewCommentConnection } from "./github-schemas.ts";
 import { ForgeError } from "./errors.ts";
 
-const pageFields = `pageInfo { hasNextPage endCursor } nodes { databaseId body updatedAt author { login } }`;
-const threadsQuery = `query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor} nodes{id isResolved isOutdated path line comments(first:100){${pageFields}}}}}}}`;
+const pageFields = `pageInfo { hasNextPage endCursor } nodes { databaseId body updatedAt createdAt author { login avatarUrl } }`;
+const threadsQuery = `query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor} nodes{id isResolved isOutdated path line startLine diffSide comments(first:100){${pageFields}}}}}}}`;
 const commentsQuery = `query($id:ID!,$cursor:String){node(id:$id){... on PullRequestReviewThread{comments(first:100,after:$cursor){${pageFields}}}}}`;
 type Query = { query: string; variables: Record<string, string | number | null> };
 type Planned = { key: string; query: Query; page: Page };
@@ -25,6 +25,8 @@ function sameThread(a: SourceThread, b: SourceThread): boolean {
     a.id === b.id &&
     a.path === b.path &&
     a.line === b.line &&
+    a.startLine === b.startLine &&
+    a.diffSide === b.diffSide &&
     a.isResolved === b.isResolved &&
     a.isOutdated === b.isOutdated &&
     a.comments.nodes.length === b.comments.nodes.length &&
@@ -34,10 +36,16 @@ function sameThread(a: SourceThread, b: SourceThread): boolean {
         previous?.databaseId === item.databaseId &&
         previous.body === item.body &&
         previous.updatedAt === item.updatedAt &&
-        previous.author?.login === item.author?.login
+        previous.createdAt === item.createdAt &&
+        previous.author?.login === item.author?.login &&
+        previous.author?.avatarUrl === item.author?.avatarUrl
       );
     })
   );
+}
+/** GitHub's diff side; an unknown or missing value leaves the side out rather than guessing. */
+function side(value: string | null | undefined): Pick<Thread, "side"> {
+  return value === "LEFT" || value === "RIGHT" ? { side: value } : {};
 }
 /** Bounded query plan avoids traversing every thread on unchanged GraphQL polls. */
 export class ReviewThreadReader {
@@ -136,16 +144,24 @@ export class ReviewThreadReader {
               outdated: thread.isOutdated,
               file: thread.path,
               line: thread.line,
-              comments: connections.flat().map((comment) => ({
-                kind: "inline",
-                id: comment.databaseId,
-                body: comment.body,
-                author: comment.author?.login ?? "ghost",
-                file: thread.path,
-                line: thread.line,
-                updatedAt: comment.updatedAt,
-                replyTo: null,
-              })),
+              ...side(thread.diffSide),
+              startLine: thread.startLine ?? null,
+              comments: connections.flat().map((comment) =>
+                Object.assign(
+                  {
+                    kind: "inline" as const,
+                    id: comment.databaseId,
+                    body: comment.body,
+                    author: comment.author?.login ?? "ghost",
+                    file: thread.path,
+                    line: thread.line,
+                    updatedAt: comment.updatedAt,
+                    replyTo: null,
+                  },
+                  comment.author?.avatarUrl ? { authorAvatarUrl: comment.author.avatarUrl } : {},
+                  comment.createdAt ? { createdAt: comment.createdAt } : {},
+                ),
+              ),
             });
         result.push(row);
         projections.set(thread.id, { source: thread, versions, row });

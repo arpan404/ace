@@ -7,6 +7,7 @@ import type {
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
 import { catalogGroupCounts, catalogPrList } from "./forge-list-wire.ts";
 import { colors } from "./forge-list-rows.ts";
+import { applyHostedReview } from "./pr-review-actions.ts";
 
 /**
  * Whole pull requests the fake app can open in its PR panel: detail, merge state, lifecycle,
@@ -15,6 +16,10 @@ import { colors } from "./forge-list-rows.ts";
  */
 export class FakePrCatalog {
   private fixtures: PullRequestFixture[] = [];
+  private readonly now: () => number;
+  constructor(now: () => number = () => 0) {
+    this.now = now;
+  }
   seed(fixtures: readonly PullRequestFixture[]): void {
     // As GitHub answers: each label with its colour.
     this.fixtures = fixtures.map((fixture) => ({
@@ -99,6 +104,23 @@ export class FakePrCatalog {
       entry === fixture ? { ...fixture, mergeState: next } : entry,
     );
     return { ok: true, pr: payload.pr, prStatus: { ...fixture.detail.status, mergeState: next } };
+  }
+  /**
+   * `forge.hosted.review` on a catalog PR: drafts, comments, replies, hiding, resolving and
+   * viewed marks change it in memory, so the next detail and review-state reads show them.
+   */
+  review(payload: CommandPayload, commandId: string): Omit<CommandResult, "commandId"> | undefined {
+    if (payload.type !== "forge.hosted.review") return undefined;
+    const fixture = this.find(payload.pr);
+    if (!fixture) return undefined;
+    const applied = applyHostedReview(
+      fixture,
+      payload.action,
+      commandId,
+      new Date(this.now()).toISOString(),
+    );
+    this.fixtures = this.fixtures.map((entry) => (entry === fixture ? applied.fixture : entry));
+    return applied.result;
   }
   /** Each list group's total, from these pull requests and the issues in `reads`. */
   groupCounts(
