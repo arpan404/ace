@@ -71,7 +71,7 @@ test("background commands started back to back are one group, ended ones only in
     "the background group",
   );
   expect(group.label).toBe("3 background tasks · 1 running");
-  expect(group.running).toHaveLength(1);
+  expect(group.runningIds).toHaveLength(1);
   expect(group.listed).toHaveLength(2);
 
   player.runThrough("background-done");
@@ -79,7 +79,7 @@ test("background commands started back to back are one group, ended ones only in
     () => log()?.find((row) => row.kind === "background" && row.label === "Ran 3 background tasks"),
     "the group to end",
   );
-  expect(done.running).toEqual([]);
+  expect(done.runningIds).toEqual([]);
   expect(done.listed).toHaveLength(3);
 });
 

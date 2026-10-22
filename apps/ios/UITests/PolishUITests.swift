@@ -86,7 +86,7 @@ import XCTest
         let worked = app.buttons["work.toggle"].firstMatch
         if reveal(worked, in: app, up: 0, down: 24) {
             worked.tap()
-            _ = app.staticTexts["Ran"].waitForExistence(timeout: 15)
+            _ = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "work.group.")).firstMatch.waitForExistence(timeout: 15)
             try audit(app, "steps")
         }
         back(app)

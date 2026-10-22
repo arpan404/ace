@@ -204,6 +204,8 @@ export class StepsFollower {
         more: entry?.more === true,
         log: log.rows,
         aceSteps: log.ace,
+        retried: log.retried,
+        thoughts: log.thoughts,
         background,
       };
     });
