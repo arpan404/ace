@@ -123,7 +123,7 @@ function renderer(transport: string): string | undefined {
   try {
     const dump = execFileSync(
       join(sdk ?? "", "platform-tools", "adb"),
-      ["-s", transport, "shell", "dumpsys SurfaceFlinger | grep -m1 GLES"],
+      ["-s", transport, "shell", "dumpsys SurfaceFlinger | grep -m1 GLES:"],
       { encoding: "utf8", timeout: 15_000 },
     );
     return dump.trim().slice(0, 200) || undefined;

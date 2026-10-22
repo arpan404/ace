@@ -8,7 +8,11 @@
  * the picture with the Mac's hardware instead of the emulator's software encoder.
  *
  * Without a window, the emulator's automatic GPU choice falls back to software rendering
- * (SwiftShader); on macOS the host GPU (Metal) is always there, so it is asked for by name.
+ * (SwiftShader); on macOS the host GPU (Metal) is always there, so it is asked for by name. On
+ * Linux ace asks for `auto` by name: an AVD saved with hardware graphics (`host`) would otherwise
+ * keep it, and without a GPU (a server, a VM, CI) that emulator never finishes booting. Measured
+ * on GitHub's x64 runners (KVM, no GPU), every software mode booted and streamed alike; `host`
+ * did not boot (ADR 0064, 2026-10-21).
  * `gpu` (from `ACE_ANDROID_EMULATOR_GPU`) overrides that choice: a mode the emulator's `-gpu`
  * flag takes, or `none` to pass no flag at all.
  */
@@ -41,5 +45,6 @@ function emulatorGpu(value: string | undefined): string | undefined {
 }
 
 function defaultGpu(platform: string): string | undefined {
-  return platform === "darwin" ? "host" : undefined;
+  if (platform === "darwin") return "host";
+  return platform === "linux" ? "auto" : undefined;
 }

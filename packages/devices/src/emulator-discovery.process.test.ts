@@ -51,6 +51,11 @@ it("a person's ACE_ANDROID_EMULATOR_GPU picks the emulator's -gpu mode, and none
   expect(boot("host", "linux", true)).toContain("-gpu host");
   expect(boot("none", "darwin")).not.toContain("-gpu");
   expect(boot(undefined, "darwin")).toContain("-gpu host");
+  // Headless Linux asks for auto, so an AVD saved with host graphics can't hang without a GPU.
+  expect(boot(undefined, "linux")).toContain("-gpu auto");
+  expect(boot("none", "linux")).not.toContain("-gpu");
+  // With its own window, the AVD's own graphics setting stands.
+  expect(boot(undefined, "linux", true)).not.toContain("-gpu");
   // Anything the emulator couldn't take as a mode falls back to ace's choice.
   expect(boot("host; rm -rf /", "darwin")).toContain("-gpu host");
 });
