@@ -112,6 +112,18 @@ export class FakeWorkspaceWire {
       gate.resolve();
     };
   }
+  private failing = new Map<string, string>();
+  /**
+   * Refuse `operation` with `code`, as GitHub refusing it would (`forge_rate_limit`), until the
+   * returned undo runs.
+   */
+  failForgeRead(operation: ForgeBrowserOperation, code: string): () => void {
+    const key = JSON.stringify(operation);
+    this.failing.set(key, code);
+    return () => {
+      this.failing.delete(key);
+    };
+  }
   private forgeReadCounts = new Map<string, number>();
   /** How many times clients asked for this forge read, as GitHub would see them. */
   forgeReadCount(operation: ForgeBrowserOperation): number {
@@ -169,6 +181,13 @@ export class FakeWorkspaceWire {
     }
     const held = this.held.size ? this.held.get(JSON.stringify(op)) : undefined;
     if (held) await held;
+    const failure = this.failing.size ? this.failing.get(JSON.stringify(op)) : undefined;
+    if (failure)
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: { kind: "error", code: failure },
+      });
     if (op.op === "git.draft.cancel") {
       this.drafts.cancel(op.generationId);
       return ServerMessage.parse({

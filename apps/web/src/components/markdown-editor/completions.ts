@@ -129,3 +129,38 @@ export function completionChange(
   const caret = match.from + insert.length + (spaced ? 1 : 0);
   return { from: match.from, to, insert, select: [caret, caret] };
 }
+
+/**
+ * What a `#` query sends to a search that matches whole words only (GitHub's): a number as
+ * typed (looked up exactly), else the words already finished. The word still being typed is
+ * left out, so `#daem` asks for recent items and `#daemon forg` for `daemon`; `referenceMatches`
+ * then narrows the answer by what is typed.
+ */
+export function referenceSearch(query: string): string {
+  const trimmed = query.trim();
+  if (/^\d+$/.test(trimmed)) return trimmed;
+  const words = query.split(" ").filter(Boolean);
+  if (!query.endsWith(" ")) words.pop();
+  return words.join(" ");
+}
+
+/**
+ * A reference fits a `#` query when its number starts with the digits typed, or every typed
+ * word starts some word of its title (the last one may still be half typed).
+ */
+export function referenceMatches(
+  reference: { number: number; title: string },
+  query: string,
+): boolean {
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) return true;
+  if (/^\d+$/.test(trimmed)) return String(reference.number).startsWith(trimmed);
+  const titleWords = reference.title
+    .toLowerCase()
+    .split(/[^\w.-]+/)
+    .filter(Boolean);
+  return trimmed
+    .split(" ")
+    .filter(Boolean)
+    .every((word) => titleWords.some((titleWord) => titleWord.startsWith(word)));
+}
