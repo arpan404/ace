@@ -59,7 +59,7 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
             })(),
     },
     onError: (error) => log.log("error", "Agent automation failed", logError(error)),
-    executor: ownerThreadExecutor(context, (automationId) => lookup(automationId)?.thread_id),
+    executor: ownerThreadExecutor(context, delegations, lookup),
   });
   resources.own(() => automations.stop());
   resources.onShutdown(() => automations.stop());

@@ -26,11 +26,18 @@ export type ExecutionResult = z.infer<typeof ExecutionResult>;
 export interface AutomationExecutor {
   /** Resolve after the whole tree settles. Abort only unsubscribes this observer. */
   execute(input: ExecutionInput, signal: AbortSignal): Promise<ExecutionResult>;
-  /** Resume monitoring existing work; undefined means no thread was created. */
-  recover(idempotencyKey: string, signal: AbortSignal): Promise<ExecutionResult | undefined>;
   /**
-   * Stop the run's turn, when its automation is paused or deleted. Resolves once the stop is
-   * sent; the run's monitor then settles it as failed.
+   * Resume monitoring existing work; undefined means nothing was sent. `input` is the run's
+   * stored input, for executors that need more than its key.
+   */
+  recover(
+    idempotencyKey: string,
+    signal: AbortSignal,
+    input?: ExecutionInput,
+  ): Promise<ExecutionResult | undefined>;
+  /**
+   * Stop the run, when its automation is paused or deleted. Resolves once the executor holds
+   * the stop durably; it carries it out and the run's monitor settles the run as failed.
    */
   interrupt?(input: ExecutionInput): Promise<void>;
 }

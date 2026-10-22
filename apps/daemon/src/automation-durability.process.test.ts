@@ -95,6 +95,8 @@ test("committed deletion survives reconnect and restoring its definition retains
     await expect.poll(admittedThread).toBeDefined();
     const threadId = ThreadId.parse(admittedThread());
     await expect.poll(() => f.h.contexts.has(threadId)).toBe(true);
+    // The provider answers the turn once it has taken the run's message, never before.
+    await expect.poll(() => f.h.inputs.get(threadId)?.length ?? 0).toBeGreaterThan(0);
     await f.h.complete(threadId, "Reviewed");
     await f.daemon.engine?.flush();
     f.h.clock.advance(f.h.clock.now() + 1000);

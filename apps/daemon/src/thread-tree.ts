@@ -13,7 +13,16 @@ export function readThreadTree(
   // ever persisted for it; otherwise its children's facts are not ready yet.
   if (!journal && delegatedChildPersisted(store, threadId)) return undefined;
   const descendants = journal?.descendants(threadId) ?? [];
-  const members = [threadId, ...descendants.map((edge) => edge.childId)];
+  return readTreeMembers(context, [threadId, ...descendants.map((edge) => edge.childId)]);
+}
+
+/** Tree facts for exactly these threads, as `readThreadTree` reads each member. */
+export function readTreeMembers(
+  context: Pick<ServiceContext, "store" | "services">,
+  members: readonly ThreadId[],
+): CliTree {
+  const { store, services } = context;
+  const journal = services.agentControl?.delegations.journal;
   const data = members.map((id) => {
     const value = store.getThread(id);
     const edge = journal?.get(id);
@@ -34,7 +43,10 @@ export function readThreadTree(
   return CliTree.parse(data);
 }
 
-function delegatedChildPersisted(store: ServiceContext["store"], threadId: ThreadId): boolean {
+export function delegatedChildPersisted(
+  store: ServiceContext["store"],
+  threadId: ThreadId,
+): boolean {
   return store.atomic((db) => {
     const journal = db
       .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='delegated_threads'")

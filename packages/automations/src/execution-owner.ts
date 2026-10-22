@@ -52,7 +52,10 @@ export class ExecutionOwner {
     this.monitor(run, async (signal) => {
       let recovered: ExecutionResult | undefined;
       try {
-        recovered = await observe(this.deps.executor.recover(input.idempotencyKey, signal), signal);
+        recovered = await observe(
+          this.deps.executor.recover(input.idempotencyKey, signal, input),
+          signal,
+        );
       } catch (error) {
         if (!signal.aborted) {
           this.report(error);

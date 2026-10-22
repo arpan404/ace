@@ -1,101 +1,104 @@
 import { createHash } from "node:crypto";
-import type { AutomationExecutor } from "@ace/automations";
-import { Command, CommandId, DeviceId, ThreadId } from "@ace/protocol";
-import { z } from "zod";
-import { commandContext } from "../commands.ts";
-import { followRun, stopRun } from "../automation-run-monitor.ts";
+import type { AutomationExecutor, ExecutionInput, ExecutionResult } from "@ace/automations";
+import {
+  type AgentId,
+  CommandId,
+  DeviceId,
+  type McpAttribution,
+  type ThreadId,
+} from "@ace/protocol";
+import { automationRunExecutor } from "../automation-run-executor.ts";
 import type { ServiceContext } from "../services/types.ts";
+import type { DelegationService } from "./delegations.ts";
+import { controlCommandId } from "./command-id.ts";
 
 const deviceId = DeviceId.parse("agent-automation");
 const runKey = (value: string) =>
   CommandId.parse(`agent-automation-${createHash("sha256").update(value).digest("hex")}`);
 
+/** The thread and agent that made an automation. */
+export interface AutomationOwner {
+  thread_id: ThreadId;
+  agent_id: AgentId;
+}
+
 /**
  * Runs an automation an agent made from its thread by sending the message into that same
- * thread, queued behind any turn already going, so every run is one more turn of it. The send is
- * idempotent by the run's key. A deleted or archived thread fails the run instead of waiting.
+ * thread, queued behind any turn already going, so every run is one more turn of it. The thread
+ * keeps its own model and effort. A deleted or archived thread fails the run instead of waiting.
+ * Runs begun before this, each in a delegated child thread of its own, are still followed and
+ * stopped as children, so an upgrade never runs one twice.
  */
 export function ownerThreadExecutor(
   context: ServiceContext,
-  ownerOf: (automationId: string) => ThreadId | undefined,
+  delegations: DelegationService,
+  ownerOf: (automationId: string) => AutomationOwner | undefined,
 ): AutomationExecutor {
-  const { store, services } = context;
-  store.atomic((db) =>
-    db.exec(`CREATE TABLE IF NOT EXISTS agent_automation_run_threads(
-      command_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL
-    );`),
-  );
-  const sentTo = (commandId: string): ThreadId | undefined => {
-    const row = store.atomic((db) =>
-      db
-        .prepare("SELECT thread_id FROM agent_automation_run_threads WHERE command_id=?")
-        .get(commandId),
-    );
-    return row
-      ? ThreadId.parse(z.object({ thread_id: z.string() }).parse(row).thread_id)
-      : undefined;
+  const { store } = context;
+  /** The delegated child an older run started, found by the run's key as its request id. */
+  const legacyChild = (input: ExecutionInput) => {
+    const owner = ownerOf(input.automationId);
+    if (!owner) return undefined;
+    const edge = delegations.journal.receipt(owner.thread_id, input.idempotencyKey);
+    if (!edge) return undefined;
+    const caller: McpAttribution = {
+      sessionId: `automation:${input.automationId}`,
+      threadId: owner.thread_id,
+      agentId: owner.agent_id,
+    };
+    return { caller, child: edge.childId };
   };
-  const handler = () => {
-    const handle = services.engine?.internalHandler ?? services.handler;
-    if (!handle) throw new Error("engine_unavailable");
-    return handle;
-  };
-  return {
-    async execute(input, signal) {
-      if (input.worktree) throw new Error("Use thread.handoff for worktrees");
-      const threadId = ownerOf(input.automationId);
-      const thread = threadId && store.getThread(threadId);
-      if (!thread || thread.deletedAt !== undefined)
-        throw new Error("The thread that made this automation was deleted.");
-      if (thread.archivedAt !== undefined)
-        throw new Error("The thread that made this automation is archived.");
-      const handle = handler();
-      const commandId = runKey(input.idempotencyKey);
-      const command = Command.parse({
-        id: commandId,
-        deviceId,
-        payload: {
-          type: "thread.send",
+  return automationRunExecutor(
+    context,
+    {
+      deviceId,
+      commandId: runKey,
+      admission(input) {
+        if (input.worktree) throw new Error("Use thread.handoff for worktrees");
+        const threadId = ownerOf(input.automationId)?.thread_id;
+        const thread = threadId && store.getThread(threadId);
+        if (!thread || thread.deletedAt !== undefined)
+          throw new Error("The thread that made this automation was deleted.");
+        if (thread.archivedAt !== undefined)
+          throw new Error("The thread that made this automation is archived.");
+        return {
           threadId: thread.id,
-          delivery: "queue",
-          trigger: "schedule",
-          origin: { kind: "automation", role: input.automationId },
-          // The agent's own thread keeps its own model and effort.
-          input: [{ type: "text", text: input.prompt }],
+          payload: {
+            type: "thread.send",
+            threadId: thread.id,
+            delivery: "queue",
+            trigger: "schedule",
+            origin: { kind: "automation", role: input.automationId },
+            input: [{ type: "text", text: input.prompt }],
+          },
+        };
+      },
+      legacy: {
+        follow(_key, input, signal) {
+          const found = input && legacyChild(input);
+          if (!found) return undefined;
+          return delegations
+            .wait(found.caller, found.child, signal)
+            .then((result): ExecutionResult => ({
+              threadId: found.child,
+              status: result.outcome === "completed" ? "succeeded" : "failed",
+              result: result.result.slice(0, 8192),
+            }));
         },
-      });
-      await store.write((db) => {
-        const result = store.recordCommand(command.id, command.deviceId, () =>
-          handle.handle(command, commandContext(store)),
-        );
-        if (!result.ok) throw new Error(result.error ?? "automation_admission_failed");
-        db.prepare("INSERT OR IGNORE INTO agent_automation_run_threads VALUES (?,?)").run(
-          commandId,
-          thread.id,
-        );
-      });
-      return followRun(context, thread.id, commandId, signal, {
-        stop: { id: runKey(`${input.idempotencyKey}:stop`), deviceId },
-      });
+        stop(input) {
+          const found = legacyChild(input);
+          if (!found) return undefined;
+          return store.write(() => {
+            const result = delegations.command(
+              controlCommandId(found.caller.threadId, input.idempotencyKey, "automation.stop"),
+              { type: "thread.interrupt", threadId: found.child, cascade: true },
+            );
+            if (!result.ok && result.error !== "thread_not_found")
+              throw new Error(result.error ?? "Stop failed");
+          });
+        },
+      },
     },
-    async recover(idempotencyKey, signal) {
-      const commandId = runKey(idempotencyKey);
-      const receipt = store.commandReceipt(commandId, deviceId);
-      if (!receipt) return undefined;
-      if (!receipt.ok) throw new Error(receipt.error ?? "automation_admission_failed");
-      const threadId = sentTo(commandId);
-      if (!threadId) throw new Error("automation_admission_failed");
-      return followRun(context, threadId, commandId, signal, {
-        recovered: true,
-        stop: { id: runKey(`${idempotencyKey}:stop`), deviceId },
-      });
-    },
-    async interrupt(input) {
-      const commandId = runKey(input.idempotencyKey);
-      const threadId = sentTo(commandId);
-      if (!threadId) return;
-      // Only this run's own turn or queued message stops; the thread's other work goes on.
-      await stopRun(context, threadId, commandId, runKey(`${input.idempotencyKey}:stop`), deviceId);
-    },
-  };
+    () => (thread, command) => delegations.hostStop(thread, command),
+  );
 }

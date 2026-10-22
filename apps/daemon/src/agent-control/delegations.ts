@@ -22,6 +22,7 @@ import {
   type Event,
   type DelegationOutcome,
   type CommandPayload,
+  type CommandResult,
 } from "@ace/protocol";
 import type { Engine, EngineClock } from "../engine/index.ts";
 import type { Store } from "../store.ts";
@@ -662,6 +663,22 @@ export class DelegationService {
     this.suspending.add(thread);
     try {
       return this.command(request, { type: "thread.interrupt", threadId: thread, cascade: true });
+    } finally {
+      this.suspending.delete(thread);
+    }
+  }
+  /**
+   * Record `command`, a Stop of one of `thread`'s turns made by the host rather than a person
+   * (an automation stopping its own run). It leaves no Stop marker on the thread, so later
+   * automatic work sent to it is not held, and cancels none of the thread's children: the
+   * caller stops the ones that turn started.
+   */
+  hostStop(thread: ThreadId, command: Command): CommandResult {
+    this.suspending.add(thread);
+    try {
+      return this.deps.store.recordCommand(command.id, command.deviceId, () =>
+        this.deps.engine.internalHandler.handle(command, commandContext(this.deps.store)),
+      );
     } finally {
       this.suspending.delete(thread);
     }

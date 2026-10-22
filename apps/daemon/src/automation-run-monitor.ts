@@ -1,151 +1,139 @@
+import { createHash } from "node:crypto";
 import type { ExecutionResult } from "@ace/automations";
-import { isAgentProse } from "@ace/projection";
-import { Command, type CommandId, type DeviceId, type Item, type ThreadId } from "@ace/protocol";
+import {
+  Command,
+  CommandId,
+  type CommandPayload,
+  type CommandResult,
+  type DeviceId,
+  type Thread,
+  type ThreadId,
+} from "@ace/protocol";
 import { commandContext } from "./commands.ts";
 import type { ServiceContext } from "./services/types.ts";
-import { readThreadTree } from "./thread-tree.ts";
-import { treeOutcome } from "./work-outcome.ts";
+import { readTreeMembers } from "./thread-tree.ts";
 import { systemClock } from "./engine/actor.ts";
+import {
+  decideRun,
+  runTreeState,
+  stopPlan,
+  type StopPlan,
+  type TreeState,
+} from "./automation-run-rules.ts";
+import {
+  activeRootRun,
+  readRunAnswer,
+  readTurn,
+  readWindowWork,
+  turnChildren,
+  type TurnRead,
+} from "./automation-run-facts.ts";
+import type { RunRecord, RunRecords } from "./automation-run-record.ts";
 
-const resultLimit = 8192;
-/** How many of the thread's newest items are read for a run's answer. */
-const tailItems = 60;
+/** A check now and then in case a change came without an event the monitor listens for. */
+const reconcileMs = 5_000;
 
-/** The transcript item a sent or created input becomes once the thread takes it from its queue. */
-export const inputItemId = (commandId: string) => `input:${commandId}`;
+/** Records a Stop the host makes, without the marker a person's Stop leaves (`hostStop`). */
+export type HostStop = (thread: ThreadId, command: Command) => CommandResult;
 
-/**
- * What a run answered: the root agent's last prose after the run's own input, joined and capped.
- * When the input has scrolled out of the newest items, the root agent's last prose stands in.
- */
-export function runAnswer(
-  items: readonly Item[],
-  inputId: string,
-  rootAgentId: string | undefined,
-) {
-  const start = items.findIndex((item) => item.id === inputId);
-  const after = start === -1 ? items : items.slice(start + 1);
-  for (const item of after.toReversed()) {
-    if (!isAgentProse(item) || item.synthetic) continue;
-    if (rootAgentId && item.agentId !== rootAgentId) continue;
-    const text = item.parts
-      .flatMap((part) => (part.type === "text" ? [part.text] : []))
-      .join("\n")
-      .trim();
-    if (text) return text.slice(0, resultLimit);
-  }
-  return undefined;
+export interface FollowOptions {
+  records: RunRecords;
+  deviceId: DeviceId;
+  hostStop: () => HostStop | undefined;
+  /** Lets the executor wake this run's monitor, as when a stop is asked for. */
+  register(commandId: CommandId, wake: () => void): () => void;
 }
 
-/** Whether the thread did anything after the run's input: an item of the agent's own. */
-function workedSince(items: readonly Item[], inputId: string): boolean {
-  const start = items.findIndex((item) => item.id === inputId);
-  return start !== -1 && start < items.length - 1;
-}
+const watched = new Set([
+  "thread.updated",
+  "thread.client.updated",
+  "queue.updated",
+  "run.started",
+  "run.ended",
+  "item.created",
+  "item.updated",
+  "item.deleted",
+]);
 
 /**
- * Follow one run in an automation's thread until it settles. The run starts once its input
- * leaves the thread's queue, and it settles only after the thread has worked since then and its
- * whole tree is done or failed, so the previous run's "done" never closes this one. Anything
- * waiting on a person keeps it running. `recovered` trusts a send made before a restart. A run
- * whose message `stop` took out of the queue settles as stopped, even across a restart.
+ * Follow one automation run from its record until it settles, carrying out its cancellation
+ * on the way. The run is the turn its message started (see `automation-run-rules.ts`): it
+ * settles once that turn's root runs ended and nothing the turn began still works or waits on
+ * the person, and its result is that turn's own answer. Changes in the run's threads wake it;
+ * a slow timer covers anything else.
  */
 export function followRun(
   context: ServiceContext,
-  threadId: ThreadId,
-  commandId: string,
+  options: FollowOptions,
+  commandId: CommandId,
   signal: AbortSignal,
-  options: { recovered?: boolean; stop?: { id: CommandId; deviceId: DeviceId } } = {},
 ): Promise<ExecutionResult> {
-  const recovered = options.recovered ?? false;
   const { store } = context;
-  const inputId = inputItemId(commandId);
   return new Promise((resolve, reject) => {
     if (signal.aborted) {
       reject(signal.reason);
       return;
     }
-    let stop = noop;
-    let cancelTimer = noop;
     let settled = false;
-    let members = new Set<ThreadId>([threadId]);
-    let delivered = false;
-    let sawWork = recovered;
-    const finish = (result: ExecutionResult) => {
+    let running = false;
+    let dirty = false;
+    let members = new Set<ThreadId>();
+    let cancelTimer = noop;
+    const clock = context.options.engine?.clock ?? systemClock;
+    const close = () => {
       settled = true;
       cancelTimer();
-      stop();
+      unsubscribe();
+      unregister();
       signal.removeEventListener("abort", abort);
-      resolve(result);
     };
     const abort = () => {
-      settled = true;
-      cancelTimer();
-      stop();
-      signal.removeEventListener("abort", abort);
+      close();
       reject(signal.reason);
     };
-    const tail = () =>
-      store.readBoundedItemPage(threadId, store.headSeq() + 1, tailItems, 256 * 1024).items;
-    const inspect = () => {
-      if (settled) return;
-      const thread = store.getThread(threadId);
-      if (!thread || thread.deletedAt !== undefined) {
-        finish({
-          threadId,
-          status: "failed",
-          result: "Its thread was deleted before the run finished.",
-        });
-        return;
-      }
-      delivered ||= store.itemCreatedSeq(threadId, inputId) !== undefined;
-      const stopped =
-        options.stop !== undefined &&
-        store.commandReceipt(options.stop.id, options.stop.deviceId)?.ok === true;
-      if (!delivered) {
-        if (stopped) finish({ threadId, status: "failed", result: "Stopped before it started." });
-        return;
-      }
-      // Our own stop leaves the thread marked stopped, waiting on the person; the run is over.
-      if (stopped && thread.status.state !== "working") {
-        finish({ threadId, status: "failed", result: "Stopped before it finished." });
-        return;
-      }
-      const facts = readThreadTree(context, threadId);
-      if (facts) members = new Set(facts.map((member) => member.threadId));
-      const outcome = facts && treeOutcome(facts);
-      if (outcome !== "ok" && outcome !== "failed") {
-        sawWork = true;
-        return;
-      }
-      const items = tail();
-      if (!sawWork && !workedSince(items, inputId)) return;
-      const answer = runAnswer(items, inputId, thread.rootAgentId);
-      finish({
-        threadId,
-        status: outcome === "ok" ? "succeeded" : "failed",
-        result:
-          answer ??
-          (outcome === "ok" ? "Finished without a written answer." : "Stopped before it finished."),
-      });
+    const finish = (result: ExecutionResult) => {
+      close();
+      resolve(result);
     };
-    stop = store.subscribe((events) => {
-      if (
-        events.some(
-          (event) =>
-            members.has(event.threadId) &&
-            (event.payload.type === "thread.updated" ||
-              event.payload.type === "thread.client.updated" ||
-              event.payload.type === "queue.updated"),
-        )
-      )
-        inspect();
+    const step = async () => {
+      try {
+        do {
+          dirty = false;
+          const result = await inspect(context, options, commandId);
+          if (settled) return;
+          members = result.members;
+          if (result.done) {
+            finish(result.done);
+            return;
+          }
+          if (result.again) dirty = true;
+        } while (dirty);
+      } catch (error) {
+        context.log.log("error", "Automation run check failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        running = false;
+      }
+    };
+    const wake = () => {
+      if (settled) return;
+      if (running) {
+        dirty = true;
+        return;
+      }
+      running = true;
+      queueMicrotask(() => void step());
+    };
+    const unsubscribe = store.subscribe((events) => {
+      if (events.some((event) => members.has(event.threadId) && watched.has(event.payload.type)))
+        wake();
     });
+    const unregister = options.register(commandId, wake);
     signal.addEventListener("abort", abort, { once: true });
-    const clock = context.options.engine?.clock ?? systemClock;
     const refresh = () => {
-      inspect();
-      if (!settled) cancelTimer = clock.setTimer(refresh, 500);
+      wake();
+      if (!settled) cancelTimer = clock.setTimer(refresh, reconcileMs);
     };
     refresh();
   });
@@ -153,68 +141,214 @@ export function followRun(
 
 function noop(): void {}
 
-/**
- * Stop one run in its thread, for a paused or deleted automation, without touching anyone
- * else's work: a message still waiting in the queue is taken out; a turn is stopped only while
- * it is this run's own, the run's input being the thread's newest message from outside it.
- */
-export async function stopRun(
+interface Inspection {
+  members: Set<ThreadId>;
+  done?: ExecutionResult;
+  /** Something changed that calls for another look straight away. */
+  again?: boolean;
+}
+
+async function inspect(
   context: ServiceContext,
-  threadId: ThreadId,
+  options: FollowOptions,
   commandId: CommandId,
-  stopId: CommandId,
-  deviceId: DeviceId,
-): Promise<void> {
+): Promise<Inspection> {
   const { store, services } = context;
+  const record = options.records.get(commandId);
+  const threadId = record?.threadId;
+  if (!record || !threadId || !record.inputCommand) return { members: new Set() };
+  const members = new Set<ThreadId>([threadId]);
   const thread = store.getThread(threadId);
-  if (!thread || thread.deletedAt !== undefined) return;
-  const handle = services.engine?.internalHandler ?? services.handler;
-  if (!handle) throw new Error("engine_unavailable");
-  const queue = services.engine?.queue(threadId);
-  const waiting = queue?.messages.some((message) => message.id === commandId);
-  const inputId = inputItemId(commandId);
-  const items = store.readBoundedItemPage(
-    threadId,
-    store.headSeq() + 1,
-    tailItems,
-    256 * 1024,
-  ).items;
-  const ownTurn = isOwnTurn(items, inputId, (id) => store.itemCreatedSeq(threadId, id));
-  const payload =
-    waiting && queue
-      ? {
-          type: "queue.remove" as const,
-          threadId,
-          expectedRevision: queue.revision,
-          messageId: commandId,
-        }
-      : ownTurn
-        ? { type: "thread.interrupt" as const, threadId, cascade: true }
-        : undefined;
-  if (!payload) return;
-  const command = Command.parse({ id: stopId, deviceId, payload });
-  await store.write(() =>
-    store.recordCommand(command.id, command.deviceId, () =>
-      handle.handle(command, commandContext(store)),
-    ),
-  );
+  if (!thread || thread.deletedAt !== undefined) {
+    await store.write(() => options.records.settle(commandId));
+    return {
+      members,
+      done: {
+        threadId,
+        status: "failed",
+        result: "Its thread was deleted before the run finished.",
+      },
+    };
+  }
+  const engine = services.engine;
+  if (!engine) throw new Error("engine_unavailable");
+  const fate = engine.inputFate(threadId, record.inputCommand);
+  if (fate.state === "replaced") {
+    await store.write(() => options.records.replace(commandId, fate.by));
+    return { members, again: true };
+  }
+  const bound = fate.state === "delivered" ? fate.runId : undefined;
+  if (fate.state !== record.disposition || (bound !== undefined && bound !== record.engineRun))
+    await store.write(() => options.records.observe(commandId, fate.state, bound));
+  const runId = bound ?? record.engineRun;
+  const turn =
+    runId === undefined ? undefined : readTurn(store, threadId, runId, thread.rootAgentId);
+  let tree: TreeState | undefined;
+  if (turn && !turn.facts.active) {
+    const children = turnChildren(context, threadId, turn);
+    for (const child of children ?? []) members.add(child);
+    tree =
+      children === undefined
+        ? "uncertain"
+        : runTreeState({
+            root: turn.later ? undefined : readTreeMembers(context, [threadId])[0],
+            windowWork: turn.later ? readWindowWork(store, threadId, turn) : "none",
+            children: readTreeMembers(context, children),
+            cancelling: record.cancel !== undefined,
+          });
+  }
+  let again = false;
+  if (record.cancel === "requested" || record.cancel === "sent")
+    again = await reconcileStop(context, options, commandId, thread);
+  const latest = options.records.get(commandId) ?? record;
+  const decision = decideRun({
+    threadDeleted: false,
+    fate,
+    boundRun: runId,
+    cancel: latest.cancel === "acknowledged" ? undefined : latest.cancel,
+    turn: turn?.facts,
+    tree,
+  });
+  if (decision.kind === "wait") return { members, again };
+  if (decision.kind === "follow") {
+    await store.write(() => options.records.replace(commandId, decision.commandId));
+    return { members, again: true };
+  }
+  const answer =
+    decision.result ??
+    (turn ? readRunAnswer(store, threadId, thread.rootAgentId, turn) : undefined) ??
+    decision.fallback ??
+    "";
+  await store.write(() => options.records.settle(commandId));
+  return { members, done: { threadId, status: decision.status, result: answer } };
 }
 
 /**
- * Whether the thread's current turn is the run's own: no message from outside the agent came
- * after its input. An input not written yet is a turn just starting, so it is the run's.
+ * Carry out the run's cancellation as things stand now, reading them again inside the write
+ * that sends the stop, so it can only reach the run's own message, turn or children. Returns
+ * whether to look again soon (a stop was refused because the queue or turn moved on).
  */
-export function isOwnTurn(
-  items: readonly Item[],
-  inputId: string,
-  writtenAt: (itemId: string) => number | undefined,
+async function reconcileStop(
+  context: ServiceContext,
+  options: FollowOptions,
+  commandId: CommandId,
+  thread: Thread,
+): Promise<boolean> {
+  const { store, services } = context;
+  return store.write(() => {
+    const record = options.records.get(commandId);
+    const engine = services.engine;
+    if (!record?.threadId || !record.inputCommand || !engine) return false;
+    if (record.cancel !== "requested" && record.cancel !== "sent") return false;
+    const threadId = record.threadId;
+    const fate = engine.inputFate(threadId, record.inputCommand);
+    const bound = (fate.state === "delivered" ? fate.runId : undefined) ?? record.engineRun;
+    const turn =
+      bound === undefined ? undefined : readTurn(store, threadId, bound, thread.rootAgentId);
+    const active = activeRootRun(store, threadId, thread.rootAgentId);
+    const plan = stopPlan({
+      fate,
+      boundRun: record.engineRun,
+      rootActive:
+        active === undefined
+          ? undefined
+          : { runId: active, ours: turn?.runIds.includes(active) ?? false },
+      liveChildren: turn ? liveChildren(context, threadId, turn) : [],
+    });
+    if (plan.kind === "wait") return false;
+    if (plan.kind === "none") {
+      if (record.cancel === "requested") options.records.stopSent(commandId, undefined);
+      return false;
+    }
+    const target = planTarget(plan, record);
+    if (target === record.stopTarget) return false;
+    const stopId = CommandId.parse(
+      `automation-stop-${createHash("sha256").update(`${commandId}:${record.version}`).digest("hex")}`,
+    );
+    const accepted = sendStop(context, options, threadId, record, plan, stopId);
+    if (accepted) options.records.stopSent(commandId, target);
+    else options.records.stopRefused(commandId);
+    return !accepted;
+  });
+}
+
+function liveChildren(context: ServiceContext, threadId: ThreadId, turn: TurnRead): ThreadId[] {
+  const journal = context.services.agentControl?.delegations.journal;
+  return (turnChildren(context, threadId, turn) ?? []).filter((child) => {
+    const edge = journal?.get(child);
+    return edge !== undefined && edge.phase !== "settled" && edge.phase !== "cancelling";
+  });
+}
+
+function planTarget(plan: Exclude<StopPlan, { kind: "wait" | "none" }>, record: RunRecord) {
+  switch (plan.kind) {
+    case "remove":
+      return `remove:${record.inputCommand}`;
+    case "interrupt":
+      return `interrupt:${plan.runId ?? `before:${record.inputCommand}`}`;
+    case "cancel-children":
+      return `children:${plan.children.join(",")}`;
+  }
+}
+
+/** Send the stop; whether every part of it was accepted. */
+function sendStop(
+  context: ServiceContext,
+  options: FollowOptions,
+  threadId: ThreadId,
+  record: RunRecord,
+  plan: Exclude<StopPlan, { kind: "wait" | "none" }>,
+  stopId: CommandId,
 ): boolean {
-  const own = writtenAt(inputId);
-  if (own === undefined) return true;
-  const newest = items.findLast(
-    (item) => item.type === "message" && item.role === "user" && !item.synthetic,
-  );
-  if (!newest || newest.id === inputId) return true;
-  const newestAt = writtenAt(newest.id);
-  return newestAt === undefined || newestAt <= own;
+  const { store, services } = context;
+  const handle = services.engine?.internalHandler ?? services.handler;
+  if (!handle) throw new Error("engine_unavailable");
+  const send = (id: CommandId, payload: CommandPayload) => {
+    const command = Command.parse({ id, deviceId: options.deviceId, payload });
+    return store.recordCommand(command.id, command.deviceId, () =>
+      handle.handle(command, commandContext(store)),
+    );
+  };
+  switch (plan.kind) {
+    case "remove": {
+      const queue = services.engine?.queue(threadId);
+      if (!queue || !record.inputCommand) return false;
+      return send(stopId, {
+        type: "queue.remove",
+        threadId,
+        expectedRevision: queue.revision,
+        messageId: record.inputCommand,
+      }).ok;
+    }
+    case "interrupt": {
+      const command = Command.parse({
+        id: stopId,
+        deviceId: options.deviceId,
+        payload: {
+          type: "thread.interrupt",
+          threadId,
+          cascade: true,
+          ...(plan.runId ? { runId: plan.runId } : {}),
+        },
+      });
+      // The automation's own stop leaves no Stop marker, so its later runs aren't held.
+      const hostStop = options.hostStop();
+      return hostStop
+        ? hostStop(threadId, command).ok
+        : store.recordCommand(command.id, command.deviceId, () =>
+            handle.handle(command, commandContext(store)),
+          ).ok;
+    }
+    case "cancel-children":
+      return plan.children
+        .map((child) =>
+          send(
+            CommandId.parse(
+              `automation-stop-${createHash("sha256").update(`${stopId}:${child}`).digest("hex")}`,
+            ),
+            { type: "thread.interrupt", threadId: child, cascade: true },
+          ),
+        )
+        .every((result) => result.ok);
+  }
 }
