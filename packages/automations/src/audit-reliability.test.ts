@@ -50,7 +50,7 @@ test("restart keeps observing a running automation started hours earlier", async
   expect(h.inputs).toHaveLength(1);
 });
 
-test("a change during a file automation's run waits for it, and more changes meanwhile add nothing", async () => {
+test("a file automation's own edits during its run start no new run and leave no history", async () => {
   const h = harness();
   h.service.put(
     definition({
@@ -62,17 +62,45 @@ test("a change during a file automation's run waits for it, and more changes mea
   const receive = h.watches.get("/repo");
   if (!receive) throw new Error("Missing watcher");
   await receive({ key: "file:first", variables: { path: "first.ts" } });
-  await receive({ key: "file:during", variables: { path: "own-edit.ts" } });
-  expect(h.inputs).toHaveLength(1);
-  expect(h.service.inbox().runs.map((run) => run.status)).toEqual(["queued", "running"]);
+  // The run edits files as it works: each edit is a change the watcher sees.
+  for (const edit of ["one.ts", "two.ts", "three.ts"])
+    await receive({ key: `file:self:${edit}`, variables: { path: edit } });
   expect(
-    h.service.trigger("triage", { key: "file:cap", variables: { path: "other.ts" } }, "file")
+    h.service.trigger("triage", { key: "file:direct", variables: { path: "other.ts" } }, "file")
       .status,
   ).toBe("skipped");
-  expect(h.service.inbox().runs).toHaveLength(2);
+  expect(h.inputs).toHaveLength(1);
+  expect(h.service.inbox().runs.map((run) => run.status)).toEqual(["running"]);
+  await h.finish();
+  // Nothing was waiting behind the run, so it never starts itself again.
+  expect(h.inputs).toHaveLength(1);
+  expect(h.service.inbox().runs.map((run) => run.status)).toEqual(["succeeded"]);
+  // A change after the run is a new one.
+  await receive({ key: "file:after", variables: { path: "next.ts" } });
+  expect(h.inputs.map((input) => input.prompt)).toEqual(["Review first.ts", "Review next.ts"]);
+  await h.finish(1);
+});
+
+test("a manual run while a file automation works still waits for it", async () => {
+  const h = harness();
+  h.service.put(
+    definition({
+      workspace: "/repo",
+      prompt: "Review {{path}}",
+      trigger: { kind: "file", paths: ["**/*.ts"] },
+    }),
+  );
+  const receive = h.watches.get("/repo");
+  if (!receive) throw new Error("Missing watcher");
+  await receive({ key: "file:first", variables: { path: "first.ts" } });
+  expect(
+    h.service.trigger("triage", { key: "manual", variables: { path: "asked.ts" } }).status,
+  ).toBe("queued");
+  await receive({ key: "file:during", variables: { path: "own-edit.ts" } });
+  expect(h.service.inbox().runs.map((run) => run.status)).toEqual(["queued", "running"]);
   h.completions[0]?.resolve({ threadId: "thread-0", status: "succeeded", result: "Done" });
   await waitFor(() => h.completions[1]);
-  expect(h.inputs[1]?.prompt).toBe("Review own-edit.ts");
+  expect(h.inputs.map((input) => input.prompt)).toEqual(["Review first.ts", "Review asked.ts"]);
   await h.finish(1);
 });
 

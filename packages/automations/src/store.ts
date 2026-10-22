@@ -342,7 +342,11 @@ export class AutomationStore {
       this.sql("SELECT COUNT(*) AS n FROM automation_runs WHERE status='running'").get()?.n,
     );
     const waiting = this.queued(automation.id);
-    const ready = failure === undefined && input !== undefined && total < 256;
+    // A file automation's own edits must never start it again (ADR 0015): a change while one
+    // of its runs works or waits makes no run and leaves no history.
+    const busy = active > 0 || waiting;
+    const ready =
+      failure === undefined && input !== undefined && total < 256 && !(trigger === "file" && busy);
     const admitted = ready && !waiting && canAdmit(active, automation.concurrency);
     // A run that finds the last one still going waits for it; one waiting is enough, so a
     // second fire meanwhile is skipped rather than piling up behind it.
