@@ -26,6 +26,7 @@ import {
   type PrReviewVerdict,
   type PrTimelineItem,
 } from "./pr-timeline.ts";
+import { WebLink } from "@/components/web-link.tsx";
 
 export type TimelineExpansion = { isOpen(id: string): boolean; toggle(id: string): void };
 
@@ -134,9 +135,9 @@ function ReferenceTarget(props: { url: string; pullRequest: boolean; children: R
       </PullRequestLink>
     );
   return (
-    <a href={props.url} target="_blank" rel="noreferrer noopener" className={className}>
+    <WebLink href={props.url} className={className}>
       {props.children}
-    </a>
+    </WebLink>
   );
 }
 function ReferenceLine(props: { reference: PrReference }) {
@@ -235,14 +236,12 @@ export function PrTimelineRow(props: {
                 <p className="truncate text-xs font-semibold">{headline}</p>
               )}
               <p className="flex items-baseline gap-2 text-subtle-foreground">
-                <a
+                <WebLink
                   href={commit.url}
-                  target="_blank"
-                  rel="noreferrer noopener"
                   className="font-mono text-2xs hover:underline focus-ring"
                 >
                   {commit.sha.slice(0, 7)}
-                </a>
+                </WebLink>
                 <PrTime at={item.at} />
               </p>
             </div>

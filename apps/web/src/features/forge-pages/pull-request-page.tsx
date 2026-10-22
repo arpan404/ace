@@ -8,18 +8,7 @@ import { Screen } from "@/features/shell/index.ts";
 import { useBackToList } from "./back-to-list.ts";
 import { cachedRow } from "./lists.ts";
 import { useProjectChoice } from "./project-choice.ts";
-
-/** `github.com/acme/ace`: a repository in an address, for a PR outside the project's own. */
-export function repositoryParam(repository: ForgeRepository): string {
-  return `${repository.host}/${repository.owner}/${repository.name}`;
-}
-
-export function repositoryFromParam(value: string | undefined): ForgeRepository | undefined {
-  const parts = value?.split("/");
-  if (!parts || parts.length !== 3 || parts.some((part) => !part)) return undefined;
-  const [host = "", owner = "", name = ""] = parts;
-  return { forge: "github", host, owner, name };
-}
+import { repositoryFromParam, repositoryParam } from "@/lib/pull-request-route.ts";
 
 /** The PR view arrives with its page, never with the app's first paint. */
 const PrDetail = lazy(() => loadPrDetail().then((module) => ({ default: module.PrDetail })));

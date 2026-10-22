@@ -2,7 +2,7 @@ import { GitPullRequestIcon } from "@phosphor-icons/react";
 import type { ForgeRepository } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { openExternal } from "@/boot/open-external.ts";
+import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { failureCode } from "@/lib/forge-read.ts";
 
 /** A PR that couldn't be read at all: what happened, Retry, and the PR on GitHub. */
@@ -12,6 +12,7 @@ export function PrFailure(props: {
   error: Error;
   onRetry(): void;
 }) {
+  const openWeb = useOpenWebAddress();
   const repository = props.repository;
   const url =
     repository &&
@@ -35,7 +36,7 @@ export function PrFailure(props: {
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => void openExternal(url).catch(() => {})}
+              onClick={(event) => void openWeb(url, event).catch(() => {})}
             >
               Open on GitHub
             </Button>

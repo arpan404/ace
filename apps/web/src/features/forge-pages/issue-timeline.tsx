@@ -7,6 +7,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "@/lib/forge-read.ts";
 import { issueEventText } from "./issue-events.ts";
 import { CommentsSkeleton } from "./issue-skeletons.tsx";
+import { WebLink } from "@/components/web-link.tsx";
 
 type TimelinePage = Extract<ForgeBrowserResult, { resource: "issueTimeline" }>;
 type IssueEvent = TimelinePage["events"][number];
@@ -51,14 +52,9 @@ function Activity(props: { event: IssueEvent; text: string }) {
     <li className="flex items-baseline gap-1.5 border-t border-border py-2 pl-9 text-ui text-muted-foreground first:border-t-0">
       <span className="font-medium text-foreground/85">{props.event.actor}</span>
       {props.event.pullRequestUrl ? (
-        <a
-          href={props.event.pullRequestUrl}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="text-link hover:underline focus-ring"
-        >
+        <WebLink href={props.event.pullRequestUrl} className="text-link hover:underline focus-ring">
           {props.text}
-        </a>
+        </WebLink>
       ) : (
         <span>{props.text}</span>
       )}

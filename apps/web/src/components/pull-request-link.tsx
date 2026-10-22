@@ -3,12 +3,14 @@ import { prFromUrl } from "@ace/forge/pr-reference";
 import type { ForgePrRef } from "@ace/protocol";
 import { createContext, useContext, type MouseEvent, type ReactNode } from "react";
 import { pullRequestTab, useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { WebLink } from "./web-link.tsx";
 
 /*
  * A link to a pull request opens it in a side panel tab rather than on the forge. Inside a pull
  * request's own tab, links go to that panel (`PullRequestOpener`); in a thread's answer, to the
- * thread's panel. It stays a real link: its address copies, a modified or middle click still
- * opens the forge in the browser, and so does any click with nowhere in ace to open it.
+ * thread's panel. It stays a real link: its address copies, and a ⌘/Ctrl or middle click opens
+ * the forge in the system's browser. Any click with nowhere in ace to show the PR opens the
+ * forge as any web link does (`WebLink`).
  */
 
 type OpenPullRequest = (pr: ForgePrRef) => void;
@@ -39,10 +41,8 @@ type LinkProps = {
 function OpeningLink(props: LinkProps & { open: OpenPullRequest | undefined }) {
   const { open, pr } = props;
   return (
-    <a
+    <WebLink
       href={props.href}
-      target="_blank"
-      rel="noreferrer noopener"
       className={props.className}
       onClick={(event) => {
         if (!open || event.defaultPrevented || !plainClick(event)) return;
@@ -51,7 +51,7 @@ function OpeningLink(props: LinkProps & { open: OpenPullRequest | undefined }) {
       }}
     >
       {props.children}
-    </a>
+    </WebLink>
   );
 }
 

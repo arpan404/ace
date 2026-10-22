@@ -12,7 +12,7 @@ import { Prose } from "@/components/markdown/prose.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { openExternal } from "@/boot/open-external.ts";
+import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { RelativeTime as PrTime } from "@/components/person-avatar.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { useBackToList } from "./back-to-list.ts";
@@ -33,6 +33,7 @@ export const readable = "mx-auto w-full max-w-[64rem] px-4 sm:px-8";
 function Header(props: { project: string; issue: ForgeIssueDetail; onBack(): void }) {
   const { issue } = props;
   const toast = useToast();
+  const openWeb = useOpenWebAddress();
   const navigate = useNavigate();
   const threads = issue.relatedThreads.filter((thread) => !thread.archived);
   return (
@@ -78,7 +79,7 @@ function Header(props: { project: string; issue: ForgeIssueDetail; onBack(): voi
               <MenuItem
                 icon={<ArrowSquareOutIcon aria-hidden size={16} />}
                 onClick={() =>
-                  void openExternal(issue.url).catch(() =>
+                  void openWeb(issue.url).catch(() =>
                     toast.error({ title: "Couldn't open GitHub" }),
                   )
                 }

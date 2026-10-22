@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import type { Answer } from "./answer.ts";
 import { consentUrl, elicitationContent, elicitationForm } from "./elicitation-schema.ts";
+import { WebLink } from "@/components/web-link.tsx";
 
 type Request = Extract<InteractionRequest, { kind: "elicitation" }>;
 
@@ -44,14 +45,9 @@ export function Elicitation(props: { request: Request; disabled: boolean; onAnsw
         </p>
       )}
       {url && (
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-ui text-link underline"
-        >
+        <WebLink href={url} className="text-ui text-link underline">
           Open consent page
-        </a>
+        </WebLink>
       )}
       {form &&
         Object.entries(form.properties).map(([key, property], index) => {
