@@ -12,6 +12,7 @@ pub mod portal;
 pub mod portal_choice;
 #[cfg(target_os = "linux")]
 mod portal_input;
+pub mod portal_front;
 pub mod portal_token;
 pub mod protocol;
 #[cfg(target_os = "linux")]

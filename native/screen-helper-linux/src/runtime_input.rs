@@ -52,8 +52,22 @@ impl Runtime {
         }
         sent
     }
+    /// A person's input to a shared Wayland window waits until that window is in front.
+    async fn front_for_person(&self, r: &Request) -> Result<()> {
+        let (Some(p), Some(ui), true, false, true) =
+            (&self.portal, &self.ui, r.person, self.view_only, self.ui_active)
+        else {
+            return Ok(());
+        };
+        let Some(app) = p.picked.as_ref().and_then(|picked| picked.app.as_ref()) else {
+            return Ok(());
+        };
+        p.wake().await?;
+        crate::portal_front::bring_forward(ui, &app.app_id, &app.title).await
+    }
     pub(crate) async fn input(&mut self, r: &Request) -> Result<Value> {
-        self.check_input()?;
+        self.check_input(r.person)?;
+        self.front_for_person(r).await?;
         match r.op.as_str() {
             "pointer.move" => {
                 let (px, py) = coordinates(r)?;
@@ -115,8 +129,9 @@ impl Runtime {
                 if text.len() > 4096 {
                     return Err(Fault::new("bounds", "Text exceeds limit"));
                 }
-                // Without the app's accessibility, the portal's keyboard types it key by key.
-                if let (Some(p), false) = (&self.portal, self.ui_active) {
+                // The person's typing, or typing without the app's accessibility, goes through the
+                // portal's keyboard key by key, wherever the window's focus is.
+                if let (Some(p), true) = (&self.portal, r.person || !self.ui_active) {
                     for c in text.chars() {
                         let symbol = unicode_keysym(c);
                         p.key_symbol(symbol, true).await?;

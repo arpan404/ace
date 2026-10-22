@@ -64,6 +64,17 @@ impl Portal {
         self.keyboard_ready.store(true, Ordering::Release);
         Ok(())
     }
+    /// Both devices exist before anything depends on them. On a desktop whose only keyboard is
+    /// this session's, no window is active until that keyboard appears.
+    pub async fn wake(&self) -> Result<()> {
+        if self.require(1).is_ok() {
+            self.wake_keyboard().await?;
+        }
+        if self.require(2).is_ok() {
+            self.wake_pointer().await?;
+        }
+        Ok(())
+    }
     pub async fn motion(&self, x: f64, y: f64) -> Result<()> {
         let (w, h) = self.input_size();
         point(x, y, w, h)?;
@@ -125,11 +136,19 @@ impl Portal {
         } else {
             self.wake_pointer().await?;
         }
+        // Wheel notches, as the person's wheel turns: one per 40 points, as on X11. Smooth
+        // axis motion alone doesn't reach GTK's scroll handling in GNOME.
+        let path = self.path()?;
+        for (axis, delta) in [(0u32, dy), (1u32, dx)] {
+            let steps = crate::x11_pointer::wheel_steps(delta) as i32;
+            if steps > 0 {
+                let signed = if delta > 0. { steps } else { -steps };
+                self.call("NotifyPointerAxisDiscrete", (path, dict([]), axis, signed))
+                    .await?;
+            }
+        }
         let finish: OwnedValue = true.into();
-        self.call(
-            "NotifyPointerAxis",
-            (self.path()?, dict([("finish", finish)]), dx, dy),
-        )
-        .await
+        self.call("NotifyPointerAxis", (path, dict([("finish", finish)]), 0f64, 0f64))
+            .await
     }
 }

@@ -103,7 +103,7 @@ impl Portal {
         // A whole screen is view-only: input could reach any app on it.
         let view_only = self.picked.as_ref().is_some_and(|p| p.display);
         let picked = self.picked.as_ref().map(Picked::json);
-        json!({"version":2,"platform":"linux-wayland","capture":{"windows":p.windows,"displays":p.displays,"changeDriven":false},"input":{"pointer":p.pointer && !view_only,"keyboard":p.keyboard && !view_only,"scroll":p.pointer && !view_only,"text":ui && !view_only},"uiTree":ui,"semanticActions":if ui {vec!["press","focus","setValue","scroll","expand","select"]} else {vec![]},"codecs":["jpeg"],"permissions":{"screen":permission,"input":permission},"portal":{"remoteDesktopVersion":self.version,"restore":p.persistent,"desktop":std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),"windowIdentity":false,"picked":picked,"semanticScope":"the app the person picked in the sharing dialog, when the desktop records it","notes":"The sharing dialog picks the source; there are no window ids to target"}})
+        json!({"version":2,"platform":"linux-wayland","capture":{"windows":p.windows,"displays":p.displays,"changeDriven":false},"input":{"pointer":p.pointer,"keyboard":p.keyboard,"scroll":p.pointer,"text":(ui && !view_only) || p.keyboard},"uiTree":ui,"semanticActions":if ui {vec!["press","focus","setValue","scroll","expand","select"]} else {vec![]},"codecs":["jpeg"],"permissions":{"screen":permission,"input":permission},"portal":{"remoteDesktopVersion":self.version,"restore":p.persistent,"desktop":std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),"windowIdentity":false,"picked":picked,"semanticScope":"the app the person picked in the sharing dialog, when the desktop records it","notes":"The sharing dialog picks the source; there are no window ids to target"}})
     }
     pub(crate) async fn proxy(&self, interface: &str) -> Result<Proxy<'_>> {
         Proxy::new(
@@ -354,12 +354,6 @@ impl Portal {
     }
     pub(crate) fn require(&self, device: u32) -> Result<()> {
         self.path()?;
-        if self.picked.as_ref().is_some_and(|p| p.display) {
-            return Err(Fault::new(
-                "permission_denied",
-                "A shared screen is view-only; share a window to control it",
-            ));
-        }
         if self.devices & device == 0 {
             return Err(Fault::new(
                 "permission_denied",

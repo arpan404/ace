@@ -172,12 +172,32 @@ impl X11 {
             .map_err(internal)
     }
 
+    /// A person's own click on a window behind another app brings it forward first, so theirs
+    /// from a live view does too: the shared window is activated (and raised by the window
+    /// manager) before the delivery checks, which then hold as for a window already in front.
+    fn bring_forward(&self, w: &Window) -> Result<()> {
+        match self.check(w) {
+            Ok(_) => return Ok(()),
+            Err(fault) if fault.code != "busy" => return Err(fault),
+            Err(_) => {}
+        }
+        self.focus(w)?;
+        for _ in 0..40 {
+            std::thread::sleep(Duration::from_millis(25));
+            if self.check(w).is_ok() {
+                return Ok(());
+            }
+        }
+        self.check(w).map(|_| ())
+    }
+
     pub fn motion(&self, w: &Window, x: f64, y: f64, person: bool) -> Result<()> {
         if !person {
             let live = self.check(w)?;
             point(x, y, live.bounds.w as u32, live.bounds.h as u32)?;
             return Err(agent_refused());
         }
+        self.bring_forward(w)?;
         let live = self.check(w)?;
         point(
             x,
@@ -199,6 +219,7 @@ impl X11 {
             point(x, y, live.bounds.w as u32, live.bounds.h as u32)?;
             return Err(agent_refused());
         }
+        self.bring_forward(w)?;
         self.grabbed(|| {
             let (rx, ry) = self.deliverable(w, x, y, code)?;
             self.fake(MOTION_NOTIFY_EVENT, 0, rx, ry)?;
@@ -223,6 +244,7 @@ impl X11 {
             point(to.0, to.1, live.bounds.w as u32, live.bounds.h as u32)?;
             return Err(agent_refused());
         }
+        self.bring_forward(w)?;
         let ((sx, sy), (ex, ey)) = self.grabbed(|| {
             let end = self.deliverable(w, to.0, to.1, 1)?;
             let start = self.deliverable(w, from.0, from.1, 1)?;
@@ -256,6 +278,9 @@ impl X11 {
         dy: f64,
         person: bool,
     ) -> Result<()> {
+        if person {
+            self.bring_forward(w)?;
+        }
         self.check(w)?;
         if !dx.is_finite() || !dy.is_finite() || dx.abs() > 1000. || dy.abs() > 1000. {
             return Err(Fault::new("bounds", "Scroll exceeds limit"));

@@ -226,7 +226,7 @@ impl Runtime {
                     .await
             }
             "ui.act" => {
-                self.check_input()?;
+                self.check_input(false)?;
                 self.check_ui()?;
                 let action = r
                     .action
@@ -273,17 +273,20 @@ impl Runtime {
             _ => Err(Fault::new("not_supported", "Unknown command")),
         }
     }
-    pub(crate) fn check_input(&self) -> Result<()> {
+    /// Input may go to the session. A shared screen takes only the person's input: they chose
+    /// it in the sharing dialog, which grants control of the desktop. On X11 a person's
+    /// pointer input brings its window forward itself, so only agents need it active already.
+    pub(crate) fn check_input(&self, person: bool) -> Result<()> {
         if self.capture.is_none() {
             return Err(Fault::new("target_gone", "No capture session"));
         }
-        if self.view_only {
+        if self.view_only && !person {
             return Err(Fault::new(
                 "permission_denied",
-                "Display capture is view-only",
+                "A shared screen takes only the person's input",
             ));
         }
-        if let (Some(x), Some(w)) = (&self.x, &self.window) {
+        if let (Some(x), Some(w), false) = (&self.x, &self.window, person) {
             x.check(w)?;
         }
         Ok(())
