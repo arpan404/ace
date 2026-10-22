@@ -54,14 +54,7 @@ static const char *open_child(
   HANDLE child = NULL;
   const char *opened =
       open(parent, wname, wlen, options, access, &child);
-  if (opened != NULL) {
-    // The OS reports a directory found by a file open as ERROR_DIRECTORY
-    // (STATUS_FILE_IS_A_DIRECTORY maps alongside STATUS_NOT_A_DIRECTORY).
-    // Surface POSIX EISDIR so file/dir misuse stays distinguishable.
-    // VM-gated: adjust if a host mapping ever yields a different code.
-    if (!expect_dir && strcmp(opened, "ENOTDIR") == 0) return "EISDIR";
-    return opened;
-  }
+  if (opened != NULL) return opened;
   // Fail closed on any reparse point: this core has no link-itself op, so a
   // symlink/junction/mount-point child is an escape (ELOOP), never followed.
   const char *reparse = wcore_assert_noreparse(child);

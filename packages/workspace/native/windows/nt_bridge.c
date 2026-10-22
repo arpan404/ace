@@ -191,8 +191,29 @@ static const char *nt_open_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
           FILE_SHARE_DELETE,
       disposition, options, NULL, 0);
   if (!WCORE_NT_SUCCESS(status)) {
-    DWORD dos = g_nt_to_dos(status);
-    const char *code = wcore_dos_to_code(dos);
+    // RtlNtStatusToDosError loses type information: FILE_IS_A_DIRECTORY
+    // becomes ACCESS_DENIED on real Windows. Preserve the NT type codes.
+    // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-erref/596a1078-e883-4972-9bbc-49e60bebca55
+    const char *code = (ULONG)status == 0xC00000BAUL ? "EISDIR"
+        : (ULONG)status == 0xC0000103UL ? "ENOTDIR"
+        : wcore_dos_to_code(g_nt_to_dos(status));
+    // A type constraint can reject a reparse point before its tag is read.
+    // Refine that refusal using an untyped, no-follow metadata handle.
+    // This path never admits an operation, even if the name changes again.
+    if (disposition == WCORE_FILE_OPEN_DISPOSITION &&
+        ((ULONG)status == 0xC00000BAUL || (ULONG)status == 0xC0000103UL) &&
+        (options & (WCORE_FILE_DIRECTORY_FILE | WCORE_FILE_NON_DIRECTORY_FILE))) {
+      HANDLE metadata = NULL;
+      const char *probe = nt_open_child(parent, wname, wlen,
+          WCORE_FILE_SYNCHRONOUS_IO_NONALERT | WCORE_FILE_OPEN_REPARSE_POINT,
+          FILE_READ_ATTRIBUTES | SYNCHRONIZE, WCORE_FILE_OPEN_DISPOSITION,
+          &metadata);
+      if (probe == NULL) {
+        const char *link = wcore_assert_noreparse(metadata);
+        CloseHandle(metadata);
+        if (link != NULL && strcmp(link, "ELOOP") == 0) return link;
+      }
+    }
     return code != NULL ? code : "EIO";
   }
   *out = handle;
