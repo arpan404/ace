@@ -40,6 +40,24 @@ wait_for() { # <seconds> <command...>
   return 1
 }
 
+# Ends the session's apps. An editor holding unsaved text answers SIGTERM with a save prompt
+# nobody will click, so whatever is left after a moment is killed.
+stop_jobs() {
+  local pids
+  pids=$(jobs -p)
+  [ -z "$pids" ] && return 0
+  kill $pids 2>/dev/null || true
+  local pid left
+  for _ in $(seq 30); do
+    left=
+    for pid in $pids; do kill -0 "$pid" 2>/dev/null && left=1; done
+    [ -z "$left" ] && break
+    sleep 0.1
+  done
+  kill -9 $pids 2>/dev/null || true
+  wait 2>/dev/null || true
+}
+
 # Inside dbus-run-session: one desktop, its apps, then the suite.
 inner_x11() {
   local display=$1
@@ -60,8 +78,7 @@ inner_x11() {
   sleep 1
   local status=0
   run_suite x11 "$@" 2>&1 || status=$?
-  kill $(jobs -p) 2>/dev/null || true
-  wait 2>/dev/null || true
+  stop_jobs
   return $status
 }
 
@@ -84,8 +101,7 @@ inner_wayland() {
   sleep 3
   local status=0
   run_suite wayland "$@" 2>&1 || status=$?
-  kill $(jobs -p) 2>/dev/null || true
-  wait 2>/dev/null || true
+  stop_jobs
   return $status
 }
 
@@ -105,8 +121,7 @@ inner_kde() {
   local status=0
   # The suites pick KDE's apps from XDG_CURRENT_DESKTOP=KDE, which kde-session.sh sets.
   run_suite "$kind" "$@" 2>&1 || status=$?
-  kill $(jobs -p) 2>/dev/null || true
-  wait 2>/dev/null || true
+  stop_jobs
   return $status
 }
 
