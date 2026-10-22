@@ -44,6 +44,8 @@ export interface AccessHttpOptions {
   pairing: () => { origin: string; fingerprint: string } | undefined;
   /** Origins whose pages may read the cross-origin routes. */
   allowedOrigins: ReadonlySet<string>;
+  /** Origin of the web app new pairing links open; the daemon's own when it resolves undefined. */
+  pairingApp?: () => Promise<string | undefined>;
   sourceAddress?: (request: IncomingMessage) => string;
   maintenance?: MaintenanceGate;
   version?: string;
@@ -61,6 +63,7 @@ export function accessHttp({
   authenticate,
   pairing,
   allowedOrigins,
+  pairingApp,
   sourceAddress = (request) => request.socket.remoteAddress ?? "unknown",
   maintenance,
   version = "development",
@@ -130,15 +133,18 @@ export function accessHttp({
           else if (request.method === "GET") result = maintenance.status();
           else throw new AccessError(405, "Unsupported method");
         } else if (path === "/v1/pairings" && request.method === "POST") {
-          const connection = pairing();
-          const input = connection ? await body(request) : undefined;
+          // Awaits come first: the address is read again right before the code is issued, since
+          // remote access can change or turn off while they wait.
+          const app = await pairingApp?.();
+          const input = pairing() ? await body(request) : undefined;
           const creator = actor();
           const { id, url, expiresAt } = issuePairing(
             auth,
-            connection,
+            pairing(),
             input,
             // The host token holds every scope; a device grants only what it has.
             (scope) => auth.local(token) || allows(creator, scope),
+            app,
           );
           result = { url, expiresAt, id };
         } else if (path === "/v1/devices" && request.method === "GET") result = auth.list();

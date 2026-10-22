@@ -69,6 +69,10 @@ export function AccessRows(props: { remote: readonly Machine[] }) {
   const enabled = useSettingControl(settingKeys.remoteEnabled, "Remote access");
   const transport = useSettingControl(settingKeys.remoteTransport, "Reached over");
   const relay = useSettingControl(settingKeys.relayUrl, "Relay address");
+  const hosted = useSettingControl(
+    settingKeys.hostedPairingLink,
+    "Pairing links open app.acehq.dev",
+  );
   const agents = useSettingControl(settingKeys.agentAccess, "Agents from other machines");
   // "local" is remote access off; the choice shows the network it would open on.
   const selected = transport.value === "local" ? "lan" : transport.value;
@@ -134,6 +138,22 @@ export function AccessRows(props: { remote: readonly Machine[] }) {
           </DaemonSlot>
         </SettingRow>
       )}
+      <SettingRow
+        id="remote.hostedPairingLink"
+        title="Pairing links open app.acehq.dev"
+        description="Off, links open the web app this computer serves, which always matches its version."
+        htmlFor={`${id}-hosted`}
+        inline
+      >
+        <DaemonSlot control={hosted}>
+          <Switch
+            id={`${id}-hosted`}
+            checked={hosted.value}
+            disabled={hosted.offline || hosted.pending}
+            onCheckedChange={(on) => void hosted.set(on)}
+          />
+        </DaemonSlot>
+      </SettingRow>
       <SettingRow
         id="remote.agentAccess"
         title="Agents from other machines"

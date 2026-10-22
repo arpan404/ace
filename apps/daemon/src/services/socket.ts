@@ -58,6 +58,8 @@ export interface SocketContext {
   access?: {
     auth: import("../remote-auth.ts").RemoteAuth;
     pairing(): import("../pairing-issue.ts").PairingConnection | undefined;
+    /** Origin of the web app new pairing links open; this daemon's own when undefined. */
+    pairingApp?(): Promise<string | undefined>;
   };
   connected(): boolean;
   send(message: ServerMessage | PluginServerMessage): void;

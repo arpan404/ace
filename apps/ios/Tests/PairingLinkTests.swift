@@ -27,6 +27,24 @@ import Testing
         #expect(named.fingerprint == pin)
         #expect(named.accessSummary == "View only")
     }
+    @Test func aHostedWebAppLinkConnectsToTheComputerItNames() throws {
+        let link = try PairingLink.parse("https://app.acehq.dev/pair#host=https%3A%2F%2Fstudio.tail1234.ts.net%3A4243&fingerprint=\(pin)&code=\(code)&scopes=read")
+        #expect(link.socketURL.absoluteString == "wss://studio.tail1234.ts.net:4243/")
+        #expect(link.displayHost == "studio.tail1234.ts.net:4243")
+        #expect(link.code == code)
+        #expect(link.fingerprint == pin)
+    }
+    @Test func aHostedLinkNamingAnInsecureOrDecoratedComputerIsRefused() {
+        let fragment = "&fingerprint=\(pin)&code=\(code)"
+        let cases: [(String, PairingLinkError)] = [
+            ("https://app.acehq.dev/pair#host=http%3A%2F%2F100.64.0.1%3A4243\(fragment)", .insecure),
+            ("https://app.acehq.dev/pair#host=https%3A%2F%2Fu%3Ap%40100.64.0.1%3A4243\(fragment)", .credentialsInURL),
+            ("https://app.acehq.dev/pair#host=https%3A%2F%2F100.64.0.1%3A4243%2Fother\(fragment)", .notALink),
+        ]
+        for (text, expected) in cases {
+            #expect(throws: expected, "\(text)") { _ = try PairingLink.parse(text) }
+        }
+    }
     @Test func linksThatCannotBeVerifiedOrLeakCredentialsAreRefused() {
         let fragment = "#fingerprint=\(pin)&code=\(code)"
         let cases: [(String, PairingLinkError)] = [

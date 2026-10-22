@@ -117,6 +117,12 @@ export const SettingsValues = z.object({
   "remote.transport": z.enum(["local", "lan", "tailscale", "relay"]),
   /** Whether agents on other paired machines may use this one, and how far (ADR 0078). */
   "remote.agentAccess": z.enum(["off", "read", "operate"]),
+  /**
+   * Whether pairing links open ace's hosted web app (https://app.acehq.dev) instead of the web
+   * app this daemon serves over LAN or Tailscale. Off by default: the daemon's own web app always
+   * matches its version; the hosted one may not.
+   */
+  "remote.hostedPairingLink": z.boolean(),
   "remote.relayUrl": z
     .string()
     .max(2048)

@@ -36,6 +36,7 @@ export const settingKeys = {
   remoteEnabled: setting("remote.enabled", z.boolean(), false),
   remoteTransport: setting("remote.transport", SettingsValues.shape["remote.transport"], "local"),
   relayUrl: setting("remote.relayUrl", SettingsValues.shape["remote.relayUrl"], ""),
+  hostedPairingLink: setting("remote.hostedPairingLink", z.boolean(), false),
   agentAccess: setting("remote.agentAccess", SettingsValues.shape["remote.agentAccess"], "off"),
   worktree: setting("threads.useWorktree", z.boolean(), true),
   worktreePreparationTimeout: setting(

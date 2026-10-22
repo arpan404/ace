@@ -1,4 +1,5 @@
 import { ClientError } from "@ace/client";
+import { parsePairingLink, type PairingLink } from "@ace/client/access";
 import type { DeviceCredential, FleetLink, HostId, MachineDescription } from "@ace/protocol";
 import type { Profiles, RemoteProfile } from "../cli/profiles.ts";
 import { MachineFailure } from "./transport.ts";
@@ -75,10 +76,15 @@ export class FleetLinks {
     return Promise.all(profiles.map((profile) => this.check(profile)));
   }
   async link(input: { pairingUrl: string; hostId: HostId; name: string }): Promise<FleetLink> {
-    const url = URL.parse(input.pairingUrl);
-    const fingerprint = new URLSearchParams(url?.hash.slice(1)).get("fingerprint") ?? "";
-    if (!url || url.protocol !== "https:" || url.search || !/^[a-f0-9]{64}$/.test(fingerprint))
+    let link: PairingLink | undefined;
+    try {
+      link = parsePairingLink(input.pairingUrl);
+    } catch {
+      link = undefined;
+    }
+    if (!link || !link.daemon.startsWith("https:") || !/^[a-f0-9]{64}$/.test(link.fingerprint))
       throw new FleetError("invalid", "That pairing link isn't complete. Copy it again.");
+    const { daemon, fingerprint } = link;
     const capacity = this.withProfiles((store) => {
       const existing = store.list();
       return existing.length < 64 || existing.some((entry) => entry.hostId === input.hostId);
@@ -105,7 +111,7 @@ export class FleetLinks {
             input.name,
             existing.map((entry) => entry.name),
           ),
-        origin: `${url.origin}/`,
+        origin: daemon,
         fingerprint,
         deviceId: credential.device.id,
         token: credential.token,

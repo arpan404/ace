@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import { AccessClient } from "@ace/client/access";
+import { AccessClient, parsePairingLink } from "@ace/client/access";
 import { ClientError } from "@ace/client";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
@@ -34,11 +34,10 @@ export function PairingForm(props: {
       let origin: string;
       let code = link.trim();
       if (code.includes("://")) {
-        const url = new URL(code);
-        if (url.username || url.password || url.search || url.pathname !== "/pair")
-          throw new Error("Use the complete pairing link from your host computer.");
-        code = new URLSearchParams(url.hash.slice(1)).get("code") ?? "";
-        origin = `${url.origin}/`;
+        // A link may open this daemon's own web app or a hosted one that names it in `host=`.
+        const parsed = parsePairingLink(code);
+        code = parsed.code;
+        origin = parsed.daemon;
       } else {
         const url = new URL(address);
         url.protocol =
