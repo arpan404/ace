@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig } from "vite";
+import { contentPolicy } from "./content-policy.ts";
 import { cssWithoutLegacyPolyfills } from "./css-polyfills.ts";
 import { katexWoff2 } from "./katex-woff2.ts";
 import { phosphorWeights } from "./icon-weights.ts";
@@ -45,6 +46,7 @@ export default defineConfig(({ mode }) => ({
     preloads.plugin,
     initialBundle(),
     notificationWorker(),
+    contentPolicy(),
   ],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   define: { "import.meta.env.VITE_ACE_BUILD": JSON.stringify(build) },

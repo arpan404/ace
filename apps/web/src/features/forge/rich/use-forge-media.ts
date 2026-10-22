@@ -18,6 +18,15 @@ export type MediaView =
 const missingBytes = (error: unknown) =>
   error instanceof ClientError && error.code === "daemon" && error.message === "NOT_FOUND";
 
+/** An SVG's bytes as a `data:` URL. */
+async function svgDataUrl(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (let at = 0; at < bytes.length; at += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  return `data:image/svg+xml;base64,${btoa(binary)}`;
+}
+
 const passing = new Set<ForgeMediaUnavailable>(["failed", "offline", "rate_limited"]);
 /** A failure that may pass is asked about again this much later, or when the connection is back. */
 const recheckMs = 15_000;
@@ -63,6 +72,12 @@ export function useForgeMedia(url: string | undefined, role: ForgeMediaRole): Me
     };
     const bytes = (media: ReadyMedia) => {
       const shown = (blob: Blob) => {
+        if (blob.type === "image/svg+xml") {
+          // Never a same-origin blob: opened on its own (a new tab), an SVG from a data URL has
+          // no origin of its own, so its scripts can't reach the app's storage or pairing.
+          void svgDataUrl(blob).then((url) => live && show({ phase: "ready", media, url }));
+          return;
+        }
         objectUrl = URL.createObjectURL(blob);
         show({ phase: "ready", media, url: objectUrl });
       };
