@@ -94,6 +94,7 @@ export class QueueFollower {
 
   async #read(revision: number): Promise<void> {
     this.#reading = revision;
+    let failed = false;
     try {
       const page = await readServerQueue(
         this.#threadId,
@@ -105,12 +106,20 @@ export class QueueFollower {
       this.#page = page;
       this.#emit();
     } catch {
-      // Offline, or the queue moved while paging: the next revision reads again.
+      // Offline, or the queue moved while paging: the reader's next change reads again.
+      failed = true;
     } finally {
       if (this.#reading === revision) this.#reading = undefined;
-      // A revision that arrived during the read is read now.
+      // A revision that arrived during the read is read now. Not after a failure: a request that
+      // fails at once (before the socket is ready) would read again at once, forever, and starve
+      // everything else on the JavaScript thread, the socket's own handshake included.
       const latest = this.#store.queue?.revision;
-      if (!this.#signal.aborted && latest !== undefined && latest !== this.#page?.revision)
+      if (
+        !failed &&
+        !this.#signal.aborted &&
+        latest !== undefined &&
+        latest !== this.#page?.revision
+      )
         this.update();
     }
   }

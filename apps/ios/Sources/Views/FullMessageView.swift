@@ -20,7 +20,7 @@ struct FullMessageView: View {
             }
             .navigationTitle(item.type == "reasoning" ? "Thought" : "Message").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-        }.task { await read() }
+        }.readWhenConnected(model) { await read() }
     }
     private func read() async {
         problem = nil
