@@ -16,7 +16,12 @@ const words = (pill: ReturnType<typeof livePill>) => [
 
 test("a working root reads Working for its time, sweeping, with nothing to open", () => {
   const pill = livePill({ activity: working(), queued: 0, goal: undefined });
-  expect(pill?.status).toMatchObject({ label: "Working", lead: "Working for", since: 1_000, live: true });
+  expect(pill?.status).toMatchObject({
+    label: "Working",
+    lead: "Working for",
+    since: 1_000,
+    live: true,
+  });
   expect(pill?.status?.opens).toBeUndefined();
   expect(pill?.segments).toEqual([]);
 });
@@ -52,27 +57,47 @@ test("a turn over with only a background command left names that command", () =>
     activity: working({
       label: "Running in background",
       backgroundCommands: 1,
-      waitingOn: { kind: "background", count: 1, title: "bun run dev", shells: true, taskIds: ["t1"] },
+      waitingOn: {
+        kind: "background",
+        count: 1,
+        title: "bun run dev",
+        shells: true,
+        taskIds: ["t1"],
+      },
     }),
     queued: 0,
     goal: undefined,
   });
-  expect(pill?.status).toMatchObject({ label: "Running", code: "bun run dev", live: false, opens: "agents" });
+  expect(pill?.status).toMatchObject({
+    label: "Running",
+    code: "bun run dev",
+    live: false,
+    opens: "agents",
+  });
   // The status already names the command: it isn't counted again.
   expect(pill?.segments).toEqual([]);
 });
 
 test("a request is the strip's: the pill never repeats it, but the queue still shows", () => {
-  const asking = working({ tone: "needs-you", label: "Waiting for your approval", elapsedFrom: undefined });
+  const asking = working({
+    tone: "needs-you",
+    label: "Waiting for your approval",
+    elapsedFrom: undefined,
+  });
   expect(livePill({ activity: asking, queued: 0, goal: undefined })).toBeUndefined();
-  expect(words(livePill({ activity: asking, queued: 1, goal: undefined }))).toEqual([undefined, "1 queued"]);
+  expect(words(livePill({ activity: asking, queued: 1, goal: undefined }))).toEqual([
+    undefined,
+    "1 queued",
+  ]);
 });
 
 test("a goal shows between turns on its own, and sweeps only while the thread works on it", () => {
   const goal = { objective: "all tests pass", status: "active" as const };
   const idle = livePill({ activity: undefined, queued: 0, goal });
   expect(idle?.status).toBeUndefined();
-  expect(idle?.segments).toEqual([{ kind: "goal", label: "Pursuing goal", opens: "goal", live: false }]);
+  expect(idle?.segments).toEqual([
+    { kind: "goal", label: "Pursuing goal", opens: "goal", live: false },
+  ]);
   expect(livePill({ activity: working(), queued: 0, goal })?.segments[0]?.live).toBe(true);
   const paused = livePill({ activity: working(), queued: 0, goal: { ...goal, status: "paused" } });
   expect(paused?.segments[0]).toMatchObject({ label: "Goal paused", live: false });

@@ -65,6 +65,12 @@ export const ThreadAction = z.discriminatedUnion("type", [
     ]),
     requestId,
   }),
+  /** The goal's sheet: pause, resume or clear the provider's goal where ace can. */
+  z.object({
+    type: z.literal("goal"),
+    change: z.enum(["pause", "resume", "clear"]),
+    requestId,
+  }),
   /** A settled "Worked for" log opened or closed, or asked for the rest of its steps. */
   z.object({ type: z.literal("steps.open"), ordinal, block: z.string().min(1).max(512) }),
   z.object({ type: z.literal("steps.close"), ordinal }),
