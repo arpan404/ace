@@ -53,7 +53,10 @@ export function PrComment(props: {
         : undefined,
     edit:
       own && source
-        ? () => setEdit({ body: authoredReviewComment(comment.body), expectedBody: comment.body })
+        ? () => {
+            setShown(true);
+            setEdit({ body: authoredReviewComment(comment.body), expectedBody: comment.body });
+          }
         : undefined,
     remove:
       own && source

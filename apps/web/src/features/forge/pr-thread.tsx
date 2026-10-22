@@ -131,6 +131,12 @@ export function PrThread(props: {
 }) {
   const { thread } = props;
   const [open, setOpen] = useState(!thread.resolved);
+  // Resolving folds the conversation away; reopening it unfolds it.
+  const [seen, setSeen] = useState(thread.resolved);
+  if (seen !== thread.resolved) {
+    setSeen(thread.resolved);
+    setOpen(!thread.resolved);
+  }
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(() => new Set());
   const first = thread.comments[0];
   const toggle = (id: number) =>
@@ -188,7 +194,7 @@ export function PrThread(props: {
       )}
       {open && (
         <>
-          <ol className="space-y-3">
+          <ol className="list-none space-y-3 p-0">
             {thread.comments.map((comment) => (
               <li key={comment.id}>
                 <PrComment

@@ -268,7 +268,7 @@ function failingWithChanges(now: number): PullRequestFixture {
     "docs/install.md",
     12,
     20,
-    "8080. Fixing it in the next push.",
+    "It is 8080 now; fixing it in the next push.",
     311,
   );
   const range = inline(
