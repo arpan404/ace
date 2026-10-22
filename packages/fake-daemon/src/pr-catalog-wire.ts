@@ -9,8 +9,30 @@ import { catalogGroupCounts, catalogPrList } from "./forge-list-wire.ts";
 import { colors } from "./forge-list-rows.ts";
 import { applyHostedReview } from "./pr-review-actions.ts";
 
+/** How many lines a fake push adds at the top of each changed file. */
+const pushedLines = 10;
+
+/**
+ * `patch` after a push that adds ten lines at the top of the file: they join its first change
+ * as added lines, and every later change starts ten lines further down on the new side.
+ */
+function pushedPatch(patch: string): string {
+  let first = true;
+  return patch.replaceAll(
+    /^@@ -(\d+(?:,\d+)?) \+(\d+)(?:,(\d+))? @@.*$/gm,
+    (_header: string, left: string, start: string, count: string | undefined) => {
+      if (!first) return `@@ -${left} +${Number(start) + pushedLines},${count ?? "1"} @@`;
+      first = false;
+      const added = Array.from({ length: pushedLines }, (_, i) => `+pushed line ${i + 1}`);
+      return [`@@ -${left} +${start},${Number(count ?? "1") + pushedLines} @@`, ...added].join(
+        "\n",
+      );
+    },
+  );
+}
+
 /** A line ten further down, as a push of ten lines above it leaves it. */
-const shift = (line: number | null | undefined) => (line == null ? line : line + 10);
+const shift = (line: number | null | undefined) => (line == null ? line : line + pushedLines);
 
 /**
  * Whole pull requests the fake app can open in its PR panel: detail, merge state, lifecycle,
@@ -89,15 +111,12 @@ export class FakePrCatalog {
       lifecycle: { ...fixture.lifecycle, snapshot: { ...fixture.lifecycle.snapshot, headSha } },
       review: { ...fixture.review, headSha },
       files: fixture.files.map((file) =>
-        Object.assign({}, file, {
-          patch:
-            file.patch === null
-              ? null
-              : file.patch.replaceAll(
-                  /^@@ -(\d+(?:,\d+)?) \+(\d+)/gm,
-                  (_, left: string, right: string) => `@@ -${left} +${Number(right) + 10}`,
-                ),
-        }),
+        file.patch === null
+          ? file
+          : Object.assign({}, file, {
+              patch: pushedPatch(file.patch),
+              additions: file.additions + pushedLines,
+            }),
       ),
     };
     this.fixtures = this.fixtures.map((entry) => (entry === fixture ? pushed : entry));

@@ -307,3 +307,24 @@ test("a resolved conversation the person opened stays open when its row comes ba
     await f.close();
   }
 });
+
+test("until GitHub says which comments are hidden, Needs attention shows no comment text and can't send it to an agent", async () => {
+  for (const hidden of [undefined, null]) {
+    const detail = reviewDetail({ reviewThreads: [thread()] });
+    const f = await reviewHarness({
+      detail,
+      state: reviewState({ hidden }),
+      ui: <PrAttention workspaceId="api" detail={detail} disabled={false} />,
+    });
+    try {
+      await screen.findByText("Review comment");
+      expect(screen.queryByText(/Rename this\?/)).toBeNull();
+      const fix = screen.getByRole<HTMLButtonElement>("button", {
+        name: "Fix with agent: Review comment on src/main.ts:7",
+      });
+      expect(fix.disabled).toBe(true);
+    } finally {
+      await f.close();
+    }
+  }
+});

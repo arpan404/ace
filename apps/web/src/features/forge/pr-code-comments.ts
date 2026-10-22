@@ -19,6 +19,28 @@ interface DiffIndex {
   position: ReadonlyMap<LineKey, number>;
   /** Each row's keys: its own, and for an unchanged line also its old side's (split view). */
   cells: readonly (readonly LineKey[])[];
+  /** Like `rowOf`, for the lines folds hold: drawn once a fold opens, though no comment sits there. */
+  foldRowOf: ReadonlyMap<string, LineKey>;
+}
+
+/** A diff line's row key: a deleted line by its old number, any other by its new one. */
+function rowKey(line: {
+  kind: "context" | "add" | "del";
+  old?: number | undefined;
+  new?: number | undefined;
+}): LineKey | undefined {
+  if (line.kind === "del") return line.old === undefined ? undefined : `old:${line.old}`;
+  return line.new === undefined ? undefined : `new:${line.new}`;
+}
+
+/** Records under `key` the line numbers `line` has on each side it shows on. */
+function addLine(
+  into: Map<string, LineKey>,
+  line: { kind: "context" | "add" | "del"; old?: number | undefined; new?: number | undefined },
+  key: LineKey,
+) {
+  if (line.kind !== "add" && line.old !== undefined) into.set(`old:${line.old}`, key);
+  if (line.kind !== "del" && line.new !== undefined) into.set(`new:${line.new}`, key);
 }
 const indexes = new WeakMap<FileDiff, DiffIndex>();
 
@@ -27,25 +49,24 @@ function indexOf(diff: FileDiff): DiffIndex {
   const known = indexes.get(diff);
   if (known) return known;
   const rowOf = new Map<string, LineKey>();
+  const foldRowOf = new Map<string, LineKey>();
   const position = new Map<LineKey, number>();
   const cells: LineKey[][] = [];
   for (const row of diff.rows) {
-    if (row.kind === "fold") continue;
-    const key: LineKey | undefined =
-      row.kind === "del"
-        ? row.old === undefined
-          ? undefined
-          : `old:${row.old}`
-        : row.new === undefined
-          ? undefined
-          : `new:${row.new}`;
+    if (row.kind === "fold") {
+      for (const line of row.lines ?? []) {
+        const key = rowKey(line);
+        if (key) addLine(foldRowOf, line, key);
+      }
+      continue;
+    }
+    const key = rowKey(row);
     if (!key) continue;
-    if (row.kind !== "add" && row.old !== undefined) rowOf.set(`old:${row.old}`, key);
-    if (row.kind !== "del" && row.new !== undefined) rowOf.set(`new:${row.new}`, key);
+    addLine(rowOf, row, key);
     position.set(key, cells.length);
     cells.push(row.kind === "context" && row.old !== undefined ? [key, `old:${row.old}`] : [key]);
   }
-  const index = { rowOf, position, cells };
+  const index = { rowOf, position, cells, foldRowOf };
   indexes.set(diff, index);
   return index;
 }
@@ -150,4 +171,32 @@ export function placeComments(
     );
   }
   return { unified, split, covered };
+}
+
+/** Where the comment being written sits, and the lines it marks, in one view of the diff. */
+export interface PickPlacement {
+  end: LineKey;
+  marked: ReadonlySet<LineKey>;
+}
+
+/**
+ * The comment being written on `range` in `view`. Split view draws each side on its own, so
+ * the pick sits on its own side's lines. Unified view draws an unchanged line once, under its
+ * new number: a pick made on the old side there (in split view, or in an opened fold) moves to
+ * those rows, so it never loses its place switching views.
+ */
+export function placePick(
+  diff: FileDiff,
+  range: { side: "old" | "new"; start: number; end: number },
+  view: "unified" | "split",
+): PickPlacement {
+  const index = indexOf(diff);
+  const at = (line: number): LineKey => {
+    const own: LineKey = `${range.side}:${line}`;
+    if (view === "split") return own;
+    return index.rowOf.get(own) ?? index.foldRowOf.get(own) ?? own;
+  };
+  const marked = new Set<LineKey>();
+  for (let line = range.start; line <= range.end; line++) marked.add(at(line));
+  return { end: at(range.end), marked };
 }

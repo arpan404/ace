@@ -64,6 +64,8 @@ import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
 import type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
+import { piControlResult } from "./pi-control.ts";
+import { scopeRefusal } from "./request-scopes.ts";
 import { FakeServicesWire, type FakeWireSession, type ServicesSeed } from "./services-wire.ts";
 import type { FakeMcpWire } from "./mcp-wire.ts";
 import { FakeLongThreadWire } from "./long-thread-wire.ts";
@@ -75,7 +77,6 @@ import type { FakeProjects } from "./projects.ts";
 import type { FakeWorkspaceWire } from "./workspace-wire.ts";
 import { completedThread, startedThread } from "./scenarios/started-thread.ts";
 import {
-  busy,
   drainQueue,
   interruptFacts,
   sendFacts,
@@ -789,21 +790,7 @@ export class FakeDaemon implements Host {
   }
   service(message: ClientMessage, connection: Connection): boolean {
     if (message.type === "pi.control") {
-      const host = this.threads.get(message.threadId);
-      const valid =
-        host?.view.thread.provider === "pi" &&
-        !busy(host) &&
-        message.operation.kind === "rollback" &&
-        Object.values(host.view.items).some(
-          (item) =>
-            item.nativeId ===
-            (message.operation.kind === "rollback" ? message.operation.entryId : undefined),
-        );
-      connection.push({
-        type: "pi.result",
-        requestId: message.requestId,
-        result: valid ? { ok: true } : { ok: false, error: "Pi history point unavailable" },
-      });
+      connection.push(piControlResult(message, this.threads.get(message.threadId)));
       return true;
     }
     if (message.type === "terminal.request" && "terminalId" in message.operation) {
@@ -860,79 +847,10 @@ export class FakeDaemon implements Host {
       );
       return true;
     }
-    if (
-      [
-        "accounts.add",
-        "accounts.rename",
-        "accounts.remove",
-        "accounts.setDefault",
-        "accounts.login",
-        "accounts.logout",
-      ].includes(message.type)
-    ) {
-      const scopes = this.options.deviceScopes?.[connection.deviceId];
-      if (
-        this.options.deviceScopes &&
-        !scopes?.some((scope) => scope === "accounts" || scope === "desktop")
-      ) {
-        connection.push({
-          type: "error",
-          code: "forbidden",
-          message: "accounts scope required",
-          ...("requestId" in message ? { requestId: message.requestId } : {}),
-        });
-        return true;
-      }
-    }
-    if (
-      message.type.startsWith("provider.install.") &&
-      this.options.deviceScopes &&
-      !this.options.deviceScopes[connection.deviceId]?.includes("operate")
-    ) {
-      if ("requestId" in message && message.requestId)
-        connection.push({
-          type: "provider.install.result",
-          requestId: message.requestId,
-          result: { ok: false, error: "forbidden" },
-        });
+    const refusal = scopeRefusal(message, this.options.deviceScopes, connection.deviceId);
+    if (refusal) {
+      if (refusal !== "silent") connection.push(refusal);
       return true;
-    }
-    if (
-      message.type.startsWith("provider.accounts.") ||
-      message.type.startsWith("provider.login.") ||
-      message.type === "provider.logout" ||
-      message.type.startsWith("onboarding.")
-    ) {
-      const scope =
-        message.type === "onboarding.query" || message.type === "provider.accounts.list"
-          ? "read"
-          : "operate";
-      if (
-        this.options.deviceScopes &&
-        !this.options.deviceScopes[connection.deviceId]?.includes(scope)
-      ) {
-        if ("requestId" in message && message.requestId)
-          connection.push(
-            message.type.startsWith("provider.accounts.")
-              ? {
-                  type: "provider.accounts.result",
-                  requestId: message.requestId,
-                  result: { ok: false, error: "forbidden" },
-                }
-              : message.type.startsWith("onboarding.")
-                ? {
-                    type: "onboarding.result",
-                    requestId: message.requestId,
-                    result: { ok: false, error: "forbidden" },
-                  }
-                : {
-                    type: "provider.login.result",
-                    requestId: message.requestId,
-                    result: { ok: false, error: "forbidden" },
-                  },
-          );
-        return true;
-      }
     }
     return this.services.handle(message, connection.push, connection.deviceId);
   }

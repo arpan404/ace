@@ -74,6 +74,9 @@ export function reviewState(state: Partial<ForgeReviewState> = {}) {
     canComment: true,
     resolvableThreads: [],
     operations: [],
+    // GitHub reported which comments are hidden: none.
+    hidden: [],
+    hideable: [],
     ...state,
   });
 }
