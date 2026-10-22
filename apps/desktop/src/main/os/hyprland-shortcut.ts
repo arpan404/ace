@@ -13,17 +13,45 @@ const appId = "dev.ace.app";
 export function hyprlandBind(listing: unknown, accelerator: string): string | undefined {
   if (!Array.isArray(listing)) return undefined;
   const keys = hyprlandKeys(accelerator);
-  if (!keys) return undefined;
+  const wanted = chord(accelerator);
+  if (!keys || !wanted) return undefined;
   for (const entry of listing) {
     if (typeof entry !== "object" || entry === null) continue;
     const name: unknown = Reflect.get(entry, "name");
     const description: unknown = Reflect.get(entry, "description");
     if (typeof name !== "string" || !name.startsWith(`${appId}:`) || /[\s,]/.test(name)) continue;
-    // Electron describes each shortcut as "… shortcut: <accelerator>".
-    if (typeof description === "string" && description.endsWith(`: ${accelerator}`))
-      return `bind = ${keys}, global, ${name}`;
+    // Chromium describes each shortcut as "<app> shortcut: Ctrl+Shift+Space", in its own
+    // spelling of the keys (Ctrl for CommandOrControl).
+    const registered = typeof description === "string" ? description.split(": ").at(-1) : "";
+    if (registered && chord(registered) === wanted) return `bind = ${keys}, global, ${name}`;
   }
   return undefined;
+}
+
+/** Hyprland's word for each modifier, from Electron's and Chromium's spellings. */
+const modifiers: Record<string, string> = {
+  commandorcontrol: "CTRL",
+  cmdorctrl: "CTRL",
+  control: "CTRL",
+  ctrl: "CTRL",
+  shift: "SHIFT",
+  alt: "ALT",
+  option: "ALT",
+  altgr: "ALT",
+  super: "SUPER",
+  meta: "SUPER",
+  command: "SUPER",
+  cmd: "SUPER",
+  search: "SUPER",
+};
+
+/** A chord spelled either way, as one comparable string: sorted modifiers, then the key. */
+function chord(accelerator: string): string | undefined {
+  const parts = accelerator.split("+").filter(Boolean);
+  const key = parts.pop();
+  const mods = parts.map((part) => modifiers[part.toLowerCase()]);
+  if (!key || mods.length === 0 || mods.some((mod) => mod === undefined)) return undefined;
+  return `${[...new Set(mods)].toSorted().join(" ")}+${key.toLowerCase()}`;
 }
 
 /** `CommandOrControl+Shift+Space` as hyprland.conf writes it: `CTRL SHIFT, Space`. */
@@ -31,20 +59,6 @@ export function hyprlandKeys(accelerator: string): string | undefined {
   const parts = accelerator.split("+").filter(Boolean);
   const key = parts.pop();
   if (!key || parts.length === 0) return undefined;
-  const modifiers: Record<string, string> = {
-    commandorcontrol: "CTRL",
-    cmdorctrl: "CTRL",
-    control: "CTRL",
-    ctrl: "CTRL",
-    shift: "SHIFT",
-    alt: "ALT",
-    option: "ALT",
-    altgr: "ALT",
-    super: "SUPER",
-    meta: "SUPER",
-    command: "SUPER",
-    cmd: "SUPER",
-  };
   const mods = parts.map((part) => modifiers[part.toLowerCase()]);
   if (mods.some((mod) => mod === undefined)) return undefined;
   return `${[...new Set(mods)].join(" ")}, ${key.length === 1 ? key.toUpperCase() : key}`;
