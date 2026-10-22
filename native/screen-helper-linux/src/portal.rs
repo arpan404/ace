@@ -172,7 +172,7 @@ impl Portal {
                 "Compositor cannot capture this source type",
             ));
         }
-        let route = portal_route(&self.desktop, window);
+        let route = portal_route(&self.desktop);
         let interface = match route {
             PortalRoute::RemoteDesktop => "RemoteDesktop",
             PortalRoute::ScreenCastOnly => "ScreenCast",

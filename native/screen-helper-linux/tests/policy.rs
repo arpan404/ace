@@ -180,14 +180,13 @@ fn frame_connection_rejects_public_directories_and_symlink_endpoints() {
 }
 
 #[test]
-fn a_window_on_kde_is_asked_of_screencast_because_its_remote_desktop_shares_whole_screens() {
+fn kde_is_asked_of_screencast_because_its_remote_desktop_shares_whole_screens() {
     use ace_screen_helper_linux::policy::{PortalRoute, portal_route};
-    assert_eq!(portal_route("KDE", true), PortalRoute::ScreenCastOnly);
-    assert_eq!(portal_route("ubuntu:KDE", true), PortalRoute::ScreenCastOnly);
-    // A screen keeps the person's input; GNOME shares windows through RemoteDesktop.
-    assert_eq!(portal_route("KDE", false), PortalRoute::RemoteDesktop);
-    assert_eq!(portal_route("ubuntu:GNOME", true), PortalRoute::RemoteDesktop);
-    assert_eq!(portal_route("", true), PortalRoute::RemoteDesktop);
+    assert_eq!(portal_route("KDE"), PortalRoute::ScreenCastOnly);
+    assert_eq!(portal_route("ubuntu:KDE"), PortalRoute::ScreenCastOnly);
+    // GNOME shares windows through RemoteDesktop, with the person's input.
+    assert_eq!(portal_route("ubuntu:GNOME"), PortalRoute::RemoteDesktop);
+    assert_eq!(portal_route(""), PortalRoute::RemoteDesktop);
 }
 
 #[test]

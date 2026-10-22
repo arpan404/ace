@@ -95,10 +95,12 @@ pub enum PortalRoute {
 }
 
 /// KDE's RemoteDesktop portal ignores the source type a session asks for and shares whole
-/// outputs, so a window asked of it would show the person's entire screen. A window on KDE is
-/// asked of ScreenCast alone, whose chooser lists windows.
-pub fn portal_route(desktop: &str, window: bool) -> PortalRoute {
-    if window && desktop.split(':').any(|name| name.eq_ignore_ascii_case("KDE")) {
+/// outputs, so a window asked of it would show the person's entire screen: a window on KDE is
+/// asked of ScreenCast alone, whose chooser lists windows. A display is view-only on Linux, so
+/// on KDE it is asked of ScreenCast too, and the person is never asked to hand over input that
+/// would go unused.
+pub fn portal_route(desktop: &str) -> PortalRoute {
+    if desktop.split(':').any(|name| name.eq_ignore_ascii_case("KDE")) {
         PortalRoute::ScreenCastOnly
     } else {
         PortalRoute::RemoteDesktop
