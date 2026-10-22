@@ -55,9 +55,14 @@ def _find(node, role: str, name: str, depth: int = 0):
 
 
 def _press(node, wanted: str = "Press") -> bool:
-    for index in range(Atspi.Action.get_n_actions(node)):
-        if Atspi.Action.get_action_name(node, index) == wanted:
+    """Runs the action named `wanted` (Qt names it "Press"; GNOME Shell's buttons call theirs
+    "click"); a button with neither runs its first action, as a click would."""
+    count = Atspi.Action.get_n_actions(node)
+    for index in range(count):
+        if Atspi.Action.get_action_name(node, index).lower() == wanted.lower():
             return bool(Atspi.Action.do_action(node, index))
+    if wanted == "Press" and count > 0:
+        return bool(Atspi.Action.do_action(node, 0))
     return False
 
 
