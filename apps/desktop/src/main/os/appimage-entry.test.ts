@@ -83,7 +83,11 @@ test("an entry a package installed is left to the package, and a non-AppImage ru
   expect(existsSync(packaged.entry)).toBe(false);
 
   const unpacked = machine();
-  install(unpacked, { APPIMAGE: undefined }, "/home/me/code/ace/node_modules/electron/dist/electron");
+  install(
+    unpacked,
+    { APPIMAGE: undefined },
+    "/home/me/code/ace/node_modules/electron/dist/electron",
+  );
   expect(existsSync(unpacked.entry)).toBe(false);
 });
 

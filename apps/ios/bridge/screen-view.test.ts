@@ -62,3 +62,35 @@ test("a window waiting in the machine's sharing dialog says where to choose it; 
     awaitingChoice: false,
   });
 });
+
+test("a window on a desktop that shares without input is watch only, with the desktop's reason", () => {
+  const reason =
+    "KDE's remote control shares the whole desktop rather than the window or screen you pick.";
+  const capabilities = {
+    version: 2 as const,
+    platform: "linux-wayland" as const,
+    capture: { windows: true, displays: true, changeDriven: false },
+    input: { pointer: false, keyboard: false, scroll: false, text: false },
+    uiTree: true,
+    semanticActions: [],
+    codecs: ["jpeg" as const],
+    permissions: { screen: "granted" as const, input: "n/a" as const },
+  };
+  const sessions = phoneScreenSessions(
+    [
+      state("org.kde.kcalc", {
+        target: { kind: "window", bundleId: "org.kde.kcalc", windowId: 1 },
+        capabilities: { ...capabilities, watchOnly: reason },
+      }),
+      state("org.gnome.Calculator", {
+        target: { kind: "chooser", picked: { source: "display" } },
+        capabilities,
+      }),
+    ],
+    () => undefined,
+  );
+  const watched = sessions.find((session) => session.app !== "Shared screen");
+  const controlled = sessions.find((session) => session.app === "Shared screen");
+  expect(watched).toMatchObject({ viewOnly: true, watchOnlyReason: reason, personOnly: false });
+  expect(controlled).toMatchObject({ viewOnly: false, watchOnlyReason: "", personOnly: true });
+});

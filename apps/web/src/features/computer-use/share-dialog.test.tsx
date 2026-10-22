@@ -13,12 +13,13 @@ beforeEach(() => {
 });
 afterEach(() => browser.restore());
 
-async function openSharing() {
+async function openSharing(watchOnly?: string) {
   const app = harness();
   app.play(flakyCheckout()).runThrough("explorer-spawned");
   const world = screenWorld(app.daemon, "thread-checkout");
   app.daemon.screen.enabled = true;
   app.daemon.screen.sharingDialog = true;
+  app.daemon.screen.watchOnly = watchOnly;
   await app.open("/t/thread-checkout");
   await userEvent.keyboard("{Control>}{Shift>}m{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
@@ -88,6 +89,17 @@ test("a shared screen is the person's to control and no agent's", async () => {
   // Taken over, it can't be handed to an agent.
   await waitFor(() => expect(within(card).queryByRole("button", { name: /Take over/ })).toBeNull());
   expect(within(card).queryByRole("button", { name: /Hand back|Delegate/ })).toBeNull();
+});
+
+test("on a desktop that shares without input the window is watch only, with the desktop's reason and no take-over", async () => {
+  const reason =
+    "KDE's remote control shares the whole desktop rather than the window or screen you pick.";
+  const { app, panel } = await openSharing(reason);
+  app.daemon.screen.answerSharingDialog({ source: "window" });
+  const card = await within(panel).findByRole("article", { name: "Shared window" });
+  await waitFor(() => expect(within(card).getByRole("status").textContent).toMatch(/Watch only/));
+  expect(within(card).getByText(reason)).toBeTruthy();
+  expect(within(card).queryByRole("button", { name: /Take over/ })).toBeNull();
 });
 
 test("a declined sharing dialog is said in a sentence and nothing keeps running", async () => {

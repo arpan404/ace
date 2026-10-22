@@ -103,6 +103,9 @@ export function SessionCard(props: {
             " · Only you can control a shared screen"}
           {state.controller === "agent" && holderThread && ` · ${holderThread}`}
         </p>
+        {view.watchOnlyReason && view.lifecycle === "live" && (
+          <p className="text-sm text-muted-foreground">{view.watchOnlyReason}</p>
+        )}
         {view.error && <p className="text-sm text-status-failed">{view.error}</p>}
         {problem && (
           <p role="alert" className="text-sm text-muted-foreground">

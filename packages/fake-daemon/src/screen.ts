@@ -65,6 +65,11 @@ export class FakeScreen {
    * sharing dialog picks, and a `chooser` start waits until `answerSharingDialog`.
    */
   sharingDialog = false;
+  /**
+   * With `sharingDialog`: the desktop shares without input (KDE, Hyprland), and this is why.
+   * A shared source is then watch-only and a person's take-over is refused with it.
+   */
+  watchOnly: string | undefined;
   private readonly options: FakeScreenOptions;
   private readonly sessions = new Map<string, Session>();
   private readonly channels = new Set<Channel>();
@@ -230,7 +235,12 @@ export class FakeScreen {
       this.stop(session);
       throw new FakeScreenError("denied", "Sharing was declined in the sharing dialog.");
     }
-    session.state = { ...session.state, lifecycle: "live", target: { ...target, picked: answer } };
+    session.state = {
+      ...session.state,
+      lifecycle: "live",
+      target: { ...target, picked: answer },
+      ...(this.watchOnly ? { capabilities: watchOnlyCapabilities(this.watchOnly) } : {}),
+    };
     return this.publish(session);
   }
   /** The person at the machine answers its sharing dialog: what they picked, or declined. */
@@ -351,6 +361,9 @@ export class FakeScreen {
     this.requireEnabled();
     switch (op.op) {
       case "controller": {
+        const watchOnly = session.state.capabilities?.watchOnly;
+        if (op.controller === "human" && watchOnly)
+          throw new FakeScreenError("not_supported", watchOnly);
         if (op.controller === "agent") {
           if (!op.threadId || !op.agentId)
             throw new FakeScreenError("denied", "Agent id and thread required");
@@ -413,4 +426,19 @@ function targetBundles(target: ScreenState["target"]): string[] {
   if (target.kind === "display") return target.bundleIds;
   if (target.kind === "chooser") return target.picked?.bundleId ? [target.picked.bundleId] : [];
   return [target.bundleId];
+}
+
+/** What a Linux helper reports for a desktop that shares without input. */
+function watchOnlyCapabilities(reason: string): NonNullable<ScreenState["capabilities"]> {
+  return {
+    version: 2,
+    platform: "linux-wayland",
+    capture: { windows: true, displays: true, changeDriven: false },
+    input: { pointer: false, keyboard: false, scroll: false, text: false },
+    uiTree: false,
+    semanticActions: [],
+    codecs: ["jpeg"],
+    permissions: { screen: "granted", input: "n/a" },
+    watchOnly: reason,
+  };
 }

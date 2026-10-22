@@ -99,6 +99,12 @@ struct RemoteScreenSessionView: View {
                     }
                 }
                 .padding(.horizontal, AceTheme.Spacing.xl).frame(minHeight: AceTheme.Dimensions.touchTarget)
+                if let reason = session.watchOnlyReason, !reason.isEmpty {
+                    Text(reason).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, AceTheme.Spacing.xl)
+                        .accessibilityIdentifier("screen.watchOnly")
+                }
             }
         }
     }

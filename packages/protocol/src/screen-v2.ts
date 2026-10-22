@@ -112,6 +112,11 @@ export const ScreenCapabilities = z
       screen: z.enum(["granted", "denied", "prompt", "n/a"]),
       input: z.enum(["granted", "denied", "prompt", "n/a"]),
     }),
+    /**
+     * Set when the person can watch but never control what this desktop shares, saying why
+     * (Linux on KDE, and Wayland portals without RemoteDesktop such as Hyprland's and Sway's).
+     */
+    watchOnly: z.string().min(1).max(500).optional(),
   })
   .passthrough();
 export type ScreenCapabilities = z.infer<typeof ScreenCapabilities>;

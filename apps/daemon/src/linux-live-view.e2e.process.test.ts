@@ -79,7 +79,13 @@ async function viewerOf(ace: EvalWorld): Promise<LiveViewer> {
 }
 
 const shareCalculator = (ace: EvalWorld, viewer: LiveViewer) =>
-  shareWindow(session ?? "", ace, viewer, { desktopId: calculator, title: desktop.title }, cleanups);
+  shareWindow(
+    session ?? "",
+    ace,
+    viewer,
+    { desktopId: calculator, title: desktop.title },
+    cleanups,
+  );
 
 describe.skipIf(!enabled)(`Linux live view (${session ?? "off"}${kde ? ", KDE" : ""})`, () => {
   it.skipIf(!windowsShared)(
@@ -173,7 +179,9 @@ describe.skipIf(!enabled)(`Linux live view (${session ?? "off"}${kde ? ", KDE" :
     async () => {
       const ace = await world();
       const viewer = await viewerOf(ace);
-      const state = ScreenState.parse(await startShared(viewer, await shareCalculator(ace, viewer)));
+      const state = ScreenState.parse(
+        await startShared(viewer, await shareCalculator(ace, viewer)),
+      );
       // Clients read this to offer watching only, with the reason, and no take-over.
       const reason = kde ? /KDE's remote control shares the whole desktop/ : /no remote control/;
       expect(state.capabilities?.input).toMatchObject({ pointer: false, keyboard: false });

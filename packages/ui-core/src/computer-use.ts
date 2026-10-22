@@ -31,8 +31,13 @@ export interface ScreenSessionView {
   stoppable: boolean;
   /** The machine's sharing dialog is waiting for the person to choose (Linux on Wayland). */
   awaitingChoice: boolean;
-  /** A whole display captured without a sharing dialog: watch only, nobody can take control. */
+  /**
+   * Watch only, nobody can take control: a whole display captured without a sharing dialog,
+   * or a desktop that shares without input (`watchOnlyReason`).
+   */
   viewOnly: boolean;
+  /** Why this desktop lets the person watch but not control (Linux on KDE, Hyprland, Sway). */
+  watchOnlyReason: string | undefined;
   /** A screen the person shared in the machine's sharing dialog: theirs to control, never an agent's. */
   personOnly: boolean;
 }
@@ -137,8 +142,12 @@ export function screenSession(
           ? state.target.picked?.title
           : undefined,
     awaitingChoice: state.target.kind === "chooser" && state.lifecycle === "starting",
-    viewOnly: state.target.kind === "display",
-    personOnly: state.target.kind === "chooser" && state.target.picked?.source === "display",
+    viewOnly: state.target.kind === "display" || !!state.capabilities?.watchOnly,
+    watchOnlyReason: state.capabilities?.watchOnly,
+    personOnly:
+      state.target.kind === "chooser" &&
+      state.target.picked?.source === "display" &&
+      !state.capabilities?.watchOnly,
     controller: state.controller,
     holder: state.holder,
     lifecycle: state.lifecycle,
