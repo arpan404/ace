@@ -137,7 +137,9 @@ describe.skipIf(!executablePath)("how sharp the live video is", () => {
     const viewer = await localViewer(f);
     // A page that has drawn already sends nothing new: nudge it until the first picture.
     for (let tries = 0; tries < 100 && !viewer.chunks.length; tries++) {
-      await f.evaluate(`document.body.style.background = document.body.style.background ? "" : "#fff"; 1`);
+      await f.evaluate(
+        `document.body.style.background = document.body.style.background ? "" : "#fff"; 1`,
+      );
       await sleep(200);
     }
     await sleep(2_000);
