@@ -137,12 +137,11 @@ pub fn is_text_input(role: &str, states: &States) -> bool {
         || (role == "combo box" && states.editable)
 }
 
-/// Chrome that restates what scrolling and layout already show.
+/// Chrome that restates what scrolling and layout already show. Skipped with everything inside,
+/// so never a container of content: a split pane (Qt's QSplitter, GTK's GtkPaned) holds the
+/// app's views and folds like any other wrapper instead.
 pub fn is_noise(role: &str) -> bool {
-    matches!(
-        role,
-        "scroll bar" | "separator" | "tool tip" | "redundant object" | "split pane" | "invalid"
-    )
+    matches!(role, "scroll bar" | "separator" | "tool tip" | "redundant object" | "invalid")
 }
 
 /// Containers kept even without a label, so their contents stay visibly grouped.
@@ -327,7 +326,7 @@ pub fn keep(role: &str, actionable: bool, labelled: bool, children: usize) -> Ke
     }
     // GTK4 nests every control in several unnamed boxes; a line for each costs tokens and
     // says nothing, so plain containers always fold into their children.
-    let plain = matches!(role, "panel" | "grouping" | "filler" | "section" | "generic");
+    let plain = matches!(role, "panel" | "grouping" | "filler" | "section" | "generic" | "split pane");
     match children {
         0 => Keep::Drop,
         1 => Keep::Fold,

@@ -189,7 +189,8 @@ impl<'a> Walker<'a> {
     /// Reads what the role can show and decides whether the element gets a line.
     async fn describe(&mut self, element: &Element, depth: usize, children: usize) -> Option<Described> {
         let role = element.role.as_str();
-        let structural_only = matches!(role, "panel" | "grouping" | "filler" | "section" | "frame" | "window");
+        let structural_only =
+            matches!(role, "panel" | "grouping" | "filler" | "section" | "split pane" | "frame" | "window");
         let text_input = outline::is_text_input(role, &element.states);
         let wants_actions =
             element.interfaces.action && !matches!(role, "label" | "static" | "frame" | "window" | "dialog");
