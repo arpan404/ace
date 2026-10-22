@@ -14,6 +14,16 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { UpdateNotes } from "./update-notes.tsx";
 import { showsReleaseNotes } from "./update-status.ts";
 
+/** What the Restart does to the agents working in the daemon this app started. */
+function restartWords(busy: number | null | undefined): string {
+  if (busy === undefined) return "Checking for running agents…";
+  if (busy === null)
+    return "Agents running on this computer will stop. Their threads keep their progress.";
+  if (busy === 0) return "Nothing is running. ace is back in a few seconds.";
+  const agents = busy === 1 ? "1 agent on this computer" : `${busy} agents on this computer`;
+  return `${agents} will stop. Their threads keep their progress.`;
+}
+
 /**
  * The update button's closed layers, off the first paint: the restart confirmation and the
  * release-notes hover card. The button itself stays eager in `update-button.tsx`; this mounts
@@ -30,6 +40,8 @@ export function UpdateOverlays(props: {
   status: UpdateStatus;
   scope?: object | undefined;
   confirming: boolean;
+  /** Agents on this machine the Restart stops: undefined while counting, null when unknown. */
+  busy: number | null | undefined;
   onConfirmingChange: (open: boolean) => void;
   onInstall: () => void;
 }) {
@@ -42,6 +54,7 @@ export function UpdateOverlays(props: {
     status,
     scope,
     confirming,
+    busy,
     onConfirmingChange,
     onInstall,
   } = props;
@@ -52,28 +65,43 @@ export function UpdateOverlays(props: {
       triggerRef.current?.focus({ preventScroll: true });
     }
   });
+  const stops = busy !== undefined && busy !== 0;
+  // Focus starts on Cancel: the count may still be loading when the dialog opens.
+  const cancel = useRef<HTMLButtonElement | null>(null);
   const confirm = (
     <Dialog open={confirming} onOpenChange={onConfirmingChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Restart to install ace {status.version}?</DialogTitle>
-          <DialogDescription>
-            ace waits for running agents to finish, then restarts. New work waits until it's back.
-          </DialogDescription>
+      <DialogContent
+        material="glass"
+        showCloseButton={false}
+        initialFocus={cancel}
+        className="w-[min(400px,calc(100vw-2rem))] gap-3 rounded-[20px] p-[22px]"
+      >
+        <DialogHeader className="items-start gap-1.5 pr-0">
+          <span className="rounded-full bg-tint px-2 py-0.5 font-mono text-xs font-medium text-tint-foreground">
+            {status.currentVersion} → {status.version}
+          </span>
+          <DialogTitle className="mt-1">Restart to update?</DialogTitle>
+          <DialogDescription>{restartWords(busy)}</DialogDescription>
         </DialogHeader>
-        <DialogFooter>
-          <Button type="button" onClick={() => onConfirmingChange(false)}>
+        <DialogFooter className="mt-2 grid grid-cols-2 gap-2">
+          <Button
+            ref={cancel}
+            type="button"
+            variant="ghost"
+            onClick={() => onConfirmingChange(false)}
+          >
             Cancel
           </Button>
           <Button
             type="button"
-            variant="primary"
+            variant={stops ? "danger" : "primary"}
+            disabled={busy === undefined}
             onClick={() => {
               onConfirmingChange(false);
               onInstall();
             }}
           >
-            Restart
+            {stops ? "Stop and restart" : "Restart"}
           </Button>
         </DialogFooter>
       </DialogContent>
