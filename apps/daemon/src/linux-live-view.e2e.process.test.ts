@@ -21,7 +21,20 @@ const helper = process.env.ACE_SCREEN_HELPER;
 const graphical = session === "x11" || session === "wayland";
 const enabled = process.platform === "linux" && graphical && !!helper;
 const exec = promisify(execFile);
-const calculator = "org.gnome.Calculator";
+/** The desktop's calculator: GNOME's by default, KCalc when the runner made a KDE session. */
+const kde = (process.env.XDG_CURRENT_DESKTOP ?? "").split(":").includes("KDE");
+const desktop = kde
+  ? {
+      calculator: "org.kde.kcalc",
+      title: "KCalc",
+      keys: ["Seven", "Multiply", "Six", "Equals"],
+    }
+  : {
+      calculator: "org.gnome.Calculator",
+      title: "Calculator",
+      keys: ["7", "×", "6", "="],
+    };
+const calculator = desktop.calculator;
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -43,30 +56,36 @@ async function world(): Promise<EvalWorld> {
   return created;
 }
 
-const seedPortal = new URL(
-  "../../../native/screen-helper-linux/tests/computer/seed_portal.py",
-  import.meta.url,
-).pathname;
+const tests = new URL("../../../native/screen-helper-linux/tests/computer/", import.meta.url)
+  .pathname;
+const seedPortal = join(tests, "seed_portal.py");
+const portalDialog = join(tests, "portal_dialog.py");
 
 /** A Wayland window target: the portal's chooser, not the id, decides what is shared. */
 const waylandCalculator: ScreenTarget = {
   kind: "window",
-  bundleId: "gnome-calculator",
+  bundleId: kde ? "org.kde.kcalc" : "gnome-calculator",
   windowId: 1,
 };
 
 /**
  * The window a person picks. X11 lists Calculator's window. Wayland lists nothing: the portal's
- * chooser picks the source, so the test records the approval the person would give there
- * (test scaffolding only; ace never writes the permission store) for the helper to restore.
+ * chooser picks the source. GNOME's chooser can't be answered through accessibility, so the
+ * test records the approval the person would give there (test scaffolding only; ace never writes
+ * the permission store) for the helper to restore. KDE's chooser can: `approve` picks the window
+ * in it while the live view starts, as the person would.
  */
 async function calculatorWindow(
   ace: EvalWorld,
   viewer: LiveViewer,
-): Promise<{ target: ScreenTarget; size?: { width: number; height: number } }> {
+): Promise<{
+  target: ScreenTarget;
+  size?: { width: number; height: number };
+  approve?: () => Promise<unknown>;
+}> {
   const inventory = ScreenInventory.parse(await viewer.request({ op: "targets" }));
   if (session === "x11") {
-    const window = inventory.windows.find((entry) => entry.title === "Calculator");
+    const window = inventory.windows.find((entry) => entry.title === desktop.title);
     if (!window?.bounds) throw new Error(`No Calculator window: ${JSON.stringify(inventory)}`);
     return {
       target: { kind: "window", bundleId: window.bundleId, windowId: window.windowId },
@@ -74,6 +93,12 @@ async function calculatorWindow(
     };
   }
   expect(inventory).toEqual({ displays: [], windows: [] });
+  if (kde) {
+    return {
+      target: waylandCalculator,
+      approve: () => exec("python3", [portalDialog, "approve", desktop.title]),
+    };
+  }
   const token = join(dirname(ace.daemon.tokenPath), "screen-artifacts", "portal", "restore-token");
   // GNOME's shell names the window's app by its desktop file.
   const app = `${calculator}.desktop`;
@@ -90,8 +115,12 @@ describe.skipIf(!enabled)(`Linux live view (${session ?? "off"})`, () => {
     expect(ace.browser, "ace's pinned Chrome (ACE_CHROMIUM_PATH) encodes the video").toBe(true);
     const viewer = await LiveViewer.connect(ace.daemon.url, ace.daemon.tokenPath);
     cleanups.push(() => viewer.close());
-    const { target, size } = await calculatorWindow(ace, viewer);
-    const state = ScreenState.parse(await viewer.request({ op: "start", target }));
+    const { target, size, approve } = await calculatorWindow(ace, viewer);
+    const [started] = await Promise.all([
+      viewer.request({ op: "start", target }, 60_000),
+      approve?.(),
+    ]);
+    const state = ScreenState.parse(started);
     await viewer.request({ op: "subscribe", sessionId: state.sessionId });
     expect(
       await viewer.request({
@@ -113,7 +142,7 @@ describe.skipIf(!enabled)(`Linux live view (${session ?? "off"})`, () => {
     const acted = await agent.call("screen_act", {
       app: calculator,
       actions: [
-        ...["7", "×", "6", "="].map((key) => ({ type: "click", id: id(key) })),
+        ...desktop.keys.map((key) => ({ type: "click", id: id(key) })),
         { type: "wait_for", text: "42", timeout_ms: 5_000 },
       ],
     });
