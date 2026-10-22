@@ -1,7 +1,7 @@
 import type { Fact } from "@ace/core";
 import { facts } from "@ace/fake-daemon";
 import { afterEach, expect, test } from "vitest";
-import { connect, fixture, open, reset, rows, until } from "./thread-harness.ts";
+import { connect, fixture, latest, native, open, reset, rows, until } from "./thread-harness.ts";
 
 /*
  * The phone's message rows over the real SDK and an in-process fake daemon: the same
@@ -105,4 +105,42 @@ test("an answer streams while its turn runs and stops when the turn ends", async
   expect((await until(answerBlock, "the answer block")).streaming).toBe(true);
   fake.apply("answer", [facts.endTurn("root")]);
   await until(() => answerBlock()?.streaming === false, "the answer settled");
+});
+
+test("a settled turn's opened log times its thought by the step after it", async () => {
+  const fake = start("settled");
+  fake.apply("settled", [facts.message("root", "ask", "user", "Go"), thought("t1")], 20_000);
+  fake.apply(
+    "settled",
+    [
+      facts.tool("root", "read", {
+        kind: "file.read",
+        title: "Read a.ts",
+        detail: { kind: "file.read", path: "a.ts" },
+      }),
+      facts.toolDone("root", "read"),
+    ],
+    5_000,
+  );
+  fake.apply("settled", [
+    facts.message("root", "answer", "assistant", "Done."),
+    facts.endTurn("root"),
+  ]);
+  const thread = open(connect(fake), "settled");
+  const work = await until(
+    () => rows("thread.block").find((row) => row.kind === "work" && row.ordinal !== null),
+    "a settled head",
+  );
+  const key = native.frames.find(
+    (frame) => frame.type === "thread.block" && frame.row === work,
+  )?.id;
+  thread.handle({ type: "steps.open", ordinal: Number(work.ordinal), block: String(key) });
+  await until(
+    () => (latest("thread.steps") as { state?: string } | undefined)?.state === "ready",
+    "the steps",
+  );
+  const steps = native.frames
+    .filter((frame) => frame.type === "thread.stepsPage")
+    .flatMap((page) => page.rows as { type: string; thought: string | null }[]);
+  expect(steps.find((step) => step.type === "reasoning")?.thought).toBe("Thought for 15s");
 });
