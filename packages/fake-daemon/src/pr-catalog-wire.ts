@@ -100,6 +100,7 @@ export class FakePrCatalog {
   lifecycle(
     payload: CommandPayload,
     issueTitle: (number: number) => string | undefined,
+    now = 0,
   ): Omit<CommandResult, "commandId"> | undefined {
     if (payload.type !== "forge.hosted.lifecycle") return undefined;
     const fixture = this.find(payload.pr);
@@ -119,8 +120,43 @@ export class FakePrCatalog {
     const next = applyManagement(fixture.lifecycle, action, this.revision, issueTitle);
     if (typeof next === "string") return { ok: false, error: next };
     const metadata = next.snapshot.metadata;
+    // GitHub's timeline records each of these as an event of its own.
+    const events: Record<string, string> = {
+      lock: "locked",
+      unlock: "unlocked",
+      "branch.delete": "head_ref_deleted",
+      "branch.restore": "head_ref_restored",
+      "issue.link": "connected",
+      "issue.unlink": "disconnected",
+    };
+    const milestone = action.kind === "edit" ? action.changes.milestone : undefined;
+    const event =
+      events[action.kind] ??
+      (milestone === undefined ? undefined : milestone === null ? "demilestoned" : "milestoned");
+    const subject =
+      action.kind === "lock"
+        ? action.reason?.replace("_", " ")
+        : event === "milestoned"
+          ? next.snapshot.milestone?.title
+          : event === "demilestoned"
+            ? snapshot.milestone?.title
+            : undefined;
+    const activity = event
+      ? [
+          ...fixture.activity,
+          {
+            id: `fake-${this.revision}`,
+            event,
+            actor: "you",
+            at: new Date(now).toISOString(),
+            ...(subject ? { subject } : {}),
+            raw: {},
+          },
+        ]
+      : fixture.activity;
     const updated: PullRequestFixture = {
       ...fixture,
+      activity,
       detail: {
         ...fixture.detail,
         body: metadata.body,

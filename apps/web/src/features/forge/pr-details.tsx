@@ -10,11 +10,13 @@ import { lockReasonLabels } from "./pr-lock-reasons.ts";
 
 function Row(props: { label: string; children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex min-h-8 items-center gap-3 text-ui">
-      <span className="w-24 shrink-0 text-xs text-muted-foreground">{props.label}</span>
+    <div className="flex min-h-8 items-start gap-3 py-0.5 text-ui">
+      <span className="flex h-7 w-24 shrink-0 items-center text-xs text-muted-foreground">
+        {props.label}
+      </span>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">{props.children}</div>
       {/* The action's words, not its box, end on the column's edge. */}
-      {props.action && <div className="-mr-2 flex shrink-0 items-center">{props.action}</div>}
+      {props.action && <div className="-mr-1.5 flex h-7 shrink-0 items-center">{props.action}</div>}
     </div>
   );
 }
@@ -33,7 +35,7 @@ function IssueLine(props: { issue: ForgeClosingIssue; action?: ReactNode }) {
       {issue.state === "closed" && (
         <span className="shrink-0 text-xs text-subtle-foreground">Closed</span>
       )}
-      {props.action && <span className="-mr-2 ml-auto shrink-0">{props.action}</span>}
+      {props.action && <span className="-mr-1.5 ml-auto shrink-0">{props.action}</span>}
     </div>
   );
 }
@@ -68,62 +70,59 @@ export function PrDetails(props: { actions: PrActions; onDialog(dialog: PrDialog
         }
       >
         {snapshot.milestone ? (
-          <span className="truncate">
+          <span className="block truncate leading-7">
             {snapshot.milestone.title}
             {snapshot.milestone.state === "closed" && (
               <span className="text-subtle-foreground"> · Closed</span>
             )}
             {snapshot.milestone.dueOn && (
               <span className="text-subtle-foreground">
-                {` · due ${new Date(snapshot.milestone.dueOn).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}
+                {` · due ${new Date(snapshot.milestone.dueOn).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}`}
               </span>
             )}
           </span>
         ) : (
-          <span className="text-subtle-foreground">None</span>
+          <span className="flex h-7 items-center text-subtle-foreground">None</span>
         )}
       </Row>,
     );
   if (issues.length || lifecycle.can("issue.link"))
     rows.push(
-      <Row
-        key="issues"
-        label="Closes"
-        action={
-          lifecycle.can("issue.link") && (
+      <Row key="issues" label="Closes">
+        {issues.map((issue) => (
+          <IssueLine
+            key={`${issue.ref.repository.owner}/${issue.ref.repository.name}#${issue.ref.number}`}
+            issue={issue}
+            action={
+              issue.manual &&
+              lifecycle.can("issue.unlink") && (
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  disabled={busy}
+                  onClick={() => void lifecycle.apply({ kind: "issue.unlink", issue: issue.ref })}
+                >
+                  Unlink
+                </Button>
+              )
+            }
+          />
+        ))}
+        {lifecycle.can("issue.link") ? (
+          <span className="flex h-7 items-center">
+            {/* The words, not the box, start on the column's edge. */}
             <Button
               variant="ghost"
               size="xs"
+              className="-ml-1.5 text-muted-foreground"
               disabled={busy}
               onClick={() => props.onDialog("link-issue")}
             >
               Link an issue
             </Button>
-          )
-        }
-      >
-        {issues.length ? (
-          issues.map((issue) => (
-            <IssueLine
-              key={`${issue.ref.repository.owner}/${issue.ref.repository.name}#${issue.ref.number}`}
-              issue={issue}
-              action={
-                issue.manual &&
-                lifecycle.can("issue.unlink") && (
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    disabled={busy}
-                    onClick={() => void lifecycle.apply({ kind: "issue.unlink", issue: issue.ref })}
-                  >
-                    Unlink
-                  </Button>
-                )
-              }
-            />
-          ))
+          </span>
         ) : (
-          <span className="text-subtle-foreground">No issues</span>
+          !issues.length && <span className="flex h-7 items-center text-subtle-foreground">None</span>
         )}
       </Row>,
     );
@@ -145,7 +144,7 @@ export function PrDetails(props: { actions: PrActions; onDialog(dialog: PrDialog
           )
         }
       >
-        <span className="truncate">
+        <span className="block truncate leading-7">
           {conversation.reason ? `Locked as ${lockReasonLabels[conversation.reason].toLowerCase()}` : "Locked"}
           {!conversation.viewerCanComment && (
             <span className="text-subtle-foreground"> · only collaborators can comment</span>
@@ -183,7 +182,7 @@ export function PrDetails(props: { actions: PrActions; onDialog(dialog: PrDialog
           )
         }
       >
-        <span className="flex min-w-0 items-center gap-2">
+        <span className="flex h-7 min-w-0 items-center gap-2">
           <span
             className={cn(
               "truncate font-mono text-xs",
