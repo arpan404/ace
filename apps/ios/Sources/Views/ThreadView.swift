@@ -126,7 +126,7 @@ struct ThreadView: View {
             }
             .environment(\.openBrowser, { showBrowser = true })
             .environment(\.stopBackground, model.canOperate ? { id in Task { _ = await model.stopTask(id) } } : nil)
-            #if DEBUG
+            #if ACE_FIXTURE
             .overlay(alignment: .topLeading) {
                 if SpikeConfiguration.enabled && ProcessInfo.processInfo.arguments.contains("--spike-metrics") {
                     Text(verbatim: "\(thread.items.count) items · \(model.connection)").aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)

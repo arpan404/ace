@@ -52,6 +52,11 @@ import Darwin
                 patches=\(self.window.patches) bytes=\(self.window.bytes) mainApplyMs=\(String(format: "%.1f", self.window.mainMs), privacy: .public) \
                 scriptMs=\(String(format: "%.1f", (script - self.window.script) * 1000), privacy: .public)
                 """)
+            PerfProbe.record(["bridge.windowS": String(format: "%.1f", now - window.started), "bridge.frames": "\(window.frames)",
+                              "bridge.patches": "\(window.patches)", "bridge.bytes": "\(window.bytes)",
+                              "bridge.mainMs": String(format: "%.1f", window.mainMs),
+                              "bridge.scriptMs": String(format: "%.1f", (script - window.script) * 1000)])
+            PerfProbe.add("bridge.windows", 1)
             window = Window(started: now, script: script)
         }
         let emitted = Self.emits.withLock { $0.isEmpty ? nil : $0.removeFirst() }
@@ -108,6 +113,11 @@ import Darwin
             hopMs=\(String(format: "%.1f", self.hopMs), privacy: .public) turnMs=\(String(format: "%.1f", self.turnMs), privacy: .public) \
             footprintMiB=\(Self.footprint(), privacy: .public)
             """)
+        PerfProbe.record(["open.thread": thread, "open.warm": "\(warm)", "open.end": reason,
+                          "open.readyMs": ms(ready), "open.paintMs": ms(painted), "open.settledMs": ms(settledAt ?? now),
+                          "open.bytes": "\(bytes)", "open.mainMs": String(format: "%.1f", mainMs),
+                          "open.scriptMs": String(format: "%.1f", script), "footprintMiB": Self.footprint()])
+        PerfProbe.add("opens", 1)
         if let interval { Self.signposter.endInterval("thread.open", interval) }
         interval = nil
         self.thread = nil
