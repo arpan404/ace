@@ -310,3 +310,33 @@ paginated fork resolves its source in the destination's thread store, so `thread
 - **Normal CLI logins.** A normal Codex login can be the source of a copy: ace only reads it, under
   the CLI's lock (the lease's resume appends Codex's own settings record). ace still never writes
   into a normal login, so moving there hands over.
+
+## Amendment: accounts share the person's home (#1268)
+
+Managed accounts no longer replace HOME, USERPROFILE, APPDATA, the XDG roots or the temp
+folder. Only the selector that holds the CLI's own login moves into the account home:
+`CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `PI_CODING_AGENT_DIR`, and OpenCode's `XDG_DATA_HOME` and
+`XDG_STATE_HOME`. OpenCode 2.x finds the background service that serves its login through the
+state root, so moving only the data root would reach the person's own login.
+Agents in any account therefore use the person's own gh, git, ssh, npm and keychain on macOS,
+Linux and Windows, as in a terminal. A private HOME kept those tools from reading the person's
+config, so a Codex agent in an extra account could not use `gh`.
+
+Separation still holds, because each CLI keys its login on that selector. Claude's keychain
+entry name carries a hash of `CLAUDE_CONFIG_DIR` (with the plaintext fallback inside that
+folder), and Codex and Pi keep `auth.json` in their home. OpenCode's stored config and cache
+roots stay in the record but are not applied, and ace reads its commands from the
+person's own OpenCode config.
+
+Cursor is the exception. Its SDK finds its login through `os.homedir()`, so its host keeps a
+private HOME. The adapter points `GH_CONFIG_DIR` and `GIT_CONFIG_GLOBAL` at the person's real
+files, following each tool's own lookup order per platform. Explicit values in the
+environment win. On macOS the keychain is found through HOME, so the private home's
+`Library/Keychains` links to the person's own; the SDK keeps its login in `.cursor/sdk/auth.json`
+and never uses the keychain (checked against SDK 1.0.35), so Cursor accounts stay apart.
+Windows Credential Manager and the Linux secret service do not depend on HOME. `~` inside git
+includes still resolves to the private home there.
+
+The per-session tool-credential allowlist (`toolEnv`) is removed, since the person's own
+environment now reaches every account. Existing account homes keep their logins, because
+the selectors are unchanged.

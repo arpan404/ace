@@ -56,6 +56,28 @@ const authOverrides = [
   "CLAUDE_CODE_USE_VERTEX",
   "CLAUDE_CODE_USE_FOUNDRY",
 ];
+/**
+ * Only the selector that holds the CLI's own login moves to the account home. HOME, XDG
+ * roots, APPDATA and TMPDIR stay the person's, so gh, git, ssh, npm and the keychain work
+ * inside an account exactly as they do in a terminal. Each CLI keys its credentials on that
+ * selector (Claude's keychain entry name hashes CLAUDE_CONFIG_DIR, Codex and Pi keep
+ * `auth.json` in their home), so accounts stay apart without a private HOME. Cursor's SDK
+ * reads `os.homedir()` and is the one exception; see `cursorSdkEnvironment`.
+ */
+function appliedSelectors(instance: ProviderInstance): ProviderInstance["env"] {
+  // OpenCode keeps its login under XDG_DATA_HOME, and 2.x finds its background service
+  // (which serves that login) through XDG_STATE_HOME, so both move. Its stored config and
+  // cache roots are not applied: config would move gh and git off the person's own files.
+  if (instance.provider === "opencode") {
+    const { XDG_DATA_HOME, XDG_STATE_HOME } = instance.env;
+    return {
+      ...(XDG_DATA_HOME ? { XDG_DATA_HOME } : {}),
+      ...(XDG_STATE_HOME ? { XDG_STATE_HOME } : {}),
+    };
+  }
+  return instance.env;
+}
+
 /** Undefined masks the ambient variable when provider-kit merges process.env. */
 export function instanceEnv(
   instance: ProviderInstance,
@@ -83,24 +105,10 @@ export function instanceEnv(
   if (parsed.provider === "opencode" && (!parsed.env.XDG_DATA_HOME || !parsed.env.XDG_CONFIG_HOME))
     throw new Error("OpenCode requires data and config roots");
   const env = { ...base };
-  if (parsed.managed) {
-    Object.assign(env, {
-      HOME: join(parsed.homeDir, "user"),
-      USERPROFILE: join(parsed.homeDir, "user"),
-      APPDATA: join(parsed.homeDir, "appdata"),
-      XDG_DATA_HOME: join(parsed.homeDir, "data"),
-      XDG_CONFIG_HOME: join(parsed.homeDir, "config"),
-      XDG_STATE_HOME: join(parsed.homeDir, "state"),
-      XDG_CACHE_HOME: join(parsed.homeDir, "cache"),
-      TMPDIR: parsed.homeDir,
-      TMP: parsed.homeDir,
-      TEMP: parsed.homeDir,
-    });
-  }
   for (const key of authOverrides) env[key] = undefined;
   if (parsed.provider === "cursor" && backend === "cursor-sdk" && parsed.authMethod !== "api_key")
     env["CURSOR_API_KEY"] = base["CURSOR_API_KEY"];
-  const selected = { ...env, ...parsed.env };
+  const selected = { ...env, ...appliedSelectors(parsed) };
   return parsed.provider === "cursor" && backend === "cursor-sdk"
     ? cursorSdkEnvironment({ id: parsed.id, homeDir: parsed.homeDir }, selected)
     : selected;

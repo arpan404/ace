@@ -43,8 +43,6 @@ test("each provider selects an independent home and strips ambient auth override
   });
   expect(instanceEnv(instance("opencode"), base)).toMatchObject({
     XDG_DATA_HOME: "/tmp/opencode/data",
-    XDG_CONFIG_HOME: "/tmp/opencode/config",
-    XDG_CACHE_HOME: "/tmp/opencode/cache",
     XDG_STATE_HOME: "/tmp/opencode/state",
   });
   for (const provider of ["codex", "claude", "cursor", "opencode"] as const) {
@@ -56,6 +54,31 @@ test("each provider selects an independent home and strips ambient auth override
     expect(env["PATH"]).toBe("/fake");
   }
 });
+test("isolated accounts keep the person's own home, config roots and temp folder for their tools", () => {
+  const person = {
+    PATH: "/fake",
+    HOME: "/Users/person",
+    USERPROFILE: "C:\\Users\\person",
+    APPDATA: "C:\\Users\\person\\AppData\\Roaming",
+    XDG_CONFIG_HOME: "/Users/person/.config",
+    XDG_CACHE_HOME: "/Users/person/.cache",
+    TMPDIR: "/private/tmp/person",
+    TEMP: "C:\\Temp",
+    GH_TOKEN: "person-github-token",
+    SSH_AUTH_SOCK: "/private/tmp/agent.sock",
+  };
+  for (const provider of ["codex", "claude", "opencode"] as const) {
+    const managed = { ...instance(provider), managed: true as const };
+    expect(instanceEnv(managed, person)).toMatchObject(person);
+  }
+  // OpenCode's login and its service pointer live in its data and state roots, the only
+  // XDG roots that move; its config root stays the person's, so gh and git find theirs.
+  expect(instanceEnv({ ...instance("opencode"), managed: true as const }, person)).toMatchObject({
+    XDG_DATA_HOME: "/tmp/opencode/data",
+    XDG_STATE_HOME: "/tmp/opencode/state",
+  });
+});
+
 test("login discovery sees the selected home rather than another account", async () => {
   const root = await temp();
   await fakeClis(root);
