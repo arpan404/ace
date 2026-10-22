@@ -172,7 +172,7 @@ it("negotiated UI support and capture scope reject unsupported operations", asyn
     await manager.stop(state.sessionId);
     await expect(
       manager.start({ kind: "display", displayId: 1, bundleIds: [target.bundleId] }),
-    ).rejects.toThrow("capture target");
+    ).rejects.toThrow("can't capture a whole screen");
   } finally {
     await manager.close();
     await rm(directory, { recursive: true, force: true });

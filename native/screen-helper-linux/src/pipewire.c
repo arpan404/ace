@@ -9,6 +9,9 @@
 #endif
 #include <spa/buffer/meta.h>
 #include <dlfcn.h>
+#include <stdint.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -62,6 +65,24 @@ static void state_changed(void *user, enum pw_stream_state old, enum pw_stream_s
     (void)old; (void)error;
     if (state == PW_STREAM_STATE_ERROR) ((struct capture *)user)->failed = 1;
 }
+/* The buffer's pixels, readable. PipeWire maps a buffer with the access its producer flagged,
+ * and xdg-desktop-portal-hyprland flags its shared-memory buffers mappable but not readable,
+ * so that mapping can't be read. Such a buffer is mapped read-only here instead (*mapped is
+ * then the length to unmap), once the file is known to hold everything the producer claims. */
+static unsigned char *readable(struct spa_data *d, size_t *mapped) {
+    *mapped = 0;
+    if (d->data && ((d->flags & SPA_DATA_FLAG_READABLE) || d->type == SPA_DATA_MemPtr))
+        return d->data;
+    if (d->type != SPA_DATA_MemFd || d->fd < 0 || !d->maxsize) return NULL;
+    struct stat st;
+    uint64_t length = (uint64_t)d->mapoffset + d->maxsize;
+    if (fstat((int)d->fd, &st) != 0 || st.st_size < 0 || (uint64_t)st.st_size < length ||
+        length > SIZE_MAX) return NULL;
+    void *pixels = mmap(NULL, (size_t)length, PROT_READ, MAP_SHARED, (int)d->fd, 0);
+    if (pixels == MAP_FAILED) return NULL;
+    *mapped = (size_t)length;
+    return (unsigned char *)pixels + d->mapoffset;
+}
 static void process(void *user) {
     struct capture *c = user;
     struct pw_buffer *b = c->dequeue(c->stream);
@@ -75,11 +96,14 @@ static void process(void *user) {
         }
         struct spa_data *d = &b->buffer->datas[0];
         unsigned w = c->video.size.width, h = c->video.size.height;
-        if (d->data && d->chunk && w && h && d->chunk->stride >= (int)(w*4) &&
+        size_t mapped = 0;
+        unsigned char *base = readable(d, &mapped);
+        if (base && d->chunk && w && h && d->chunk->stride >= (int)(w*4) &&
             d->chunk->offset <= d->maxsize && (uint64_t)d->chunk->stride*h <= d->maxsize-d->chunk->offset &&
             d->chunk->size >= (uint64_t)d->chunk->stride*(h-1)+w*4 && !(d->chunk->flags & SPA_CHUNK_FLAG_CORRUPTED)) {
-            c->frame(c->user, (unsigned char *)d->data+d->chunk->offset,w,h,d->chunk->stride,c->video.format);
+            c->frame(c->user, base+d->chunk->offset,w,h,d->chunk->stride,c->video.format);
         }
+        if (mapped) munmap(base - d->mapoffset, mapped);
     }
     c->queue(c->stream,b);
 }

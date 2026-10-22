@@ -3,21 +3,35 @@ import { libraryInstallCommand, missingLibraries, type LinuxFamily } from "./lin
 /** Why Chrome would not start, when the cause is one a person can fix on this machine. */
 export type ChromeLaunchProblem =
   | { kind: "missing_libraries"; libraries: string[]; install?: string }
-  | { kind: "sandbox_blocked"; cause: "apparmor" | "userns_disabled" | "unknown" }
+  | { kind: "sandbox_blocked"; cause: SandboxObstacle | "unknown" }
   | { kind: "running_as_root" }
   | { kind: "unknown" };
 
+/** A kernel setting that keeps Chrome's sandbox from creating user namespaces. */
+export type SandboxObstacle = "apparmor" | "userns_disabled";
+
+/** The kernel settings Chrome's sandbox depends on, read from `/proc/sys`, never guessed. */
+export interface SandboxFacts {
+  /** `kernel.apparmor_restrict_unprivileged_userns` is 1 (Ubuntu 23.10+ kernels). */
+  appArmorRestrictsUserns?: boolean;
+  /** `kernel.unprivileged_userns_clone` is 0 (Debian's older switch, linux-hardened). */
+  usernsCloneDisabled?: boolean;
+}
+
+/** The setting that blocks Chrome's sandbox on this machine; undefined when none does. */
+export function sandboxObstacle(facts: SandboxFacts): SandboxObstacle | undefined {
+  if (facts.appArmorRestrictsUserns) return "apparmor";
+  if (facts.usernsCloneDisabled) return "userns_disabled";
+  return undefined;
+}
+
 /** What the I/O shell found out about the machine after a failed start. */
-export interface ChromeLaunchFacts {
+export interface ChromeLaunchFacts extends SandboxFacts {
   /** The end of Chrome's stderr. */
   stderr: string;
   /** `ldd` output for the executable, when it was run. */
   ldd?: string;
   family?: LinuxFamily;
-  /** `kernel.apparmor_restrict_unprivileged_userns` is 1. */
-  appArmorRestrictsUserns?: boolean;
-  /** `kernel.unprivileged_userns_clone` is 0 (Debian's older switch). */
-  usernsCloneDisabled?: boolean;
   root?: boolean;
 }
 
@@ -30,14 +44,7 @@ export function classifyChromeLaunch(facts: ChromeLaunchFacts): ChromeLaunchProb
   if (/Running as root without --no-sandbox is not supported/.test(facts.stderr))
     return { kind: "running_as_root" };
   if (/No usable sandbox/.test(facts.stderr))
-    return {
-      kind: "sandbox_blocked",
-      cause: facts.appArmorRestrictsUserns
-        ? "apparmor"
-        : facts.usernsCloneDisabled
-          ? "userns_disabled"
-          : "unknown",
-    };
+    return { kind: "sandbox_blocked", cause: sandboxObstacle(facts) ?? "unknown" };
   return { kind: "unknown" };
 }
 

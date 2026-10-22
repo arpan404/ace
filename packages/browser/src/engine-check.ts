@@ -9,10 +9,16 @@ import { chromiumArtifact } from "./chromium-manifest.ts";
 import {
   chromeLaunchFacts,
   linuxMachine,
+  sandboxFacts,
   smallSharedMemory,
   type LinuxMachine,
 } from "./launch-diagnosis.ts";
-import { chromeLogText, classifyChromeLaunch, type ChromeLaunchProblem } from "./launch-failure.ts";
+import {
+  chromeLogText,
+  classifyChromeLaunch,
+  sandboxObstacle,
+  type ChromeLaunchProblem,
+} from "./launch-failure.ts";
 import {
   chromiumAppArmorInstall,
   chromiumAppArmorProfile,
@@ -199,7 +205,7 @@ function problemVerdict(
             ? `Install ace's AppArmor profile once:\n${sandboxFix}\n${optOut}`
             : problem.cause === "userns_disabled"
               ? `Enable them: sudo sysctl -w kernel.unprivileged_userns_clone=1 (persist it in /etc/sysctl.d). ${optOut}`
-              : `Chrome said: ${stderrLine(stderr)}. ${optOut}`,
+              : `Chrome said: ${stderrLine(stderr).replace(/\.+$/, "")}. ${optOut}`,
       };
     case "running_as_root":
       return {
@@ -299,17 +305,24 @@ export async function checkBrowserEngine(options: EngineCheckOptions): Promise<E
         fix: "The machine may be busy; run ace doctor again. If it persists, check the daemon log when an agent opens the browser.",
       };
     if (!started.pageOpened) return diagnose(started.stderr);
-    return sandbox
-      ? {
-          status: "ok",
-          message: `${name} starts headless with its sandbox`,
-          fix: "No action needed.",
-        }
-      : {
-          status: "warn",
-          message: `${name} starts headless without its sandbox (ACE_CHROMIUM_NO_SANDBOX=1)`,
-          fix: `Pages run without Chrome's sandbox. On Ubuntu 23.10+ install ace's AppArmor profile instead and unset ACE_CHROMIUM_NO_SANDBOX:\n${sandboxFix}`,
-        };
+    if (sandbox)
+      return {
+        status: "ok",
+        message: `${name} starts headless with its sandbox`,
+        fix: "No action needed.",
+      };
+    const obstacle =
+      platform === "linux" ? sandboxObstacle(await sandboxFacts(machine)) : undefined;
+    return {
+      status: "warn",
+      message: `${name} starts headless without its sandbox (ACE_CHROMIUM_NO_SANDBOX=1)`,
+      fix:
+        obstacle === "apparmor"
+          ? `Pages run without Chrome's sandbox. Install ace's AppArmor profile instead and unset ACE_CHROMIUM_NO_SANDBOX:\n${sandboxFix}`
+          : obstacle === "userns_disabled"
+            ? "Pages run without Chrome's sandbox. Enable user namespaces instead (sudo sysctl -w kernel.unprivileged_userns_clone=1, persisted in /etc/sysctl.d) and unset ACE_CHROMIUM_NO_SANDBOX."
+            : "Pages run without Chrome's sandbox, and nothing on this machine blocks it: unset ACE_CHROMIUM_NO_SANDBOX.",
+    };
   } finally {
     await rm(profile, { recursive: true, force: true }).catch(() => {});
   }

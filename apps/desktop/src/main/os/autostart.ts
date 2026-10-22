@@ -95,7 +95,7 @@ function desktopEntry(executable: string): string {
  * `$` and `\` take a backslash; the string-value escape then doubles every backslash, and a
  * literal `%` is written `%%` so it isn't read as a field code.
  */
-function execArgument(value: string): string {
+export function execArgument(value: string): string {
   if (/[\n\r]/.test(value)) throw new Error("The executable path contains a line break");
   const quoted = `"${value.replace(/["`$\\]/g, "\\$&")}"`;
   return quoted.replace(/\\/g, "\\\\").replace(/%/g, "%%");

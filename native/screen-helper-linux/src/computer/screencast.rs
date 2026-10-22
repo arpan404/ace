@@ -1,9 +1,13 @@
 //! Wayland screenshots through the xdg-desktop-portal ScreenCast interface, never a
 //! compositor-private API (ADR 0049). Each screenshot opens a portal session from the app's
 //! restore token, takes one PipeWire frame and closes it, so nothing streams in between.
+//! A desktop that sends a window's picture only when its screen redraws (Hyprland) may send
+//! none to a new session; that session stays open, unused for at most `KEEP`, so the next look
+//! has the picture from the latest redraw.
 //! The first time, the person picks the window in the portal's dialog; the request does not
 //! wait for that: it returns the outline and asks the agent to look again once approved.
 use crate::computer::image::Rgb;
+use crate::computer::pw_frame::{NO_FRAME, Watch};
 use futures_util::StreamExt;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -19,6 +23,10 @@ const MONITOR: u32 = 1;
 const WINDOW: u32 = 2;
 /// How long the person has to answer the dialog before the session is abandoned.
 const APPROVAL: Duration = Duration::from_secs(300);
+/// How long a new stream may take to send its first picture.
+const FIRST_FRAME: Duration = Duration::from_secs(3);
+/// How long a stream that is waiting for the desktop to redraw stays open without a look.
+const KEEP: Duration = Duration::from_secs(120);
 
 type Dict = HashMap<String, OwnedValue>;
 
@@ -44,7 +52,16 @@ pub struct ScreenCast {
     data_dir: Option<PathBuf>,
     tokens: HashMap<String, String>,
     pending: HashMap<String, tokio::task::JoinHandle<Result<Started, String>>>,
+    /// Open sessions whose stream waits on the desktop to redraw, by token key.
+    kept: HashMap<String, Kept>,
     counter: Arc<AtomicU64>,
+}
+
+/// A session kept open because its desktop sends pictures only on redraw.
+struct Kept {
+    session: OwnedObjectPath,
+    logical: Option<(u32, u32)>,
+    watch: Arc<Watch>,
 }
 
 /// Where an app's restore token lives: `<data>/portal/computer-<key>.token`, with the key
@@ -92,6 +109,15 @@ pub fn declined_message(app: &str, why: &str) -> String {
     )
 }
 
+/// Sharing is approved but the stream stayed empty. Some compositors (Hyprland with
+/// xdg-desktop-portal-hyprland 1.3) hand over a window's picture only when that screen next
+/// redraws, so an unchanged desktop, or one whose display is asleep, sends none.
+pub fn still_message(app: &str) -> String {
+    format!(
+        "No screenshot of {app}: screen sharing is approved, but the desktop sent no picture because nothing on that screen has redrawn since (or its display is asleep). Look again after the app changes, e.g. after your next action; the outline works meanwhile."
+    )
+}
+
 fn text(value: &str) -> OwnedValue {
     OwnedValue::try_from(Value::from(value)).unwrap_or_else(|_| OwnedValue::from(0u32))
 }
@@ -131,6 +157,7 @@ impl ScreenCast {
             data_dir,
             tokens: HashMap::new(),
             pending: HashMap::new(),
+            kept: HashMap::new(),
             counter: Arc::new(AtomicU64::new(0)),
         })
     }
@@ -177,6 +204,12 @@ impl ScreenCast {
     /// One picture of the app's window. `Err` is the model-facing reason there is none.
     pub async fn capture(&mut self, app_id: &str, app_name: &str) -> Result<Frame, String> {
         let key = self.key(app_id);
+        if let Some(kept) = self.kept.remove(&key) {
+            if !kept.watch.ended() {
+                return self.from_kept(key, kept, app_name).await;
+            }
+            close(&self.conn, &kept.session).await;
+        }
         let started = if let Some(handle) = self.pending.remove(&key) {
             if !handle.is_finished() {
                 self.pending.insert(key, handle);
@@ -206,15 +239,61 @@ impl ScreenCast {
             }
         };
         self.store_token(&key, started.token.clone());
-        let frame = self.grab(&started).await;
-        close(&self.conn, &started.session).await;
-        let picture = frame?;
-        let logical = logical_size(started.logical, (picture.width, picture.height));
-        Ok(Frame {
+        let watch = match self.open_stream(&started).await {
+            Ok(watch) => Arc::new(watch),
+            Err(why) => {
+                close(&self.conn, &started.session).await;
+                return Err(why);
+            }
+        };
+        let kept = Kept {
+            session: started.session,
+            logical: started.logical,
+            watch,
+        };
+        match latest(&kept.watch, FIRST_FRAME).await {
+            Ok(picture) => {
+                close(&self.conn, &kept.session).await;
+                Ok(self.frame(picture, kept.logical))
+            }
+            Err(e) if e == NO_FRAME => {
+                self.kept.insert(key, kept);
+                Err(still_message(app_name))
+            }
+            Err(e) => {
+                close(&self.conn, &kept.session).await;
+                Err(stream_message(&e))
+            }
+        }
+    }
+
+    /// A look through a kept session: the picture from the desktop's latest redraw. The
+    /// session stays open, since a new one would again wait for a redraw.
+    async fn from_kept(&mut self, key: String, kept: Kept, app_name: &str) -> Result<Frame, String> {
+        match latest(&kept.watch, Duration::from_secs(1)).await {
+            Ok(picture) => {
+                let frame = self.frame(picture, kept.logical);
+                self.kept.insert(key, kept);
+                Ok(frame)
+            }
+            Err(e) if e == NO_FRAME => {
+                self.kept.insert(key, kept);
+                Err(still_message(app_name))
+            }
+            Err(e) => {
+                close(&self.conn, &kept.session).await;
+                Err(stream_message(&e))
+            }
+        }
+    }
+
+    fn frame(&self, picture: Rgb, logical: Option<(u32, u32)>) -> Frame {
+        let logical = logical_size(logical, (picture.width, picture.height));
+        Frame {
             picture,
             logical,
             window: self.window_sources(),
-        })
+        }
     }
 
     /// Starts a portal session. `Err(None)`: a dialog is up and the person decides later (the
@@ -255,7 +334,8 @@ impl ScreenCast {
         options
     }
 
-    async fn grab(&self, started: &Started) -> Result<Rgb, String> {
+    /// Starts reading the session's stream.
+    async fn open_stream(&self, started: &Started) -> Result<Watch, String> {
         let reply = self
             .conn
             .call_method(
@@ -272,27 +352,38 @@ impl ScreenCast {
             .deserialize()
             .map_err(|e| format!("The screen-sharing stream could not be opened ({e})."))?;
         let fd: std::os::fd::OwnedFd = fd.into();
-        let node = started.node;
-        tokio::task::spawn_blocking(move || crate::computer::pw_frame::grab(fd, node, Duration::from_secs(3)))
-            .await
-            .map_err(|_| "The screenshot was interrupted.".to_owned())?
-            .map_err(|e| format!("No picture came from the screen-sharing stream ({e}). Use the outline."))
+        Ok(Watch::start(fd, started.node, KEEP))
     }
 }
 
-async fn close(conn: &Connection, session: &OwnedObjectPath) {
-    let _ = conn
-        .call_method(
-            Some(SERVICE),
-            session.as_str(),
-            Some("org.freedesktop.portal.Session"),
-            "Close",
-            &(),
-        )
-        .await;
+/// The stream's latest picture, waiting up to `timeout` for a first one.
+async fn latest(watch: &Arc<Watch>, timeout: Duration) -> Result<Rgb, String> {
+    let watch = watch.clone();
+    tokio::task::spawn_blocking(move || watch.latest(timeout))
+        .await
+        .map_err(|_| "The screenshot was interrupted.".to_owned())?
 }
 
-/// CreateSession, SelectSources and Start. Start shows the dialog unless the token restores.
+fn stream_message(error: &str) -> String {
+    format!("No picture came from the screen-sharing stream ({error}). Use the outline.")
+}
+
+/// Closing never holds up a look: a backend still waiting on its chooser can't answer it.
+const CLOSE_WAIT: Duration = Duration::from_secs(2);
+
+async fn close(conn: &Connection, session: &OwnedObjectPath) {
+    let call = conn.call_method(
+        Some(SERVICE),
+        session.as_str(),
+        Some("org.freedesktop.portal.Session"),
+        "Close",
+        &(),
+    );
+    let _ = tokio::time::timeout(CLOSE_WAIT, call).await;
+}
+
+/// CreateSession, SelectSources and Start. Unless the token restores, the portal asks the
+/// person at Start (GNOME, KDE) or already at SelectSources (xdg-desktop-portal-hyprland).
 async fn start(conn: Connection, counter: Arc<AtomicU64>, select: Dict) -> Result<Started, String> {
     let mut create: Dict = HashMap::new();
     create.insert(
@@ -313,7 +404,8 @@ async fn start(conn: Connection, counter: Arc<AtomicU64>, select: Dict) -> Resul
             "SelectSources",
             Some(&session),
             select,
-            Duration::from_secs(10),
+            // GNOME asks the person at Start; xdg-desktop-portal-hyprland already here.
+            APPROVAL,
         )
         .await?;
         let started = request(&conn, &counter, "Start", Some(&session), HashMap::new(), APPROVAL).await?;
@@ -395,15 +487,14 @@ async fn request(
     let message = match tokio::time::timeout(wait, responses.next()).await {
         Ok(Some(Ok(message))) => message,
         _ => {
-            let _ = conn
-                .call_method(
-                    Some(SERVICE),
-                    handle.as_str(),
-                    Some("org.freedesktop.portal.Request"),
-                    "Close",
-                    &(),
-                )
-                .await;
+            let close = conn.call_method(
+                Some(SERVICE),
+                handle.as_str(),
+                Some("org.freedesktop.portal.Request"),
+                "Close",
+                &(),
+            );
+            let _ = tokio::time::timeout(CLOSE_WAIT, close).await;
             return Err("nobody answered the dialog".into());
         }
     };

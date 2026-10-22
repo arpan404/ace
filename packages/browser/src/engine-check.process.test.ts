@@ -15,6 +15,16 @@ const ubuntu: LinuxMachine = {
   ldd: async () => "\tlibnss3.so => not found\n\tlibgbm.so.1 => not found\n",
   root: false,
 };
+/** Arch's kernel: user namespaces allowed through its clone switch, no AppArmor sysctl. */
+const arch: LinuxMachine = {
+  readText: async (path) =>
+    ({
+      "/etc/os-release": 'NAME="Arch Linux"\nPRETTY_NAME="Arch Linux"\nID=arch\nBUILD_ID=rolling\n',
+      "/proc/sys/kernel/unprivileged_userns_clone": "1\n",
+    })[path],
+  ldd: async () => undefined,
+  root: false,
+};
 
 /** A data directory and a stand-in Chromium whose behaviour is the shell `body`. */
 async function chromium(body: string) {
@@ -91,6 +101,41 @@ describe("ace doctor's browser check", () => {
     expect(unsandboxed.status).toBe("warn");
     expect(unsandboxed.message).toMatch(/without its sandbox/);
     expect(await readFile(fake.argv, "utf8")).toContain("--no-sandbox");
+  });
+
+  it("asks Ubuntu for the AppArmor profile but Arch only to drop the sandbox opt-out", async () => {
+    const fake = await pipeChromium();
+    const env = { ACE_CHROMIUM_PATH: fake.path, ACE_CHROMIUM_NO_SANDBOX: "1" };
+    const onLinux = (machine: LinuxMachine) =>
+      checkBrowserEngine({
+        dataDir: fake.dataDir,
+        env,
+        signal: new AbortController().signal,
+        platform: "linux",
+        machine,
+      });
+    const onUbuntu = await onLinux(ubuntu);
+    expect(onUbuntu.status).toBe("warn");
+    expect(onUbuntu.fix).toContain("sudo apparmor_parser -r /etc/apparmor.d/ace-chromium");
+    const onArch = await onLinux(arch);
+    expect(onArch.status).toBe("warn");
+    expect(onArch.fix).not.toMatch(/AppArmor|apparmor/);
+    expect(onArch.fix).toMatch(/unset ACE_CHROMIUM_NO_SANDBOX/);
+  });
+
+  it("never offers an AppArmor profile for a blocked sandbox on a kernel without AppArmor", async () => {
+    const fake = await chromium(
+      `${version}\necho "[1:1:FATAL:zygote_host_impl_linux.cc(129)] No usable sandbox!" >&2; exit 134`,
+    );
+    const verdict = await checkBrowserEngine({
+      dataDir: fake.dataDir,
+      env: { ACE_CHROMIUM_PATH: fake.path },
+      signal: new AbortController().signal,
+      machine: arch,
+    });
+    expect(verdict.status).toBe("fail");
+    expect(verdict.message).not.toMatch(/AppArmor/);
+    expect(verdict.fix).not.toContain("apparmor");
   });
 
   it("fails a Chromium that starts but never opens a page", async () => {

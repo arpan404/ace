@@ -38,6 +38,7 @@ import { linuxInstall, relaunchCommand } from "./os/linux-sandbox.ts";
 import { relaunchAfterExit } from "./os/relaunch-after-exit.ts";
 import { findElevation, LinuxSandboxSetup, readSandboxFacts } from "./os/linux-sandbox-setup.ts";
 import { linuxTrayHost, runProgram } from "./os/tray-host.ts";
+import { installAppImageEntry, nodeAppImageEntryFiles } from "./os/appimage-entry.ts";
 import { backgroundArgument, startHidden } from "./os/login.ts";
 import { enableFeatures, linuxFeatures } from "./os/chromium-features.ts";
 import { settingsEffects } from "./os/settings-effects.ts";
@@ -93,6 +94,16 @@ if (unsafe) {
   disableDnsPrefetching(app);
   // Wayland: the quick-thread global shortcut goes through the GlobalShortcuts portal.
   enableFeatures(app.commandLine, linuxFeatures(process.platform));
+  // An AppImage or tar.gz installs nothing: its menu entry is what lets the portal grant that
+  // shortcut, and what `ace://` links open.
+  if (process.platform === "linux" && app.isPackaged)
+    installAppImageEntry({
+      env: process.env,
+      home: homedir(),
+      execPath: process.execPath,
+      files: nodeAppImageEntryFiles,
+      warn: (message) => console.warn(message),
+    });
   registerAppScheme();
   if (!app.requestSingleInstanceLock()) app.quit();
   else

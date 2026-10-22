@@ -11,14 +11,18 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { ScreenState } from "@ace/protocol";
 import { evalWorld, type EvalWorld } from "./evals/world.ts";
-import { shareWindow } from "./testing/linux-share.ts";
+import { kde, shareWindow, startShared } from "./testing/linux-share.ts";
 import { LiveViewer } from "./testing/live-viewer.ts";
 
 const session = process.env.ACE_LINUX_DESKTOP_E2E;
 const helper = process.env.ACE_SCREEN_HELPER;
 const log = process.env.ACE_E2E_FIXTURE_LOG;
-const graphical = session === "x11" || session === "wayland";
-const enabled = process.platform === "linux" && graphical && !!helper && !!log;
+/**
+ * X11 (Openbox or KWin) and GNOME on Wayland. KDE on Wayland, Hyprland and Sway are watch-only;
+ * the live-view suite checks that they say so.
+ */
+const controllable = session === "x11" || (session === "wayland" && !kde);
+const enabled = process.platform === "linux" && controllable && !!helper && !!log;
 const exec = promisify(execFile);
 const fixture = { desktopId: "dev.ace.LiveViewFixture", title: "Live view fixture" };
 
@@ -70,14 +74,9 @@ describe.skipIf(!enabled)(`Linux live view control (${session ?? "off"})`, () =>
     const ace = await world();
     const viewer = await LiveViewer.connect(ace.daemon.url, ace.daemon.tokenPath);
     cleanups.push(() => viewer.close());
-    const { target } = await shareWindow(
-      session === "x11" ? "x11" : "wayland",
-      ace,
-      viewer,
-      fixture,
-      cleanups,
-    );
-    const state = ScreenState.parse(await viewer.request({ op: "start", target }, 150_000));
+    const shared = await shareWindow(session ?? "", ace, viewer, fixture, cleanups);
+    const { target } = shared;
+    const state = ScreenState.parse(await startShared(viewer, shared));
     cleanups.push(async () => {
       await viewer.request({ op: "stop", sessionId: state.sessionId }).catch(() => {});
     });
@@ -94,7 +93,13 @@ describe.skipIf(!enabled)(`Linux live view control (${session ?? "off"})`, () =>
     // The person at the machine went back to the terminal: the shared window is behind it.
     // Their click from the live view brings it forward, as their mouse there would.
     if (session === "x11")
-      await exec("xdotool", ["search", "--classname", "xterm", "windowactivate", "--sync"]);
+      await exec("xdotool", [
+        "search",
+        "--classname",
+        kde ? "konsole" : "xterm",
+        "windowactivate",
+        "--sync",
+      ]);
     let before = await logged();
     await input({ kind: "pointer.click", x: 100, y: 80, button: "left" });
     await reached(before, (entry) => near(entry, 100, 80, 1));
@@ -118,7 +123,7 @@ describe.skipIf(!enabled)(`Linux live view control (${session ?? "off"})`, () =>
     expect(await logged()).toBe(before);
   }, 180_000);
 
-  it.skipIf(session !== "wayland")(
+  it.skipIf(session !== "wayland" || kde)(
     "a person's click on a shared window that is behind another app never reaches the app in front",
     async () => {
       const ace = await world();

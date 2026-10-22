@@ -113,6 +113,35 @@ screenshots restore silently. A revoked or rejected token asks the person again 
 message; a declined dialog is reported, and the next screenshot request opens the dialog again.
 An agent can't approve the dialog itself: GNOME's window list exposes no accessible action.
 
+## Hyprland and wlroots desktops
+
+Omarchy (Arch with Hyprland) runs xdg-desktop-portal-hyprland (XDPH 1.4.x on Arch, 1.3.11 on
+Ubuntu 26.04); Sway runs xdg-desktop-portal-wlr. Both offer ScreenCast and Screenshot: XDPH
+advertises monitors and windows, xdg-desktop-portal-wlr monitors only, so on Sway a screenshot
+shares the whole monitor and carries no id marks. Neither offers
+RemoteDesktop: XDPH 1.4 adds InputCapture, which hands input _out of_ the desktop (Barrier-style)
+and is no way to send it in. So on these desktops:
+
+- Semantic steps (AT-SPI) work as on GNOME, in the background. Raw clicks, keys and wheel steps
+  are unsupported, as on any Wayland desktop.
+- Window operations stay what the app itself offers (GTK4 window actions). Hyprland's and
+  Sway's control sockets (`hyprctl`, `swaymsg`) could move, focus or close any window without the
+  person's consent; ADR 0049 limits shipped code to portals, so the helper doesn't use them. Only
+  the e2e scripts use them, to read the monitor and window lists.
+- The first screenshot asks through the compositor's chooser (`hyprland-share-picker`, or the
+  chooser command configured for xdg-desktop-portal-wlr). XDPH asks during SelectSources rather
+  than Start and serves one request at a time, so the helper waits on both the same way and
+  never waits on Close (a backend still showing its chooser can't answer it). Restore tokens
+  (`persist_mode=2`, ScreenCast v4+) restore silently afterwards.
+- XDPH asks Hyprland for a window's picture with `ignore_damage` off (1.3.11 through current
+  master), and Hyprland hands it over on that monitor's next redraw, which can be never on an
+  idle desktop. When a new session's stream sends nothing within three seconds, the look says
+  so and the session stays open (two minutes after the last look), always holding the picture
+  from the latest redraw: the agent's next action redraws the app, so the next look has it.
+  Desktops that send a picture at once (GNOME, KDE) still close the session after each look.
+- XDPH 1.3 marks its shared-memory buffers mappable but not readable, so PipeWire's own mapping
+  can't be read; the helper maps such a buffer read-only itself, after checking its size.
+
 `paste` with nothing editable borrows the X clipboard: it reads the current text, serves the
 pasted text, sends Ctrl+V, then serves the old text again. X keeps no clipboard of its own, so
 after the helper exits that text survives only if a clipboard manager took it.
@@ -155,8 +184,12 @@ Calculator, Mousepad, xterm, xdotool):
   the dialog, that window is what the agent sees for that app until the grant is revoked.
 - The restore path was verified in a headless GNOME Shell with a seeded grant, and end to end on
   headless KDE Plasma 6 (Wayland and X11) with KDE's chooser answered through its accessibility
-  tree (`tests/computer/run-kde.sh`); xdg-desktop-portal-hyprland is still to be checked by hand.
-- Each Wayland screenshot opens and closes a portal session (about half a second).
+  tree (`tests/computer/run-kde.sh`). Hyprland (XDPH 1.3.11 and 1.4.1) and Sway run in
+  `apps/daemon/scripts/linux-e2e/run.sh hyprland|sway` with a scripted chooser
+  (`portal-picker.sh`), on arm64 with a virtual display; a real x86 Omarchy machine is still to
+  be checked by hand.
+- Each Wayland screenshot opens and closes a portal session (about half a second), except on
+  desktops that send pictures only on redraw (see Hyprland above).
 - GTK4 apps have no menu bar; their menus are buttons in the window, so `menu` paths fail with
   `no_menu_bar` and the agent clicks the menu button and item by id.
 - XTest pointer input is checked against the active window before each step, not before each

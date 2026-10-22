@@ -15,6 +15,8 @@ export async function writeLinuxTarball(options: {
   /** electron-builder's `linux-unpacked` or `linux-arm64-unpacked`. */
   unpacked: string;
   launcher: string;
+  /** The app's 512 px icon: the tarball's app-list entry uses it (`os/appimage-entry.ts`). */
+  icon: string;
   output: string;
   version: string;
   arch: "arm64" | "x64";
@@ -29,6 +31,7 @@ export async function writeLinuxTarball(options: {
     await rename(join(top, "ace-desktop"), join(top, "ace-desktop-bin"));
     await copyFile(options.launcher, join(top, "ace-desktop"));
     await chmod(join(top, "ace-desktop"), 0o755);
+    await copyFile(options.icon, join(top, "ace-desktop.png"));
     const archive = join(options.output, `${name}.tar.gz`);
     await rm(archive, { force: true });
     execFileSync(

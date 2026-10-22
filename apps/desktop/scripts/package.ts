@@ -262,6 +262,7 @@ if (process.platform === "linux")
     await writeLinuxTarball({
       unpacked: join(dist, "release", arch === "x64" ? "linux-unpacked" : `linux-${arch}-unpacked`),
       launcher: join(desktop, "build/linux/launcher.sh"),
+      icon: join(desktop, "build/linux-icons/512x512.png"),
       output: join(dist, "release"),
       version: packagedAppVersion(process.env, appVersion()),
       arch,
