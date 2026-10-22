@@ -100,8 +100,10 @@ export async function startServer(options: ServerOptions): Promise<{
         ...relayRoute(options.relay, options.hostId),
       },
     allowedOrigins: webOriginAllowlist(options.webOrigins),
+    // A failed settings read falls back to this computer's own link rather than failing pairing.
     pairingApp: async () =>
-      (await options.settings?.get("remote.hostedPairingLink"))?.value === true
+      (await options.settings?.get("remote.hostedPairingLink").catch(() => undefined))?.value ===
+      true
         ? hostedWebOrigin
         : undefined,
     ...(options.pairingAddress ? { sourceAddress: options.pairingAddress } : {}),

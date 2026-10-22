@@ -133,13 +133,14 @@ export function accessHttp({
           else if (request.method === "GET") result = maintenance.status();
           else throw new AccessError(405, "Unsupported method");
         } else if (path === "/v1/pairings" && request.method === "POST") {
-          const connection = pairing();
-          const input = connection ? await body(request) : undefined;
+          // Awaits come first: the address is read again right before the code is issued, since
+          // remote access can change or turn off while they wait.
+          const app = await pairingApp?.();
+          const input = pairing() ? await body(request) : undefined;
           const creator = actor();
-          const app = connection ? await pairingApp?.() : undefined;
           const { id, url, expiresAt } = issuePairing(
             auth,
-            connection,
+            pairing(),
             input,
             // The host token holds every scope; a device grants only what it has.
             (scope) => auth.local(token) || allows(creator, scope),

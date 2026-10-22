@@ -106,11 +106,13 @@ The daemon exports `@ace/daemon/client-access` for Node consumers:
 
 ```ts
 import { redeemPairing, accessRequest, ticketSocket } from "@ace/daemon/client-access";
+import { parsePairingLink } from "@ace/client/access";
 import { SocketTicket } from "@ace/protocol";
 
-const pairing = new URL(pairingUrl);
-const origin = pairing.origin;
-const fingerprint = new URLSearchParams(pairing.hash.slice(1)).get("fingerprint");
+// Reads both link forms: the daemon's own address, or app.acehq.dev naming it in `host=`.
+const link = parsePairingLink(pairingUrl);
+const origin = new URL(link.daemon).origin;
+const fingerprint = link.fingerprint;
 if (!fingerprint) throw new Error("Missing pin");
 const { device, token } = await redeemPairing(pairingUrl, "My phone");
 const ticket = SocketTicket.parse(

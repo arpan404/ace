@@ -149,7 +149,7 @@ export function AccessRows(props: { remote: readonly Machine[] }) {
           <Switch
             id={`${id}-hosted`}
             checked={hosted.value}
-            disabled={hosted.offline || hosted.pending || !enabled.value}
+            disabled={hosted.offline || hosted.pending}
             onCheckedChange={(on) => void hosted.set(on)}
           />
         </DaemonSlot>
