@@ -24,12 +24,14 @@ test("an automation run longer than an hour stays running while its thread works
   expect(h.service.inbox().runs[0]?.status).toBe("running");
   expect(
     h.service.trigger("triage", { key: "blocked", variables: { subject: "second" } }).status,
-  ).toBe("skipped");
-  await h.finish();
+  ).toBe("queued");
+  h.completions[0]?.resolve({ threadId: "thread-0", status: "succeeded", result: "Done" });
+  await waitFor(() => h.completions[1]);
   expect(h.service.inbox().runs.find((item) => item.eventKey === "long")).toMatchObject({
     status: "succeeded",
     threadId: "thread-0",
   });
+  await h.finish(1);
 });
 
 test("restart keeps observing a running automation started hours earlier", async () => {
@@ -48,7 +50,7 @@ test("restart keeps observing a running automation started hours earlier", async
   expect(h.inputs).toHaveLength(1);
 });
 
-test("changes during a file automation's own run produce no new run or skipped history", async () => {
+test("a change during a file automation's run waits for it, and more changes meanwhile add nothing", async () => {
   const h = harness();
   h.service.put(
     definition({
@@ -60,17 +62,17 @@ test("changes during a file automation's own run produce no new run or skipped h
   const receive = h.watches.get("/repo");
   if (!receive) throw new Error("Missing watcher");
   await receive({ key: "file:first", variables: { path: "first.ts" } });
-  await receive({ key: "file:self", variables: { path: "own-edit.ts" } });
+  await receive({ key: "file:during", variables: { path: "own-edit.ts" } });
   expect(h.inputs).toHaveLength(1);
-  expect(h.service.inbox().runs).toHaveLength(1);
+  expect(h.service.inbox().runs.map((run) => run.status)).toEqual(["queued", "running"]);
   expect(
     h.service.trigger("triage", { key: "file:cap", variables: { path: "other.ts" } }, "file")
       .status,
   ).toBe("skipped");
-  expect(h.service.inbox().runs).toHaveLength(1);
-  await h.finish();
-  await receive({ key: "file:after", variables: { path: "next.ts" } });
-  expect(h.inputs).toHaveLength(2);
+  expect(h.service.inbox().runs).toHaveLength(2);
+  h.completions[0]?.resolve({ threadId: "thread-0", status: "succeeded", result: "Done" });
+  await waitFor(() => h.completions[1]);
+  expect(h.inputs[1]?.prompt).toBe("Review own-edit.ts");
   await h.finish(1);
 });
 
@@ -86,9 +88,12 @@ test("retention preserves the newest thousand results and unfinished work", asyn
     page = h.service.inbox(100, page.before);
     count += page.runs.length;
   }
-  expect(count).toBe(1001);
+  // The newest thousand finished runs, plus the one running and the one waiting behind it.
+  expect(count).toBe(1002);
   expect(h.store.active().map((entry) => entry.run.id)).toEqual([first.id]);
-  await h.finish();
+  h.completions[0]?.resolve({ threadId: "thread-0", status: "succeeded", result: "Done" });
+  await waitFor(() => h.completions[1]);
+  await h.finish(1);
   page = h.service.inbox(100);
   count = page.runs.length;
   while (page.before !== null) {
@@ -97,3 +102,13 @@ test("retention preserves the newest thousand results and unfinished work", asyn
   }
   expect(count).toBe(1000);
 });
+
+/** Waits for the service to start the next run, which it does after the previous settles. */
+async function waitFor<T>(read: () => T | undefined): Promise<T> {
+  for (let i = 0; i < 100; i++) {
+    const value = read();
+    if (value !== undefined) return value;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  throw new Error("Timed out waiting");
+}

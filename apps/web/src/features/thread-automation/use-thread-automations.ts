@@ -20,7 +20,9 @@ const idlePollMs = 60_000;
 const none: readonly ThreadAutomation[] = [];
 
 const running = (entries: readonly ThreadAutomation[] | undefined) =>
-  entries?.some((entry) => entry.lastRun?.status === "running") ?? false;
+  entries?.some(
+    (entry) => entry.lastRun?.status === "running" || entry.lastRun?.status === "queued",
+  ) ?? false;
 
 /** The automations this thread owns, oldest list order kept. */
 export function useThreadAutomations(threadId: string): readonly ThreadAutomation[] {

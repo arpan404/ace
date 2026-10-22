@@ -88,7 +88,7 @@ const notWatching = (entry: ThreadAutomation) =>
 function single(entry: ThreadAutomation, facts: LineFacts): AutomationLine {
   const { automation, lastRun } = entry;
   const open: LineAction = { kind: "open", automationId: automation.id };
-  if (lastRun?.status === "running")
+  if (lastRun?.status === "running" || lastRun?.status === "queued")
     return {
       segments: [
         { status: { word: "Running", tone: "working" }, text: automation.title },
@@ -138,7 +138,9 @@ function single(entry: ThreadAutomation, facts: LineFacts): AutomationLine {
 
 function several(entries: readonly ThreadAutomation[], facts: LineFacts): AutomationLine {
   const segments: LineSegment[] = [{ text: `${entries.length} automations` }];
-  const running = entries.filter((entry) => entry.lastRun?.status === "running").length;
+  const running = entries.filter(
+    (entry) => entry.lastRun?.status === "running" || entry.lastRun?.status === "queued",
+  ).length;
   if (running) segments.push({ status: { word: `${running} running`, tone: "working" } });
   const failing = entries.filter((entry) => entry.automation.enabled && entry.triggerError).length;
   if (failing) segments.push({ status: { word: `${failing} not watching`, tone: "failed" } });

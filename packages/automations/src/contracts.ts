@@ -28,6 +28,11 @@ export interface AutomationExecutor {
   execute(input: ExecutionInput, signal: AbortSignal): Promise<ExecutionResult>;
   /** Resume monitoring existing work; undefined means no thread was created. */
   recover(idempotencyKey: string, signal: AbortSignal): Promise<ExecutionResult | undefined>;
+  /**
+   * Stop the run's turn, when its automation is paused or deleted. Resolves once the stop is
+   * sent; the run's monitor then settles it as failed.
+   */
+  interrupt?(input: ExecutionInput): Promise<void>;
 }
 export interface TimerDriver {
   arm(delayMs: number, callback: () => void | Promise<void>): () => void;

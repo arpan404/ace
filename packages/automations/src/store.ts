@@ -312,7 +312,7 @@ export class AutomationStore {
   }
   private prune(id: string): void {
     this.sql(
-      "DELETE FROM automation_runs WHERE automation_id=? AND status<>'running' AND seq NOT IN (SELECT seq FROM automation_runs WHERE automation_id=? ORDER BY seq DESC LIMIT 1000)",
+      "DELETE FROM automation_runs WHERE automation_id=? AND status NOT IN ('running','queued') AND seq NOT IN (SELECT seq FROM automation_runs WHERE automation_id=? ORDER BY seq DESC LIMIT 1000)",
     ).run(id, id);
   }
   claim(
@@ -341,12 +341,14 @@ export class AutomationStore {
     const total = Number(
       this.sql("SELECT COUNT(*) AS n FROM automation_runs WHERE status='running'").get()?.n,
     );
-    const admitted =
-      failure === undefined &&
-      input !== undefined &&
-      canAdmit(active, automation.concurrency) &&
-      total < 256;
-    const status = failure !== undefined ? "failed" : admitted ? "running" : "skipped";
+    const waiting = this.queued(automation.id);
+    const ready = failure === undefined && input !== undefined && total < 256;
+    const admitted = ready && !waiting && canAdmit(active, automation.concurrency);
+    // A run that finds the last one still going waits for it; one waiting is enough, so a
+    // second fire meanwhile is skipped rather than piling up behind it.
+    const queued = ready && !admitted && !waiting && total < 256;
+    const status =
+      failure !== undefined ? "failed" : admitted ? "running" : queued ? "queued" : "skipped";
     const run = AutomationRun.parse({
       id,
       automationId: automation.id,
@@ -355,7 +357,13 @@ export class AutomationStore {
       trigger,
       status,
       startedAt: now,
-      ...(admitted ? {} : { finishedAt: now, result: failure ?? "Concurrency limit reached" }),
+      ...(admitted || queued
+        ? {}
+        : {
+            finishedAt: now,
+            result:
+              failure ?? (waiting ? "A run was already waiting" : "Too many automations running"),
+          }),
     });
     if (trigger === "file" && status === "skipped") return { run, admitted: false, created: false };
     this.sql(
@@ -370,6 +378,68 @@ export class AutomationStore {
     );
     this.prune(automation.id);
     return { run, admitted, created: true };
+  }
+  /** Whether a run of this automation is waiting for the one before it. */
+  queued(id: string): boolean {
+    return (
+      this.sql(
+        "SELECT 1 FROM automation_runs WHERE automation_id=? AND status='queued' LIMIT 1",
+      ).get(id) !== undefined
+    );
+  }
+  /** Automations with a run waiting, for start-up to pick up where they left off. */
+  waitingAutomations(): string[] {
+    return this.sql(
+      "SELECT DISTINCT automation_id AS aid FROM automation_runs WHERE status='queued'",
+    )
+      .all()
+      .map((row) => String(row.aid));
+  }
+  /**
+   * Start this automation's oldest waiting run once nothing of it is running: it becomes
+   * `running` from `now`. Undefined when something still runs or nothing waits.
+   */
+  promote(
+    automation: Automation,
+    now: number,
+  ): { run: AutomationRun; input: ExecutionInput } | undefined {
+    const active = Number(
+      this.sql(
+        "SELECT COUNT(*) AS n FROM automation_runs WHERE automation_id=? AND status='running'",
+      ).get(automation.id)?.n,
+    );
+    if (!canAdmit(active, automation.concurrency)) return undefined;
+    const row = this.sql(
+      "SELECT id,body,input FROM automation_runs WHERE automation_id=? AND status='queued' ORDER BY seq LIMIT 1",
+    ).get(automation.id);
+    if (!row) return undefined;
+    const run = AutomationRun.parse({
+      ...AutomationRun.parse(JSON.parse(String(row.body))),
+      status: "running",
+      startedAt: now,
+    });
+    this.sql(
+      "UPDATE automation_runs SET status='running',body=? WHERE id=? AND status='queued'",
+    ).run(JSON.stringify(run), String(row.id));
+    return { run, input: Input.parse(JSON.parse(String(row.input))) };
+  }
+  /** Skip every waiting run of this automation, saying why; returns them as skipped. */
+  dropQueued(id: string, now: number, reason: string): AutomationRun[] {
+    const rows = this.sql(
+      "SELECT id,body FROM automation_runs WHERE automation_id=? AND status='queued'",
+    ).all(id);
+    return rows.map((row) => {
+      const run = AutomationRun.parse({
+        ...AutomationRun.parse(JSON.parse(String(row.body))),
+        status: "skipped",
+        finishedAt: now,
+        result: reason,
+      });
+      this.sql(
+        "UPDATE automation_runs SET status='skipped',body=? WHERE id=? AND status='queued'",
+      ).run(JSON.stringify(run), String(row.id));
+      return run;
+    });
   }
   finish(
     id: string,

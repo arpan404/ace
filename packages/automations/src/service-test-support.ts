@@ -5,6 +5,8 @@ import { afterEach } from "vitest";
 import {
   AutomationService,
   AutomationStore,
+  type AutomationExecutor,
+  type Dependencies,
   type ExecutionInput,
   type ExecutionResult,
   type TimerDriver,
@@ -82,7 +84,8 @@ export function harness(gh?: import("./index.ts").GhClient) {
   const timer = new Timer(),
     inputs: ExecutionInput[] = [],
     completions: ReturnType<typeof deferred<ExecutionResult>>[] = [],
-    errors: unknown[] = [];
+    errors: unknown[] = [],
+    interrupts: ExecutionInput[] = [];
   const changes: import("@ace/protocol").AutomationRun[] = [];
   const watches = new Map<string, (event: AutomationEvent) => Promise<void>>();
   const workspace: WorkspaceChanges = {
@@ -96,7 +99,7 @@ export function harness(gh?: import("./index.ts").GhClient) {
   };
   const arrivals = new Map<number, ReturnType<typeof deferred<ExecutionInput>>>();
   const recoveries = new Map<string, Promise<ExecutionResult | undefined>>();
-  const deps = {
+  const deps: Dependencies & { executor: AutomationExecutor; workspace: WorkspaceChanges } = {
     now: () => now,
     random: () => random,
     id: () => `run-${++ids}`,
@@ -120,6 +123,17 @@ export function harness(gh?: import("./index.ts").GhClient) {
       recover(key: string) {
         return recoveries.get(key) ?? Promise.resolve(undefined);
       },
+      /** A stop ends the run's thread turn, so its monitor settles as failed. */
+      interrupt(input: ExecutionInput) {
+        interrupts.push(input);
+        const index = inputs.findIndex((item) => item.idempotencyKey === input.idempotencyKey);
+        completions[index]?.resolve({
+          threadId: `thread-${index}`,
+          status: "failed",
+          result: "Stopped before it finished.",
+        });
+        return Promise.resolve();
+      },
     },
   };
   let service = new AutomationService(store, deps, gh);
@@ -142,6 +156,7 @@ export function harness(gh?: import("./index.ts").GhClient) {
     inputs,
     completions,
     errors,
+    interrupts,
     watches,
     changes,
     recoveries,

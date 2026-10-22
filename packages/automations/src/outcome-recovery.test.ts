@@ -61,8 +61,8 @@ test("a successful outcome survives a failed SQLite completion write and is retr
 test("an outcome from an observer replaced during cancellation cannot finish the recovered run", async () => {
   const h = harness();
   const execute = h.deps.executor.execute;
-  h.deps.executor.execute = (input, signal?: AbortSignal) => {
-    signal?.addEventListener(
+  h.deps.executor.execute = (input, signal) => {
+    signal.addEventListener(
       "abort",
       () => {
         h.service.stop();
@@ -70,7 +70,7 @@ test("an outcome from an observer replaced during cancellation cannot finish the
       },
       { once: true },
     );
-    return execute(input);
+    return execute(input, signal);
   };
   h.service.put(definition());
   const run = h.service.trigger("triage", { key: "replace", variables: { subject: "issues" } });

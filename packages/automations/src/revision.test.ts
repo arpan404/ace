@@ -31,7 +31,7 @@ it("stops an old GitHub batch when a run notification replaces its definition", 
   await h.service.settled();
   const normal = h.deps.onRun;
   h.deps.onRun = (run) => {
-    normal(run);
+    normal?.(run);
     if (run.status === "running")
       h.service.put(definition({ concurrency: 2, prompt: "CHANGED {{number}}" }));
   };

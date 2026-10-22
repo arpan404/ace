@@ -321,7 +321,7 @@ Example:
 | title | yes | string | {"minLength":1,"maxLength":256} |
 | eventKey | yes | string | {"maxLength":512} |
 | trigger | yes | ["schedule","github","file","manual"] |  |
-| status | yes | ["running","succeeded","failed","skipped"] |  |
+| status | yes | ["queued","running","succeeded","failed","skipped"] |  |
 | startedAt | yes | integer | {"minimum":0,"maximum":8640000000000000} |
 | finishedAt | no | integer | {"minimum":0,"maximum":8640000000000000} |
 | threadId | no | string | {"minLength":1,"maxLength":256} |

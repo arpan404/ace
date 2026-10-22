@@ -8,6 +8,8 @@ export const missedRunLabels: Record<Automation["missedRun"], string> = {
 /** What a run found, in one line: "Running…", "Failed: npm registry timeout", the result. */
 export function runSummary(run: AutomationRun): string {
   switch (run.status) {
+    case "queued":
+      return "Waiting for the last run to finish";
     case "running":
       return "Running…";
     case "failed":

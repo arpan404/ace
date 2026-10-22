@@ -18,6 +18,11 @@ import { observe } from "./observation.ts";
 import { AutomationRuntime } from "./runtime.ts";
 import type { GhClient } from "./gh-process.ts";
 
+/**
+ * How late a scheduled fire can be and still count as on time. Later than this, the computer
+ * slept or ace wasn't running through it, and "If missed: Skip" skips it.
+ */
+const lateGraceMs = 2 * 60_000;
 function message(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 8192);
 }
@@ -54,7 +59,11 @@ export class AutomationService {
     this.executions = new ExecutionOwner(
       store,
       deps,
-      (run) => this.publish(run),
+      (run) => {
+        this.publish(run);
+        // One message at a time: the next waiting run starts once this one is done.
+        this.drain(run.automationId);
+      },
       (error) => this.report(error),
       () => this.arm(),
     );
@@ -62,7 +71,7 @@ export class AutomationService {
       deps,
       () => this.live,
       (id, event) => {
-        if (!this.store.running(id)) this.trigger(id, event, "file");
+        this.trigger(id, event, "file");
       },
       (error) => this.report(error),
     );
@@ -112,6 +121,11 @@ export class AutomationService {
           this.report(error);
           if (!this.live) break;
         }
+      }
+      // Runs that were waiting when ace stopped start once nothing of theirs is running.
+      for (const id of this.store.waitingAutomations()) {
+        if (!this.live) break;
+        this.drain(id);
       }
       this.arm();
     } catch (error) {
@@ -199,6 +213,40 @@ export class AutomationService {
       this.report(error);
     }
   }
+  /** Start the automation's oldest waiting run, if it has one and nothing of it runs. */
+  private drain(id: string): void {
+    if (!this.live) return;
+    const generation = this.generation;
+    try {
+      const automation = this.store.definition(id);
+      if (!automation?.enabled) return;
+      const next = this.store.transaction(() => this.store.promote(automation, this.deps.now()));
+      if (!next) return;
+      this.publish(next.run);
+      if (this.live && generation === this.generation) this.executions.launch(next.run, next.input);
+    } catch (error) {
+      this.report(error);
+    }
+  }
+  /**
+   * Pausing or deleting an automation stops its work: waiting runs are skipped and the run in
+   * progress is stopped in its thread, which settles it as failed.
+   */
+  private halt(id: string, reason: string): void {
+    try {
+      for (const run of this.store.transaction(() =>
+        this.store.dropQueued(id, this.deps.now(), reason),
+      ))
+        this.publish(run);
+    } catch (error) {
+      this.report(error);
+    }
+    const interrupt = this.deps.executor.interrupt?.bind(this.deps.executor);
+    if (!interrupt) return;
+    for (const { run, input } of this.store.active())
+      if (run.automationId === id)
+        this.track(interrupt(input).catch((error: unknown) => this.report(error)));
+  }
   put(input: unknown, expectedRevision?: number | null): Automation {
     const automation = normalizeAutomation(input);
     const existing = this.store.definition(automation.id);
@@ -208,6 +256,7 @@ export class AutomationService {
       const current = this.store.revision(automation.id);
       if (current !== expectedRevision) throw new Error("Automation revision conflict");
     }
+    const pausing = existing?.enabled === true && !automation.enabled;
     if (existing && JSON.stringify(existing) === JSON.stringify(automation)) {
       if (this.runtime.needsWatch(automation)) this.healWatch(automation);
       return automation;
@@ -255,6 +304,7 @@ export class AutomationService {
     // are healthy immediately after a successful save.
     if (automation.trigger.kind === "file")
       this.clearIfReady(automation.id, prepared.revision, generation, ready);
+    if (pausing) this.halt(automation.id, "Paused before it started");
     this.arm();
     return automation;
   }
@@ -328,6 +378,7 @@ export class AutomationService {
   }
   remove(id: string, expectedRevision?: number | null): void {
     this.store.remove(id, expectedRevision ?? undefined);
+    this.halt(id, "Deleted before it started");
     this.runtime.remove(id);
     this.arm();
   }
@@ -461,6 +512,12 @@ export class AutomationService {
       this.isolateJob(job, generation, new Error("Invalid scheduled job"));
       return;
     }
+    // Long after it was due, the computer slept or ace wasn't running through it: a schedule
+    // set to skip missed runs moves on to its next time, as it does when ace starts.
+    const late =
+      job.automation.missedRun === "skip" &&
+      job.due !== null &&
+      this.deps.now() - job.due > lateGraceMs;
     // Compute before admission so any evaluation error cannot partially advance the cursor.
     let occurrence: Occurrence | undefined;
     try {
@@ -494,6 +551,13 @@ export class AutomationService {
       job.automation.jitterMs,
       this.deps.random(),
     );
+    if (late) {
+      this.store.transaction(() => {
+        this.store.advance(job.automation.id, nominal, due);
+        this.store.savePoll(job.automation.id, occurrence ?? {});
+      });
+      return;
+    }
     const admission = this.store.transaction(() => {
       const result = this.admit(
         job.automation,

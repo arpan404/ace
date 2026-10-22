@@ -76,7 +76,11 @@ export const AutomationRun = z.object({
   title: text,
   eventKey: z.string().max(512),
   trigger: z.enum(["schedule", "github", "file", "manual"]),
-  status: z.enum(["running", "succeeded", "failed", "skipped"]),
+  /**
+   * `queued` waits for the run before it to finish, then starts; an automation sends one message
+   * at a time into its thread. `startedAt` is when it fired until it starts, then when it started.
+   */
+  status: z.enum(["queued", "running", "succeeded", "failed", "skipped"]),
   startedAt: instant,
   finishedAt: instant.optional(),
   threadId: text.optional(),
