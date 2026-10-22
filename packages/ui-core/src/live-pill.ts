@@ -7,8 +7,10 @@ import { waitWords } from "./wait-words.ts";
 /*
  * The phone's live pill: one capsule over the composer that says what the thread is doing now
  * ("Working for 1m 14s") and, beside it, what else is live ("2 subagents", "1 command",
- * "2 queued", "Pursuing goal"). Each part names the sheet it opens. A request needs the person
- * and has the composer's strip to itself, so its words are never the pill's.
+ * "2 queued", "Pursuing goal"). Each part names the sheet it opens. While a request card is in
+ * the composer's strip the pill steps aside: the card is what needs the person. A tree that waits
+ * on the person with no card here (a delegated child asks in its own thread) keeps that on the
+ * pill, with who asks, so the phone never hides that the tree waits on a human.
  */
 
 /** What a part of the pill opens: the agent tree (with background commands), the queue, the goal. */
@@ -26,6 +28,8 @@ export interface PillStatus {
   code: string | undefined;
   /** The main agent itself works: the words sweep, as a live step's do. */
   live: boolean;
+  /** `needs-you` while the tree waits on the person; otherwise the thread's own tone. */
+  tone: "working" | "needs-you" | "held" | "paused";
   opens: PillOpens | undefined;
 }
 
@@ -47,6 +51,8 @@ export interface LivePillFacts {
   /** Messages waiting in the queue for the turn to end. */
   queued: number;
   goal: ProviderGoal | null | undefined;
+  /** A request card is in the composer's strip (an open request on this thread). */
+  requestShown: boolean;
 }
 
 /** "Waiting on 2": the root does nothing itself while its subagents work. */
@@ -55,8 +61,19 @@ export function waitingOnLabel(count: number): string {
 }
 
 function statusOf(activity: TurnActivity | undefined): PillStatus | undefined {
-  // A request is the strip's; its words never repeat here.
-  if (!activity || activity.tone === "needs-you") return undefined;
+  if (!activity) return undefined;
+  if (activity.tone === "needs-you")
+    // No card here says it (the strip shows cards only for this thread's own requests): the pill
+    // does, naming who asks, and opens the agent tree where that child is.
+    return {
+      label: activity.asker ? `${activity.label} · ${activity.asker}` : activity.label,
+      lead: "",
+      since: undefined,
+      code: undefined,
+      live: false,
+      tone: "needs-you",
+      opens: "agents",
+    };
   const wait = activity.waitingOn;
   if (wait?.kind === "subagents")
     return {
@@ -65,6 +82,7 @@ function statusOf(activity: TurnActivity | undefined): PillStatus | undefined {
       since: undefined,
       code: undefined,
       live: false,
+      tone: activity.tone,
       opens: "agents",
     };
   if (wait?.kind === "background") {
@@ -75,6 +93,7 @@ function statusOf(activity: TurnActivity | undefined): PillStatus | undefined {
       since: undefined,
       code: words.code,
       live: false,
+      tone: activity.tone,
       opens: "agents",
     };
   }
@@ -86,6 +105,7 @@ function statusOf(activity: TurnActivity | undefined): PillStatus | undefined {
     since: timed ? activity.elapsedFrom : undefined,
     code: activity.code,
     live: working,
+    tone: activity.tone,
     opens: undefined,
   };
 }
@@ -130,8 +150,12 @@ function segmentsOf(facts: LivePillFacts, status: PillStatus | undefined): PillS
   return segments;
 }
 
-/** The pill, or undefined when nothing is live, queued or pursued. */
+/**
+ * The pill, or undefined while a request card is in the strip (the owner's rule: nothing beside
+ * what needs the person) or when nothing is live, queued or pursued.
+ */
 export function livePill(facts: LivePillFacts): LivePill | undefined {
+  if (facts.requestShown) return undefined;
   const status = statusOf(facts.activity);
   const segments = segmentsOf(facts, status);
   return status || segments.length > 0 ? { status, segments } : undefined;
