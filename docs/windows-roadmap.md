@@ -1,9 +1,38 @@
-# Windows desktop roadmap
+# Windows desktop execution log
 
 Owner: Luseefor. Started 2026-10-22. Target: the complete local Windows app,
 with the same user workflows as macOS. Source implementation and native runtime
-verification are tracked separately. This document is the delivery checklist;
-an unchecked item is unfinished even when adjacent work has landed.
+verification are tracked separately. The canonical release scope and workstreams
+are in [PR #1315](https://github.com/arpan404/ace/pull/1315), its
+[Windows release plan](https://github.com/arpan404/ace/blob/ace/windows-release-setup/docs/plans/windows-release.md)
+and [ADR 0095](https://github.com/arpan404/ace/blob/ace/windows-release-setup/docs/adr/0095-native-windows-daemon.md).
+Those documents are on the PR branch until it merges. This log tracks bounded
+implementation slices and evidence against that plan. An unchecked item remains
+unfinished even when adjacent work has landed.
+
+## Relationship to the release plan
+
+| Canonical workstream               | Execution slices here                                 |
+| ---------------------------------- | ----------------------------------------------------- |
+| Workspace confinement              | W01, W04, W05, W06                                    |
+| Process ownership                  | W03, W10, W11 and provider workflow checks            |
+| Terminal                           | W02, W09, W10                                         |
+| Release, install, service, updates | W07, W13 and distribution checks                      |
+| Browser                            | Browser workflow checks in W14/W15                    |
+| Computer use                       | Computer-use workflow checks in W14/W15               |
+| Desktop                            | W12, W16, W17 and desktop integration checks          |
+| Daemon gaps                        | W12 and file, Git, account and plugin workflow checks |
+| CI                                 | W08, W15, W18                                         |
+
+The canonical plan also names ripgrep input, secure command discovery, pinned Git
+spawns, provider installers and owner-only ACLs. These remain required even where
+the slices below group them into broader workflow checks. Its upload containment
+fix stays owned by PR #1315; this branch does not duplicate that implementation.
+
+Two implementation gaps were identified when reconciling the plans. W02 currently
+selects `ComSpec`; it must prefer `pwsh`, then `powershell`, then `ComSpec` to meet
+the terminal plan. The uncommitted runtime staging must use a shared
+`runtime/node.exe` path helper rather than introducing `runtime/bin/node.exe`.
 
 ## Delivery order
 
@@ -123,13 +152,15 @@ restart/reconnect and errors where applicable.
 
 ## Evidence ledger
 
-| Slice                 | Implementation commit | Review  | Verification                                                       |
-| --------------------- | --------------------- | ------- | ------------------------------------------------------------------ |
-| Roadmap               | Pending               | Pending | Plan only                                                          |
-| W01 filesystem design | Pending               | Pending | Primary-source review pending                                      |
-| W02 shell selection   | Worker diff ready     | Pending | Worker reports static checks; parent verification pending          |
-| W03 process identity  | Worker diff ready     | Pending | Worker reports static checks; Windows execution pending            |
-| W00 VM                | Not started           | N/A     | Fusion installed; disk space must be reclaimed before provisioning |
+| Slice                 | Implementation commit | Review                                   | Verification                                                                                                                                           |
+| --------------------- | --------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Execution plan        | `b4595adf2`           | Reviewed                                 | Pushed; reconciled with PR #1315 in this update                                                                                                        |
+| W01 filesystem design | Uncommitted           | In progress                              | Native ABI and integration evidence pending                                                                                                            |
+| W02 shell selection   | `f7cb073d8`           | Two reviewers passed                     | Formatting, lint and terminal typecheck passed; PowerShell preference and Windows execution pending                                                    |
+| W03 process identity  | Uncommitted           | Findings corrected; final review pending | Real SID ownership implemented; native Windows marshalling and recovery pending                                                                        |
+| W04 descriptor core   | Uncommitted           | Pending                                  | Worker reports static checks; addon compilation and Windows execution pending                                                                          |
+| W07 runtime staging   | Uncommitted           | Findings open                            | Runtime path alignment and cache handling pending                                                                                                      |
+| W00 VM                | Provisioning          | N/A                                      | Official ARM64 ISO checksum verified; guest installation and tooling pending. PR #1315 describes an older VM, which has not been located on this host. |
 
 Related contracts: [desktop shell](adr/0054-desktop-shell.md),
 [distribution](adr/0041-packaging-and-distribution.md),
