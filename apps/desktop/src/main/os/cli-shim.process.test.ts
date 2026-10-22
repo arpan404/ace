@@ -47,13 +47,12 @@ async function appAt(bundle: string): Promise<string> {
   return resources;
 }
 
-function install(home: string, resources: string, loginPath = "/usr/bin:/bin") {
+function install(home: string, resources: string) {
   return installCliShim({
     dataHome: join(home, ".ace"),
     platform: process.platform,
     node: join(resources, "runtime", "bin", "node"),
     entry: join(resources, "daemon", "ace.mjs"),
-    loginPath: async () => loginPath,
   });
 }
 
@@ -179,17 +178,5 @@ describe.skipIf(process.platform === "win32")("the ace command on launch", () =>
 
     await expect(install(home, resources)).resolves.toMatchObject({ state: "skipped" });
     await expect(stat(shim)).rejects.toMatchObject({ code: "ENOENT" });
-  });
-
-  it("reports whether a terminal's PATH already finds the command", async () => {
-    const { home, resources } = await machine();
-    const bin = join(home, ".ace", "bin");
-    await expect(install(home, resources, "/usr/bin:/bin")).resolves.toMatchObject({
-      onPath: false,
-      directory: bin,
-    });
-    await expect(install(home, resources, `/usr/bin:${bin}/:/bin`)).resolves.toMatchObject({
-      onPath: true,
-    });
   });
 });

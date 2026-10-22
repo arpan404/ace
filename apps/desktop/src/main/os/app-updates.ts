@@ -6,6 +6,7 @@ import {
   scheduleChecks,
   UpdateController,
   type CheckOrigin,
+  type CheckSchedule,
   type UpdateEngine,
 } from "./update-controller.ts";
 
@@ -22,6 +23,8 @@ export interface AppUpdatesOptions {
   timers: { set(delayMs: number, callback: () => void): () => void };
   /** A number in [0, 1): offsets each background check so installs don't ask in step. */
   random(): number;
+  /** The clock, in milliseconds. */
+  now(): number;
   report(status: UpdateStatus): void;
   drain(deadlineMs: number, waiting: (count: number) => void): Promise<boolean>;
   /** Threads still at work in the daemon this app started; 0 when it runs none. */
@@ -41,6 +44,8 @@ export interface AppUpdates {
   busy(): Promise<number | undefined>;
   /** Background checks, for a build that has a feed. */
   start(): void;
+  /** The app's window opened: check now, unless a check just started. */
+  opened(): void;
 }
 
 const unconfigured: UpdateEngine = {
@@ -83,6 +88,7 @@ export function appUpdates(options: AppUpdatesOptions): AppUpdates {
     report: options.report,
     log: options.log,
   });
+  let schedule: CheckSchedule | undefined;
   return {
     current: () => controller.current(),
     check: (origin) => controller.check(origin),
@@ -91,7 +97,9 @@ export function appUpdates(options: AppUpdatesOptions): AppUpdates {
     install: () => controller.install(),
     busy: () => controller.busy(),
     start() {
-      if (enabled) scheduleChecks(controller, options.timers, options.random);
+      if (enabled && !schedule)
+        schedule = scheduleChecks(controller, options.timers, options.random, options.now);
     },
+    opened: () => schedule?.opened(),
   };
 }

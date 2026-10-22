@@ -102,7 +102,6 @@ describe("the desktop's daemon home and data folder", () => {
       dataHome: chosen.home,
       platform: "darwin",
       ...app,
-      loginPath: async () => join(user, ".ace", "bin"),
     });
     const records: { message: string; data: LogData | undefined }[] = [];
     await logFreshStart(
