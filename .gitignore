@@ -38,3 +38,6 @@ native/screen-helper-windows/target/
 # Project skills in .claude/skills/ are committed.
 /.claude/*
 !/.claude/skills/
+
+# Wrangler local state (apps/web Cloudflare deploys)
+.wrangler/

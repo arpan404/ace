@@ -8,6 +8,12 @@ bun run --filter @ace/marketing dev     # local preview
 SITE_URL=https://your.domain bun run --filter @ace/marketing build   # output in dist/
 ```
 
+## Deploy
+
+The site is a static Cloudflare Worker (`wrangler.jsonc`) serving acehq.dev and www.acehq.dev.
+`bun run --cwd apps/marketing deploy` builds with `SITE_URL=https://acehq.dev` and deploys. The web
+app deploys the same way to app.acehq.dev with `bun run --cwd apps/web deploy`.
+
 ## Build settings
 
 | Variable       | What it does                                                                                                           |
