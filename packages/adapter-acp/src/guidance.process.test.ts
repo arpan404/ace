@@ -11,8 +11,21 @@ const Prompt = z.object({
   params: z.object({ prompt: z.array(z.object({ text: z.string().optional() }).passthrough()) }),
 });
 
+const Opening = z.object({
+  method: z.enum(["session/new", "session/load"]),
+  params: z.object({ _meta: z.unknown().optional() }).passthrough(),
+});
+
 /** Opens a synthetic ACP session, sends three turns and returns each prompt's text. */
-async function promptsFor(options: { instructions?: string; brief: () => string }) {
+async function promptsFor(options: {
+  instructions?: string;
+  brief: () => string;
+  /** Whether the agent advertises system-prompt text, as Antigravity's server does. */
+  systemPrompt?: boolean;
+  resume?: boolean;
+  /** Receives what each session/new or session/load carried under `_meta`. */
+  openings?: { method: string; meta: unknown }[];
+}) {
   const frames: Frame[] = [];
   const session = await openAcpSession(
     {
@@ -32,14 +45,26 @@ async function promptsFor(options: { instructions?: string; brief: () => string 
         bearer: "b".repeat(64),
         session: () => ({ brief: options.brief() }),
       },
+      ...(options.resume ? { resume: { nativeSessionId: "earlier-session" } } : {}),
     },
     genericQuirks,
     {
       command: process.execPath,
       args: [server],
-      env: { ACE_SYNTHETIC_ACP: JSON.stringify({ http: true }) },
+      env: {
+        ACE_SYNTHETIC_ACP: JSON.stringify({
+          http: true,
+          load: !!options.resume,
+          systemPrompt: !!options.systemPrompt,
+        }),
+      },
     },
   );
+  for (const frame of frames) {
+    const opening = Opening.safeParse(frame.data);
+    if (frame.dir === "send" && opening.success)
+      options.openings?.push({ method: opening.data.method, meta: opening.data.params["_meta"] });
+  }
   const prompts = () =>
     frames.flatMap((frame) => {
       const parsed = Prompt.safeParse(frame.data);
@@ -77,4 +102,32 @@ test("an ACP session sends the daemon's guidance as given, once, on the first pr
   // The adapter never renders its own copy beside the daemon's.
   expect(sent.join("\n")).not.toContain("adapter-rendered facts");
   expect(sent.slice(1)).toEqual(["second", "third"]);
+});
+
+test("an agent that takes system-prompt text gets ace's guidance there, on new and resumed sessions, never in a prompt", async () => {
+  const daemon = "Guidance the daemon rendered for Antigravity.";
+  for (const resume of [false, true]) {
+    const openings: { method: string; meta: unknown }[] = [];
+    const sent = await promptsFor({
+      instructions: daemon,
+      brief: () => "unused",
+      systemPrompt: true,
+      resume,
+      openings,
+    });
+    expect(openings).toEqual([
+      {
+        method: resume ? "session/load" : "session/new",
+        meta: { antigravity: { systemPrompt: { append: daemon } } },
+      },
+    ]);
+    expect(sent).toEqual(["first", "second", "third"]);
+  }
+});
+
+test("an agent that doesn't advertise system-prompt text gets no _meta on its session", async () => {
+  const openings: { method: string; meta: unknown }[] = [];
+  const sent = await promptsFor({ brief: () => "facts", openings });
+  expect(openings).toEqual([{ method: "session/new", meta: undefined }]);
+  expect(sent[0]).toContain("<ace-tool-guidance>");
 });

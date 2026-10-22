@@ -15,7 +15,7 @@ import { registerPi } from "./pi.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { daemonCursorInstance } from "./cursor-instance.ts";
 import { cursorCheckpointLimitOverride } from "./cursor-limits.ts";
-import { bindCursorSdk, createInstance } from "@ace/accounts";
+import { antigravityIdentity, bindCursorSdk, createInstance } from "@ace/accounts";
 import { activateCursorProvider } from "./cursor-activation.ts";
 import { adapterWarning, type ProviderAdapter } from "@ace/engine-api";
 import { recoveryPorts, prepareQueuedInput } from "./recovery.ts";
@@ -254,10 +254,13 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       }),
     selectInstance:
       engineOptions.selectInstance ??
-      ((_provider, backend) =>
+      ((provider, backend) =>
         backend === "cursor-sdk"
           ? (accounts?.preferredCursorInstance() ?? defaultInstance.id)
-          : undefined),
+          : provider === "antigravity"
+            ? // An added Antigravity account the person made the default; else its CLI login.
+              accountRegistry?.selectedAcp(antigravityIdentity.acpAgentId)
+            : undefined),
     ...(services.workspaceActions
       ? {
           prepareWorkspace: (id, policy) =>

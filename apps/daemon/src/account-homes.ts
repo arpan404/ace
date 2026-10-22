@@ -1,7 +1,18 @@
 import { mkdir, lstat, realpath, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { assertManagedHome, createInstance, type AccountRegistry } from "@ace/accounts";
-import { AccountId, NativeAccountProvider, ProviderInstance } from "@ace/protocol/accounts";
+import {
+  antigravityIdentity,
+  assertManagedHome,
+  createInstance,
+  createManagedAcpInstance,
+  type AccountRegistry,
+} from "@ace/accounts";
+import {
+  AccountId,
+  NativeAccountProvider,
+  ProviderInstance,
+  type ManagedAccountProvider,
+} from "@ace/protocol/accounts";
 
 /** Account metadata points to the normal CLI home; admission never creates that home. */
 export async function registerImplicitAccounts(
@@ -38,7 +49,7 @@ export async function registerImplicitAccounts(
 export async function createManagedHome(
   dataDir: string,
   id: string,
-  provider: ProviderInstance["provider"],
+  provider: ManagedAccountProvider,
   label: string,
 ): Promise<ProviderInstance> {
   AccountId.parse(id);
@@ -55,6 +66,9 @@ export async function createManagedHome(
   // Cursor's SDK is the one CLI that still runs with a private HOME (its login follows
   // os.homedir()); every other account uses the person's own home.
   if (provider === "cursor") await mkdir(join(homeDir, "user"), { mode: 0o700 });
+  // An added Antigravity account is an ACP account of ace's Antigravity installation.
+  if (provider === "antigravity")
+    return createManagedAcpInstance({ id, identity: antigravityIdentity, label, homeDir });
   return { ...createInstance({ id, provider, label, homeDir }), managed: true };
 }
 

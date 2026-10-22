@@ -9,6 +9,12 @@ import {
   type ProviderLoginDriver,
 } from "@ace/accounts";
 import { signInPages, type SignInPages } from "./sign-in-pages.ts";
+import {
+  deliverReturn,
+  loopbackReturn,
+  returnPath,
+  type LoopbackReturn,
+} from "./sign-in-return.ts";
 import type { OpenTerminalOptions } from "@ace/terminal";
 import type { ProviderKind, ProviderLoginInput } from "@ace/protocol";
 
@@ -70,6 +76,20 @@ export function acpLoginDriver(options: {
    * `cursor-agent logout`). Its output is never relayed.
    */
   ownLogout?: readonly string[];
+  /**
+   * The one method the person chose (Antigravity's `oauth-business`), used without asking. It must
+   * be one the agent advertises.
+   */
+  methodId?: string;
+  /** The chosen method signs in without a browser (Agent Platform's local credentials). */
+  browserless?: boolean;
+  /** Runs before the agent starts signing in, such as writing the settings that method reads. */
+  beforeSignIn?: () => Promise<void>;
+  /**
+   * The agent's browser sign-in returns to a listener on this computer, so a device that couldn't
+   * load that page may paste its address back (`{ returnUrl }`).
+   */
+  returnUrl?: boolean;
   openTerminal?: (launch: OpenTerminalOptions) => {
     id: string;
     exited: Promise<boolean>;
@@ -85,9 +105,26 @@ export function acpLoginDriver(options: {
   let terminal: ReturnType<NonNullable<typeof options.openTerminal>> | undefined;
   let choose: ((choice: string) => boolean) | undefined;
   let pages: SignInPages | undefined;
+  // The pending browser sign-in's own return listener, while `authenticate` waits on it.
+  let listener: LoopbackReturn | undefined;
+  let returned: ((delivered: { continuesLocally: boolean }) => void) | undefined;
+  const deliver = async (pasted: string): Promise<boolean> => {
+    const target = listener;
+    const path = target ? returnPath(pasted, target) : undefined;
+    if (!target || !path) return false;
+    try {
+      const delivered = await deliverReturn(target, path);
+      if (listener !== target) return false;
+      returned?.(delivered);
+      return true;
+    } catch {
+      return false;
+    }
+  };
   return {
     signedInWith: () => signedInWith,
     input(input: ProviderLoginInput) {
+      if ("returnUrl" in input) return deliver(input.returnUrl);
       return "choice" in input && !!choose?.(input.choice);
     },
     async drain() {
@@ -115,6 +152,8 @@ export function acpLoginDriver(options: {
           );
         return { success: true };
       }
+      if (options.action === "login") await options.beforeSignIn?.();
+      signal.throwIfAborted();
       const opened = await (options.pages ?? signInPages)(options.env);
       pages = opened;
       // Relay a page the client can open (the desktop app opens it, another device links it);
@@ -125,7 +164,22 @@ export function acpLoginDriver(options: {
           if (relayed.has(page)) continue;
           relayed.add(page);
           const url = loginUrl(options.provider, page);
-          if (url) emit({ state: "awaiting_browser", url });
+          const back = url && options.returnUrl ? loopbackReturn(page) : undefined;
+          if (back) {
+            listener = back;
+            returned = (delivered) => {
+              listener = undefined;
+              emit({
+                state: "awaiting_browser",
+                url,
+                hint: delivered.continuesLocally
+                  ? "Finish choosing your license on the computer running ace."
+                  : "Got it. Waiting for the agent to finish signing in.",
+              });
+            };
+          }
+          if (url)
+            emit({ state: "awaiting_browser", url, ...(back ? { returnUrlEntry: true } : {}) });
           else opened.open(page);
         }
       };
@@ -191,15 +245,17 @@ export function acpLoginDriver(options: {
           z.object({}).parse(await peer.request("logout", {}, { signal }));
           return { success: true };
         }
-        // Secrets stay in the installed agent, including its advertised interactive terminal.
-        const methods = init.authMethods.filter((method) =>
-          signInMethod(method, !!options.openTerminal),
-        );
+        // Secrets stay in the installed agent, including its advertised interactive terminal. A
+        // method the person chose is used as is, once the agent offers it.
+        const methods = options.methodId
+          ? init.authMethods.filter((method) => method.id === options.methodId)
+          : init.authMethods.filter((method) => signInMethod(method, !!options.openTerminal));
         if (!methods.length) {
           emit({
             state: "failed",
-            message:
-              "This agent doesn't offer browser sign-in. Use its own account setup, then check again.",
+            message: options.methodId
+              ? "This version of the agent doesn't offer that sign-in method. Update it, then try again."
+              : "This agent doesn't offer browser sign-in. Use its own account setup, then check again.",
           });
           return { success: false };
         }
@@ -285,10 +341,14 @@ export function acpLoginDriver(options: {
             await terminal.stop();
           }
         }
-        emit({
-          state: "awaiting_browser",
-          hint: "Complete the installed agent's own browser sign-in.",
-        });
+        emit(
+          options.browserless
+            ? { state: "verifying", message: "Signing in…" }
+            : {
+                state: "awaiting_browser",
+                hint: "Complete the installed agent's own browser sign-in.",
+              },
+        );
         // Bounded like the sign-in session itself: an agent that never answers can't hold it.
         z.object({}).parse(
           await peer.request("authenticate", { methodId }, { signal, timeoutMs: authenticateMs }),
@@ -297,6 +357,8 @@ export function acpLoginDriver(options: {
         return { success: true };
       } finally {
         choose = undefined;
+        listener = undefined;
+        returned = undefined;
         clearInterval(watching);
         signal.removeEventListener("abort", stop);
         peer.close();

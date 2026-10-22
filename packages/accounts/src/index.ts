@@ -40,11 +40,19 @@ export { bindCursorSdk, cursorSdkLoginDriver } from "./cursor-sdk.ts";
 
 export { CursorAuthService, type CursorAuthOptions } from "./cursor-auth.ts";
 export {
+  accountProvider,
   antigravityIdentity,
   createAcpInstance,
   createAntigravityInstance,
-  acpIsolation,
 } from "./acp-instances.ts";
+export {
+  acpIsolation,
+  acpManagedHome,
+  createManagedAcpInstance,
+  managedAcpEnv,
+  type AcpManagedHome,
+} from "./acp-managed-home.ts";
+export { antigravityMethodId, antigravitySignInOf } from "./antigravity-sign-in.ts";
 export { loginAcpAccount, AcpLoginPlan, type AcpLoginResolver } from "./acp-login.ts";
 
 export { daemonCursorAuth, cursorDaemonDriver, type CursorCliAuth } from "./cursor-cli-auth.ts";
