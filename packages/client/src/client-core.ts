@@ -113,7 +113,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           yielded ||
           !(error instanceof ClientError) ||
           error.code !== "daemon" ||
-          error.message !== "NOT_FOUND" ||
+          // A daemon without the attachment stream (an older one) reads through chunk requests.
+          (error.message !== "NOT_FOUND" && error.message !== "UNSUPPORTED") ||
           scope.signal.aborted
         )
           throw error;
