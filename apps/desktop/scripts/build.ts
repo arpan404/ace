@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { build } from "esbuild";
 import { z } from "zod";
 import { bundleDaemon } from "@ace/release";
-import { stageNodeRuntime } from "@ace/release/node-runtime";
+import { stageNodeRuntime, stageWindowsNodeRuntime } from "@ace/release/node-runtime";
 import { DesktopApp, desktopAppMarker } from "@ace/service/desktop-update";
 import {
   desktop,
@@ -29,7 +29,7 @@ import { verifyNatives } from "./verify-natives.ts";
  *   `desktop-app.json` (the app's version, so the bundled `ace update` defers to the app);
  * - `helpers/`: the screen helper for this platform;
  * - `bin/rg`: ripgrep for workspace search;
- * - `runtime/`: the pinned Node runtime the daemon runs on (macOS and Linux).
+ * - `runtime/`: the pinned Node runtime, including the Windows staging foundation.
  * Native code is built for the host, so a build targets the host's OS and architecture
  * (`--arch` must match it; release CI builds each architecture on its own runner). Before it
  * finishes, every staged native binary is checked against the target architecture.
@@ -116,6 +116,13 @@ if (
     cacheDir,
     destination: runtime,
   });
+} else if (releaseTarget === "win32-x64" || releaseTarget === "win32-arm64") {
+  log("node runtime");
+  const runtime = join(dist, "runtime");
+  const cacheDir = join(desktop, "node_modules/.cache/ace-node");
+  await mkdir(runtime, { recursive: true });
+  await mkdir(cacheDir, { recursive: true });
+  await stageWindowsNodeRuntime({ target: releaseTarget, cacheDir, destination: runtime });
 }
 
 log(`native code for ${process.platform}-${arch}`);

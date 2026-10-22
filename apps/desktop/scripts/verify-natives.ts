@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { mismatchedBinaries, type Arch } from "../src/packaging/native-arch.ts";
 import { dist } from "./common.ts";
+import { windowsRuntimePaths } from "@ace/release/node-runtime";
 
 /**
  * Never ship a package whose native code cannot run: each required piece must be present,
@@ -9,11 +10,12 @@ import { dist } from "./common.ts";
  */
 export async function verifyNatives(arch: Arch): Promise<void> {
   const ptyRoot = join(dist, "daemon/node_modules/node-pty");
-  // Windows runs no local daemon yet (no descriptor.node), so it ships no runtime either.
+  // Windows runs no local daemon yet (no descriptor.node), only the Node runtime foundation.
+  const windowsRuntime = windowsRuntimePaths(join(dist, "runtime"));
   const required = [
     join(dist, "bin", process.platform === "win32" ? "rg.exe" : "rg"),
     ...(process.platform === "win32"
-      ? []
+      ? [windowsRuntime.exePath]
       : [
           join(dist, "daemon/descriptor.node"),
           // Every terminal the daemon opens starts this guardian.
