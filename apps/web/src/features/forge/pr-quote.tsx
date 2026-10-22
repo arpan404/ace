@@ -72,30 +72,15 @@ export function useQuote() {
   return useContext(Context)?.quote;
 }
 
-/**
- * After the menu that started a quote hands focus back, puts the caret at the end of the
- * first text field in `box`, where the quote ends.
- */
-export function focusEnd(box: { readonly current: HTMLElement | null }) {
-  setTimeout(() => {
-    const field = box.current?.querySelector("textarea");
-    if (!field) return;
-    // Centred, so pinned bars above the scroller never cover it.
-    field.scrollIntoView?.({ block: "center" });
-    field.focus();
-    field.setSelectionRange(field.value.length, field.value.length);
-  }, 0);
-}
-
-/** Hands a box the quote meant for `target` once, while it is mounted. */
-export function useQuotedInto(target: QuoteTarget, apply: (text: string) => void) {
+/** Hands a box the quote meant for `target` once, while it is mounted and `enabled`. */
+export function useQuotedInto(target: QuoteTarget, apply: (text: string) => void, enabled = true) {
   const context = useContext(Context);
   const pending = context?.pending;
   const take = context?.take;
   const applied = useEffectEvent(apply);
   useEffect(() => {
-    if (!pending || pending.target !== target || !take) return;
+    if (!enabled || !pending || pending.target !== target || !take) return;
     take(pending.seq);
     applied(pending.text);
-  }, [pending, target, take]);
+  }, [enabled, pending, target, take]);
 }

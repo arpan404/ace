@@ -110,10 +110,6 @@ export class GitHubReviews {
     this.#lineComment = new GitHubLineComment(io);
     this.#io = io;
   }
-  /** Reacted subjects of the PR: its description, conversation comments and inline comments. */
-  async reactions(number: number, signal: AbortSignal) {
-    return (await this.#reactions.decorations(number, signal)).reactions;
-  }
   /** Reactions plus which comments are hidden and which the viewer may hide, read together. */
   decorations(number: number, signal: AbortSignal) {
     return this.#reactions.decorations(number, signal);

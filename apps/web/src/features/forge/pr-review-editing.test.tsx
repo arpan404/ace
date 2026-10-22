@@ -21,6 +21,7 @@ const diff: FileDiff = {
     { kind: "add", new: 3, text: "const b = 3;" },
   ],
 };
+const patch = "@@ -1,2 +1,3 @@\n import x\n-const a = 1;\n+const a = 2;\n+const b = 3;";
 const draft = {
   id: "d1",
   body: "Pending one",
@@ -30,6 +31,7 @@ const draft = {
 const lineComposer = (
   <PrLineComposer
     path="src/main.ts"
+    patch={patch}
     diff={diff}
     range={{ side: "new", start: 2, end: 3 }}
     headSha={headSha}
@@ -230,6 +232,41 @@ test("an uncertain review keeps its summary and offers to reconcile", async () =
     ).toBeTruthy();
     expect(await screen.findByRole("button", { name: "Reconcile write" })).toBeTruthy();
     expect(summary.value).toBe("Keep my review");
+  } finally {
+    await f.close();
+  }
+});
+
+const outside = (props: { patch: string | null }) => (
+  <PrLineComposer
+    path="src/main.ts"
+    patch={props.patch}
+    diff={diff}
+    // Line 3 is in GitHub's patch; line 4 only in the whole file read beside it.
+    range={{ side: "new", start: 3, end: 4 }}
+    headSha={headSha}
+    onClose={() => {}}
+  />
+);
+
+test("a comment can't be saved on lines GitHub's diff doesn't hold, and says why", async () => {
+  const f = await reviewHarness({
+    detail: reviewDetail(),
+    state: reviewState(),
+    ui: outside({ patch }),
+  });
+  try {
+    await userEvent.type(await screen.findByRole("textbox", { name: "Line comment" }), "Note");
+    await screen.findByText(
+      "GitHub takes comments only on lines in its diff. Pick lines inside one change.",
+    );
+    for (const name of ["Start a review", "Add single comment", "Suggest changes"])
+      expect(screen.getByRole<HTMLButtonElement>("button", { name }).disabled).toBe(true);
+    f.rerender(outside({ patch: null }));
+    await screen.findByText(
+      "GitHub didn't send this file's changes, so it can't take a comment on its lines.",
+    );
+    expect(f.sent).toEqual([]);
   } finally {
     await f.close();
   }

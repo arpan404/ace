@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { authoredReviewComment } from "@ace/forge/review-comment-body";
 import type { ForgeComment } from "@ace/protocol";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
@@ -12,6 +12,7 @@ import { useQuote, type QuoteTarget } from "./pr-quote.tsx";
 import { PrReactionPicker, PrReactions } from "./pr-reactions.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
 import { PrSuggestionActions } from "./pr-suggestions.tsx";
+import { useEdit, useFocusAsk } from "./pr-ui-store.tsx";
 
 /**
  * One comment wherever the PR shows it: who said it and when, its text (clamped), its
@@ -37,7 +38,10 @@ export function PrComment(props: {
   const review = usePrReview();
   const quote = useQuote();
   const state = review?.state;
-  const [edit, setEdit] = useState<{ body: string; expectedBody: string } | null>(null);
+  // The edit lives above the row, so a row scrolled away and back keeps it (`pr-ui-store`).
+  const [edit, setEdit, clearIf] = useEdit(`${comment.kind}:${comment.id}`);
+  const box = useRef<HTMLDivElement>(null);
+  const askFocus = useFocusAsk(`edit:${comment.kind}:${comment.id}`, box);
   const [shown, setShown] = useState(false);
   const avatar = props.avatar ?? true;
   const reason = hiddenReasonOf(state, comment);
@@ -56,6 +60,7 @@ export function PrComment(props: {
         ? () => {
             setShown(true);
             setEdit({ body: authoredReviewComment(comment.body), expectedBody: comment.body });
+            askFocus();
           }
         : undefined,
     remove:
@@ -90,10 +95,11 @@ export function PrComment(props: {
         body: sent.body,
       })
       .then((ok) => {
-        if (ok) setEdit((current) => (current === sent ? null : current));
+        // Text changed while it saved stays open to save again.
+        if (ok) clearIf(sent);
       });
   };
-  const folded = reason !== undefined && !shown;
+  const folded = reason !== undefined && !shown && !edit;
   const indent = avatar ? "pl-[26px]" : undefined;
   return (
     <div className="group/comment min-w-0" data-comment-id={`${comment.kind}:${comment.id}`}>
@@ -139,18 +145,17 @@ export function PrComment(props: {
       )}
       {!folded &&
         (edit ? (
-          <div className={cn("mt-1.5 space-y-2", indent)}>
+          <div ref={box} className={cn("mt-1.5 space-y-2", indent)}>
             <MarkdownEditor
-              autoFocus
               label="Edit comment"
               disabled={disabled}
               value={edit.body}
-              onChange={(body) => setEdit((current) => current && { ...current, body })}
+              onChange={(body) => setEdit({ ...edit, body })}
               onSubmit={save}
               maxLength={60_000}
             />
             <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setEdit(null)}>
+              <Button variant="ghost" onClick={() => setEdit(undefined)}>
                 Cancel
               </Button>
               <Button variant="primary" disabled={disabled || !edit.body.trim()} onClick={save}>

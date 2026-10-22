@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { validHostedAnchor } from "@ace/forge/review-anchor";
 import type { ForgeReviewAnchor, ForgeReviewDraft } from "@ace/protocol";
 import type { FileDiff } from "@ace/ui-core";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
@@ -10,6 +11,7 @@ import { PrAvatar } from "./pr-presentation.tsx";
 import { linesLabel, suggestionBlock } from "./pr-comment-model.ts";
 import { appendTo } from "./pr-quote.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
+import { useEdit, useFocusAsk } from "./pr-ui-store.tsx";
 
 /** The review anchor for `range` of `path` at `headSha`. */
 export function anchorOf(path: string, range: LineRange, headSha: string): ForgeReviewAnchor {
@@ -32,6 +34,8 @@ export function anchorOf(path: string, range: LineRange, headSha: string): Forge
  */
 export function PrLineComposer(props: {
   path: string;
+  /** GitHub's patch for the file; a comment can only sit on lines it holds. */
+  patch: string | null;
   diff: FileDiff;
   range: LineRange;
   headSha: string;
@@ -44,9 +48,13 @@ export function PrLineComposer(props: {
     review ? `pr:${review.workspaceId}:${prKey}:line:${props.path}` : undefined,
   );
   const [id] = useState(() => crypto.randomUUID());
+  const box = useRef<HTMLFormElement>(null);
+  useFocusAsk(`line:${props.path}`, box);
   const pending = review?.state?.drafts.length ?? 0;
-  const disabled = !review?.ready || review.pending || !draft.text.trim();
   const anchor = anchorOf(props.path, range, props.headSha);
+  // Lines read from the whole file (an opened fold) aren't in GitHub's patch: it refuses them.
+  const placeable = props.patch !== null && validHostedAnchor(props.patch, anchor);
+  const disabled = !review?.ready || review.pending || !draft.text.trim() || !placeable;
   const done = (body: string) => (ok: boolean) => {
     if (ok && draft.clear(body)) props.onClose();
   };
@@ -68,6 +76,7 @@ export function PrLineComposer(props: {
   };
   return (
     <form
+      ref={box}
       aria-label={`Comment on ${linesLabel(range.side, range.start, range.end)}`}
       className="space-y-2"
       onSubmit={(event) => {
@@ -85,8 +94,14 @@ export function PrLineComposer(props: {
       <p className="text-xs text-subtle-foreground">
         {`Commenting on ${linesLabel(range.side, range.start, range.end)}`}
       </p>
+      {!placeable && (
+        <p role="status" className="text-xs text-muted-foreground">
+          {props.patch === null
+            ? "GitHub didn't send this file's changes, so it can't take a comment on its lines."
+            : "GitHub takes comments only on lines in its diff. Pick lines inside one change."}
+        </p>
+      )}
       <MarkdownEditor
-        autoFocus
         label="Line comment"
         placeholder="Leave a comment"
         maxLength={60_000}
@@ -99,6 +114,7 @@ export function PrLineComposer(props: {
           <Button
             type="button"
             variant="ghost"
+            disabled={!placeable}
             onClick={() =>
               draft.setText(
                 appendTo(draft.text, suggestionBlock(props.diff.rows, range.start, range.end)),
@@ -130,15 +146,21 @@ export function PrLineComposer(props: {
 export function PrPendingComment(props: { draft: ForgeReviewDraft }) {
   const review = usePrReview();
   const { draft } = props;
-  const [edit, setEdit] = useState<string>();
+  const [stored, setStored, clearIf] = useEdit(`draft:${draft.id}`);
+  const edit = stored?.body;
+  const setEdit = (body: string | undefined) =>
+    setStored(body === undefined ? undefined : { body, expectedBody: draft.body });
+  const box = useRef<HTMLDivElement>(null);
+  const askFocus = useFocusAsk(`edit:draft:${draft.id}`, box);
   const [open, setOpen] = useState(false);
   const disabled = !review?.ready || review.pending;
   const save = () => {
-    if (edit === undefined || !edit.trim() || disabled || !review) return;
-    const body = edit;
+    if (!stored || !stored.body.trim() || disabled || !review) return;
+    const sent = stored;
     void review
-      .run({ kind: "draft.save", draft: { ...draft, body } })
-      .then((ok) => ok && setEdit((current) => (current === body ? undefined : current)));
+      .run({ kind: "draft.save", draft: { ...draft, body: sent.body } })
+      // Text changed while it saved stays open to save again.
+      .then((ok) => ok && clearIf(sent));
   };
   return (
     <div className="min-w-0 space-y-1.5">
@@ -152,7 +174,10 @@ export function PrPendingComment(props: { draft: ForgeReviewDraft }) {
               size="xs"
               variant="ghost"
               disabled={disabled}
-              onClick={() => setEdit(draft.body)}
+              onClick={() => {
+                setEdit(draft.body);
+                askFocus();
+              }}
             >
               Edit
             </Button>
@@ -173,9 +198,8 @@ export function PrPendingComment(props: { draft: ForgeReviewDraft }) {
           <PrClampedText text={draft.body} open={open} onToggle={() => setOpen(!open)} />
         </div>
       ) : (
-        <div className="space-y-2 pl-[26px]">
+        <div ref={box} className="space-y-2 pl-[26px]">
           <MarkdownEditor
-            autoFocus
             label="Edit pending comment"
             maxLength={60_000}
             value={edit}

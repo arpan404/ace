@@ -62,6 +62,7 @@ export const ReviewThreadsPage = z.object({
                 // Older hosts and fixtures may leave these out; a missing side stays unknown.
                 diffSide: str.nullable().optional(),
                 startLine: z.number().int().nullable().optional(),
+                startDiffSide: str.nullable().optional(),
                 comments: z.object({
                   pageInfo: PageInfo,
                   nodes: z

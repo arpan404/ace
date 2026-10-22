@@ -98,8 +98,9 @@ function PrCodeRange(
     [],
   );
   // Markdown and notebooks draw rendered, except where conversations sit on their lines (and in
-  // the review being written): those show their source diff. These paths are switched from that.
-  const [switched, setSwitched] = useState<ReadonlySet<string>>(noPaths);
+  // the review being written): those show their source diff. A file the person switched keeps
+  // their choice, whatever conversations come and go.
+  const [chosen, setChosen] = useState<ReadonlyMap<string, boolean>>(noChoices);
   const review = usePrReview();
   const discussed = useMemo(
     () =>
@@ -172,14 +173,8 @@ function PrCodeRange(
   const readOf = (file: ForgeFile): HostedFileRead => ({
     show: hostedFileShow(file),
     rendered: renderedKind(file.path),
-    source: discussed.has(file.path) !== switched.has(file.path),
-    onSource: (source) =>
-      setSwitched((previous) => {
-        const next = new Set(previous);
-        if (source !== discussed.has(file.path)) next.add(file.path);
-        else next.delete(file.path);
-        return next;
-      }),
+    source: chosen.get(file.path) ?? discussed.has(file.path),
+    onSource: (source) => setChosen((previous) => new Map(previous).set(file.path, source)),
     sides: read.sides.get(file.path),
     root: scroller,
     onWant: () => want(file.path),
@@ -320,4 +315,5 @@ function PrCodeRange(
 const pathOf = (file: ForgeFile) => file.path;
 const noFiles: readonly ForgeFile[] = [];
 const noPaths: ReadonlySet<string> = new Set();
+const noChoices: ReadonlyMap<string, boolean> = new Map();
 const noComments: ReadonlyMap<string, number> = new Map();

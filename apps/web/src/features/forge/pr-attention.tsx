@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { SparkleIcon } from "@phosphor-icons/react";
 import type { ForgePrDetail } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
@@ -9,7 +8,10 @@ import { attentionItems, type AttentionItem } from "./pr-summary-model.ts";
 import { useFixWithAgent } from "./pr-fix-with-agent.ts";
 import { useFetchCheckRun } from "./pr-check-run.ts";
 import { checkFixRequest, checkRunId } from "./pr-check-model.ts";
-import { PrReplyField } from "./pr-thread.tsx";
+import { previewOf } from "./pr-comment-model.ts";
+import { usePrReview } from "./pr-review-context.tsx";
+import { PrReplyField, replyField } from "./pr-thread.tsx";
+import { useAskFocus, useReplyOpen } from "./pr-ui-store.tsx";
 
 function Lead(props: { item: AttentionItem; avatar: string | undefined }) {
   if (props.item.kind === "check")
@@ -27,6 +29,29 @@ function Lead(props: { item: AttentionItem; avatar: string | undefined }) {
   );
 }
 
+/** Opens a review comment's reply on its Needs attention row, focused. */
+function AttentionReplyButton(props: { threadId: string; title: string }) {
+  const field = replyField(props.threadId, "attention");
+  const [open, setOpen] = useReplyOpen(field);
+  const askFocus = useAskFocus();
+  return (
+    <Button
+      size="xs"
+      variant="ghost"
+      className="shrink-0"
+      aria-expanded={!!open}
+      aria-label={`Reply: ${props.title}`}
+      onClick={() => {
+        if (open) return setOpen(undefined);
+        setOpen(true);
+        askFocus(`reply:${field}`);
+      }}
+    >
+      Reply
+    </Button>
+  );
+}
+
 /**
  * What stands in the way and an agent could fix: failing checks and open review threads, each
  * with "Fix with agent", and a review thread with Reply. Nothing renders when there is nothing
@@ -41,7 +66,7 @@ export function PrAttention(props: {
   const { detail } = props;
   const items = attentionItems(detail.status);
   const agent = useFixWithAgent(props);
-  const [replying, setReplying] = useState<string>();
+  const review = usePrReview();
   const fetchRun = useFetchCheckRun(props.workspaceId, detail.status.ref);
   // A failing check's request carries its log excerpt and annotations, read as the panel would.
   const fix = async (item: AttentionItem) => {
@@ -62,6 +87,8 @@ export function PrAttention(props: {
               ? detail.status.reviewThreads.find((t) => `thread:${t.id}` === item.key)
               : undefined;
           const root = thread?.comments[0];
+          // A hidden comment's text never shows, even as a title.
+          const title = root ? previewOf(review?.state, root).text : item.title;
           return (
             <li key={item.key} className="py-2">
               <div className="flex items-start gap-2.5">
@@ -76,7 +103,7 @@ export function PrAttention(props: {
                   }
                 />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-ui text-foreground">{item.title}</p>
+                  <p className="truncate text-ui text-foreground">{title}</p>
                   <p className="flex min-w-0 items-center gap-1.5 text-xs text-subtle-foreground">
                     <span className={cn("truncate", item.kind === "thread" && "font-mono")}>
                       {item.kind === "check" ? "Check failed" : item.detail}
@@ -89,25 +116,14 @@ export function PrAttention(props: {
                     )}
                   </p>
                 </div>
-                {thread && root && (
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    className="shrink-0"
-                    aria-expanded={replying === item.key}
-                    aria-label={`Reply: ${item.title}`}
-                    onClick={() => setReplying(replying === item.key ? undefined : item.key)}
-                  >
-                    Reply
-                  </Button>
-                )}
+                {thread && root && <AttentionReplyButton threadId={thread.id} title={title} />}
                 {open && (
                   <Button
                     size="xs"
                     variant="secondary"
                     className="shrink-0"
                     disabled={props.disabled}
-                    aria-label={`Fix with agent: ${item.title}`}
+                    aria-label={`Fix with agent: ${title}`}
                     onClick={() => void fix(item)}
                   >
                     <SparkleIcon aria-hidden size={12} />
@@ -115,12 +131,11 @@ export function PrAttention(props: {
                   </Button>
                 )}
               </div>
-              {thread && root && replying === item.key && (
+              {thread && root && (
                 <PrReplyField
                   threadId={thread.id}
                   rootCommentId={root.id}
-                  startOpen
-                  onDone={() => setReplying(undefined)}
+                  place="attention"
                   className="mt-2 pl-[30px]"
                 />
               )}

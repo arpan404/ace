@@ -181,3 +181,87 @@ test("a review comment that needs attention can be answered from its row", async
     await f.close();
   }
 });
+
+const shown = (on: boolean) => (on ? <PrThread thread={thread()} /> : <p>Scrolled away</p>);
+
+test("an edit and an open reply survive their row scrolling away and back, which takes no focus", async () => {
+  const f = await reviewHarness({
+    detail: reviewDetail(),
+    state: reviewState(),
+    ui: shown(true),
+  });
+  try {
+    await menuOf("reviewer");
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
+    const edit = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Edit comment" });
+    // Asked for by the person, focus arrives.
+    await waitFor(() => expect(document.activeElement).toBe(edit));
+    await userEvent.type(edit, " Renamed both.");
+    await userEvent.click(screen.getByRole("button", { name: "Reply…" }));
+    await userEvent.type(await screen.findByRole("textbox", { name: "Reply" }), "Thanks");
+    // A long list unmounts rows off screen, then mounts them again.
+    f.rerender(shown(false));
+    await screen.findByText("Scrolled away");
+    f.rerender(shown(true));
+    expect(
+      (await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Edit comment" })).value,
+    ).toBe("Done. Renamed both.");
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Reply" }).value).toBe(
+      "Thanks",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(document.activeElement?.tagName).not.toBe("TEXTAREA");
+  } finally {
+    await f.close();
+  }
+});
+
+test("a hidden comment's text never shows in a folded conversation or a Needs attention title", async () => {
+  const hiddenFirst = { ...thread(true), resolved: false };
+  const detail = reviewDetail({ reviewThreads: [{ ...hiddenFirst, resolved: true }] });
+  const state = reviewState({ hidden: [{ source: "inline", commentId: 5, reason: "spam" }] });
+  const f = await reviewHarness({
+    detail,
+    state,
+    ui: (
+      <>
+        <PrThread thread={{ ...hiddenFirst, resolved: true }} place />
+        <PrAttention
+          workspaceId="api"
+          detail={reviewDetail({ reviewThreads: [hiddenFirst] })}
+          disabled={false}
+        />
+      </>
+    ),
+  });
+  try {
+    await waitFor(() => expect(screen.getAllByText("Hidden comment")).toHaveLength(2));
+    expect(screen.queryByText(/Rename this\?/)).toBeNull();
+  } finally {
+    await f.close();
+  }
+});
+
+test("Needs attention keeps its own reply, and quote replies go to the conversation's", async () => {
+  const detail = reviewDetail({ reviewThreads: [thread()] });
+  const f = await reviewHarness({
+    detail,
+    state: reviewState(),
+    ui: (
+      <>
+        <PrAttention workspaceId="api" detail={detail} disabled={false} />
+        <PrThread thread={thread()} />
+      </>
+    ),
+  });
+  try {
+    await userEvent.click(await screen.findByRole("button", { name: "Reply: Rename this?" }));
+    await userEvent.type(await screen.findByRole("textbox", { name: "Reply" }), "From the row");
+    await menuOf("ola");
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Quote reply" }));
+    const replies = await screen.findAllByRole<HTMLTextAreaElement>("textbox", { name: "Reply" });
+    expect(replies.map((reply) => reply.value)).toEqual(["From the row", "> Rename this?\n\n"]);
+  } finally {
+    await f.close();
+  }
+});
