@@ -40,6 +40,8 @@ export interface DevicesViewInput {
   >;
   /** The channel was up and closed since. */
   closed: boolean;
+  /** The machine answered the first reads with a refusal (no administrator access, say). */
+  refused?: DeviceProblem | undefined;
   threadId: string | undefined;
   /** The device whose screen is open. */
   deviceId: string | undefined;
@@ -255,7 +257,9 @@ export function phoneDevicesView(input: DevicesViewInput): PhoneDevicesView {
     .map((row) => tile(input, row, states.get(row.id)));
   const selected = input.deviceId ? rows.find((row) => row.id === input.deviceId) : undefined;
   const offline: DeviceProblem | null = snapshot.connected
-    ? null
+    ? !snapshot.inventoryLoaded && input.refused
+      ? input.refused
+      : null
     : snapshot.error
       ? deviceProblem({
           code: snapshot.error.code,

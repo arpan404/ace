@@ -71,6 +71,8 @@ export const NativeDeviceControl = z.discriminatedUnion("type", [
 type ViewWatch = Extract<z.infer<typeof NativeDeviceControl>, { type: "native.devices.view" }>;
 
 const noop = () => {};
+/** The machine's answers that say the channel may not be used at all, not that it failed. */
+const refusals = new Set(["permission_denied", "not_supported"]);
 
 /** A failed device request in a person's words, with the macOS permission it lacks if any. */
 export function deviceFailure(error: unknown): DeviceProblem {
@@ -120,6 +122,8 @@ export class NativeDevices {
   #previous = new Map<string, Holder>();
   #logs: { deviceId: string; filter: string; tail: LogTail; release: () => void } | undefined;
   #claim: Promise<unknown> | undefined;
+  /** Why the machine refused this screen's first reads. */
+  #refused: DeviceProblem | undefined;
   constructor(config: NativeFeatureConfig, options?: NativeDevicesOptions) {
     this.options = options;
     this.client = new DeviceClient({
@@ -264,8 +268,14 @@ export class NativeDevices {
       await this.client.request({ op: "inventory.watch", watching: true });
       await this.client.request({ op: "list" });
       await this.client.request({ op: "states" });
-    } catch {
-      // The snapshot carries the channel's failure; the view says it.
+      this.#refused = undefined;
+    } catch (error) {
+      // The snapshot carries the channel's failure. A refusal arrives only as this answer, and
+      // trying again won't change it: keep it so the screen says why instead of loading.
+      this.#refused =
+        error instanceof DeviceClientError && refusals.has(error.code)
+          ? deviceFailure(error)
+          : undefined;
     }
     this.#putView();
   }
@@ -301,6 +311,7 @@ export class NativeDevices {
         view: phoneDevicesView({
           snapshot: this.client.getSnapshot(),
           closed: this.#closed,
+          refused: this.#refused,
           threadId: current.threadId,
           deviceId: current.deviceId,
           query: current.query,
