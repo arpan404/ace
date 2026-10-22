@@ -55,6 +55,17 @@ import Observation
         hasOlder = false
         loadingOlder = false
     }
+    /// Opening a kept thread again: what belonged to the last visit's bridge session goes (its
+    /// steps, lane, files and model list are read again on request); the transcript stays.
+    func revisit() {
+        steps = [:]
+        lane = nil
+        attachments = []
+        modelsState = "idle"
+        models = []
+        stopping = false
+        stopRequest = nil
+    }
     /// Applies one thread-screen patch already scoped to this thread's navigation generation.
     func apply(_ patch: BridgePatch) {
         switch patch {

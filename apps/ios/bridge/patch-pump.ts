@@ -1,5 +1,6 @@
 import { host, scheduler } from "./host.ts";
 import { degradedPatch } from "./degraded-patch.ts";
+import { keptKey, ledgerText, type NativeLedger } from "./native-ledger.ts";
 
 type Reader = () => Record<string, unknown> | undefined;
 interface Task {
@@ -15,6 +16,8 @@ interface Delivery {
   task: Task;
   read: Reader;
   sticky: boolean;
+  /** What native will hold once this is confirmed, for the open thread's ledger. */
+  record?: { ledger: NativeLedger; epoch: number; patch: Record<string, unknown>; text: string } | undefined;
 }
 interface Fragment extends Delivery {
   id: string;
@@ -41,8 +44,15 @@ export class PatchPump {
     new Map(),
   ];
   #fragment: Fragment | undefined;
+  /** The open thread's ledger and navigation generation, while native keeps that thread. */
+  #bound: { ledger: NativeLedger; epoch: number } | undefined;
 
+  /** Diff the open thread's patches against what native holds of it (`native-ledger.ts`). */
+  bind(ledger: NativeLedger | undefined, epoch: number): void {
+    this.#bound = ledger && { ledger, epoch };
+  }
   put(key: string, read: Reader): void {
+    if (this.#bound?.ledger.passing && keptKey(key)) this.#bound.ledger.touch(key);
     const queue = this.#queue(key);
     const existing = queue.get(key);
     if (existing) {
@@ -129,6 +139,10 @@ export class PatchPump {
       this.#emitFragment();
       return;
     }
+    const bound = this.#bound;
+    if (bound?.ledger.passing)
+      for (const [key, read] of bound.ledger.close(bound.epoch))
+        if (!this.#queue(key).has(key)) this.put(key, read);
     const frame: Record<string, unknown>[] = [];
     const delivered: Delivery[] = [];
     let bytes = 2;
@@ -147,6 +161,11 @@ export class PatchPump {
         }
         const patch = task.degraded ? degradedPatch(original) : original;
         const sticky = task.degraded && patch.row != null;
+        const record = this.#record(task, patch);
+        if (record && keptKey(task.key) && record.ledger.same(task.key, record.text)) {
+          queue.delete(task.key); // Native already shows exactly this.
+          continue;
+        }
         const json = JSON.stringify(patch);
         const encoded = host.utf8Base64(json);
         const size =
@@ -157,6 +176,7 @@ export class PatchPump {
             task,
             read,
             sticky,
+            record,
             id: host.uuid(),
             data: encoded,
             offset: 0,
@@ -166,7 +186,7 @@ export class PatchPump {
           return;
         }
         if (bytes + size + 1 > 32768 || frame.length >= 32) break outer;
-        delivered.push({ task, read, sticky });
+        delivered.push({ task, read, sticky, record });
         frame.push(patch);
         bytes += size + 1;
         if (task.failures) break outer;
@@ -203,7 +223,17 @@ export class PatchPump {
       JSON.stringify([{ type: "fragment", id: fragment.id, index: fragment.index, last, data }]),
     );
   }
-  #confirm({ task, read, sticky }: Delivery): void {
+  /** A thread patch for the bound generation, undegraded, can update the ledger once confirmed. */
+  #record(task: Task, patch: Record<string, unknown>): Delivery["record"] {
+    const bound = this.#bound;
+    if (!bound || task.degraded || !task.key.startsWith("thread:") || patch.epoch !== bound.epoch)
+      return undefined;
+    return { ...bound, patch, text: ledgerText(patch) };
+  }
+  #confirm({ task, read, sticky, record }: Delivery): void {
+    // Native applied it if its generation is still the open one (it drops older ones).
+    if (record && this.#bound?.ledger === record.ledger && this.#bound.epoch === record.epoch)
+      record.ledger.delivered(task.key, record.patch, record.text);
     const queue = this.#queue(task.key);
     if (queue.get(task.key) !== task) return; // A navigation reset replaced this task.
     queue.delete(task.key);

@@ -5,13 +5,19 @@ import { itemDetail, stepContext } from "./thread-rows.ts";
 import { thoughtOf } from "./thread-messages.ts";
 
 import { PatchPump } from "./patch-pump.ts";
+import type { NativeLedger } from "./native-ledger.ts";
 export { PatchPump } from "./patch-pump.ts";
 
+/**
+ * `ledger`: what native holds of this thread (bound to the pump for `epoch`). With it, a whole
+ * thread pass (opening, a fresh snapshot) diffs against native's copy instead of resetting it.
+ */
 export function followThread(
   store: ThreadSource,
   threadId: string,
   epoch: number,
   pump: PatchPump,
+  ledger?: NativeLedger,
 ) {
   const prefix = "thread:";
   const positions = new Map<string, number>();
@@ -44,10 +50,14 @@ export function followThread(
       return { type: "thread.interaction", id, row: value ? interactionRow(value, store) : null };
     });
   const change: ChangeTap = (keys) => {
+    // Native's kept copy stays on screen until the store has the thread to diff it against.
+    if (keys === "all" && ledger?.held && !store.thread) return;
     if (keys === "all") {
-      pump.clear(prefix);
       positions.clear();
-      put("reset", () => ({ type: "thread.reset" }));
+      if (!ledger?.begin()) {
+        pump.clear(prefix);
+        put("reset", () => ({ type: "thread.reset" }));
+      }
       // Stable snapshot order, in bounded chunks. Streaming changes touch only their row.
       store.order.forEach((id, index) => row(id, index));
       for (const id of store.interactionIds()) interaction(id);
