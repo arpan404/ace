@@ -44,6 +44,8 @@ export interface Services {
   /** Automations agents made from threads, for the person's own controls. */
   threadAutomations?: import("../agent-control/thread-automations.ts").ThreadAutomations;
   activityReads?: import("../activity-reads.ts").ActivityReads;
+  /** Local checks and verified batch merges of pull requests (ADR 0094). */
+  verify?: import("../verify/verify-service.ts").Verify;
   icons?: import("../icons/icon-service.ts").IconService;
   projects?: import("../projects.ts").Projects;
   /** Removed projects' browser profiles, forgotten in ace's Chrome and on the desktop. */
@@ -57,6 +59,8 @@ export interface Services {
   };
   /** Agent calls from other paired machines, answered here (ADR 0078). */
   machineCalls?: import("../machines/target.ts").MachineTarget;
+  /** This machine's links to the person's other machines, made from Settings. */
+  fleet?: import("../machines/fleet-links.ts").FleetLinks;
   /** Agents here using other paired machines (ADR 0078). */
   machines?: {
     caller: import("../machines/caller.ts").MachineCaller;

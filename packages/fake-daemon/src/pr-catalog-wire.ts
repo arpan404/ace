@@ -47,6 +47,15 @@ export class FakePrCatalog {
       return { ok: false, error: "forge_conflict" };
     if (status.mergeability === "conflicting" || status.ci === "failure")
       return { ok: false, error: "forge_write_refused" };
+    return { ok: true, pr: payload.pr, prStatus: this.markMerged(fixture).detail.status };
+  }
+  /** A catalog PR as merged, as a merge from anywhere (Verify's included) leaves it. */
+  mergeNumber(number: number): void {
+    const fixture = this.fixtures.find((entry) => entry.detail.status.ref.number === number);
+    if (fixture?.detail.status.state === "open") this.markMerged(fixture);
+  }
+  private markMerged(fixture: PullRequestFixture): PullRequestFixture {
+    const { status } = fixture.detail;
     const merged: PullRequestFixture = {
       ...fixture,
       detail: { ...fixture.detail, status: { ...status, state: "merged" } },
@@ -59,7 +68,7 @@ export class FakePrCatalog {
       },
     };
     this.fixtures = this.fixtures.map((entry) => (entry === fixture ? merged : entry));
-    return { ok: true, pr: payload.pr, prStatus: merged.detail.status };
+    return merged;
   }
   /**
    * `forge.hosted.merge-state` on a catalog PR: auto-merge on where GitHub allows it (as "you",

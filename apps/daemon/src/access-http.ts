@@ -1,7 +1,9 @@
 import type { MaintenanceGate } from "@ace/service";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { PairingRequest, PairingRedemption, type Device } from "@ace/protocol";
+import { PairingRedemption, type Device } from "@ace/protocol";
 import { AccessError, RemoteAuth } from "./remote-auth.ts";
+import { allows } from "./devices.ts";
+import { issuePairing } from "./pairing-issue.ts";
 
 async function body(request: IncomingMessage): Promise<unknown> {
   let bytes = 0;
@@ -129,22 +131,16 @@ export function accessHttp({
           else throw new AccessError(405, "Unsupported method");
         } else if (path === "/v1/pairings" && request.method === "POST") {
           const connection = pairing();
-          if (!connection)
-            throw new AccessError(
-              409,
-              "Turn on remote access in Settings, then choose LAN or Tailscale to pair.",
-            );
-          const data = PairingRequest.safeParse(await body(request));
-          if (!data.success) throw new AccessError(400, "Invalid scopes");
-          auth.requireAdmin(actor());
-          const { code, expiresAt } = auth.pairing([...new Set(data.data.scopes)]);
-          const url = new URL("/pair", connection.origin);
-          url.hash = new URLSearchParams({
-            fingerprint: connection.fingerprint,
-            code,
-            scopes: data.data.scopes.join(","),
-          }).toString();
-          result = { url: url.toString(), expiresAt };
+          const input = connection ? await body(request) : undefined;
+          const creator = actor();
+          const { id, url, expiresAt } = issuePairing(
+            auth,
+            connection,
+            input,
+            // The host token holds every scope; a device grants only what it has.
+            (scope) => auth.local(token) || allows(creator, scope),
+          );
+          result = { url, expiresAt, id };
         } else if (path === "/v1/devices" && request.method === "GET") result = auth.list();
         else if (path.startsWith("/v1/devices/") && request.method === "DELETE") {
           if (!auth.revoke(path.slice("/v1/devices/".length)))

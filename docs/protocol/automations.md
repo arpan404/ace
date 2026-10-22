@@ -32,26 +32,22 @@ Example:
 
 ```json
 {
-  "access": "ask",
-  "concurrency": 10,
-  "effort": "example",
+  "concurrency": 6,
   "enabled": true,
   "id": "example",
-  "instance": "example",
-  "jitterMs": 4,
+  "jitterMs": 9,
   "missedRun": "skip",
-  "model": "example",
   "prompt": "example",
-  "provider": "antigravity",
+  "provider": "opencode",
   "title": "example",
   "trigger": {
-    "event": "issue_labelled",
-    "kind": "github",
-    "pollIntervalMs": 60000,
-    "repository": "P92x1sR9/E9N9nnZR"
+    "kind": "file",
+    "paths": [
+      "example"
+    ]
   },
   "workspace": "example",
-  "worktree": true
+  "worktree": false
 }
 ```
 
@@ -86,7 +82,7 @@ Example:
 
 ```json
 {
-  "before": 8,
+  "before": null,
   "runs": []
 }
 ```
@@ -104,7 +100,7 @@ Example:
 
 ```json
 {
-  "at": 7,
+  "at": 0,
   "message": "example"
 }
 ```
@@ -127,15 +123,14 @@ Example:
 ```json
 {
   "automation": {
-    "access": "ask",
-    "concurrency": 5,
-    "effort": "example",
+    "access": "auto-review",
+    "concurrency": 10,
     "enabled": false,
     "id": "example",
-    "jitterMs": 4,
-    "missedRun": "skip",
+    "jitterMs": 7,
+    "missedRun": "run_once",
     "prompt": "example",
-    "provider": "codex",
+    "provider": "cursor",
     "title": "example",
     "trigger": {
       "kind": "manual"
@@ -143,6 +138,7 @@ Example:
     "workspace": "example",
     "worktree": false
   },
+  "expectedRevision": null,
   "requestId": "example",
   "type": "automation.put"
 }
@@ -162,7 +158,6 @@ Example:
 
 ```json
 {
-  "expectedRevision": 2,
   "id": "example",
   "requestId": "example",
   "type": "automation.remove"
@@ -185,6 +180,7 @@ Example:
 ```json
 {
   "id": "example",
+  "message": "example",
   "requestId": "example",
   "source": "person",
   "type": "automation.run",
@@ -224,8 +220,7 @@ Example:
 
 ```json
 {
-  "automationId": "example",
-  "limit": 6,
+  "limit": 1,
   "requestId": "example",
   "source": "thread",
   "type": "automation.inbox"
@@ -248,10 +243,9 @@ Example:
 ```json
 {
   "enabled": false,
-  "expectedRevision": 4,
   "id": "example",
   "requestId": "example",
-  "source": "thread",
+  "source": "person",
   "type": "automation.setEnabled"
 }
 ```
@@ -269,6 +263,7 @@ Example:
 
 ```json
 {
+  "expectedRevision": 7,
   "id": "example",
   "requestId": "example",
   "type": "automation.retry"
@@ -296,22 +291,9 @@ Example:
 ```json
 {
   "automations": [],
-  "inbox": {
-    "before": 5,
-    "runs": []
-  },
   "ok": false,
   "requestId": "example",
-  "run": {
-    "automationId": "example",
-    "eventKey": "example",
-    "id": "example",
-    "startedAt": 1,
-    "status": "failed",
-    "title": "example",
-    "trigger": "schedule"
-  },
-  "threadAutomations": [],
+  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -351,12 +333,12 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 5,
   "id": "example",
-  "startedAt": 8,
+  "result": "example",
+  "startedAt": 3,
   "status": "succeeded",
   "title": "example",
-  "trigger": "file"
+  "trigger": "manual"
 }
 ```
 
@@ -391,7 +373,7 @@ Type: ["person","thread"]. See JSON Schema for constraints.
 Example:
 
 ```json
-"person"
+"thread"
 ```
 
 ## AutomationTrigger
@@ -448,10 +430,10 @@ Example:
 
 ```json
 {
-  "event": "issue_labelled",
+  "event": "ci_failed",
   "kind": "github",
-  "pollIntervalMs": 60002,
-  "repository": "J9ljRtKaAPB/5mPRm"
+  "pollIntervalMs": 60001,
+  "repository": "TdE/A5iI_oLgl5o"
 }
 ```
 
@@ -486,7 +468,7 @@ Example:
 
 ```json
 {
-  "at": 6,
+  "at": 5,
   "message": "example"
 }
 ```

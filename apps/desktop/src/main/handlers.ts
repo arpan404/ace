@@ -213,5 +213,6 @@ export function createHandlers(options: {
     "updates.current": () => options.updates.current(),
     "updates.download": () => options.updates.download(),
     "updates.install": () => options.updates.install(),
+    "updates.busy": async () => (await options.updates.busy()) ?? null,
   };
 }

@@ -3,10 +3,10 @@ import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ForgePrRef, ForgeRepository } from "@ace/protocol";
 import { PullRequestOpener } from "@/components/pull-request-link.tsx";
-import { SkeletonText } from "@/components/ui/skeleton.tsx";
-import { loadPrDetail } from "@/features/forge/index.ts";
+import { loadPrDetail, PrPageSkeleton } from "@/features/forge/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { useBackToList } from "./back-to-list.ts";
+import { cachedRow } from "./lists.ts";
 import { useProjectChoice } from "./project-choice.ts";
 
 /** `github.com/acme/ace`: a repository in an address, for a PR outside the project's own. */
@@ -46,6 +46,8 @@ export function PullRequestPage(props: {
   const navigate = useNavigate();
   const back = useBackToList("/pulls", project, props.back);
   const cache = useQueryClient();
+  // The list's row for this PR, if one was read: the page shows it at once while the rest loads.
+  const seed = cachedRow(cache, project, "prList", props.number, repositoryFromParam(props.repo));
   const seen = useRef<string | undefined>(undefined);
   // A PR that merged, closed or reopened here moves between the list's states: read it again.
   const onState = useCallback(
@@ -74,8 +76,13 @@ export function PullRequestPage(props: {
       <PullRequestOpener value={(pr: ForgePrRef) => open(pr.number, pr.repository)}>
         <Suspense
           fallback={
-            <div className="mx-auto w-full max-w-[64rem] px-4 pt-6">
-              <SkeletonText lines={4} />
+            <div className="h-full bg-panel [--forge-gutter:1rem] sm:[--forge-gutter:2rem]">
+              <PrPageSkeleton
+                number={props.number}
+                seed={seed}
+                onBack={back}
+                readable="mx-auto w-full max-w-[64rem]"
+              />
             </div>
           }
         >
@@ -84,6 +91,7 @@ export function PullRequestPage(props: {
             workspaceId={project}
             repository={repositoryFromParam(props.repo)}
             number={props.number}
+            seed={seed}
             tab={props.tab ?? "summary"}
             onTab={(tab) => {
               const next = tabs.find((known) => known === tab) ?? "summary";

@@ -367,8 +367,8 @@ export type UpdateReleaseNote = z.infer<typeof UpdateReleaseNote>;
  *   `current`: up to date; `error`: the check failed and nothing is on offer.
  * - `available`: `version` is on offer; the person downloads it (or, when `inPlace` is false,
  *   an unsigned macOS build or a deb, opens `releaseUrl`). `downloading`: `percent` done.
- * - `downloaded`: ready; the person's Restart drains running agents first. `installing`: it
- *   waits for `waiting` agents, then restarts.
+ * - `downloaded`: ready; the person's Restart stops running agents and restarts at once.
+ *   `installing`: restarting; under `ace update apply` it first waits for `waiting` agents.
  * `notes` covers every release newer than this one (newest first; `olderReleases` more on
  * GitHub). `error` says what failed and when; an update on offer stays on offer.
  */

@@ -3,7 +3,7 @@ import { authoredReviewComment } from "@ace/forge/review-comment-body";
 import { z } from "zod";
 import type { ForgeComment, ForgePrDetail, ForgeReviewAnchor } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
-import { Textarea } from "@/components/ui/input.tsx";
+import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
 export function useReviewText(key: string, initial = "") {
   const [value, setValue] = useState(() => {
@@ -39,11 +39,12 @@ export function PrReviewSubmission({ detail }: { detail: ForgePrDetail }) {
   const outdated = drafts.some((d) => d.anchor.commit !== detail.status.headSha);
   return (
     <section aria-label="Submit GitHub review" className="space-y-3">
-      <Textarea
-        aria-label="Review summary"
+      <MarkdownEditor
+        label="Review summary"
+        placeholder="Leave a review"
         maxLength={60_000}
         value={body}
-        onChange={(e) => setBody(e.target.value)}
+        onChange={setBody}
       />
       <ul>
         {drafts.map((draft) => (
@@ -135,11 +136,12 @@ export function PrInlineDraft(props: {
         Unsent inline comment · {props.anchor.side} {props.anchor.startLine ?? props.anchor.line}–
         {props.anchor.line}
       </p>
-      <Textarea
-        aria-label="Inline comment draft"
+      <MarkdownEditor
+        label="Inline comment draft"
+        placeholder="Leave a comment"
         maxLength={60_000}
         value={body}
-        onChange={(e) => setBody(e.target.value)}
+        onChange={setBody}
       />
       <Button type="submit" disabled={!review?.ready || review.pending || !body.trim()}>
         Save review draft
@@ -171,11 +173,12 @@ export function PrConversationComposer(props: { prKey: string; replyTo?: number 
           });
       }}
     >
-      <Textarea
-        aria-label={props.replyTo ? "Reply to review thread" : "PR conversation comment"}
+      <MarkdownEditor
+        label={props.replyTo ? "Reply to review thread" : "PR conversation comment"}
+        placeholder={props.replyTo ? "Reply" : "Leave a comment"}
         maxLength={60_000}
         value={body}
-        onChange={(e) => setBody(e.target.value)}
+        onChange={setBody}
       />
       <Button
         type="submit"
@@ -195,14 +198,11 @@ export function PrOwnComment({ comment }: { comment: ForgeComment }) {
   return (
     <div className="space-y-2">
       {edit && (
-        <Textarea
-          aria-label="Edit GitHub comment"
+        <MarkdownEditor
+          label="Edit GitHub comment"
           disabled={review.pending}
           value={edit.body}
-          onChange={(e) => {
-            const body = e.target.value;
-            setEdit((current) => current && { ...current, body });
-          }}
+          onChange={(body) => setEdit((current) => current && { ...current, body })}
           maxLength={60_000}
         />
       )}

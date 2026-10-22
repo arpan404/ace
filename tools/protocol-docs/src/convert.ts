@@ -120,7 +120,8 @@ function protocolVersion(entries: SchemaEntry[]): number {
 
 export function convertSchemas(entries: SchemaEntry[]): Snapshot {
   entries = inputProjection(entries.toSorted((a, b) => a.name.localeCompare(b.name, "en")));
-  if (entries.length > 1024) throw new Error("Schema count exceeds 1024");
+  // A bound on runaway exports, not a budget: the protocol reached 1,024 schemas in October 2026.
+  if (entries.length > 2048) throw new Error("Schema count exceeds 2048");
   const names = new Set<string>();
   const schemas = dictionary<z.core.JSONSchema.JSONSchema>();
   const version = protocolVersion(entries);

@@ -183,6 +183,30 @@ test("a PR panel's reads are kept without provider payloads and never crowd out 
   next.stop();
 });
 
+test("the Pull requests page's list pages and counts are kept, and open on their last rows after a reload", async () => {
+  const m = memory();
+  const s = session(m.storage);
+  const query = { state: "open", sort: "updated", page: 0 };
+  const listKey = ["forge", "api", "browse", "prList", query, 1];
+  const countsKey = ["forge", "api", "browse", "groupCounts", { by: "readiness", query }];
+  s.queries.setQueryData(listKey, { items: [{ title: "Kept row" }], counts: { open: 1 } });
+  s.queries.setQueryData(countsKey, { ready: 1 });
+  s.time.flush();
+  await vi.waitFor(() => expect(m.values.has(queryRecordKey)).toBe(true), { timeout: 5_000 });
+  s.stop();
+
+  const next = session(m.storage);
+  await vi.waitFor(() => expect(next.queries.getQueryData(listKey)).toBeDefined(), {
+    timeout: 5_000,
+  });
+  expect(next.queries.getQueryData(countsKey)).toEqual({ ready: 1 });
+  // Shown as kept first, then replaced by what the daemon says now.
+  expect(await observe(next.queries, listKey, { items: [], counts: { open: 0 } })).toMatchObject({
+    items: [{ title: "Kept row" }],
+  });
+  next.stop();
+});
+
 test("nothing is written while the connection is down or after the app let go", async () => {
   const m = memory();
   let up = false;

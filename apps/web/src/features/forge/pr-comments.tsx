@@ -156,6 +156,8 @@ export function PrComments(props: { status: ForgePrStatus }) {
       {`Show ${Math.min(page, view.older)} older (${view.older} hidden)`}
     </Button>
   );
+  // No conversation yet: nothing to show; the comment button is always there.
+  if (view.total === 0) return null;
   return (
     <PrSection
       title="Comments"

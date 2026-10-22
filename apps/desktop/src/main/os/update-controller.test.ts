@@ -12,7 +12,9 @@ const notes = [{ version: "1.1.0", items: ["Faster startup (#985)"], total: 1 }]
 const releaseUrl = "https://github.com/arpan404/ace/releases/tag/v1.1.0";
 
 /** A release feed and installer the test steers; the app's own effects are recorded. */
-function setup(options: { found?: string; canInstall?: boolean; drained?: boolean } = {}) {
+function setup(
+  options: { found?: string; canInstall?: boolean; drained?: boolean; busy?: number | Error } = {},
+) {
   const reported: UpdateStatus[] = [];
   const effects: string[] = [];
   let found = options.found;
@@ -54,6 +56,10 @@ function setup(options: { found?: string; canInstall?: boolean; drained?: boolea
       if (options.drained !== undefined) return Promise.resolve(options.drained);
       return new Promise((resolve) => (finishDrain = resolve));
     },
+    busy: () =>
+      options.busy instanceof Error
+        ? Promise.reject(options.busy)
+        : Promise.resolve(options.busy ?? 0),
     prepareQuit: async () => {
       effects.push("stop daemon");
     },
@@ -224,7 +230,7 @@ it.each(["same release", "newer release", "no update", "failure"] as const)(
 );
 
 it.each(["same release", "no update", "failure"] as const)(
-  "Restart waits for a pending background check returning %s before draining once",
+  "Restart waits for a pending background check returning %s, then stops the daemon once",
   async (result) => {
     const app = setup({ found: "1.1.0" });
     await downloaded(app);
@@ -236,34 +242,44 @@ it.each(["same release", "no update", "failure"] as const)(
     if (result === "failure") app.offline(new Error("offline"));
     releaseCheck();
     await checking;
-    await settle();
-    app.agentsStillWorking(2);
-    await app.controller.install();
-    expect(app.now()).toMatchObject({ state: "installing", waiting: 2 });
-    expect(app.effects).toEqual(["drain"]);
-    await app.finishDrain(true);
     await installing;
-    expect(app.effects).toEqual(["drain", "stop daemon", "install"]);
+    await app.controller.install();
+    expect(app.effects).toEqual(["stop daemon", "install"]);
   },
 );
 
-it("Restart waits for running agents, then stops the daemon before installing", async () => {
+it("the person's Restart stops running agents at once instead of waiting for them", async () => {
+  const app = setup({ found: "1.1.0", busy: 2 });
+  await downloaded(app);
+  expect(await app.controller.busy()).toBe(2);
+  await app.controller.install();
+  expect(app.now().state).toBe("installing");
+  expect(app.effects).toEqual(["stop daemon", "install"]);
+});
+
+it("an agent count the daemon can't give is unknown, not zero", async () => {
+  const app = setup({ found: "1.1.0", busy: new Error("daemon gone") });
+  expect(await app.controller.busy()).toBeUndefined();
+});
+
+it("ace update apply waits for running agents, then stops the daemon before installing", async () => {
   const app = setup({ found: "1.1.0" });
   await downloaded(app);
-  const installing = app.controller.install();
+  const applying = app.controller.apply();
+  await settle();
   app.agentsStillWorking(2);
   app.agentsStillWorking(1);
   expect(app.effects).toEqual(["drain"]);
   expect(app.now()).toMatchObject({ state: "installing", waiting: 1 });
   await app.finishDrain(true);
-  await installing;
+  await applying;
   expect(app.effects).toEqual(["drain", "stop daemon", "install"]);
 });
 
-it("agents still working at the drain's deadline keep the update downloaded and the app running", async () => {
+it("agents still working at apply's deadline keep the update downloaded and the app running", async () => {
   const app = setup({ found: "1.1.0", drained: false });
   await downloaded(app);
-  await app.controller.install();
+  await app.controller.apply();
   expect(app.now()).toMatchObject({
     state: "downloaded",
     error: { during: "install", message: stalledMessage },
@@ -309,6 +325,7 @@ it("a build without the release feed never asks it", async () => {
     enabled: false,
     releaseUrl: () => "",
     drain: () => Promise.resolve(true),
+    busy: () => Promise.resolve(0),
     prepareQuit: () => Promise.resolve(),
     quit: () => {},
     report: (status) => reported.push(status),

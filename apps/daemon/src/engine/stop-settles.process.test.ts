@@ -72,3 +72,50 @@ test("after a restart, a restart continuation captured behind a Stop no longer k
   expect(h.store.getThread(id)?.queue?.pendingCount).toBe(0);
   expect(h.store.getThread(id)?.status.state).toBe("done");
 });
+
+test("Stop from the composer settles the thread when a subagent can no longer be stopped on its own", async () => {
+  const frames = scriptFrames();
+  const h = await fixture(
+    [
+      {
+        on: "send",
+        frames: [
+          frames.frame(
+            start,
+            {
+              type: "agent.seen",
+              agent: "child",
+              parent: "root",
+              origin: "provider_subagent",
+              fidelity: "full",
+              native: { provider: "codex", nativeId: "child-native" },
+              cwd: "/repo",
+            },
+            { type: "turn.started", agent: "child", trigger: "spawn" },
+          ),
+        ],
+      },
+      { on: "interrupt", fail: "Claude child is no longer available for individual stop" },
+      { on: "interrupt" },
+    ],
+    frames,
+  );
+  const id = await h.create();
+  // The run the composer's Stop names.
+  const runId = h.store.getThread(id)?.live?.rootRunId ?? undefined;
+  expect(runId).toBeDefined();
+  expect(h.command({ type: "thread.interrupt", threadId: id, cascade: true, runId }).ok).toBe(true);
+  await h.engine.flush();
+  expect(h.adapter.commands.map((command) => command.type)).toEqual([
+    "send",
+    "interrupt",
+    "interrupt",
+    "close",
+  ]);
+  expect(h.adapter.commands[2]).toEqual({ type: "interrupt", target: { cascade: true } });
+  expect(h.store.getThread(id)?.status.state).toBe("done");
+  const notices = Object.values(h.store.snapshotThread(id).items).filter(
+    (item) => item.type === "notice" && item.level === "error",
+  );
+  expect(notices).toEqual([]);
+});

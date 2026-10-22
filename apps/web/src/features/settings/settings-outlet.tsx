@@ -1,9 +1,10 @@
 import { Outlet, useLocation } from "@tanstack/react-router";
+import { AllMachinesScope } from "./all-machines-scope.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { MachineScope, machineUnavailableText, useSettingsMachine } from "./machine-scope.tsx";
 import { SettingsBody } from "./settings-body.tsx";
-import { settingsPageOf } from "./settings-pages.ts";
+import { settingsPageOf, type SettingsPath } from "./settings-pages.ts";
 
 /**
  * The open Settings page. A Machine page renders whole against the machine picked in the
@@ -13,8 +14,25 @@ import { settingsPageOf } from "./settings-pages.ts";
 export function SettingsOutlet() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const page = settingsPageOf(pathname);
-  const { machine, missing, choose } = useSettingsMachine();
+  const { machine, machines, missing, choose, all } = useSettingsMachine();
   if (page?.group !== "machine") return <Outlet />;
+  if (all) {
+    if (!supportsAllMachines(page.to))
+      return (
+        <SettingsBody page={page.title}>
+          <EmptyState
+            className="mt-10 h-auto"
+            title={`${page.title} belong to one machine`}
+            description="Pick a machine under the title to see them."
+          />
+        </SettingsBody>
+      );
+    return (
+      <AllMachinesScope machines={machines}>
+        <Outlet />
+      </AllMachinesScope>
+    );
+  }
   if (!machine || missing)
     return (
       <SettingsBody page={page.title}>
@@ -49,4 +67,9 @@ export function SettingsOutlet() {
       <Outlet />
     </MachineScope>
   );
+}
+
+/** Pages whose settings mean the same on every machine, so "All machines" can set them at once. */
+function supportsAllMachines(page: SettingsPath): boolean {
+  return page === "/settings/agents" || page === "/settings/browser";
 }

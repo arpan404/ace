@@ -34,7 +34,6 @@ import { Route as SettingsKeyboardRouteImport } from "./routes/settings.keyboard
 import { Route as SettingsNotificationsRouteImport } from "./routes/settings.notifications"
 import { Route as SettingsOverviewRouteImport } from "./routes/settings.overview"
 import { Route as SettingsPromptsRouteImport } from "./routes/settings.prompts"
-import { Route as SettingsRemoteRouteImport } from "./routes/settings.remote"
 import { Route as SettingsSourceControlRouteImport } from "./routes/settings.source-control"
 import { Route as SettingsStorageRouteImport } from "./routes/settings.storage"
 import { Route as SkillsIndexRouteImport } from "./routes/skills.index"
@@ -44,7 +43,10 @@ import { Route as AutomationsAutomationIdIndexRouteImport } from "./routes/autom
 import { Route as AutomationsAutomationIdEditRouteImport } from "./routes/automations.$automationId.edit"
 import { Route as SettingsProvidersIndexRouteImport } from "./routes/settings.providers.index"
 import { Route as SettingsProvidersProviderRouteImport } from "./routes/settings.providers.$provider"
+import { Route as SettingsRemoteIndexRouteImport } from "./routes/settings.remote.index"
+import { Route as SettingsRemoteMachineRouteImport } from "./routes/settings.remote.$machine"
 import { Route as HomeIssuesProjectNumberRouteImport } from "./routes/_home.issues_.$project.$number"
+import { Route as HomeIssuesProjectNewRouteImport } from "./routes/_home.issues_.$project.new"
 import { Route as HomePullsProjectNumberRouteImport } from "./routes/_home.pulls_.$project.$number"
 import { Route as HomeTThreadIdForkRouteImport } from "./routes/_home.t.$threadId_.fork"
 import { Route as HomeTThreadIdAgentsAgentIdRouteImport } from "./routes/_home.t.$threadId_.agents.$agentId"
@@ -173,11 +175,6 @@ const SettingsPromptsRoute = SettingsPromptsRouteImport.update({
   path: "/prompts",
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsRemoteRoute = SettingsRemoteRouteImport.update({
-  id: "/remote",
-  path: "/remote",
-  getParentRoute: () => SettingsRoute,
-} as any)
 const SettingsSourceControlRoute = SettingsSourceControlRouteImport.update({
   id: "/source-control",
   path: "/source-control",
@@ -226,9 +223,24 @@ const SettingsProvidersProviderRoute =
     path: "/providers/$provider",
     getParentRoute: () => SettingsRoute,
   } as any)
+const SettingsRemoteIndexRoute = SettingsRemoteIndexRouteImport.update({
+  id: "/remote/",
+  path: "/remote/",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsRemoteMachineRoute = SettingsRemoteMachineRouteImport.update({
+  id: "/remote/$machine",
+  path: "/remote/$machine",
+  getParentRoute: () => SettingsRoute,
+} as any)
 const HomeIssuesProjectNumberRoute = HomeIssuesProjectNumberRouteImport.update({
   id: "/issues_/$project/$number",
   path: "/issues/$project/$number",
+  getParentRoute: () => HomeRoute,
+} as any)
+const HomeIssuesProjectNewRoute = HomeIssuesProjectNewRouteImport.update({
+  id: "/issues_/$project/new",
+  path: "/issues/$project/new",
   getParentRoute: () => HomeRoute,
 } as any)
 const HomePullsProjectNumberRoute = HomePullsProjectNumberRouteImport.update({
@@ -271,7 +283,6 @@ export interface FileRoutesByFullPath {
   "/settings/notifications": typeof SettingsNotificationsRoute
   "/settings/overview": typeof SettingsOverviewRoute
   "/settings/prompts": typeof SettingsPromptsRoute
-  "/settings/remote": typeof SettingsRemoteRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
@@ -281,9 +292,12 @@ export interface FileRoutesByFullPath {
   "/t/$threadId": typeof HomeTThreadIdRoute
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
+  "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
+  "/settings/remote/": typeof SettingsRemoteIndexRoute
   "/issues/$project/$number": typeof HomeIssuesProjectNumberRoute
+  "/issues/$project/new": typeof HomeIssuesProjectNewRoute
   "/pulls/$project/$number": typeof HomePullsProjectNumberRoute
   "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
@@ -307,7 +321,6 @@ export interface FileRoutesByTo {
   "/settings/notifications": typeof SettingsNotificationsRoute
   "/settings/overview": typeof SettingsOverviewRoute
   "/settings/prompts": typeof SettingsPromptsRoute
-  "/settings/remote": typeof SettingsRemoteRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
@@ -318,9 +331,12 @@ export interface FileRoutesByTo {
   "/t/$threadId": typeof HomeTThreadIdRoute
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
+  "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
   "/automations/$automationId": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers": typeof SettingsProvidersIndexRoute
+  "/settings/remote": typeof SettingsRemoteIndexRoute
   "/issues/$project/$number": typeof HomeIssuesProjectNumberRoute
+  "/issues/$project/new": typeof HomeIssuesProjectNewRoute
   "/pulls/$project/$number": typeof HomePullsProjectNumberRoute
   "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
@@ -349,7 +365,6 @@ export interface FileRoutesById {
   "/settings/notifications": typeof SettingsNotificationsRoute
   "/settings/overview": typeof SettingsOverviewRoute
   "/settings/prompts": typeof SettingsPromptsRoute
-  "/settings/remote": typeof SettingsRemoteRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
@@ -360,9 +375,12 @@ export interface FileRoutesById {
   "/_home/t/$threadId": typeof HomeTThreadIdRoute
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
+  "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
+  "/settings/remote/": typeof SettingsRemoteIndexRoute
   "/_home/issues_/$project/$number": typeof HomeIssuesProjectNumberRoute
+  "/_home/issues_/$project/new": typeof HomeIssuesProjectNewRoute
   "/_home/pulls_/$project/$number": typeof HomePullsProjectNumberRoute
   "/_home/t/$threadId_/fork": typeof HomeTThreadIdForkRoute
   "/_home/t/$threadId_/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
@@ -392,7 +410,6 @@ export interface FileRouteTypes {
     | "/settings/notifications"
     | "/settings/overview"
     | "/settings/prompts"
-    | "/settings/remote"
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
@@ -402,9 +419,12 @@ export interface FileRouteTypes {
     | "/t/$threadId"
     | "/automations/$automationId/edit"
     | "/settings/providers/$provider"
+    | "/settings/remote/$machine"
     | "/automations/$automationId/"
     | "/settings/providers/"
+    | "/settings/remote/"
     | "/issues/$project/$number"
+    | "/issues/$project/new"
     | "/pulls/$project/$number"
     | "/t/$threadId/fork"
     | "/t/$threadId/agents/$agentId"
@@ -428,7 +448,6 @@ export interface FileRouteTypes {
     | "/settings/notifications"
     | "/settings/overview"
     | "/settings/prompts"
-    | "/settings/remote"
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
@@ -439,9 +458,12 @@ export interface FileRouteTypes {
     | "/t/$threadId"
     | "/automations/$automationId/edit"
     | "/settings/providers/$provider"
+    | "/settings/remote/$machine"
     | "/automations/$automationId"
     | "/settings/providers"
+    | "/settings/remote"
     | "/issues/$project/$number"
+    | "/issues/$project/new"
     | "/pulls/$project/$number"
     | "/t/$threadId/fork"
     | "/t/$threadId/agents/$agentId"
@@ -469,7 +491,6 @@ export interface FileRouteTypes {
     | "/settings/notifications"
     | "/settings/overview"
     | "/settings/prompts"
-    | "/settings/remote"
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
@@ -480,9 +501,12 @@ export interface FileRouteTypes {
     | "/_home/t/$threadId"
     | "/automations/$automationId/edit"
     | "/settings/providers/$provider"
+    | "/settings/remote/$machine"
     | "/automations/$automationId/"
     | "/settings/providers/"
+    | "/settings/remote/"
     | "/_home/issues_/$project/$number"
+    | "/_home/issues_/$project/new"
     | "/_home/pulls_/$project/$number"
     | "/_home/t/$threadId_/fork"
     | "/_home/t/$threadId_/agents/$agentId"
@@ -675,13 +699,6 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsPromptsRouteImport
       parentRoute: typeof SettingsRoute
     }
-    "/settings/remote": {
-      id: "/settings/remote"
-      path: "/remote"
-      fullPath: "/settings/remote"
-      preLoaderRoute: typeof SettingsRemoteRouteImport
-      parentRoute: typeof SettingsRoute
-    }
     "/settings/source-control": {
       id: "/settings/source-control"
       path: "/source-control"
@@ -745,11 +762,32 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsProvidersProviderRouteImport
       parentRoute: typeof SettingsRoute
     }
+    "/settings/remote/": {
+      id: "/settings/remote/"
+      path: "/remote"
+      fullPath: "/settings/remote/"
+      preLoaderRoute: typeof SettingsRemoteIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/remote/$machine": {
+      id: "/settings/remote/$machine"
+      path: "/remote/$machine"
+      fullPath: "/settings/remote/$machine"
+      preLoaderRoute: typeof SettingsRemoteMachineRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     "/_home/issues_/$project/$number": {
       id: "/_home/issues_/$project/$number"
       path: "/issues/$project/$number"
       fullPath: "/issues/$project/$number"
       preLoaderRoute: typeof HomeIssuesProjectNumberRouteImport
+      parentRoute: typeof HomeRoute
+    }
+    "/_home/issues_/$project/new": {
+      id: "/_home/issues_/$project/new"
+      path: "/issues/$project/new"
+      fullPath: "/issues/$project/new"
+      preLoaderRoute: typeof HomeIssuesProjectNewRouteImport
       parentRoute: typeof HomeRoute
     }
     "/_home/pulls_/$project/$number": {
@@ -784,6 +822,7 @@ interface HomeRouteChildren {
   HomeIndexRoute: typeof HomeIndexRoute
   HomeTThreadIdRoute: typeof HomeTThreadIdRoute
   HomeIssuesProjectNumberRoute: typeof HomeIssuesProjectNumberRoute
+  HomeIssuesProjectNewRoute: typeof HomeIssuesProjectNewRoute
   HomePullsProjectNumberRoute: typeof HomePullsProjectNumberRoute
   HomeTThreadIdForkRoute: typeof HomeTThreadIdForkRoute
   HomeTThreadIdAgentsAgentIdRoute: typeof HomeTThreadIdAgentsAgentIdRoute
@@ -797,6 +836,7 @@ const HomeRouteChildren: HomeRouteChildren = {
   HomeIndexRoute: HomeIndexRoute,
   HomeTThreadIdRoute: HomeTThreadIdRoute,
   HomeIssuesProjectNumberRoute: HomeIssuesProjectNumberRoute,
+  HomeIssuesProjectNewRoute: HomeIssuesProjectNewRoute,
   HomePullsProjectNumberRoute: HomePullsProjectNumberRoute,
   HomeTThreadIdForkRoute: HomeTThreadIdForkRoute,
   HomeTThreadIdAgentsAgentIdRoute: HomeTThreadIdAgentsAgentIdRoute,
@@ -833,12 +873,13 @@ interface SettingsRouteChildren {
   SettingsNotificationsRoute: typeof SettingsNotificationsRoute
   SettingsOverviewRoute: typeof SettingsOverviewRoute
   SettingsPromptsRoute: typeof SettingsPromptsRoute
-  SettingsRemoteRoute: typeof SettingsRemoteRoute
   SettingsSourceControlRoute: typeof SettingsSourceControlRoute
   SettingsStorageRoute: typeof SettingsStorageRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   SettingsProvidersProviderRoute: typeof SettingsProvidersProviderRoute
+  SettingsRemoteMachineRoute: typeof SettingsRemoteMachineRoute
   SettingsProvidersIndexRoute: typeof SettingsProvidersIndexRoute
+  SettingsRemoteIndexRoute: typeof SettingsRemoteIndexRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
@@ -852,12 +893,13 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsNotificationsRoute: SettingsNotificationsRoute,
   SettingsOverviewRoute: SettingsOverviewRoute,
   SettingsPromptsRoute: SettingsPromptsRoute,
-  SettingsRemoteRoute: SettingsRemoteRoute,
   SettingsSourceControlRoute: SettingsSourceControlRoute,
   SettingsStorageRoute: SettingsStorageRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   SettingsProvidersProviderRoute: SettingsProvidersProviderRoute,
+  SettingsRemoteMachineRoute: SettingsRemoteMachineRoute,
   SettingsProvidersIndexRoute: SettingsProvidersIndexRoute,
+  SettingsRemoteIndexRoute: SettingsRemoteIndexRoute,
 }
 
 const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
