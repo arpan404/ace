@@ -88,10 +88,15 @@ export async function prepareAgentLogin(
   if (added) await registry.validateHome(added);
   const cliEnv = cli && "launch" in cli ? cli.launch.env : env;
   signal.throwIfAborted();
-  const release =
+  // Threads on the login stop before it changes, and none start until it has; for Antigravity's
+  // CLI login too, once ace knows it.
+  const reserved =
     (target.provider === "acp" && target.instance) || added
-      ? await services.accounts.reserveAuthChange(target.instance ?? "")
-      : () => {};
+      ? target.instance
+      : target.provider === "antigravity" && registry.get(antigravityIdentity.instanceId)
+        ? antigravityIdentity.instanceId
+        : undefined;
+  const release = reserved ? await services.accounts.reserveAuthChange(reserved) : () => {};
   const management = services.accountManagement;
   const ownLogout =
     target.provider === "acp" && target.instance

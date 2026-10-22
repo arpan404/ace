@@ -40,9 +40,10 @@ export function antigravitySessionAccount(
 }
 
 /**
- * Antigravity sessions on an added account open through the accounts service, as native accounts
- * do: inside the account's validated home, fenced while it signs in or changes, and counted, so
- * a sign-in change stops them first and removal waits for them. The CLI login opens as before.
+ * Antigravity sessions open through the accounts service, as native accounts do: fenced while
+ * their account signs in or changes, and counted, so a sign-in change stops them first and
+ * removal waits for them. An added account's run inside its validated home; the CLI login's keep
+ * the person's environment. Before the CLI login is known to ace, its sessions open directly.
  */
 export function withAntigravityAccounts(
   adapter: ProviderAdapter,
@@ -53,10 +54,15 @@ export function withAntigravityAccounts(
     ...adapter,
     async openSession(session) {
       const account = antigravitySessionAccount(registry, session.instanceId);
-      if (!account) return adapter.openSession(session);
-      if (!accounts) throw new Error("Antigravity accounts are unavailable");
+      if (account && !accounts) throw new Error("Antigravity accounts are unavailable");
+      const instanceId =
+        account?.id ??
+        (registry?.get(antigravityIdentity.instanceId)
+          ? antigravityIdentity.instanceId
+          : undefined);
+      if (!instanceId || !accounts) return adapter.openSession(session);
       const opened = await accounts.openSession(adapter, session, {
-        instanceId: account.id,
+        instanceId,
         role: "worker",
         estimatedLoad: 1,
       });

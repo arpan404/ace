@@ -360,3 +360,24 @@ test("removing Antigravity's CLI login is refused before anything signs it out",
     await f.close();
   }
 });
+
+test("signing Antigravity's CLI login in again stops its running threads first", async () => {
+  const f = await antigravity();
+  try {
+    const pinned: { deliberate: boolean }[] = [];
+    const unpinned: { deliberate: boolean }[] = [];
+    await f.open(antigravityIdentity.instanceId, pinned);
+    // A thread that named no account runs on the CLI login too.
+    await f.open(undefined, unpinned);
+    expect(await f.signIn()).toMatchObject({ state: "succeeded" });
+    expect(pinned).toEqual([expect.objectContaining({ deliberate: true })]);
+    expect(unpinned).toEqual([expect.objectContaining({ deliberate: true })]);
+    // Both kept the person's own environment.
+    expect(await f.seen("session/new")).toEqual([
+      { home: null, fileStore: null },
+      { home: null, fileStore: null },
+    ]);
+  } finally {
+    await f.close();
+  }
+});
