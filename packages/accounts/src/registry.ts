@@ -20,6 +20,8 @@ import { instanceEnv } from "./instances.ts";
 import { pickInstance } from "./scheduler.ts";
 import { assertManagedHome, restoreCursorHome } from "./managed-home.ts";
 import { canonicalHome } from "./paths.ts";
+import { antigravitySignInOf } from "./antigravity-sign-in.ts";
+import { accountProvider } from "./acp-instances.ts";
 const selectionRow = z.object({ backend: z.string(), instance_id: AccountInstanceId });
 const row = z.object({ instance: z.string().max(32768), quota: z.string().max(16384) });
 
@@ -444,6 +446,12 @@ export class AccountRegistry {
       }
     }
   }
+  /** How an Antigravity account signed in, for its Settings row; nothing for other accounts. */
+  private antigravitySignIn(instance: ProviderInstance) {
+    if (accountProvider(instance) !== "antigravity") return {};
+    const method = antigravitySignInOf(this.acpSignInMethod(instance.id));
+    return method ? { antigravitySignIn: method } : {};
+  }
   /** The ACP method the person last signed in with, while they stay signed in. */
   acpSignInMethod(id: string): string | undefined {
     const remembered = this.signInMethod.get(id);
@@ -632,6 +640,7 @@ export class AccountRegistry {
     return account && !this.pending.has(id)
       ? {
           ...summarize(account, now),
+          ...this.antigravitySignIn(account.instance),
           isDefault:
             account.instance.provider === "acp"
               ? this.acpDefault(account.instance, (key) => {
@@ -666,7 +675,7 @@ export class AccountRegistry {
     return this.list()
       .filter(({ instance }) => !this.pending.has(instance.id))
       .map((account) =>
-        Object.assign(summarize(account, now), {
+        Object.assign(summarize(account, now), this.antigravitySignIn(account.instance), {
           isDefault:
             account.instance.provider === "acp"
               ? this.acpDefault(account.instance, (key) => selected.get(key))

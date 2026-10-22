@@ -65,6 +65,7 @@ export async function providerAccounts(
           instance: instanceId,
           method: request.method,
           ...(request.upstream ? { upstream: request.upstream } : {}),
+          ...(request.signIn ? { signIn: request.signIn } : {}),
         },
         request.type === "provider.accounts.add"
           ? (state) => management.finishPending(instanceId, state)

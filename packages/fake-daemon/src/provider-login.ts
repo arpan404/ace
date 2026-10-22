@@ -3,6 +3,7 @@ import { fakeApiKeySupport } from "./provider-auth-support.ts";
 import { ProviderLoginRequest, ProviderLoginProgress, OnboardingRequest } from "@ace/protocol";
 import { onboardingChecklist, providerReadiness } from "@ace/core";
 import type {
+  AntigravitySignIn,
   ClientMessage,
   ProviderKind,
   ProviderLoginUnavailableReason,
@@ -29,6 +30,10 @@ export class FakeProviderLogin {
   scenarios: Partial<Record<ProviderKind, Scenario>> = {};
   /** Providers whose sign-in the daemon can't run, and the reason it gives. */
   refusals: Partial<Record<ProviderKind, ProviderLoginUnavailableReason>> = {};
+  /** How each Antigravity sign-in was asked to sign in, by session. */
+  signIns = new Map<string, AntigravitySignIn>();
+  /** Return addresses handed to an Antigravity sign-in's listener, by session. */
+  returned = new Map<string, string>();
   /** What a successful sign-in or sign-out still tells the person, per provider. */
   successNotes: Partial<Record<ProviderKind, string>> = {};
   private jobs = new Map<string, Job>();
@@ -173,10 +178,14 @@ export class FakeProviderLogin {
           job.progress.provider === "claude" ||
           (job.progress.provider === "pi" && job.choice === "anthropic")
             ? "https://claude.ai/oauth/authorize?client_id=ace-fake"
-            : job.progress.provider === "acp" || job.progress.provider === "antigravity"
-              ? "https://accounts.google.com/o/oauth2/v2/auth?client_id=ace-fake"
-              : "https://cursor.com/loginDeepControl",
+            : job.progress.provider === "antigravity"
+              ? "https://accounts.google.com/o/oauth2/v2/auth?client_id=ace-fake&redirect_uri=http%3A%2F%2F127.0.0.1%3A41234%2F"
+              : job.progress.provider === "acp"
+                ? "https://accounts.google.com/o/oauth2/v2/auth?client_id=ace-fake"
+                : "https://cursor.com/loginDeepControl",
         hint: "Open this URL on your device to finish the provider's login.",
+        // Antigravity's sign-in returns to a listener on the daemon's computer.
+        ...(job.progress.provider === "antigravity" ? { returnUrlEntry: true } : {}),
       });
   }
   handle(
@@ -297,6 +306,14 @@ export class FakeProviderLogin {
         },
       };
       this.jobs.set(job.progress.session, job);
+      if (input.type === "provider.login.start" && input.signIn) {
+        if (input.provider !== "antigravity") {
+          this.jobs.delete(job.progress.session);
+          error("invalid_input");
+          return true;
+        }
+        this.signIns.set(job.progress.session, input.signIn);
+      }
       reply(job);
       if (input.type === "provider.logout") this.complete(job.progress.session);
       else if (input.method === "api_key")
@@ -369,6 +386,19 @@ export class FakeProviderLogin {
       if (!waiting) error("invalid_input");
       else this.complete(job.progress.session);
       if (waiting) reply(job);
+      return true;
+    }
+    if (input.type === "provider.login.input" && "returnUrl" in input.input) {
+      // Taken only while the agent waits on its browser sign-in, for its own listener's port.
+      const accepted =
+        job.progress.returnUrlEntry === true && new URL(input.input.returnUrl).port === "41234";
+      if (accepted) this.returned.set(job.progress.session, input.input.returnUrl);
+      input.input.returnUrl = "";
+      if (!accepted) error("invalid_input");
+      else {
+        this.complete(job.progress.session);
+        reply(job);
+      }
       return true;
     }
     if (input.type === "provider.login.input") {

@@ -3,6 +3,7 @@ import { AccountLabelEditor } from "./account-label-editor.tsx";
 import { ApiKeyUpstream, type ProviderKind } from "@ace/protocol";
 import {
   accountStatus,
+  antigravitySignInLabel,
   headlineWindows,
   isAddedAgentAccount,
   providerAccountViews,
@@ -172,6 +173,11 @@ function AccountItem(props: {
             <AccountKeyMark method={account.authMethod} />
             {account.isDefault && (
               <span className="shrink-0 text-xs text-muted-foreground">Default</span>
+            )}
+            {account.antigravitySignIn && (
+              <span className="shrink-0 text-xs text-subtle-foreground">
+                {antigravitySignInLabel(account.antigravitySignIn)}
+              </span>
             )}
           </span>
           {account.implicit && account.cliHome && (

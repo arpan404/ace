@@ -42,6 +42,8 @@ export interface AccountView {
   badgeIcon?: Summary["badgeIcon"] | undefined;
   authMethod?: Summary["authMethod"] | undefined;
   signedInAs?: string | undefined;
+  /** How an Antigravity account signed in, while it stays signed in. */
+  antigravitySignIn?: Summary["antigravitySignIn"] | undefined;
   /** The CLI's own login (its normal home), not an account ace added. */
   implicit?: boolean | undefined;
   cliHome?: string | undefined;
@@ -178,6 +180,7 @@ export function accountView(summary: Summary): AccountView {
     badgeIcon: summary.badgeIcon,
     authMethod: summary.authMethod,
     signedInAs: summary.signedInAs,
+    ...(summary.antigravitySignIn ? { antigravitySignIn: summary.antigravitySignIn } : {}),
     ...(summary.implicit ? { implicit: true, cliHome: summary.cliHome } : {}),
     ...(summary.isDefault ? { isDefault: true } : {}),
     availability: summary.availability,

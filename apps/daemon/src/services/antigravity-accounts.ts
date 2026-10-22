@@ -7,6 +7,8 @@ import {
 } from "@ace/accounts";
 import type { ProviderAdapter } from "@ace/engine-api";
 import type { ProviderInstance } from "@ace/protocol/accounts";
+import { personalGeminiHome } from "../antigravity-settings.ts";
+import { linkPersonalSkills } from "./antigravity-skills.ts";
 import type { ServiceContext } from "./types.ts";
 
 /**
@@ -49,12 +51,21 @@ export function withAntigravityAccounts(
   adapter: ProviderAdapter,
   registry: AccountRegistry | undefined,
   accounts: AccountService | undefined,
+  /** The person's environment, for the skills an added account shares with their own login. */
+  personalEnv: NodeJS.ProcessEnv = {},
 ): ProviderAdapter {
   return {
     ...adapter,
     async openSession(session) {
       const account = antigravitySessionAccount(registry, session.instanceId);
       if (account && !accounts) throw new Error("Antigravity accounts are unavailable");
+      const personal = personalGeminiHome(personalEnv);
+      if (account && registry && personal) {
+        // Only inside the account's own, still-private home. Skills are a convenience: a link
+        // that can't be made never stops the thread from starting.
+        await registry.validateHome(account);
+        await linkPersonalSkills(account.homeDir, personal).catch(() => undefined);
+      }
       const instanceId =
         account?.id ??
         (registry?.get(antigravityIdentity.instanceId)
@@ -104,6 +115,8 @@ export function registerAntigravityAccountCatalog(
       env: Object.fromEntries(
         Object.entries(env).flatMap(([key, value]) => (value === undefined ? [] : [[key, value]])),
       ),
+      // The person's credentials the account never inherits, kept unset at launch too.
+      unsetEnv: Object.entries(env).flatMap(([key, value]) => (value === undefined ? [key] : [])),
       loginRevision: `${launch.loginRevision}:${instance.loginRevision ?? "0"}`,
       // No sign-in method: if its login has lapsed, discovery reports it instead of asking the
       // agent to sign in, which would open a browser nobody asked for.

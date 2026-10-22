@@ -2,6 +2,7 @@ import { ManagedAccountProvider } from "@ace/protocol/accounts";
 import type { z } from "zod";
 import type { ClientApi } from "@ace/client";
 import type {
+  AntigravitySignIn,
   ProviderKind,
   ProviderLoginInput,
   ProviderLoginProgress,
@@ -31,6 +32,8 @@ export interface SignInTarget {
   action?: "login" | "logout" | undefined;
   method?: "login" | "api_key" | undefined;
   upstream?: z.infer<typeof ApiKeyUpstream> | undefined;
+  /** Antigravity: how to sign in. Without it, the dialog asks first. */
+  signIn?: AntigravitySignIn | undefined;
 }
 
 /** Why the daemon wouldn't start or continue, or "offline" when it couldn't be asked. */
@@ -162,6 +165,20 @@ export class LoginController {
     void this.ask({ type: "provider.login.input", session: this.session, input: { code } });
   }
 
+  /**
+   * The address the browser landed on after signing in on this device, for the agent waiting on
+   * the computer running ace. Sent once, never kept.
+   */
+  submitReturnUrl(returnUrl: string): void {
+    if (
+      !this.session ||
+      this.current.kind !== "progress" ||
+      this.current.progress.returnUrlEntry !== true
+    )
+      return;
+    void this.ask({ type: "provider.login.input", session: this.session, input: { returnUrl } });
+  }
+
   /** True only the first time: a sign-in opens its page by itself at most once. */
   claimPageOpen(): boolean {
     if (this.openedPage) return false;
@@ -204,7 +221,7 @@ export class LoginController {
   }
 
   private async start(): Promise<void> {
-    const { provider, instance, action, method, upstream, newAccount } = this.target;
+    const { provider, instance, action, method, upstream, newAccount, signIn } = this.target;
     try {
       const target = { provider, ...(instance ? { instance } : {}) };
       const reply = newAccount
@@ -215,6 +232,7 @@ export class LoginController {
             ...(this.target.shortLabel ? { shortLabel: this.target.shortLabel } : {}),
             method: method ?? "login",
             ...(upstream ? { upstream } : {}),
+            ...(signIn ? { signIn } : {}),
           })
         : action === "logout"
           ? await this.client.request({ type: "provider.logout", ...target })
@@ -223,6 +241,7 @@ export class LoginController {
               ...target,
               ...(method ? { method } : {}),
               ...(upstream ? { upstream } : {}),
+              ...(signIn ? { signIn } : {}),
             });
       if (!reply.result.ok) {
         const detail = "reason" in reply.result ? reply.result.reason : undefined;
@@ -277,6 +296,8 @@ export class LoginController {
       if (request.type === "provider.login.apiKey") request.apiKey = "";
       if (request.type === "provider.login.input" && "code" in request.input)
         request.input.code = "";
+      if (request.type === "provider.login.input" && "returnUrl" in request.input)
+        request.input.returnUrl = "";
       this.patch({ sending: false });
     }
   }

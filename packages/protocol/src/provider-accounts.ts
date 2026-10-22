@@ -8,6 +8,7 @@ import {
   AccountBadgeIcon,
 } from "./accounts.ts";
 import { ProviderLoginProgress } from "./provider-login.ts";
+import { AntigravitySignIn } from "./antigravity-sign-in.ts";
 
 import { AccountAuthMethod, ApiKeySupport } from "./account-auth.ts";
 export { AccountAuthMethod, ApiKeySupport } from "./account-auth.ts";
@@ -30,6 +31,8 @@ export const ProviderAccountsRequest = z.discriminatedUnion("type", [
     shortLabel: AccountBadgeInput.optional(),
     method: AccountLoginMethod,
     upstream: ApiKeyUpstream.optional(),
+    /** Antigravity only: how the new account signs in. */
+    signIn: AntigravitySignIn.optional(),
   }),
   z.strictObject({
     type: z.literal("provider.accounts.rename"),
@@ -55,6 +58,8 @@ export const ProviderAccountsRequest = z.discriminatedUnion("type", [
     ...target,
     method: AccountLoginMethod.default("login"),
     upstream: ApiKeyUpstream.optional(),
+    /** Antigravity only: how the account signs in again. */
+    signIn: AntigravitySignIn.optional(),
   }),
 ]);
 export type ProviderAccountsRequest = z.infer<typeof ProviderAccountsRequest>;

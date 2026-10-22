@@ -9,7 +9,8 @@
     "XDG_STATE_HOME",
     "XDG_CACHE_HOME",
     "CURSOR_DATA_DIR",
-    "PI_CODING_AGENT_DIR"
+    "PI_CODING_AGENT_DIR",
+    "GEMINI_HOME"
   ],
   "type": "string"
 }

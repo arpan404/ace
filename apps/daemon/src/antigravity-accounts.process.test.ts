@@ -1,4 +1,13 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -14,7 +23,7 @@ import { createLogger } from "@ace/diagnostics";
 import { ModelCatalog, openModelStorage } from "@ace/models";
 import { ThreadId } from "@ace/protocol";
 import { AccountManagement } from "./account-management.ts";
-import { createManagedHome } from "./account-homes.ts";
+import { createManagedHome, deleteManagedHome } from "./account-homes.ts";
 import { readConfig } from "./config.ts";
 import {
   registerAntigravityAccountCatalog,
@@ -25,6 +34,7 @@ import { prepareAgentLogin } from "./services/provider-login-agent.ts";
 import { accountTransitions } from "./services/thread-transitions.ts";
 import { Resources } from "./services/resources.ts";
 import type { ServiceContext } from "./services/types.ts";
+import type { SessionContext } from "@ace/engine-api";
 import { Store } from "./store.ts";
 
 /**
@@ -47,9 +57,15 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     method: request.method,
     home: process.env.GEMINI_HOME ?? null,
     fileStore: process.env.AGY_ACP_FORCE_FILE_STORAGE ?? null,
+    mcp: (request.params?.mcpServers ?? []).map((server) => server.name + ' ' + server.type),
+    systemPrompt: request.params?._meta?.antigravity?.systemPrompt?.append ?? null,
+    credentials: ['GEMINI_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_CLOUD_PROJECT']
+      .filter((key) => process.env[key] !== undefined),
   }) + '\\n');
   const result = request.method === 'initialize'
     ? { protocolVersion: 1, agentInfo: { name: 'antigravity-acp', version: '1.4.1' },
+        agentCapabilities: { mcpCapabilities: { http: true },
+          _meta: { antigravity: { systemPrompt: { append: true } } } },
         authMethods: [{ id: 'oauth-personal', name: 'Log in with Google' }] }
     : request.method === 'session/new' ? { sessionId: 'native' } : {};
   if (request.id !== undefined) console.log(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }));
@@ -100,6 +116,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     createAcpAdapter(antigravityQuirks, { command: join(bin, "agy_acp_server"), env }),
     registry,
     accounts,
+    env,
   );
   return {
     home,
@@ -109,12 +126,13 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     registry,
     accounts,
     /** Open a thread's Antigravity session on an account; exits are what its thread hears. */
-    open(instanceId?: string, exits: { deliberate: boolean }[] = []) {
+    open(instanceId?: string, exits: { deliberate: boolean }[] = [], mcp?: SessionContext["mcp"]) {
       return adapter.openSession({
         threadId: ThreadId.parse("thread-antigravity"),
         cwd: home,
         env,
         ...(instanceId ? { instanceId } : {}),
+        ...(mcp ? { mcp } : {}),
         signal: new AbortController().signal,
         onFrame() {},
         onExit(exit) {
@@ -161,6 +179,27 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       });
       if (!result.result.ok || !("progress" in result.result)) throw new Error("Login rejected");
       return sessions.completed("device", result.result.progress.session);
+    },
+    /** The ace MCP servers and system prompt each new session was handed. */
+    async sessions() {
+      return (await readFile(seen, "utf8"))
+        .trim()
+        .split("\n")
+        .map(
+          (line) =>
+            JSON.parse(line) as { method: string; mcp: string[]; systemPrompt: string | null },
+        )
+        .filter((entry) => entry.method === "session/new")
+        .map(({ mcp, systemPrompt }) => ({ mcp, systemPrompt }));
+    },
+    /** The person's credential variables each request's process could see. */
+    async credentials(method: string) {
+      return (await readFile(seen, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { method: string; credentials: string[] })
+        .filter((entry) => entry.method === method)
+        .map((entry) => entry.credentials);
     },
     async seen(method: string) {
       return (await readFile(seen, "utf8"))
@@ -276,13 +315,21 @@ test("a thread can switch onto an added Antigravity account, which other provide
 
 test("a signed-in added account's models load in its own home, never with a sign-in, and never in a swapped home", async () => {
   const f = await antigravity();
-  const discovered: { home: string | undefined; signInMethod: string | undefined }[] = [];
+  const discovered: {
+    home: string | undefined;
+    signInMethod: string | undefined;
+    unsetsCredentials: boolean;
+  }[] = [];
   const models = new ModelCatalog({
     storage: openModelStorage(join(f.home, "models.sqlite")),
     now: () => 1000,
     deadline: () => () => {},
     discover: async (instance) => {
-      discovered.push({ home: instance.env["GEMINI_HOME"], signInMethod: instance.signInMethod });
+      discovered.push({
+        home: instance.env["GEMINI_HOME"],
+        signInMethod: instance.signInMethod,
+        unsetsCredentials: !!instance.unsetEnv?.includes("GEMINI_API_KEY"),
+      });
       return [];
     },
   });
@@ -302,7 +349,10 @@ test("a signed-in added account's models load in its own home, never with a sign
     registerAntigravityAccountCatalog(context, work, launch);
     await models.refresh({ instance: work.id });
     // Even though it signed in with a method, discovery is never handed one to sign in again.
-    expect(discovered).toEqual([{ home: work.homeDir, signInMethod: undefined }]);
+    // Nor does it inherit the daemon's own credentials.
+    expect(discovered).toEqual([
+      { home: work.homeDir, signInMethod: undefined, unsetsCredentials: true },
+    ]);
 
     const other = join(f.home, "someone-else");
     await mkdir(other);
@@ -377,6 +427,117 @@ test("signing Antigravity's CLI login in again stops its running threads first",
       { home: null, fileStore: null },
       { home: null, fileStore: null },
     ]);
+  } finally {
+    await f.close();
+  }
+});
+
+test("ace's tools and guidance reach Antigravity sessions on the CLI login and on added accounts alike", async () => {
+  const f = await antigravity();
+  try {
+    const work = await f.add("Work");
+    const mcp = {
+      httpServers: [
+        { name: "ace", type: "http" as const, url: "http://127.0.0.1:1/mcp", headers: [] },
+      ],
+      secrets: [],
+      instructions: "ace's guidance for Antigravity",
+      end() {},
+    };
+    await (await f.open(work.id, [], mcp)).close("shutdown");
+    await (await f.open(antigravityIdentity.instanceId, [], mcp)).close("shutdown");
+    expect(await f.sessions()).toEqual([
+      { mcp: ["ace http"], systemPrompt: "ace's guidance for Antigravity" },
+      { mcp: ["ace http"], systemPrompt: "ace's guidance for Antigravity" },
+    ]);
+  } finally {
+    await f.close();
+  }
+});
+
+test("an added account sees the person's own Antigravity skills, but not their MCP servers, and removing it leaves them", async () => {
+  const f = await antigravity();
+  try {
+    const personal = join(f.home, ".gemini");
+    await mkdir(join(personal, "config", "skills", "review"), { recursive: true });
+    await writeFile(join(personal, "config", "skills", "review", "SKILL.md"), "# Review");
+    await mkdir(join(personal, "antigravity-cli", "skills", "ship"), { recursive: true });
+    await writeFile(join(personal, "antigravity-cli", "skills", "ship", "SKILL.md"), "# Ship");
+    await writeFile(join(personal, "config", "mcp_config.json"), "{}");
+    const work = await f.add("Work");
+    // A folder of the account's own is kept as it is.
+    const own = await f.add("Own");
+    await mkdir(join(own.homeDir, "antigravity-cli", "skills", "mine"), { recursive: true });
+
+    await (await f.open(work.id)).close("shutdown");
+    await (await f.open(own.id)).close("shutdown");
+    expect(
+      await readFile(join(work.homeDir, "config", "skills", "review", "SKILL.md"), "utf8"),
+    ).toBe("# Review");
+    expect(
+      await readFile(join(work.homeDir, "antigravity-cli", "skills", "ship", "SKILL.md"), "utf8"),
+    ).toBe("# Ship");
+    await expect(readFile(join(work.homeDir, "config", "mcp_config.json"))).rejects.toThrow();
+    await expect(
+      readFile(join(own.homeDir, "antigravity-cli", "skills", "ship", "SKILL.md")),
+    ).rejects.toThrow();
+    expect(
+      await readFile(join(own.homeDir, "config", "skills", "review", "SKILL.md"), "utf8"),
+    ).toBe("# Review");
+
+    await deleteManagedHome(f.home, work);
+    expect(await readFile(join(personal, "config", "skills", "review", "SKILL.md"), "utf8")).toBe(
+      "# Review",
+    );
+    expect(
+      await readFile(join(personal, "antigravity-cli", "skills", "ship", "SKILL.md"), "utf8"),
+    ).toBe("# Ship");
+  } finally {
+    await f.close();
+  }
+});
+
+test("the daemon's own Google credentials never reach an added account's agent, signing in or running", async () => {
+  const sentinels = {
+    GEMINI_API_KEY: "daemon-key",
+    GOOGLE_APPLICATION_CREDENTIALS: "/daemon/adc.json",
+    GOOGLE_CLOUD_PROJECT: "daemon-project",
+  };
+  const before = Object.fromEntries(Object.keys(sentinels).map((key) => [key, process.env[key]]));
+  // Inherited by the daemon itself, not passed in the launch environment ace builds.
+  Object.assign(process.env, sentinels);
+  const f = await antigravity();
+  try {
+    const work = await f.add("Work");
+    expect(await f.signIn(work.id)).toMatchObject({ state: "succeeded" });
+    await (await f.open(work.id)).close("shutdown");
+    expect(await f.credentials("authenticate")).toEqual([[]]);
+    expect(await f.credentials("session/new")).toEqual([[]]);
+    // The CLI login runs as the person, with everything the daemon has.
+    await (await f.open(antigravityIdentity.instanceId)).close("shutdown");
+    expect((await f.credentials("session/new")).at(-1)).toEqual(Object.keys(sentinels));
+  } finally {
+    for (const [key, value] of Object.entries(before))
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    await f.close();
+  }
+});
+
+test("an added account whose config folder links to the person's own never changes their skill links", async () => {
+  const f = await antigravity();
+  try {
+    const personal = join(f.home, ".gemini");
+    const elsewhere = join(f.home, "shared-skills");
+    await mkdir(join(elsewhere, "review"), { recursive: true });
+    await mkdir(join(personal, "config"), { recursive: true });
+    // The person's own skills folder is itself a link to somewhere they chose.
+    await symlink(elsewhere, join(personal, "config", "skills"));
+    const work = await f.add("Work");
+    await symlink(join(personal, "config"), join(work.homeDir, "config"));
+
+    await (await f.open(work.id)).close("shutdown");
+    expect(await readlink(join(personal, "config", "skills"))).toBe(elsewhere);
   } finally {
     await f.close();
   }
