@@ -3,10 +3,11 @@ import {
   ForgeInboxQuery,
   ForgeInboxWrite,
   type ForgeInboxList,
+  type ForgeInboxRow,
   type ForgeInboxSubjectState,
 } from "@ace/protocol/forge-inbox";
 import type { CommandRunner } from "./command.ts";
-import { ForgeError } from "./errors.ts";
+import { ForgeAccessRefused, ForgeError } from "./errors.ts";
 import { GhApi, type Page } from "./http.ts";
 import { GitHubNotification, inboxRow, pollSeconds, subjectState } from "./inbox-rows.ts";
 import { ListCache } from "./list-cache.ts";
@@ -18,9 +19,15 @@ const perPage = 50;
 const maxRemembered = 32;
 type Remembered = { page: Page; at: number; list: ForgeInboxList };
 
-/** gh's sign-in answering 401/403 to notifications means its token can't reach them. */
-function notificationsError(error: unknown): unknown {
-  return error instanceof ForgeError && error.kind === "forbidden"
+/**
+ * A 403 to the account's notifications means gh's token can't reach them (a fine-grained or app
+ * token, or a classic token without `notifications` or `repo`). A 401, gh's "not signed in" exit
+ * and a refusal for one repository's notifications keep their own meaning.
+ */
+function notificationsError(error: unknown, path: string): unknown {
+  return error instanceof ForgeAccessRefused &&
+    error.status === 403 &&
+    /^notifications(?:[/?]|$)/.test(path)
     ? new ForgeError("notifications_unavailable", undefined, error.dispatched)
     : error;
 }
@@ -39,6 +46,8 @@ export class GitHubInbox {
   readonly #recent = new Map<string, Remembered>();
   readonly #decoder = new PageDecoder(z.array(z.unknown()).max(100));
   readonly #states = new WeakMap<Page, Map<string, ForgeInboxSubjectState>>();
+  /** GitHub's rate limit, until its reset: no read asks again before then. */
+  #limited: ForgeError | undefined;
   constructor(options: {
     runner: CommandRunner;
     command?: string;
@@ -50,7 +59,8 @@ export class GitHubInbox {
     this.#flights = new ListCache(options.now, 0);
     this.#api = new GhApi({
       ...options,
-      // A write changes what every page shows: the next read asks GitHub at once.
+      // A write changes what every page shows: the next read asks GitHub at once. The rate
+      // limit stays: it belongs to the account, not to a page.
       onWrite: () => {
         this.#recent.clear();
         this.#flights.invalidate();
@@ -79,36 +89,39 @@ export class GitHubInbox {
     const now = this.#now();
     if (recent && now - recent.at < recent.list.pollSeconds * 1_000)
       return { ...recent.list, unchanged: true };
+    const limited = this.#limited;
+    if (limited?.retryAt !== undefined && now < limited.retryAt) throw limited;
     let page: Page;
     try {
       page = await this.#api.request(path, signal);
     } catch (error) {
-      throw notificationsError(error);
+      if (error instanceof ForgeError && error.kind === "rate_limit") this.#limited = error;
+      throw notificationsError(error, path);
     }
-    const records = this.#decoder
+    const rows = this.#decoder
       .read(page)
       .flatMap((value) => {
         const parsed = GitHubNotification.safeParse(value);
-        return parsed.success ? [parsed.data] : [];
+        return parsed.success ? [inboxRow(this.host, parsed.data)] : [];
       })
       .slice(0, perPage);
+    // States are kept with the page only once read in full; a refused read is asked again.
     let states = this.#states.get(page);
     if (!states) {
-      states = await this.#readStates(records, signal);
-      this.#states.set(page, states);
+      const read = await this.#readStates(rows, signal);
+      states = read.states;
+      if (read.complete) this.#states.set(page, states);
     }
-    const known = states;
+    for (const row of rows) {
+      const state = row.number
+        ? states.get(stateKey(row.repository.owner, row.repository.name, row.number))
+        : undefined;
+      // The row is new here, so it takes its state in place.
+      if (state && (row.type === "PullRequest" || row.type === "Issue")) row.state = state;
+    }
     const list: ForgeInboxList = {
       host: this.host,
-      items: records.map((record) => {
-        const row = inboxRow(this.host, record);
-        const state = row.number
-          ? known.get(stateKey(row.repository.owner, row.repository.name, row.number))
-          : undefined;
-        // The row is new here, so it takes its state in place.
-        if (state && (row.type === "PullRequest" || row.type === "Issue")) row.state = state;
-        return row;
-      }),
+      items: rows,
       ...(this.#api.next(page, path) && number < 20 ? { nextPage: number + 1 } : {}),
       pollSeconds: pollSeconds(page.headers["x-poll-interval"]),
       unchanged: recent?.page === page,
@@ -126,14 +139,12 @@ export class GitHubInbox {
    * read. A page without them, or a read GitHub refuses, leaves rows without a state.
    */
   async #readStates(
-    records: readonly GitHubNotification[],
+    rows: readonly ForgeInboxRow[],
     signal: AbortSignal,
-  ): Promise<Map<string, ForgeInboxSubjectState>> {
+  ): Promise<{ states: Map<string, ForgeInboxSubjectState>; complete: boolean }> {
     const wanted = new Map<string, { owner: string; name: string; numbers: Set<number> }>();
-    for (const record of records) {
-      if (record.subject.type !== "PullRequest" && record.subject.type !== "Issue") continue;
-      const row = inboxRow(this.host, record);
-      if (!row.number) continue;
+    for (const row of rows) {
+      if ((row.type !== "PullRequest" && row.type !== "Issue") || !row.number) continue;
       const key = `${row.repository.owner}/${row.repository.name}`.toLowerCase();
       const entry = wanted.get(key) ?? {
         owner: row.repository.owner,
@@ -144,7 +155,7 @@ export class GitHubInbox {
       wanted.set(key, entry);
     }
     const states = new Map<string, ForgeInboxSubjectState>();
-    if (!wanted.size) return states;
+    if (!wanted.size) return { states, complete: true };
     const repos = [...wanted.values()];
     const fields = repos.map(
       (repo, index) =>
@@ -167,12 +178,12 @@ export class GitHubInbox {
     } catch (error) {
       signal.throwIfAborted();
       if (error instanceof ForgeError && error.kind === "offline") throw error;
-      return states;
+      return { states, complete: false };
     }
     const data = z
       .object({ data: z.record(z.string(), z.record(z.string(), z.unknown()).nullable()) })
       .safeParse(body);
-    if (!data.success) return states;
+    if (!data.success) return { states, complete: false };
     repos.forEach((repo, index) => {
       const nodes = data.data.data[`r${index}`];
       if (!nodes) return;
@@ -181,7 +192,7 @@ export class GitHubInbox {
         if (state) states.set(stateKey(repo.owner, repo.name, number), state);
       }
     });
-    return states;
+    return { states, complete: true };
   }
   /**
    * Marks a thread read or done, unsubscribes from it, or marks everything read. Each sets a
@@ -211,7 +222,7 @@ export class GitHubInbox {
     try {
       page = await this.#api.request(request[0], signal, request[1], request[2], dispatch);
     } catch (error) {
-      throw notificationsError(error);
+      throw notificationsError(error, request[0]);
     }
     if (page.identityChanged) throw new ForgeMutationOutcome({ dispatched: true });
   }

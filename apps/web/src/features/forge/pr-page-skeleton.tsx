@@ -6,6 +6,7 @@ import { PersonAvatar } from "@/components/person-avatar.tsx";
 import { hairlineGrid } from "@/components/ui/rules.ts";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { cn } from "@/lib/cn.ts";
+import { useBackLabel } from "@/components/back-label.tsx";
 
 /** What a list row already says about the pull request, shown for real while the rest loads. */
 export type PrSeed = Pick<
@@ -40,6 +41,7 @@ export function PrPageSkeleton(props: {
   readable?: string | undefined;
 }) {
   const { seed } = props;
+  const backLabel = useBackLabel("Pull requests");
   const merged = seed?.state === "merged";
   return (
     <LoadingRegion label={`pull request #${props.number}`} className="flex flex-col">
@@ -49,12 +51,12 @@ export function PrPageSkeleton(props: {
             <div className="mb-2 flex min-h-8 items-center">
               <button
                 type="button"
-                aria-label="Back to pull requests"
+                aria-label={`Back to ${backLabel.toLowerCase()}`}
                 onClick={props.onBack}
                 className="-ml-1 inline-flex h-6 items-center gap-1 rounded-sm px-1 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit hover:text-foreground"
               >
                 <ArrowLeftIcon aria-hidden size={14} />
-                Pull requests
+                {backLabel}
               </button>
             </div>
           )}

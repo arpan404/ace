@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { StateBadge } from "@/components/forge-marks.tsx";
 import { WorkHeading } from "@/components/work-heading.tsx";
+import { useBackLabel } from "@/components/back-label.tsx";
 import type { PrActions } from "./pr-actions.ts";
 import type { PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { BehindBase, PrPrimaryControl, PrTitle } from "./pr-header.tsx";
@@ -27,11 +28,12 @@ export function PrPageHeader(props: {
   const { context } = actions;
   const { detail } = context;
   const { status } = detail;
+  const backLabel = useBackLabel("Pull requests");
   const commits = `${detail.commits} ${detail.commits === 1 ? "commit" : "commits"}`;
   return (
     <header className="shrink-0 px-[var(--forge-gutter,1rem)] pt-6 pb-4">
       <WorkHeading
-        back={props.onBack && { label: "Pull requests", onBack: props.onBack }}
+        back={props.onBack && { label: backLabel, onBack: props.onBack }}
         title={<PrTitle actions={actions} condensed={false} page />}
         actions={
           <>

@@ -112,7 +112,7 @@ export class ForgeBackends {
    * repository. Every request goes through the identity-checked runner.
    */
   async inbox(cwd: string, host: string | undefined): Promise<GitHubInbox> {
-    const target = host ?? (await this.repository(cwd)).host;
+    const target = host || (await this.repository(cwd)).host;
     const identity = await this.sourceControl?.identity(cwd, target, this.signal);
     const key = JSON.stringify({
       host: target,

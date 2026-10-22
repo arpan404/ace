@@ -6,7 +6,13 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { CommandRefused, runCommand } from "@/lib/daemon-command.ts";
 import { failureCode, readForge } from "@/lib/forge-read.ts";
 import { repositoryFromParam } from "@/lib/pull-request-route.ts";
-import { afterWrite, inboxQuery, visibleRows, type InboxSearch } from "./inbox-model.ts";
+import {
+  afterWrite,
+  inboxPollMs,
+  inboxQuery,
+  visibleRows,
+  type InboxSearch,
+} from "./inbox-model.ts";
 
 /** Every inbox page of a project, whatever its filters: a write changes them all. */
 export const inboxKey = (project: string | undefined) => ["forge", project, "inbox"] as const;
@@ -44,8 +50,13 @@ export function useInboxPages(project: string | undefined, search: InboxSearch, 
       ...(index === 0
         ? {
             placeholderData: keepPreviousData,
-            refetchInterval: (query: { state: { data?: ForgeInboxList | undefined } }) =>
-              (query.state.data?.pollSeconds ?? 60) * 1_000,
+            refetchInterval: (query: {
+              state: { data?: ForgeInboxList | undefined; error: Error | null };
+            }) =>
+              inboxPollMs(
+                query.state.data,
+                query.state.error ? failureCode(query.state.error) : undefined,
+              ),
             refetchIntervalInBackground: false,
           }
         : {}),
@@ -91,6 +102,7 @@ export function useInboxWrites(project: string | undefined) {
         : input.action === "read-all"
           ? afterWrite(page, {
               kind: "read-all",
+              before: Date.parse(input.before),
               ...(input.repository
                 ? {
                     repo: `${input.repository.host}/${input.repository.owner}/${input.repository.name}`,
@@ -110,7 +122,11 @@ export function useInboxWrites(project: string | undefined) {
         workspaceId: WorkspaceId.parse(project),
         input,
       });
-      if (input.action !== "read") await cache.invalidateQueries({ queryKey: inboxKey(project) });
+      // Done and unsubscribe land at once: read again. Read is already shown. Mark all read is
+      // applied by GitHub in the background (202), so reading now could bring the rows back
+      // bold; the next poll catches up instead.
+      if (input.action === "done" || input.action === "unsubscribe")
+        await cache.invalidateQueries({ queryKey: inboxKey(project) });
       return true;
     } catch (error) {
       const code =
@@ -133,7 +149,7 @@ export function useInboxWrites(project: string | undefined) {
       return false;
     }
   };
-  /** Mark everything read up to now, in the filtered repository or everywhere. */
+  /** Mark everything read up to `now` (read at the click), in one repository or everywhere. */
   const readAll = (repo: string | undefined, now: number) => {
     const repository = repositoryFromParam(repo);
     return write({

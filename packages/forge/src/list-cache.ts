@@ -57,7 +57,8 @@ export class ListCache<T> {
       waiters: 0,
       settled: false,
       promise: load(controller.signal).then((value) => {
-        if (generation === this.#generation) this.#keep(key, value);
+        // With no freshness the cache only shares reads on their way; answers aren't kept.
+        if (generation === this.#generation && this.#freshMs > 0) this.#keep(key, value);
         return value;
       }),
     };
