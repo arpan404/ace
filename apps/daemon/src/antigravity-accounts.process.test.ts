@@ -13,12 +13,14 @@ import { antigravityQuirks, createAcpAdapter } from "@ace/adapter-acp";
 import { createLogger } from "@ace/diagnostics";
 import { ModelCatalog, openModelStorage } from "@ace/models";
 import { ThreadId } from "@ace/protocol";
+import { AccountManagement } from "./account-management.ts";
 import { createManagedHome } from "./account-homes.ts";
 import { readConfig } from "./config.ts";
 import {
   registerAntigravityAccountCatalog,
   withAntigravityAccounts,
 } from "./services/antigravity-accounts.ts";
+import { providerAccounts } from "./provider-accounts.ts";
 import { prepareAgentLogin } from "./services/provider-login-agent.ts";
 import { accountTransitions } from "./services/thread-transitions.ts";
 import { Resources } from "./services/resources.ts";
@@ -103,6 +105,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     home,
     bin,
     env,
+    context,
     registry,
     accounts,
     /** Open a thread's Antigravity session on an account; exits are what its thread hears. */
@@ -124,6 +127,30 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       const instance = await createManagedHome(home, `account-${++id}`, "antigravity", label);
       await registry.register(instance);
       return instance;
+    },
+    /** Remove an account the way Settings asks the daemon to. */
+    async remove(instanceId: string) {
+      const management = new AccountManagement({
+        registry,
+        accounts,
+        dataDir: home,
+        env,
+        now: () => 1000,
+        id: () => String(++id),
+        models: () => undefined,
+      });
+      try {
+        return await providerAccounts(management, sessions, "device", {
+          type: "provider.accounts.remove",
+          requestId: `request-${++id}`,
+          provider: "antigravity",
+          instanceId,
+          confirm: true,
+          deleteHome: false,
+        });
+      } finally {
+        await management.close();
+      }
     },
     async signIn(instance?: string) {
       const result = await sessions.handle("device", {
@@ -285,6 +312,51 @@ test("a signed-in added account's models load in its own home, never with a sign
     expect(discovered).toHaveLength(1);
   } finally {
     await models.close();
+    await f.close();
+  }
+});
+
+test("signing an added account in again never hands its model discovery a sign-in", async () => {
+  const f = await antigravity();
+  const methods: (string | undefined)[] = [];
+  const models = new ModelCatalog({
+    storage: openModelStorage(join(f.home, "models.sqlite")),
+    now: () => 1000,
+    deadline: () => () => {},
+    discover: async (instance) => {
+      if (instance.id !== antigravityIdentity.instanceId) methods.push(instance.signInMethod);
+      return [];
+    },
+  });
+  f.context.services.models = models;
+  try {
+    const work = await f.add("Work");
+    expect(await f.signIn(work.id)).toMatchObject({ state: "succeeded" });
+    expect(models.hasInstance(work.id)).toBe(true);
+    // Signed in with a method again: a lapsed login must still be reported, never reopened.
+    expect(await f.signIn(work.id)).toMatchObject({ state: "succeeded" });
+    expect(methods.length).toBeGreaterThan(1);
+    expect(methods.every((method) => method === undefined)).toBe(true);
+  } finally {
+    await models.close();
+    await f.close();
+  }
+});
+
+test("removing Antigravity's CLI login is refused before anything signs it out", async () => {
+  const f = await antigravity();
+  try {
+    expect(await f.signIn()).toMatchObject({ state: "succeeded" });
+    const requests = (await readFile(join(f.home, "seen.jsonl"), "utf8")).trim().split("\n");
+    expect(await f.remove(antigravityIdentity.instanceId)).toMatchObject({
+      result: { ok: false, error: "failed" },
+    });
+    // Still signed in, and the agent was never asked to do anything.
+    expect(f.registry.summary(antigravityIdentity.instanceId, 1000)?.quota.auth).toBe("logged_in");
+    expect((await readFile(join(f.home, "seen.jsonl"), "utf8")).trim().split("\n")).toEqual(
+      requests,
+    );
+  } finally {
     await f.close();
   }
 });

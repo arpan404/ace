@@ -1,4 +1,4 @@
-import { explicitInstance, pickInstance, type Candidate } from "@ace/accounts";
+import { accountProvider, explicitInstance, pickInstance, type Candidate } from "@ace/accounts";
 import { AcpIdentity, type DelegationRequest, type Thread, type CatalogModel } from "@ace/protocol";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { executionModelId, selectionModelFilter } from "@ace/models";
@@ -42,6 +42,22 @@ function checkAuth(
     throw new AgentControlError("provider_disabled", "Selected account is disabled");
 }
 
+/**
+ * An Antigravity account chosen by id. It is stored as an ACP account, so native scheduling never
+ * picks it; an explicit choice is honoured when the account is still Antigravity's and its home
+ * is usable. Its authentication is checked against the selected model like any other.
+ */
+function antigravityAccount(deps: DelegationDependencies, accountId: string) {
+  const account = deps.accounts?.get(accountId);
+  if (
+    !account ||
+    accountProvider(account.instance) !== "antigravity" ||
+    account.quota.blockers.homeUnavailable
+  )
+    throw new AgentControlError("account_unavailable", "Account unavailable or quota exhausted");
+  return account.instance;
+}
+
 /** Choose the account before checking its authentication against its actual selected model. */
 export function delegationSelection(
   deps: DelegationDependencies,
@@ -81,9 +97,11 @@ export function delegationSelection(
     }
   }
   const selected =
-    input.accountId && views[0]
-      ? explicitInstance(request, views[0], now)
-      : pickInstance(request, views, now);
+    input.provider === "antigravity" && input.accountId
+      ? antigravityAccount(deps, input.accountId)
+      : input.accountId && views[0]
+        ? explicitInstance(request, views[0], now)
+        : pickInstance(request, views, now);
   if (provider.success && (input.accountId || candidates.length > 0) && !selected)
     throw new AgentControlError("account_unavailable", "Account unavailable or quota exhausted");
   const instance =
@@ -122,6 +140,10 @@ export function validateDelegationSelection(
     throw new AgentControlError("model_unavailable", "Selected model is no longer available");
   checkAuth(deps, input, resolved.model, instance);
   if (!accountId) return;
+  if (input.provider === "antigravity") {
+    antigravityAccount(deps, accountId);
+    return;
+  }
   const account = deps.accounts?.get(accountId);
   if (
     !account ||

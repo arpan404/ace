@@ -119,7 +119,8 @@ export async function prepareAgentLogin(
         const models = services.models;
         if (auth === "logged_out") await models?.removeInstance(added.id);
         else if (models?.hasInstance(added.id))
-          await models.loginChanged(added.id, id(), registry.acpSignInMethod(added.id) ?? null);
+          // Never a sign-in method: discovery must not open a browser if the login lapses.
+          await models.loginChanged(added.id, id(), null);
         else if (cli?.path) {
           // Signed in: its catalog is discovered inside its own home from now on.
           registerAntigravityAccountCatalog(context, added, antigravityLaunch(cli, cli.path));

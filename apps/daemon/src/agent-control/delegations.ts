@@ -9,7 +9,7 @@ import { delegationCommandPolicy } from "./command-policy.ts";
 import { childResultPrompt, launchSlots } from "@ace/orchestrator";
 import { LaunchQueue } from "./launch-queue.ts";
 import { childStatus, queuedStatus } from "./child-status.ts";
-import { type AccountRegistry } from "@ace/accounts";
+import { accountProvider, type AccountRegistry } from "@ace/accounts";
 import {
   CommandId,
   DeviceId,
@@ -258,9 +258,13 @@ export class DelegationService {
     const request = delegationRequest(value);
     this.admission.validate(caller, request);
     await this.deps.modelsReady;
+    const account = request.accountId ? this.deps.accounts?.get(request.accountId) : undefined;
+    // An added Antigravity account is stored as an ACP account but belongs to Antigravity.
     if (
       request.accountId &&
-      this.deps.accounts?.get(request.accountId)?.instance.provider !== request.provider
+      (!account ||
+        (account.instance.provider !== request.provider &&
+          accountProvider(account.instance) !== request.provider))
     )
       throw new AgentControlError(
         "account_unavailable",

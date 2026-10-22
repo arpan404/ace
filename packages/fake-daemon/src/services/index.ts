@@ -232,14 +232,14 @@ export class FakeServices {
               : "browser"
             : "unknown";
           selected.loginRevision = String(Number(selected.loginRevision ?? "0") + 1);
+          // The catalog's rows for the provider; a provider it has none for (Antigravity) copies
+          // what its accounts list, this one's included, before its own rows are replaced.
+          const listed = modelCatalog().filter((entry) => entry.provider === provider);
+          const templates = listed.length
+            ? listed
+            : this.models.filter((entry) => entry.provider === provider);
           this.models = this.models.filter((entry) => entry.instance !== selected.id);
           if (signedIn) {
-            // The catalog's rows for the provider; a provider it has none for (Antigravity)
-            // copies what its other accounts already list.
-            const listed = modelCatalog().filter((entry) => entry.provider === provider);
-            const templates = listed.length
-              ? listed
-              : this.models.filter((entry) => entry.provider === provider);
             const first = templates[0]?.instance;
             this.models.push(
               ...templates

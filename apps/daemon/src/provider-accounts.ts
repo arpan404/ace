@@ -43,7 +43,12 @@ export async function providerAccounts(
       const account = management.summaries(request.provider).find((row) => row.id === instanceId);
       if (!account) return fail("not_found");
       homeUnavailable = account.quota.blockers.homeUnavailable !== undefined;
-      if (request.type === "provider.accounts.remove" && account.implicit) return fail("failed");
+      // A CLI's own login, or an agent's default home, is never removed (nor signed out first).
+      if (
+        request.type === "provider.accounts.remove" &&
+        (account.implicit || account.homeStrategy === "default_cli")
+      )
+        return fail("failed");
     }
     if (request.type === "provider.accounts.add" || request.type === "provider.accounts.reauth") {
       if (
