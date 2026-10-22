@@ -91,7 +91,9 @@ simulator screenshots.
 - Native item models preserve identity across deltas. Membership and position updates
   change the order separately. The SDK bounds the spike window to 2,200 items and text
   to 8,192 code units. Snapshots remain capped at 200; the spike calls the SDK's history
-  paging API to admit the rest.
+  paging API to admit the rest after the latest window is on screen
+  (`bridge/thread-history.ts`), one page at a time once native has the one before. Rows keep
+  their sort numbers while older pages land above them (`bridge/anchored-positions.ts`).
 - Composer drafts clear after `ClientCore.enqueue()` confirms local persistence.
   Failure preserves the input. Approval controls recover through correlated
   admission/receipt results; canonical interaction updates close the card.
