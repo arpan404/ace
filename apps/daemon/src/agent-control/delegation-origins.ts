@@ -36,13 +36,15 @@ export class DelegationOrigins {
         kind TEXT NOT NULL DEFAULT 'turn', PRIMARY KEY(child_id, generation));
       CREATE INDEX IF NOT EXISTS delegation_origin_runs ON delegation_origins(parent_id, run_id);
       CREATE TABLE IF NOT EXISTS delegation_origin_backfill (id INTEGER PRIMARY KEY);`);
-      const columns = db
-        .prepare("PRAGMA table_info(delegation_origins)")
-        .all()
-        .map((row) => String(row.name));
-      if (!columns.includes("kind"))
+      const columns = new Set(
+        db
+          .prepare("PRAGMA table_info(delegation_origins)")
+          .all()
+          .map((row) => String(row.name)),
+      );
+      if (!columns.has("kind"))
         db.exec("ALTER TABLE delegation_origins ADD COLUMN kind TEXT NOT NULL DEFAULT 'turn'");
-      if (!columns.includes("noted_seq"))
+      if (!columns.has("noted_seq"))
         db.exec("ALTER TABLE delegation_origins ADD COLUMN noted_seq INTEGER NOT NULL DEFAULT 0");
     });
   }
