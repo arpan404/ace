@@ -292,3 +292,67 @@ test("a signed-out account has one sign-in action and can still become default f
   await within(work).findByText("Default");
   expect(within(work).getByText("Signed out")).toBeTruthy();
 });
+
+test("an ACP agent's one account can sign in again, sign out and be renamed, but not be added to", async () => {
+  const app = harness();
+  await app.open("/settings/providers");
+  await userEvent.click(
+    await screen.findByRole("link", { name: "Gemini CLI" }, { timeout: 10_000 }),
+  );
+  const list = await screen.findByRole("list", { name: "Gemini CLI accounts" });
+  const row = (await within(list).findByText("Google")).closest("li");
+  if (!row) throw new Error("No Google row");
+  expect(within(list).queryByRole("button", { name: "Add account" })).toBeNull();
+  expect(screen.getByText(/Gemini CLI keeps one sign-in on this computer/)).toBeTruthy();
+
+  await userEvent.click(within(row).getByRole("button", { name: "Manage Google" }));
+  const menu = await screen.findByRole("menu");
+  expect(within(menu).getByRole("menuitem", { name: "Sign out" })).toBeTruthy();
+  expect(within(menu).queryByRole("menuitem", { name: "Remove" })).toBeNull();
+  await userEvent.click(within(menu).getByRole("menuitem", { name: "Rename" }));
+  const name = await screen.findByRole("textbox", { name: "Account name" });
+  await userEvent.clear(name);
+  await userEvent.type(name, "Work Google{Enter}");
+  await waitFor(async () =>
+    expect(
+      (await app.client.request({ type: "accounts.list" })).accounts.find(
+        (entry) => entry.id === "gemini-google",
+      )?.label,
+    ).toBe("Work Google"),
+  );
+
+  await userEvent.click(within(list).getByRole("button", { name: "Manage Work Google" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Sign in again" }));
+  expect(await screen.findByRole("dialog", { name: "Sign in to Gemini CLI" })).toBeTruthy();
+}, 30_000);
+
+test("Antigravity's page lists its sign-in, which ace keeps as its agent's account", async () => {
+  const app = harness();
+  const services = app.daemon.services;
+  services.installed.add("antigravity");
+  const status = services.providerStatuses.find((row) => row.provider === "antigravity");
+  if (!status) throw new Error("Missing Antigravity status");
+  Object.assign(status, { installed: true, version: "1.4.1", auth: "logged_in" });
+  const example = services.accounts.find((entry) => entry.provider === "acp");
+  if (!example) throw new Error("Missing ACP account fixture");
+  services.accounts.push({
+    ...example,
+    id: "antigravity-cli-default",
+    acpAgentId: "official:antigravity-acp",
+    installationId: "antigravity-cli",
+    instanceId: "antigravity-cli-default",
+    label: "Antigravity",
+  });
+  await app.open("/settings/providers");
+  await userEvent.click(
+    await screen.findByRole("link", { name: "Antigravity" }, { timeout: 10_000 }),
+  );
+  const list = await screen.findByRole("list", { name: "Antigravity accounts" });
+  const row = (await within(list).findByText("Antigravity")).closest("li");
+  if (!row) throw new Error("No Antigravity row");
+  // Only Antigravity's own sign-in: the Gemini CLI agent's account belongs to its own page.
+  expect(within(list).queryByText("Google")).toBeNull();
+  await userEvent.click(within(row).getByRole("button", { name: "Manage Antigravity" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Sign in again" }));
+  expect(await screen.findByRole("dialog", { name: "Sign in to Antigravity" })).toBeTruthy();
+}, 30_000);
