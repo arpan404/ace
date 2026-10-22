@@ -1,3 +1,4 @@
+import { fakeMediaBytes } from "./catalog/forge-media.ts";
 import {
   type FileOperation,
   type ReviewComment,
@@ -335,6 +336,20 @@ export class FakeFilesWire {
             // As the daemon: a project's own folder is read-only and needs a registered project.
             const workspaceId = message.workspaceId;
             if (message.threadId || message.scope) throw new Error("INVALID_MESSAGE");
+            if (op.op === "forge.media.download") {
+              // As the daemon: media fetched for forge text, read by hash.
+              const bytes = fakeMediaBytes(op.sha256);
+              if (!bytes || !this.registered(workspaceId)) throw new Error("NOT_FOUND");
+              const key = `forge-media:${op.sha256}`;
+              if (!this.files.has(key)) this.files.set(key, { bytes, version: op.sha256 });
+              read(
+                { op: "download", path: op.sha256, offset: op.offset },
+                "",
+                key,
+                message.requestId,
+              );
+              return;
+            }
             if (op.op !== "list" && op.op !== "stat" && op.op !== "read" && op.op !== "download")
               throw new Error("FORBIDDEN");
             if (!this.registered(workspaceId)) throw new Error("NOT_FOUND");

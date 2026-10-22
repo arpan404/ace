@@ -290,6 +290,17 @@ function ElementNode(props: { node: Element; draw: Draw }): ReactNode {
 /** A run's tree, drawn. */
 export function HtmlNodes(props: { nodes: readonly HtmlNode[]; draw: Draw; block: boolean }) {
   // Between blocks, whitespace from the HTML's own line breaks draws nothing.
-  const nodes = props.block ? props.nodes.filter((node) => !blank(node)) : props.nodes;
-  return <Children nodes={nodes} draw={props.draw} />;
+  if (!props.block) return <Children nodes={props.nodes} draw={props.draw} />;
+  // Text between blocks (a tag shown as text) takes a paragraph's place in the rhythm.
+  return props.nodes
+    .filter((node) => !blank(node))
+    .map((node, index) =>
+      node.kind === "text" ? (
+        <p key={index} className="whitespace-pre-wrap">
+          <ForgeText text={node.text.trim()} />
+        </p>
+      ) : (
+        <Node key={index} node={node} draw={props.draw} />
+      ),
+    );
 }

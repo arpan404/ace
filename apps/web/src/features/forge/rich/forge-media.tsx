@@ -125,7 +125,7 @@ function Video(props: { view: Extract<MediaView, { phase: "ready" }> }) {
       controls
       playsInline
       preload="metadata"
-      className="block max-h-160 w-full max-w-full rounded-sm bg-surface-1"
+      className="block max-h-160 max-w-full rounded-sm bg-surface-1"
     />
   );
 }

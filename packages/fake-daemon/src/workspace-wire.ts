@@ -1,3 +1,4 @@
+import { resolveFakeMedia } from "./catalog/forge-media.ts";
 import { FakeSourceControlDrafts } from "./source-control-drafts.ts";
 import { FakeProjects } from "./projects.ts";
 import {
@@ -244,6 +245,12 @@ export class FakeWorkspaceWire {
           : { kind: "error", code: "forge_not_found" },
       });
     }
+    if (op.op === "forge.media.resolve" && !this.forgeReads.has(JSON.stringify(op)))
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: { kind: "forge", data: { resource: "media", items: resolveFakeMedia(op.items) } },
+      });
     if (op.op === "forge.open-work")
       return ServerMessage.parse({
         type: "workspace.result",
