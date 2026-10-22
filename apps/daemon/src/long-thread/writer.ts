@@ -189,8 +189,12 @@ export class TurnWriter {
       this.digests.bump(event, ordinal, "live:runs", 1 - Number(old?.live ?? 0));
       if (root) {
         this.data.run("UPDATE long_heads SET ordinal=? WHERE thread_id=?", ordinal, event.threadId);
+        // The turn's time starts with its first root run, not with an ask that waited before
+        // it (a held, queued or retried message); a continuation keeps the turn's start.
         this.data.run(
-          "UPDATE long_turns SET root_run=?,root_outcome='active' WHERE thread_id=? AND ordinal=?",
+          `UPDATE long_turns SET started_at=CASE WHEN root_run IS NULL THEN ? ELSE started_at END,
+             root_run=?,root_outcome='active' WHERE thread_id=? AND ordinal=?`,
+          p.run.startedAt,
           p.run.id,
           event.threadId,
           ordinal,
