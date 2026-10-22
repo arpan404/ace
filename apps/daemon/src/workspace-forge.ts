@@ -2,6 +2,7 @@ import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { WorkspaceIssueLinks } from "./workspace-issue-links.ts";
 import { actionErrorCode } from "./action-errors.ts";
 import { IssueActions } from "./issue-actions.ts";
+import { runInboxWrite } from "./inbox-actions.ts";
 import type { Command } from "@ace/protocol";
 import { ForgeResourceOwner } from "./forge-resource-owner.ts";
 import { WorkspaceForgeLifecycle } from "./workspace-forge-lifecycle.ts";
@@ -324,6 +325,19 @@ export class WorkspaceForge {
       allowed,
     );
     return { ok: true };
+  }
+  /** Marks GitHub notifications read or done, or unsubscribes, as the person asked. */
+  inboxCommand(
+    command: Command & { payload: import("@ace/protocol").ForgeInboxCommand },
+    cwd: string,
+    allowed: () => boolean,
+  ) {
+    return runInboxWrite(
+      command,
+      () => this.backends.inbox(cwd, command.payload.host),
+      allowed,
+      this.lifetime.signal,
+    );
   }
   async hostedChecks(
     command: Command & { payload: import("@ace/protocol").ForgeHostedChecksCommand },
