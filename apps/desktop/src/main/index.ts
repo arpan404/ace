@@ -31,9 +31,17 @@ import { appearance, createHandlers } from "./handlers.ts";
 import { emit, registerHandlers } from "./ipc.ts";
 import { claimKeychainName } from "./keychain.ts";
 import { applicationMenu } from "./menu.ts";
-import { cliShimCheck, cliShimLog, type CliShimResult } from "./os/cli-shim.ts";
+import { cliShimCheck, cliShimLog, runningAppImage, type CliShimResult } from "./os/cli-shim.ts";
 import { installCliShim } from "./os/cli-shim-install.ts";
+import { linuxAutostart, nodeAutostartFiles } from "./os/autostart.ts";
+import { linuxInstall, relaunchCommand } from "./os/linux-sandbox.ts";
+import { relaunchAfterExit } from "./os/relaunch-after-exit.ts";
+import { findElevation, LinuxSandboxSetup, readSandboxFacts } from "./os/linux-sandbox-setup.ts";
+import { linuxTrayHost, runProgram } from "./os/tray-host.ts";
+import { hyprlandShortcutHint } from "./os/hyprland-shortcut.ts";
+import { installAppImageEntry, nodeAppImageEntryFiles } from "./os/appimage-entry.ts";
 import { backgroundArgument, startHidden } from "./os/login.ts";
+import { enableFeatures, linuxFeatures } from "./os/chromium-features.ts";
 import { settingsEffects } from "./os/settings-effects.ts";
 import { appUpdates } from "./os/app-updates.ts";
 import { appPaths } from "./paths.ts";
@@ -50,6 +58,9 @@ import {
   openVisualizationWindow,
 } from "./visualization-isolation.ts";
 import { windowBackground, WindowBackgroundStore } from "./window/window-background.ts";
+
+/** How long the Linux tray check may take before ace assumes the desktop has a tray. */
+const trayCheckMs = 2_000;
 
 /** Set at build time; unpackaged runs have no app package.json for `app.getVersion()`. */
 declare const ACE_APP_VERSION: string;
@@ -82,6 +93,18 @@ if (unsafe) {
   claimKeychainName(app, process.platform);
   // Blink's DNS hints never reach a session's network layer (visualization-isolation.ts).
   disableDnsPrefetching(app);
+  // Wayland: the quick-thread global shortcut goes through the GlobalShortcuts portal.
+  enableFeatures(app.commandLine, linuxFeatures(process.platform));
+  // An AppImage or tar.gz installs nothing: its menu entry is what lets the portal grant that
+  // shortcut, and what `ace://` links open.
+  if (process.platform === "linux" && app.isPackaged)
+    installAppImageEntry({
+      env: process.env,
+      home: homedir(),
+      execPath: process.execPath,
+      files: nodeAppImageEntryFiles,
+      warn: (message) => console.warn(message),
+    });
   registerAppScheme();
   if (!app.requestSingleInstanceLock()) app.quit();
   else
@@ -191,6 +214,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
     open: (link) => open(link),
     quitAll: () => app.quit(),
     log: (message) => log("warn", message),
+    trayHost:
+      process.platform === "linux" ? () => linuxTrayHost(runProgram(trayCheckMs)) : undefined,
   });
 
   let quitting = false;
@@ -221,6 +246,28 @@ function main(target: DaemonTarget, crashDumps: string): void {
     quit: () => app.quit(),
     log: logger("updates"),
   });
+
+  // Chromium's sandbox on an AppImage or tar.gz under Ubuntu's AppArmor restriction.
+  const install = linuxInstall(process.env, process.execPath);
+  const sandbox =
+    process.platform === "linux" && app.isPackaged
+      ? new LinuxSandboxSetup({
+          facts: readSandboxFacts({
+            env: process.env,
+            execPath: process.execPath,
+            noSandbox: app.commandLine.hasSwitch("no-sandbox"),
+            uid: process.getuid?.() ?? 0,
+            home: homedir(),
+            dataDir:
+              target.kind === "managed" || target.kind === "attach" ? target.home : undefined,
+          }),
+          elevation: findElevation(process.env.PATH),
+          report: (notice) => emit(contents(), "sandbox.status", notice),
+          log: (message) => log("info", message),
+        })
+      : undefined;
+  /** Set by the sandbox notice's Restart; used only once the quit goes ahead. */
+  let relaunch: { execPath: string; args: string[] } | undefined;
 
   /** Show the window (creating it if needed) and follow a deep link. */
   function open(link?: DeepLink): void {
@@ -287,13 +334,23 @@ function main(target: DaemonTarget, crashDumps: string): void {
 
   const applyToOs = settingsEffects({
     // Login items belong to the installed app; development builds never register one.
-    ...(app.isPackaged && process.platform !== "linux"
+    ...(app.isPackaged
       ? {
-          loginItem: {
-            enabled: () => app.getLoginItemSettings().openAtLogin,
-            setEnabled: (openAtLogin: boolean) =>
-              app.setLoginItemSettings({ openAtLogin, args: [backgroundArgument] }),
-          },
+          loginItem:
+            process.platform === "linux"
+              ? linuxAutostart({
+                  env: process.env,
+                  home: homedir(),
+                  execPath: process.execPath,
+                  appId: "dev.ace.app",
+                  files: nodeAutostartFiles,
+                  warn: (message) => log("warn", message),
+                })
+              : {
+                  enabled: () => app.getLoginItemSettings().openAtLogin,
+                  setEnabled: (openAtLogin: boolean) =>
+                    app.setLoginItemSettings({ openAtLogin, args: [backgroundArgument] }),
+                },
         }
       : {}),
     shortcuts: {
@@ -346,12 +403,18 @@ function main(target: DaemonTarget, crashDumps: string): void {
         message: "Agents are using the browser",
         detail: "Quitting closes the pages they are working in, and they stop where they are.",
       });
-      if (choice !== 0) return;
+      if (choice !== 0) {
+        relaunch = undefined;
+        return;
+      }
     }
     quitting = true;
     void shutDown()
       .catch((error: unknown) => log("error", String(error)))
-      .finally(() => app.quit());
+      .finally(() => {
+        if (relaunch) relaunchAfterExit(relaunch);
+        app.quit();
+      });
   });
   // Background decides when a windowless app quits (os/lifetime.ts): never while an agent
   // works or a thread has a browser page. Listening here stops Electron quitting on its own.
@@ -426,6 +489,21 @@ function main(target: DaemonTarget, crashDumps: string): void {
       },
       openVisualization: (request) => void openVisualizationWindow(request),
       updates,
+      shortcutHint: () =>
+        hyprlandShortcutHint({
+          env: process.env,
+          accelerator: settings.get().globalShortcut,
+          run: runProgram(trayCheckMs),
+        }),
+      sandbox: {
+        current: () => sandbox?.current() ?? { state: "hidden" },
+        setup: () => sandbox?.setup() ?? Promise.resolve({ state: "hidden" }),
+        hide: () => sandbox?.hide() ?? { state: "hidden" },
+        restart: () => {
+          relaunch = relaunchCommand(install, process.argv);
+          if (relaunch) app.quit();
+        },
+      },
       setWindowBackground: (value) => {
         if (!backgrounds.set(value).changed || !window || window.isDestroyed()) return;
         window.setBackgroundColor(windowBackground(value, nativeTheme.shouldUseDarkColors));
@@ -510,6 +588,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
         node: paths.node,
         entry: paths.daemonEntry,
         loginPath: () => runtime.loginPath(),
+        appImage: process.platform === "linux" ? runningAppImage(process.env) : undefined,
       }).then((result) => {
         cliShim = result;
         const line = cliShimLog(result);

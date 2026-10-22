@@ -32,7 +32,11 @@ export type DoctorContext = {
 export type DoctorFeature = {
   id: string;
   checks(context: DoctorContext): Check[];
-  repairs?(report: DiagnosticReport, context: DoctorContext): PlannedRepair[];
+  /** May read the machine (never change it): the report's text is redacted. */
+  repairs?(
+    report: DiagnosticReport,
+    context: DoctorContext,
+  ): PlannedRepair[] | Promise<PlannedRepair[]>;
   apply?(
     repairId: string,
     report: DiagnosticReport,

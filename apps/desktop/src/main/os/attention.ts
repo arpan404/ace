@@ -13,10 +13,16 @@ export class Attention {
   private overlay: NativeImage | undefined;
   private settings: () => DesktopSettings;
   private window: () => BrowserWindow | undefined;
+  private platform: NodeJS.Platform;
 
-  constructor(settings: () => DesktopSettings, window: () => BrowserWindow | undefined) {
+  constructor(
+    settings: () => DesktopSettings,
+    window: () => BrowserWindow | undefined,
+    platform: NodeJS.Platform = process.platform,
+  ) {
     this.settings = settings;
     this.window = window;
+    this.platform = platform;
   }
 
   update(next: WorkSummary): void {
@@ -26,10 +32,11 @@ export class Attention {
     const win = this.window();
     app.setBadgeCount(next.needsYou);
     if (next.needsYou > previous.needsYou && settings.attention && !win?.isFocused()) {
-      if (process.platform === "darwin") app.dock?.bounce("informational");
+      if (this.platform === "darwin") app.dock?.bounce("informational");
+      // Windows flashes the taskbar button; Linux sets the window's urgency hint.
       else win?.flashFrame(true);
     }
-    if (process.platform === "win32" && win) {
+    if (this.platform === "win32" && win) {
       win.setOverlayIcon(
         next.needsYou ? (this.overlay ??= dot()) : null,
         next.needsYou ? `${next.needsYou} need you` : "",

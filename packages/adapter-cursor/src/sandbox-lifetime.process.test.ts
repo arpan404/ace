@@ -152,3 +152,63 @@ test.each(["normal close", "create failure", "dispose failure", "close during ad
     }
   },
 );
+
+test("when the SDK refuses its sandbox, the person sees why and what still works", async () => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-refusal-")));
+  const reason =
+    "Cursor's sandbox helper needs glibc 2.39 and this system has 2.31, so Cursor can't run in Auto review, its sandboxed mode, on this machine. Full access still works; or run ace on a distribution with glibc 2.39 or newer.";
+  const boundary: RuntimeSdkBoundary = {
+    ...sdk,
+    sandboxSupport: (options) =>
+      probeCursorSandbox(
+        {
+          ConfigurationError: sdk.ConfigurationError,
+          async createAgentPlatform() {
+            return {
+              async prewarmLocalWorkspace() {
+                throw new sdk.ConfigurationError(
+                  "Local SDK sandboxing was requested, but sandboxing is not supported in this environment.",
+                );
+              },
+            };
+          },
+        },
+        options,
+        async () => reason,
+      ),
+    Cursor: { auth: { status: async () => ({ status: "logged-in", backendUrl: "x" }) } },
+    Agent: {
+      create: async () => {
+        throw new Error("No agent starts without its sandbox");
+      },
+      resume: async () => {
+        throw new Error("Unexpected resume");
+      },
+      cancelRun: async () => {},
+    },
+  };
+  const errors: string[] = [];
+  const host = new HostRuntime(
+    boundary,
+    async (frame) => {
+      if (frame.kind === "error") errors.push(JSON.stringify(frame.body));
+    },
+    () => home,
+    {},
+  );
+  try {
+    await expect(
+      host.open({
+        threadId: "refused",
+        generation: "host",
+        cwd: home,
+        permissionMode: cursorMode(true, true),
+        limits: CursorLimitsSchema.parse({}),
+      }),
+    ).rejects.toThrow("SDK setup failed");
+    expect(errors.join("\n")).toContain(reason);
+  } finally {
+    await host.close().catch(() => {});
+    await rm(home, { recursive: true, force: true });
+  }
+});

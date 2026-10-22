@@ -53,3 +53,16 @@ it("a read-only session hears which ace tools still work, on every provider", ()
   // The shared server text never varies by session.
   expect(aceInstructions).not.toContain("read-only");
 });
+
+it("native apps point at the screen tool the session can actually call", () => {
+  const engine = developerInstructions("pi", {
+    tools: ["context", "screen_apps", "screen_state", "screen_act"],
+  });
+  expect(engine).toContain("native app or simulator: screen_state;");
+  // Windows, or a daemon without the engine helper, offers only the older session tools.
+  const session = developerInstructions("pi", {
+    tools: ["context", "screen_open_app", "screen_ui_tree", "screen_ui_act"],
+  });
+  expect(session).toContain("native app or simulator: screen_open_app;");
+  expect(session).not.toContain("screen_state");
+});

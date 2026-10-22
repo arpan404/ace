@@ -126,7 +126,7 @@ pub fn capture(
             let now = start.elapsed();
             if gate.take(now) {
                 let live = x.window(window.id)?;
-                if live.pid != window.pid || live.identity != window.identity {
+                if !window.same_as(&live) {
                     return Err(Fault::new("target_gone", "Capture target replaced"));
                 }
                 let w = live.bounds.w as u32;

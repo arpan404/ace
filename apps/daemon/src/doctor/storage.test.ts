@@ -114,7 +114,7 @@ it("an old upgrade backup is reported, offered unticked, and deleted alone when 
   );
 
   const healthy = report("ok");
-  const [repair, ...others] = feature.repairs?.(healthy, context) ?? [];
+  const [repair, ...others] = (await feature.repairs?.(healthy, context)) ?? [];
   expect(others).toEqual([]);
   expect(repair).toMatchObject({ id: "storage.backups", recommended: false });
   expect(repair?.blocked).toBeUndefined();
@@ -137,7 +137,7 @@ it("backups stay while the database integrity check hasn't passed", async () => 
   upgradeBackup(dataDir, 14);
 
   for (const status of ["fail", "warn"] as const) {
-    const [repair] = feature.repairs?.(report(status), context) ?? [];
+    const [repair] = (await feature.repairs?.(report(status), context)) ?? [];
     expect(repair?.blocked).toContain("integrity check");
     const results = (await feature.apply?.("storage.backups", report(status), context)) ?? [];
     expect(results[0]?.status).toBe("skipped");
@@ -150,7 +150,7 @@ it("a backup whose database didn't open is kept as possibly the only copy", asyn
   await writeFile(join(dataDir, "events.sqlite"), "not a database");
   upgradeBackup(dataDir, 14);
 
-  expect(feature.repairs?.(report("ok"), context)).toEqual([]);
+  expect(await feature.repairs?.(report("ok"), context)).toEqual([]);
   const verdict = await run(feature, context, "storage.backups");
   expect(verdict.message).toContain("events.sqlite doesn't open, so this may be the only copy");
 });
@@ -164,7 +164,7 @@ it("a daemon lock left by a process that exited is reported with its pid and no 
   const stale = await run(feature, context, "storage.locks");
   expect(stale.status).toBe("warn");
   expect(stale.message).toContain(`pid ${exited}, which isn't running`);
-  expect(feature.repairs?.(report("ok"), context)).toEqual([]);
+  expect(await feature.repairs?.(report("ok"), context)).toEqual([]);
 
   await writeFile(join(dataDir, "daemon-lock"), JSON.stringify({ pid: process.pid, id: "y" }));
   expect((await run(feature, context, "storage.locks")).status).toBe("ok");

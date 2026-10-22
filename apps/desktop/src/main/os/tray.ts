@@ -87,11 +87,14 @@ export class StatusTray {
   }
 }
 
-/** The ace glyph as a macOS template image (tinted by the menu bar). */
+/**
+ * The tray image: on macOS a template the menu bar tints; elsewhere the image as drawn (Linux
+ * gets the colour app tile, see `appPaths().trayIcon`).
+ */
 function icon(path: string): NativeImage {
   const image = nativeImage.createFromPath(path);
   if (image.isEmpty()) return fallbackIcon();
-  image.setTemplateImage(true);
+  if (process.platform === "darwin") image.setTemplateImage(true);
   return image;
 }
 
@@ -103,13 +106,15 @@ function fallbackIcon(): NativeImage {
     for (let x = 0; x < size; x++) {
       const distance = Math.hypot(x - 17.5, y - 17.5);
       const alpha = distance <= 13 && distance >= 8.5 ? 0xff : 0;
-      pixels.set([0, 0, 0, alpha], (y * size + x) * 4);
+      // A mid grey stays visible on light and dark panels that never tint the icon.
+      const shade = process.platform === "darwin" ? 0 : 0x9a;
+      pixels.set([shade, shade, shade, alpha], (y * size + x) * 4);
     }
   const image = nativeImage.createFromBitmap(pixels, {
     width: size,
     height: size,
     scaleFactor: 2,
   });
-  image.setTemplateImage(true);
+  if (process.platform === "darwin") image.setTemplateImage(true);
   return image;
 }

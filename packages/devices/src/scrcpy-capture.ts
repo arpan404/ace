@@ -285,7 +285,7 @@ export async function scrcpyCapture(options: {
         started,
         new DeviceError(
           "command_failed",
-          "scrcpy-server stopped on the emulator",
+          "scrcpy-server stopped on the device",
           "Start the device view again.",
         ),
       ),

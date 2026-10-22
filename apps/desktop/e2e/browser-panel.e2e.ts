@@ -40,10 +40,12 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
         })
         .toBe(true);
       // Suggestions and menus over the native page never move or resize it: the view hides
-      // behind its own still picture, drawn exactly where it was, until the overlay goes.
+      // behind a picture of itself drawn exactly where it was, until the overlay goes: its
+      // still, then the live picture once a newer frame arrives (`useCoverStill`).
       const heldInPlace = async () => {
         const { box, native } = await geometry();
-        const picture = await p.locator("[data-frozen-page]").evaluateAll((elements) => {
+        const cover = "[data-browser-page] :is([data-frozen-page], [data-page-picture])";
+        const picture = await p.locator(cover).evaluateAll((elements) => {
           const r = elements[0]?.getBoundingClientRect();
           return r && { x: r.x, y: r.y, width: r.width, height: r.height };
         });
@@ -137,6 +139,8 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       }, s.url);
       await expect.poll(() => nativeRead("document.querySelector('#name').value")).toBe("abc");
       expect(await nativeRead("window.inputs")).toBe(3);
+      // The person's ⌘ on macOS, Ctrl elsewhere.
+      const primary: "meta" | "control" = process.platform === "darwin" ? "meta" : "control";
       const nativeChord = (keyCode: string) =>
         s.app.evaluate(
           ({ webContents }, args) => {
@@ -144,9 +148,9 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
             if (!c) throw new Error("Native fixture missing");
             c.focus();
             for (const type of ["keyDown", "keyUp"] as const)
-              c.sendInputEvent({ type, keyCode: args.keyCode, modifiers: ["meta"] });
+              c.sendInputEvent({ type, keyCode: args.keyCode, modifiers: [args.primary] });
           },
-          { url: s.url, keyCode },
+          { url: s.url, keyCode, primary },
         );
       await nativeChord("L");
       await expect.poll(() => address.evaluate((input) => input.matches(":focus"))).toBe(true);
@@ -286,15 +290,22 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       while ((await p.getByRole("menu").count()) > 0) await p.keyboard.press("Escape");
       await toolbar.waitFor();
       const pageSize = async (name: string) => {
-        await toolbar.getByRole("combobox", { name: "Device" }).click();
+        await toolbar.getByRole("combobox", { name: "Device", exact: true }).click();
         await p.getByRole("option", { name, exact: true }).click();
       };
       await pageSize("iPhone 16 Pro");
       await expect.poll(() => nativeRead("innerWidth")).toBe(402);
       await expect.poll(() => nativeRead("devicePixelRatio")).toBe(3);
-      const emulated = (await geometry()).native?.bounds;
-      if (!emulated) throw new Error("Native emulation missing");
-      expect(emulated.width / emulated.height).toBeCloseTo(402 / 874, 2);
+      // The device list closing over the page hides it behind its picture for a moment; the
+      // page comes back drawn at the device's shape.
+      await expect
+        .poll(async () => {
+          const view = (await geometry()).native;
+          return view?.visible && view.bounds.height > 0
+            ? view.bounds.width / view.bounds.height
+            : undefined;
+        })
+        .toBeCloseTo(402 / 874, 2);
       await pageSize("Laptop");
       await expect.poll(() => nativeRead("innerWidth")).toBe(1280);
       await expect.poll(() => nativeRead("devicePixelRatio")).toBe(1);
@@ -333,30 +344,35 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect.poll(async () => !!(await geometry()).native?.visible).toBe(false);
       // The person kept agents out of the tab, so only the person can close it.
       await s.daemon.browser.closeThread(s.thread.id, { kind: "human", connectionId: "e2e" });
-      for (const thread of [s.thread, s.other]) {
-        await s.daemon.browser.open({
-          threadId: thread.id,
-          workspaceId: thread.workspaceId,
-          profile: "persistent",
+      const reopen = async () => {
+        for (const thread of [s.thread, s.other]) {
+          await s.daemon.browser.open({
+            threadId: thread.id,
+            workspaceId: thread.workspaceId,
+            profile: "persistent",
+          });
+          await s.daemon.browser.execute(thread.id, { action: "navigate", url: s.url });
+        }
+      };
+      const cookies = (threadId: string) =>
+        s.daemon.browser.execute(threadId, { action: "evaluate", expression: "document.cookie" });
+      const setCookie = (value: string) =>
+        s.daemon.browser.execute(s.thread.id, {
+          action: "evaluate",
+          expression: `document.cookie="${value}; path=/"`,
         });
-        await s.daemon.browser.execute(thread.id, { action: "navigate", url: s.url });
-      }
-      await s.daemon.browser.execute(s.thread.id, {
-        action: "evaluate",
-        expression: 'document.cookie="native-isolation=one; path=/"',
-      });
-      expect(
-        await s.daemon.browser.execute(s.thread.id, {
-          action: "evaluate",
-          expression: "document.cookie",
-        }),
-      ).toContain("native-isolation=one");
-      expect(
-        await s.daemon.browser.execute(s.other.id, {
-          action: "evaluate",
-          expression: "document.cookie",
-        }),
-      ).toBe("");
+      // By default every thread shares one kept profile: a sign-in in one is there in all.
+      await reopen();
+      await setCookie("native-shared=one");
+      expect(await cookies(s.other.id)).toContain("native-shared=one");
+      // With a profile per thread, another thread's page never sees this one's cookies.
+      for (const thread of [s.thread, s.other])
+        await s.daemon.browser.closeThread(thread.id, { kind: "human", connectionId: "e2e" });
+      s.useProfileScope("thread");
+      await reopen();
+      await setCookie("native-isolation=one");
+      expect(await cookies(s.thread.id)).toContain("native-isolation=one");
+      expect(await cookies(s.other.id)).toBe("");
     } catch (error) {
       console.error("Browser panel scenario failed", error);
       await s.page.screenshot({ path: "/tmp/ace-panel-ui.png" });

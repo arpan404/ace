@@ -1,3 +1,4 @@
+import { revealWords } from "@/lib/folder-actions.ts";
 import type { BrowserScreenshotSize } from "@ace/protocol";
 import { useState } from "react";
 import { revealer } from "@/boot/open-external.ts";
@@ -59,7 +60,7 @@ export function ResponsiveScreenshotDialog(props: {
         ...(reveal && first
           ? {
               actionProps: {
-                children: "Show in Finder",
+                children: revealWords().show,
                 onClick: () => void reveal(first).catch(() => {}),
               },
             }

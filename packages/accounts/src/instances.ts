@@ -2,7 +2,7 @@ import { cursorSdkEnvironment } from "@ace/adapter-cursor/instance";
 import { openCodeAuthArgs } from "./opencode-auth.ts";
 import { ghConfigDir } from "@ace/provider-kit/user-tool-paths";
 import { opendir } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import {
   discoverProvider,
   discoverPiStatus,
@@ -164,8 +164,14 @@ export function logoutArgs(provider: Provider): string[] {
   return provider === "codex" ? ["logout"] : ["auth", "logout"];
 }
 
-/** Conventional homes only; no auth files, no recursion, capped inventory. */
-export async function discoverHomes(userHome: string): Promise<ProviderInstance[]> {
+/**
+ * Conventional homes only; no auth files, no recursion, capped inventory. `env` is the user's
+ * environment, for OpenCode's XDG roots (absolute `XDG_*_HOME` values only, per the XDG spec).
+ */
+export async function discoverHomes(
+  userHome: string,
+  env: Readonly<Record<string, string | undefined>> = {},
+): Promise<ProviderInstance[]> {
   const results: ProviderInstance[] = [];
   const directory = await opendir(userHome);
   for await (const entry of directory) {
@@ -191,7 +197,11 @@ export async function discoverHomes(userHome: string): Promise<ProviderInstance[
     );
   }
   // OpenCode's normal XDG roots differ from ace-created bundled roots.
-  const data = join(userHome, ".local", "share");
+  const xdg = (name: string, fallback: string[]) => {
+    const configured = env[name];
+    return configured && isAbsolute(configured) ? configured : join(userHome, ...fallback);
+  };
+  const data = xdg("XDG_DATA_HOME", [".local", "share"]);
   try {
     const dirs = await opendir(join(data, "opencode"));
     await dirs.close();
@@ -204,9 +214,9 @@ export async function discoverHomes(userHome: string): Promise<ProviderInstance[
           homeDir: join(data, "opencode"),
           env: {
             XDG_DATA_HOME: data,
-            XDG_CONFIG_HOME: join(userHome, ".config"),
-            XDG_STATE_HOME: join(userHome, ".local", "state"),
-            XDG_CACHE_HOME: join(userHome, ".cache"),
+            XDG_CONFIG_HOME: xdg("XDG_CONFIG_HOME", [".config"]),
+            XDG_STATE_HOME: xdg("XDG_STATE_HOME", [".local", "state"]),
+            XDG_CACHE_HOME: xdg("XDG_CACHE_HOME", [".cache"]),
           },
         }),
       );

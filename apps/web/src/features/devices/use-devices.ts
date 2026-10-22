@@ -209,13 +209,22 @@ export function useDevices(threadId: string, deviceId?: string) {
           : undefined,
     enabled,
     rows,
-    notes: snapshot.issues.map((issue) => ({ message: issue.message, hint: issue.hint })),
+    // The first issue is the problem shown on top unless something failed; each shows once.
+    notes: snapshot.issues
+      .slice(failed ? 0 : 1)
+      .map((issue) => ({ message: issue.message, hint: issue.hint })),
     toolsMissing: snapshot.issues.some((issue) => issue.code === "tool_missing"),
     downloadingTools,
     selected,
     controls,
     pending: pending > 0,
-    problem: failed ?? (snapshot.issues[0] && deviceProblem(snapshot.issues[0])),
+    // Inventory issues are written for people (a Linux adb hint, a udev rule): shown as they are.
+    problem:
+      failed ??
+      (snapshot.issues[0] &&
+        (snapshot.issues[0].permission
+          ? deviceProblem(snapshot.issues[0])
+          : { message: snapshot.issues[0].message, hint: snapshot.issues[0].hint })),
     session,
     holder: state?.controller === "agent" ? state.holder : undefined,
     activity: state?.activity,

@@ -9,6 +9,7 @@ import {
   type ScreenAgentScope,
   type ScreenError,
   type ScreenStreamSettings,
+  type ScreenChooserPick,
 } from "@ace/protocol";
 import type { ScreenTransport } from "@ace/client/screen-stream";
 import type { FakeServiceContext } from "./service-context.ts";
@@ -26,6 +27,8 @@ type Session = {
   codec?: "jpeg" | "h264";
   scope?: ScreenAgentScope | undefined;
   owner?: Channel | undefined;
+  /** A sharing-dialog start still waiting: settles it with the person's answer. */
+  answer?: ((answer: ScreenChooserPick | "declined" | "cancelled") => void) | undefined;
 };
 export interface FakeScreenOptions {
   host: FakeServiceContext;
@@ -57,6 +60,16 @@ export class FakeScreen {
   private messageIds = 0;
   /** The person's computer use switch. */
   enabled = false;
+  /**
+   * Set to be a Linux desktop on Wayland: `targets` lists nothing and says the machine's own
+   * sharing dialog picks, and a `chooser` start waits until `answerSharingDialog`.
+   */
+  sharingDialog = false;
+  /**
+   * With `sharingDialog`: the desktop shares without input (KDE, Hyprland), and this is why.
+   * A shared source is then watch-only and a person's take-over is refused with it.
+   */
+  watchOnly: string | undefined;
   private readonly options: FakeScreenOptions;
   private readonly sessions = new Map<string, Session>();
   private readonly channels = new Set<Channel>();
@@ -167,7 +180,7 @@ export class FakeScreen {
     return session;
   }
   private bundles(state: ScreenState): string[] {
-    return state.target.kind === "display" ? state.target.bundleIds : [state.target.bundleId];
+    return targetBundles(state.target);
   }
   private controller(
     session: Session,
@@ -193,6 +206,46 @@ export class FakeScreen {
     session.state.lifecycle = "stopped";
     this.publish(session);
     for (const channel of this.channels) channel.subscriptions.delete(session.state.sessionId);
+  }
+  /** A start the machine's sharing dialog decides: starting until the person answers there. */
+  private async choose(
+    target: Extract<ScreenState["target"], { kind: "chooser" }>,
+    scope: ScreenAgentScope | undefined,
+  ): Promise<ScreenState> {
+    const session: Session = {
+      scope,
+      state: ScreenState.parse({
+        sessionId: this.options.id(),
+        lifecycle: "starting",
+        controller: "none",
+        mode: "background",
+        indicator: false,
+        target,
+        permissions: { ...this.permissions },
+      }),
+    };
+    this.sessions.set(session.state.sessionId, session);
+    this.publish(session);
+    const answer = await new Promise<ScreenChooserPick | "declined" | "cancelled">((resolve) => {
+      session.answer = resolve;
+    });
+    session.answer = undefined;
+    if (answer === "cancelled") throw new FakeScreenError("internal", "Screen start cancelled");
+    if (answer === "declined") {
+      this.stop(session);
+      throw new FakeScreenError("denied", "Sharing was declined in the sharing dialog.");
+    }
+    session.state = {
+      ...session.state,
+      lifecycle: "live",
+      target: { ...target, picked: answer },
+      ...(this.watchOnly ? { capabilities: watchOnlyCapabilities(this.watchOnly) } : {}),
+    };
+    return this.publish(session);
+  }
+  /** The person at the machine answers its sharing dialog: what they picked, or declined. */
+  answerSharingDialog(answer: ScreenChooserPick | "declined"): void {
+    for (const session of this.sessions.values()) session.answer?.(answer);
   }
   enable(enabled: boolean): void {
     const changed = this.enabled !== enabled;
@@ -234,6 +287,12 @@ export class FakeScreen {
         return;
       }
       case "targets":
+        if (this.sharingDialog)
+          return ScreenInventory.parse({
+            displays: [],
+            windows: [],
+            chooser: { windows: true, displays: true },
+          });
         return ScreenInventory.parse({
           displays: [],
           windows: [
@@ -248,7 +307,7 @@ export class FakeScreen {
         return { bundleId: op.bundleId, pid: 101, mode: "background" };
       case "start": {
         const scope = op.threadId ? { threadId: op.threadId, agentId: "human" } : undefined;
-        const bundles = op.target.kind === "display" ? op.target.bundleIds : [op.target.bundleId];
+        const bundles = targetBundles(op.target);
         this.requireEnabled();
         if (!this.permissions.screenRecording)
           throw new FakeScreenError("permission_denied", "Screen Recording permission required");
@@ -265,6 +324,7 @@ export class FakeScreen {
               },
             );
         if (this.sessions.size >= 8) throw new FakeScreenError("busy", "Screen target limit (8)");
+        if (op.target.kind === "chooser") return this.choose(op.target, scope);
         const session: Session = {
           scope,
           state: ScreenState.parse({
@@ -289,6 +349,7 @@ export class FakeScreen {
     }
     const session = this.live(op.sessionId);
     if (op.op === "stop") {
+      session.answer?.("cancelled");
       this.stop(session);
       return;
     }
@@ -300,6 +361,9 @@ export class FakeScreen {
     this.requireEnabled();
     switch (op.op) {
       case "controller": {
+        const watchOnly = session.state.capabilities?.watchOnly;
+        if (op.controller === "human" && watchOnly)
+          throw new FakeScreenError("not_supported", watchOnly);
         if (op.controller === "agent") {
           if (!op.threadId || !op.agentId)
             throw new FakeScreenError("denied", "Agent id and thread required");
@@ -356,4 +420,25 @@ export class FakeScreen {
         throw new FakeScreenError("not_supported", "Recording unavailable in fake mode");
     }
   }
+}
+
+function targetBundles(target: ScreenState["target"]): string[] {
+  if (target.kind === "display") return target.bundleIds;
+  if (target.kind === "chooser") return target.picked?.bundleId ? [target.picked.bundleId] : [];
+  return [target.bundleId];
+}
+
+/** What a Linux helper reports for a desktop that shares without input. */
+function watchOnlyCapabilities(reason: string): NonNullable<ScreenState["capabilities"]> {
+  return {
+    version: 2,
+    platform: "linux-wayland",
+    capture: { windows: true, displays: true, changeDriven: false },
+    input: { pointer: false, keyboard: false, scroll: false, text: false },
+    uiTree: false,
+    semanticActions: [],
+    codecs: ["jpeg"],
+    permissions: { screen: "granted", input: "n/a" },
+    watchOnly: reason,
+  };
 }

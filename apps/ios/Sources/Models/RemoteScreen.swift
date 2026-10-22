@@ -36,7 +36,17 @@ struct ScreenSessionInfo: Decodable, Identifiable, Hashable {
     let error: String
     let stoppable: Bool
     let secureInputAllowed: Bool
+    /// The machine's sharing dialog waits for the person there (Linux on Wayland).
+    let awaitingChoice: Bool?
+    /// Watch only: a whole display captured without a sharing dialog, or a desktop that shares without input.
+    let viewOnly: Bool?
+    /// Why that desktop lets the person watch but not control (Linux on KDE, Hyprland, Sway); empty otherwise.
+    let watchOnlyReason: String?
+    /// A screen shared in the machine's dialog: the person's to control, never an agent's.
+    let personOnly: Bool?
     var id: String { sessionId }
+    var waiting: Bool { awaitingChoice == true }
+    var controllable: Bool { awaitingChoice != true && viewOnly != true }
 }
 private struct ScreenSessionsReply: Decodable { let sessions: [ScreenSessionInfo] }
 struct RemoteScreenPermissions: Decodable { let screenRecording: Bool; let accessibility: Bool }
@@ -47,7 +57,10 @@ struct RemoteScreenInventory: Decodable {
         var id: Int { windowId }
         var target: RemoteScreenTarget { .init(kind: "window", bundleId: bundleId, windowId: windowId, displayId: nil, bundleIds: nil) }
     }
+    /// Where the machine's own sharing dialog picks what is shared, it lists nothing.
+    struct Chooser: Decodable { let windows: Bool; let displays: Bool }
     let windows: [Window]
+    let chooser: Chooser?
 }
 
 @MainActor @Observable final class RemoteScreen {
@@ -55,6 +68,10 @@ struct RemoteScreenInventory: Decodable {
     private(set) var states: [RemoteScreenState] = []
     private(set) var sessions: [ScreenSessionInfo] = []
     private(set) var windows: [RemoteScreenInventory.Window] = []
+    /// The machine's sharing dialog picks what is shared (Linux on Wayland).
+    private(set) var dialogPicks = false
+    /// The person cancelled a wait in the sharing dialog: its ending needs no sentence.
+    private var cancellingChoice = false
     private(set) var problem: String?
     private(set) var busy = false
     private var owned: Set<String> = []
@@ -74,7 +91,10 @@ struct RemoteScreenInventory: Decodable {
         } catch { if !Task.isCancelled { problem = error.localizedDescription } }
     }
     func targets(_ model: ClientModel) async {
-        do { let inventory: RemoteScreenInventory = try await request(model, ["op": "targets"]); windows = inventory.windows; problem = nil }
+        do {
+            let inventory: RemoteScreenInventory = try await request(model, ["op": "targets"])
+            windows = inventory.windows; dialogPicks = inventory.chooser != nil; problem = nil
+        }
         catch { if !Task.isCancelled { problem = error.localizedDescription } }
     }
     func perform(_ model: ClientModel, _ operation: [String: Any]) async -> Bool {
@@ -96,6 +116,31 @@ struct RemoteScreenInventory: Decodable {
             await refresh(model)
             return created.id
         } catch { if !Task.isCancelled { problem = error.localizedDescription }; return nil }
+    }
+    /// Shares what the person picks in the machine's own sharing dialog. It waits up to two
+    /// minutes for them there, so it holds nothing else up; the list shows the wait meanwhile.
+    func startChoice(_ model: ClientModel, threadId: String?) async -> String? {
+        guard model.connection == "ready", model.canOperate else { return nil }
+        problem = nil; cancellingChoice = false
+        let shown = Task { try? await Task.sleep(for: .milliseconds(600)); await refresh(model) }
+        defer { shown.cancel() }
+        var operation: [String: Any] = ["op": "start", "target": ["kind": "chooser"], "fps": 30]
+        if let threadId { operation["threadId"] = threadId }
+        do {
+            let created: RemoteScreenState = try await request(model, operation, timeout: .seconds(150))
+            await refresh(model)
+            return created.id
+        } catch {
+            let message = error.localizedDescription
+            await refresh(model)
+            if !Task.isCancelled, !cancellingChoice { problem = message }
+            return nil
+        }
+    }
+    /// Ends a wait in the machine's sharing dialog; the dialog there closes.
+    func cancelChoice(_ model: ClientModel, id: String) async {
+        cancellingChoice = true
+        _ = await perform(model, ["op": "stop", "sessionId": id])
     }
     func takeControl(_ model: ClientModel, id: String) async {
         if let holder = state(id)?.holder { previous[id] = holder }
@@ -128,8 +173,8 @@ struct RemoteScreenInventory: Decodable {
         guard reply.ok, let data = reply.data else { throw ServiceFailure(message: reply.error?.message ?? "Screen request failed") }
         return data.sessions
     }
-    private func request<T: Decodable>(_ model: ClientModel, _ operation: [String: Any]) async throws -> T {
-        let reply = try await model.service(["type": "screen.request", "operation": operation], as: DeviceServiceReply<T>.self)
+    private func request<T: Decodable>(_ model: ClientModel, _ operation: [String: Any], timeout: Duration = .seconds(30)) async throws -> T {
+        let reply = try await model.service(["type": "screen.request", "operation": operation], as: DeviceServiceReply<T>.self, timeout: timeout)
         guard reply.ok else { throw ServiceFailure(message: reply.error?.message ?? "Screen request failed") }
         if let data = reply.data { return data }
         return try ServiceValue.null.decode(T.self)

@@ -24,7 +24,6 @@ import type { WorkspaceChangeReservation } from "./engine/workspace-change.ts";
 import { moveThread } from "./thread-move.ts";
 import { WorkspaceRoots, type WorkspaceGit } from "./workspace-roots.ts";
 import { hostname, homedir } from "node:os";
-import { join } from "node:path";
 import { providerNotice } from "@ace/projection";
 import { existsSync } from "node:fs";
 import { GitError, GitService, type GitOptions } from "@ace/git";
@@ -39,7 +38,8 @@ import {
   type WorkspaceActionRequest,
   type WorkspaceActionResult,
 } from "@ace/protocol";
-import { listScripts, installedEditors, shellQuote } from "./workspace-scripts.ts";
+import { listScripts, shellQuote } from "./workspace-scripts.ts";
+import { editorLocations, installedEditors } from "./installed-editors.ts";
 import { createCommandRunner, type CommandRunner } from "@ace/forge";
 import { pushWorkspace } from "./workspace-push.ts";
 import { actionErrorCode, rejectedRemoteHead } from "./action-errors.ts";
@@ -78,7 +78,8 @@ export interface WorkspaceRuntimeOptions {
   /** A handle identifies one shell lifetime, including across daemon restarts. */
   terminalId?: () => string;
   editorPath?: string;
-  editorApplications?: readonly string[];
+  /** Launcher folders searched after PATH; the platform's usual ones by default. */
+  editorLocations?: readonly string[];
   platform?: NodeJS.Platform;
   machine?: { host: string; name: string };
   /** Reports failures nobody waits on: background worktree cleanup and its recovery. */
@@ -502,7 +503,8 @@ export class WorkspaceRuntime {
         editors: await installedEditors(
           this.options.editorPath ?? process.env.PATH,
           this.options.platform ?? process.platform,
-          this.options.editorApplications ?? ["/Applications", join(homedir(), "Applications")],
+          this.options.editorLocations ??
+            editorLocations(this.options.platform ?? process.platform, homedir(), process.env),
         ),
       });
     if (op.op === "workspaces.list")
@@ -737,7 +739,8 @@ export class WorkspaceRuntime {
           await installedEditors(
             this.options.editorPath ?? process.env.PATH,
             this.options.platform ?? process.platform,
-            this.options.editorApplications ?? ["/Applications", join(homedir(), "Applications")],
+            this.options.editorLocations ??
+              editorLocations(this.options.platform ?? process.platform, homedir(), process.env),
           )
         ).find((entry) => entry.id === p.editorId);
         if (!editor) throw new Error("editor_not_found");

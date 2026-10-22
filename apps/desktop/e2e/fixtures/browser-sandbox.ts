@@ -9,7 +9,7 @@ import { build } from "esbuild";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import { startDaemon } from "../../../daemon/src/index.ts";
 import { readConfig } from "../../../daemon/src/config.ts";
-import { Command, ThreadId } from "@ace/protocol";
+import { Command, ThreadId, type BrowserProfileScope } from "@ace/protocol";
 import { randomUUID } from "node:crypto";
 import { detectChromium } from "@ace/browser";
 import {
@@ -41,6 +41,8 @@ export async function browserSandbox(backend: "auto" | "headless" = "auto") {
   };
   let server = createServer();
   let fixturePort = 0;
+  // `browser.profileScope` for browsers opened from now on (the setting's default to start).
+  let profileScope: BrowserProfileScope = "global";
   try {
     daemon = await startDaemon({
       config: readConfig({
@@ -69,6 +71,7 @@ export async function browserSandbox(backend: "auto" | "headless" = "auto") {
       browser: {
         executablePath,
         backendPreference: () => backend,
+        profileScope: () => profileScope,
       },
     });
     server = createServer((req, res) => {
@@ -186,7 +189,22 @@ await import('./app/${mainEntry}');`,
     for (const target of app.context().pages()) target.on("dialog", () => {});
     const page = await app.firstWindow();
     await page.goto(`app://ace/t/${thread.id}`);
-    return { app, page, daemon, thread, other, url, root, web, executablePath, close: cleanup };
+    const useProfileScope = (scope: BrowserProfileScope) => {
+      profileScope = scope;
+    };
+    return {
+      app,
+      page,
+      daemon,
+      thread,
+      other,
+      url,
+      root,
+      web,
+      executablePath,
+      useProfileScope,
+      close: cleanup,
+    };
   } catch (error) {
     await cleanup();
     throw error;

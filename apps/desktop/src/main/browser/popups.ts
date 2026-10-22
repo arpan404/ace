@@ -2,6 +2,8 @@ import { BrowserWindow, type WebContents } from "electron";
 import { NativeBasicAuth } from "./basic-auth.ts";
 import { NativeDialogs } from "./dialogs.ts";
 import { WebSocketGate } from "./socket-gate.ts";
+import { linuxShowGraceMs, showWhenReady } from "../window/show-when-ready.ts";
+import { timers } from "../os/timers.ts";
 
 /** Human-requested auth windows retain their opener and the thread's isolated session. */
 export class NativePopups {
@@ -55,9 +57,13 @@ export class NativePopups {
             privatePorts.authPreload,
           );
           popup.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-          popup.once("ready-to-show", () => {
-            if (privatePorts.allowed() && !popup.isDestroyed()) popup.showInactive();
-          });
+          showWhenReady(
+            popup,
+            () => {
+              if (privatePorts.allowed()) popup.showInactive();
+            },
+            { timers, graceMs: process.platform === "linux" ? linuxShowGraceMs : undefined },
+          );
           popup.once("closed", () => {
             forget();
             this.auth?.close();

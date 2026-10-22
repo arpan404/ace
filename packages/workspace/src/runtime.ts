@@ -26,6 +26,8 @@ export interface WorkspaceRuntime {
     listener: (event: "rename" | "change", filename: string | null) => void,
   ) => FSWatcher;
   clock: WorkspaceClock;
+  /** Selects the native watch strategy; Linux watches each visible directory. */
+  platform: NodeJS.Platform;
 }
 /** Defaults are assembled at the I/O boundary, with no state shared by services. */
 export function workspaceRuntime(): WorkspaceRuntime {
@@ -35,6 +37,7 @@ export function workspaceRuntime(): WorkspaceRuntime {
     spawn,
     watch,
     worker: (url) => new Worker(url, { execArgv: [] }),
+    platform: process.platform,
     clock: {
       after(callback, milliseconds) {
         const timer = setTimeout(callback, milliseconds);

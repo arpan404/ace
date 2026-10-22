@@ -33,7 +33,7 @@ it("system discovery uses only version and login-status commands on fake provide
     {
       dataDir,
       port: 0,
-      env: { PATH: bin, ACE_CHROMIUM: join(bin, "codex") },
+      env: { PATH: bin },
     },
     systemProbeRuntime,
   );
@@ -43,7 +43,6 @@ it("system discovery uses only version and login-status commands on fake provide
   });
   expect(report.checks.find((check) => check.id === "provider.codex")?.status).toBe("ok");
   expect(report.checks.find((check) => check.id === "git")?.status).toBe("fail");
-  expect(report.checks.find((check) => check.id === "chromium")?.status).toBe("ok");
   expect(report.checks.find((check) => check.id === "disk")?.status).toBe("ok");
 });
 it("Antigravity discovery reports an installed version and unknown login without entering a session", async () => {

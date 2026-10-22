@@ -21,7 +21,7 @@ interface Stored {
  * The desktop's preload bridge as the page sees it: `settings.update` replaces whole top-level
  * fields, stores them and announces the result, as the main process does before applying it.
  */
-function desktop() {
+function desktop(shortcutHint?: string) {
   let stored: Stored = {
     background: true,
     openAtLogin: false,
@@ -43,6 +43,7 @@ function desktop() {
         listeners.add(listener);
         return () => listeners.delete(listener);
       },
+      shortcutHint: async () => (stored.globalShortcut ? (shortcutHint ?? null) : null),
     },
   });
   return { stored: () => stored };
@@ -168,13 +169,46 @@ test("a configured browser can enable and disable push from Notifications settin
   }
 });
 
+test("the attention switch names the dock on a Mac and the window elsewhere", async () => {
+  desktop();
+  const app = harness();
+  document.documentElement.dataset.platform = "linux";
+  try {
+    await app.open("/settings/general");
+    await screen.findByRole("switch", { name: "Flash window for attention" });
+    expect(screen.queryByRole("switch", { name: "Bounce dock icon for attention" })).toBeNull();
+    cleanup();
+    document.documentElement.dataset.platform = "darwin";
+    await app.open("/settings/general");
+    await screen.findByRole("switch", { name: "Bounce dock icon for attention" });
+  } finally {
+    delete document.documentElement.dataset.platform;
+  }
+});
+
+test("on Hyprland the shortcut row gives the hyprland.conf line the shortcut still needs", async () => {
+  const hint =
+    "Hyprland gives apps' shortcuts no keys. Add this line to hyprland.conf: bind = SUPER SHIFT, N, global, dev.ace.app:abc-Super+Shift+N";
+  desktop(hint);
+  const app = harness();
+  await app.open("/settings/general");
+  expect(screen.queryByText(hint)).toBeNull();
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Quick-thread global shortcut" }),
+  );
+  await userEvent.keyboard("{Meta>}{Shift>}n{/Shift}{/Meta}");
+  expect(await screen.findByText(hint)).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Turn off global shortcut" }));
+  await waitFor(() => expect(screen.queryByText(hint)).toBeNull());
+});
+
 test("desktop work preferences round-trip through the app bridge", async () => {
   const machine = desktop();
   const app = harness();
   await app.open("/settings/general");
   await userEvent.click(await screen.findByRole("switch", { name: "Keep running in background" }));
   await userEvent.click(screen.getByRole("switch", { name: "Prevent sleep while agents work" }));
-  await userEvent.click(screen.getByRole("switch", { name: "Bounce dock icon for attention" }));
+  await userEvent.click(screen.getByRole("switch", { name: "Flash window for attention" }));
   await userEvent.click(screen.getByRole("button", { name: "Quick-thread global shortcut" }));
   await userEvent.keyboard("{Meta>}{Shift>}n{/Shift}{/Meta}");
   await waitFor(() =>

@@ -155,6 +155,7 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
     settings: {
       get: () => call("settings.get"),
       update: (patch: RequestOf<"settings.update">) => call("settings.update", patch),
+      shortcutHint: () => call("settings.shortcutHint"),
       onChange: (listener: (value: EventOf<"settings.changed">) => void) =>
         subscribe("settings.changed", listener),
     },
@@ -184,6 +185,14 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
         subscribe("updates.status", listener),
       onChecked: (listener: (value: EventOf<"updates.checked">) => void) =>
         subscribe("updates.checked", listener),
+    },
+    sandbox: {
+      current: () => call("sandbox.current"),
+      setup: () => call("sandbox.setup"),
+      hide: () => call("sandbox.hide"),
+      restart: () => call("sandbox.restart"),
+      onStatus: (listener: (value: EventOf<"sandbox.status">) => void) =>
+        subscribe("sandbox.status", listener),
     },
     diagnostics: {
       /**

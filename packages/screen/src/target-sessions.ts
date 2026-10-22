@@ -2,6 +2,7 @@ import { releaseControllerBinding } from "./controller-binding.ts";
 import {
   ScreenTarget,
   ScreenCapabilities,
+  ScreenChooserPick,
   type ScreenState,
   type ScreenAgentScope,
 } from "@ace/protocol";
@@ -118,12 +119,18 @@ export class TargetSessions {
     try {
       if (this.sessions.has(id)) throw new Error("Duplicate session id");
       helper = await this.host.open();
+      if (helper.capabilities && target.kind === "display" && !helper.capabilities.capture.displays)
+        throw new Error("This desktop's screen sharing can't capture a whole screen");
+      // xdg-desktop-portal-wlr (Sway and other wlroots desktops) shares monitors only. Its
+      // sharing dialog (a `chooser` target) still offers the screen.
       if (
         helper.capabilities &&
-        ((target.kind === "display" && !helper.capabilities.capture.displays) ||
-          (target.kind !== "display" && !helper.capabilities.capture.windows))
+        (target.kind === "app" || target.kind === "window") &&
+        !helper.capabilities.capture.windows
       )
-        throw new Error("Helper does not support capture target");
+        throw new Error(
+          "This desktop's screen sharing can't capture one app's window: it shares whole screens only. Watch the screen instead.",
+        );
       if (!helper.capabilities?.background && this.sessions.size)
         throw new Error("Helper supports one session");
       session = createSession(
@@ -188,6 +195,10 @@ export class TargetSessions {
               throw new Error("Missing capture capabilities");
             startingHelper.capabilities = ScreenCapabilities.parse(result.capabilities);
             startingSession.state.capabilities = startingHelper.capabilities;
+            // What the person picked in the sharing dialog names the session from now on.
+            const picked = ScreenChooserPick.safeParse("picked" in result ? result.picked : null);
+            if (target.kind === "chooser" && picked.success)
+              startingSession.state.target = { ...target, picked: picked.data };
           }
         }
       });

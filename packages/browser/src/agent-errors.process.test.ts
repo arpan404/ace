@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdtemp, open, rm } from "node:fs/promises";
+import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
@@ -171,6 +171,27 @@ describe.skipIf(!executablePath)("browser failures an agent can act on", () => {
   });
 });
 
+/** An agent's first browser call with a "Chrome" that fails the way `stderr` says. */
+async function startWith(stderr: string, exitCode: number) {
+  const home = await mkdtemp(join(tmpdir(), "ace-browser-start-"));
+  const chrome = join(home, "chrome");
+  await writeFile(chrome, `#!/bin/sh\nprintf '%s\\n' '${stderr}' >&2\nexit ${exitCode}\n`, {
+    mode: 0o755,
+  });
+  const logged: unknown[] = [];
+  const service = new BrowserService({
+    dataDir: home,
+    executablePath: chrome,
+    onError: (error) => logged.push(error),
+  });
+  onTestFinished(async () => {
+    await service.close();
+    await rm(home, { recursive: true, force: true });
+  });
+  const failure = await agentMcp(toolPort(service)).failure("browser_snapshot");
+  return { failure, logged: logged.map(String).join("\n") };
+}
+
 describe("browser startup failures", () => {
   it("reports a browser that cannot start as unavailable, not as a generic failure", async () => {
     const home = await mkdtemp(join(tmpdir(), "ace-browser-missing-"));
@@ -182,4 +203,30 @@ describe("browser startup failures", () => {
     const failure = await agentMcp(toolPort(service)).failure("browser_snapshot");
     expect(failure.code).toBe("browser_unavailable");
   });
+
+  it.skipIf(process.platform !== "linux")(
+    "names the missing shared library and keeps Chrome's words in the log",
+    async () => {
+      const { failure, logged } = await startWith(
+        "chrome: error while loading shared libraries: libnss3.so: cannot open shared object file: No such file or directory",
+        127,
+      );
+      expect(failure.code).toBe("browser_missing_libraries");
+      expect(failure.detail).toMatch(/^Missing libnss3\.so\./);
+      expect(logged).toMatch(/error while loading shared libraries: libnss3\.so/);
+    },
+  );
+
+  it.skipIf(process.platform !== "linux")(
+    "reports a blocked sandbox with the explicit way to run without it",
+    async () => {
+      const { failure, logged } = await startWith(
+        "[1:1:FATAL:zygote_host_impl_linux.cc:129] No usable sandbox! If you are running on Ubuntu 23.10+ see apparmor-userns-restrictions.md",
+        134,
+      );
+      expect(failure.code).toBe("browser_sandbox_blocked");
+      expect(failure.detail).toMatch(/ACE_CHROMIUM_NO_SANDBOX=1/);
+      expect(logged).toMatch(/No usable sandbox/);
+    },
+  );
 });

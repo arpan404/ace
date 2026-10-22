@@ -8,8 +8,10 @@ import {
   computerUseHandler,
   linuxBackend,
   installedLinuxHelper,
+  localScreenManager,
   type Frame,
 } from "./index.ts";
+import { linuxLaunch } from "./linux.ts";
 import { ids, target, deferred } from "./testing/support.ts";
 const command = {
   command: process.execPath,
@@ -20,11 +22,53 @@ it("Linux prefers the portal over XWayland and refuses a missing selected displa
   expect(linuxBackend({ DISPLAY: ":0", WAYLAND_DISPLAY: "wayland-0" })).toBe("wayland");
   expect(linuxBackend({ DISPLAY: ":0", WAYLAND_DISPLAY: "wayland-0" }, "x11")).toBe("x11");
   expect(() => linuxBackend({ DISPLAY: ":0" }, "wayland")).toThrow("No display");
-  expect(() => linuxBackend({})).toThrow("headless");
+  expect(() => linuxBackend({})).toThrow("No graphical session");
   expect(installedLinuxHelper("/ace", "arm64")).toBe(
     "/ace/helpers/screen-linux/arm64/ace-screen-helper-linux",
   );
   expect(() => installedLinuxHelper("/ace", "ia32")).toThrow("x86_64");
+});
+it.runIf(process.platform === "linux")(
+  "a headless Linux daemon starts its screen service and reports the missing session on use",
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "screen-headless-"));
+    // Constructing must not throw: the systemd service may start before anyone logs in.
+    const manager = localScreenManager(join(directory, "missing-helper"), directory, {
+      session: async () => ({ XDG_RUNTIME_DIR: "/run/user/1000" }),
+    });
+    try {
+      await manager.enable(true);
+      await expect(manager.capabilities()).rejects.toThrow("No graphical session");
+    } finally {
+      await manager.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
+it("a session that appears after start is used by the next helper start", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "screen-late-login-"));
+  let env: NodeJS.ProcessEnv = {};
+  const manager = new ScreenManager({
+    command: process.execPath,
+    protocolVersion: 2,
+    launch: async () => {
+      const launch = linuxLaunch(env, directory);
+      // The fake helper takes no backend flags; keep only what the launch decided.
+      return { ...launch, args: command.args };
+    },
+    nextId: ids(),
+    recordingDirectory: directory,
+    publishArtifact: async () => {},
+  });
+  try {
+    await manager.enable(true);
+    await expect(manager.capabilities()).rejects.toThrow("No graphical session");
+    env = { DISPLAY: ":0" };
+    expect((await manager.capabilities())?.platform).toBe("linux-x11");
+  } finally {
+    await manager.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 it("v2 negotiates its display backend and delivers frames with scale and aliases", async () => {
   const frame = deferred<Frame>();
@@ -128,7 +172,7 @@ it("negotiated UI support and capture scope reject unsupported operations", asyn
     await manager.stop(state.sessionId);
     await expect(
       manager.start({ kind: "display", displayId: 1, bundleIds: [target.bundleId] }),
-    ).rejects.toThrow("capture target");
+    ).rejects.toThrow("can't capture a whole screen");
   } finally {
     await manager.close();
     await rm(directory, { recursive: true, force: true });

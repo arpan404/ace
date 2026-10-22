@@ -54,7 +54,10 @@ export async function picturesAsVideo(options: {
   const encodePictures = host.encodePictures;
   if (!encodePictures) return undefined;
   const size = { width: options.first.header.width, height: options.first.header.height };
-  const supported = await host.supported(codecs, size.width, size.height).catch(() => []);
+  // Asked at the size it will encode (even, as H.264 needs), not the picture's: a window can
+  // be any width, and encoders refuse an odd one.
+  const sized = pictureEncode(size, options.settings, "");
+  const supported = await host.supported(codecs, sized.width, sized.height).catch(() => []);
   const codec = supported[0];
   if (!codec) return undefined;
   let settings = options.settings;
@@ -141,6 +144,8 @@ export class PicturesToVideo {
   readonly #options: PicturesToVideoOptions;
   #wanted: ScreenStreamSettings | undefined;
   #video: PictureVideo | undefined;
+  /** The session's newest picture: a still window sends no other to start an encode from. */
+  #latest: Frame | undefined;
   #opening = false;
   #closed = false;
   constructor(options: PicturesToVideoOptions) {
@@ -151,6 +156,7 @@ export class PicturesToVideo {
     if (this.#closed || !this.#options.host()?.encodePictures) return false;
     this.#wanted = settings;
     this.#video?.configure(settings);
+    if (!this.#video && this.#latest) this.push(this.#latest);
     return true;
   }
   /** The helper encodes video itself after all: pictures aren't needed. */
@@ -160,7 +166,9 @@ export class PicturesToVideo {
     this.#video = undefined;
   }
   push(frame: Frame): void {
-    if (this.#closed || !this.#wanted || frame.header.codec !== "jpeg") return;
+    if (this.#closed || frame.header.codec !== "jpeg") return;
+    this.#latest = frame;
+    if (!this.#wanted) return;
     if (this.#video) return this.#video.push(frame);
     if (this.#opening) return;
     const host = this.#options.host();
@@ -182,7 +190,8 @@ export class PicturesToVideo {
       .then((video) => {
         if (this.#closed || !this.#wanted) return video?.close();
         this.#video = video;
-        video?.push(frame);
+        // Pictures that came while it opened were held back: the encode starts from the newest.
+        video?.push(this.#latest ?? frame);
       })
       .catch(() => {})
       .finally(() => {
@@ -197,6 +206,7 @@ export class PicturesToVideo {
   }
   close(): void {
     this.#closed = true;
+    this.#latest = undefined;
     this.stop();
   }
 }

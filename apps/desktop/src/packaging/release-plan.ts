@@ -22,10 +22,12 @@ export function isPrerelease(version: string): boolean {
  * packages and their blockmaps, and the update feed (`latest-mac.yml`, `latest-linux.yml`,
  * a preview channel's `preview-mac.yml` …). Its own logs (`builder-debug.yml`,
  * `builder-effective-config.yaml`), unpacked app folders and other versions stay behind.
+ * Linux ships an AppImage (updates itself from `latest-linux*.yml`), a deb and a tar.gz
+ * (both offered the release page when an update exists; ADR 0093).
  */
 export function desktopAssets(names: readonly string[], version: string): string[] {
   const packages = new RegExp(
-    `^ace-${version.replaceAll(".", "\\.")}(-[A-Za-z0-9_]+)*\\.(dmg|zip|exe|AppImage|deb)(\\.blockmap)?$`,
+    `^ace-${version.replaceAll(".", "\\.")}(-[A-Za-z0-9_]+)*\\.(dmg|zip|exe|AppImage|deb|tar\\.gz)(\\.blockmap)?$`,
   );
   const feed = /^[a-z]+(-mac|-linux(-arm64)?)?\.yml$/;
   return names.filter((name) => packages.test(name) || feed.test(name)).toSorted();
@@ -51,12 +53,31 @@ export function daemonAssets(
   return files.toSorted();
 }
 
-/** The macOS update feed needs the zip: Squirrel.Mac installs from it, never the dmg. */
+/**
+ * Each feed needs the package its updater installs: Squirrel.Mac the zip (never the dmg),
+ * a Linux AppImage the AppImage (a deb or tar.gz is never installed by the updater).
+ */
 export function missingUpdatePackages(assets: readonly string[]): string[] {
   const missing: string[] = [];
   const mac = assets.some((name) => name.endsWith("-mac.yml"));
   if (mac && !assets.some((name) => name.endsWith("-mac.zip"))) missing.push("macOS zip");
+  const linux = assets.some((name) => /-linux(-arm64)?\.yml$/.test(name));
+  if (linux && !assets.some((name) => name.endsWith(".AppImage"))) missing.push("Linux AppImage");
   return missing;
+}
+
+/**
+ * The standalone daemon archives a release built on this host can include. A Mac builds both
+ * macOS targets; Linux natives (node-pty, the workspace addon, the screen helper) are built on
+ * a host of the target architecture, so a Linux host builds only its own target.
+ */
+export function daemonTargetsFor(
+  platform: NodeJS.Platform,
+  arch: string,
+): z.infer<typeof ReleaseTarget>[] {
+  if (platform === "darwin") return ["darwin-arm64", "darwin-x64"];
+  if (platform === "linux" && (arch === "arm64" || arch === "x64")) return [`linux-${arch}`];
+  throw new Error(`No standalone daemon release is built on ${platform}-${arch}`);
 }
 
 export const StagedRelease = z.object({
@@ -76,6 +97,38 @@ export const StagedRelease = z.object({
   ),
 });
 export type StagedRelease = z.infer<typeof StagedRelease>;
+
+/**
+ * One release from the staged folders of several hosts (this Mac, a Linux container for each
+ * architecture): all must be the same version built from the same commit, none with
+ * uncommitted changes, and no file may appear twice. Signed only if every part was.
+ */
+export function combineStaged(releases: readonly StagedRelease[]): StagedRelease {
+  const [first, ...others] = releases;
+  if (!first) throw new Error("Nothing staged to publish");
+  for (const other of others) {
+    if (other.version !== first.version || other.tag !== first.tag)
+      throw new Error(
+        `Staged builds are for different versions: ${first.version}, ${other.version}`,
+      );
+    if (other.commit !== first.commit)
+      throw new Error(
+        `Staged builds come from different commits: ${first.commit.slice(0, 12)}, ${other.commit.slice(0, 12)}`,
+      );
+  }
+  const files = releases.flatMap((release) => release.files);
+  const seen = new Set<string>();
+  const duplicates = files.filter((file) => seen.size === seen.add(file.name).size);
+  if (duplicates.length)
+    throw new Error(`Staged in more than one build: ${duplicates.map((f) => f.name).join(", ")}`);
+  return {
+    ...first,
+    dirty: releases.some((release) => release.dirty),
+    signed: releases.every((release) => release.signed),
+    notarized: releases.every((release) => release.notarized),
+    files: files.toSorted((a, b) => a.name.localeCompare(b.name)),
+  };
+}
 
 /** `sha256sum`-style lines for the staged files, published as `SHA256SUMS`. */
 export function checksumList(release: StagedRelease): string {
