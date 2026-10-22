@@ -1,11 +1,14 @@
 import type { ProviderBackend } from "@ace/engine-api";
 import type { ThreadState } from "@ace/core";
-export function lostWork(
+/**
+ * The background work a stopped provider took with it, or undefined when nothing was live:
+ * no turn, provider queue, wake window, running task, subagent or open request.
+ */
+export function lostWorkLines(
   state: ThreadState,
   pendingNativeInputs = 0,
-  backend?: ProviderBackend,
   now = state.statusObservedAt ?? 0,
-): string | undefined {
+): string[] | undefined {
   if (!Object.keys(state.runs).length) return undefined;
   const lines: string[] = [];
   for (const key of Object.keys(state.indexes.runningTasks)) {
@@ -29,6 +32,16 @@ export function lostWork(
   }
   if (!active && !lines.length && !Object.keys(state.indexes.pendingInteractions).length)
     return undefined;
+  return lines;
+}
+export function lostWork(
+  state: ThreadState,
+  pendingNativeInputs = 0,
+  backend?: ProviderBackend,
+  now = state.statusObservedAt ?? 0,
+): string | undefined {
+  const lines = lostWorkLines(state, pendingNativeInputs, now);
+  if (!lines) return undefined;
   const instruction =
     backend === "cursor-sdk"
       ? "ace restarted. The previous Cursor SDK host is unavailable. Native run, child and tool outcomes remain uncertain until checkpoint reconciliation. Continue only after recovery confirms safe native continuation; never replay possibly delivered input."
