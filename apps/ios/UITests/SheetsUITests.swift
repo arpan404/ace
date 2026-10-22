@@ -27,7 +27,9 @@ import XCTest
         XCTAssertTrue(app.descendants(matching: .any)["changes.totals"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["changes.step"].waitForExistence(timeout: 10))
         screenshot("changes")
-        app.buttons["changes.file.packages/provider-kit/src/process-owner.ts"].tap()
+        let owner = app.changesFile("packages/provider-kit/src/process-owner.ts")
+        XCTAssertTrue(owner.waitForExistence(timeout: 10))
+        owner.tap()
         XCTAssertTrue(app.descendants(matching: .any)["diff.view"].waitForExistence(timeout: 10))
         screenshot("changes-diff")
         app.buttons["changes.file.apps/daemon/src/cli/kill-all.fixtures.ts"].tap()
@@ -60,7 +62,7 @@ import XCTest
         let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
         app.launchArguments = ["--spike", "--spike-port", port]
         app.launch()
-        XCTAssertTrue(app.buttons["thread.ios-tree"].waitForExistence(timeout: 25))
+        app.revealRow("thread.ios-tree")
         app.buttons["thread.ios-tree"].tap()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 15))
         return app
