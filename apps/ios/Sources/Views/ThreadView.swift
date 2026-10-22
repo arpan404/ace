@@ -68,7 +68,7 @@ struct ThreadView: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
             }
             .toolbar {
-                ThreadToolbar(title: metadata?.title ?? "Thread", project: metadata?.project ?? "", status: metadata?.status,
+                ThreadToolbar(title: metadata?.title ?? "Thread", project: metadata?.project ?? "", badge: metadata?.badge, status: metadata?.status,
                               openAgents: { showAgents = true },
                               menu: ThreadMenu(model: model, thread: thread, archived: archived, activityRow: activityRow,
                                                open: open, problem: { activityProblem = $0 }, leave: { dismiss() }))
@@ -176,6 +176,7 @@ struct ThreadView: View {
                     ComposerAccessories(model: model, screen: screen, problem: attachProblem)
                 } leading: {
                     AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
                 } trailing: {
                     ComposerModelButton(screen: screen, open: { showModels = true })
                 }

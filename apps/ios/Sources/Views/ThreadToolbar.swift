@@ -9,6 +9,8 @@ enum ThreadDestination { case changes, search, files, terminal, browser, devices
 struct ThreadToolbar: ToolbarContent {
     let title: String
     let project: String
+    /// The project's two-letter tag, as the task list draws it.
+    let badge: String?
     let status: StatusDisplay?
     let openAgents: () -> Void
     let menu: ThreadMenu
@@ -29,8 +31,11 @@ struct ThreadToolbar: ToolbarContent {
             Text(title).aceFont(AceTheme.Typography.label, relativeTo: .headline)
                 .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
             if !project.isEmpty {
-                Text(project).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
+                    if let badge, !badge.isEmpty { ProjectTag(initials: badge) }
+                    Text(project).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                }
             }
         }
         .frame(maxWidth: AceTheme.Dimensions.touchTarget * 5)
