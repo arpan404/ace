@@ -11,14 +11,14 @@ struct InboxHeaderActions {
 /// it opens. Search is the system's own: the list turns into results while there is a query.
 struct InboxStack<Destination: View>: View {
     @Bindable var inbox: MachineInbox
-    @Binding var path: [String]
+    @Binding var path: [InboxKey]
     let pulls: Bool
     @Binding var machine: String
     @Binding var project: String
     @Binding var shelves: InboxShelves
     let actions: InboxRowActions
     let header: InboxHeaderActions
-    @ViewBuilder let destination: (String) -> Destination
+    @ViewBuilder let destination: (InboxKey) -> Destination
     @State private var query = ""
     @State private var searching = false
 
@@ -46,9 +46,11 @@ struct InboxStack<Destination: View>: View {
             .modifier(InboxSearchField(query: $query, searching: $searching))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
-            .navigationDestination(for: String.self) { id in
-                destination(id).toolbar(.hidden, for: .tabBar)
-            }
+            // The root owns the tab bar: it hides as a thread is pushed and returns as soon as
+            // the path empties, while the thread is still sliding away, rather than each thread
+            // page hiding it and the bar popping back only once the pop has finished.
+            .toolbarVisibility(path.isEmpty ? .automatic : .hidden, for: .tabBar)
+            .navigationDestination(for: InboxKey.self) { key in destination(key) }
         }
     }
 
