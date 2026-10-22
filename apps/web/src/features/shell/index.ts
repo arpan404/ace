@@ -10,3 +10,5 @@ export { SidebarHeader, ViewFrame, ViewListPage, ViewSidebar } from "./view-fram
 export { views, type View } from "./views.ts";
 
 export { ShortcutHost } from "./shortcut-host.tsx";
+export { UpdateRestartDialog } from "./update-restart-dialog.tsx";
+export { updateAction, updateActionWords, updateSummary } from "./update-status.ts";

@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "@/lib/forge-read.ts";
+import { repositoryParam } from "@/lib/pull-request-route.ts";
 import type { IssueWrites } from "./issue-writes.ts";
 
 const words: Record<ForgeIssueAction["action"], string> = {
@@ -23,7 +24,14 @@ export function IssueActionsStrip(props: {
 }) {
   const { issue } = props;
   const cache = useQueryClient();
-  const key = ["forge", props.project, "browse", "issueActions", issue.ref.number];
+  const key = [
+    "forge",
+    props.project,
+    "browse",
+    "issueActions",
+    issue.ref.number,
+    repositoryParam(issue.ref.repository),
+  ];
   const query = useDaemonQuery<ForgeIssueAction[]>({
     queryKey: key,
     staleTime: 15_000,

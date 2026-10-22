@@ -12,4 +12,9 @@ export interface ViewerSink {
   video?: VideoSink<BrowserVideoChunk>;
   /** Takes the page's sound while the viewer plays video unmuted. */
   audio?: AudioSink<BrowserAudioChunk>;
+  /**
+   * The viewer is on this machine (the daemon's loopback listener): its link carries whatever
+   * the encoder makes, so its video starts full size at the top rate instead of probing up.
+   */
+  local?: boolean;
 }

@@ -43,6 +43,12 @@ const settleMs = 300;
 const retryMs = 5_000;
 /** Where a new viewer's bit rate starts, before its link has shown what it carries. */
 const initialBitrate = 1_500_000;
+/**
+ * Where a viewer on this machine starts: loopback carries any rate, and a still page proves
+ * nothing, so starting low would keep its first picture shrunk (`video-scale.ts`) and upscaled
+ * on screen for as long as the page stays still. It still falls if the viewer falls behind.
+ */
+const localBitrate = maxBitrate;
 /** An encode's bit rate changes in place when it moves this much, at most this often. */
 const bitrateChange = 0.1;
 const bitrateEveryMs = 400;
@@ -97,12 +103,16 @@ export class LiveVideo {
       dropped: (id) => this.viewers.get(id)?.link.dropped(this.now()),
     });
   }
-  /** A viewer that asked for video, or its new pane; `audio` takes the sound once it unmutes. */
+  /**
+   * A viewer that asked for video, or its new pane; `audio` takes the sound once it unmutes.
+   * `local`: the viewer is on this machine, so its link starts at the top rate.
+   */
   add(
     id: string,
     sink: VideoSink<BrowserVideoChunk>,
     capture: CaptureViewer,
     audio?: AudioSink<BrowserAudioChunk>,
+    local = false,
   ): void {
     if (!capture.video) return;
     if (!this.fanout.has(id)) this.fanout.add(id, sink);
@@ -113,7 +123,11 @@ export class LiveVideo {
       capture,
       link:
         existing?.link ??
-        new LinkRate({ min: minBitrate, max: maxBitrate, initial: initialBitrate }),
+        new LinkRate({
+          min: minBitrate,
+          max: maxBitrate,
+          initial: local ? localBitrate : initialBitrate,
+        }),
       scale: existing?.scale ?? new PictureScale(),
     });
   }

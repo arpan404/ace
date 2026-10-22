@@ -20,6 +20,8 @@ export function applicationMenu(options: {
   showLogs(): void;
   /** View › Zoom: the focused window's own page, whichever page inside it has focus. */
   zoom(change: ZoomChange): void;
+  /** View › Reload: a fresh page and a fresh daemon connection. */
+  reload(): void;
 }): MenuItemConstructorOptions[] {
   const mac = options.platform === "darwin";
   const item = (keymapId: string): MenuItemConstructorOptions => {
@@ -47,6 +49,12 @@ export function applicationMenu(options: {
     ...(hidden ? { visible: false, acceleratorWorksWhenHidden: true } : {}),
     click: () => options.zoom(change),
   });
+  // The click reloads from the main process, so it works even when the page is stuck. The key
+  // goes to the page first: a focused browser panel keeps ⌘R for its own page.
+  const reload: MenuItemConstructorOptions = {
+    ...item("reloadApp"),
+    click: () => options.reload(),
+  };
   const checkForUpdates: MenuItemConstructorOptions = {
     label: "Check for Updates…",
     click: () => options.checkForUpdates(),
@@ -88,6 +96,8 @@ export function applicationMenu(options: {
     {
       label: "View",
       submenu: [
+        reload,
+        { type: "separator" },
         item("palette"),
         item("findInThread"),
         { type: "separator" },
@@ -105,8 +115,8 @@ export function applicationMenu(options: {
         // ⌘= is the key people press for zoom in; ⌘+ needs Shift on most layouts.
         zoom("Zoom In", "in", "CmdOrCtrl+=", true),
         zoom("Zoom Out", "out", "CmdOrCtrl+-"),
-        { type: "separator" },
-        { role: "togglefullscreen" },
+        // macOS adds its own Enter Full Screen item (fn F) to the View menu.
+        ...(mac ? [] : [{ type: "separator" } as const, { role: "togglefullscreen" } as const]),
         ...(options.developer ? [{ role: "toggleDevTools" } as const] : []),
       ],
     },

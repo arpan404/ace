@@ -23,10 +23,9 @@ export function ToastView({ onReady }: { onReady: () => void }) {
       <Toast.Viewport
         data-slot="toast-viewport"
         style={{
-          // Top right of the reading pane, just under the header and clear of side panels.
-          top: "var(--toast-pane-top,calc(env(safe-area-inset-top,0px) + var(--header-h,44px) + 8px))",
-          bottom: "var(--toast-pane-bottom,auto)",
-          right: "var(--toast-pane-right,16px)",
+          // Top right of the window, just under the header.
+          top: "calc(env(safe-area-inset-top,0px) + var(--header-h,44px) + 8px)",
+          right: "16px",
         }}
         className={cn(
           layers.toast,

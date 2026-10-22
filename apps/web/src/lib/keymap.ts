@@ -116,6 +116,9 @@ export const keymap = {
   nextTurn: { keys: "shift+alt+mod+arrowdown", label: "Next turn" },
   findInThread: { keys: "mod+f", label: "Search this thread", scope: "thread" },
   settings: { keys: "mod+,", label: "Settings" },
+  // A fresh page and a fresh daemon connection, as a browser's reload. A focused browser
+  // panel keeps ⌘R for its own page.
+  reloadApp: { keys: "mod+r", label: "Reload ace" },
   // Enter sends. While the agent works Enter queues or steers (Settings › Threads); this does
   // the other.
   followUpOther: {

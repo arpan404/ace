@@ -4,6 +4,7 @@ import {
   EncoderWatchdog,
   keyframeGapMs,
   keyframePeriodMs,
+  settleMs,
   stallMs,
   stillFrameMs,
 } from "./video-pacing.ts";
@@ -80,6 +81,29 @@ describe("when the encoder encodes a frame", () => {
     expect(pacer.still(keyframeGapMs, 0, false)).toBe(true);
     // Paid: nothing more is owed.
     expect(pacer.still(keyframeGapMs + 50, 0, false)).toBe(false);
+  });
+
+  it("a page that goes still gets its last picture encoded once more, once per still spell", () => {
+    const pacer = new EncodePacer(60);
+    const moving = run(pacer, 0, 1000);
+    const last = moving.at(-1)?.at ?? 0;
+    expect(pacer.settle(last + settleMs - 1, last, true)).toBe(false);
+    expect(pacer.settle(last + settleMs, last, true)).toBe(true);
+    expect(pacer.settle(last + settleMs * 3, last, true)).toBe(false);
+    // The page changed and went still again: another one.
+    const again = run(pacer, 5_000, 200).at(-1)?.at ?? 0;
+    expect(pacer.settle(again + settleMs, again, true)).toBe(true);
+  });
+
+  it("a still page's sharper picture waits for a busy encoder, and an owed keyframe goes first", () => {
+    const pacer = new EncodePacer(60);
+    pacer.frame(0, false);
+    pacer.frame(20, false);
+    expect(pacer.settle(20 + settleMs, 20, false)).toBe(false);
+    pacer.requestKeyframe();
+    expect(pacer.settle(keyframeGapMs, 20, true)).toBe(false);
+    expect(pacer.still(keyframeGapMs, 20, false)).toBe(true);
+    expect(pacer.settle(keyframeGapMs + settleMs, 20, true)).toBe(true);
   });
 });
 
