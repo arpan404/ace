@@ -1,3 +1,4 @@
+import { desktopCli } from "@/boot/desktop-cli.ts";
 import { hasDesktopPreferences } from "@/boot/desktop-settings.ts";
 import { hasDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { visibleSettingsPages, settingsPages, type SettingsPath } from "./settings-pages.ts";
@@ -210,6 +211,12 @@ const entries = [
   { id: "app.preventSleep", page: "/settings/general", title: "Prevent sleep while agents work" },
   { id: "app.globalShortcut", page: "/settings/general", title: "Quick-thread global shortcut" },
   { id: "app.attention", page: "/settings/general", title: "Bounce dock icon for attention" },
+  {
+    id: "app.terminalCommand",
+    page: "/settings/general",
+    title: "ace command in terminals",
+    keywords: ["cli", "command line", "shell", "path", "install", "terminal"],
+  },
   {
     id: "app.updates",
     page: "/settings/general",
@@ -474,6 +481,7 @@ export function searchSettings(query: string): SettingEntry[] {
           "app.attention",
         ].includes(entry.id)) &&
       (entry.id !== "app.updates" || hasDesktopUpdates()) &&
+      (entry.id !== "app.terminalCommand" || desktopCli() !== undefined) &&
       matches(entry, text),
   );
   return found.toSorted(
