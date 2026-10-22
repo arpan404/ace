@@ -115,6 +115,8 @@ export function registerAntigravityAccountCatalog(
       env: Object.fromEntries(
         Object.entries(env).flatMap(([key, value]) => (value === undefined ? [] : [[key, value]])),
       ),
+      // The person's credentials the account never inherits, kept unset at launch too.
+      unsetEnv: Object.entries(env).flatMap(([key, value]) => (value === undefined ? [key] : [])),
       loginRevision: `${launch.loginRevision}:${instance.loginRevision ?? "0"}`,
       // No sign-in method: if its login has lapsed, discovery reports it instead of asking the
       // agent to sign in, which would open a browser nobody asked for.

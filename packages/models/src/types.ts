@@ -34,6 +34,8 @@ export const ModelInstance = z
       .record(z.string().max(256), z.string().max(8192))
       .default({})
       .refine((env) => Object.keys(env).length <= 256),
+    /** Variables the discovery process must not inherit from the daemon's own environment. */
+    unsetEnv: z.array(z.string().min(1).max(256)).max(64).optional(),
   })
   .refine(
     (instance) =>

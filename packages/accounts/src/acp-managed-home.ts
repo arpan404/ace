@@ -95,10 +95,10 @@ export function managedAcpEnv(
   const expected = managedAcpSelectors(instance);
   if (JSON.stringify(instance.env) !== JSON.stringify(expected))
     throw new Error("Instance home selector mismatch");
-  const kept = Object.fromEntries(
-    Object.entries(base).filter(([key]) => !profile.cleared.includes(key)),
-  );
-  return { ...kept, ...expected, ...profile.fixed };
+  // Unset, not just left out: a launch starts from the daemon's own environment and lays this one
+  // over it, so only an explicit undefined keeps the person's copy away from the agent.
+  const unset = Object.fromEntries(profile.cleared.map((key) => [key, undefined]));
+  return { ...base, ...unset, ...expected, ...profile.fixed };
 }
 /** The selectors a managed ACP account's home must keep, from its agent's profile. */
 export function managedAcpSelectors(instance: ProviderInstance): ProviderInstance["env"] {

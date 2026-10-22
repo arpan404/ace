@@ -50,6 +50,8 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     fileStore: process.env.AGY_ACP_FORCE_FILE_STORAGE ?? null,
     mcp: (request.params?.mcpServers ?? []).map((server) => server.name + ' ' + server.type),
     systemPrompt: request.params?._meta?.antigravity?.systemPrompt?.append ?? null,
+    credentials: ['GEMINI_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_CLOUD_PROJECT']
+      .filter((key) => process.env[key] !== undefined),
   }) + '\\n');
   const result = request.method === 'initialize'
     ? { protocolVersion: 1, agentInfo: { name: 'antigravity-acp', version: '1.4.1' },
@@ -181,6 +183,15 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
         .filter((entry) => entry.method === "session/new")
         .map(({ mcp, systemPrompt }) => ({ mcp, systemPrompt }));
     },
+    /** The person's credential variables each request's process could see. */
+    async credentials(method: string) {
+      return (await readFile(seen, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { method: string; credentials: string[] })
+        .filter((entry) => entry.method === method)
+        .map((entry) => entry.credentials);
+    },
     async seen(method: string) {
       return (await readFile(seen, "utf8"))
         .trim()
@@ -295,13 +306,21 @@ test("a thread can switch onto an added Antigravity account, which other provide
 
 test("a signed-in added account's models load in its own home, never with a sign-in, and never in a swapped home", async () => {
   const f = await antigravity();
-  const discovered: { home: string | undefined; signInMethod: string | undefined }[] = [];
+  const discovered: {
+    home: string | undefined;
+    signInMethod: string | undefined;
+    unsetsCredentials: boolean;
+  }[] = [];
   const models = new ModelCatalog({
     storage: openModelStorage(join(f.home, "models.sqlite")),
     now: () => 1000,
     deadline: () => () => {},
     discover: async (instance) => {
-      discovered.push({ home: instance.env["GEMINI_HOME"], signInMethod: instance.signInMethod });
+      discovered.push({
+        home: instance.env["GEMINI_HOME"],
+        signInMethod: instance.signInMethod,
+        unsetsCredentials: !!instance.unsetEnv?.includes("GEMINI_API_KEY"),
+      });
       return [];
     },
   });
@@ -321,7 +340,10 @@ test("a signed-in added account's models load in its own home, never with a sign
     registerAntigravityAccountCatalog(context, work, launch);
     await models.refresh({ instance: work.id });
     // Even though it signed in with a method, discovery is never handed one to sign in again.
-    expect(discovered).toEqual([{ home: work.homeDir, signInMethod: undefined }]);
+    // Nor does it inherit the daemon's own credentials.
+    expect(discovered).toEqual([
+      { home: work.homeDir, signInMethod: undefined, unsetsCredentials: true },
+    ]);
 
     const other = join(f.home, "someone-else");
     await mkdir(other);
@@ -462,6 +484,33 @@ test("an added account sees the person's own Antigravity skills, but not their M
       await readFile(join(personal, "antigravity-cli", "skills", "ship", "SKILL.md"), "utf8"),
     ).toBe("# Ship");
   } finally {
+    await f.close();
+  }
+});
+
+test("the daemon's own Google credentials never reach an added account's agent, signing in or running", async () => {
+  const sentinels = {
+    GEMINI_API_KEY: "daemon-key",
+    GOOGLE_APPLICATION_CREDENTIALS: "/daemon/adc.json",
+    GOOGLE_CLOUD_PROJECT: "daemon-project",
+  };
+  const before = Object.fromEntries(Object.keys(sentinels).map((key) => [key, process.env[key]]));
+  // Inherited by the daemon itself, not passed in the launch environment ace builds.
+  Object.assign(process.env, sentinels);
+  const f = await antigravity();
+  try {
+    const work = await f.add("Work");
+    expect(await f.signIn(work.id)).toMatchObject({ state: "succeeded" });
+    await (await f.open(work.id)).close("shutdown");
+    expect(await f.credentials("authenticate")).toEqual([[]]);
+    expect(await f.credentials("session/new")).toEqual([[]]);
+    // The CLI login runs as the person, with everything the daemon has.
+    await (await f.open(antigravityIdentity.instanceId)).close("shutdown");
+    expect((await f.credentials("session/new")).at(-1)).toEqual(Object.keys(sentinels));
+  } finally {
+    for (const [key, value] of Object.entries(before))
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
     await f.close();
   }
 });
