@@ -223,3 +223,9 @@ export {
 export * from "./person-message.ts";
 export * from "./held-turn.ts";
 export { continueMessage } from "@ace/core";
+export * from "./bubble-segments.ts";
+export * from "./bubble-content.ts";
+export * from "./usage-warning.ts";
+export * from "./not-sent.ts";
+export * from "./notice-error.ts";
+export * from "./event-view.ts";

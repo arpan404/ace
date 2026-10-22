@@ -7,6 +7,7 @@ import { backgroundRows } from "./background-rows.ts";
 import { itemRow, preview } from "./presentation.ts";
 import { logFacts } from "./thread-blocks.ts";
 import { itemDetail, stepContext } from "./thread-rows.ts";
+import { turnThoughtMs, turnThoughts } from "./thread-messages.ts";
 import { workLog } from "./work-log.ts";
 
 /*
@@ -36,8 +37,8 @@ interface Open {
   again: boolean;
 }
 
-function stepRow(store: ThreadSource, item: Parameters<typeof itemRow>[0]) {
-  const row = { ...itemRow(item), ...itemDetail(item, stepContext(store, item)) };
+function stepRow(store: ThreadSource, item: Parameters<typeof itemRow>[0], thought: string | null) {
+  const row = { ...itemRow(item), ...itemDetail(item, stepContext(store, item)), thought };
   // Steps read as one line each; a long thought or command keeps a bounded head.
   return { ...row, text: preview(row.text, 1024) };
 }
@@ -168,6 +169,12 @@ export class StepsFollower {
       (step) =>
         (owner === undefined || step.item.agentId === owner) && !slot.answers.has(step.item.id),
     );
+    // The daemon's copy of the turn times its thoughts; the live store may not hold them.
+    const took = turnThoughtMs(
+      this.#store,
+      (entry?.steps ?? []).map((step) => step.item),
+    );
+    const thoughts = turnThoughts(took);
     const pages = Math.ceil(steps.length / pageSize);
     const changed = entry !== slot.entry;
     slot.entry = entry;
@@ -180,7 +187,7 @@ export class StepsFollower {
         type: "thread.stepsPage",
         ordinal,
         page,
-        rows: part.map((step) => stepRow(this.#store, step.item)),
+        rows: part.map((step) => stepRow(this.#store, step.item, thoughts(step.item))),
       }));
     }
     slot.pages.length = Math.min(slot.pages.length, pages);
@@ -193,6 +200,7 @@ export class StepsFollower {
       const log = workLog(ids, (id) => items.get(id), {
         ...logFacts(this.#store),
         ended: () => true,
+        took,
         background,
       });
       return {

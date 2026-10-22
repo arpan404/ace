@@ -1,12 +1,8 @@
 import type { Item, ProviderKind } from "@ace/protocol";
-import {
-  describeProviderError,
-  isLimitError,
-  type ErrorInput,
-  type ErrorView,
-} from "./error-display.ts";
+import { describeProviderError, isLimitError, type ErrorView } from "./error-display.ts";
 import { modelLabel } from "./providers.ts";
 import { displayNotice } from "./notice-text.ts";
+import { noticeError } from "./notice-error.ts";
 
 /*
  * A failed turn as one row, on every client: the failure in words from the notice that reported
@@ -14,28 +10,6 @@ import { displayNotice } from "./notice-text.ts";
  * fixes it (sign in, another account, another model) on the newest turn; the provider's own text
  * behind Details, never the same words again. Pure.
  */
-
-type Notice = Extract<Item, { type: "notice" }>;
-
-/** A notice's structured error fields (C-A `code`/`title`/`detail`, #116 `details`), if any. */
-export function noticeErrorInput(item: Notice): ErrorInput {
-  const record = item as Record<string, unknown>;
-  const text = (key: string) =>
-    typeof record[key] === "string" ? (record[key] as string) : undefined;
-  const details =
-    typeof record["details"] === "object" && record["details"] !== null
-      ? (record["details"] as Record<string, unknown>)
-      : {};
-  return {
-    text: item.text,
-    code: text("code") ?? (typeof details["code"] === "string" ? details["code"] : undefined),
-    title: text("title"),
-    detail: text("detail"),
-    provider:
-      typeof details["provider"] === "string" ? (details["provider"] as ProviderKind) : undefined,
-    model: typeof details["model"] === "string" ? details["model"] : undefined,
-  };
-}
 
 /** Whether the provider's text says only what the row already says, perhaps after a label. */
 function repeats(raw: string, shown: { title: string; message?: string | undefined }): boolean {
@@ -73,7 +47,7 @@ export interface FailedTurnView {
 export function failedTurnView(input: FailedTurnInput): FailedTurnView {
   const { error, latest, provider, model } = input;
   const notice = input.notice?.type === "notice" ? input.notice : undefined;
-  const original = notice ? noticeErrorInput(notice) : undefined;
+  const original = notice ? noticeError(notice) : undefined;
   const display = notice ? displayNotice(notice) : undefined;
   const reported = original
     ? {

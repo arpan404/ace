@@ -5,6 +5,7 @@ extension AceIcon {
     enum Name: String, CaseIterable, Sendable {
         case appWindow = "app-window"
         case archive = "archive"
+        case arrowBendDownRight = "arrow-bend-down-right"
         case arrowCircleDown = "arrow-circle-down"
         case arrowCircleUp = "arrow-circle-up"
         case arrowClockwise = "arrow-clockwise"
@@ -14,6 +15,7 @@ extension AceIcon {
         case arrowSquareOut = "arrow-square-out"
         case arrowUUpLeft = "arrow-u-up-left"
         case arrowUp = "arrow-up"
+        case arrowsInLineVertical = "arrows-in-line-vertical"
         case arrowsLeftRight = "arrows-left-right"
         case at = "at"
         case bell = "bell"

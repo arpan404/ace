@@ -125,6 +125,13 @@ audits folded away. Each step's own line (glyph, verb, target, stat, note, bound
 `bridge/step-detail.ts`) travels on its item row, so streaming touches that row alone. Turn
 endings and changed-file chips come from `bridge/turn-ending.ts`.
 
+Message rows follow the web's (`bridge/thread-messages.ts`): item rows carry the person's
+bubble (`bubbleContent`: word, code and mention runs, the long fold, Steer or Queued) and a
+thought's header (`thoughtLabel`); event blocks carry the web's own event decision
+(`eventView`: system rows, errors with ×N and Details, refusals, Not sent, notices, the handoff
+divider), re-read when the order around them changes; answer blocks say whether they still
+stream. A truncated finished answer reads its whole text in place (`native.message`).
+
 SwiftUI renders blocks with native Markdown (`Models/Markdown.swift`, SF Mono code blocks),
 work logs on a step rail, inline subagent rows worded as the web's (`@ace/ui-core`
 subagent-row: meta, live detail, elapsed; a delegated child thread pushes, a native
