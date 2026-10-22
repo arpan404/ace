@@ -63,7 +63,7 @@ async function promptsFor(options: {
   for (const frame of frames) {
     const opening = Opening.safeParse(frame.data);
     if (frame.dir === "send" && opening.success)
-      options.openings?.push({ method: opening.data.method, meta: opening.data.params._meta });
+      options.openings?.push({ method: opening.data.method, meta: opening.data.params["_meta"] });
   }
   const prompts = () =>
     frames.flatMap((frame) => {
