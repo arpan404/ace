@@ -4,7 +4,9 @@ import {
   ForgePrMetadata,
   type ForgeLifecycleSnapshot,
   type ForgeLifecycleAction,
+  type ForgeMilestone,
 } from "@ace/protocol";
+import { Select } from "@/components/ui/select.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { Input, Textarea } from "@/components/ui/input.tsx";
@@ -17,6 +19,7 @@ const Draft = z.object({
     baseBranch: z.string().max(256),
     labels: z.array(z.string().max(256)).max(100),
     assignees: z.array(z.string().max(100)).max(100),
+    milestone: z.number().int().positive().nullable().optional(),
   }),
 });
 function changes(original: ForgePrMetadata, value: ForgePrMetadata): Partial<ForgePrMetadata> {
@@ -28,12 +31,18 @@ function changes(original: ForgePrMetadata, value: ForgePrMetadata): Partial<For
     result.labels = value.labels;
   if (JSON.stringify(original.assignees.toSorted()) !== JSON.stringify(value.assignees.toSorted()))
     result.assignees = value.assignees;
+  if ((original.milestone ?? null) !== (value.milestone ?? null))
+    result.milestone = value.milestone ?? null;
   return result;
 }
 export function PrMetadataEditor(props: {
   snapshot: ForgeLifecycleSnapshot;
   disabled: boolean;
   apply(action: ForgeLifecycleAction, version: string): Promise<boolean>;
+  /** Applies against the PR as GitHub has it now: the second write of a two-part save. */
+  applyLatest?(action: ForgeLifecycleAction): Promise<boolean>;
+  /** The repository's open milestones, once read; undefined while unknown. */
+  milestones?: readonly ForgeMilestone[] | undefined;
 }) {
   const key = `ace:pr-metadata:${JSON.stringify(props.snapshot.pr)}`;
   const fresh = () => ({
@@ -63,7 +72,7 @@ export function PrMetadataEditor(props: {
   const effectiveVersion = dirty ? draft.version : props.snapshot.version;
   const value = dirty ? draft.value : props.snapshot.metadata;
   const editable = (field: keyof ForgePrMetadata) => props.snapshot.editableFields.includes(field);
-  const update = (field: keyof ForgePrMetadata, next: string | string[]) =>
+  const update = (field: keyof ForgePrMetadata, next: string | string[] | number | null) =>
     save({
       version: effectiveVersion,
       original: dirty ? draft.original : props.snapshot.metadata,
@@ -75,25 +84,26 @@ export function PrMetadataEditor(props: {
       aria-label="Edit pull request metadata"
       onSubmit={(e) => {
         e.preventDefault();
-        void props
-          .apply(
-            {
-              kind: "edit",
-              changes: {
-                ...edits,
-                ...(edits.labels
-                  ? { labels: edits.labels.map((v) => v.trim()).filter(Boolean) }
-                  : {}),
-                ...(edits.assignees
-                  ? { assignees: edits.assignees.map((v) => v.trim()).filter(Boolean) }
-                  : {}),
-              },
-            },
+        const all = {
+          ...edits,
+          ...(edits.labels ? { labels: edits.labels.map((v) => v.trim()).filter(Boolean) } : {}),
+          ...(edits.assignees
+            ? { assignees: edits.assignees.map((v) => v.trim()).filter(Boolean) }
+            : {}),
+        };
+        // GitHub sets a milestone through the PR's issue, which can't move its base: a save of
+        // both sends the base first, then the milestone against the PR as it is after it.
+        const { milestone, ...rest } = all;
+        const split = milestone !== undefined && rest.baseBranch !== undefined;
+        void (async () => {
+          let ok = await props.apply(
+            { kind: "edit", changes: split ? rest : all },
             effectiveVersion,
-          )
-          .then((ok) => {
-            if (ok) save({ version: effectiveVersion, original: value, value });
-          });
+          );
+          if (ok && split)
+            ok = (await props.applyLatest?.({ kind: "edit", changes: { milestone } })) ?? false;
+          if (ok) save({ version: effectiveVersion, original: value, value });
+        })();
       }}
     >
       <label className="block text-sm">
@@ -144,6 +154,19 @@ export function PrMetadataEditor(props: {
           onChange={(e) => update("assignees", e.target.value.split("\n"))}
         />
       </label>
+      {editable("milestone") && (
+        <label className="block text-sm">
+          Milestone
+          <Select
+            label="Milestone"
+            className="mt-1 w-full"
+            value={String(value.milestone ?? "none")}
+            disabled={props.disabled || props.milestones === undefined}
+            options={milestoneOptions(props.snapshot, props.milestones)}
+            onValueChange={(next) => update("milestone", next === "none" ? null : Number(next))}
+          />
+        </label>
+      )}
       {stale && (
         <p role="status">
           The PR changed since this edit began. Your text is retained. Compare it with the refreshed
@@ -185,4 +208,23 @@ export function PrMetadataEditor(props: {
       </Button>
     </form>
   );
+}
+
+/** No milestone, the PR's own (even closed) and the repository's open ones, newest due last. */
+function milestoneOptions(
+  snapshot: ForgeLifecycleSnapshot,
+  milestones: readonly ForgeMilestone[] | undefined,
+) {
+  const current = snapshot.milestone;
+  const list = [
+    ...(current && !milestones?.some((each) => each.number === current.number) ? [current] : []),
+    ...(milestones ?? []),
+  ];
+  return [
+    { value: "none", label: "No milestone" },
+    ...list.map((milestone) => ({
+      value: String(milestone.number),
+      label: milestone.state === "closed" ? `${milestone.title} (closed)` : milestone.title,
+    })),
+  ];
 }

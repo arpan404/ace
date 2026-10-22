@@ -54,7 +54,14 @@ export function PrPageHeader(props: {
             </span>
             <span className="font-mono text-xs text-foreground/85">{detail.baseBranch}</span>
             <span>from</span>
-            <span className="font-mono text-xs text-foreground/85">{detail.headBranch}</span>
+            {actions.lifecycle.snapshot?.headBranch?.exists === false ? (
+              <span className="font-mono text-xs text-subtle-foreground line-through">
+                <span className="sr-only">deleted branch </span>
+                {detail.headBranch}
+              </span>
+            ) : (
+              <span className="font-mono text-xs text-foreground/85">{detail.headBranch}</span>
+            )}
             <BehindBase
               actions={actions}
               open={props.behindOpen}

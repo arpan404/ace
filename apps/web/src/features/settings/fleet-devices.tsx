@@ -12,7 +12,7 @@ import { cancelPairing, deviceLifetimes, revokeDevice } from "./data/fleet.ts";
 import type { FleetDevice } from "./data/fleet-links.ts";
 import type { Fleet } from "./data/use-fleet.ts";
 import { deviceScopeLabels } from "./device-scopes.ts";
-import { ConfirmDialog, type Confirming } from "./confirm-dialog.tsx";
+import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { listNames } from "./data/list-names.ts";
 import { PairDevice } from "./pair-device.tsx";
 
