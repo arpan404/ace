@@ -5,6 +5,7 @@ import {
   prPrimaryAction,
   mergeBlockers,
   prGates,
+  reviewerOutcomes,
 } from "@ace/ui-core";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
@@ -14,7 +15,6 @@ import { usePrLinkWrites } from "./pr-link-writes.ts";
 import { usePrWorktree } from "./pr-worktree.ts";
 import { useMergeMethod } from "./pr-merge-method.ts";
 import { useStackMemberships } from "./pr-stack-groups.tsx";
-import { reviewerOutcomes } from "./pr-summary-model.ts";
 import { usePrLocalCheck } from "./pr-local-check.ts";
 
 const newCommandId = () => crypto.randomUUID();
