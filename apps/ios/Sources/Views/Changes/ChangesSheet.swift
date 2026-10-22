@@ -29,13 +29,13 @@ struct ChangesSheet: View {
             }
             .background(AceTheme.Colours.background)
             .refreshable { model.sheet(["kind": "changes.refresh"]) }
-            .navigationTitle("Changes")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { AceIcon(.x, size: 18) }
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
                         .accessibilityLabel("Close").accessibilityIdentifier("changes.close")
                 }
+                ToolbarItem(placement: .principal) { header }
             }
             .changesActions(model: model, summary: summary, title: title, wrap: $wrap)
         }
@@ -51,14 +51,16 @@ struct ChangesSheet: View {
     @ViewBuilder private var content: some View {
         if let summary {
             if summary.state == "error" {
-                EmptyState(icon: nil, title: "Couldn't read changes", line: "Check that this thread has a git checkout, then refresh.", failed: true)
-                    .padding(.top, AceTheme.Spacing.xxxl * 2)
+                ContentUnavailableView("Couldn't read changes", systemImage: "exclamationmark.triangle",
+                                       description: Text("Check that this thread has a git checkout, then refresh."))
+                    .centredInSheet()
             } else if summary.state == "loading" && summary.files.isEmpty {
-                ProgressView("Reading changes…").frame(maxWidth: .infinity).padding(.top, AceTheme.Spacing.xxxl)
+                loading
             } else if summary.files.isEmpty {
-                EmptyState(icon: .gitBranch, title: "No uncommitted changes").padding(.top, AceTheme.Spacing.xxxl * 2)
+                ContentUnavailableView("No changes", systemImage: "checkmark.circle",
+                                       description: Text(summary.branch.isEmpty ? "Everything is committed." : "Everything on \(summary.branch) is committed."))
+                    .centredInSheet()
             } else {
-                totals
                 ForEach(summary.files) { file in
                     Section {
                         if open == file.path { FileDiffRows(model: model, path: file.path, wrap: wrap) }
@@ -72,27 +74,28 @@ struct ChangesSheet: View {
                 footer(summary)
             }
         } else {
-            ProgressView("Reading changes…").frame(maxWidth: .infinity).padding(.top, AceTheme.Spacing.xxxl)
+            loading
         }
     }
+    private var loading: some View { ProgressView().controlSize(.large).centredInSheet().accessibilityLabel("Reading changes") }
     private func show(_ path: String?) {
         open = path
         if let path { model.sheet(["kind": "changes.file", "path": path]) }
         else { model.sheet(["kind": "changes.file", "path": NSNull()]) }
     }
 
-    /// "3 files  +42 −8" over the files, as the web's changes toolbar counts them.
-    @ViewBuilder private var totals: some View {
-        if let totals = summary?.totals, totals.files > 0 {
-            HStack(spacing: AceTheme.Spacing.sm) {
-                Text("\(totals.files) \(totals.files == 1 ? "file" : "files")").foregroundStyle(AceTheme.Colours.mutedForeground)
-                (Text("+\(totals.additions)").foregroundStyle(AceTheme.StatusText.done)
-                 + Text(" −\(totals.deletions)").foregroundStyle(AceTheme.StatusText.failed))
-                    .aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
+    /// "Changes" over a quiet "+42 −8 · 4 files".
+    private var header: some View {
+        VStack(spacing: AceTheme.Spacing.none) {
+            Text("Changes")
+                .aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1)
+            if let totals = summary?.totals, totals.files > 0 {
+                Text("+\(totals.additions) −\(totals.deletions) · \(totals.files) \(totals.files == 1 ? "file" : "files")")
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit()
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                    .accessibilityLabel("\(totals.additions) added, \(totals.deletions) removed, \(totals.files) \(totals.files == 1 ? "file" : "files")")
+                    .accessibilityIdentifier("changes.totals")
             }
-            .aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit()
-            .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
-            .accessibilityElement(children: .combine).accessibilityIdentifier("changes.totals")
         }
     }
     @ViewBuilder private func footer(_ summary: ChangesSummary) -> some View {
@@ -105,9 +108,15 @@ struct ChangesSheet: View {
     }
 }
 
-/// A file's sticky header, as the web's: a faint caret and file glyph, the path muted in mono with
-/// its name at full ink, its status word when it isn't a plain edit, "+N −N", and a box to tick
-/// once it's been read.
+private extension View {
+    /// An empty, error or loading state in the middle of the sheet rather than pinned to its top.
+    func centredInSheet() -> some View {
+        frame(maxWidth: .infinity).containerRelativeFrame(.vertical, alignment: .center) { height, _ in height * 0.8 }
+    }
+}
+
+/// A file's sticky 52pt header: disclosure, status mark, the path in mono with its name in bold,
+/// −N +N, and a box to tick once it's been read.
 struct ChangedFileHeader: View {
     let file: ChangesSummary.File
     let open: Bool
@@ -115,33 +124,28 @@ struct ChangedFileHeader: View {
     let toggle: () -> Void
     let review: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.displayScale) private var scale
 
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
+        HStack(spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {
             Button(action: toggle) {
-                HStack(spacing: AceTheme.Spacing.sm) {
-                    AceIcon(.caretRight, size: 12)
+                HStack(spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {
+                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
                         .rotationEffect(.degrees(open ? 90 : 0))
-                        .animation(reduceMotion ? nil : AceTheme.Motion.spring, value: open)
-                        .foregroundStyle(AceTheme.Colours.subtleForeground)
-                    AceIcon(.fileText, size: 14).foregroundStyle(AceTheme.Colours.subtleForeground)
+                        .animation(reduceMotion ? nil : .easeOut(duration: AceTheme.Motion.standard), value: open)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    FileStatusMark(status: file.status)
                     path
-                    if file.status != "modified" {
-                        Text(file.status).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                            .foregroundStyle(AceTheme.Colours.subtleForeground).fixedSize()
-                    }
                     Spacer(minLength: AceTheme.Spacing.xs)
                     counts
                 }
-                .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs).contentShape(Rectangle())
+                .frame(minHeight: 52).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityElement(children: .combine)
             .accessibilityValue(open ? "Open" : "Closed")
             .accessibilityIdentifier("changes.file.\(file.path)")
             Button(action: review) {
-                AceIcon(reviewed ? .checkSquare : .square, size: 18)
+                Image(systemName: reviewed ? "checkmark.square.fill" : "square").font(.title3)
                     .foregroundStyle(reviewed ? AceTheme.Colours.foreground : AceTheme.Colours.decoration)
                     .frame(minWidth: 32, minHeight: 44).contentShape(Rectangle())
             }
@@ -150,26 +154,60 @@ struct ChangedFileHeader: View {
             .accessibilityLabel("Reviewed").accessibilityAddTraits(reviewed ? .isSelected : [])
             .accessibilityIdentifier("changes.reviewed.\(file.path)")
         }
-        .padding(.leading, AceTheme.Spacing.lg).padding(.trailing, AceTheme.Spacing.sm)
-        .opacity(reviewed ? 0.7 : 1)
+        .padding(.horizontal, AceTheme.Spacing.lg)
         .background(AceTheme.Colours.background)
-        .overlay(alignment: .bottom) { Rectangle().fill(AceTheme.Colours.separator).frame(height: 1 / scale) }
+        .overlay(alignment: .bottom) { Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border) }
     }
     private var path: some View {
         let folder = (file.path as NSString).deletingLastPathComponent
         let name = (file.path as NSString).lastPathComponent
-        let moved = file.from.map { "\($0) → " } ?? ""
-        return (Text(moved + (folder.isEmpty ? "" : folder + "/")).foregroundStyle(AceTheme.Colours.mutedForeground)
-                + Text(name).foregroundStyle(AceTheme.Colours.foreground).fontWeight(.medium))
-            .aceMonospace(FileDiffStyle.path, relativeTo: .footnote).lineLimit(1).truncationMode(.head)
-    }
-    /// "+41 −9": the only diff colour outside the diff itself.
-    private var counts: some View {
-        Group {
-            if file.binary { Text("binary").foregroundStyle(AceTheme.Colours.subtleForeground) }
-            else { Text("+\(file.additions)").foregroundStyle(AceTheme.StatusText.done) + Text(" −\(file.deletions)").foregroundStyle(AceTheme.StatusText.failed) }
+        return VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            (Text(folder.isEmpty ? "" : folder + "/").foregroundStyle(AceTheme.Colours.mutedForeground)
+             + Text(name).foregroundStyle(AceTheme.Colours.foreground).fontWeight(.medium))
+                .aceMonospace(FileDiffStyle.path, relativeTo: .footnote).lineLimit(1).truncationMode(.head)
+            if let from = file.from {
+                Text("from \(from)").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.head)
+            }
         }
-        .aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit().fixedSize()
-        .accessibilityLabel(file.binary ? "Binary" : "\(file.additions) added, \(file.deletions) removed")
+    }
+    private var counts: some View {
+        HStack(spacing: AceTheme.Spacing.sm) {
+            if file.binary { Text("binary").foregroundStyle(AceTheme.Colours.mutedForeground) }
+            else {
+                Text("−\(file.deletions)").foregroundStyle(AceTheme.StatusText.failed)
+                Text("+\(file.additions)").foregroundStyle(AceTheme.StatusText.done)
+            }
+        }
+        .aceMonospace(FileDiffStyle.path, relativeTo: .footnote).fixedSize()
+    }
+}
+
+/// A file's git status as a small outlined square: a dot for modified, + added, − deleted,
+/// → renamed.
+struct FileStatusMark: View {
+    let status: String
+    var body: some View {
+        RoundedRectangle(cornerRadius: 6).stroke(colour, lineWidth: 1.5)
+            .frame(width: 20, height: 20)
+            .overlay {
+                if status == "modified" { Circle().fill(colour).frame(width: 6, height: 6) }
+                else { Image(systemName: symbol).font(.system(size: 10, weight: .bold)).foregroundStyle(colour) }
+            }
+            .accessibilityLabel(status.capitalized)
+    }
+    private var colour: Color {
+        switch status {
+        case "deleted": AceTheme.StatusText.failed
+        case "renamed": AceTheme.StatusText.working
+        default: AceTheme.StatusText.done
+        }
+    }
+    private var symbol: String {
+        switch status {
+        case "deleted": "minus"
+        case "renamed": "arrow.right"
+        default: "plus"
+        }
     }
 }

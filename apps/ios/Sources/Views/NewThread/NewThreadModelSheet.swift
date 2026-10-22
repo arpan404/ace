@@ -77,7 +77,7 @@ struct NewThreadModelSheet: View {
         Button {
             if open { expanded.remove(agent.provider) } else { expanded.insert(agent.provider) }
         } label: {
-            InsetRow(icon: nil, title: open ? "Fewer models" : "More models") {
+            InsetRow(systemImage: nil, title: open ? "Fewer models" : "More models") {
                 if !open { InsetValue(text: "\(agent.more.count)") }
                 Image(systemName: open ? "chevron.up" : "chevron.down").foregroundStyle(AceTheme.Colours.decoration).accessibilityHidden(true)
             }
@@ -101,7 +101,7 @@ private struct NewThreadOptions: View {
             let speeds = model.speeds ?? []
             Section {
                 if model.efforts.count > 1 {
-                    ModelOptionMenu(icon: .lightbulb, title: "Effort", value: model.efforts.first { $0.id == choice.effort }?.label ?? "Default") {
+                    ModelOptionMenu(systemImage: "lightbulb", title: "Effort", value: model.efforts.first { $0.id == choice.effort }?.label ?? "Default") {
                         Picker("Effort", selection: Binding(get: { choice.effort ?? "" }, set: { effort in pick(model) { $0.effort = effort } })) {
                             ForEach(model.efforts) { Text($0.label).tag($0.id) }
                         }
@@ -120,7 +120,7 @@ private struct NewThreadOptions: View {
             FastModeRow(on: current == fast.speed) { on in pick(model) { $0.speed = on ? fast.speed : "standard" } }
                 .accessibilityIdentifier("newThread.speed")
         } else if speeds.count > 1 {
-            ModelOptionMenu(icon: .lightning, title: "Speed", value: speeds.first { $0.speed == current }?.label ?? "") {
+            ModelOptionMenu(systemImage: "bolt", title: "Speed", value: speeds.first { $0.speed == current }?.label ?? "") {
                 Picker("Speed", selection: Binding(get: { current }, set: { speed in pick(model) { $0.speed = speed } })) {
                     ForEach(speeds) { Text($0.label).tag($0.speed) }
                 }
@@ -131,9 +131,9 @@ private struct NewThreadOptions: View {
     @ViewBuilder private var accessRow: some View {
         if let access {
             if access.state == "loading", access.choices.isEmpty {
-                InsetRow(icon: .shieldCheck, title: "Access") { ProgressView() }
+                InsetRow(systemImage: "checkmark.shield", title: "Access") { ProgressView() }
             } else if !access.choices.isEmpty {
-                ModelOptionMenu(icon: .shieldCheck, title: "Access", value: access.choices.first { $0.mode == access.selected }?.label ?? "") {
+                ModelOptionMenu(systemImage: "checkmark.shield", title: "Access", value: access.choices.first { $0.mode == access.selected }?.label ?? "") {
                     Picker("Access", selection: Binding(get: { access.selected ?? "" }, set: { mode in drafts.edit { $0.access = mode } })) {
                         ForEach(access.choices) { choice in Text(choice.label).tag(choice.mode) }
                     }

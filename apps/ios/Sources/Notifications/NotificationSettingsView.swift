@@ -10,36 +10,37 @@ struct NotificationSettingsView: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        List {
+        Form {
             Section {
-                Toggle(isOn: Binding(get: { notifications.delivering }, set: { on in Task { await notifications.setEnabled(on) } })) {
-                    SettingsRow(title: "Notifications", description: notifications.permission == .denied ? "Turned off for ace in iOS Settings." : nil) { EmptyView() }
-                }
+                Toggle("Notifications", isOn: Binding(get: { notifications.delivering },
+                                                      set: { on in Task { await notifications.setEnabled(on) } }))
                 .accessibilityIdentifier("notifications.enabled")
                 if notifications.permission == .denied {
-                    Button {
+                    Button("Allow in Settings") {
                         if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-                    } label: { SettingsRow(title: "Allow in Settings") { EmptyView() } }
-                    .buttonStyle(.plain)
+                    }
                 }
-            } header: {
-                SettingsHeader("This phone", note: "Alerts arrive while ace is open or refreshing in the background. A locked phone may show them late.")
+            } footer: {
+                Text("Alerts arrive while ace is open or refreshing in the background. A locked phone may show them late.")
             }
-            .settingsRow()
+            .insetRowBackground()
             Section {
                 ForEach(inbox.sessions) { session in
                     NavigationLink {
                         MachineNotificationSettings(notifications: notifications, hostId: session.hostId,
                                                     name: inbox.name(session.hostId), model: session.client)
                     } label: {
-                        SettingsRow(inbox.name(session.hostId), value: notifications.delivering && !notifications.muted.contains(session.hostId) ? "On" : "Off")
+                        Toggle(inbox.name(session.hostId), isOn: Binding(
+                            get: { !notifications.muted.contains(session.hostId) },
+                            set: { notifications.setMachine(session.hostId, enabled: $0) }))
+                        .disabled(!notifications.delivering)
                     }
                     .accessibilityIdentifier("notifications.machine.\(session.hostId)")
                 }
-            } header: { SettingsHeader("Machines") }
-            .settingsRow()
+            } header: { InsetHeader("Machines") }
+            .insetRowBackground()
         }
-        .settingsList()
+        .insetGroupedList()
         .navigationTitle("Notifications").navigationBarTitleDisplayMode(.inline)
         .task { notifications.loadPreferences(); await notifications.refreshPermission() }
     }
@@ -54,27 +55,20 @@ struct MachineNotificationSettings: View {
     private var preferences: NotificationPreferences { notifications.preferences(for: hostId) }
 
     var body: some View {
-        List {
+        Form {
             Section {
-                Toggle(isOn: Binding(get: { !notifications.muted.contains(hostId) }, set: { notifications.setMachine(hostId, enabled: $0) })) {
-                    SettingsRow(title: "Notifications") { EmptyView() }
-                }
-                .accessibilityIdentifier("notifications.machineEnabled")
-            }
-            .settingsRow()
-            Section {
-                Toggle(isOn: Binding(get: { preferences.quietHours != nil }, set: { on in
+                Toggle("Quiet hours", isOn: Binding(get: { preferences.quietHours != nil }, set: { on in
                     var next = preferences
                     next.quietHours = on ? QuietHours(timeZone: TimeZone.current.identifier, startMinute: 22 * 60, endMinute: 7 * 60) : nil
                     notifications.save(next, for: hostId)
-                })) { SettingsRow(title: "Quiet hours") { EmptyView() } }
+                }))
                 .accessibilityIdentifier("notifications.quiet")
                 if preferences.quietHours != nil {
-                    SettingsRow(title: "From") { DatePicker("From", selection: minute(\.startMinute), displayedComponents: .hourAndMinute).labelsHidden() }
-                    SettingsRow(title: "Until") { DatePicker("Until", selection: minute(\.endMinute), displayedComponents: .hourAndMinute).labelsHidden() }
+                    DatePicker("From", selection: minute(\.startMinute), displayedComponents: .hourAndMinute)
+                    DatePicker("Until", selection: minute(\.endMinute), displayedComponents: .hourAndMinute)
                 }
-            } header: { SettingsHeader("Quiet hours") }
-            .settingsRow()
+            }
+            .insetRowBackground()
             Section {
                 ForEach(threads) { row in
                     let until = notifications.snoozes(for: hostId)[row.id]
@@ -83,14 +77,15 @@ struct MachineNotificationSettings: View {
                         Button("Until tomorrow") { notifications.snooze(row.id, until: tomorrowMorning(), hostId: hostId) }
                         if until != nil { Button("Turn off snooze") { notifications.snooze(row.id, until: nil, hostId: hostId) } }
                     } label: {
-                        SettingsRow(row.title, value: until.map { "Until \(Date(timeIntervalSince1970: $0 / 1000).formatted(date: .omitted, time: .shortened))" } ?? "Off")
+                        LabeledContent(row.title) {
+                            Text(until.map { "Until \(Date(timeIntervalSince1970: $0 / 1000).formatted(date: .omitted, time: .shortened))" } ?? "Off")
+                        }
                     }
-                    .buttonStyle(.plain)
                 }
-            } header: { SettingsHeader("Snooze a thread") }
-            .settingsRow()
+            } header: { InsetHeader("Snooze a thread") }
+            .insetRowBackground()
         }
-        .settingsList()
+        .insetGroupedList()
         .navigationTitle(name).navigationBarTitleDisplayMode(.inline)
     }
     private var threads: [ThreadRow] {

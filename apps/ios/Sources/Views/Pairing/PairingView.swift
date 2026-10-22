@@ -12,37 +12,35 @@ struct PairingView: View {
     @State private var scanAttempt = 0
 
     var body: some View {
-        List {
-            Section {
-                Button { scanning = true } label: { SettingsRow(title: "Scan the pairing code") { AceIcon(.qrCode, size: 16).foregroundStyle(AceTheme.Colours.subtleForeground) } }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("pairing.scan")
-            } header: {
-                SettingsHeader("Scan", note: "On your computer, run ace pair, or open Settings › Machines and devices and create a pairing link.")
-            }
-            .settingsRow()
-            Section {
-                TextField("https://…/pair#…", text: $pasted, axis: .vertical)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                    .privacySensitive().lineLimit(1...4)
-                    .aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .accessibilityIdentifier("pairing.link")
-                PasteButton(payloadType: String.self) { values in
-                    Task { @MainActor in if let value = values.first { pasted = value; accept(value) } }
+        Form {
+            Group {
+                Section {
+                    Button { scanning = true } label: { Label("Scan pairing QR code", systemImage: "qrcode.viewfinder") }
+                        .accessibilityIdentifier("pairing.scan")
+                } footer: {
+                    Text("On your computer, run `ace pair` or open Settings › Machines and devices and create a pairing link.")
                 }
-                Button("Continue") { accept(pasted) }
-                    .aceFont(SettingsStyle.label, relativeTo: .body)
-                    .disabled(pasted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityIdentifier("pairing.continue")
+                Section {
+                    TextField("https://…/pair#…", text: $pasted, axis: .vertical)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                        .privacySensitive().lineLimit(1...4)
+                        .aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .accessibilityIdentifier("pairing.link")
+                    PasteButton(payloadType: String.self) { values in
+                        Task { @MainActor in if let value = values.first { pasted = value; accept(value) } }
+                    }
+                    Button("Continue") { accept(pasted) }
+                        .disabled(pasted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityIdentifier("pairing.continue")
+                } header: { InsetHeader("Or paste the link") }
                 if let entryError {
-                    Text(entryError).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("pairing.entryError")
+                    Section { Text(entryError).foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("pairing.entryError") }
                 }
-            } header: { SettingsHeader("Or paste the link") }
-            .settingsRow()
+            }
+            .insetRowBackground()
         }
-        .settingsList()
-        .navigationTitle("Pair a computer")
+        .insetGroupedList()
+        .navigationTitle("Pair a machine")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $link) { link in
             ConfirmPairingView(link: link, machines: machines) {
@@ -84,41 +82,39 @@ struct ConfirmPairingView: View {
     @State private var failure: ProblemNotice?
 
     var body: some View {
-        List {
-            Section {
-                SettingsRow("Address", value: link.displayHost).accessibilityElement(children: .combine)
-                SettingsRow("Access", value: link.accessSummary).accessibilityElement(children: .combine)
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                    Text("Fingerprint").aceFont(AceTheme.Typography.label, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                    Text(link.fingerprintGroups).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.foreground).textSelection(.enabled)
-                        .accessibilityIdentifier("pairing.fingerprint")
+        Form {
+            Group {
+                Section {
+                    LabeledContent("Address", value: link.displayHost)
+                    LabeledContent("Access", value: link.accessSummary)
+                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                        Text("Fingerprint").aceFont(AceTheme.Typography.label, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        Text(link.fingerprintGroups).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
+                            .foregroundStyle(AceTheme.Colours.foreground).textSelection(.enabled)
+                            .accessibilityIdentifier("pairing.fingerprint")
+                    }
+                } header: { InsetHeader("Computer") } footer: {
+                    Text("Check that the fingerprint matches the link on your computer. ace only talks to the computer holding this key.")
                 }
-            } header: {
-                SettingsHeader("Computer", note: "Check that the fingerprint matches the link on your computer. ace only talks to the computer holding this key.")
-            }
-            .settingsRow()
-            Section {
-                TextField("My phone", text: $name).textInputAutocapitalization(.words).accessibilityIdentifier("pairing.name")
-            } header: { SettingsHeader("This phone's name") }
-            .settingsRow()
-            Section {
+                Section {
+                    TextField("My phone", text: $name).textInputAutocapitalization(.words).accessibilityIdentifier("pairing.name")
+                } header: { InsetHeader("This phone's name") }
                 if let failure {
-                    Text(failure.message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("pairing.error")
+                    Section { Text(failure.message).foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("pairing.error") }
                 }
-                Button {
-                    Task { await pair() }
-                } label: {
-                    HStack { Text(pairing ? "Pairing…" : "Pair this phone"); if pairing { Spacer(); ProgressView() } }
+                Section {
+                    Button {
+                        Task { await pair() }
+                    } label: {
+                        HStack { Text(pairing ? "Pairing…" : "Pair this phone"); if pairing { Spacer(); ProgressView() } }
+                    }
+                    .disabled(pairing || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("pairing.confirm")
                 }
-                .aceFont(SettingsStyle.label, relativeTo: .body).fontWeight(.medium)
-                .disabled(pairing || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityIdentifier("pairing.confirm")
             }
-            .settingsRow()
+            .insetRowBackground()
         }
-        .settingsList()
+        .insetGroupedList()
         .navigationTitle("Confirm computer")
         .navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(pairing)

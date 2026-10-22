@@ -1,11 +1,9 @@
 import SwiftUI
 
-/// One automation's settings in a sheet: its task, project and agent, and trigger, then Save.
 struct AutomationEditor: View {
     let model: ClientModel
     let saved: () -> Void
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var scheme
     @State private var row: AutomationRow
     @State private var trigger = "keep"
     @State private var cron = "0 9 * * 1-5"
@@ -22,104 +20,73 @@ struct AutomationEditor: View {
         }
     }
     var body: some View {
-        List {
-            Section {
-                TextField("Title", text: $row.title).aceFont(SettingsStyle.label, relativeTo: .body)
+        Form {
+            Group {
+                TextField("Title", text: $row.title)
                 TextField("Task instructions", text: $row.prompt, axis: .vertical).lineLimit(4...12)
-                    .aceFont(SettingsStyle.label, relativeTo: .body)
-            } header: { SettingsHeader("Task") }
-            .settingsRow()
-            projectSection
-            triggerSection
-            saveSection
+                Section {
+                    if !model.compose.projects.isEmpty {
+                        Picker("Project", selection: $row.workspace) {
+                            Text(row.workspace.isEmpty ? "Choose a project" : row.workspace).tag(row.workspace)
+                            ForEach(model.compose.projects.filter { $0.path != row.workspace }) { project in Text(project.name).tag(project.path) }
+                        }
+                    } else { TextField("Project folder on your machine", text: $row.workspace).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    Picker("Coding agent", selection: $row.provider) {
+                        ForEach(Array(Set((model.providers?.providers.map(\.provider) ?? []) + [row.provider])).sorted(), id: \.self) { Text($0.capitalized).tag($0) }
+                    }
+                    TextField("Model (optional)", text: Binding(get: { row.model ?? "" }, set: { row.model = $0.isEmpty ? nil : $0 })).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    Toggle("Use a worktree", isOn: $row.worktree)
+                } header: { InsetHeader("Project and agent") }
+                Section {
+                    Picker("Run", selection: $trigger) {
+                        Text("Keep configured trigger").tag("keep")
+                        Text("Manually").tag("manual")
+                        Text("Cron schedule").tag("cron")
+                    }
+                    if trigger == "keep" {
+                        Text(describeAutomationTrigger(row.trigger))
+                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        Text("GitHub and file triggers stay as configured. Pick Cron schedule to replace the trigger.")
+                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    }
+                    if trigger == "cron" {
+                        TextField("Cron expression", text: $cron).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        TextField("Time zone", text: $timezone).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        Picker("Missed runs", selection: $row.missedRun) { Text("Skip").tag("skip"); Text("Run once").tag("run_once") }
+                        if let cronProblem {
+                            Text(cronProblem)
+                                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                                .foregroundStyle(AceTheme.StatusText.failed)
+                        } else if let timezoneProblem {
+                            Text(timezoneProblem)
+                                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                                .foregroundStyle(AceTheme.StatusText.failed)
+                        }
+                    }
+                    Toggle("Enabled", isOn: $row.enabled)
+                    Stepper("Concurrent runs: \(row.concurrency)", value: $row.concurrency, in: 1...32)
+                } header: { InsetHeader("Trigger") }
+                if !model.canOperate {
+                    ViewOnlyNote(message: "View only. To save automations from this phone, pair it again with View and act.")
+                }
+                if let validationProblem, model.canOperate {
+                    Text(validationProblem)
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                }
+                ServiceProblem(message: problem)
+                Button("Save automation") { Task { await save() } }
+                    .disabled(saving || validationProblem != nil || !model.canOperate)
+            }
+            .insetRowBackground()
         }
-        .settingsList()
+        .insetGroupedList()
         .navigationTitle("Automation").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
         .task { model.composeAction(["kind": "projects"]) }
     }
-    private var projectSection: some View {
-        Section {
-            if !model.compose.projects.isEmpty {
-                SettingsRow(title: "Project") {
-                    Picker("Project", selection: $row.workspace) {
-                        Text(row.workspace.isEmpty ? "Choose a project" : row.workspace).tag(row.workspace)
-                        ForEach(model.compose.projects.filter { $0.path != row.workspace }) { project in Text(project.name).tag(project.path) }
-                    }
-                    .labelsHidden().pickerStyle(.menu).tint(AceTheme.Colours.mutedForeground)
-                }
-            } else {
-                TextField("Project folder on your machine", text: $row.workspace).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .aceFont(SettingsStyle.label, relativeTo: .body)
-            }
-            SettingsRow(title: "Coding agent") {
-                Picker("Coding agent", selection: $row.provider) {
-                    ForEach(Array(Set((model.providers?.providers.map(\.provider) ?? []) + [row.provider])).sorted(), id: \.self) { Text($0.capitalized).tag($0) }
-                }
-                .labelsHidden().pickerStyle(.menu).tint(AceTheme.Colours.mutedForeground)
-            }
-            TextField("Model (optional)", text: Binding(get: { row.model ?? "" }, set: { row.model = $0.isEmpty ? nil : $0 })).textInputAutocapitalization(.never).autocorrectionDisabled()
-                .aceFont(SettingsStyle.label, relativeTo: .body)
-            Toggle(isOn: $row.worktree) { SettingsRow(title: "Use a worktree") { EmptyView() } }
-        } header: { SettingsHeader("Project and agent") }
-        .settingsRow()
-    }
-    private var triggerSection: some View {
-        Section {
-            SettingsRow(title: "Run", description: trigger == "keep" ? describeAutomationTrigger(row.trigger) : nil) {
-                Picker("Run", selection: $trigger) {
-                    Text("Keep configured trigger").tag("keep")
-                    Text("Manually").tag("manual")
-                    Text("Cron schedule").tag("cron")
-                }
-                .labelsHidden().pickerStyle(.menu).tint(AceTheme.Colours.mutedForeground)
-            }
-            if trigger == "cron" {
-                TextField("Cron expression", text: $cron).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .aceFont(SettingsStyle.label, relativeTo: .body)
-                TextField("Time zone", text: $timezone).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .aceFont(SettingsStyle.label, relativeTo: .body)
-                SettingsRow(title: "Missed runs") {
-                    Picker("Missed runs", selection: $row.missedRun) { Text("Skip").tag("skip"); Text("Run once").tag("run_once") }
-                        .labelsHidden().pickerStyle(.menu).tint(AceTheme.Colours.mutedForeground)
-                }
-                if let cronProblem {
-                    Text(cronProblem)
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.StatusText.failed)
-                } else if let timezoneProblem {
-                    Text(timezoneProblem)
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.StatusText.failed)
-                }
-            }
-            Toggle(isOn: $row.enabled) { SettingsRow(title: "Enabled") { EmptyView() } }
-            Stepper(value: $row.concurrency, in: 1...32) { SettingsRow("Concurrent runs", value: "\(row.concurrency)") }
-        } header: {
-            SettingsHeader("Trigger", note: "GitHub and file triggers stay as configured. Pick Cron schedule to replace the trigger.")
-        }
-        .settingsRow()
-    }
-    /// Why Save can't go yet, then Save itself.
-    private var saveSection: some View {
-        Section {
-            if !model.canOperate {
-                ViewOnlyNote(message: "View only. To save automations from this phone, pair it again with View and act.")
-            }
-            if let validationProblem, model.canOperate {
-                Text(validationProblem)
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
-            ServiceProblem(message: problem)
-            Button { Task { await save() } } label: { SettingsRow(title: "Save automation") { EmptyView() } }
-                .buttonStyle(.plain)
-                .disabled(cannotSave)
-                .opacity(cannotSave ? AceTheme.Opacity.disabled(scheme) : 1)
-        }
-        .settingsRow()
-    }
-    private var cannotSave: Bool { saving || validationProblem != nil || !model.canOperate }
     private var cronProblem: String? {
         let expression = cron.trimmingCharacters(in: .whitespacesAndNewlines)
         if expression.isEmpty { return "Enter a schedule." }

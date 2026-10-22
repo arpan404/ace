@@ -49,19 +49,39 @@ struct InsetHeader: View {
     static let header = AceTheme.TypeStyle(size: 14, lineHeight: 19, weight: 500, tracking: 0)
 }
 
-/// One row: icon, label (with an optional muted line under it) and a trailing view.
+/// One row: symbol, label (with an optional muted line under it) and a trailing view.
 struct InsetRow<Trailing: View>: View {
-    let icon: AceIcon.Name?
+    /// An SF Symbol, or one of ace's own icons on screens drawn with them.
+    enum Glyph { case symbol(String), ace(AceIcon.Name) }
+    let glyph: Glyph?
     let title: String
     var subtitle: String? = nil
     @ViewBuilder var trailing: () -> Trailing
 
+    init(systemImage: String?, title: String, subtitle: String? = nil, @ViewBuilder trailing: @escaping () -> Trailing) {
+        self.init(glyph: systemImage.map(Glyph.symbol), title: title, subtitle: subtitle, trailing: trailing)
+    }
+    init(icon: AceIcon.Name?, title: String, subtitle: String? = nil, @ViewBuilder trailing: @escaping () -> Trailing) {
+        self.init(glyph: icon.map(Glyph.ace), title: title, subtitle: subtitle, trailing: trailing)
+    }
+    private init(glyph: Glyph?, title: String, subtitle: String?, trailing: @escaping () -> Trailing) {
+        self.glyph = glyph
+        self.title = title
+        self.subtitle = subtitle
+        self.trailing = trailing
+    }
+
     var body: some View {
         HStack(spacing: AceTheme.Spacing.md + AceTheme.Spacing.xxs) {
-            if let icon {
-                AceIcon(icon, size: 19)
+            switch glyph {
+            case .symbol(let name)?:
+                Image(systemName: name).font(.system(size: 19, weight: .regular))
                     .foregroundStyle(AceTheme.Colours.foreground)
-                    .frame(width: 24)
+                    .frame(width: 24).accessibilityHidden(true)
+            case .ace(let name)?:
+                AceIcon(name, size: 19).foregroundStyle(AceTheme.Colours.foreground).frame(width: 24)
+            case nil:
+                EmptyView()
             }
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 Text(title).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
@@ -79,8 +99,8 @@ struct InsetRow<Trailing: View>: View {
 
 extension InsetRow where Trailing == InsetValue {
     /// A row with a muted value on the right ("2", "On", "System").
-    init(_ title: String, icon: AceIcon.Name?, value: String? = nil, subtitle: String? = nil) {
-        self.init(icon: icon, title: title, subtitle: subtitle) { InsetValue(text: value) }
+    init(_ title: String, systemImage: String?, value: String? = nil, subtitle: String? = nil) {
+        self.init(systemImage: systemImage, title: title, subtitle: subtitle) { InsetValue(text: value) }
     }
 }
 

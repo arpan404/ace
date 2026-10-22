@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Settings › Machines: every paired computer with its connection, one tap from its detail, and
-/// a row to pair another. Pushed inside Settings' own stack.
+/// + to pair another. Pushed inside Settings' own stack.
 struct MachinesView: View {
     let inbox: MachineInbox
     /// Directory operations; nil for the debug fixture, which only shows connections.
@@ -13,21 +13,44 @@ struct MachinesView: View {
                 ForEach(inbox.sessions) { session in
                     NavigationLink(value: SettingsRoute.machine(session.hostId)) { MachineRow(inbox: inbox, machines: machines, hostId: session.hostId) }
                         .accessibilityIdentifier("machines.row.\(session.hostId)")
+                        .insetRowBackground()
                 }
                 ForEach(unsupported) { entry in
                     NavigationLink(value: SettingsRoute.machine(entry.hostId)) { MachineRow(inbox: inbox, machines: machines, hostId: entry.hostId) }
+                        .insetRowBackground()
                 }
-                if machines != nil {
-                    NavigationLink(value: SettingsRoute.pair) {
-                        SettingsRow(title: "Pair a machine", description: "Scan the code from ace on your computer.") { EmptyView() }
+            }
+            if machines != nil {
+                Section {
+                    ZStack {
+                        // The card is the link; the system chevron would sit oddly beside a centred card.
+                        NavigationLink(value: SettingsRoute.pair) { EmptyView() }.opacity(0)
+                        VStack(spacing: AceTheme.Spacing.md) {
+                            Image(systemName: "qrcode.viewfinder").font(.system(size: 34, weight: .regular))
+                                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                            Text("Scan the code from ace on your computer")
+                                .aceFont(AceTheme.Typography.body, relativeTo: .body)
+                                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity).padding(.vertical, AceTheme.Spacing.xl)
                     }
+                    .accessibilityElement(children: .combine).accessibilityAddTraits(.isButton)
                     .accessibilityIdentifier("machines.pair")
-                }
-            } header: { SettingsHeader("Paired") }
-            .settingsRow()
+                    .insetRowBackground()
+                } header: { InsetHeader("Pair a machine") }
+            }
         }
-        .settingsList()
+        .insetGroupedList()
         .navigationTitle("Machines").navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if machines != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink(value: SettingsRoute.pair) { Image(systemName: "plus") }
+                        .accessibilityLabel("Pair a machine").accessibilityIdentifier("machines.add")
+                }
+            }
+        }
     }
     private var unsupported: [MachineEntry] {
         machines.map { model in model.machines.filter { model.unsupported.contains($0.hostId) } } ?? []
@@ -43,22 +66,21 @@ struct MachineRow: View {
     var body: some View {
         let facts = MachineFacts(inbox: inbox, machines: machines, hostId: hostId)
         HStack(spacing: AceTheme.Spacing.md) {
-            AceIcon(facts.icon, size: 18).foregroundStyle(AceTheme.Colours.subtleForeground)
+            ConnectionDot(token: facts.connection.token, trying: facts.trying)
+            Image(systemName: facts.symbol).font(.system(size: 19)).foregroundStyle(AceTheme.Colours.foreground)
+                .frame(width: 24).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(facts.name).aceFont(SettingsStyle.label, relativeTo: .body).fontWeight(.medium)
+                Text(facts.name).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).fontWeight(.semibold)
                     .foregroundStyle(AceTheme.Colours.foreground)
-                HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
-                    ConnectionDot(token: facts.connection.token, trying: facts.trying)
-                    Text(facts.subtitle).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                }
+                Text(facts.subtitle).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
             }
         }
         .accessibilityElement(children: .combine)
     }
 }
 
-/// A 7pt connection dot: green when connected, faint while away, a pulsing amber while this
+/// An 8pt connection dot: green when connected, faint while away, a pulsing amber while this
 /// phone is still trying to reach it.
 struct ConnectionDot: View {
     let token: String
@@ -66,7 +88,7 @@ struct ConnectionDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dim = false
     var body: some View {
-        Circle().fill(colour).frame(width: 7, height: 7)
+        Circle().fill(colour).frame(width: 8, height: 8)
             .opacity(trying && dim ? 0.35 : 1)
             .animation(trying && !reduceMotion ? .easeInOut(duration: AceTheme.Motion.statusPulse / 2).repeatForever(autoreverses: true) : nil, value: dim)
             .onAppear { dim = trying && !reduceMotion }
@@ -90,7 +112,7 @@ struct ConnectionDot: View {
     let needsPairing: Bool
     /// The SDK is connecting or reconnecting to it right now.
     let trying: Bool
-    let icon: AceIcon.Name
+    let symbol: String
 
     init(inbox: MachineInbox, machines: MachinesModel?, hostId: String) {
         let entry = machines?.entry(hostId)
@@ -103,7 +125,7 @@ struct ConnectionDot: View {
         lastSeen = inbox.lastSeen(hostId).map { Date(timeIntervalSince1970: $0 / 1000) }
         readOnly = machines.map { $0.isReadOnly(hostId) }
         address = entry.flatMap { URL(string: $0.target.url) }.map { url in [url.host, url.port.map(String.init)].compactMap { $0 }.joined(separator: ":") }
-        icon = Self.icon(entry?.icon?.kind)
+        symbol = Self.symbol(entry?.icon?.kind)
     }
     var connected: Bool { connection.token == "done" }
     /// The address while connected; otherwise the connection word and when it was last seen.
@@ -118,16 +140,16 @@ struct ConnectionDot: View {
         return parts.joined(separator: " · ")
     }
     /// The person's machine mark (`MachineIconKind`); a laptop when there is none.
-    static func icon(_ kind: String?) -> AceIcon.Name {
+    static func symbol(_ kind: String?) -> String {
         switch kind {
-        case "desktop": .desktop
-        case "monitor": .monitor
-        case "server": .hardDrives
-        case "cloud": .cloud
-        case "cpu": .cpu
-        case "terminal": .terminalWindow
-        case "phone": .deviceMobile
-        default: .laptop
+        case "desktop": "desktopcomputer"
+        case "monitor": "display"
+        case "server": "server.rack"
+        case "cloud": "cloud"
+        case "cpu": "cpu"
+        case "terminal": "apple.terminal"
+        case "phone": "iphone"
+        default: "laptopcomputer"
         }
     }
 }

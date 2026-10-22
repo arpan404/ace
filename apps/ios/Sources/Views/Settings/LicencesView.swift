@@ -28,24 +28,19 @@ struct LicencesView: View {
         return text
     }
     var body: some View {
-        List {
+        List(entries) { entry in
             Section {
-                ForEach(entries) { entry in
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                        SettingsRow(entry.name, value: entry.licence)
-                        Text(entry.notice).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.vertical, AceTheme.Spacing.xs)
-                    .accessibilityElement(children: .combine)
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                    Text(entry.name).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
+                    Text(entry.licence).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                    Text(entry.notice).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
-            } header: {
-                SettingsHeader("Included in this app", note: "The interface uses Apple's system fonts, SF Pro and SF Mono.")
+                .padding(.vertical, AceTheme.Spacing.sm)
+                .accessibilityElement(children: .combine)
             }
-            .settingsRow()
+            .insetRowBackground()
         }
-        .settingsList()
+        .insetGroupedList()
         .navigationTitle("Licences").navigationBarTitleDisplayMode(.inline)
     }
 }

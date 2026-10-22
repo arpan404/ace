@@ -1,9 +1,5 @@
 import SwiftUI
 
-@MainActor enum AgentRowStyle {
-    static let title = AceTheme.TypeStyle(size: 16, lineHeight: 21, weight: 500, tracking: -0.1)
-}
-
 /// One agent in the tree: its provider's mark (indented by depth), its name over what it is
 /// doing, and the shared status word.
 struct AgentRowView: View {
@@ -13,12 +9,12 @@ struct AgentRowView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
         HStack(spacing: AceTheme.Spacing.md) {
-            ProviderMark(provider: provider, size: 16)
+            ProviderMark(provider: provider, size: 20).foregroundStyle(AceTheme.Colours.foreground)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(row.depth == 0 ? "Main agent" : row.name)
-                    .aceFont(AgentRowStyle.title, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                    .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
                     .lineLimit(typeSize.isAccessibilitySize ? 4 : 1)
-                Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                Text(detail).aceFont(AceTheme.Typography.label, relativeTo: .footnote).fontWeight(.regular)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                     .lineLimit(typeSize.isAccessibilitySize ? 4 : 1)
             }
@@ -54,8 +50,8 @@ struct TaskRowView: View {
                              : AnyLayout(HStackLayout(spacing: AceTheme.Spacing.md))
         layout {
             HStack(spacing: AceTheme.Spacing.md) {
-                AceIcon(task.kind == "shell" ? .terminal : .gearSix, size: 14, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
-                    .frame(width: 16)
+                Image(systemName: task.kind == "shell" ? "terminal" : "gearshape.2").foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .frame(width: 20)
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                     // Only a shell's title is its command; anything else is words, never code.
                     Group {
@@ -73,10 +69,10 @@ struct TaskRowView: View {
             if !stacked { Spacer(minLength: AceTheme.Spacing.none) }
             if canStop && task.stoppable {
                 Button("Stop", action: stop)
-                    .aceFont(AceTheme.Typography.label, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                    .padding(.horizontal, AceTheme.Spacing.md).frame(minHeight: 30)
-                    .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.md).strokeBorder(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+                    .aceFont(AceTheme.Typography.label, relativeTo: .footnote).fontWeight(.semibold)
+                    .foregroundStyle(AceTheme.StatusText.failed)
+                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 34)
+                    .background(AceTheme.Colours.diffDelete, in: Capsule())
                     .buttonStyle(.plain)
                     .frame(minHeight: AceTheme.Dimensions.touchTarget)
                     .accessibilityIdentifier("agents.task.stop.\(task.id)")

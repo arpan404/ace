@@ -23,8 +23,6 @@ struct NativeSourceControlReply: Decodable {
     let result: Result
 }
 
-/// Settings › Source control: the machine's GitHub CLI and accounts, the host, account and remote
-/// ace expects, and how a chosen project's repository is reached.
 struct SourceControlView: View {
     let model: ClientModel
     @State private var status: NativeSourceControl?
@@ -36,56 +34,40 @@ struct SourceControlView: View {
     @State private var problem: String?
     @State private var busy = false
     var body: some View {
-        List {
-            Section {
-                if let status {
-                    SourceValueRow(title: "CLI", value: status.cli == "available" ? "gh \(status.version ?? "")" : "Unavailable")
-                    SourceValueRow(title: "GitHub API", value: status.api.replacingOccurrences(of: "_", with: " ").capitalized)
-                    ForEach(status.accounts) { account in
-                        SettingsRow(account.login, value: account.active ? "Active" : nil).accessibilityElement(children: .combine)
+        Form {
+            Group {
+                Section {
+                    if let status {
+                        LabeledContent("CLI", value: status.cli == "available" ? "gh \(status.version ?? "")" : "Unavailable")
+                        LabeledContent("GitHub API", value: status.api.replacingOccurrences(of: "_", with: " ").capitalized)
+                        ForEach(status.accounts) { account in LabeledContent(account.login, value: account.active ? "Active" : "") }
+                        Text(status.instructions).textSelection(.enabled)
                     }
-                    note(status.instructions)
-                } else if busy {
-                    SourceValueRow(title: "CLI", value: nil)
-                }
-                Button { Task { await read() } } label: {
-                    SettingsActionLabel(title: "Rescan", value: busy ? "Checking…" : nil)
-                }
-                .buttonStyle(.plain).disabled(busy)
-            } header: { SettingsHeader("GitHub CLI on your machine") }
-            .settingsRow()
-            Section {
-                SettingsRow(title: "GitHub host") { field("GitHub host", prompt: "github.com", text: $host) }
-                SettingsRow(title: "Expected account") { field("Expected account", prompt: "Optional", text: $account) }
-                SettingsRow(title: "Git remote") { field("Git remote", prompt: "origin", text: $remote) }
-                Button { Task { await save() } } label: { SettingsActionLabel(title: "Save preferences") }
-                    .buttonStyle(.plain)
-                    .disabled(status == nil || host.isEmpty || remote.isEmpty)
-            } header: { SettingsHeader("Host and expected account") }
-            .disabled(busy || !model.canOperate)
-            .settingsRow()
-            Section {
-                SettingsRow(title: "Project") {
+                    Button("Rescan") { Task { await read() } }.disabled(busy)
+                } header: { InsetHeader("GitHub CLI on your machine") }
+                Section {
+                    LabeledContent("GitHub host") { TextField("github.com", text: $host).multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    LabeledContent("Expected account") { TextField("Optional", text: $account).multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    LabeledContent("Git remote") { TextField("origin", text: $remote).multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    Button("Save preferences") { Task { await save() } }.disabled(status == nil || host.isEmpty || remote.isEmpty)
+                } header: { InsetHeader("Host and expected account") }
+                .disabled(busy || !model.canOperate)
+                Section {
                     Picker("Project", selection: $project) {
                         Text("Choose project").tag("")
                         ForEach(projects) { Text($0.name).tag($0.id) }
                     }
-                    .labelsHidden().pickerStyle(.menu).tint(AceTheme.Colours.mutedForeground)
-                }
-                if let status {
-                    SourceValueRow(title: "Transport", value: status.transport.replacingOccurrences(of: "_", with: " ").capitalized)
-                    note(status.transportInstructions)
-                }
-            } header: { SettingsHeader("Repository transport") }
-            .settingsRow()
-            if let problem {
+                    if let status {
+                        LabeledContent("Transport", value: status.transport.replacingOccurrences(of: "_", with: " ").capitalized)
+                        Text(status.transportInstructions).textSelection(.enabled)
+                    }
+                } header: { InsetHeader("Repository transport") }
+                if busy { ProgressView("Checking source control…") }
                 ServiceProblem(message: problem)
-                    .listRowBackground(Color.clear).listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: AceTheme.Spacing.sm, leading: SettingsStyle.margin,
-                                              bottom: AceTheme.Spacing.sm, trailing: SettingsStyle.margin))
             }
+            .insetRowBackground()
         }
-        .settingsList()
+        .insetGroupedList()
         .navigationTitle("Source control").navigationBarTitleDisplayMode(.inline)
         .task(id: model.connection) {
             guard model.connection == "ready" else { return }
@@ -96,20 +78,6 @@ struct SourceControlView: View {
             await read()
         }
         .task(id: project) { if model.connection == "ready" { await read() } }
-    }
-    /// A preference typed in place at the row's right edge, muted like a value.
-    private func field(_ label: String, prompt: String, text: Binding<String>) -> some View {
-        TextField(prompt, text: text)
-            .multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled()
-            .aceFont(SettingsStyle.value, relativeTo: .body).foregroundStyle(AceTheme.Colours.mutedForeground)
-            .accessibilityLabel(label)
-    }
-    /// What the machine says to do next, muted and selectable so a command can be copied.
-    private func note(_ text: String) -> some View {
-        Text(text).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-            .foregroundStyle(AceTheme.Colours.mutedForeground)
-            .fixedSize(horizontal: false, vertical: true)
-            .textSelection(.enabled)
     }
     private func read() async {
         busy = true; problem = nil
@@ -140,24 +108,3 @@ struct SourceControlView: View {
         busy = false
     }
 }
-
-/// "GitHub API ─ Ready": a muted value, or a skeleton bar while it is read. The label stays one
-/// accessible text found by its name, with the value as its value.
-private struct SourceValueRow: View {
-    let title: String
-    let value: String?
-    var body: some View {
-        SettingsRow(title: title) {
-            if let value {
-                SettingsValue(text: value)
-            } else {
-                Capsule().fill(AceTheme.Colours.fill).frame(width: 64, height: 10)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
-        .accessibilityValue(value ?? "Checking")
-        .accessibilityAddTraits(.isStaticText)
-    }
-}
-

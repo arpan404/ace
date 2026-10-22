@@ -6,25 +6,28 @@ struct AppLockView: View {
     var body: some View {
         List {
             Section {
-                Toggle(isOn: Binding(get: { lock.enabled }, set: { on in Task { await lock.setEnabled(on) } })) {
-                    SettingsRow(title: "Lock with Face ID") { EmptyView() }
+                InsetRow(systemImage: "faceid", title: "Lock with Face ID") {
+                    Toggle("Lock with Face ID", isOn: Binding(get: { lock.enabled }, set: { on in Task { await lock.setEnabled(on) } }))
+                        .labelsHidden()
                 }
                 .disabled(lock.authenticating)
+                .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("settings.lock.enabled")
-                SettingsRow(title: "Lock after") {
+                InsetRow(systemImage: "timer", title: "Lock after") {
                     Picker("Lock after", selection: Binding(get: { lock.timeout }, set: { lock.setTimeout($0) })) {
                         ForEach(AppLock.timeouts, id: \.self) { seconds in Text(Self.label(seconds)).tag(seconds) }
                     }
-                    .labelsHidden().pickerStyle(.menu).tint(AceTheme.Colours.mutedForeground)
+                    .labelsHidden().pickerStyle(.menu)
                 }
                 .disabled(!lock.enabled)
                 .accessibilityIdentifier("settings.lockTimeout")
-            } header: {
-                SettingsHeader("Lock", note: "Face ID or your passcode unlocks ace. Turning the lock off asks for it first.")
+            } footer: {
+                Text("Face ID or your passcode unlocks ace. Turning the lock off asks for it first.")
             }
-            .settingsRow()
+            .insetRowBackground()
         }
-        .settingsList()
+        .insetGroupedList()
+        .sensoryFeedback(.selection, trigger: lock.enabled)
         .navigationTitle("Face ID").navigationBarTitleDisplayMode(.inline)
     }
     static func label(_ seconds: TimeInterval) -> String {

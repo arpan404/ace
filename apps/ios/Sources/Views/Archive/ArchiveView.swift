@@ -61,16 +61,15 @@ private struct ArchiveRows: View {
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("archive.\(id)")
                     .accessibilityHint("Opens read-only")
-                    .listRowSeparator(.hidden)
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         if client.canOperate {
-                            Button("Unarchive", ace: .trayArrowUp) { Task { _ = await client.unarchive(id) } }
+                            Button("Unarchive", systemImage: "tray.and.arrow.up") { Task { _ = await client.unarchive(id) } }
                                 .tint(AceTheme.Colours.mutedForeground)
                         }
                     }
                     .contextMenu {
                         if client.canOperate {
-                            Button("Unarchive", ace: .trayArrowUp) { Task { _ = await client.unarchive(id) } }
+                            Button("Unarchive", systemImage: "tray.and.arrow.up") { Task { _ = await client.unarchive(id) } }
                         }
                     }
                     .onAppear { if id == ids.last { client.loadMoreArchived() } }
@@ -85,11 +84,10 @@ private struct ArchiveRows: View {
             Button("Retry loading older threads") { client.loadMoreArchived() }
                 .frame(minHeight: AceTheme.Dimensions.touchTarget).accessibilityIdentifier("archive.retry")
         } else if !archive.list.loaded {
-            EmptyState(icon: .wifiSlash, title: "Can't reach this machine", line: "Archived threads load once it's connected.")
-                .padding(.top, AceTheme.Spacing.xxxl)
+            ContentUnavailableView("Can't reach this machine", systemImage: "wifi.slash",
+                                   description: Text("Archived threads load once it's connected."))
         } else if empty {
-            EmptyState(icon: .archive, title: "Nothing archived", line: "Threads you archive on this machine wait here.")
-                .padding(.top, AceTheme.Spacing.xxxl)
+            ContentUnavailableView("Nothing archived", systemImage: "archivebox", description: Text("Threads you archive on this machine wait here."))
         } else if archive.canLoadMore {
             Button("Show older archived threads") { client.loadMoreArchived() }
                 .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -105,7 +103,7 @@ struct ArchivedNote: View {
     @State private var working = false
     var body: some View {
         HStack(spacing: AceTheme.Spacing.md) {
-            Label("Archived", ace: .archive)
+            Label("Archived", systemImage: "archivebox")
                 .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
             Spacer(minLength: AceTheme.Spacing.sm)
             if canOperate {
