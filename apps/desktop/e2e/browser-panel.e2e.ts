@@ -296,9 +296,16 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await pageSize("iPhone 16 Pro");
       await expect.poll(() => nativeRead("innerWidth")).toBe(402);
       await expect.poll(() => nativeRead("devicePixelRatio")).toBe(3);
-      const emulated = (await geometry()).native?.bounds;
-      if (!emulated) throw new Error("Native emulation missing");
-      expect(emulated.width / emulated.height).toBeCloseTo(402 / 874, 2);
+      // The device list closing over the page hides it behind its picture for a moment; the
+      // page comes back drawn at the device's shape.
+      await expect
+        .poll(async () => {
+          const view = (await geometry()).native;
+          return view?.visible && view.bounds.height > 0
+            ? view.bounds.width / view.bounds.height
+            : undefined;
+        })
+        .toBeCloseTo(402 / 874, 2);
       await pageSize("Laptop");
       await expect.poll(() => nativeRead("innerWidth")).toBe(1280);
       await expect.poll(() => nativeRead("devicePixelRatio")).toBe(1);
