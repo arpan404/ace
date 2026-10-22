@@ -1,6 +1,7 @@
 import { restatesSelection } from "./input-delivery.ts";
 import { handleQueue } from "./queue-commands.ts";
-import { lostWork } from "./lost-work.ts";
+import { lostWorkLines } from "./lost-work.ts";
+import { RestartStreaks, restartContinuation } from "./restart-resume.ts";
 import { wakeFor } from "./snooze-wake.ts";
 import { z } from "zod";
 import {
@@ -48,6 +49,8 @@ export class Recovery {
   private cancel: (() => void) | undefined;
   private closed = false;
   private pendingPolicy = new Map<ThreadId, Promise<void>>();
+  /** Automatic restart continuations in a row, for the loop guard. */
+  readonly streaks: RestartStreaks;
   constructor(
     repo: EngineRepository,
     clock: EngineClock,
@@ -60,6 +63,7 @@ export class Recovery {
     this.ports = ports;
     this.defaults = defaults;
     this.wake = wake;
+    this.streaks = new RestartStreaks(repo.store);
   }
   async prepare(id?: ThreadId): Promise<void> {
     const value = RecoveryPreferences.parse((await this.ports.preferences?.(id)) ?? this.defaults);
@@ -81,6 +85,9 @@ export class Recovery {
       : this.defaults;
   }
   handle(command: Command): CommandResult | undefined {
+    // The person's own Resume starts a fresh run of restarts for the loop guard.
+    if (command.payload.type === "thread.resume" && command.deviceId !== "engine")
+      this.streaks.clear(command.payload.threadId);
     return handleQueue(command, {
       repo: this.repo,
       clock: this.clock,
@@ -92,6 +99,8 @@ export class Recovery {
   }
   admit(command: Command, id: ThreadId): Command | undefined {
     if (!isSend(command.payload)) return command;
+    // New input is new direction: the loop guard counts restarts of one piece of work only.
+    this.streaks.clear(id);
     if (
       !this.repo.inputCapacity(id, maxMessages) ||
       Buffer.byteLength(JSON.stringify(command)) > maxMessageBytes
@@ -224,19 +233,26 @@ export class Recovery {
     if (this.repo.pending.uncertainContinuation(id)) return;
     // A Stop is final: the stopped turn never carries on, so a restart has nothing to resume.
     if (stoppedHold(this.repo.queue.get(id))) return;
-    const text = lostWork(
+    const lost = lostWorkLines(
       this.repo.requireState(id),
       this.repo.pending.recoveryAcknowledgement(id) ? 1 : 0,
-      this.repo.backend(id),
       this.clock.now(),
     );
-    if (!text) return;
-    this.repo.queue.set(
-      id,
-      { continuation: continueMessage, trigger: "restart" },
-      this.clock.now(),
-    );
+    if (!lost) return;
+    // Cursor SDK work stays uncertain until checkpoint reconciliation; it never auto-resumes.
+    const continuation =
+      this.repo.backend(id) === "cursor-sdk" ? continueMessage : restartContinuation(lost);
+    this.repo.queue.set(id, { continuation, trigger: "restart" }, this.clock.now());
     this.sync(id);
+  }
+  /**
+   * Startup found this thread's turn cut short by the restart and safe to continue: send its
+   * restart continuation now, through the same resume path as the person's Continue, ahead of
+   * any queued messages. Counts toward the loop guard.
+   */
+  resumeAfterRestart(id: ThreadId): void {
+    this.streaks.increment(id);
+    this.automatic(id);
   }
   /**
    * A provider that died with work in flight leaves its turn interrupted. The turn is held for
@@ -261,6 +277,17 @@ export class Recovery {
     this.sync(id);
   }
   observe(state: ThreadState, facts: Fact[], _events: EventPayload[], at: number): void {
+    // A root turn that completes ends any run of restarts the loop guard was counting.
+    if (
+      facts.some(
+        (fact) =>
+          fact.type === "turn.ended" &&
+          fact.outcome === "completed" &&
+          !fact.historical &&
+          fact.agent === state.rootKey,
+      )
+    )
+      this.streaks.clear(state.threadId);
     if (
       !facts.some(
         (fact) =>

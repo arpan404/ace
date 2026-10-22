@@ -6,6 +6,12 @@ import type { ThreadId } from "@ace/protocol";
 import { lostWork } from "./lost-work.ts";
 import { settleSessionBoundTasks, threadsWithOpenTasks } from "./session-bound-tasks.ts";
 import { skippableAtStartup } from "./startup-skip.ts";
+import {
+  requestLine,
+  restartDecision,
+  restartNoticeText,
+  type RestartFacts,
+} from "./restart-resume.ts";
 /** Startup is a cold pass over stored thread headers and outstanding sends. */
 export function recoverEngine(
   repo: EngineRepository,
@@ -16,7 +22,11 @@ export function recoverEngine(
   skip: (id: ThreadId, error: unknown) => void = (_id, error) => {
     throw error;
   },
+  /** Whether the thread's provider can reopen its native session. */
+  canContinue: (id: ThreadId) => boolean = () => false,
 ): void {
+  /** Threads whose work this restart cut short, decided once sends' uncertainty is known. */
+  const interruptedWork = new Map<ThreadId, Omit<RestartFacts, "uncertain">>();
   repo.store.atomic(() => {
     repo.transitions.pruneGuards();
     repo.clearIncompleteBlobs();
@@ -25,6 +35,11 @@ export function recoverEngine(
     isolated(state.threadId, skip, () =>
       repo.store.atomic(() => {
         if (repo.cleaning(state.threadId)) return;
+        // Read before anything below holds the queue or the provider's exit expires requests.
+        const heldBefore = repo.queue.get(state.threadId).paused;
+        const openRequest = Object.keys(state.indexes.pendingInteractions)
+          .map((key) => state.interactions[key])
+          .find((interaction) => interaction?.state === "pending");
         const legacyLimits = Object.entries(state.agents).flatMap(([agent, record]) =>
           record.retry?.on === "rate_limit" && !record.limited
             ? [{ type: "retry" as const, agent, ...record.retry }]
@@ -108,6 +123,25 @@ export function recoverEngine(
         const backend = repo.backend(state.threadId);
         const interrupted = lostWork(state, 0, backend, clock.now());
         const live = !state.processExit && interrupted !== undefined;
+        // A graceful shutdown captured its continuation before closing the provider, so its
+        // state shows a deliberate exit; the captured continuation is the evidence either way.
+        const captured = repo.queue.get(state.threadId);
+        const thread = repo.store.getThread(state.threadId);
+        const candidate =
+          !heldBefore &&
+          captured.trigger === "restart" &&
+          captured.continuation !== null &&
+          thread?.settledAt === undefined;
+        if (candidate)
+          interruptedWork.set(state.threadId, {
+            wasRunning: true,
+            heldBefore,
+            settled: false,
+            archived: thread?.archivedAt !== undefined,
+            waitingOnPerson: openRequest ? requestLine(openRequest.request) : undefined,
+            canContinue: backend !== "cursor-sdk" && canContinue(state.threadId),
+            streak: recovery.streaks.get(state.threadId),
+          });
         if (live && backend === "cursor-sdk")
           repo.apply(
             state.threadId,
@@ -139,7 +173,8 @@ export function recoverEngine(
                 message: "Daemon restarted; previous provider work stopped",
               },
               { type: "queue.changed", source: "provider", count: 0 },
-              interruptedNotice(state.rootKey, clock.now(), "restart"),
+              // A candidate's notice says what happens next, once that is decided below.
+              ...(candidate ? [] : [interruptedNotice(state.rootKey, clock.now(), "restart")]),
             ],
             clock.now(),
           );
@@ -247,9 +282,33 @@ export function recoverEngine(
           },
           clock.now(),
         );
-        // Nothing starts by itself after a restart: the interrupted turn and the queue stay held
-        // until the person resumes or sends a message.
         recovery.sync(state.threadId);
+        // Work this restart cut short carries on by itself when that is safe; otherwise it
+        // stays held for the person with a notice saying why. Queued messages follow it in order.
+        const work = interruptedWork.get(state.threadId);
+        if (work) {
+          const decision = restartDecision({
+            ...work,
+            uncertain: uncertain || repo.queue.get(state.threadId).reason === "not_sent",
+          });
+          if (decision.kind !== "none")
+            repo.apply(
+              state.threadId,
+              [
+                interruptedNotice(
+                  state.rootKey,
+                  clock.now(),
+                  "restart",
+                  restartNoticeText(decision, work.waitingOnPerson),
+                ),
+              ],
+              clock.now(),
+            );
+          if (decision.kind === "resume") {
+            recovery.resumeAfterRestart(state.threadId);
+            return;
+          }
+        }
         // Recovery controls already accepted before a crash are safe only when unclaimed.
         if (
           (repo.pending.recovery(state.threadId) || repo.pending.transition(state.threadId)) &&

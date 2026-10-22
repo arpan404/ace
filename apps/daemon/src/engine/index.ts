@@ -31,6 +31,7 @@ import type { PrepareInput } from "./input.ts";
 import { Recovery, RecoveryPreferences, type RecoveryPorts } from "./recovery.ts";
 import { ContextMeters } from "./context-meter.ts";
 import { recoverEngine } from "./restart.ts";
+import { continuesNatively, heldInterrupted } from "./restart-eligibility.ts";
 import { IntentDelivery } from "./intent-delivery.ts";
 import { ThreadTransitions, type TransitionIO } from "./transitions.ts";
 import { Sessions } from "./sessions.ts";
@@ -410,6 +411,7 @@ export class Engine {
         (intent, message) => this.delivery.fail(intent, message),
         (id) => this.wake(id),
         unreadable,
+        (id) => continuesNatively(this.repo, this.registry, id),
       );
     const recovery = this.recovery;
     const repo = this.repo;
@@ -1229,6 +1231,9 @@ export class Engine {
   queue(id: ThreadId): QueueSnapshot {
     return this.repo.queue.snapshot(id);
   }
+  heldInterrupted(id: ThreadId): boolean {
+    return heldInterrupted(this.repo, id, Boolean(this.actors.get(id)?.session));
+  }
   /** A fresh reading says account `instanceId` has room: threads its limit held carry on. */
   accountRecovered(instanceId: string): void {
     if (this.closing || this.repo.store.isHistoryWriting()) return;
@@ -1237,7 +1242,6 @@ export class Engine {
         if (this.repo.session(id).instanceId === instanceId) this.recovery.accountRecovered(id);
     });
   }
-
   private wakeQueued(): void {
     if (this.closing) return;
     for (const id of this.repo.pending.runnableThreads(this.limits.maxActiveThreads))
