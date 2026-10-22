@@ -90,13 +90,13 @@ struct ModelChoiceRow: View {
 
 /// An option picked from a menu: "Effort … High ⌃⌄", "Access … Auto review ⌃⌄".
 struct ModelOptionMenu<Items: View>: View {
-    let systemImage: String
+    let icon: AceIcon.Name
     let title: String
     let value: String
     @ViewBuilder var items: () -> Items
     var body: some View {
         Menu(content: items) {
-            InsetRow(systemImage: systemImage, title: title) {
+            InsetRow(icon: icon, title: title) {
                 HStack(spacing: AceTheme.Spacing.xs) {
                     InsetValue(text: value)
                     Image(systemName: "chevron.up.chevron.down").font(.caption.weight(.semibold))
@@ -116,7 +116,7 @@ struct FastModeRow: View {
     var reason: String? = nil
     let set: (Bool) -> Void
     var body: some View {
-        InsetRow(systemImage: "bolt", title: "Fast mode", subtitle: reason) {
+        InsetRow(icon: .lightning, title: "Fast mode", subtitle: reason) {
             Toggle("Fast mode", isOn: Binding(get: { on }, set: set)).labelsHidden()
         }
         .accessibilityElement(children: .combine)

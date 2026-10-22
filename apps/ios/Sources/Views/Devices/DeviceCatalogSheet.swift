@@ -55,7 +55,7 @@ struct DeviceCatalogSheet: View {
 
     private func row(_ tile: DeviceTile) -> some View {
         Button { Task { await start(tile) } } label: {
-            InsetRow(systemImage: DeviceIcon.of(tile.kind), title: tile.name, subtitle: tile.detail) {
+            InsetRow(icon: DeviceIcon.of(tile.kind), title: tile.name, subtitle: tile.detail) {
                 if booting == tile.id { ProgressView() }
             }
         }

@@ -49,19 +49,19 @@ struct InsetHeader: View {
     static let header = AceTheme.TypeStyle(size: 14, lineHeight: 19, weight: 500, tracking: 0)
 }
 
-/// One row: symbol, label (with an optional muted line under it) and a trailing view.
+/// One row: icon, label (with an optional muted line under it) and a trailing view.
 struct InsetRow<Trailing: View>: View {
-    let systemImage: String?
+    let icon: AceIcon.Name?
     let title: String
     var subtitle: String? = nil
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
         HStack(spacing: AceTheme.Spacing.md + AceTheme.Spacing.xxs) {
-            if let systemImage {
-                Image(systemName: systemImage).font(.system(size: 19, weight: .regular))
+            if let icon {
+                AceIcon(icon, size: 19)
                     .foregroundStyle(AceTheme.Colours.foreground)
-                    .frame(width: 24).accessibilityHidden(true)
+                    .frame(width: 24)
             }
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 Text(title).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
@@ -79,8 +79,8 @@ struct InsetRow<Trailing: View>: View {
 
 extension InsetRow where Trailing == InsetValue {
     /// A row with a muted value on the right ("2", "On", "System").
-    init(_ title: String, systemImage: String?, value: String? = nil, subtitle: String? = nil) {
-        self.init(systemImage: systemImage, title: title, subtitle: subtitle) { InsetValue(text: value) }
+    init(_ title: String, icon: AceIcon.Name?, value: String? = nil, subtitle: String? = nil) {
+        self.init(icon: icon, title: title, subtitle: subtitle) { InsetValue(text: value) }
     }
 }
 

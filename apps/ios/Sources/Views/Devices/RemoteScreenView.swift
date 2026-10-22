@@ -153,7 +153,7 @@ private struct ScreenTargetPicker: View {
                 Section {
                     ForEach(screen.windows.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.bundleId.localizedCaseInsensitiveContains(query) }) { window in
                         Button { share(window.target) } label: {
-                            InsetRow(systemImage: "macwindow", title: window.title.isEmpty ? window.bundleId : window.title, subtitle: window.bundleId) { EmptyView() }
+                            InsetRow(icon: .appWindow, title: window.title.isEmpty ? window.bundleId : window.title, subtitle: window.bundleId) { EmptyView() }
                         }
                         .buttonStyle(.plain).insetRowBackground()
                     }
