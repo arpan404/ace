@@ -11,7 +11,7 @@ import { waitingScenario } from "./waiting-scenario.ts";
 import { RequestScenario, requestScenarios, seedRequest } from "./request-scenarios.ts";
 import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
-import { seedArchive } from "./archive-scenario.ts";
+import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
 import { seedNativeMedia } from "./media-scenario.ts";
 import { answerScreenshot, browserControl, realVideo, seedBrowser } from "./spike-browser.ts";
@@ -150,6 +150,7 @@ seedMessages(daemon, details);
 requestScenarios(daemon, details);
 spikeDevices(daemon, details);
 let fresh = 0;
+let naps = 0;
 
 const connections = new Map<ServerWebSocket<undefined>, ReturnType<FakeDaemon["connect"]>>();
 let online = true;
@@ -229,6 +230,15 @@ const server = Bun.serve<undefined>({
       const threadId = `ios-fresh-${scenario}-${++fresh}`;
       seedRequest(daemon, scenario, threadId, details);
       return Response.json({ threadId });
+    }
+    // Restarts ios-nap's snooze from now, so the offline-snooze test never depends on how long
+    // the fixture has been running.
+    if (path === "/review/nap" && request.method === "POST") {
+      const { ms } = z
+        .object({ ms: z.number().int().min(1000).max(600_000) })
+        .parse(await request.json());
+      snoozeNap(daemon, Date.now() + ms, `ios-spike-nap-${++naps}`);
+      return Response.json({ ok: true });
     }
     if (path === "/review/notify" && request.method === "POST") {
       const input = z
