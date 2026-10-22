@@ -14,9 +14,6 @@ struct TranscriptLinks {
     var openAgents: (() -> Void)? = nil
     /// A child thread's status, as the thread list words it, for a started conversation's row.
     var threadStatus: ((String) -> StatusDisplay?)? = nil
-    /// The thread's own transcript: its live turn carries the thread's live line. A subagent's
-    /// lane has none of its own.
-    var live = false
 }
 
 /// One transcript block. Items render through their own observed rows, so streaming text
@@ -30,7 +27,8 @@ struct BlockView: View {
         switch row.kind {
         case "work": WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps, openMedia: links.openMedia, openMessage: links.openMessage)
         case "subagents": if let agents = row.agents { SubagentGroupView(agents: agents, thread: thread, blockId: block.id, open: open) }
-        case "live": if links.live { LiveLine(activity: thread.screen.activity) }
+        // The live state is the pill over the composer, not a line in the transcript.
+        case "live": EmptyView()
         case "end": if let ending = row.ending { EndingLine(ending: ending, row: row, thread: thread) }
         case "files":
             if let files = row.files, !files.chips.isEmpty, let openChanges = links.openChanges {

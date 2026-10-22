@@ -19,6 +19,7 @@ import { featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts"
 import { seedFiles } from "./files-scenario.ts";
 import { seedWorkLogs } from "./worklog-scenario.ts";
 import { seedMessages } from "./message-scenario.ts";
+import { seedGoal } from "./goal-scenario.ts";
 import { busyInbox } from "./busy-inbox-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
@@ -150,6 +151,7 @@ daemon.command({
 
 threadScenarios(daemon, details);
 waitingScenario(daemon, details);
+seedGoal(daemon, details);
 seedArchive(daemon, Date.now(), Number(process.env.ACE_IOS_SPIKE_NAP_MS ?? 90_000));
 const busy = Number(process.env.ACE_IOS_SPIKE_INBOX ?? 0);
 const busyTimer =
