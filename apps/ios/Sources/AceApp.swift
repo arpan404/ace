@@ -7,6 +7,10 @@ import QuartzCore
     @State private var spikeInbox = MachineInbox(now: { Date().timeIntervalSince1970 * 1000 })
     @State private var started = false
     @State private var production = ProductionApp.make()
+    /// Unsent thread words, kept across navigation and relaunch (`ThreadDrafts`).
+    @State private var drafts = (try? ProductionApp.storageDirectory()).map { directory in
+        ThreadDrafts(url: SpikeConfiguration.enabled ? SpikeConfiguration.threadDrafts(in: directory) : directory.appendingPathComponent("thread-drafts.json"))
+    }
     var body: some Scene {
         WindowGroup {
             Group {
@@ -17,7 +21,9 @@ import QuartzCore
                         .environment(notificationDelegate.coordinator)
                         .onChange(of: scenePhase) { _, phase in notificationDelegate.coordinator.scene(active: phase == .active) }
                 } else { storageUnavailable }
-            }.modifier(PhoneAppearance())
+            }
+            .environment(\.threadDrafts, drafts)
+            .modifier(PhoneAppearance())
         }
     }
     @ViewBuilder private var renderFixture: some View {
