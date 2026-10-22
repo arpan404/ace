@@ -43,6 +43,7 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
       "newThreadHere",
       "addProject",
       "settings",
+      "reloadApp",
       "back",
       "forward",
       "toggleSidebar",
