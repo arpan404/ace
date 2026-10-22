@@ -28,7 +28,7 @@ final class ComputerClickRouteTests: XCTestCase {
         XCTAssertEqual(cuClickRoute(CUClickFacts(byId: false, role: "AXStaticText", pressableAncestor: true)), .post)
         XCTAssertEqual(cuClickRoute(CUClickFacts(byId: false, role: "AXTextArea")), .post)
         // Off screen a real click cannot land, so the nearest accessibility equivalent is tried.
-        XCTAssertEqual(cuClickRoute(CUClickFacts(byId: false, role: "AXStaticText", pressableAncestor: true, onScreen: false)), .pressAncestor)
+        XCTAssertEqual(cuClickRoute(CUClickFacts(byId: false, role: "AXStaticText", pressableAncestor: true, pointerLands: false)), .pressAncestor)
     }
 
     func testRightClicksOpenTheContextMenuThroughAccessibilityWhenOffered() {

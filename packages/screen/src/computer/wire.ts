@@ -58,6 +58,7 @@ export const ComputerState = z.looseObject({
     })
     .optional(),
   launched: z.boolean().optional(),
+  screenLocked: z.boolean().optional(),
   screenshot: z
     .looseObject({ jpeg: z.string(), width: z.number().int(), height: z.number().int() })
     .optional(),

@@ -28,6 +28,64 @@ import ApplicationServices
     private var setManualAccessibility = false
     private var menuBar: (titles: [String], at: UInt64)?
     private var madeKey: CGWindowID?
+    var innerActive = false
+    private var lastLocked: Bool?
+    var agentFocus: AXUIElement?
+    private var agentFocusWindow: CGWindowID?
+    var actionTarget: AXUIElement?
+    var actionKind = ""
+    var actionRevision = 0
+
+    var agentInputFocus: AXUIElement? { agentFocusWindow == window?.number ? agentFocus : nil }
+
+    /// Explicit element input can share a window without changing the person's caret.
+    var preserveHumanFocus: Bool {
+        guard app.isActive, !cuScreenLocked() else { return false }
+        if sharingActiveApp { return true }
+        guard let target = actionTarget ?? agentInputFocus else { return false }
+        guard let focused = cuElementAttribute(element, "AXFocusedUIElement") else { return true }
+        return !CFEqual(target, focused)
+    }
+
+    var conflictsWithHuman: Bool {
+        let focused = cuElementAttribute(element, "AXFocusedUIElement")
+        var containsFocus = false
+        if let target = actionTarget {
+            var current = focused
+            for _ in 0..<8 {
+                guard let element = current else { break }
+                if CFEqual(element, target) { containsFocus = true; break }
+                current = cuElementAttribute(element, "AXParent")
+            }
+        }
+        let pointerAction = ["click", "move", "drag", "action"].contains(actionKind)
+        let cursorOnTarget = pointerAction && actionTarget.flatMap(cuFrame(of:)).map { frame in
+            CGEvent(source: nil).map { frame.contains($0.location) } ?? true
+        } == true
+        return cuConflictsWithHuman(CUHumanTargetFacts(observing: ["wait", "wait_for"].contains(actionKind),
+            explicitTarget: actionTarget != nil, sameWindow: !sharingActiveApp, focusKnown: focused != nil,
+            containsFocus: containsFocus, pointerAction: pointerAction, cursorOnTarget: cursorOnTarget))
+    }
+
+    func prepareAction(_ action: CUObject) {
+        actionKind = action.string("type") ?? ""
+        actionTarget = action.int("id").flatMap { registry.element($0) }
+        actionRevision &+= 1
+        if let target = actionTarget, ["type", "paste", "key", "focus", "select_text"].contains(actionKind) { rememberFocus(target) }
+    }
+
+    /// The person owns another window of this frontmost app. App-wide focus, first
+    /// responder commands and tracking menus must remain with that window.
+    var sharingActiveApp: Bool {
+        guard app.isActive, !cuScreenLocked(), let chosen = window?.number else { return false }
+        guard let focused = cuElementAttribute(element, "AXFocusedWindow"), let number = cuWindowNumber(focused) else { return true }
+        return number != chosen
+    }
+
+    func rememberFocus(_ target: AXUIElement) {
+        agentFocus = target
+        agentFocusWindow = window?.number
+    }
     private(set) var lastUsed = cuNow()
 
     init(app: NSRunningApplication) {
@@ -53,13 +111,40 @@ import ApplicationServices
 
     /// Called at the start of every request on this app.
     func beginRequest() {
+        let locked = cuScreenLocked()
+        if lastLocked != locked {
+            shot = nil
+            lastStamp = nil
+        }
+        lastLocked = locked
+        if agentFocusWindow != window?.number { agentFocus = nil }
         lastUsed = cuNow()
         madeKey = nil
         notResponding = false
     }
 
+    /// A previous step or the person can move, restore or minimize this window during a batch.
+    func refreshWindow() {
+        guard let current = window else { return }
+        let (attributes, status) = cuFetchStatus(current.element, ["AXPosition", "AXSize", "AXMinimized"])
+        guard status == .success, let frame = cuFrame(attributes) else { return }
+        let minimized = attributes["AXMinimized"] as? Bool ?? current.minimized
+        let onScreen = current.number.flatMap { cuServerWindowInfo([$0])[$0]?.onScreen } ?? false
+        let otherSpace = !onScreen && !minimized && current.number.map(cuWindowIsOnSomeSpace) == true
+        if current.onScreen != onScreen || current.minimized != minimized || current.otherSpace != otherSpace { madeKey = nil }
+        window = CUWindow(element: current.element, number: current.number, title: current.title, frame: frame,
+                          onScreen: onScreen, minimized: minimized, main: current.main, index: current.index,
+                          subrole: current.subrole, otherSpace: otherSpace)
+    }
+
     /// Undoes what the helper changed in the app. Called when the session is dropped and at exit.
+    func endRequest() {
+        deactivateInside()
+        madeKey = nil
+    }
+
     func close() {
+        deactivateInside()
         settler.close()
         if setManualAccessibility, !app.isTerminated {
             AXUIElementSetAttributeValue(element, "AXManualAccessibility" as CFString, kCFBooleanFalse)
@@ -71,12 +156,27 @@ import ApplicationServices
     /// app forward: a dialog, sheet or panel over the chosen window, else the chosen window.
     /// A frontmost app already routes keys itself, so it is left alone.
     func makeKey() {
-        guard !app.isActive, let chosen = window?.number else { return }
-        let target = cuKeyTarget(application: element, chosen: chosen)
-        if madeKey == target.window, target.focused == target.window { return }
-        if cuFocusWithoutActivating(pid: pid, window: target.window) {
+        guard let current = window, let chosen = current.number else { return }
+        let route = cuKeyRoute(CUKeyRouteFacts(appFrontmost: app.isActive, hasWindowNumber: true, onScreen: current.onScreen,
+                                               otherSpace: current.otherSpace, minimized: current.minimized))
+        switch route {
+        case .frontmost, .none: return
+        case .focusRecords:
+            let target = cuKeyTarget(application: element, chosen: chosen)
+            if madeKey == target.window, target.focused == target.window { return }
+            if cuFocusWithoutActivating(pid: pid, window: target.window) {
+                madeKey = target.window
+                usleep(30_000)
+            }
+        case .innerActivation:
+            let target = cuKeyTarget(application: element, chosen: chosen)
+            if madeKey == target.window, innerActive { return }
+            _ = activateInside()
+            // An active app's main window is its key window; a sheet on it takes the keys itself.
+            let targetElement = target.window == chosen ? current.element : cuElementAttribute(element, "AXFocusedWindow")
+            if let targetElement { AXUIElementSetAttributeValue(targetElement, "AXMain" as CFString, kCFBooleanTrue) }
             madeKey = target.window
-            usleep(30_000)
+            usleep(20_000)
         }
     }
 
@@ -194,6 +294,9 @@ import ApplicationServices
     /// Maps screenshot pixels to global screen points using the latest screenshot of the
     /// current window, against the window's current frame.
     func screenPoint(fromPixel pixel: CGPoint) throws -> CGPoint {
+        guard !cuScreenLocked() else {
+            throw CUError("screen_locked", "Screenshot coordinates are unavailable while the Mac is locked. Use an element id from the accessibility outline.")
+        }
         guard let current = window else { throw CUError("no_window", "\(name) has no open window to click in.") }
         let frame = cuFrame(of: current.element) ?? current.frame
         return try cuMapPixel(pixel, shot: shot, window: current.number, frame: frame)

@@ -3,12 +3,35 @@ import CoreGraphics
 @testable import ScreenHelper
 
 final class ComputerGuardTests: XCTestCase {
+    func testIndependentControlsInTheSameTabCanBeEditedWithoutTakingThePersonsCaret() {
+        var target = CUHumanTargetFacts(observing: false, explicitTarget: true, sameWindow: true,
+                                       focusKnown: true, containsFocus: false, pointerAction: false, cursorOnTarget: false)
+        XCTAssertFalse(cuConflictsWithHuman(target))
+        target.containsFocus = true
+        XCTAssertTrue(cuConflictsWithHuman(target))
+        target.containsFocus = false
+        target.pointerAction = true
+        target.cursorOnTarget = true
+        XCTAssertTrue(cuConflictsWithHuman(target))
+        target.explicitTarget = false
+        target.sameWindow = false
+        XCTAssertFalse(cuConflictsWithHuman(target))
+    }
+
     private func facts(locked: Bool = false, front: Bool = false, idle: Double = 60, stop: Bool = false) -> CUGuardFacts {
         CUGuardFacts(locked: locked, appFrontmost: front, secondsSinceHumanInput: idle, stopRequested: stop)
     }
 
     func testAgentWorksInBackgroundAppsWhileThePersonTypesElsewhere() {
         XCTAssertNoThrow(try cuGuard(facts(front: false, idle: 0.1), app: "Notes"))
+    }
+
+    func testThePersonCanTypeInAnotherWindowOfTheSameApp() {
+        var shared = facts(front: true, idle: 0)
+        shared.conflictsWithHuman = false
+        XCTAssertNoThrow(try cuGuard(shared, app: "Safari"))
+        shared.conflictsWithHuman = true
+        XCTAssertThrowsError(try cuGuard(shared, app: "Safari"))
     }
 
     func testAgentWaitsWhileThePersonIsUsingTheSameApp() {
@@ -18,9 +41,15 @@ final class ComputerGuardTests: XCTestCase {
         XCTAssertNoThrow(try cuGuard(facts(front: true, idle: 5), app: "Notes"))
     }
 
-    func testEscapeAndALockedScreenStopTheAgent() {
+    func testEscapeStopsTheAgentEvenWhileLocked() {
         XCTAssertEqual(Self.code { try cuGuard(self.facts(stop: true), app: "Notes") }, "stopped_by_person")
-        XCTAssertEqual(Self.code { try cuGuard(self.facts(locked: true), app: "Notes") }, "screen_locked")
+        XCTAssertEqual(Self.code { try cuGuard(self.facts(locked: true, stop: true), app: "Notes") }, "stopped_by_person")
+    }
+
+    func testLockingDoesNotPreventBackgroundAccessibilityWork() {
+        XCTAssertNoThrow(try cuGuard(facts(locked: true), app: "Notes"))
+        // isActive can retain the app that was frontmost before the lock screen appeared.
+        XCTAssertNoThrow(try cuGuard(facts(locked: true, front: true, idle: 0), app: "Notes"))
     }
 
     private static func code(_ body: () throws -> Void) -> String? {

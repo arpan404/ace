@@ -110,15 +110,29 @@ import ApplicationServices
     private func checkpoint(id: String, session: CUAppSession, acting: Bool) -> CUCheckpoint {
         let cancellations = self.cancellations, stop = self.stop
         var throttle = CUThrottle(intervalNs: 100_000_000)
+        var checkedAction = -1
+        var lastRefusal: CUError?
         return CUCheckpoint {
             if cancellations.isCancelled(id) { throw CUError("cancelled", cuCancelledMessage) }
             guard acting else { return }
             let stopRequested = stop.stopRequested
-            guard stopRequested || throttle.due(now: cuNow()) else { return }
-            let facts = MainActor.assumeIsolated {
-                CUGuardFacts(locked: cuScreenLocked(), appFrontmost: session.app.isActive, secondsSinceHumanInput: cuSecondsSinceHumanInput(), stopRequested: stopRequested)
+            let revision = MainActor.assumeIsolated { session.actionRevision }
+            guard stopRequested || checkedAction != revision || throttle.due(now: cuNow()) else {
+                if let lastRefusal { throw lastRefusal }
+                return
             }
-            try cuGuard(facts, app: session.name)
+            checkedAction = revision
+            let facts = MainActor.assumeIsolated {
+                CUGuardFacts(locked: cuScreenLocked(), appFrontmost: session.app.isActive, secondsSinceHumanInput: cuSecondsSinceHumanInput(), stopRequested: stopRequested,
+                             conflictsWithHuman: session.conflictsWithHuman)
+            }
+            do {
+                try cuGuard(facts, app: session.name)
+                lastRefusal = nil
+            } catch let fault as CUError {
+                lastRefusal = fault
+                throw fault
+            }
         }
     }
 
@@ -154,10 +168,12 @@ import ApplicationServices
         let started = cuNow()
         let (session, _) = try await session(for: request.string("app") ?? "", launch: false)
         session.beginRequest()
+        defer { session.endRequest() }
         // Settling never stretches a batch past a minute, however many steps it has.
         session.settler.deadline = started + 60_000_000_000
         defer { session.settler.deadline = nil }
-        if session.window == nil || request["window"] != nil { _ = try session.chooseWindow(request["window"]) }
+        // Visibility, position and minimization can change between calls, including at lock.
+        _ = try session.chooseWindow(request["window"])
         let focusedBefore = session.notResponding ? nil : cuElementAttribute(session.element, "AXFocusedWindow")
         stop.begin()
         defer { stop.end() }
@@ -173,15 +189,23 @@ import ApplicationServices
         let actions = request.objects("actions")
         for (index, action) in actions.enumerated() {
             do {
-                try check.check()
                 done.append(try await actor.run(action))
             } catch {
                 let fault = error as? CUError ?? CUError("internal", String(describing: error))
                 failure = ["index": index, "code": fault.code, "message": fault.message]
                 break
             }
-            if index < actions.count - 1 { await session.settler.settle(minimumMs: 40, quietMs: 100, respondedQuietMs: 40, maximumMs: 1_200) }
+            if index < actions.count - 1 {
+                if cuConsecutiveEdits(action, actions[index + 1]) {
+                    // Ordered edits already confirm delivery themselves. Yield for cancel,
+                    // Esc and app notifications, without waiting for the whole UI to quiet.
+                    try? await Task.sleep(nanoseconds: 1_000_000)
+                } else {
+                    await session.settler.settle(minimumMs: 40, quietMs: 100, respondedQuietMs: 40, maximumMs: 1_200)
+                }
+            }
         }
+        session.endRequest()
         var result: CUObject = ["done": done]
         if let failure { result["error"] = failure }
         let cancelled = cancellations.isCancelled(id)

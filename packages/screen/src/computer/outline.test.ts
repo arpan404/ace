@@ -152,6 +152,15 @@ describe("header and footer", () => {
   });
 
   it("explain an empty off-screen window instead of showing nothing", () => {
-    expect(stateFooter(state([window]), false)).toContain("activate");
+    expect(stateFooter(state([window]), false)).toContain("Observe again");
+  });
+
+  it("keep a locked session on accessibility without suggesting foreground recovery", () => {
+    const locked = state([window], { screenLocked: true });
+    expect(stateHeader(locked)).toContain(
+      "The Mac is locked. Use accessibility actions and element ids",
+    );
+    expect(stateHeader(locked)).toContain("screenshots and activate are unavailable");
+    expect(stateFooter(locked, false)).not.toContain("Activating");
   });
 });

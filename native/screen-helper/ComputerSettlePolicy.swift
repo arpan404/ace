@@ -22,3 +22,13 @@ struct CUSettleWindow {
         return now >= last && now - last >= quietNs
     }
 }
+
+/// Text edits and selection changes confirm their own delivery. Navigation, clicks, menus
+/// and conditions still need a settled UI before the next step can depend on their result.
+func cuConsecutiveEdits(_ current: CUObject, _ next: CUObject) -> Bool {
+    let edits: Set<String> = ["type", "paste", "set_value", "select_text", "focus"]
+    guard next["when"] == nil, let first = current.string("type"), let second = next.string("type"),
+          edits.contains(first), edits.contains(second) else { return false }
+    // Return/Tab in typed text can submit a form or move focus just like a named key.
+    return !(current.string("text") ?? "").contains(where: { $0 == "\n" || $0 == "\r" || $0 == "\t" })
+}

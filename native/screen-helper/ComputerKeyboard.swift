@@ -6,7 +6,7 @@ func cuIsSecure(_ element: AXUIElement) -> Bool {
     cuRole(element) == "AXSecureTextField" || (cuAttribute(element, "AXSubrole") as? String) == "AXSecureTextField"
 }
 
-let cuNoEffectNote = ". No visible effect; the app may ignore background keys: try set_value, paste, or activate."
+let cuNoEffectNote = ". No visible effect; the app may ignore background keys. Try set_value, paste, or a menu command."
 
 /// Apps known to drop multi-character key events (they read one character per key), by pid.
 /// Learned on first use, so only one chunk per app is ever retried.
@@ -67,13 +67,14 @@ extension CUActor {
         let before = target?.state
         let count = "\(text.count) character\(text.count == 1 ? "" : "s")"
         // An input method would compose posted keys; insert the text itself instead.
-        if CUKeyboard.inputMethodActive, let target {
+        if (CUKeyboard.inputMethodActive || cuScreenLocked() || session.preserveHumanFocus), let target {
             switch await target.insert(text) {
-            case .changed: session.settler.markChanged(); return "typed \(count) (inserted directly because an input method is active)"
-            case .unverified: session.settler.markChanged(); return "typed \(count) (inserted directly because an input method is active; unconfirmed)"
+            case .changed: session.settler.markChanged(); return "typed \(count) (inserted through accessibility)"
+            case .unverified: session.settler.markChanged(); return "typed \(count) (inserted through accessibility; unconfirmed)"
             case .ignored, .refused: break
             }
         }
+        try requireAppResponder()
         try await postTyping(text, target: target)
         session.settler.markChanged()
         var line = "typed \(count)"
@@ -159,10 +160,11 @@ extension CUActor {
         let focused = focusedElement()
         let command = cuTextCommand(chord)
         if chord.typesText || command == .paste { try refuseSecure(focused, verb: "fill") }
-        if let command, !session.app.isActive, let target = CUTextTarget.focused(in: session.element), let done = await cuRunTextCommand(command, on: target) {
+        if let command, !session.app.isActive || cuScreenLocked() || session.preserveHumanFocus, let target = textTarget(), let done = await cuRunTextCommand(command, on: target) {
             session.settler.markChanged()
             return "pressed \(name) (\(done))"
         }
+        try requireAppResponder()
         if let item = cuMenuItem(for: chord, in: session.element) {
             let title = cuAttribute(item, "AXTitle") as? String ?? name
             if !session.app.isActive, let button = windowButton(forCommand: title) {
@@ -219,16 +221,18 @@ extension CUActor {
         try refuseSecure(focusedElement(), verb: "fill")
         try refuseWhileMenuOpen()
         let content = try cuPasteContent(action.string("text") ?? "", format: action.string("format") ?? "text")
-        let target = CUTextTarget.focused(in: session.element)
+        let target = textTarget()
         let count = content.plain.count
         // Plain text goes straight into the field; the person's clipboard is untouched.
-        if content.html == nil, let target {
+        if content.html == nil || session.preserveHumanFocus || cuScreenLocked(), let target {
+            let formatNote = content.html == nil ? "" : " as plain text (preserving the person's focus)"
             switch await target.insert(content.plain) {
-            case .changed: session.settler.markChanged(); return "pasted \(count) characters"
-            case .unverified: session.settler.markChanged(); return "pasted \(count) characters (the app does not report its text, so this is unconfirmed)"
+            case .changed: session.settler.markChanged(); return "pasted \(count) characters\(formatNote)"
+            case .unverified: session.settler.markChanged(); return "pasted \(count) characters\(formatNote) (the app does not report its text, so this is unconfirmed)"
             case .ignored, .refused: break
             }
         }
+        try requireAppResponder()
         try checkpoint()
         let before = target?.state
         await cuPaste(content, poster: poster, application: session.element)
@@ -238,7 +242,7 @@ extension CUActor {
         // The app ignored a background paste; insert the text itself instead.
         switch await target.insert(content.plain) {
         case .changed, .unverified:
-            return "pasted \(count) characters as plain text (rich paste needs the app in front; use activate first if formatting matters)"
+            return "pasted \(count) characters as plain text (the app ignored rich paste in the background)"
         case .ignored, .refused:
             throw CUError("paste_ignored", "\(session.name) ignored the paste. Click the field first, or use type or set_value.")
         }

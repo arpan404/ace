@@ -17,9 +17,11 @@ extension CUAppSession {
             tree = await walkUnlessUnchanged(deadline: deadline)
             if chromium, !chromiumWarmed {
                 chromiumWarmed = true
-                // Chromium builds its tree a moment after first being asked for; look once more.
-                if tree.nodes.count < 6, window != nil, !tree.notResponding {
-                    await settler.settle(minimumMs: 250, quietMs: 200, maximumMs: 1_500)
+                // Chromium builds its tree a moment after first being asked for; look again, a
+                // few times within about two seconds, until the web content shows up.
+                let until = cuNow() + 2_000_000_000
+                while cuChromiumTreePending(tree.nodes), window != nil, !tree.notResponding, cuNow() < until {
+                    await settler.settle(minimumMs: 250, quietMs: 150, maximumMs: 700)
                     tree = walk(deadline: max(deadline, cuNow() + 1_500_000_000))
                 }
             }
@@ -47,6 +49,7 @@ extension CUAppSession {
             },
             "nodes": tree.nodes.map { $0.json(origin: .zero) },
             "truncated": tree.truncated,
+            "screenLocked": cuScreenLocked(),
         ]
         if notResponding || tree.notResponding {
             result["notResponding"] = true
