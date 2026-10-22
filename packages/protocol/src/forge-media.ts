@@ -56,6 +56,9 @@ export const ForgeMediaResult = z.discriminatedUnion("state", [
     /** Sniffed from the bytes, never taken from a header. */
     mimeType: z.string().min(1).max(64),
     bytes: z.number().int().positive().max(forgeMediaMaxBytes),
+    /** An image's pixel size from its header, when it could be read: space to reserve. */
+    width: z.number().int().positive().max(65_535).optional(),
+    height: z.number().int().positive().max(65_535).optional(),
   }),
   /** A `link` the forge shows as a plain link: not media. */
   z.object({ state: z.literal("none") }),

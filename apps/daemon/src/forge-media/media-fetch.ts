@@ -3,7 +3,7 @@ import { createWriteStream } from "node:fs";
 import { unlink } from "node:fs/promises";
 import { finished } from "node:stream/promises";
 import { publicResponse, type PublicFetchOptions } from "../icons/public-fetch.ts";
-import { sniffBytes, sniffMedia, type SniffedMedia } from "./media-sniff.ts";
+import { mediaDimensions, sniffBytes, sniffMedia, type SniffedMedia } from "./media-sniff.ts";
 
 /*
  * One media file from the forge's media hosts into a temporary file (ADR 0096). Only a URL on a
@@ -14,7 +14,13 @@ import { sniffBytes, sniffMedia, type SniffedMedia } from "./media-sniff.ts";
  */
 
 export type FetchedMedia =
-  | { kind: "ok"; sha256: string; bytes: number; media: SniffedMedia }
+  | {
+      kind: "ok";
+      sha256: string;
+      bytes: number;
+      media: SniffedMedia;
+      dimensions?: { width: number; height: number } | undefined;
+    }
   | { kind: "missing"; status?: number | undefined }
   | { kind: "too_large" }
   | { kind: "unsupported" }
@@ -99,10 +105,17 @@ export async function fetchMedia(
     await unlink(temporary).catch(() => {});
     return { kind: "failed" };
   }
-  const media = sniffMedia(Buffer.concat(head));
+  const leading = Buffer.concat(head);
+  const media = sniffMedia(leading);
   if (over || !total || !media) {
     await unlink(temporary).catch(() => {});
     return over ? { kind: "too_large" } : !total ? { kind: "missing" } : { kind: "unsupported" };
   }
-  return { kind: "ok", sha256: hash.digest("hex"), bytes: total, media };
+  return {
+    kind: "ok",
+    sha256: hash.digest("hex"),
+    bytes: total,
+    media,
+    dimensions: media.kind === "image" ? mediaDimensions(leading, media.mimeType) : undefined,
+  };
 }

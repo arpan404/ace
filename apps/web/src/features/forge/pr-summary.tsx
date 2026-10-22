@@ -29,6 +29,8 @@ export function PrSummary(props: {
   onRequestReview: (() => void) | undefined;
   /** Opens the details editor, when GitHub lets this account edit them. */
   onEdit: (() => void) | undefined;
+  /** Saves the description with one task box ticked, when the viewer may edit it. */
+  onTasks?: ((body: string) => Promise<boolean>) | undefined;
 }) {
   const { context } = props;
   const { detail } = context;
@@ -56,6 +58,7 @@ export function PrSummary(props: {
         extensions={props.extensions}
         onOpen={props.onOpen}
         onEdit={props.onEdit}
+        onTasks={props.onTasks}
       />
       {props.stack && (
         <PrStackSummary

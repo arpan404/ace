@@ -86,12 +86,18 @@ function Line(props: { children: ReactNode; at: string | null }) {
   );
 }
 /** A long body shows about six lines until it is opened. */
-function Clamped(props: { id: string; text: string; expansion: TimelineExpansion }) {
+function Clamped(props: {
+  id: string;
+  text: string;
+  expansion: TimelineExpansion;
+  comment?: ForgeComment | undefined;
+}) {
   if (!props.text.trim()) return null;
   return (
     <div className="mt-1.5">
       <PrClampedText
         text={props.text}
+        comment={props.comment}
         open={props.expansion.isOpen(props.id)}
         onToggle={() => props.expansion.toggle(props.id)}
       />
@@ -115,6 +121,7 @@ function CommentBody(props: { comment: ForgeComment; expansion: TimelineExpansio
       <Clamped
         id={`body:${comment.kind}:${comment.id}`}
         text={comment.body}
+        comment={comment}
         expansion={props.expansion}
       />
       {comment.kind !== "review" && (

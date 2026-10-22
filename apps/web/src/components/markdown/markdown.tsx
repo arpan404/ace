@@ -11,6 +11,8 @@ import { cn } from "@/lib/cn.ts";
 import { useEdgeFade } from "@/lib/edge-fade.ts";
 import type { MarkdownBlock } from "./blocks.ts";
 import type { MarkdownLinks } from "./link-options.ts";
+import type { MarkdownExtensions } from "./extensions.ts";
+import { blockRhythm } from "./rhythm.ts";
 import { copyTexSource } from "./math-copy.ts";
 import { isMathToken } from "./math-extension.ts";
 import { Formula } from "./math.tsx";
@@ -62,10 +64,47 @@ function safeHref(href: string): string | undefined {
 }
 
 function inline(tokens: readonly Token[] | undefined): ReactNode {
+  // Raw HTML among them is the extensions' to draw, when there are any (forge text).
+  if (tokens?.some((token) => token.type === "html")) return <HtmlInlines tokens={tokens} />;
   return tokens?.map((token, index) => <Inline key={index} token={token} />);
 }
 
 const Links = createContext<MarkdownLinks | undefined>(undefined);
+/** What a feature draws instead of the defaults; none for agent prose. */
+const Extensions = createContext<MarkdownExtensions | undefined>(undefined);
+
+function HtmlInlines(props: { tokens: readonly Token[] }): ReactNode {
+  const extensions = useContext(Extensions);
+  const draw = (index: number) => {
+    const token = props.tokens[index];
+    return token ? <Inline key={index} token={token} /> : null;
+  };
+  if (extensions) return extensions.inlines(props.tokens, draw);
+  return props.tokens.map((_, index) => draw(index));
+}
+
+function MarkdownImageToken(props: { href: string; alt: string }): ReactNode {
+  const extensions = useContext(Extensions);
+  return extensions ? (
+    extensions.image(props.href, props.alt)
+  ) : (
+    <MarkdownImage src={props.href} alt={props.alt} />
+  );
+}
+
+function Checkbox(props: { token: Extract<MarkedToken, { type: "checkbox" }> }): ReactNode {
+  const extensions = useContext(Extensions);
+  if (extensions) return extensions.checkbox(props.token);
+  return (
+    <input
+      type="checkbox"
+      checked={props.token.checked}
+      readOnly
+      aria-label={props.token.checked ? "Done" : "Not done"}
+      className="mr-1.5 align-[-1px]"
+    />
+  );
+}
 
 /** Inline code; a link into the thread's checkout when it names a file there (settled text). */
 function CodeSpan(props: { text: string }): ReactNode {
@@ -147,7 +186,7 @@ function Inline(props: { token: Token }): ReactNode {
       );
     }
     case "image":
-      return <MarkdownImage src={token.href} alt={token.text} />;
+      return <MarkdownImageToken href={token.href} alt={token.text} />;
     case "text":
       return token.tokens ? inline(token.tokens) : <ProseText text={token.text} />;
     case "escape":
@@ -155,15 +194,7 @@ function Inline(props: { token: Token }): ReactNode {
     case "html":
       return token.text;
     case "checkbox":
-      return (
-        <input
-          type="checkbox"
-          checked={token.checked}
-          readOnly
-          aria-label={token.checked ? "Done" : "Not done"}
-          className="mr-1.5 align-[-1px]"
-        />
-      );
+      return <Checkbox token={token} />;
     default:
       return "raw" in token ? token.raw : null;
   }
@@ -176,13 +207,7 @@ const headingClass = [
   "font-semibold",
 ];
 
-/**
- * One block rhythm for a run of blocks (an answer, a quote, a loose list item): 12px between
- * blocks, 24px above a heading, and nothing above the first block, so an answer that opens with
- * a heading starts flush with its row.
- */
-export const blockRhythm =
-  "[&>*+*]:mt-3 [&>h3]:mt-6 [&>h4]:mt-6 [&>h5]:mt-6 [&>h6]:mt-6 [&>*:first-child]:mt-0";
+export { blockRhythm };
 
 /** A table as wide as its content up to the column; a clipped side fades when it scrolls. */
 function Table(props: { token: Extract<MarkedToken, { type: "table" }> }): ReactNode {
@@ -238,6 +263,7 @@ const Tail = createContext<ReactNode>(undefined);
 function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode {
   const writing = useContext(Writing);
   const tail = useContext(Tail);
+  const extensions = useContext(Extensions);
   const token = props.token;
   if (!isKnown(token))
     return (
@@ -250,13 +276,16 @@ function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode
     case "space":
     case "def":
       return null;
-    case "paragraph":
-      return (
+    case "paragraph": {
+      const standard = () => (
         <p>
           {inline(token.tokens)}
           {tail}
         </p>
       );
+      const custom = extensions?.paragraph(token, standard);
+      return custom === undefined ? standard() : custom;
+    }
     case "heading": {
       const Tag = `h${Math.min(6, Math.max(3, token.depth + 2))}` as "h3" | "h4" | "h5" | "h6";
       return (
@@ -275,12 +304,15 @@ function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode
           {...(props.code ? { tokens: props.code } : writing ? { plain: true } : {})}
         />
       );
-    case "blockquote":
+    case "blockquote": {
+      const custom = extensions?.blockquote(token, (tokens) => <Blocks tokens={tokens} />);
+      if (custom !== undefined) return custom;
       return (
         <blockquote className={cn("border-l-2 pl-3 text-muted-foreground", blockRhythm)}>
           <Blocks tokens={token.tokens} />
         </blockquote>
       );
+    }
     case "hr":
       return <hr className="border-0 border-t" />;
     case "list": {
@@ -313,6 +345,7 @@ function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode
     case "table":
       return <Table token={token} />;
     case "html":
+      if (extensions) return extensions.blocks([token], () => null);
       return (
         <p className="whitespace-pre-wrap">
           {token.text}
@@ -355,11 +388,18 @@ function Tight(props: { tokens: readonly Token[] }) {
 
 function Blocks(props: { tokens: readonly Token[] }) {
   const tail = useContext(Tail);
-  return props.tokens.map((token, index) => (
-    <Tail.Provider key={index} value={index === props.tokens.length - 1 ? tail : undefined}>
-      <Block token={token} />
-    </Tail.Provider>
-  ));
+  const extensions = useContext(Extensions);
+  const draw = (index: number) => {
+    const token = props.tokens[index];
+    return token ? (
+      <Tail.Provider key={index} value={index === props.tokens.length - 1 ? tail : undefined}>
+        <Block token={token} />
+      </Tail.Provider>
+    ) : null;
+  };
+  if (extensions && props.tokens.some((token) => token.type === "html"))
+    return extensions.blocks(props.tokens, draw);
+  return props.tokens.map((_, index) => draw(index));
 }
 
 /**
@@ -389,6 +429,8 @@ export const Markdown = memo(function Markdown(props: {
   className?: string | undefined;
   tail?: ReactNode;
   thread?: { threadId: string; cwd?: string; itemId?: string } | undefined;
+  /** What a feature draws instead of the defaults (forge text); none for agent prose. */
+  extensions?: MarkdownExtensions | undefined;
 }) {
   const doc = useMarkdown(props.text, props.stream, !props.streaming);
   if (!doc)
@@ -400,22 +442,32 @@ export const Markdown = memo(function Markdown(props: {
         tail={props.tail}
       />
     );
+  const draw = (index: number) => {
+    const block = doc.blocks[index];
+    // A block's place is its identity: the open block keeps it when it settles.
+    return block ? (
+      <Tail.Provider key={index} value={index === doc.blocks.length - 1 ? props.tail : undefined}>
+        <TopBlock block={block} writing={index >= doc.settled} />
+      </Tail.Provider>
+    ) : null;
+  };
+  const extensions = props.extensions;
+  const tokens = extensions ? doc.blocks.map((block) => block.token) : undefined;
+  // Before any block renders: the extensions read the whole document once (task lists).
+  const after = extensions && tokens ? extensions.document(tokens, inline) : undefined;
   return (
     <Links value={props.links}>
-      <ThreadReferenceScope value={props.thread}>
-        <div className={cn(blockRhythm, props.className)} onCopy={copyTexSource}>
-          {doc.blocks.length === 0 && props.tail}
-          {doc.blocks.map((block, index) => (
-            // A block's place is its identity: the open block keeps it when it settles.
-            <Tail.Provider
-              key={index}
-              value={index === doc.blocks.length - 1 ? props.tail : undefined}
-            >
-              <TopBlock block={block} writing={index >= doc.settled} />
-            </Tail.Provider>
-          ))}
-        </div>
-      </ThreadReferenceScope>
+      <Extensions value={extensions}>
+        <ThreadReferenceScope value={props.thread}>
+          <div className={cn(blockRhythm, props.className)} onCopy={copyTexSource}>
+            {doc.blocks.length === 0 && props.tail}
+            {extensions && tokens?.some((token) => token.type === "html")
+              ? extensions.blocks(tokens, draw)
+              : doc.blocks.map((_, index) => draw(index))}
+            {after}
+          </div>
+        </ThreadReferenceScope>
+      </Extensions>
     </Links>
   );
 });

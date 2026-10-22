@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ForgeBrowserResult, ForgeRepository } from "@ace/protocol";
-import { Prose } from "@/components/markdown/prose.tsx";
+import { ForgeProse } from "@/features/forge/index.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { PersonAvatar as PrAvatar, RelativeTime as PrTime } from "@/components/person-avatar.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
@@ -60,7 +60,7 @@ function Comment(props: { event: IssueEvent }) {
           <PrTime at={props.event.at} />
         </p>
         {props.event.body?.trim() ? (
-          <Prose text={props.event.body} className="mt-1 text-ui" />
+          <ForgeProse text={props.event.body} className="mt-1 text-ui" />
         ) : null}
       </div>
     </li>

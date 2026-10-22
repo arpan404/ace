@@ -7,8 +7,9 @@ import {
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import type { ForgeIssueDetail, ForgeRepository } from "@ace/protocol";
-import { Prose } from "@/components/markdown/prose.tsx";
+import { ForgeContentScope, ForgeProse } from "@/features/forge/index.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -136,24 +137,44 @@ function IssueBody(props: {
 }) {
   const { issue } = props;
   const writes = useIssueWrites(props.project, issue.ref.repository);
+  const repository = issue.ref.repository;
+  const scope = useMemo(
+    () => ({ workspaceId: props.project, repository }),
+    [props.project, repository],
+  );
+  // Ticking a task box edits the body, guarded by the version it was read at.
+  const tasks = issue.permissions.edit
+    ? (body: string) =>
+        writes
+          .write({
+            action: "edit",
+            number: issue.ref.number,
+            expectedUpdatedAt: issue.updatedAt,
+            title: issue.title,
+            body,
+          })
+          .then((written) => written !== undefined)
+    : undefined;
   return (
-    <div className={`${readable} pt-6 pb-16`}>
-      <Header project={props.project} issue={issue} onBack={props.onBack} />
-      <IssueActionsStrip project={props.project} issue={issue} writes={writes} />
-      <div className="mt-6 border-t border-border pt-5">
-        {issue.body.trim() ? (
-          <Prose text={issue.body} className="text-ui" />
-        ) : (
-          <p className="text-ui text-subtle-foreground">No description.</p>
-        )}
+    <ForgeContentScope value={scope}>
+      <div className={`${readable} pt-6 pb-16`}>
+        <Header project={props.project} issue={issue} onBack={props.onBack} />
+        <IssueActionsStrip project={props.project} issue={issue} writes={writes} />
+        <div className="mt-6 border-t border-border pt-5">
+          {issue.body.trim() ? (
+            <ForgeProse text={issue.body} tasks={tasks} className="text-ui" />
+          ) : (
+            <p className="text-ui text-subtle-foreground">No description.</p>
+          )}
+        </div>
+        <IssueTimeline
+          project={props.project}
+          repository={props.repository}
+          number={issue.ref.number}
+        />
+        <IssueComposer project={props.project} issue={issue} writes={writes} />
       </div>
-      <IssueTimeline
-        project={props.project}
-        repository={props.repository}
-        number={issue.ref.number}
-      />
-      <IssueComposer project={props.project} issue={issue} writes={writes} />
-    </div>
+    </ForgeContentScope>
   );
 }
 
