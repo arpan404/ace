@@ -2,13 +2,18 @@ import SwiftUI
 
 /// The goal, opened from the pill: its objective in full, why it isn't met yet, how much it has
 /// used, and Pause or Resume and Clear where ace changes this provider's goals. Words are the
-/// bridge's (`GoalRow`).
+/// bridge's (`GoalRow`). A change stays pending ("Pausing…") until the daemon takes it, and a
+/// refusal is said here, with the controls back. Clear asks first. Once taken, the bridge's next
+/// goal redraws the sheet; a cleared goal closes it.
 struct GoalSheet: View {
     let goal: GoalRow
     let canOperate: Bool
-    let change: (String) async -> Bool
+    /// Sends a change; resolves with nil once the daemon took it, else the refusal's words.
+    let change: (String) async -> String?
     @Environment(\.dismiss) private var dismiss
-    @State private var busy = false
+    @State private var pending: String?
+    @State private var problem: String?
+    @State private var confirmingClear = false
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -40,34 +45,49 @@ struct GoalSheet: View {
                         .accessibilityLabel("Close").accessibilityIdentifier("goal.close")
                 }
             }
+            .alert("Clear this goal?", isPresented: $confirmingClear) {
+                Button("Cancel", role: .cancel) {}
+                Button("Clear goal", role: .destructive) { send("clear") }.accessibilityIdentifier("goal.confirmClear")
+            } message: {
+                Text("“\(goal.objective)” stops guiding the agent. Set it again with /goal.")
+            }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }
     @ViewBuilder private var actions: some View {
         if canOperate, goal.canPause || goal.canResume || goal.canClear {
-            HStack(spacing: AceTheme.Spacing.sm) {
-                if goal.canPause { action("Pause goal", "pause", id: "goal.pause", primary: true) }
-                if goal.canResume { action("Resume goal", "resume", id: "goal.resume", primary: true) }
-                if goal.canClear { action("Clear goal", "clear", id: "goal.clear", primary: false) }
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+                if let problem {
+                    Text(problem).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.StatusText.failed)
+                        .accessibilityIdentifier("goal.problem")
+                }
+                HStack(spacing: AceTheme.Spacing.sm) {
+                    if goal.canPause { action(pending == "pause" ? "Pausing…" : "Pause goal", id: "goal.pause", primary: true) { send("pause") } }
+                    if goal.canResume { action(pending == "resume" ? "Resuming…" : "Resume goal", id: "goal.resume", primary: true) { send("resume") } }
+                    if goal.canClear { action(pending == "clear" ? "Clearing…" : "Clear goal", id: "goal.clear", primary: false) { confirmingClear = true } }
+                }
             }
             .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.md)
         }
     }
-    @ViewBuilder private func action(_ title: String, _ change: String, id: String, primary: Bool) -> some View {
-        let button = Button {
-            busy = true
-            Task {
-                if await self.change(change), change == "clear" { dismiss() }
-                busy = false
-            }
-        } label: {
+    private func send(_ name: String) {
+        pending = name
+        problem = nil
+        Task {
+            problem = await change(name)
+            pending = nil
+        }
+    }
+    @ViewBuilder private func action(_ title: String, id: String, primary: Bool, run: @escaping () -> Void) -> some View {
+        let button = Button(action: run) {
             Text(title).fontWeight(.medium).frame(maxWidth: .infinity)
                 .foregroundStyle(primary ? AceTheme.Colours.onAccent : AceTheme.Colours.foreground)
         }
         .controlSize(.large)
         .buttonBorderShape(.capsule)
-        .disabled(busy)
+        .disabled(pending != nil)
         .accessibilityIdentifier(id)
         if primary {
             button.buttonStyle(.borderedProminent).tint(AceTheme.Colours.accent)

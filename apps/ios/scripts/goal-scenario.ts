@@ -49,4 +49,24 @@ export function seedGoal(
       lastReason: "the two refund tests still fail on a fixed clock",
     },
   });
+  // A second thread with its own goal, so a sheet left on one can be shown never to reach the other.
+  daemon.createThread(
+    {
+      hasSentMessage: true,
+      id: "ios-goal-other",
+      workspaceId: "ace",
+      title: "Keep the docs build green",
+      provider: "codex",
+      details: details("docs/build"),
+    },
+    50 * minute,
+  );
+  daemon.apply(
+    "ios-goal-other",
+    [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")],
+    20 * minute,
+  );
+  daemon.updateThread("ios-goal-other", {
+    goal: { objective: "the docs build passes on every push", status: "active" },
+  });
 }

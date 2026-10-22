@@ -70,11 +70,16 @@ extension ClientModel {
             threadAction(["type": "queue", "messageId": message.id, "change": change, "requestId": id])
         }
     }
-    /// Pause, resume or clear the thread's goal from its sheet; true once the daemon took it.
-    func changeGoal(_ change: String) async -> Bool {
-        guard canOperate else { return false }
+    /// Pause, resume or clear a thread's goal from its sheet, for the navigation generation the
+    /// sheet was opened on (`epoch`): a sheet left over from a thread the person has since left is
+    /// refused by the bridge, never applied to the thread open now. Resolves once the daemon took
+    /// it (nil) or refused it (its words).
+    func changeGoal(_ change: String, epoch: Int) async -> String? {
+        guard canOperate else { return "This phone can only view this machine." }
         let id = admissions.nextId()
-        return await admissions.wait(id: id) { threadAction(["type": "goal", "change": change, "requestId": id]) }
+        return await receipts.wait(id: id) {
+            action(threadMessage(["type": "goal", "change": change, "requestId": id], epoch: epoch))
+        }
     }
     @discardableResult func threadAction(_ value: [String: Any]) -> Bool {
         let dispatched = action(threadMessage(value, epoch: nil))

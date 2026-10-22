@@ -27,6 +27,8 @@ struct ThreadView: View {
     @State private var showSearch = false
     @State private var showQueue = false
     @State private var showGoal = false
+    /// The navigation generation the goal's sheet was opened on: its changes are for that one.
+    @State private var goalEpoch = 0
     /// The person reads away from the live end: Scroll to end floats beside the pill.
     @State private var behind = false
     /// Each Scroll to end the person taps.
@@ -115,7 +117,7 @@ struct ThreadView: View {
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
             .sheet(isPresented: $showGoal) {
                 if let goal = screen.goal {
-                    GoalSheet(goal: goal, canOperate: model.canOperate) { await model.changeGoal($0) }
+                    GoalSheet(goal: goal, canOperate: model.canOperate) { [goalEpoch] change in await model.changeGoal(change, epoch: goalEpoch) }
                 }
             }
             .sheet(isPresented: $showQueue) {
@@ -159,7 +161,8 @@ struct ThreadView: View {
     @ViewBuilder private var bottomBar: some View {
         let request = thread.approvals.first
         VStack(spacing: AceTheme.Spacing.none) {
-            ComposerFloaters(pill: request == nil ? screen.pill : nil, behind: behind, open: openPill) { jumps += 1 }
+            // Whether a request takes the pill's place is the bridge's (`livePill`).
+            ComposerFloaters(pill: screen.pill, behind: behind, open: openPill) { jumps += 1 }
                 .padding(.bottom, AceTheme.Spacing.sm)
             Group {
                 if let request { StripSurface(maxHeight: height * 0.6) { requestCard(request) } }
@@ -199,7 +202,7 @@ struct ThreadView: View {
         switch opens {
         case "agents": showAgents = true
         case "queue": showQueue = true
-        case "goal": showGoal = true
+        case "goal": goalEpoch = thread.epoch; showGoal = true
         default: break
         }
     }
