@@ -1,11 +1,10 @@
 import type { AccountBadgeColor } from "@ace/protocol/accounts";
 import type { AccountView } from "@ace/ui-core";
-import { isPlainCliLogin, providerNames } from "@ace/ui-core";
+import { accountBadge, isPlainCliLogin, providerAccount, providerNames } from "@ace/ui-core";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { cn } from "@/lib/cn.ts";
 import { ProviderIcon, type ProviderIconProps } from "./provider-icons.tsx";
 import { Tip } from "./tooltip.tsx";
-import { accountBadge } from "./account-badge.ts";
 import { accountBadgeGlyphs } from "./account-badge-icons.ts";
 
 /** Theme-aware ink tokens, also used for project marks. Their inverse is the surface colour. */
@@ -32,20 +31,16 @@ export function ProviderAccountIcon(
   },
 ) {
   const accounts = useAccountViews();
-  const own = accounts.data?.filter((account) => account.provider === props.provider);
-  const account =
-    props.account ??
-    (props.instance
-      ? own?.find((entry) => entry.id === props.instance)
-      : (own?.find((entry) => entry.isDefault) ?? own?.[0]));
-  const siblings = own?.filter(
-    (entry) => props.provider !== "acp" || entry.acpAgentId === account?.acpAgentId,
-  );
-  const multiple = siblings !== undefined && siblings.length > 1;
+  const mark = providerAccount(accounts.data, {
+    provider: props.provider,
+    instance: props.instance,
+    account: props.account,
+  });
+  const { account } = mark;
   const size = props.size ?? 16;
   // The CLI's own login, never renamed, stands for the provider and carries no bubble.
   const plain = account !== undefined && isPlainCliLogin(account);
-  const bubble = multiple && account && !plain && props.accountLabel !== false;
+  const bubble = mark.bubble && account && props.accountLabel !== false;
   const name = [providerNames[props.provider], plain ? undefined : account?.label]
     .filter(Boolean)
     .join(" · ");

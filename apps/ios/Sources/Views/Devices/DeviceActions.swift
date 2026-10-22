@@ -10,13 +10,13 @@ enum DeviceAction: String, CaseIterable {
     case language = "Language and region…"
 
     var title: String { String(rawValue.dropLast()) }
-    var symbol: String {
+    var icon: AceIcon.Name {
         switch self {
-        case .install: "shippingbox"
-        case .openApp: "app"
-        case .openURL: "globe"
-        case .location: "location"
-        case .language: "character.bubble"
+        case .install: .package
+        case .openApp: .appWindow
+        case .openURL: .globe
+        case .location: .mapPin
+        case .language: .translate
         }
     }
     fileprivate var field: String {
@@ -47,50 +47,52 @@ struct DeviceMenu: View {
     var body: some View {
         Menu {
             Section {
-                Button("Logs", systemImage: "doc.text.magnifyingglass") { open(.logs) }
-                Button("UI tree", systemImage: "list.bullet.indent") { open(.tree) }
+                Button("Logs", ace: .fileMagnifyingGlass) { open(.logs) }
+                Button("UI tree", ace: .treeView) { open(.tree) }
             }
             if let info {
                 Section {
-                    Button("Rotate", systemImage: "rotate.right") { key("rotate") }.disabled(!canDrive)
-                    Button("Device keyboard", systemImage: "keyboard.chevron.compact.down") { key("keyboard") }.disabled(!canDrive)
-                    Menu("Appearance", systemImage: "circle.lefthalf.filled") {
+                    Button("Rotate", ace: .deviceRotate) { key("rotate") }.disabled(!canDrive)
+                    Button("Device keyboard", ace: .keyboard) { key("keyboard") }.disabled(!canDrive)
+                    Menu {
                         Button("Light") { operate(["op": "configure", "settings": ["appearance": "light"]]) }
                         Button("Dark") { operate(["op": "configure", "settings": ["appearance": "dark"]]) }
+                    } label: {
+                        Label("Appearance", ace: .circleHalf)
                     }
                     .disabled(!canOperate || !info.running || busy)
-                    Button("Screenshot", systemImage: "camera", action: screenshot).disabled(!info.live)
+                    Button("Screenshot", ace: .camera, action: screenshot).disabled(!info.live)
                 }
                 Section {
                     ForEach(DeviceAction.allCases, id: \.self) { action in
-                        Button(action.rawValue, systemImage: action.symbol) { open(.action(action)) }
+                        Button(action.rawValue, ace: action.icon) { open(.action(action)) }
                     }
                 }
                 .disabled(!canOperate || !info.running || busy)
                 if canOperate { power(info) }
             }
-        } label: { Label("Device options", systemImage: "ellipsis") }
+        } label: { Label("Device options", ace: .dotsThree) }
         .accessibilityIdentifier("devices.options")
     }
 
     @ViewBuilder private func power(_ info: DeviceScreenInfo) -> some View {
         Section {
             if info.live {
-                Button(info.recording ? "Stop recording" : "Record", systemImage: info.recording ? "stop.circle" : "record.circle") {
+                Button(info.recording ? "Stop recording" : "Record", ace: info.recording ? .stopCircle : .record) {
                     operate(["op": info.recording ? "record.stop" : "record.start"])
                 }
             }
             if info.cleanupRequired {
-                Button("Retry cleanup", systemImage: "stop") { operate(["op": "stop"]) }
+                Button("Retry cleanup", ace: .stop) { operate(["op": "stop"]) }
             } else if info.live {
-                Button("Stop live view", systemImage: "stop") { operate(["op": "stop"]) }
+                Button("Stop live view", ace: .stop) { operate(["op": "stop"]) }
             } else if info.running {
-                Button("Start live view", systemImage: "play") { operate(["op": "start", "fps": 60]) }.disabled(info.busy)
+                Button("Start live view", ace: .play) { operate(["op": "start", "fps": 60]) }.disabled(info.busy)
             }
             if info.running {
-                Button("Shut down…", systemImage: "power", role: .destructive, action: shutdown)
+                Button("Shut down…", ace: .power, role: .destructive, action: shutdown)
             } else {
-                Button("Boot", systemImage: "power", action: boot).disabled(info.busy)
+                Button("Boot", ace: .power, action: boot).disabled(info.busy)
             }
         }
         .disabled(busy)
@@ -126,9 +128,9 @@ struct DeviceActionSheet: View {
             }
             .navigationTitle(action.title).navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel", systemImage: "xmark") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel", ace: .x) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(action.title, systemImage: "checkmark", action: submit).disabled(!ready)
+                    Button(action.title, ace: .check, action: submit).disabled(!ready)
                 }
             }
         }
@@ -175,7 +177,7 @@ struct DeviceScreenshotSheet: View {
                 .background(AceTheme.Colours.background)
                 .navigationTitle("Screenshot").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Close", systemImage: "xmark") { dismiss() } }
+                    ToolbarItem(placement: .cancellationAction) { Button("Close", ace: .x) { dismiss() } }
                     ToolbarItem(placement: .primaryAction) {
                         ShareLink(item: Image(uiImage: image), preview: SharePreview(name, image: Image(uiImage: image)))
                     }

@@ -1,4 +1,5 @@
 export { accountShortLabel } from "@ace/accounts/labels";
+export { accountBadge } from "./account-badge.ts";
 export { threadAttention, withoutPortableHandoff } from "@ace/projection";
 export * from "./notice-text.ts";
 /*
@@ -159,6 +160,7 @@ export { serviceLabel } from "./provider-services.ts";
 export { freeModelMarker } from "./model-picker.ts";
 
 export { recoveryAttention, type RecoveryAttention } from "./recovery-attention.ts";
+export { agentGlyph, glyphTones, threadGlyph, type GlyphState } from "./status-glyph.ts";
 export {
   rowAttention,
   currentAttention,

@@ -239,3 +239,33 @@ export function isPlainCliLogin(account: {
     !account.badgeIcon
   );
 }
+
+/**
+ * The account a provider's mark stands for (the one named, else the default, else the first),
+ * and whether it wears the account bubble: only when the provider has more than one account (an
+ * ACP agent counts its own) and the account isn't the CLI's plain login. One rule for every
+ * surface that draws a provider mark.
+ */
+export function providerAccount(
+  accounts: readonly AccountView[] | undefined,
+  input: {
+    provider: ProviderKind;
+    instance?: string | undefined;
+    account?: AccountView | undefined;
+  },
+): { account: AccountView | undefined; bubble: boolean } {
+  const own = accounts?.filter((entry) => entry.provider === input.provider);
+  const account =
+    input.account ??
+    (input.instance
+      ? own?.find((entry) => entry.id === input.instance)
+      : (own?.find((entry) => entry.isDefault) ?? own?.[0]));
+  const siblings = own?.filter(
+    (entry) => input.provider !== "acp" || entry.acpAgentId === account?.acpAgentId,
+  );
+  const multiple = siblings !== undefined && siblings.length > 1;
+  return {
+    account,
+    bubble: multiple && account !== undefined && !isPlainCliLogin(account),
+  };
+}

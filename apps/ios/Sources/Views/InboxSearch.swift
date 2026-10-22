@@ -27,12 +27,11 @@ import SwiftUI
 
 /// What the inbox's search finds: threads whose title, project or branch match, from the rows
 /// already on the phone, then messages from each machine's conversation search.
-struct InboxSearchList<Filters: View>: View {
+struct InboxSearchList: View {
     @Bindable var inbox: MachineInbox
     let query: String
     let includes: (InboxKey) -> Bool
     let open: (InboxKey) -> Void
-    @ViewBuilder let filters: () -> Filters
     @State private var messages = InboxMessageSearch()
 
     private var threads: [(key: InboxKey, row: ThreadRow)] {
@@ -47,14 +46,13 @@ struct InboxSearchList<Filters: View>: View {
     var body: some View {
         let threads = threads
         List {
-            filters()
             if !threads.isEmpty {
                 Section {
                     ForEach(threads, id: \.key) { match in
                         Button { open(match.key) } label: {
                             InboxThreadRow(row: match.row, snoozed: false, machine: inbox.showsMachineNames ? inbox.name(match.key.machineId) : nil)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.row)
                         .accessibilityIdentifier("search.thread.\(match.row.id)")
                         .inboxRowChrome()
                     }
@@ -78,12 +76,11 @@ struct InboxSearchList<Filters: View>: View {
             }
             if messages.loading {
                 ProgressView().frame(maxWidth: .infinity).accessibilityLabel("Searching conversations")
-                    .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
-            }
-        }
-        .overlay {
-            if !messages.loading && threads.isEmpty && messages.settled && inbox.sessions.allSatisfy({ messages.hits($0.hostId).isEmpty }) {
-                ContentUnavailableView.search(text: query)
+                    .inboxRowChrome()
+            } else if threads.isEmpty && messages.settled && inbox.sessions.allSatisfy({ messages.hits($0.hostId).isEmpty }) {
+                EmptyState(icon: .magnifyingGlass, title: "Nothing matches “\(query)”")
+                    .padding(.top, 80)
+                    .inboxRowChrome()
             }
         }
         .listStyle(.plain)
@@ -96,8 +93,9 @@ struct InboxSearchList<Filters: View>: View {
     }
 
     private func header(_ title: String) -> some View {
-        Text(title).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).textCase(nil)
-            .foregroundStyle(AceTheme.Colours.subtleForeground)
+        Text(title).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(.medium).textCase(nil)
+            .foregroundStyle(AceTheme.Colours.mutedForeground)
+            .padding(.horizontal, AceTheme.Spacing.md)
     }
 }
 
@@ -106,9 +104,10 @@ private struct MessageHitLabel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             Text(hit.threadTitle).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-            Text(hit.excerpt).aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2)
+            Text(hit.excerpt).aceFont(AceTheme.Typography.caption, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2)
         }
-        .padding(.vertical, AceTheme.Spacing.md)
+        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.vertical, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
         .accessibilityElement(children: .combine)
     }
 }

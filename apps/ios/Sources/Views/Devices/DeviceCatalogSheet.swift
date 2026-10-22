@@ -42,7 +42,7 @@ struct DeviceCatalogSheet: View {
             .navigationTitle("Start a device").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close", systemImage: "xmark") { dismiss() }
+                    Button("Close", ace: .x) { dismiss() }
                 }
             }
             .onChange(of: query) { search() }
@@ -55,7 +55,7 @@ struct DeviceCatalogSheet: View {
 
     private func row(_ tile: DeviceTile) -> some View {
         Button { Task { await start(tile) } } label: {
-            InsetRow(systemImage: DeviceSymbol.of(tile.kind), title: tile.name, subtitle: tile.detail) {
+            InsetRow(systemImage: DeviceIcon.of(tile.kind), title: tile.name, subtitle: tile.detail) {
                 if booting == tile.id { ProgressView() }
             }
         }

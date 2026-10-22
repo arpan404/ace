@@ -29,35 +29,61 @@ struct AceMark: Shape {
 }
 
 /// A provider's brand mark from the generated `ProviderMarks` assets (`provider-<kind>`), or
-/// ace's neutral agent glyph for a provider with no mark. Decorative: rows name the provider
-/// elsewhere for VoiceOver.
+/// ace's neutral agent glyph for a provider with no mark. When the provider has more than one
+/// account, the bridge sends the account's short mark and it sits as an ink bubble on the
+/// glyph's bottom-right corner, its outline cut out of the glyph so it reads on any surface (the
+/// web's `ProviderAccountIcon`). `quiet` greys and dims it on rows at rest. Decorative: rows
+/// name the provider elsewhere for VoiceOver.
 struct ProviderMark: View {
     let provider: String
-    var size: CGFloat = 15
-    var body: some View {
-        Group {
-            if UIImage(named: "provider-\(provider)") != nil {
-                Image("provider-\(provider)").resizable().scaledToFit()
-            } else {
-                Image(systemName: "sparkle").resizable().scaledToFit().padding(size * 0.1)
-            }
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
-    }
-}
+    var account: String? = nil
+    var quiet = false
+    @ScaledMetric private var size: CGFloat
 
-/// The project's initial as a quiet monogram: a faint tile the size of the name's cap height,
-/// so it reads as part of the line rather than a badge. Decorative; the name beside it speaks.
-struct ProjectMark: View {
-    let badge: String
-    @ScaledMetric(relativeTo: .subheadline) private var side: CGFloat = 16
+    init(provider: String, size: CGFloat = 15, account: String? = nil, quiet: Bool = false) {
+        self.provider = provider
+        self.account = account
+        self.quiet = quiet
+        _size = ScaledMetric(wrappedValue: size, relativeTo: .caption)
+    }
+
     var body: some View {
-        Text(badge.prefix(1).uppercased())
-            .font(.system(size: side * 0.6, weight: .semibold, design: .rounded))
-            .foregroundStyle(AceTheme.Colours.mutedForeground)
-            .frame(width: side, height: side)
-            .background(AceTheme.Colours.mutedForeground.opacity(0.16), in: RoundedRectangle(cornerRadius: side * 0.28, style: .continuous))
+        let bubble = (size * 0.75).rounded()
+        glyph
+            .frame(width: size, height: size)
+            .mask {
+                // The bubble's outline: a ring of the glyph's own surface around the bubble.
+                Rectangle().overlay {
+                    if account != nil {
+                        Circle().frame(width: bubble + 3, height: bubble + 3)
+                            .offset(x: size / 2 - bubble / 2 + 4, y: size / 2 - bubble / 2 + 3)
+                            .blendMode(.destinationOut)
+                    }
+                }
+                .compositingGroup()
+            }
+            .saturation(quiet ? 0 : 1)
+            .opacity(quiet ? 0.6 : 1)
+            .overlay(alignment: .bottomTrailing) {
+                if let account, !account.isEmpty {
+                    Text(account.prefix(2))
+                        .font(.system(size: bubble * 0.62, weight: .semibold))
+                        .minimumScaleFactor(0.6)
+                        .foregroundStyle(AceTheme.Colours.background)
+                        .frame(width: bubble, height: bubble)
+                        .background(AceTheme.Colours.foreground.opacity(quiet ? 0.6 : 1), in: Circle())
+                        .offset(x: 4, y: 3)
+                }
+            }
+            .padding(.trailing, account == nil ? 0 : AceTheme.Spacing.xs)
             .accessibilityHidden(true)
+    }
+
+    @ViewBuilder private var glyph: some View {
+        if UIImage(named: "provider-\(provider)") != nil {
+            Image("provider-\(provider)").resizable().scaledToFit()
+        } else {
+            Image(ace: .sparkle).resizable().scaledToFit()
+        }
     }
 }

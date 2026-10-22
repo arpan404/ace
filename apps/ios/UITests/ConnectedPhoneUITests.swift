@@ -74,8 +74,6 @@ import XCTest
     func testNewTaskKeepsMessageAndChoicesReachableAboveTheKeyboard() {
         let app = launch()
         let start = app.newThreadButton
-        let filter = app.buttons["inbox.projects"]
-        XCTAssertLessThan(filter.frame.maxY, app.frame.midY)
         XCTAssertGreaterThan(start.frame.minY, app.frame.midY)
         start.tap()
         capture("new-task-idle", app)

@@ -15,11 +15,11 @@ struct BrowserBar: View {
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
             HStack(spacing: AceTheme.Spacing.none) {
-                barButton("Back", "chevron.backward", enabled: operate && (state?.shown?.canGoBack == true || state?.failure != nil)) {
+                barButton("Back", .caretLeft, enabled: operate && (state?.shown?.canGoBack == true || state?.failure != nil)) {
                     model.browserHistory("back")
                 }
                 .accessibilityIdentifier("browser.back")
-                barButton("Forward", "chevron.forward", enabled: operate && state?.shown?.canGoForward == true) {
+                barButton("Forward", .caretRight, enabled: operate && state?.shown?.canGoForward == true) {
                     model.browserHistory("forward")
                 }
                 .accessibilityIdentifier("browser.forward")
@@ -69,9 +69,9 @@ struct BrowserBar: View {
             .accessibilityIdentifier("browser.address")
             if operate, state?.blank == false {
                 if state?.loading == true {
-                    barButton("Stop", "xmark", enabled: true) { model.browserHistory("stop") }
+                    barButton("Stop", .x, enabled: true) { model.browserHistory("stop") }
                 } else {
-                    barButton("Reload", "arrow.clockwise", enabled: true) { model.browserHistory("reload") }
+                    barButton("Reload", .arrowClockwise, enabled: true) { model.browserHistory("reload") }
                         .accessibilityIdentifier("browser.reload")
                 }
             }
@@ -85,10 +85,9 @@ struct BrowserBar: View {
         return address
     }
 
-    private func barButton(_ label: String, _ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+    private func barButton(_ label: String, _ icon: AceIcon.Name, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 17, weight: .medium))
+            AceIcon(icon, size: 17, relativeTo: .subheadline)
                 .frame(width: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs, height: AceTheme.Dimensions.touchTarget)
                 .contentShape(Rectangle())
         }
@@ -128,7 +127,7 @@ struct BrowserAddressEditor: View {
                 .accessibilityHidden(true)
             HStack(spacing: AceTheme.Spacing.md) {
                 HStack(spacing: AceTheme.Spacing.sm) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(AceTheme.Colours.mutedForeground)
+                    AceIcon(.magnifyingGlass).foregroundStyle(AceTheme.Colours.mutedForeground)
                     TextField("Search or enter address", text: $text)
                         .focused($focused)
                         .keyboardType(.webSearch)
@@ -139,7 +138,7 @@ struct BrowserAddressEditor: View {
                         .onSubmit(go)
                         .accessibilityIdentifier("browser.address.field")
                     if !text.isEmpty {
-                        Button { text = "" } label: { Image(systemName: "xmark.circle.fill") }
+                        Button { text = "" } label: { AceIcon(.xCircle) }
                             .foregroundStyle(AceTheme.Colours.subtleForeground)
                             .accessibilityLabel("Clear")
                     }
@@ -197,11 +196,11 @@ struct BrowserFindBar: View {
             .aceGlass(in: Capsule())
             HStack(spacing: AceTheme.Spacing.none) {
                 Button { model.browserFind(text, forward: false) } label: {
-                    Image(systemName: "chevron.up").frame(width: 40, height: AceTheme.Dimensions.touchTarget)
+                    AceIcon(.caretUp).frame(width: 40, height: AceTheme.Dimensions.touchTarget)
                 }
                 .accessibilityLabel("Previous match")
                 Button { model.browserFind(text) } label: {
-                    Image(systemName: "chevron.down").frame(width: 40, height: AceTheme.Dimensions.touchTarget)
+                    AceIcon(.caretDown).frame(width: 40, height: AceTheme.Dimensions.touchTarget)
                 }
                 .accessibilityLabel("Next match")
             }
