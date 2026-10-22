@@ -40,10 +40,12 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
         })
         .toBe(true);
       // Suggestions and menus over the native page never move or resize it: the view hides
-      // behind its own still picture, drawn exactly where it was, until the overlay goes.
+      // behind a picture of itself drawn exactly where it was, until the overlay goes: its
+      // still, then the live picture once a newer frame arrives (`useCoverStill`).
       const heldInPlace = async () => {
         const { box, native } = await geometry();
-        const picture = await p.locator("[data-frozen-page]").evaluateAll((elements) => {
+        const cover = "[data-browser-page] :is([data-frozen-page], [data-page-picture])";
+        const picture = await p.locator(cover).evaluateAll((elements) => {
           const r = elements[0]?.getBoundingClientRect();
           return r && { x: r.x, y: r.y, width: r.width, height: r.height };
         });
@@ -137,6 +139,8 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       }, s.url);
       await expect.poll(() => nativeRead("document.querySelector('#name').value")).toBe("abc");
       expect(await nativeRead("window.inputs")).toBe(3);
+      // The person's ⌘ on macOS, Ctrl elsewhere.
+      const primary = process.platform === "darwin" ? "meta" : "control";
       const nativeChord = (keyCode: string) =>
         s.app.evaluate(
           ({ webContents }, args) => {
@@ -144,9 +148,9 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
             if (!c) throw new Error("Native fixture missing");
             c.focus();
             for (const type of ["keyDown", "keyUp"] as const)
-              c.sendInputEvent({ type, keyCode: args.keyCode, modifiers: ["meta"] });
+              c.sendInputEvent({ type, keyCode: args.keyCode, modifiers: [args.primary] });
           },
-          { url: s.url, keyCode },
+          { url: s.url, keyCode, primary },
         );
       await nativeChord("L");
       await expect.poll(() => address.evaluate((input) => input.matches(":focus"))).toBe(true);

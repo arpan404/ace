@@ -33,14 +33,16 @@ wait_for() { # <seconds> <command...>
 run_suite() {
   cd "$root/apps/desktop"
   ACE_E2E_ELECTRON=1 node "$root/node_modules/vitest/vitest.mjs" run \
-    --config vitest.e2e.config.ts "$@"
+    --config vitest.e2e.config.ts "$@" 2>&1
 }
 
 # Inside dbus-run-session: one desktop, then the suite.
 inner_x11() {
   local display=$1
   shift
-  Xvfb ":$display" -screen 0 1600x1000x24 -nolisten tcp >"$logs/xvfb.log" 2>&1 &
+  # The browser scenarios run at --force-device-scale-factor=2: 1600x1000 logical pixels, a
+  # window wide enough for the sidebar and the panel together, as on a laptop's HiDPI screen.
+  Xvfb ":$display" -screen 0 3200x2000x24 -nolisten tcp >"$logs/xvfb.log" 2>&1 &
   export DISPLAY=":$display" XDG_SESSION_TYPE=x11
   unset WAYLAND_DISPLAY
   wait_for 10 test -e "/tmp/.X11-unix/X$display"
@@ -64,7 +66,7 @@ inner_wayland() {
   local socket
   socket="ace-desktop-e2e-$$"
   gnome-shell --headless --wayland --no-x11 --wayland-display="$socket" \
-    --virtual-monitor 1600x1000 >"$logs/gnome-shell.log" 2>&1 &
+    --virtual-monitor 3200x2000 >"$logs/gnome-shell.log" 2>&1 &
   wait_for 30 test -S "$XDG_RUNTIME_DIR/$socket"
   export WAYLAND_DISPLAY=$socket
   dbus-update-activation-environment WAYLAND_DISPLAY XDG_RUNTIME_DIR XDG_SESSION_TYPE \

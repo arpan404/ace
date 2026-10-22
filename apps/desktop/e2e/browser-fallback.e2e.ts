@@ -66,12 +66,20 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
             "(()=>{const r=document.querySelector('#name').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()",
           ),
         );
+      // The live picture (decoded video) fills the pane at the page's own size; video frames
+      // are a few pixels smaller where the encoder rounds the size down to its block size.
+      const picture = pane.getByRole("img", { name: `Live view of ${s.url}` });
       await expect
         .poll(
           async () => {
             const box = await pane.boundingBox();
-            const width = await pane.locator("img").getAttribute("width");
-            return !!box && Math.abs(Number(width) - box.width) < 2;
+            const drawn = await picture.boundingBox();
+            return (
+              !!box &&
+              !!drawn &&
+              Math.abs(drawn.width - box.width) < 8 &&
+              Math.abs(drawn.height - box.height) < 8
+            );
           },
           { timeout: 30000 },
         )
@@ -88,25 +96,12 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await p.mouse.move(paneBox.x + marker.x, paneBox.y + marker.y);
       await expect.poll(() => read("window.hovered")).toBe(true);
       await pane.click({ position: input });
-      console.log(
-        "fallback input target",
-        await read("document.activeElement?.outerHTML"),
-        await pane.locator("img").evaluate((img) =>
-          img instanceof HTMLImageElement
-            ? {
-                width: img.width,
-                natural: img.naturalWidth,
-                box: img.getBoundingClientRect().toJSON(),
-              }
-            : undefined,
-        ),
-      );
       await p.keyboard.type("abc");
       await expect.poll(() => read("document.querySelector('#name').value")).toBe("abc");
-      await p.keyboard.press("Meta+A");
+      await p.keyboard.press("ControlOrMeta+A");
       await p.keyboard.type("x");
       await expect.poll(() => read("document.querySelector('#name').value")).toBe("x");
-      await p.keyboard.press("Meta+K");
+      await p.keyboard.press("ControlOrMeta+K");
       await p.getByRole("dialog").waitFor();
       await p.keyboard.press("Escape");
       await p.setViewportSize({ width: 1240, height: 780 });
