@@ -63,7 +63,7 @@ function StateBadge(props: { primary: PrPrimary; text: string }) {
 
 /**
  * The header's one primary control. Merging takes two presses: the first asks "Confirm merge?"
- * for a few seconds, the second acts. Merged and closed PRs, armed auto-merge and a queued PR
+ * for a few seconds, the second acts; a merge that opens its commit to edit takes one. Merged and closed PRs, armed auto-merge and a queued PR
  * show a badge instead.
  */
 export function PrPrimaryButton(props: {
@@ -75,6 +75,8 @@ export function PrPrimaryButton(props: {
   onDisable?: (() => void) | undefined;
   /** Why auto-merge can't be turned off now. */
   disableBlocked?: string | undefined;
+  /** The action opens its own confirmation (the commit to write): one press is enough. */
+  confirmsItself?: boolean | undefined;
 }) {
   const [confirming, setConfirming] = useState(false);
   useEffect(() => {
@@ -105,9 +107,10 @@ export function PrPrimaryButton(props: {
   if (primary.kind === "state" || primary.kind === "queued")
     return <StateBadge primary={primary} text={text} />;
   const twoPress =
-    primary.kind === "merge" ||
-    primary.kind === "auto-merge" ||
-    primary.kind === "auto-merge-ready";
+    !props.confirmsItself &&
+    (primary.kind === "merge" ||
+      primary.kind === "auto-merge" ||
+      primary.kind === "auto-merge-ready");
   const shown = props.working
     ? primary.kind === "merge"
       ? "Merging…"

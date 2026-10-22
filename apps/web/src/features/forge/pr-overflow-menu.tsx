@@ -292,7 +292,7 @@ export function PrOverflowMenu(props: {
                   icon={icon(GitMergeIcon)}
                   disabled={actions.mergeBlocked !== undefined}
                   reason={actions.mergeBlocked}
-                  onClick={() => void writes.merge(actions.method)}
+                  onClick={() => void actions.merge()}
                 >
                   Merge now
                 </MenuItem>
@@ -312,7 +312,7 @@ export function PrOverflowMenu(props: {
                     icon={icon(TimerIcon)}
                     disabled={actions.autoMergeBlocked !== undefined}
                     reason={actions.autoMergeBlocked}
-                    onClick={() => void mergeState.run("enable", actions.method)}
+                    onClick={() => void actions.enableAutoMerge()}
                   >
                     Enable auto-merge
                   </MenuItem>
