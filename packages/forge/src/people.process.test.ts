@@ -35,6 +35,16 @@ function reviewers(permission: string, state = "OPEN") {
               { databaseId: 32, state: "SOMETHING_NEW", submittedAt: null, author: { login: "x" } },
             ],
           },
+          latestOpinionatedReviews: {
+            nodes: [
+              {
+                databaseId: 31,
+                state: "CHANGES_REQUESTED",
+                submittedAt: "2026-10-20T10:00:00Z",
+                author: { login: "mira", avatarUrl: "https://a/mira" },
+              },
+            ],
+          },
           suggestedReviewers: [
             { isAuthor: false, isCommenter: true, reviewer: { login: "jonas", name: "Jonas" } },
           ],
@@ -78,6 +88,34 @@ test("a PR's reviewers read who is asked (people and teams), each latest review 
       canRequest: false,
       canDismiss: false,
     });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a comment after an approval leaves the approval standing, with its own id for dismissal", async () => {
+  const review = (id: number, state: string, at: string, login = "tg") => ({
+    databaseId: id,
+    state,
+    submittedAt: at,
+    author: { login },
+  });
+  const body = reviewers("WRITE");
+  const pr: Record<string, unknown> = body.data.repository.pullRequest;
+  pr.latestReviews = {
+    nodes: [
+      review(41, "COMMENTED", "2026-10-21T10:00:00Z"),
+      review(43, "COMMENTED", "2026-10-21T11:00:00Z", "dana"),
+    ],
+  };
+  pr.latestOpinionatedReviews = { nodes: [review(40, "APPROVED", "2026-10-20T10:00:00Z")] };
+  const f = await fakeGh({ "graphql:query AcePrReviewers": [{ body }] });
+  try {
+    expect((await f.forge.prReviewers(7, signal())).reviews).toEqual([
+      { id: 40, login: "tg", state: "APPROVED", submittedAt: "2026-10-20T10:00:00Z" },
+      // Only comments: the latest comment stands.
+      { id: 43, login: "dana", state: "COMMENTED", submittedAt: "2026-10-21T11:00:00Z" },
+    ]);
   } finally {
     await f.cleanup();
   }

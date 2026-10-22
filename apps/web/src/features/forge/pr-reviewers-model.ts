@@ -1,4 +1,5 @@
 import type { ForgeLatestReview, ForgePrReviewers } from "@ace/protocol";
+import type { ReviewOutcome } from "./pr-summary-model.ts";
 
 /** One reviewer as the Reviewers list shows them: a person or a team, and what they can be asked. */
 export interface ReviewerRow {
@@ -92,5 +93,22 @@ export function suggestedReviewers(value: ForgePrReviewers) {
       !person.isAuthor &&
       !same(person.login, value.author) &&
       !value.requested.some((r) => r.kind === "user" && same(r.login, person.login)),
+  );
+}
+
+const outcomeOf: Partial<Record<ForgeLatestReview["state"], ReviewOutcome>> = {
+  APPROVED: "approved",
+  CHANGES_REQUESTED: "changes",
+  COMMENTED: "commented",
+  DISMISSED: "dismissed",
+};
+
+/** Each reviewer's standing review by login, from GitHub's reviewer read; pending ones aside. */
+export function reviewOutcomes(value: ForgePrReviewers): Map<string, ReviewOutcome> {
+  return new Map(
+    value.reviews.flatMap((review) => {
+      const outcome = outcomeOf[review.state];
+      return outcome ? [[review.login, outcome] as const] : [];
+    }),
   );
 }

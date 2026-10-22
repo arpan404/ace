@@ -1,21 +1,29 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { ForgePrDetail, ForgePrReviewers } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "@/lib/forge-read.ts";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
+import { reviewOutcomes } from "./pr-reviewers-model.ts";
+import { reviewerOutcomes, type ReviewOutcome } from "./pr-summary-model.ts";
+
+/** How long a reviewers read stands before a new reader asks GitHub again. */
+const reviewersFreshMs = 30_000;
 
 /**
- * The PR's reviewers as GitHub has them now: who is asked, each one's latest review, GitHub's
- * suggestions and what this account may change. Read again whenever the PR itself changes.
+ * The PR's reviewers as GitHub has them: who is asked, each one's standing review, GitHub's
+ * suggestions and what this account may change. Every reader shares one read; it is read again
+ * after a write (by the writer) and when the PR changes (`useFollowPrReviewers`), never just
+ * because the window got focus.
  */
 export function usePrReviewers(workspaceId: string, detail: ForgePrDetail) {
   const pr = detail.status.ref;
-  const query = useDaemonQuery<ForgePrReviewers>({
+  return useDaemonQuery<ForgePrReviewers>({
     queryKey: ["forge", workspaceId, pr, "reviewers"],
     retry: false,
     gcTime: keptForgeMs,
     refetchOnReconnect: "always",
-    staleTime: 0,
+    refetchOnWindowFocus: false,
+    staleTime: reviewersFreshMs,
     read: async (client, signal) => {
       const result = await readForge(
         client,
@@ -26,8 +34,15 @@ export function usePrReviewers(workspaceId: string, detail: ForgePrDetail) {
       return result.value;
     },
   });
+}
+
+/**
+ * The reviewers, read again whenever the PR itself changes: a new review or request shows in
+ * the PR first. One view (the Reviewers line) follows; every other reader shares its answer.
+ */
+export function useFollowPrReviewers(workspaceId: string, detail: ForgePrDetail) {
+  const query = usePrReviewers(workspaceId, detail);
   const { refetch } = query;
-  // A new review or request shows in the PR first; its reviewers follow.
   const changed = `${detail.updatedAt ?? ""}|${detail.reviewers.join(",")}|${detail.status.comments.length}`;
   const seen = useRef(changed);
   useEffect(() => {
@@ -36,4 +51,20 @@ export function usePrReviewers(workspaceId: string, detail: ForgePrDetail) {
     void refetch();
   }, [changed, refetch]);
   return query;
+}
+
+/**
+ * Each reviewer's standing review by login: from GitHub's reviewer read once it has answered,
+ * else from the PR's review comments. The gates and the Reviewers list read this one source.
+ */
+export function useReviewOutcomes(
+  workspaceId: string,
+  detail: ForgePrDetail,
+): ReadonlyMap<string, ReviewOutcome> {
+  const { data } = usePrReviewers(workspaceId, detail);
+  const comments = detail.status.comments;
+  return useMemo(
+    () => (data ? reviewOutcomes(data) : reviewerOutcomes(comments)),
+    [data, comments],
+  );
 }
