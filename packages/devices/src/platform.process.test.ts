@@ -1255,11 +1255,15 @@ it("iOS logs use an info filter and follow the last launched app process", async
     "processIdentifier == 1234",
   ]);
 });
-it("the iOS catalog explains which tools enable background input", async () => {
+it("without serve-sim or idb the iOS catalog says the device tools are missing and where to download them", async () => {
   const f = await fixture("darwin");
   await f.manager.list();
   expect(f.manager.diagnostics()).toContainEqual(
-    expect.objectContaining({ message: expect.stringContaining("serve-sim or idb") }),
+    expect.objectContaining({
+      code: "tool_missing",
+      message: "The Simulator's device tools aren't downloaded",
+      hint: expect.stringContaining("Download device tools in Devices"),
+    }),
   );
 });
 for (const closing of [false, true])
