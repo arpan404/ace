@@ -17,7 +17,13 @@ struct MarkdownView: View {
     @ViewBuilder private func view(for block: MarkdownBlock) -> some View {
         switch block {
         case .paragraph(let text):
-            Text(Markdown.inline(text)).aceFont(AceTheme.Typography.body, relativeTo: .body)
+            // A very long paragraph is drawn in pieces, so a streamed delta lays out and draws
+            // only the last piece instead of the whole paragraph.
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                ForEach(Array(Markdown.pieces(text).enumerated()), id: \.offset) { _, piece in
+                    MarkdownProse(text: String(piece)).equatable()
+                }
+            }
         case .heading(let level, let text):
             Text(Markdown.inline(text)).aceFont(level <= 2 ? AceTheme.Typography.title : AceTheme.Typography.rowTitle, relativeTo: .headline)
                 .accessibilityAddTraits(.isHeader)
@@ -62,5 +68,14 @@ struct MarkdownView: View {
             .frame(width: AceTheme.Dimensions.touchTarget * 4, alignment: .leading)
             .padding(AceTheme.Spacing.sm)
             .overlay(alignment: .bottom) { Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border) }
+    }
+}
+
+/// One run of prose. Equatable, so an unchanged piece of a streaming paragraph is neither parsed
+/// nor laid out again.
+private struct MarkdownProse: View, Equatable {
+    let text: String
+    var body: some View {
+        Text(Markdown.inline(text)).aceFont(AceTheme.Typography.body, relativeTo: .body)
     }
 }
