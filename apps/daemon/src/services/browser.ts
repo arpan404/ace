@@ -246,6 +246,8 @@ export function createBrowserSession(context: SocketContext): SocketService {
     },
     send: (message, serialized) => sendBrowserMessage(socket, message, serialized),
     sendStream: (pieces) => sendBrowserStream(socket, pieces),
+    // A viewer on this machine gets its video at the top rate from the first picture.
+    local: context.local === true,
     // Files the person picks for a page's file input, uploaded by this device as attachments.
     attachment: async (threadId, sha256) => {
       const device = context.device();
