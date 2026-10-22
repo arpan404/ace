@@ -8,11 +8,14 @@ export interface NativeHost {
   now(): number;
   uuid(): string;
   random(): number;
-  encode(text: string): number[];
+  /** UTF-8 bytes of `text`. */
+  encode(text: string): Uint8Array;
   utf8Base64(text: string): string;
   previewHead(text: string, limit: number): string;
   previewTail(text: string, limit: number): string;
-  decode(bytes: number[], encoding: string, fatal: boolean): string;
+  decode(bytes: Uint8Array, encoding: string, fatal: boolean): string;
+  /** One whole `gzip`, `deflate` or `deflate-raw` input expanded natively; null when it can't be. */
+  inflate(bytes: Uint8Array, format: string): Uint8Array | null;
   randomBytes(count: number): number[];
   base64(text: string, decode: boolean): string;
   /** Absolute URL parts as JSON, or "" when Foundation cannot parse it. */
