@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { chunkFilesChannel, FilesService } from "@ace/files";
-import { FILE_READ_PART, ThreadId, type FilesServerMessage } from "@ace/protocol";
+import { FILE_READ_PART, FileReadResult, ThreadId, type FilesServerMessage } from "@ace/protocol";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -100,7 +100,9 @@ test("a platform that can't expand gzip is sent the file's plain bytes", async (
   await writeFile(join(c.root, "plain.ts"), text);
   const result = await read(c.client, "plain.ts");
   expect(result.kind === "file" && new TextDecoder().decode(result.bytes)).toBe(text);
-  const encodings = c.seen.map((m) => (m.type === "files.result" ? m.value.encoding : undefined));
+  const encodings = c.seen.map((m) =>
+    m.type === "files.result" ? FileReadResult.parse(m.value).encoding : undefined,
+  );
   expect(encodings.length).toBeGreaterThan(1);
   expect(encodings.every((encoding) => encoding !== "gzip")).toBe(true);
 });
