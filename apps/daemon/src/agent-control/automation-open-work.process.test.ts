@@ -25,6 +25,17 @@ const shell = (stoppable: boolean): Fact => ({
   stoppable,
 });
 
+/** A delegation that prepares a worktree first, asked for under `requestId`. */
+const request = (requestId: string) => ({
+  requestId,
+  task: "Work in a worktree",
+  role: `prepared-${requestId}`,
+  provider: "claude" as const,
+  model: "chosen-model",
+  wait: false,
+  estimatedLoad: 0,
+});
+
 /** Run alpha and wait until its message is the turn the thread is on. */
 async function alphaTurn(f: Fixture) {
   await f.run("alpha", "alpha-1");
@@ -100,15 +111,6 @@ test("a paused run stays running while a background task it can't stop still wor
 test("a delegation the run's turn is still preparing keeps the run open, and pausing cancels only it", async () => {
   const f = await setUp();
   try {
-    const request = (requestId: string) => ({
-      requestId,
-      task: "Work in a worktree",
-      role: `prepared-${requestId}`,
-      provider: "claude" as const,
-      model: "chosen-model",
-      wait: false,
-      estimatedLoad: 0,
-    });
     // Another turn's preparation, made before the run: not the run's to cancel.
     const others = f.h.service.reserve(f.caller, request("before"));
     await alphaTurn(f);

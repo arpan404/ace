@@ -165,3 +165,32 @@ test("a stop asked for while a run is being sent still stops that run", async ()
     await f.close();
   }
 });
+
+test("a run sent before run records existed is picked up from its receipt after an upgrade", async () => {
+  const f = await automationFixture("claude");
+  try {
+    await f.save("alpha", "Run alpha");
+    await f.settings.set("automations.enabled", true, { kind: "global" });
+    await f.settings.settled({ kind: "global" });
+    await f.run("alpha", "alpha-1");
+    await expect.poll(() => f.h.inputs.get(f.caller.threadId)?.at(-1)).toBe("Run alpha");
+    // As an older build left it: no run record, only the send's receipt and the old table.
+    await f.restart();
+    f.h.store.atomic((db) =>
+      db.exec(`DELETE FROM automation_executions;
+        CREATE TABLE agent_automation_run_threads(command_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL);`),
+    );
+    await f.restart();
+    const tables = f.h.store.atomic((db) =>
+      db.prepare("SELECT name FROM sqlite_master WHERE name LIKE '%automation_run_threads'").all(),
+    );
+    expect(tables).toEqual([]);
+    await f.answer(2, "alpha-answer", "Alpha survived the upgrade.");
+    await expect
+      .poll(() => f.latest("alpha"))
+      .toMatchObject({ status: "succeeded", result: "Alpha survived the upgrade." });
+    expect(f.h.inputs.get(f.caller.threadId)).toEqual(["plan", "Run alpha"]);
+  } finally {
+    await f.close();
+  }
+});
