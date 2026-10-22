@@ -1,12 +1,12 @@
-import type { Agent } from "@ace/protocol";
 import {
-  describeActivity,
-  effortLabel,
+  elapsedShown,
   formatElapsed,
-  modelLabel,
-  optionEffort,
+  subagentDetail,
   subagentLabels,
+  subagentMeta,
   subagentTerminal,
+  subagentToolId,
+  type SubagentDetail,
 } from "@ace/ui-core";
 import { useAgent, useItem, useSidebarThread } from "@ace/client-react";
 import { buttonVariants } from "@/components/ui/button.tsx";
@@ -15,12 +15,7 @@ import { SubagentLink } from "@/lib/subagent-link.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useTicker } from "../lib/clock.ts";
 import type { SubagentEntry } from "../lib/subagent-group.ts";
-import {
-  AgentRowContents,
-  agentRowStyles,
-  type AgentDetailKind,
-  type AgentRowParts,
-} from "./agent-row.tsx";
+import { AgentRowContents, agentRowStyles, type AgentRowParts } from "./agent-row.tsx";
 
 export { subagentTones } from "./agent-row.tsx";
 
@@ -34,52 +29,26 @@ export function SubagentElapsed(props: {
   const now = useTicker(props.running && props.fresh);
   const end = props.running ? (props.fresh ? now : undefined) : props.endedAt;
   const elapsed = end === undefined ? undefined : end - props.startedAt;
-  if (elapsed === undefined || elapsed < 1000 || elapsed >= 7 * 24 * 3_600_000) return null;
+  if (elapsed === undefined || !elapsedShown(elapsed)) return null;
   return <span aria-label="Elapsed time">{formatElapsed(elapsed)}</span>;
 }
 
-const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
-
-/** What a live subagent is doing now, from its status and the step it runs. */
-function activityOf(agent: Agent | undefined, toolTitle: string | undefined): string | undefined {
-  const status = agent?.status;
-  if (!status || (status.state !== "working" && status.state !== "starting")) return undefined;
-  return sentence(describeActivity(status, toolTitle));
-}
-
 /** Its second line: what it does now, what it waits on, why it failed, or what it found. */
-function useDetail(
-  threadId: string,
-  entry: SubagentEntry,
-  fresh: boolean,
-): { detail?: string | undefined; kind?: AgentDetailKind | undefined } {
+function useDetail(threadId: string, entry: SubagentEntry, fresh: boolean): SubagentDetail {
   const agent = useAgent(threadId, entry.agentId ?? "");
-  const status = agent?.status;
-  const toolId = status?.state === "working" && status.itemId ? status.itemId : "";
-  const tool = useItem(threadId, toolId);
-  if (entry.state === "human") return { detail: "Waiting for you", kind: "human" };
-  if (entry.state === "failed") {
-    const error = status?.state === "failed" ? status.error : undefined;
-    return { detail: error?.title ?? error?.message ?? entry.result, kind: "failed" };
-  }
-  if (subagentTerminal(entry.state) || !entry.agentId)
-    return { detail: entry.result, kind: entry.result ? "result" : undefined };
-  if (!fresh) return {};
-  const activity = activityOf(agent, tool?.type === "tool_call" ? tool.call.title : undefined);
-  return activity ? { detail: activity, kind: "live" } : {};
+  const tool = useItem(threadId, subagentToolId(agent) ?? "");
+  return subagentDetail(
+    entry,
+    agent,
+    tool?.type === "tool_call" ? tool.call.title : undefined,
+    fresh,
+  );
 }
 
 /** "Opus 4.7 · High" for a subagent; "Delegated · GPT-5.5 · High" for a thread ace delegated. */
 function useMeta(entry: SubagentEntry): string | undefined {
   const thread = useSidebarThread(entry.childThreadId ?? "");
-  const model = entry.model ?? thread?.execution?.model;
-  const effort = optionEffort(thread?.execution?.options);
-  const parts = [
-    entry.childThreadId ? "Delegated" : undefined,
-    model ? modelLabel(model) : undefined,
-    effort ? effortLabel(effort) : undefined,
-  ].filter((part): part is string => !!part);
-  return parts.length ? parts.join(" · ") : undefined;
+  return subagentMeta(entry, thread?.execution);
 }
 
 /**

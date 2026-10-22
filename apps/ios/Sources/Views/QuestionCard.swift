@@ -34,7 +34,23 @@ struct QuestionAnswers: Equatable {
     }
 }
 
-/// The agent's question in the composer's place, one question at a time: its choices as rows,
+/// A question card's state while it is on the strip.
+struct QuestionDraftState: Equatable {
+    var answers = QuestionAnswers()
+    var page = 0
+}
+
+/// The card as the person left it, sent with words typed in the composer: the bridge decides
+/// whether they answer it.
+struct QuestionReply {
+    let interactionId: String
+    let draft: QuestionDraftState
+    var payload: [String: Any] {
+        ["interactionId": interactionId, "picked": draft.answers.picked, "written": draft.answers.written, "at": draft.page]
+    }
+}
+
+/// The agent's question on the strip above the composer, one question at a time: its choices as rows,
 /// the person's own words where allowed, Continue, and Skip. Controls stay locked while the
 /// answer saves and until the daemon closes the card. Long choices scroll inside the card, which
 /// never takes more than about half the screen.
@@ -45,9 +61,12 @@ struct QuestionCard: View {
     var canAct = true
     /// The tallest the card may grow.
     var maxHeight: CGFloat = .infinity
+    /// The picks, words and question on screen, kept by the thread so words typed in the
+    /// composer can answer it with them.
+    @Binding var draft: QuestionDraftState
     let answer: ([String: [String]], Bool) -> Void
-    @State private var answers = QuestionAnswers()
-    @State private var page = 0
+    private var answers: QuestionAnswers { get { draft.answers } nonmutating set { draft.answers = newValue } }
+    private var page: Int { get { draft.page } nonmutating set { draft.page = newValue } }
     /// The choices' own height; past the cap they scroll inside the card.
     @State private var choicesHeight: CGFloat = 0
     var body: some View {

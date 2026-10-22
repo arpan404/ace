@@ -119,9 +119,12 @@ the shared Allow once / Always allow / Deny verbs by option index, so large opti
 sent once with exact canonical ids.
 
 SwiftUI renders blocks with native Markdown (`Models/Markdown.swift`, SF Mono code blocks),
-collapsible work logs, inline subagent rows (a delegated child thread pushes; a native
-subagent's lane opens a sheet), question and approval cards above the composer, a model
-sheet and the header menu (Stop all agents, Snooze, Archive). The fixture's thread scenarios
+collapsible work logs, inline subagent rows worded as the web's (`@ace/ui-core`
+subagent-row: meta, live detail, elapsed; a delegated child thread pushes, a native
+subagent's lane opens a sheet), question and approval cards on the strip above the composer
+(words typed while a question waits answer it through the shared `composerReply`), a model
+sheet and a quiet header: back, title and the ⋯ menu (Agent tree, Stop all agents, Snooze,
+Archive). Rows keep the web's 8/16/24 rhythm (`@ace/ui-core` row-room). The fixture's thread scenarios
 live in `scripts/thread-scenarios.ts`. `ACE_IOS_SPIKE_PORT` moves the fixture, and the app's
 `--spike-port N` argument and `TEST_RUNNER_ACE_IOS_SPIKE_PORT` for tests follow it. TS bridge
 behavior tests run with `bunx vitest run apps/ios/bridge/thread-*.test.ts` (shared harness in

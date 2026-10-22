@@ -119,18 +119,18 @@ struct ConversationFeed: View {
             if following && reading.thread == nil && overflows { position.scrollTo(edge: .bottom) }
         }
         .onDisappear { reading.cancel() }
-        .overlay(alignment: .bottomTrailing) {
+        .overlay(alignment: .bottom) {
             if !following || reading.thread != nil {
-                GlassIconButton(systemImage: "arrow.down", label: "Jump to latest", size: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs) {
+                ScrollToEndPill {
                     reading.live(model: model, thread: thread)
                     following = true
                     position.scrollTo(edge: .bottom)
                 }
-                .accessibilityIdentifier("transcript.latest")
-                .padding(.trailing, AceTheme.Spacing.xl).padding(.bottom, AceTheme.Spacing.md)
+                .padding(.bottom, AceTheme.Spacing.md)
                 .transition(.opacity)
             }
         }
+        .modifier(TranscriptTopEdge())
     }
     private func pageIfNeeded() {
         guard intent.active, !intent.consumed, thread.loaded, !reading.loading, reading.problem == nil else { return }
@@ -144,6 +144,39 @@ struct ConversationFeed: View {
                 reading.live(model: model, thread: thread); following = true; position.scrollTo(edge: .bottom)
             } else if reading.hasNewer { reading.read("newer", model: model, live: thread) }
             else { intent.consumed = false }
+        }
+    }
+}
+
+/// Back to the live end, as the web's: a pill centred over the composer, "Scroll to end".
+private struct ScrollToEndPill: View {
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
+                AceIcon(.caretDown, size: 13, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text("Scroll to end").fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
+            }
+            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+            .padding(.leading, AceTheme.Spacing.md).padding(.trailing, AceTheme.Spacing.md + AceTheme.Spacing.xxs)
+            .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .aceGlass(in: Capsule(), interactive: true)
+        .accessibilityIdentifier("transcript.latest")
+    }
+}
+
+/// The header's edge, as the web's border once content scrolls: on iOS 26 rows end crisply under
+/// the bar instead of showing through it; before, the bar is opaque on the page colour.
+private struct TranscriptTopEdge: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            content.scrollEdgeEffectStyle(.hard, for: .top)
+        } else {
+            content.toolbarBackground(AceTheme.Colours.background, for: .navigationBar)
+                .toolbarBackgroundVisibility(.visible, for: .navigationBar)
         }
     }
 }
