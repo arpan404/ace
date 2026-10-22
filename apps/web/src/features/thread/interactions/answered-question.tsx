@@ -1,17 +1,16 @@
 import { cardEdge } from "@/components/ui/rules.ts";
-import type { Interaction, InteractionResolution, Question } from "@ace/protocol";
-import { answeredQuestions, formatClock, type AnsweredQuestion } from "@ace/ui-core";
+import type { InteractionResolution, Question } from "@ace/protocol";
+import {
+  answeredQuestions,
+  formatClock,
+  type AnsweredMeta,
+  type AnsweredQuestion,
+} from "@ace/ui-core";
 import { CheckIcon, QuotesIcon } from "@phosphor-icons/react";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
-
-export type AnsweredMeta =
-  | { kind: "answered"; by: "you" | "elsewhere" | "unknown"; at: number | undefined }
-  | { kind: "sending" }
-  | { kind: "skipped" | "expired" | "cancelled" }
-  | { kind: "earlier"; at: number | undefined };
 
 function metaText(meta: AnsweredMeta): string {
   switch (meta.kind) {
@@ -141,21 +140,4 @@ function AnsweredRow(props: { row: AnsweredQuestion; showAnswer: boolean }) {
       )}
     </section>
   );
-}
-
-/** How a closed question reads, from its interaction and this device's memory of answering. */
-export function closedMeta(
-  interaction: Pick<Interaction, "state" | "resolution" | "resolvedBy" | "closedAt">,
-  answeredHere: boolean,
-): AnsweredMeta {
-  const resolution = interaction.resolution;
-  if (resolution?.kind === "question" && resolution.dismissed) return { kind: "skipped" };
-  if (resolution || interaction.state === "resolved")
-    return {
-      kind: "answered",
-      by: answeredHere ? "you" : interaction.resolvedBy ? "elsewhere" : "unknown",
-      at: interaction.closedAt,
-    };
-  if (interaction.state === "expired") return { kind: "expired" };
-  return { kind: "cancelled" };
 }
