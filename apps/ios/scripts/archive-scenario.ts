@@ -41,9 +41,14 @@ export function seedArchive(daemon: FakeDaemon, now: number, napMs: number): voi
     facts.message("root", "nap", "assistant", "The nightly build is green."),
     facts.endTurn("root"),
   ]);
+  snoozeNap(daemon, now + napMs, "ios-spike-nap");
+}
+
+/** Snoozes `ios-nap` until `until`, so a test can start its snooze fresh (`/review/nap`). */
+export function snoozeNap(daemon: FakeDaemon, until: number, commandId: string): void {
   daemon.command({
-    id: CommandId.parse("ios-spike-nap"),
+    id: CommandId.parse(commandId),
     deviceId: DeviceId.parse("ios-spike-seed"),
-    payload: { type: "thread.snooze", threadId: ThreadId.parse("ios-nap"), until: now + napMs },
+    payload: { type: "thread.snooze", threadId: ThreadId.parse("ios-nap"), until },
   });
 }

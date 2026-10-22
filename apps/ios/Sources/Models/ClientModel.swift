@@ -340,6 +340,8 @@ import QuartzCore
     }
     func network(_ online: Bool) { action(["type": "network", "online": online]) }
     func retry() { action(["type": "retry"]) }
+    /// The app is in front again: the SDK checks the socket now and skips a waiting backoff.
+    func wake() { action(["type": "wake"]) }
     /// Ask the computer for its CLIs and usage; runs on the next ready connection if offline.
     func refreshMachine() { action(["type": "machine.refresh"]) }
     func send(_ text: String, delivery: String) async -> Bool {

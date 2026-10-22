@@ -44,6 +44,9 @@ struct InboxTitle: View {
                     .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                     .fixedSize()
+                    // A one-line label is shorter than a finger: the whole row height takes the tap.
+                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .combine)

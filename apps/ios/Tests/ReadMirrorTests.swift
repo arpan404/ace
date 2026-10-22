@@ -18,6 +18,16 @@ import Testing
         #expect(model.kept(reordered, as: Prompts.self) == Prompts(result: .init(kind: "list")))
     }
 
+    @Test func aScreenWhoseFirstReadFailedWhileAwayReadsAgainWhenTheMachineComesBack() throws {
+        let model = ClientModel(now: { 0 })
+        let before = model.readGeneration(Self.list)
+        // Nothing kept for this read; another family changing is no reason to read it again.
+        model.receive(try frame([["type": "service.generations", "generations": ["usage": 1]]]))
+        #expect(model.readGeneration(Self.list) == before)
+        model.receive(try frame([["type": "service.generations", "generations": ["usage": 2, "reconnects": 1]]]))
+        #expect(model.readGeneration(Self.list) != before)
+    }
+
     @Test func anAnswerTheBridgeDidNotKeepIsNeverDrawnFromTheCache() throws {
         let model = ClientModel(now: { 0 })
         model.receive(try frame([["type": "service.reply", "id": "native-1", "ok": true, "message": "", "value": ["result": ["kind": "list"]]]]))

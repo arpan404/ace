@@ -17,6 +17,8 @@ import {
  * each kept answer (`service.cache`) so a screen draws it in its first frame, and each family's
  * generation (`service.generations`) so a screen showing an out-of-date answer reads it again.
  * Daemon change events, writes and reconnects move the generations; nothing polls.
+ * `reconnects` beside them counts the machine coming back, for screens whose reads aren't kept:
+ * the one signal every screen reads again on.
  */
 
 export interface ReadsOwner {
@@ -35,6 +37,8 @@ export interface ReadKey {
   family: ReadFamily;
 }
 
+/** Beside the families' generations: how many times the connection came back. */
+export const reconnectsKey = "reconnects";
 /** Answers the bridge keeps for itself, never handed to Swift's copy. */
 const ownPrefix = "bridge:";
 const Patch = z.record(z.string(), z.unknown());
@@ -44,6 +48,7 @@ export class NativeReads implements NewThreadMemory {
   readonly #keeper: ReadKeeper | undefined;
   readonly #sink: PatchSink;
   readonly #stops: (() => void)[] = [];
+  #reconnects = 0;
   constructor(owner: ReadsOwner, sink: PatchSink, options: ReadsOptions) {
     this.#sink = sink;
     this.#cache = new ReadCache({ now: options.now });
@@ -60,7 +65,11 @@ export class NativeReads implements NewThreadMemory {
     this.#stops.push(
       connection.subscribe(() => {
         const now = connection.getSnapshot() === "ready";
-        if (now && !ready && this.#cache.invalidateAll()) this.#publish();
+        if (now && !ready) {
+          this.#reconnects++;
+          this.#cache.invalidateAll();
+          this.#publish();
+        }
         ready = now;
       }),
     );
@@ -112,7 +121,10 @@ export class NativeReads implements NewThreadMemory {
   #publish(): void {
     this.#sink.put("service:generations", () => ({
       type: "service.generations",
-      generations: this.#cache.generations(),
+      generations: {
+        ...this.#cache.generations(),
+        ...(this.#reconnects ? { [reconnectsKey]: this.#reconnects } : {}),
+      },
     }));
   }
 
