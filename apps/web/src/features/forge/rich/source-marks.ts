@@ -36,6 +36,16 @@ function locate(source: string, raw: string, from: number, to: number) {
   return start >= 0 && start < to ? { start, end: to, exact: false } : undefined;
 }
 
+/** An item's first line as words for its box's name: no footnote markers or emphasis marks. */
+function labelOf(text: string): string {
+  const words = (text.split("\n")[0] ?? "")
+    .replace(/\[\^[^\]\s]+\]/g, "")
+    .replace(/[*_`~]+/g, "")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .trim();
+  return words || "Task";
+}
+
 /** Each task box the tokens draw, by its checkbox token, placed in `source`. */
 export function taskMarks(source: string, tokens: readonly Token[]): Map<Token, TaskMark> {
   const marks = new Map<Token, TaskMark>();
@@ -54,7 +64,7 @@ export function taskMarks(source: string, tokens: readonly Token[]): Map<Token, 
         if (checkbox && found?.[1] !== undefined)
           marks.set(checkbox, {
             offset: region.start + found[1].length + 1,
-            label: item.text.split("\n")[0]?.trim() || "Task",
+            label: labelOf(item.text),
           });
         visit(item.tokens, region.start, region.end);
       } else if ("tokens" in token && Array.isArray(token.tokens))
