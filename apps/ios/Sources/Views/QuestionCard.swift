@@ -165,9 +165,8 @@ private struct ChoiceRow<Content: View>: View {
         .aceFont(AceTheme.Typography.body, relativeTo: .body)
         .padding(.horizontal, AceTheme.Spacing.md + AceTheme.Spacing.xxs).padding(.vertical, AceTheme.Spacing.md)
         .frame(minHeight: AceTheme.Dimensions.touchTarget)
-        .requestInset(cornerRadius: AceTheme.Radii.md)
-        .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.md, style: .continuous)
-            .strokeBorder(chosen ? AceTheme.Colours.foreground : .clear, lineWidth: AceTheme.Dimensions.border * 1.5))
+        .requestInset()
+        .aceConcentricBorder(chosen ? AceTheme.Colours.foreground : .clear, minimum: StripMetrics.insetRadius, lineWidth: AceTheme.Dimensions.border * 1.5)
         .contentShape(Rectangle())
     }
 }
