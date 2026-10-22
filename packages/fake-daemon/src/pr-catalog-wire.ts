@@ -9,6 +9,9 @@ import { catalogGroupCounts, catalogPrList } from "./forge-list-wire.ts";
 import { colors } from "./forge-list-rows.ts";
 import { applyHostedReview } from "./pr-review-actions.ts";
 
+/** A line ten further down, as a push of ten lines above it leaves it. */
+const shift = (line: number | null | undefined) => (line == null ? line : line + 10);
+
 /**
  * Whole pull requests the fake app can open in its PR panel: detail, merge state, lifecycle,
  * review state, files and activity, answered for any project that asks about them. Reads a
@@ -53,6 +56,52 @@ export class FakePrCatalog {
     if (status.mergeability === "conflicting" || status.ci === "failure")
       return { ok: false, error: "forge_write_refused" };
     return { ok: true, pr: payload.pr, prStatus: this.markMerged(fixture).detail.status };
+  }
+  /**
+   * A push to a catalog PR's branch, for trying the app against a moving head: a new head, and
+   * ten lines added above every change, so each new-side line number now names other code.
+   * Conversations on the new side move down with their lines, as GitHub moves them; pending
+   * drafts stay on the old head and so read as outdated.
+   */
+  push(number: number): boolean {
+    const fixture = this.fixtures.find((entry) => entry.detail.status.ref.number === number);
+    if (!fixture || fixture.detail.status.state !== "open") return false;
+    const { status } = fixture.detail;
+    const headSha = (status.headSha.slice(2) + status.headSha.slice(0, 2)).replace(/^./, "e");
+    const pushed: PullRequestFixture = {
+      ...fixture,
+      detail: {
+        ...fixture.detail,
+        status: {
+          ...status,
+          headSha,
+          reviewThreads: status.reviewThreads.map((thread) =>
+            thread.side === "LEFT"
+              ? thread
+              : Object.assign({}, thread, {
+                  line: shift(thread.line) ?? null,
+                  startLine: shift(thread.startLine),
+                }),
+          ),
+        },
+      },
+      ...(fixture.mergeState ? { mergeState: { ...fixture.mergeState, headSha } } : {}),
+      lifecycle: { ...fixture.lifecycle, snapshot: { ...fixture.lifecycle.snapshot, headSha } },
+      review: { ...fixture.review, headSha },
+      files: fixture.files.map((file) =>
+        Object.assign({}, file, {
+          patch:
+            file.patch === null
+              ? null
+              : file.patch.replaceAll(
+                  /^@@ -(\d+(?:,\d+)?) \+(\d+)/gm,
+                  (_, left: string, right: string) => `@@ -${left} +${Number(right) + 10}`,
+                ),
+        }),
+      ),
+    };
+    this.fixtures = this.fixtures.map((entry) => (entry === fixture ? pushed : entry));
+    return true;
   }
   /** A catalog PR as merged, as a merge from anywhere (Verify's included) leaves it. */
   mergeNumber(number: number): void {

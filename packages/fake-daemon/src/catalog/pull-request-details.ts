@@ -442,7 +442,23 @@ function failingWithChanges(now: number): PullRequestFixture {
       // Long enough that the diff mounts only the rows near the viewport.
       file("docs/troubleshooting.md", 441, 12, "modified", true),
       file("docs/docker.md", 16, 30),
-      file("sidebar.json", 3, 2),
+      // Two changes with unchanged lines GitHub doesn't send between them: a pick stops there.
+      {
+        ...file("sidebar.json", 3, 2),
+        patch: [
+          "@@ -1,3 +1,3 @@",
+          " {",
+          '-  "install": "Install",',
+          '+  "install": "Install the daemon",',
+          '   "service": "Service",',
+          "@@ -20,3 +20,4 @@",
+          '   "docker": "Docker",',
+          '-  "faq": "FAQ"',
+          '+  "faq": "FAQ",',
+          '+  "troubleshooting": "Troubleshooting"',
+          " }",
+        ].join("\n"),
+      },
     ],
     activity: [],
   };

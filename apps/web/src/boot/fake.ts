@@ -92,6 +92,11 @@ export function bootFake(): {
     // The PR panel's three looks (ready, failing with changes requested, merged) and the
     // Pull requests view's lists.
     seedForgeBrowse(daemon, Date.now());
+    // From the console, `acePushPullRequest(31)` pushes to a sample PR's branch: a new head
+    // with its lines moved, for trying what survives a push.
+    (globalThis as { acePushPullRequest?: (number: number) => boolean }).acePushPullRequest = (
+      number,
+    ) => daemon.workspace.pushPullRequest(number);
   }
   // `aceFakeWorld = "computer-use"` (or `?fakeWorld=computer-use`): agents using apps and the
   // browser on this Mac.
