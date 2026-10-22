@@ -34,6 +34,7 @@ import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
 import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, type NativeScreen } from "./native-screen.ts";
+import { ForgeRequest, type ForgeService } from "./forge-service.ts";
 
 // The SDK validates every request and reply. The native bridge exposes only these services;
 // mutations of threads continue to go through the SDK's durable command outbox.
@@ -81,12 +82,14 @@ export class NativeServices {
   readonly devices: NativeDevices | undefined;
   readonly screen: NativeScreen | undefined;
   readonly files: CheckoutFiles | undefined;
+  readonly forge: ForgeService | undefined;
   constructor(
     owner: ClientCore,
     sink: PatchSink,
     devices?: NativeDevices,
     screen?: NativeScreen,
     files?: CheckoutFiles,
+    forge?: ForgeService,
   ) {
     this.owner = owner;
     this.transcript = new NativeTranscript(owner);
@@ -94,6 +97,7 @@ export class NativeServices {
     this.devices = devices;
     this.screen = screen;
     this.files = files;
+    this.forge = forge;
   }
   handle(action: z.infer<typeof NativeServiceAction>): void {
     if (action.type === "service.cancel") {
@@ -150,6 +154,15 @@ export class NativeServices {
       // A device form whose value the protocol refuses (a locale, a location): say so plainly.
       if (this.devices && DeviceRequestType.safeParse(raw).success) {
         this.#reply(id, true, { ok: false, error: invalidDeviceValue }, "");
+        return;
+      }
+      const forge = ForgeRequest.safeParse(raw);
+      if (forge.success && this.forge) {
+        try {
+          this.#reply(id, true, await this.forge.answer(forge.data, controller.signal), "");
+        } catch (error) {
+          this.#reply(id, false, null, error instanceof Error ? error.message : "");
+        }
         return;
       }
       const message = NativeMessageRequest.safeParse(raw);

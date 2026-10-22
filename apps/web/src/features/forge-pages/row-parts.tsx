@@ -19,14 +19,6 @@ export const rowClass = cn(
   "hover:bg-hover focus-ring-inset",
 );
 
-/** "feature/very-long-bran…name": a long name keeps its start and its end. */
-export function middleTruncate(text: string, max: number): string {
-  if (text.length <= max) return text;
-  const keep = max - 1;
-  const head = Math.ceil(keep / 2);
-  return `${text.slice(0, head)}…${text.slice(text.length - (keep - head))}`;
-}
-
 export function Age(props: { at: string | undefined }) {
   const now = useNow();
   const at = props.at ? Date.parse(props.at) : NaN;
