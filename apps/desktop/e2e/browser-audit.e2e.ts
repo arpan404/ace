@@ -122,7 +122,10 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
           c?.sendInputEvent({ type: "keyUp", keyCode: "+", modifiers: [args.primary] });
         },
         // The person's ⌘ on macOS, Ctrl elsewhere.
-        { contents, primary: process.platform === "darwin" ? "meta" : "control" },
+        {
+          contents,
+          primary: process.platform === "darwin" ? ("meta" as const) : ("control" as const),
+        },
       );
       const zoom = () =>
         s.app.evaluate(({ webContents }, id) => webContents.fromId(id)?.getZoomFactor(), contents);

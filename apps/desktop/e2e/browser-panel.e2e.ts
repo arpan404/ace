@@ -140,7 +140,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect.poll(() => nativeRead("document.querySelector('#name').value")).toBe("abc");
       expect(await nativeRead("window.inputs")).toBe(3);
       // The person's ⌘ on macOS, Ctrl elsewhere.
-      const primary = process.platform === "darwin" ? "meta" : "control";
+      const primary: "meta" | "control" = process.platform === "darwin" ? "meta" : "control";
       const nativeChord = (keyCode: string) =>
         s.app.evaluate(
           ({ webContents }, args) => {
