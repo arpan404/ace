@@ -1,6 +1,7 @@
 import Foundation
 import os
 import QuartzCore
+import Darwin
 
 /// Timing for opening a thread and the bridge traffic behind it. Signposts show in Instruments'
 /// Points of Interest; one log line per open carries the numbers (`log stream --predicate
@@ -37,7 +38,7 @@ import QuartzCore
         self.warm = warm
         started = CACurrentMediaTime()
         scriptAtStart = Self.scriptBusy.withLock { $0 }
-        frames = 0; patches = 0; bytes = 0; mainMs = 0; ready = nil; painted = nil; hopMs = 0; turnMs = 0; lastApplied = nil
+        frames = 0; patches = 0; bytes = 0; mainMs = 0; ready = nil; painted = nil; settledAt = nil; hopMs = 0; turnMs = 0; lastApplied = nil
         interval = Self.signposter.beginInterval("thread.open", id: Self.signposter.makeSignpostID(), "\(id, privacy: .public)")
     }
     /// One bridge frame applied on the main thread.
@@ -66,6 +67,7 @@ import QuartzCore
         guard thread == id, ready == nil else { return }
         ready = CACurrentMediaTime()
         Self.signposter.emitEvent("thread.ready")
+        if settledAt != nil { finish(reason: "settled") }
     }
     /// The first transcript rows were laid out.
     func painted(_ id: String) {
@@ -73,10 +75,25 @@ import QuartzCore
         painted = CACurrentMediaTime()
         Self.signposter.emitEvent("thread.painted")
     }
-    /// The feed reached its end after opening.
+    /// The feed reached its end after opening; the open ends once the bridge is ready too.
     func settled(_ id: String) {
-        guard thread == id, painted != nil else { return }
-        finish(reason: "settled")
+        guard thread == id, painted != nil, settledAt == nil else { return }
+        settledAt = CACurrentMediaTime()
+        if ready != nil { finish(reason: "settled") }
+    }
+    private var settledAt: Double?
+    /// A page of history read into the transcript, from asking to the window replaced.
+    static func page(_ operation: String, items: Int, blocks: Int, seconds: Double) {
+        log.notice("page \(operation, privacy: .public) items=\(items) blocks=\(blocks) ms=\(String(format: "%.0f", seconds * 1000), privacy: .public) footprintMiB=\(footprint(), privacy: .public)")
+    }
+    /// The app's physical footprint, as the system counts it against its memory limit.
+    nonisolated static func footprint() -> String {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+        }
+        return result == KERN_SUCCESS ? String(format: "%.0f", Double(info.phys_footprint) / 1_048_576) : "-"
     }
     private func finish(reason: String) {
         guard let thread else { return }
@@ -86,9 +103,10 @@ import QuartzCore
         Self.log.notice("""
             open thread=\(thread, privacy: .public) warm=\(self.warm) end=\(reason, privacy: .public) \
             readyMs=\(ms(self.ready), privacy: .public) paintMs=\(ms(self.painted), privacy: .public) \
-            settledMs=\(ms(now), privacy: .public) frames=\(self.frames) patches=\(self.patches) bytes=\(self.bytes) \
+            settledMs=\(ms(self.settledAt ?? now), privacy: .public) frames=\(self.frames) patches=\(self.patches) bytes=\(self.bytes) \
             mainApplyMs=\(String(format: "%.1f", self.mainMs), privacy: .public) scriptMs=\(String(format: "%.1f", script), privacy: .public) \
-            hopMs=\(String(format: "%.1f", self.hopMs), privacy: .public) turnMs=\(String(format: "%.1f", self.turnMs), privacy: .public)
+            hopMs=\(String(format: "%.1f", self.hopMs), privacy: .public) turnMs=\(String(format: "%.1f", self.turnMs), privacy: .public) \
+            footprintMiB=\(Self.footprint(), privacy: .public)
             """)
         if let interval { Self.signposter.endInterval("thread.open", interval) }
         interval = nil
