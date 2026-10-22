@@ -267,6 +267,17 @@ export function prTimelineItems(
       thread.comments.map((comment) => [comment.id, thread] as const),
     ),
   );
+  // Where each conversation shows: its first comment the timeline has. Past the read cap a
+  // root may be missing; the conversation then shows at its first reply that is present.
+  const present = new Set(
+    detail.status.comments.filter((c) => c.kind === "inline").map((c) => c.id),
+  );
+  const shownAt = new Map(
+    detail.status.reviewThreads.flatMap((thread) => {
+      const first = thread.comments.find((comment) => present.has(comment.id));
+      return first ? [[thread.id, first.id] as const] : [];
+    }),
+  );
   const items: PrTimelineItem[] = [];
   let references: PrReference[] = [];
   let burst: CommentEntry[] = [];
@@ -308,7 +319,7 @@ export function prTimelineItems(
         ? threadOf.get(entry.comment.id)
         : undefined;
     if (entry.kind === "comment" && thread) {
-      if (thread.comments[0]?.id !== entry.comment.id) continue;
+      if (shownAt.get(thread.id) !== entry.comment.id) continue;
       flushBurst();
       items.push({ kind: "thread", id: `thread:${thread.id}`, at: entry.at, thread });
       continue;

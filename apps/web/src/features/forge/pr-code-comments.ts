@@ -17,7 +17,8 @@ interface DiffIndex {
   rowOf: ReadonlyMap<string, LineKey>;
   /** Each row's key → its position, so a range covers the rows between two positions. */
   position: ReadonlyMap<LineKey, number>;
-  keys: readonly LineKey[];
+  /** Each row's keys: its own, and for an unchanged line also its old side's (split view). */
+  cells: readonly (readonly LineKey[])[];
 }
 const indexes = new WeakMap<FileDiff, DiffIndex>();
 
@@ -27,7 +28,7 @@ function indexOf(diff: FileDiff): DiffIndex {
   if (known) return known;
   const rowOf = new Map<string, LineKey>();
   const position = new Map<LineKey, number>();
-  const keys: LineKey[] = [];
+  const cells: LineKey[][] = [];
   for (const row of diff.rows) {
     if (row.kind === "fold") continue;
     const key: LineKey | undefined =
@@ -41,10 +42,10 @@ function indexOf(diff: FileDiff): DiffIndex {
     if (!key) continue;
     if (row.kind !== "add" && row.old !== undefined) rowOf.set(`old:${row.old}`, key);
     if (row.kind !== "del" && row.new !== undefined) rowOf.set(`new:${row.new}`, key);
-    position.set(key, keys.length);
-    keys.push(key);
+    position.set(key, cells.length);
+    cells.push(row.kind === "context" && row.old !== undefined ? [key, `old:${row.old}`] : [key]);
   }
-  const index = { rowOf, position, keys };
+  const index = { rowOf, position, cells };
   indexes.set(diff, index);
   return index;
 }
@@ -57,10 +58,20 @@ export function lineKeyOf(diff: FileDiff, side: "old" | "new", line: number): Li
   return indexOf(diff).rowOf.get(`${side}:${line}`);
 }
 
-/** A file's comments placed on its diff, and every row they cover. */
-export interface Placement {
+/** Comments by the key of the line they sit under. */
+export interface Placed {
   threads: ReadonlyMap<LineKey, ReviewThread[]>;
   drafts: ReadonlyMap<LineKey, ForgeReviewDraft[]>;
+}
+
+/**
+ * A file's comments placed on its diff, and every row (and split-view cell) they cover. One
+ * diff row holds both sides of an unchanged line, so the unified view places a comment under
+ * its row, while the split view places it under the line on its own side.
+ */
+export interface Placement {
+  unified: Placed;
+  split: Placed;
   covered: ReadonlySet<LineKey>;
 }
 
@@ -73,14 +84,14 @@ function cover(index: DiffIndex, covered: Set<LineKey>, start: LineKey | undefin
   const from = start === undefined ? to : (index.position.get(start) ?? to);
   const [first, last] = from <= to ? [from, to] : [to, from];
   for (let at = first; at <= Math.min(last, first + maxCovered); at++) {
-    const key = index.keys[at];
-    if (key) covered.add(key);
+    for (const key of index.cells[at] ?? []) covered.add(key);
   }
 }
 
 /**
  * Where `diff`'s current review threads and pending drafts sit: each under the row of its last
- * line, marking every row from its first line, which may start on the other side. Outdated
+ * line (in split view, under that line on its own side), marking every row from its first
+ * line, which may start on the other side. Outdated
  * threads and lines the diff doesn't draw aren't placed (`offDiffThreads` lists those threads).
  */
 export function placeComments(
@@ -89,32 +100,54 @@ export function placeComments(
   drafts: readonly ForgeReviewDraft[],
 ): Placement {
   const index = indexOf(diff);
-  const placedThreads = new Map<LineKey, ReviewThread[]>();
-  const placedDrafts = new Map<LineKey, ForgeReviewDraft[]>();
+  const unified = {
+    threads: new Map<LineKey, ReviewThread[]>(),
+    drafts: new Map<LineKey, ForgeReviewDraft[]>(),
+  };
+  const split = {
+    threads: new Map<LineKey, ReviewThread[]>(),
+    drafts: new Map<LineKey, ForgeReviewDraft[]>(),
+  };
   const covered = new Set<LineKey>();
+  const add = <T>(map: Map<LineKey, T[]>, key: LineKey, item: T) =>
+    map.set(key, [...(map.get(key) ?? []), item]);
+  const place = (
+    side: "LEFT" | "RIGHT" | undefined,
+    line: number,
+    start: { side: "LEFT" | "RIGHT" | undefined; line: number } | undefined,
+    put: (key: LineKey, view: "unified" | "split") => void,
+  ) => {
+    const own: LineKey = `${diffSide(side)}:${line}`;
+    const end = index.rowOf.get(own);
+    if (!end) return;
+    put(end, "unified");
+    put(own, "split");
+    const from = start && index.rowOf.get(`${diffSide(start.side)}:${start.line}`);
+    cover(index, covered, from, end);
+  };
   for (const thread of threads) {
     if (thread.file !== diff.path || thread.outdated || thread.line === null) continue;
-    const end = index.rowOf.get(`${diffSide(thread.side)}:${thread.line}`);
-    if (!end) continue;
-    placedThreads.set(end, [...(placedThreads.get(end) ?? []), thread]);
     const startLine = thread.startLine ?? undefined;
-    const start =
+    place(
+      thread.side,
+      thread.line,
       startLine === undefined
         ? undefined
-        : index.rowOf.get(`${diffSide(thread.startSide ?? thread.side)}:${startLine}`);
-    cover(index, covered, start, end);
+        : { side: thread.startSide ?? thread.side, line: startLine },
+      (key, view) => add((view === "unified" ? unified : split).threads, key, thread),
+    );
   }
   for (const draft of drafts) {
     const { anchor } = draft;
     if (anchor.path !== diff.path) continue;
-    const end = index.rowOf.get(`${diffSide(anchor.side)}:${anchor.line}`);
-    if (!end) continue;
-    placedDrafts.set(end, [...(placedDrafts.get(end) ?? []), draft]);
-    const start =
+    place(
+      anchor.side,
+      anchor.line,
       anchor.startLine === undefined
         ? undefined
-        : index.rowOf.get(`${diffSide(anchor.startSide ?? anchor.side)}:${anchor.startLine}`);
-    cover(index, covered, start, end);
+        : { side: anchor.startSide ?? anchor.side, line: anchor.startLine },
+      (key, view) => add((view === "unified" ? unified : split).drafts, key, draft),
+    );
   }
-  return { threads: placedThreads, drafts: placedDrafts, covered };
+  return { unified, split, covered };
 }

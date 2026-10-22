@@ -10,7 +10,7 @@ import { canHide, hiddenReasonOf, hiddenWord } from "./pr-comment-model.ts";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import { useQuote, type QuoteTarget } from "./pr-quote.tsx";
 import { PrReactionPicker, PrReactions } from "./pr-reactions.tsx";
-import { usePrReview } from "./pr-review-context.tsx";
+import { usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 import { PrSuggestionActions } from "./pr-suggestions.tsx";
 import { useEdit, useFocusAsk } from "./pr-ui-store.tsx";
 
@@ -36,6 +36,7 @@ export function PrComment(props: {
 }) {
   const { comment } = props;
   const review = usePrReview();
+  const identity = usePrIdentity();
   const quote = useQuote();
   const state = review?.state;
   // The edit lives above the row, so a row scrolled away and back keeps it (`pr-ui-store`).
@@ -51,8 +52,9 @@ export function PrComment(props: {
   const disabled = !review?.ready || review.pending;
   const actions: CommentMenuActions = {
     disabled,
+    // Only where the viewer can answer: a quote with no box to take it would be lost.
     quote:
-      quote && props.quoteTarget && comment.body.trim()
+      quote && props.quoteTarget && state?.canComment && comment.body.trim()
         ? () => props.quoteTarget && quote(props.quoteTarget, comment.body)
         : undefined,
     edit:
@@ -122,11 +124,7 @@ export function PrComment(props: {
               <PrReactionPicker subject={{ kind: comment.kind, commentId: comment.id }} />
             </span>
           )}
-          <PrCommentMenu
-            comment={comment}
-            prUrl={review?.detail.status.url ?? ""}
-            actions={actions}
-          />
+          <PrCommentMenu comment={comment} prUrl={identity?.url ?? ""} actions={actions} />
         </span>
       </div>
       {reason !== undefined && (

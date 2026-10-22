@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { SparkleIcon } from "@phosphor-icons/react";
 import type { ForgePrDetail } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
@@ -8,7 +9,7 @@ import { attentionItems, type AttentionItem } from "./pr-summary-model.ts";
 import { useFixWithAgent } from "./pr-fix-with-agent.ts";
 import { useFetchCheckRun } from "./pr-check-run.ts";
 import { checkFixRequest, checkRunId } from "./pr-check-model.ts";
-import { previewOf } from "./pr-comment-model.ts";
+import { hiddenReasonOf } from "./pr-comment-model.ts";
 import { usePrReview } from "./pr-review-context.tsx";
 import { PrReplyField, replyField } from "./pr-thread.tsx";
 import { useAskFocus, useReplyOpen } from "./pr-ui-store.tsx";
@@ -29,7 +30,10 @@ function Lead(props: { item: AttentionItem; avatar: string | undefined }) {
   );
 }
 
-/** Opens a review comment's reply on its Needs attention row, focused. */
+/**
+ * Opens a review comment's reply on its Needs attention row and focuses it; pressed again, it
+ * focuses the open field. The field's own Cancel closes it.
+ */
 function AttentionReplyButton(props: { threadId: string; title: string }) {
   const field = replyField(props.threadId, "attention");
   const [open, setOpen] = useReplyOpen(field);
@@ -42,7 +46,6 @@ function AttentionReplyButton(props: { threadId: string; title: string }) {
       aria-expanded={!!open}
       aria-label={`Reply: ${props.title}`}
       onClick={() => {
-        if (open) return setOpen(undefined);
         setOpen(true);
         askFocus(`reply:${field}`);
       }}
@@ -64,9 +67,15 @@ export function PrAttention(props: {
   disabled: boolean;
 }) {
   const { detail } = props;
-  const items = attentionItems(detail.status);
-  const agent = useFixWithAgent(props);
   const review = usePrReview();
+  const state = review?.state;
+  // Hidden comments stay out of Needs attention, and so out of any agent's request.
+  const items = attentionItems(detail.status, (c) => hiddenReasonOf(state, c) !== undefined);
+  const threads = useMemo(
+    () => new Map(detail.status.reviewThreads.map((t) => [`thread:${t.id}`, t])),
+    [detail.status.reviewThreads],
+  );
+  const agent = useFixWithAgent(props);
   const fetchRun = useFetchCheckRun(props.workspaceId, detail.status.ref);
   // A failing check's request carries its log excerpt and annotations, read as the panel would.
   const fix = async (item: AttentionItem) => {
@@ -82,13 +91,9 @@ export function PrAttention(props: {
     <PrSection id="pr-attention" title="Needs attention" count={items.length} fixed>
       <ul className="divide-y divide-border-soft">
         {items.map((item) => {
-          const thread =
-            item.kind === "thread"
-              ? detail.status.reviewThreads.find((t) => `thread:${t.id}` === item.key)
-              : undefined;
+          const thread = item.kind === "thread" ? threads.get(item.key) : undefined;
           const root = thread?.comments[0];
-          // A hidden comment's text never shows, even as a title.
-          const title = root ? previewOf(review?.state, root).text : item.title;
+          const title = item.title;
           return (
             <li key={item.key} className="py-2">
               <div className="flex items-start gap-2.5">

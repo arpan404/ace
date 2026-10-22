@@ -189,3 +189,21 @@ test("a host that doesn't report comment visibility leaves hidden and hideable u
     await f.cleanup();
   }
 });
+
+test("a comment whose node id isn't one GitHub issues is never sent to a mutation", async () => {
+  const fixtures = withComment("issue");
+  fixtures["repos/octo/ace/issues/7/comments?per_page=100"] = [
+    { body: [{ id: 5, node_id: "IC_5 } bad", body: "Old note", user: { login: "reviewer" } }] },
+  ];
+  fixtures[visibility] = [state(false, null)];
+  const f = await fakeGh(fixtures);
+  try {
+    const hide = { kind: "comment.hide", commentId: 5, source: "issue", reason: "spam" } as const;
+    await expect(
+      f.forge.reviews.write(7, hide, [], "hide", signal(), allowed),
+    ).rejects.toMatchObject({ kind: "invalid_data" });
+    expect(await mutations(f)).toEqual([]);
+  } finally {
+    await f.cleanup();
+  }
+});

@@ -34,13 +34,16 @@ test("a conversation from a deleted line to an added line sits under its last li
     [thread({ startLine: 3, startSide: "LEFT", side: "RIGHT", line: 2 })],
     [],
   );
-  expect([...placed.threads.keys()]).toEqual(["new:2"]);
+  expect([...placed.unified.threads.keys()]).toEqual(["new:2"]);
   expect([...placed.covered]).toEqual(["old:3", "new:2"]);
 });
 
-test("a comment on the old side of an unchanged line sits under that line's row", () => {
+test("a comment on the old side of an unchanged line sits under its row, and in split view on the left", () => {
   const placed = placeComments(diff, [thread({ side: "LEFT", line: 4 })], []);
-  expect([...placed.threads.keys()]).toEqual(["new:4"]);
+  expect([...placed.unified.threads.keys()]).toEqual(["new:4"]);
+  // Split view draws the line in both columns; the comment belongs to the old (left) one.
+  expect([...placed.split.threads.keys()]).toEqual(["old:4"]);
+  expect([...placed.covered].toSorted()).toEqual(["new:4", "old:4"]);
 });
 
 const draft = (path: string, line: number) => ({
@@ -55,7 +58,8 @@ test("pending drafts are placed like conversations; lines in a fold or another f
     [thread({ line: 9, side: "RIGHT" })],
     [draft("src/a.ts", 3), draft("src/a.ts", 9), draft("src/b.ts", 3)],
   );
-  expect([...placed.threads.keys()]).toEqual([]);
-  expect([...placed.drafts.keys()]).toEqual(["new:3"]);
+  expect([...placed.unified.threads.keys()]).toEqual([]);
+  expect([...placed.unified.drafts.keys()]).toEqual(["new:3"]);
   expect([...placed.covered]).toEqual(["new:2", "new:3"]);
+  expect([...placed.split.drafts.keys()]).toEqual(["new:3"]);
 });

@@ -10,7 +10,7 @@ import { PrClampedText } from "./pr-clamped.tsx";
 import { PrAvatar } from "./pr-presentation.tsx";
 import { linesLabel, suggestionBlock } from "./pr-comment-model.ts";
 import { appendTo } from "./pr-quote.tsx";
-import { usePrReview } from "./pr-review-context.tsx";
+import { usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 import { useEdit, useFocusAsk } from "./pr-ui-store.tsx";
 
 /** The review anchor for `range` of `path` at `headSha`. */
@@ -43,9 +43,9 @@ export function PrLineComposer(props: {
 }) {
   const review = usePrReview();
   const { range } = props;
-  const prKey = JSON.stringify(review?.detail.status.ref ?? null);
+  const identity = usePrIdentity();
   const draft = useMarkdownDraft(
-    review ? `pr:${review.workspaceId}:${prKey}:line:${props.path}` : undefined,
+    identity ? `pr:${identity.workspaceId}:${identity.prKey}:line:${props.path}` : undefined,
   );
   const [id] = useState(() => crypto.randomUUID());
   const box = useRef<HTMLFormElement>(null);

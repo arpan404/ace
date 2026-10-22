@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CaretRightIcon } from "@phosphor-icons/react";
 import type { ForgePrStatus } from "@ace/protocol";
 import { useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
@@ -8,7 +8,7 @@ import { cn } from "@/lib/cn.ts";
 import { PrComment } from "./pr-comment.tsx";
 import { plural, previewOf, threadPlace } from "./pr-comment-model.ts";
 import { appendTo, useQuotedInto } from "./pr-quote.tsx";
-import { usePrReview } from "./pr-review-context.tsx";
+import { usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 import { useFocusAsk, useFold, useReplyOpen } from "./pr-ui-store.tsx";
 
 type ReviewThread = ForgePrStatus["reviewThreads"][number];
@@ -46,13 +46,20 @@ export function PrReplyField(props: {
 }) {
   const review = usePrReview();
   const place = props.place ?? "thread";
-  const prKey = JSON.stringify(review?.detail.status.ref ?? null);
+  const identity = usePrIdentity();
   const draft = useMarkdownDraft(
-    review ? replyDraftKey(review.workspaceId, prKey, props.threadId, place) : undefined,
+    identity
+      ? replyDraftKey(identity.workspaceId, identity.prKey, props.threadId, place)
+      : undefined,
   );
   const field = replyField(props.threadId, place);
   const [asked, setAsked] = useReplyOpen(field);
-  const open = !!asked || draft.text.trim() !== "";
+  const typed = draft.text.trim() !== "";
+  const open = !!asked || typed;
+  // Kept text holds the field open; the store says so too, so a Reply button elsewhere agrees.
+  useEffect(() => {
+    if (typed && !asked) setAsked(true);
+  }, [typed, asked, setAsked]);
   const box = useRef<HTMLDivElement>(null);
   const askFocus = useFocusAsk(`reply:${field}`, box);
   useQuotedInto(

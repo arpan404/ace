@@ -4,12 +4,12 @@ import { draftKeys, useMarkdownDraft } from "@/components/markdown-editor/use-ma
 import { Button } from "@/components/ui/button.tsx";
 import { PrAvatar } from "./pr-presentation.tsx";
 import { appendTo, useQuotedInto } from "./pr-quote.tsx";
-import { usePrReview } from "./pr-review-context.tsx";
+import { usePrDetail, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 import { useFocusAsk } from "./pr-ui-store.tsx";
 
 /** The viewer's avatar, borrowed from anything they wrote here (ace never asks GitHub for it). */
 function useViewerAvatar(viewer: string | undefined): string | undefined {
-  const detail = usePrReview()?.detail;
+  const detail = usePrDetail();
   if (!viewer || !detail) return undefined;
   if (detail.author === viewer && detail.authorAvatarUrl) return detail.authorAvatarUrl;
   return detail.status.comments.find((c) => c.author === viewer && c.authorAvatarUrl)
@@ -23,9 +23,9 @@ function useViewerAvatar(viewer: string | undefined): string | undefined {
 export function PrConversationBox() {
   const review = usePrReview();
   const box = useRef<HTMLDivElement>(null);
-  const prKey = JSON.stringify(review?.detail.status.ref ?? null);
+  const identity = usePrIdentity();
   const draft = useMarkdownDraft(
-    review ? draftKeys.prComment(review.workspaceId, prKey) : undefined,
+    identity ? draftKeys.prComment(identity.workspaceId, identity.prKey) : undefined,
   );
   const askFocus = useFocusAsk("conversation", box);
   useQuotedInto("conversation", (text) => {

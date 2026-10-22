@@ -60,9 +60,14 @@ export type AttentionItem =
       body: string;
     };
 
-/** Failing checks first, then review threads nobody resolved, each as one actionable row. */
+/**
+ * Failing checks first, then review threads nobody resolved, each as one actionable row. A
+ * thread whose first comment is hidden on GitHub (`hidden`) is left out: its text must never
+ * reach a row or an agent's request.
+ */
 export function attentionItems(
   status: Pick<ForgePrStatus, "checks" | "reviewThreads">,
+  hidden: (comment: ForgeComment) => boolean = () => false,
 ): AttentionItem[] {
   const checks = status.checks
     .filter((check) => check.status === "failure")
@@ -75,7 +80,10 @@ export function attentionItems(
       url: check.url,
     }));
   const threads = status.reviewThreads
-    .filter((thread) => !thread.resolved && thread.comments.length > 0)
+    .filter((thread) => {
+      const first = thread.comments[0];
+      return !thread.resolved && first !== undefined && !hidden(first);
+    })
     .map((thread): AttentionItem => {
       const first = thread.comments[0];
       return {

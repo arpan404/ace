@@ -216,9 +216,9 @@ test("an edit and an open reply survive their row scrolling away and back, which
   }
 });
 
-test("a hidden comment's text never shows in a folded conversation or a Needs attention title", async () => {
+test("a hidden comment's text never shows: its conversation folds to 'Hidden comment', and it needs no attention", async () => {
   const hiddenFirst = { ...thread(true), resolved: false };
-  const detail = reviewDetail({ reviewThreads: [{ ...hiddenFirst, resolved: true }] });
+  const detail = reviewDetail({ reviewThreads: [hiddenFirst] });
   const state = reviewState({ hidden: [{ source: "inline", commentId: 5, reason: "spam" }] });
   const f = await reviewHarness({
     detail,
@@ -226,17 +226,31 @@ test("a hidden comment's text never shows in a folded conversation or a Needs at
     ui: (
       <>
         <PrThread thread={{ ...hiddenFirst, resolved: true }} place />
-        <PrAttention
-          workspaceId="api"
-          detail={reviewDetail({ reviewThreads: [hiddenFirst] })}
-          disabled={false}
-        />
+        <PrAttention workspaceId="api" detail={detail} disabled={false} />
       </>
     ),
   });
   try {
-    await waitFor(() => expect(screen.getAllByText("Hidden comment")).toHaveLength(2));
+    await screen.findByText("Hidden comment");
     expect(screen.queryByText(/Rename this\?/)).toBeNull();
+    // Nothing of it reaches Needs attention, nor so any agent's request.
+    expect(screen.queryByRole("button", { name: /Fix with agent/ })).toBeNull();
+    expect(screen.queryByText("Needs attention")).toBeNull();
+  } finally {
+    await f.close();
+  }
+});
+
+test("Quote reply isn't offered where the viewer can't comment", async () => {
+  const f = await reviewHarness({
+    detail: reviewDetail(),
+    state: reviewState({ canComment: false }),
+    ui: <PrThread thread={thread()} />,
+  });
+  try {
+    await menuOf("ola");
+    await screen.findByRole("menuitem", { name: "Copy link" });
+    expect(screen.queryByRole("menuitem", { name: "Quote reply" })).toBeNull();
   } finally {
     await f.close();
   }
