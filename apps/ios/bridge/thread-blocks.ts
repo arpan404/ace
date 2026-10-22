@@ -38,6 +38,7 @@ import { backgroundRows } from "./background-rows.ts";
 import { stepContext } from "./thread-rows.ts";
 import { workLog, type LogFacts } from "./work-log.ts";
 import { eventFollows, messageBlock, streamingOf } from "./thread-messages.ts";
+import { anchoredOffset } from "./anchored-positions.ts";
 
 /*
  * The transcript's blocks as the web builds them (`@ace/ui-core` transcript grouping): "Worked
@@ -386,7 +387,12 @@ export function followBlocks(
     const built = read(store);
     watch = new Set(built.watch);
     const next = new Map<string, Block>();
-    built.value.forEach((block, index) => {
+    const offset = anchoredOffset(
+      positions,
+      built.value.map((block) => block.key),
+    );
+    built.value.forEach((block, at) => {
+      const index = at - offset;
       next.set(block.key, block);
       const old = blocks.get(block.key);
       const moved = positions.get(block.key) !== index;
