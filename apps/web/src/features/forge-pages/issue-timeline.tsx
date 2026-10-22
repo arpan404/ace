@@ -13,7 +13,8 @@ import { WebLink } from "@/components/web-link.tsx";
 type TimelinePage = Extract<ForgeBrowserResult, { resource: "issueTimeline" }>;
 type IssueEvent = TimelinePage["events"][number];
 
-function useTimelinePage(
+/** One page of an issue's conversation, oldest first. */
+export function useTimelinePage(
   project: string,
   repository: ForgeRepository | undefined,
   number: number,
