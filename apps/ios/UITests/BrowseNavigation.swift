@@ -1,7 +1,10 @@
 import XCTest
 
 extension XCUIApplication {
+    /// The agent tree, from the thread's ⋯ menu.
     @MainActor func openAgents() {
+        XCTAssertTrue(buttons["thread.menu"].waitForExistence(timeout: 10))
+        buttons["thread.menu"].tap()
         XCTAssertTrue(buttons["thread.agents"].waitForExistence(timeout: 10))
         buttons["thread.agents"].tap()
     }

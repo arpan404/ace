@@ -7,12 +7,26 @@ import {
   subagentLabels,
   subagentStatusCounts,
   subagentStatusLine,
+  agentName,
+  blockRoom,
+  closedMeta,
+  closedQuestionWords,
+  questionTitle,
+  subagentDetail,
+  subagentElapsed,
+  subagentGroupStatus,
+  subagentMeta,
+  subagentSpan,
+  subagentTerminal,
+  subagentToolId,
+  providerSlots,
   summarizeWork,
   workCounts,
+  type SubagentGroupStatus,
   type SubagentState,
 } from "@ace/ui-core";
 import type { StatusToken } from "@ace/ui-core/mobile";
-import { readSubagentGroup } from "@ace/ui-core/subagent-group";
+import { readSubagentGroup, type SubagentEntry } from "@ace/ui-core/subagent-group";
 import { rootRunOf } from "@ace/ui-core";
 import { createBlockReader } from "@ace/ui-core/transcript-block-reader";
 import { blockItems, type Block } from "@ace/ui-core/transcript-blocks";
@@ -35,6 +49,8 @@ const structural = new Set(["order", "tasks", "interactions", "agents", "thread"
 /** Keys whose change can alter a still-running head or a subagent group's states. */
 const live = (key: string) =>
   key === "agents" ||
+  // Losing or regaining confirmation moves "Last seen" and live activity.
+  key === "unconfirmed" ||
   key === "interactions" ||
   key === "tasks" ||
   // A background command ending moves its line in a running log.
@@ -85,27 +101,103 @@ function workSummary(store: ThreadSource, block: WorkBlock, ids: readonly string
   };
 }
 
+const groupTokens: Record<SubagentGroupStatus, StatusToken> = {
+  human: "needsYou",
+  failed: "failed",
+  working: "working",
+  done: "done",
+};
+
+/** Ticking from `since` while it runs, else a settled duration; neither when hidden. */
+function elapsedRow(elapsed: ReturnType<typeof subagentElapsed>) {
+  return {
+    since: elapsed && "since" in elapsed ? elapsed.since : null,
+    elapsed: elapsed && "text" in elapsed ? elapsed.text : "",
+  };
+}
+
+/** One subagent as the web's agent row: name and meta, status and time, then its detail line. */
+function agentRow(store: ThreadSource, entry: SubagentEntry, fresh: boolean) {
+  const agent = entry.agentId ? store.agent(entry.agentId) : undefined;
+  const toolId = subagentToolId(agent);
+  const tool = toolId ? store.item(toolId) : undefined;
+  const { detail, kind } = subagentDetail(
+    entry,
+    agent,
+    tool?.type === "tool_call" ? tool.call.title : undefined,
+    fresh,
+  );
+  const terminal = subagentTerminal(entry.state);
+  const status = subagentLabels[entry.state];
+  return {
+    id: entry.id,
+    agentId: entry.agentId ?? "",
+    threadId: entry.childThreadId ?? "",
+    title: preview(entry.title, 256),
+    state: entry.state,
+    label: !fresh && !terminal ? `Last seen: ${status}` : status,
+    token: tokens[entry.state],
+    provider: entry.provider ?? "",
+    model: preview(entry.model ?? "", 128),
+    result: preview(entry.result ?? "", 512),
+    meta: preview(subagentMeta(entry) ?? "", 128),
+    machine: preview(entry.machine ?? "", 128),
+    detail: preview(detail ?? "", 256),
+    detailKind: kind ?? "",
+    ...elapsedRow(subagentElapsed({ running: !terminal, ...entry }, fresh)),
+  };
+}
+
 function subagents(store: ThreadSource, ids: readonly string[]) {
   const entries = readSubagentGroup(store, ids).value;
+  const states = entries.map((entry) => entry.state);
+  // A copy the daemon hasn't confirmed shows its last-seen states and never live activity.
+  const fresh = store.unconfirmed !== true;
+  const span = entries.length ? subagentSpan(entries) : undefined;
+  const slots = providerSlots(entries.map((entry) => entry.provider));
   return {
-    status: preview(subagentStatusLine(entries.map((entry) => entry.state)), 256),
+    status: preview(subagentStatusLine(states), 256),
+    title: `${entries.length} ${entries.length === 1 ? "subagent" : "subagents"}`,
+    /** The group reads as its worst child: needs you, failed, working, done. */
+    token: groupTokens[subagentGroupStatus(states)],
+    /** "Last seen: " leads the counts while a running group's facts are stale. */
+    stale: !fresh && span?.running === true,
     /** The status line's parts, worst first, each in its own status colour: "2 working". */
-    counts: subagentStatusCounts(entries.map((entry) => entry.state)).map((part) => ({
+    counts: subagentStatusCounts(states).map((part) => ({
       text: `${part.count} ${part.word}`,
       token: tokens[part.state],
     })),
-    entries: entries.slice(0, 32).map((entry) => ({
-      id: entry.id,
-      agentId: entry.agentId ?? "",
-      threadId: entry.childThreadId ?? "",
-      title: preview(entry.title, 256),
-      state: entry.state,
-      label: subagentLabels[entry.state],
-      token: tokens[entry.state],
-      provider: entry.provider ?? "",
-      model: preview(entry.model ?? "", 128),
-      result: preview(entry.result ?? "", 512),
-    })),
+    /** Each provider once, in launch order, at most three slots; past three, "+N". */
+    lead: {
+      providers: slots.shown.map((provider) => provider ?? ""),
+      more: slots.more,
+      label: slots.label,
+    },
+    ...elapsedRow(span ? subagentElapsed(span, fresh) : undefined),
+    entries: entries.slice(0, 32).map((entry) => agentRow(store, entry, fresh)),
+  };
+}
+
+/**
+ * A question where the agent asked it (the web's question line): "Codex is asking · title"
+ * while it waits, its card on the composer; once closed, "Codex asked · title", its answer and
+ * how it ended.
+ */
+function questionLine(store: ThreadSource, interactionId: string) {
+  const interaction = store.interaction(interactionId);
+  if (interaction?.request.kind !== "question") return null;
+  const questions = interaction.request.questions;
+  const agent = interaction.agentId ? store.agent(interaction.agentId) : undefined;
+  const pending = interaction.state === "pending";
+  const words = pending
+    ? { answer: "", outcome: undefined }
+    : closedQuestionWords(questions, interaction.resolution, closedMeta(interaction, false));
+  return {
+    asking: pending,
+    asker: preview(agent ? agentName(agent) : "The agent", 128),
+    title: preview(questionTitle(questions), 256),
+    answer: preview(words.answer, 256),
+    outcome: preview(words.outcome ?? "", 256),
   };
 }
 
@@ -122,6 +214,8 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
   const base = {
     index: index ?? null,
     kind: block.kind,
+    /** The room it asks for above and below (`@ace/ui-core` row-room): 8, 16 or 24. */
+    room: blockRoom(block.kind),
     items: [] as string[],
     headed: block.kind === "message" && block.headed === true,
     interactionId: "",
@@ -155,7 +249,12 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
     case "subagents":
       return { ...base, items: [...block.itemIds], agents: subagents(store, block.itemIds) };
     case "question":
-      return { ...base, items: [...blockItems(block)], interactionId: block.interactionId };
+      return {
+        ...base,
+        items: [...blockItems(block)],
+        interactionId: block.interactionId,
+        question: questionLine(store, block.interactionId),
+      };
     case "end": {
       const error = block.errorId ? store.item(block.errorId) : undefined;
       return {
@@ -177,7 +276,14 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
         ...base,
         items: [block.itemId],
         started: started
-          ? { threadId: started.threadId, title: preview(started.title ?? "Conversation", 256) }
+          ? {
+              threadId: started.threadId,
+              title: preview(started.title ?? (started.forked ? "Fork" : "New thread"), 256),
+              /** "New thread" or "Fork": the row's meta, before the child is known. */
+              label: started.forked ? "Fork" : "New thread",
+              provider: started.provider ?? "",
+              model: preview(started.model ?? "", 128),
+            }
           : null,
       };
     }

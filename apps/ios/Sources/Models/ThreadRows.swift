@@ -55,12 +55,47 @@ struct BlockRow: Codable, Sendable, Equatable {
             let provider: String
             let model: String
             let result: String
+            /// "Opus 4.7 · High", "Delegated · GPT-5.5"; empty when none is known.
+            var meta: String = ""
+            /// The paired machine it runs on, when that is another one.
+            var machine: String = ""
+            /// Its second line: what it does now, waits on, failed with or found.
+            var detail: String = ""
+            /// "live", "result", "human", "failed" or empty.
+            var detailKind: String = ""
+            /// Ticks from here while it runs and the facts are fresh (ms since 1970).
+            var since: Double? = nil
+            /// How long it ran, once settled; empty when not shown.
+            var elapsed: String = ""
         }
         /// One part of the status line, in its status colour: "2 working".
         struct Count: Codable, Sendable, Equatable { let text: String; let token: String }
+        /// The group's lead: each provider once, at most three, past three two and "+N".
+        struct Lead: Codable, Sendable, Equatable {
+            let providers: [String]
+            let more: Int
+            let label: String
+        }
         let status: String
         let entries: [Entry]
         var counts: [Count]? = nil
+        /// "3 subagents".
+        var title: String = ""
+        /// The group's worst child, as a status palette key.
+        var token: String = ""
+        /// Its facts are stale while it ran: "Last seen: " leads the counts.
+        var stale: Bool = false
+        var lead: Lead? = nil
+        var since: Double? = nil
+        var elapsed: String = ""
+    }
+    /// A question where the agent asked it: "Codex is asking · title" while it waits.
+    struct Question: Codable, Sendable, Equatable {
+        let asking: Bool
+        let asker: String
+        let title: String
+        let answer: String
+        let outcome: String
     }
     struct Ending: Codable, Sendable, Equatable {
         let label: String
@@ -70,6 +105,10 @@ struct BlockRow: Codable, Sendable, Equatable {
     struct Started: Codable, Sendable, Equatable {
         let threadId: String
         let title: String
+        /// "New thread" or "Fork".
+        var label: String = ""
+        var provider: String = ""
+        var model: String = ""
     }
     let index: Int?
     let kind: String
@@ -80,6 +119,10 @@ struct BlockRow: Codable, Sendable, Equatable {
     let agents: Agents?
     let ending: Ending?
     let started: Started?
+    var question: Question? = nil
+    /// The room it asks for above and below itself: 8, 16 or 24 (`@ace/ui-core` row-room).
+    var room: Room? = nil
+    struct Room: Codable, Sendable, Equatable { let before: Double; let after: Double }
     /// A settled work head's root turn, whose full steps open on demand.
     var ordinal: Int? = nil
     var groups: [WorkGroup]? = nil

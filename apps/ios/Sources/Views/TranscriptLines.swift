@@ -58,19 +58,6 @@ private struct HandoffDivider: View {
     }
 }
 
-/// A question where it was asked, once settled: open ones are answered in place of the composer.
-struct QuestionLine: View {
-    let interaction: ApprovalRow?
-    var body: some View {
-        if let interaction, interaction.state != "pending" {
-            QuietRow(icon: .question) {
-                Text("\(interaction.title) · \(interaction.state == "resolved" ? "Answered" : interaction.state == "expired" ? "Expired" : "Cancelled")")
-                    .lineLimit(2)
-            }
-        }
-    }
-}
-
 /// A quiet row that opens something: a started conversation, edited files, published media.
 struct QuietLink: View {
     let icon: AceIcon.Name

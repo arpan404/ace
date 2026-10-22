@@ -1,8 +1,8 @@
 import type { AgentFacts } from "@/lib/agent-facts.ts";
 import {
   subagentGroupStatus,
+  subagentSpan,
   subagentStatusCounts,
-  subagentTerminal,
   type SubagentGroupStatus,
 } from "@ace/ui-core";
 import { CaretRightIcon } from "@phosphor-icons/react";
@@ -61,10 +61,7 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
       </section>
     );
   const states = entries.map((entry) => entry.state);
-  const running = states.some((state) => !subagentTerminal(state));
-  const startedAt = Math.min(...entries.map((entry) => entry.startedAt));
-  const ends = entries.flatMap((entry) => (entry.endedAt === undefined ? [] : [entry.endedAt]));
-  const endedAt = !running && ends.length === entries.length ? Math.max(...ends) : undefined;
+  const { running, startedAt, endedAt } = subagentSpan(entries);
   const status = subagentGroupStatus(states);
   return (
     <section aria-label={title} data-group-status={status}>
