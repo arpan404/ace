@@ -5,7 +5,9 @@
  * writes what reaches it to ACE_E2E_FIXTURE_LOG. No provider CLI or model runs.
  * Opt-in only: `apps/daemon/scripts/linux-e2e/run.sh` starts a throwaway desktop.
  */
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { ScreenState } from "@ace/protocol";
 import { evalWorld, type EvalWorld } from "./evals/world.ts";
@@ -17,6 +19,7 @@ const helper = process.env.ACE_SCREEN_HELPER;
 const log = process.env.ACE_E2E_FIXTURE_LOG;
 const graphical = session === "x11" || session === "wayland";
 const enabled = process.platform === "linux" && graphical && !!helper && !!log;
+const exec = promisify(execFile);
 const fixture = { desktopId: "dev.ace.LiveViewFixture", title: "Live view fixture" };
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -88,7 +91,10 @@ describe.skipIf(!enabled)(`Linux live view control (${session ?? "off"})`, () =>
     await viewer.request({ op: "controller", sessionId, controller: "human" });
     const input = (value: Record<string, unknown>) =>
       viewer.request({ op: "input", sessionId, input: value });
-    // On X11 a terminal is in front: the click brings the window forward, as a mouse would.
+    // The person at the machine went back to the terminal: the shared window is behind it.
+    // Their click from the live view brings it forward, as their mouse there would.
+    if (session === "x11")
+      await exec("xdotool", ["search", "--classname", "xterm", "windowactivate", "--sync"]);
     let before = await logged();
     await input({ kind: "pointer.click", x: 100, y: 80, button: "left" });
     await reached(before, (entry) => near(entry, 100, 80, 1));
