@@ -40,11 +40,16 @@ export function timelineSpeakers(
   number: number,
 ): string[] {
   const speakers: string[] = [];
-  for (let page = 1; page <= 120; page++) {
-    const read = cache.getQueryData<TimelinePage>(timelineKey(project, repository, number, page));
-    if (!read) break;
-    for (const event of read.events) if (event.kind === "issue_comment") speakers.push(event.actor);
-    if (read.nextPage === undefined) break;
+  // Page by page as the conversation links them, at most as many as GitHub lists.
+  let page: number | undefined = 1;
+  for (let read = 0; page !== undefined && read < 120; read++) {
+    const answer: TimelinePage | undefined = cache.getQueryData<TimelinePage>(
+      timelineKey(project, repository, number, page),
+    );
+    if (!answer) break;
+    for (const event of answer.events)
+      if (event.kind === "issue_comment") speakers.push(event.actor);
+    page = answer.nextPage;
   }
   return speakers;
 }

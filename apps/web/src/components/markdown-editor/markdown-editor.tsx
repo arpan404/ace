@@ -55,6 +55,17 @@ export function MarkdownEditor(props: {
   const completions = props.completions ?? pageCompletions;
   const suggest = useCompletions(field, completions);
   const listId = useId();
+  // The list's opening for a word (its trigger's place), and what was said then: the count as
+  // it opened, not every change while the word is typed.
+  const opened =
+    tab === "write" && suggest.match ? `${suggest.match.kind}:${suggest.match.from}` : "";
+  const [announcement, setAnnouncement] = useState({ opened: "", text: "" });
+  if (announcement.opened !== opened)
+    setAnnouncement({
+      opened,
+      text:
+        suggest.match && opened ? suggestionsSaid(suggest.match.kind, suggest.items.length) : "",
+    });
   const run = (command: FormatCommand) => {
     const target = field.current;
     if (!target || props.disabled) return;
@@ -128,7 +139,9 @@ export function MarkdownEditor(props: {
         // role, and names the open list and its highlighted row.
         aria-autocomplete={completions ? "list" : undefined}
         aria-controls={suggest.match ? listId : undefined}
-        aria-activedescendant={suggest.match ? `${listId}-${suggest.active}` : undefined}
+        aria-activedescendant={
+          suggest.match && suggest.active >= 0 ? `${listId}-${suggest.active}` : undefined
+        }
         onChange={(event) => {
           props.onChange(event.currentTarget.value);
           suggest.update();
@@ -150,9 +163,9 @@ export function MarkdownEditor(props: {
           heights[props.size ?? "comment"],
         )}
       />
-      {/* Said once when suggestions appear, for people who can't see the list open. */}
+      {/* Said once as the list opens for a word, for people who can't see it open. */}
       <span aria-live="polite" aria-atomic="true" className="sr-only">
-        {writing && suggest.match ? suggestionsSaid(suggest.match.kind, suggest.items.length) : ""}
+        {announcement.text}
       </span>
       {writing && suggest.match && (
         <CompletionList

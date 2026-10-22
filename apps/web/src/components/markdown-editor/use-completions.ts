@@ -98,18 +98,20 @@ export function useCompletions(
   const open = list.length > 0;
   const answer = found?.key ?? "";
   const current = highlight.answer === answer;
-  const active = Math.min(current ? highlight.index : 0, Math.max(list.length - 1, 0));
+  /**
+   * A row is highlighted only where Enter or Tab would take it: in the answer to what is typed
+   * now (an older answer's rows may not match it), and after a title phrase only once the
+   * person has moved the highlight, since Enter there is as likely the end of a sentence.
+   * Otherwise nothing is highlighted, and the field names no row to assistive technology.
+   */
+  const highlighted = found?.key === key && (!phrase || (current && highlight.moved));
+  const active = highlighted
+    ? Math.min(current ? highlight.index : 0, Math.max(list.length - 1, 0))
+    : -1;
   const setActive = useCallback(
     (index: number) => setHighlight({ answer, index, moved: true }),
     [answer],
   );
-  /**
-   * Whether Enter or Tab may take the highlighted row: only from the answer to what is typed
-   * now (an older answer's rows may not match it), and after a title phrase only once the
-   * person has moved the highlight, since Enter there is as likely the end of a sentence.
-   */
-  const pickable = (enter: boolean) =>
-    found?.key === key && !(enter && phrase && !(current && highlight.moved));
   const close = useCallback(() => {
     setMatch(undefined);
   }, []);
@@ -129,11 +131,14 @@ export function useCompletions(
     if (event.metaKey || event.ctrlKey || event.altKey) return false;
     const move = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
     if (move) {
-      setActive((active + move + list.length) % list.length);
+      // From no highlight, Down starts at the first row and Up at the last.
+      const from = active < 0 ? (move > 0 ? -1 : list.length) : active;
+      // An older answer's rows are never taken: wait for this one's.
+      if (found?.key === key) setActive((from + move + list.length) % list.length);
     } else if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
-      const item = list[active];
-      // Not this answer's to take: the key does what it would without the list.
-      if (!item || !pickable(event.key === "Enter")) return false;
+      // Nothing highlighted: the key does what it would without the list.
+      const item = active < 0 ? undefined : list[active];
+      if (!item) return false;
       choose(item);
     } else if (event.key === "Escape") {
       dismissed.current = match?.from;

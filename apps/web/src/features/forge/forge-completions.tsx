@@ -68,10 +68,12 @@ export function rankPeople(
 
 /**
  * A cached read that stops when `signal` does: a search the editor has moved past is cancelled
- * in the daemon too, not left to finish unread.
+ * in the daemon too, not left to finish unread. Searches of the same text share one read
+ * (`waiting` counts them), which is cancelled only once every one of them has moved on.
  */
 async function fetchUntil<T>(
   cache: QueryClient,
+  waiting: Map<string, number>,
   signal: AbortSignal,
   options: {
     queryKey: QueryKey;
@@ -80,11 +82,22 @@ async function fetchUntil<T>(
   },
 ): Promise<T> {
   signal.throwIfAborted();
-  const cancel = () => void cache.cancelQueries({ queryKey: options.queryKey, exact: true });
+  const key = JSON.stringify(options.queryKey);
+  const leave = () => {
+    const left = (waiting.get(key) ?? 1) - 1;
+    if (left > 0) waiting.set(key, left);
+    else waiting.delete(key);
+    return left;
+  };
+  const cancel = () => {
+    if (leave() === 0) void cache.cancelQueries({ queryKey: options.queryKey, exact: true });
+  };
+  waiting.set(key, (waiting.get(key) ?? 0) + 1);
   signal.addEventListener("abort", cancel, { once: true });
   try {
     return await cache.fetchQuery(options);
   } finally {
+    if (!signal.aborted) leave();
     signal.removeEventListener("abort", cancel);
   }
 }
@@ -106,10 +119,13 @@ export function ForgeCompletions(props: {
   const repositoryKey = repository ? JSON.stringify(repository) : "";
   const value = useMemo((): MarkdownCompletions => {
     const scope = { workspaceId, ...(repository ? { repository } : {}) };
+    // Every editor and picker under this provider shares it, so one search's cancel can't stop
+    // a read another still waits for.
+    const waiting = new Map<string, number>();
     return {
       async people(query, signal) {
         const q = searchable(query);
-        const found = await fetchUntil(cache, signal, {
+        const found = await fetchUntil(cache, waiting, signal, {
           queryKey: ["forge", workspaceId, repositoryKey, "people", q.toLowerCase()],
           staleTime: peopleFreshMs,
           queryFn: async ({ signal: reading }) => {
@@ -130,7 +146,7 @@ export function ForgeCompletions(props: {
         // GitHub matches whole words only: it is asked for the finished ones, and the word
         // still being typed narrows its answer here.
         const sent = searchable(referenceSearch(query));
-        const found = await fetchUntil(cache, signal, {
+        const found = await fetchUntil(cache, waiting, signal, {
           queryKey: ["forge", workspaceId, repositoryKey, "references", sent.toLowerCase()],
           staleTime: referencesFreshMs,
           queryFn: async ({ signal: reading }) => {

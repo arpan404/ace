@@ -29,6 +29,29 @@ import { FakeConflicts } from "./conflict-wire.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 const emptyDiff = { files: 0, additions: 0, deletions: 0 };
 
+/** What tests and scenarios may steer of the fake workspace (`FakeDaemon.workspace`). */
+export type FakeWorkspaceControls = Pick<
+  FakeWorkspaceWire,
+  | "gitStatus"
+  | "setGitStatus"
+  | "setGitDiff"
+  | "setEditors"
+  | "setForgeRead"
+  | "holdForgeRead"
+  | "failForgeRead"
+  | "forgeReadCount"
+  | "seedPullRequests"
+  | "mergePullRequest"
+  | "submitPullRequestReview"
+  | "setDraftGenerator"
+  | "setIssueOutcome"
+  | "checkReruns"
+  | "git"
+  | "conflicts"
+  | "failMoves"
+  | "setDetails"
+>;
+
 export class FakeWorkspaceWire {
   readonly drafts = new FakeSourceControlDrafts();
   /** The projects' repositories as Git finds them: not one, empty, locked, failing setup. */
