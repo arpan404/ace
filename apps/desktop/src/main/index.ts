@@ -34,6 +34,7 @@ import { applicationMenu } from "./menu.ts";
 import { cliShimCheck, cliShimLog, runningAppImage, type CliShimResult } from "./os/cli-shim.ts";
 import { installCliShim } from "./os/cli-shim-install.ts";
 import { linuxAutostart, nodeAutostartFiles } from "./os/autostart.ts";
+import { installAppImageEntry, nodeAppImageEntryFiles } from "./os/appimage-entry.ts";
 import { backgroundArgument, startHidden } from "./os/login.ts";
 import { enableFeatures, linuxFeatures } from "./os/chromium-features.ts";
 import { settingsEffects } from "./os/settings-effects.ts";
@@ -86,6 +87,14 @@ if (unsafe) {
   disableDnsPrefetching(app);
   // Wayland: the quick-thread global shortcut goes through the GlobalShortcuts portal.
   enableFeatures(app.commandLine, linuxFeatures(process.platform));
+  // An AppImage installs nothing: its menu entry is what lets the portal grant that shortcut.
+  if (process.platform === "linux" && app.isPackaged)
+    installAppImageEntry({
+      env: process.env,
+      home: homedir(),
+      files: nodeAppImageEntryFiles,
+      warn: (message) => console.warn(message),
+    });
   registerAppScheme();
   if (!app.requestSingleInstanceLock()) app.quit();
   else
