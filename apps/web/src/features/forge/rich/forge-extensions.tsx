@@ -13,6 +13,7 @@ import { htmlPieces } from "./html-pieces.ts";
 import { safeImage } from "./html-policy.ts";
 import { HtmlNodes } from "./html-render.tsx";
 import { htmlTree, type RunEntry } from "./html-tree.ts";
+import { taskMarks, type TaskMark } from "./source-marks.ts";
 
 /*
  * How forge text draws what agent prose doesn't (ADR 0096), as extensions to the shared
@@ -48,21 +49,14 @@ function runOf(tokens: readonly Token[]): RunEntry[] {
   );
 }
 
-/** Every task box in `tokens`, in document order. */
-function taskBoxes(tokens: readonly Token[], into: Map<Token, number>): void {
-  for (const token of tokens) {
-    if (token.type === "checkbox") into.set(token, into.size);
-    if (token.type === "list") taskBoxes((token as Tokens.List).items, into);
-    if ("tokens" in token && Array.isArray(token.tokens)) taskBoxes(token.tokens, into);
-  }
-}
-
 export function forgeExtensions(input: {
   host: string;
+  /** The document's markdown, where its task boxes are placed. */
+  source: string;
   footnotes: ReadonlyMap<string, number>;
   tasks: TaskControl | undefined;
 }): MarkdownExtensions {
-  let boxes = new Map<Token, number>();
+  let marks = new Map<Token, TaskMark>();
   return {
     blocks: (tokens, draw) => (
       <HtmlNodes nodes={htmlTree(runOf(tokens), input.host)} draw={draw} block />
@@ -91,16 +85,10 @@ export function forgeExtensions(input: {
       return undefined;
     },
     checkbox: (token) => (
-      <TaskBox
-        checked={token.checked}
-        index={boxes.get(token)}
-        drawn={boxes.size}
-        control={input.tasks}
-      />
+      <TaskBox checked={token.checked} mark={marks.get(token)} control={input.tasks} />
     ),
     document: (tokens, inline) => {
-      boxes = new Map();
-      taskBoxes(tokens, boxes);
+      marks = taskMarks(input.source, tokens);
       return input.footnotes.size ? <Footnotes tokens={tokens} inline={inline} /> : null;
     },
   };

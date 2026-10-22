@@ -70,6 +70,14 @@ export class ForgeMediaLoads {
     return kept && kept.until > this.now() ? kept.result : undefined;
   }
 
+  /**
+   * Forget the answer for `item`, so the next resolve asks the daemon again: its bytes are gone
+   * from the daemon's cache (evicted), or this project isn't granted them since a restart.
+   */
+  forget(scope: ForgeScope, item: ForgeMediaRequest): void {
+    this.kept.delete(`${scopeKey(scope)}\u0000${item.role}\u0000${item.url}`);
+  }
+
   resolve(scope: ForgeScope, item: ForgeMediaRequest): Promise<ForgeMediaResult> {
     const known = this.known(scope, item);
     if (known) return Promise.resolve(known);

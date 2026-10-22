@@ -20,8 +20,12 @@ const logoLight = "https://raw.githubusercontent.com/acme/ace/main/docs/logo-lig
 const logoDark = "https://raw.githubusercontent.com/acme/ace/main/docs/logo-dark.svg";
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "ace" } as const;
 
-/** A client of the fake daemon that records which media URLs it asked the daemon about. */
-async function connected() {
+/**
+ * A client of the fake daemon that records which media URLs it asked the daemon about.
+ * `evicted` answers the first media download as a daemon whose cache dropped the file would.
+ */
+async function connected(options: { evicted?: boolean } = {}) {
+  let evicted = options.evicted ?? false;
   const daemon = new FakeDaemon({ clock: () => 1_000 });
   // Media downloads are read-only reads of a registered project.
   daemon.projects.seedFolders("/fake", [{ path: "/fake/ace", git: true }]);
@@ -43,10 +47,31 @@ async function connected() {
     },
     transport: () => {
       const transport = fakeTransport(daemon);
+      let reply: ((text: string) => void) | undefined;
       return {
         ...transport,
+        open(events) {
+          reply = events.message;
+          transport.open(events);
+        },
         send(text) {
           const message = ClientMessage.parse(JSON.parse(text));
+          if (
+            evicted &&
+            message.type === "files.request" &&
+            message.operation.op === "forge.media.download"
+          ) {
+            evicted = false;
+            reply?.(
+              JSON.stringify({
+                type: "files.error",
+                requestId: message.requestId,
+                code: "NOT_FOUND",
+                message: "Media unavailable",
+              }),
+            );
+            return;
+          }
           if (
             message.type === "workspace.request" &&
             message.operation.op === "forge.media.resolve"
@@ -234,4 +259,43 @@ test("alerts, emoji, mentions and footnotes read as GitHub draws them", async ()
   expect(screen.getByRole("link", { name: "Footnote 1" })).toBeTruthy();
   expect(screen.getByRole("region", { name: "Footnotes" }).textContent).toContain("Since 2.0.");
   expect(container.textContent).not.toContain("[^1]");
+});
+
+test("media the daemon no longer holds is resolved again and shows, rather than staying broken", async () => {
+  const daemon = await connected({ evicted: true });
+  page(daemon, <ForgeProse text={`<img width="400" height="225" alt="Before" src="${before}">`} />);
+  const button = await screen.findByRole("button", { name: "View Before" });
+  expect(button.querySelector("img")?.getAttribute("src")).toMatch(/^blob:/);
+  expect(daemon.asked).toEqual([before, before]);
+});
+
+test("whatever raw HTML tries, the drawn page holds no handler, style or unsafe link", async () => {
+  const daemon = await connected();
+  const { container } = page(
+    daemon,
+    <ForgeProse
+      text={[
+        '<a href="jav&#x09;ascript:alert(1)">tab</a> <a href=" javascript:alert(2)">space</a>',
+        '<a href="data:text/html,x">data</a> <a href="//evil.example">relative</a>',
+        '<a href="https://ok.dev" target="_top" onclick="x()">ok</a>',
+        '<img src="https://ok.dev/a.png"onerror=alert(3)> <img src=`x` onerror=alert(4)>',
+        "",
+        "<svg><script>alert(5)</script></svg> <math><mi>x</mi></math>",
+      ].join("\n")}
+    />,
+  );
+  await screen.findByRole("link", { name: "ok" });
+  for (const element of container.querySelectorAll("*")) {
+    for (const attribute of element.getAttributeNames()) {
+      expect(attribute.startsWith("on")).toBe(false);
+      expect(attribute).not.toBe("style");
+    }
+    // ace's own links open apart from the page; the text's `target` never survives.
+    const target = element.getAttribute("target");
+    if (target !== null)
+      expect([target, element.getAttribute("rel")]).toEqual(["_blank", "noreferrer noopener"]);
+    const url = element.getAttribute("href") ?? element.getAttribute("src");
+    if (url !== null) expect(url).toMatch(/^(https?:|mailto:|#|blob:)/);
+  }
+  expect(container.querySelector("svg script, math, iframe")).toBeNull();
 });
