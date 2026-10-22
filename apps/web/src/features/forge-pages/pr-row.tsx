@@ -1,12 +1,11 @@
 import type { KeyboardEvent } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { ForgePrRow } from "@ace/protocol";
-import type { LocalCheckResult } from "@ace/ui-core";
+import { type LocalCheckResult, type LinkedThread } from "@ace/ui-core";
 import { DiffStat } from "@/components/diff-stat.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { cn } from "@/lib/cn.ts";
-import type { LinkedThread } from "./linked-threads.ts";
 import { LabelPill } from "@/components/forge-marks.tsx";
 import { Avatars, ChecksMark, PrStateGlyph, ReviewMark } from "./marks.tsx";
 import { StepButton, StepSpace } from "./pr-step.tsx";

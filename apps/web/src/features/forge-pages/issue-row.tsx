@@ -1,8 +1,8 @@
+import { type LinkedThread } from "@ace/ui-core";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { ForgeIssueRow } from "@ace/protocol";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
-import type { LinkedThread } from "./linked-threads.ts";
 import { LabelPill } from "@/components/forge-marks.tsx";
 import { Avatars, IssueStateGlyph } from "./marks.tsx";
 import { Age, Author, Comments, RowActions, rowClass, Thread } from "./row-parts.tsx";

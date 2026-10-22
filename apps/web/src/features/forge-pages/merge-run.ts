@@ -6,10 +6,9 @@ import {
   type VerifyRun,
   type VerifyTarget,
 } from "@ace/protocol";
-import type { MergeMethod } from "@ace/ui-core";
+import { type MergeMethod, workKey } from "@ace/ui-core";
 import { useToast } from "@/components/ui/toast.tsx";
 import { isSettled, useVerifyActions, VerifyRefused } from "@/lib/verify.ts";
-import { workKey } from "./linked-threads.ts";
 
 const keyOf = (row: ForgePrRow) => workKey(row.ref.repository, row.ref.number);
 

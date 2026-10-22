@@ -1,6 +1,8 @@
 import type { ForgeMergeState, ForgePrStatus } from "@ace/protocol";
-import type { LocalCheckResult } from "@ace/ui-core";
-import type { ReviewOutcome } from "./pr-summary-model.ts";
+import type { LocalCheckResult } from "./pr-next-step.ts";
+
+/** A reviewer's latest verdict on a pull request. */
+export type ReviewOutcome = "approved" | "changes" | "commented" | "dismissed";
 
 /*
  * The merge gates row: what stands between an open PR and merging (checks, reviews, conflicts,

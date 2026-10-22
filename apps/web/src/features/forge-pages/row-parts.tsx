@@ -8,11 +8,10 @@ import {
 import type { IconGlyph } from "@/components/icon.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { formatAge } from "@ace/ui-core";
+import { formatAge, type LinkedThread } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
 import { PersonAvatar as PrAvatar } from "@/components/person-avatar.tsx";
-import type { LinkedThread } from "./linked-threads.ts";
 
 /** A two-line list row: the whole row opens the item's page. */
 export const rowClass = cn(
