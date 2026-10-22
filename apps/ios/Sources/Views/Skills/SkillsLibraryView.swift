@@ -14,6 +14,21 @@ struct SkillsLibraryView: View {
     @State private var installing = false
     @State private var removing: NativePlugin?
     @State private var review: PluginReviewRequest?
+    private static let listRead: [String: Any] = ["type": "plugins.list"]
+    private static let catalogRead: [String: Any] = ["type": "plugins.catalog", "offset": 0, "limit": 50]
+
+    /// Opens on the last plugins and skills this phone saw, read again behind them.
+    init(model: ClientModel) {
+        self.model = model
+        let list = model.keptPlugin(Self.listRead, expecting: "plugins.list")
+        let catalog = model.keptPlugin(Self.catalogRead, expecting: "plugins.catalog")
+        _installs = State(initialValue: list?.installs ?? [])
+        _policies = State(initialValue: list?.availability ?? [])
+        _reviews = State(initialValue: list?.reviews ?? [])
+        _components = State(initialValue: catalog?.components ?? [])
+        _next = State(initialValue: catalog?.nextOffset)
+        _loaded = State(initialValue: list != nil && catalog != nil)
+    }
     var body: some View {
         List {
             Group {
@@ -57,7 +72,7 @@ struct SkillsLibraryView: View {
             }
             .insetRowBackground()
             Group {
-                if loading { HStack { Spacer(); ProgressView().accessibilityLabel("Reading skills"); Spacer() } }
+                if loading, !loaded { HStack { Spacer(); ProgressView().accessibilityLabel("Reading skills"); Spacer() } }
                 if loaded && installs.isEmpty && problem == nil { ContentUnavailableView("No plugins installed", systemImage: "book", description: Text("Install a plugin from its Git repository to add skills, commands and agents.")) }
             }
             .listRowBackground(Color.clear)
@@ -65,7 +80,8 @@ struct SkillsLibraryView: View {
         .insetGroupedList()
         .searchable(text: $query, prompt: "Search plugins")
         .navigationTitle("Skills and plugins").navigationBarTitleDisplayMode(.inline)
-        .task(id: model.connection) { if model.connection == "ready" { await read() } }.refreshable { await read() }
+        .task(id: [model.connection == "ready" ? 1 : 0, model.pluginGeneration(Self.listRead)]) { if model.connection == "ready" { await read() } }
+        .refreshable { await read() }
         .sheet(isPresented: $installing, onDismiss: { Task { await read() } }) { PluginInstallView(model: model) }
         .sheet(item: $review, onDismiss: { Task { await read() } }) { PluginReviewView(model: model, request: $0) }
         .confirmationDialog("Remove plugin?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible) {
@@ -84,10 +100,11 @@ struct SkillsLibraryView: View {
         defer { loading = false }
         do {
             if !more {
-                let list = try await model.plugin(["type": "plugins.list"], expecting: "plugins.list")
+                let list = try await model.pluginRead(Self.listRead, expecting: "plugins.list")
                 installs = list.installs ?? []; policies = list.availability ?? []; reviews = list.reviews ?? []
             }
-            let catalog = try await model.plugin(["type": "plugins.catalog", "offset": more ? next ?? 0 : 0, "limit": 50], expecting: "plugins.catalog")
+            let page: [String: Any] = more ? ["type": "plugins.catalog", "offset": next ?? 0, "limit": 50] : Self.catalogRead
+            let catalog = try await model.pluginRead(page, expecting: "plugins.catalog")
             components = (more ? components : []) + (catalog.components ?? []); next = catalog.nextOffset
             loaded = true
         } catch { if !Task.isCancelled { problem = error.localizedDescription } }

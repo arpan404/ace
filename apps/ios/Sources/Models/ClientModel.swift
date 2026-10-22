@@ -29,11 +29,9 @@ import CryptoKit
 @MainActor @Observable final class ClientModel {
     private(set) var hostId: String?
     @ObservationIgnored let liveActivity: ThreadLiveActivity
-    var inbox: [String: ThreadRow] = [:]
+    let inbox = InboxRowStore()
     var pending: [String: PendingRow] = [:]
     var connection = "connecting"
-    /// How many times this machine's connection has become ready; screens read again when it moves.
-    private(set) var readyCount = 0
     /// Why the SDK's connection isn't ready (unreachable, revoked, pin mismatch), for a person.
     var problem: ProblemNotice?
     var error: String?
@@ -60,6 +58,8 @@ import CryptoKit
     /// The open thread's live browser view (`Sources/Browser`, `bridge/browser-live.ts`).
     let browser = BrowserLiveModel()
     let devices = DevicesModel()
+    /// The daemon reads the bridge keeps, for each screen's first frame (`ReadMirror`).
+    let reads = ReadMirror()
     @ObservationIgnored private var generation = 0
     /// Confirmation fence: the newest activity generation the bridge has reported, on any
     /// connection or inbox row. Older confirmed rows read as unconfirmed until their snapshot
@@ -89,16 +89,21 @@ import CryptoKit
         let epoch = connectionEpoch
         let closing = retireRuntime()
         hostId = target.hostId
-        inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset()
+        inbox.removeAll(); pending = [:]; thread = nil; inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset()
         inboxLayout = .empty
         machineStatus = nil; providers = nil
         connection = "connecting"; error = nil; problem = nil
         activityGeneration = 0
         frames = BridgeFrames(); generation = 0
+        // The last known inbox, unconfirmed, in the first frame; the runtime replaces it in place.
+        let restoring = LaunchTrace.begin("inbox.restore", target.hostId)
+        let database = Self.database(hostId: target.hostId, deviceId: target.deviceId, in: directory)
+        apply(InboxCheckpoint.read(database: database))
+        restoring.end()
         await closing?.value
         guard connectionEpoch == epoch, !Task.isCancelled else { return }
         shutdown = nil
-        let runtime = makeRuntime(target, Self.database(hostId: target.hostId, deviceId: target.deviceId, in: directory), { [weak self] data in
+        let runtime = makeRuntime(target, database, { [weak self] data in
             Task { @MainActor in
                 guard let self, self.connectionEpoch == epoch else { return }
                 let accepted = self.receive(data)
@@ -118,25 +123,37 @@ import CryptoKit
     }
     @discardableResult func receive(_ data: Data) -> Bool {
         largestFrame = max(largestFrame, data.count)
+        if patchCount == 0 { LaunchTrace.mark("bridge.firstFrame") }
         guard let patches = try? frames.decode(data) else {
             error = "Could not read a client update"
             return false
         }
+        apply(patches)
+        return true
+    }
+    private func apply(_ patches: [BridgePatch]) {
         var reorder = false
         var activityChanged = false
         for patch in patches {
             patchCount += 1
             switch patch {
-            case .service(let reply): services.receive(reply)
+            case .service(let reply):
+                if reply.ok, let cache = reply.cache, let value = reply.value { reads.store(key: cache.key, family: cache.family, value: value) }
+                services.receive(reply)
+            case .serviceCache(let cache, let value): reads.store(key: cache.key, family: cache.family, value: value)
+            case .serviceGenerations(let generations): reads.update(generations: generations)
             case .terminal(let patch):
                 if let offset = terminal.receive(patch) { action(["type": "terminal.credit", "id": patch.id, "offset": offset]) }
             case .fragment: break // BridgeFrames only returns complete patches.
-            case .inboxReset: inbox.removeAll(keepingCapacity: true); inboxLoaded = true; activityChanged = true
+            case .inboxReset(let ids):
+                LaunchTrace.mark("inbox.reset", "\(inbox.count) rows held")
+                resetInbox(keeping: ids); inboxLoaded = true; activityChanged = true
             case .inbox(let id, let row):
                 if let generation = row?.generation, generation > activityGeneration {
                     activityGeneration = generation
                     normalizeGenerations()
                 }
+                if inbox.isEmpty, row != nil { LaunchTrace.mark("inbox.firstRow", row?.confirmed == true ? "confirmed" : "unconfirmed") }
                 if let current = row {
                     // Missing generations (old payloads) never confirm.
                     inbox[id] = ThreadLiveActivity.effectiveRow(current, latestGeneration: activityGeneration)
@@ -146,7 +163,7 @@ import CryptoKit
                 activityChanged = true
             case .inboxSections(let layout): if inboxLayout != layout { inboxLayout = layout }
             case .connection(let state, let generation):
-                if state == "ready" && connection != "ready" { readyCount += 1 }
+                if state != connection { LaunchTrace.mark("connection", state) }
                 connection = state
                 if let generation, generation > activityGeneration {
                     activityGeneration = generation
@@ -224,13 +241,23 @@ import CryptoKit
             }
         }
         thread?.screen.commit()
-        if activityChanged, let hostId { liveActivity.update(rows: inbox, hostId: hostId, online: connection == "ready") }
+        if activityChanged, let hostId { liveActivity.update(rows: inbox.dictionary, hostId: hostId, online: connection == "ready") }
         if reorder, let thread {
             thread.order = thread.positions.keys.filter { thread.items[$0] != nil }.sorted {
                 (thread.positions[$0] ?? 0) < (thread.positions[$1] ?? 0)
             }
         }
-        return true
+    }
+    /// A new list keeps the rows it names until each fresh copy lands, so the inbox never blanks
+    /// or jumps to the top while the rest arrive; it drops every other row. A kept row is no
+    /// longer confirmed: only its fresh copy may say it is current again.
+    private func resetInbox(keeping ids: [String]?) {
+        guard let ids else { inbox.removeAll(); return }
+        let listed = Set(ids)
+        for id in inbox.ids {
+            if !listed.contains(id) { inbox[id] = nil }
+            else if var held = inbox[id], held.confirmed != nil { held.confirmed = nil; inbox[id] = held }
+        }
     }
     func open(_ id: String) {
         generation += 1
@@ -327,7 +354,8 @@ import CryptoKit
     /// Drop held confirmations when leaving ready: a cached done row stays cached, but never
     /// confirmed, until its sidebar snapshot returns. Only a fresh inbox row may set it again.
     private func invalidateConfirmations() {
-        for (id, row) in inbox where row.confirmed == true {
+        for id in inbox.ids {
+            guard let row = inbox[id], row.confirmed == true else { continue }
             var cleared = row
             cleared.confirmed = nil
             inbox[id] = cleared
@@ -337,7 +365,8 @@ import CryptoKit
     /// before the row frames that invalidate it, so older confirmed rows never finish.
     /// One rule lives in `ThreadLiveActivity.effectiveRow`; the authority value stays here.
     private func normalizeGenerations() {
-        for (id, row) in inbox {
+        for id in inbox.ids {
+            guard let row = inbox[id] else { continue }
             let effective = ThreadLiveActivity.effectiveRow(row, latestGeneration: activityGeneration)
             if effective.confirmed != row.confirmed { inbox[id] = effective }
         }
@@ -347,7 +376,7 @@ import CryptoKit
         // The next runtime restarts the bridge fence at zero: explicit reset so counter
         // rows from a replaced runtime can never stay Syncing forever against an old max.
         activityGeneration = 0
-        if let hostId { liveActivity.update(rows: inbox, hostId: hostId, online: false) }
+        if let hostId { liveActivity.update(rows: inbox.dictionary, hostId: hostId, online: false) }
         services.cancel()
         admissions.cancel()
         approvalSubmissions = [:]; approvalRequests = [:]

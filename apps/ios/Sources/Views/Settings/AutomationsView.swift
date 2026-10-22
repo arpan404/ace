@@ -133,6 +133,17 @@ struct AutomationsView: View {
     @State private var busy = false
     @State private var problem: String?
     @State private var unavailable = false
+    private static let listRead: [String: Any] = ["type": "automation.list"]
+    private static let runsRead: [String: Any] = ["type": "automation.inbox", "limit": 20]
+
+    /// Opens on the last automations and runs this phone saw, read again behind them.
+    init(model: ClientModel) {
+        self.model = model
+        let list = model.kept(Self.listRead, as: AutomationReply.self)
+        _rows = State(initialValue: list?.automations ?? [])
+        _runs = State(initialValue: model.kept(Self.runsRead, as: AutomationReply.self)?.inbox?.runs ?? [])
+        _loading = State(initialValue: list == nil)
+    }
     var body: some View {
         List {
             Group {
@@ -205,12 +216,12 @@ struct AutomationsView: View {
         } message: { _ in
             Text("Its run history stays on this machine.")
         }
-        .readWhenConnected(model) { await read() }.refreshable { await read() }
+        .task(id: model.readGeneration(Self.listRead)) { await read() }.refreshable { await read() }
     }
     private func read() async {
         defer { loading = false }
         do {
-            let list = try await model.service(["type": "automation.list"], as: AutomationReply.self)
+            let list = try await model.read(Self.listRead, as: AutomationReply.self)
             guard list.ok else {
                 if list.error == "automation_unavailable" { unavailable = true }
                 throw ServiceFailure(message: friendlyAutomationError(list.error, fallback: "Couldn't read automations"))
@@ -218,7 +229,7 @@ struct AutomationsView: View {
             unavailable = false
             rows = list.automations ?? []; problem = nil
             do {
-                let history = try await model.service(["type": "automation.inbox", "limit": 20], as: AutomationReply.self)
+                let history = try await model.read(Self.runsRead, as: AutomationReply.self)
                 runs = history.ok ? (history.inbox?.runs ?? []) : []
             } catch {
                 runs = []

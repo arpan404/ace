@@ -78,6 +78,7 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
         let task = session.webSocketTask(with: target.endpoint)
         task.maximumMessageSize = 2 * 1024 * 1024
         self.task = task
+        LaunchTrace.mark("socket.open", target.endpoint.host ?? "")
         task.resume()
     }
     func send(_ text: String) {
@@ -130,6 +131,7 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
     }
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
         guard !ended else { return }
+        LaunchTrace.mark("socket.ready")
         event("open", "")
         receive()
     }

@@ -87,7 +87,9 @@ struct SystemAuthorizer: NotificationAuthorizer {
         let hostId = target.hostId
         model.notificationSink = { [weak self] patch in self?.receive(patch, from: hostId) }
         if let link = pendingLink, link.hostId == nil || link.hostId == hostId { model.deepLink = link.threadId; pendingLink = nil }
-        await refreshPermission()
+        // Read once the runtime is starting, never before it: the permission's sync goes to that
+        // runtime, and asking the system must not hold back a launch's first connection.
+        Task { await refreshPermission() }
     }
     func detach(_ model: ClientModel) {
         guard let index = machines.firstIndex(where: { $0.model === model }) else { return }

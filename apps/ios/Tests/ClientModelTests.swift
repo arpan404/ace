@@ -46,18 +46,14 @@ import Foundation
         model.receive(try frame([["type": "thread.reset", "threadId": "a", "epoch": 3]]))
         #expect(model.thread?.items.isEmpty == true)
     }
-    @Test func screensAreAskedToReadAgainOnlyWhenTheMachineComesBack() throws {
+    @Test func screensWhoseReadsArentKeptReadAgainWhenTheBridgeCountsAReconnect() throws {
         let model = ClientModel(now: { 0 })
-        let connection = { (state: String) in try frame([["type": "connection", "state": state]]) }
-        model.receive(try connection("connecting"))
-        let atLaunch = model.readyCount
-        model.receive(try connection("ready"))
-        #expect(model.readyCount == atLaunch + 1)
-        model.receive(try connection("ready"))
-        model.receive(try connection("reconnecting"))
-        #expect(model.readyCount == atLaunch + 1) // dropping keeps what screens show
-        model.receive(try connection("ready"))
-        #expect(model.readyCount == atLaunch + 2)
+        #expect(model.reads.reconnects == 0)
+        model.receive(try frame([["type": "service.generations", "generations": ["usage": 1, "reconnects": 1]]]))
+        #expect(model.reads.reconnects == 1)
+        // A daemon change to one family is not the machine coming back.
+        model.receive(try frame([["type": "service.generations", "generations": ["usage": 2, "reconnects": 1]]]))
+        #expect(model.reads.reconnects == 1)
     }
     private func item(_ id: String, text: String, index: Int) -> [String: Any] {
         ["type": "thread.item", "threadId": "a", "epoch": 1, "id": id,

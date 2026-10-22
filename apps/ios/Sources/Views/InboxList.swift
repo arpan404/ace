@@ -77,6 +77,15 @@ struct InboxList: View {
         .background(AceTheme.Colours.background)
         .environment(\.defaultMinListRowHeight, 0)
         .contentMargins(.vertical, AceTheme.Spacing.xs, for: .scrollContent)
+        .onAppear { if !sections.isEmpty { InboxList.traceRows(sections) } }
+        .onChange(of: sections.isEmpty) { _, empty in if !empty { InboxList.traceRows(sections) } }
+    }
+    /// Marks the first time this process draws inbox rows, for launch timing.
+    private static var tracedRows = false
+    private static func traceRows(_ sections: [MergedInbox.Section]) {
+        guard !tracedRows else { return }
+        tracedRows = true
+        LaunchTrace.mark("inbox.rowsOnScreen", "\(sections.reduce(0) { $0 + $1.rows.count }) rows")
     }
 
     @ViewBuilder private func rows(_ section: MergedInbox.Section) -> some View {
@@ -91,54 +100,7 @@ struct InboxList: View {
             }
         } else {
             ForEach(section.rows, id: \.self) { key in
-                if let row = inbox.row(key) { threadRow(row, key: key, section: section.key) }
-            }
-        }
-    }
-
-    private func threadRow(_ row: ThreadRow, key: InboxKey, section: String) -> some View {
-        let snoozed = section == "snoozed"
-        let settled = section == "settled"
-        // A view-only grant is per machine: only that machine's rows lose their actions.
-        let canOperate = inbox.client(key.machineId)?.canOperate ?? false
-        // The daemon refuses to settle a tree that still runs.
-        let canSettle = canOperate && !settled && row.state != "working"
-        return Button { actions.open(key) } label: {
-            if settled { InboxSettledRow(row: row) }
-            else { InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.showsMachineNames ? inbox.name(key.machineId) : nil) }
-        }
-        .buttonStyle(.row)
-        .accessibilityIdentifier(inbox.showsMachineNames ? "thread.\(key.machineId).\(row.id)" : "thread.\(row.id)")
-        .inboxRowChrome()
-        // Neutral swipe fills: status hues belong to status only.
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            if canOperate {
-                if settled {
-                    Button("Unsettle", ace: .arrowUUpLeft) { actions.unsettle(row, key) }.tint(Color(uiColor: .systemGray))
-                } else if canSettle {
-                    Button("Settle", ace: .check) { actions.settle(row, key) }.tint(Color(uiColor: .systemGray))
-                }
-                if snoozed {
-                    Button("Wake", ace: .sun) { actions.wake(row, key) }.tint(Color(uiColor: .systemGray2))
-                } else if !settled {
-                    Button("Snooze", ace: .clock) { actions.snooze(key) }.tint(Color(uiColor: .systemGray2))
-                }
-            }
-        }
-        .swipeActions(edge: .leading, allowsFullSwipe: false) {
-            if canOperate { Button("Archive", ace: .archive) { actions.archive(row, key) }.tint(Color(uiColor: .systemGray2)) }
-        }
-        .contextMenu {
-            if canOperate {
-                if settled { Button("Unsettle", ace: .arrowUUpLeft) { actions.unsettle(row, key) } }
-                else if canSettle { Button("Settle", ace: .check) { actions.settle(row, key) } }
-                if snoozed { Button("Wake", ace: .sun) { actions.wake(row, key) } }
-                else if !settled {
-                    Menu {
-                        ForEach(inbox.merged.snooze) { option in Button(option.label) { actions.snoozeUntil(row, key, option.id) } }
-                    } label: { Label("Snooze", ace: .clock) }
-                }
-                Button("Archive", ace: .archive) { actions.archive(row, key) }
+                InboxThreadCell(inbox: inbox, key: key, section: section.key, actions: actions)
             }
         }
     }
@@ -198,5 +160,65 @@ extension View {
                                       bottom: AceTheme.Spacing.xxs, trailing: AceTheme.Spacing.sm))
             .listRowBackground(AceTheme.Colours.background)
             .listRowSeparator(.hidden)
+    }
+}
+
+/// One thread's row in the list. It reads its own row, so a change to one thread redraws that
+/// row alone; the list itself redraws only when rows join, leave or move.
+private struct InboxThreadCell: View {
+    let inbox: MachineInbox
+    let key: InboxKey
+    let section: String
+    let actions: InboxRowActions
+
+    var body: some View {
+        if let row = inbox.row(key) { threadRow(row) }
+    }
+
+    private func threadRow(_ row: ThreadRow) -> some View {
+        let snoozed = section == "snoozed"
+        let settled = section == "settled"
+        // A view-only grant is per machine: only that machine's rows lose their actions.
+        let canOperate = inbox.client(key.machineId)?.canOperate ?? false
+        // The daemon refuses to settle a tree that still runs.
+        let canSettle = canOperate && !settled && row.state != "working"
+        return Button { actions.open(key) } label: {
+            if settled { InboxSettledRow(row: row) }
+            else { InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.showsMachineNames ? inbox.name(key.machineId) : nil) }
+        }
+        .buttonStyle(.row)
+        .accessibilityIdentifier(inbox.showsMachineNames ? "thread.\(key.machineId).\(row.id)" : "thread.\(row.id)")
+        .inboxRowChrome()
+        // Neutral swipe fills: status hues belong to status only.
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if canOperate {
+                if settled {
+                    Button("Unsettle", ace: .arrowUUpLeft) { actions.unsettle(row, key) }.tint(Color(uiColor: .systemGray))
+                } else if canSettle {
+                    Button("Settle", ace: .check) { actions.settle(row, key) }.tint(Color(uiColor: .systemGray))
+                }
+                if snoozed {
+                    Button("Wake", ace: .sun) { actions.wake(row, key) }.tint(Color(uiColor: .systemGray2))
+                } else if !settled {
+                    Button("Snooze", ace: .clock) { actions.snooze(key) }.tint(Color(uiColor: .systemGray2))
+                }
+            }
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            if canOperate { Button("Archive", ace: .archive) { actions.archive(row, key) }.tint(Color(uiColor: .systemGray2)) }
+        }
+        .contextMenu {
+            if canOperate {
+                if settled { Button("Unsettle", ace: .arrowUUpLeft) { actions.unsettle(row, key) } }
+                else if canSettle { Button("Settle", ace: .check) { actions.settle(row, key) } }
+                if snoozed { Button("Wake", ace: .sun) { actions.wake(row, key) } }
+                else if !settled {
+                    Menu {
+                        ForEach(inbox.merged.snooze) { option in Button(option.label) { actions.snoozeUntil(row, key, option.id) } }
+                    } label: { Label("Snooze", ace: .clock) }
+                }
+                Button("Archive", ace: .archive) { actions.archive(row, key) }
+            }
+        }
     }
 }

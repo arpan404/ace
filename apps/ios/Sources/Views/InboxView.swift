@@ -61,7 +61,7 @@ struct InboxView: View {
                 guard scenePhase == .active else { return }
                 while !Task.isCancelled {
                     for session in inbox.sessions {
-                        session.client.liveActivity.update(rows: session.client.inbox, hostId: session.hostId, online: session.client.connection == "ready")
+                        session.client.liveActivity.update(rows: session.client.inbox.dictionary, hostId: session.hostId, online: session.client.connection == "ready")
                     }
                     try? await Task.sleep(for: .seconds(30))
                 }
