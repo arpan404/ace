@@ -46,6 +46,8 @@ export class ThreadSession {
   #lane: { agentId: string; tap: ChangeTap } | undefined;
   #setting: FollowUpBehavior | undefined;
   #loading = false;
+  /** The transcript may show: at once for a 200-item window, after `hydrated` for a larger one. */
+  #revealed: boolean;
   #models: { state: string; models: Record<string, unknown>[] } = { state: "idle", models: [] };
 
   constructor(
@@ -62,6 +64,7 @@ export class ThreadSession {
     this.#threadId = ThreadId.parse(threadId);
     this.#epoch = epoch;
     this.#pump = pump;
+    this.#revealed = initialItemLimit <= 200;
     const put: Put = (key, read) => this.#put(key, read);
     const signal = this.#abort.signal;
     this.#blocks = followBlocks(store, put);
@@ -96,7 +99,8 @@ export class ThreadSession {
       if (keys === "all" || keys.has("order") || keys.has("history")) this.#history();
       if (keys === "all" || keys.has("queue") || keys.has("thread") || keys.has("agents"))
         this.#queue.update();
-      if (keys === "all" && initialItemLimit <= 200) this.#ready();
+      // Every snapshot (a kept one, then the daemon's) clears queued thread patches, ready too.
+      if (keys === "all" && this.#revealed) this.#ready();
     });
     this.#blocks.tap("all");
     this.#activity("all");
@@ -104,7 +108,7 @@ export class ThreadSession {
     this.#history();
     this.#queue.update();
     this.#tune.update();
-    if (initialItemLimit <= 200) this.#ready();
+    if (this.#revealed) this.#ready();
     void this.#readSetting();
   }
 
@@ -112,6 +116,12 @@ export class ThreadSession {
   #ready(): void {
     if (this.#store.thread)
       this.#put("ready", () => ({ type: "thread.ready", count: this.#store.order.length }));
+  }
+
+  /** A larger window finished admitting its older pages: show it, and again after each snapshot. */
+  hydrated(): void {
+    this.#revealed = true;
+    this.#ready();
   }
 
   /** The navigation generation this session serves. */

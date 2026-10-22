@@ -429,3 +429,39 @@ test("a simulator step opens its device and a computer-use step opens computer u
   const opens = steps.map((row) => (row.step as { opens: string } | null)?.opens);
   expect(opens).toEqual([`device:${simId}`, "computer"]);
 });
+
+test("a large window shows once its history is in, and stays shown when the daemon's snapshot replaces the kept one", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "long", workspaceId: "ace", title: "Long", provider: "codex" });
+  fake.apply("long", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Summarise the log."),
+    facts.endTurn("root"),
+  ]);
+  const kept = new Map<string, unknown>();
+  const storage = {
+    get: async (key: string) => kept.get(key),
+    set: async (key: string, value: unknown) => void kept.set(key, value),
+  };
+  // An earlier launch: older pages still loading keep the transcript hidden, then it shows.
+  const first = open(connect(fake, storage), "long", undefined, 2200);
+  await until(() => latest("thread.item"), "the snapshot's rows");
+  expect(latest("thread.ready")).toBeUndefined();
+  first.hydrated();
+  await until(() => latest("thread.ready"), "the transcript shown");
+  await until(() => kept.size > 0, "a kept snapshot");
+  await reset();
+  // This launch paints the kept snapshot first; the daemon's snapshot then clears every queued
+  // thread patch, ready included. The transcript must show again rather than load forever.
+  let release = () => {};
+  const network = new Promise<void>((resolve) => (release = resolve));
+  const second = open(connect(fake, storage, network), "long", undefined, 2200);
+  await until(() => latest("thread.reset"), "the kept snapshot");
+  second.hydrated();
+  await until(() => latest("thread.ready"), "the kept transcript shown");
+  native.frames.length = 0;
+  release();
+  await until(() => latest("thread.reset"), "the daemon's snapshot");
+  await until(() => latest("thread.ready"), "the transcript shown after the daemon's snapshot");
+}, 20_000);
