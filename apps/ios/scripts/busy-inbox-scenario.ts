@@ -21,7 +21,11 @@ export function busyInbox(daemon: FakeDaemon, details: Details, count: number, e
       provider: index % 3 === 0 ? "claude" : "codex",
       details: details(`busy/${index}`),
     });
-    daemon.apply(id, [facts.rootAgent(index % 3 === 0 ? "claude" : "codex"), facts.turn("root"), facts.endTurn("root")]);
+    daemon.apply(id, [
+      facts.rootAgent(index % 3 === 0 ? "claude" : "codex"),
+      facts.turn("root"),
+      facts.endTurn("root"),
+    ]);
   }
   /** The turn each working thread is in; each new turn has its own id. */
   const working = new Map<string, string>();
@@ -32,11 +36,15 @@ export function busyInbox(daemon: FakeDaemon, details: Details, count: number, e
     const turn = working.get(id);
     if (turn) {
       working.delete(id);
-      daemon.apply(id, [{ type: "turn.ended", agent: "root", nativeTurnId: turn, outcome: "completed" }]);
+      daemon.apply(id, [
+        { type: "turn.ended", agent: "root", nativeTurnId: turn, outcome: "completed" },
+      ]);
     } else {
       const next = `busy-turn-${tick}`;
       working.set(id, next);
-      daemon.apply(id, [{ type: "turn.started", agent: "root", nativeTurnId: next, trigger: "user" }]);
+      daemon.apply(id, [
+        { type: "turn.started", agent: "root", nativeTurnId: next, trigger: "user" },
+      ]);
     }
   }, everyMs);
 }

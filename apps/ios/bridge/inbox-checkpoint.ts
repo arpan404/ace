@@ -23,7 +23,12 @@ export function inboxCheckpoint(
     const entry = store.thread(id);
     if (entry) held.push({ key: id, machineId: context.machineId, entry, unconfirmed: true });
   }
-  const layout = inboxLayout(held, [], context.now, (store.homeWindow ?? store.window)?.before != null);
+  const layout = inboxLayout(
+    held,
+    [],
+    context.now,
+    (store.homeWindow ?? store.window)?.before != null,
+  );
   const kept = new Set<string>();
   for (const section of layout.sections)
     for (const id of section.ids) if (kept.size < checkpointRows) kept.add(id);

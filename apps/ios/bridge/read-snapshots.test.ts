@@ -75,7 +75,13 @@ function phone(daemon: FakeDaemon, call: HostCall, transport: ClientOptions["tra
 
 test("a launch that cannot reach its machine still lists what it read last time, as Syncing", async () => {
   const daemon = new FakeDaemon({ clock: () => 1_000 });
-  daemon.createThread({ id: "done", workspaceId: "ace", title: "Done", provider: "codex", hasSentMessage: true });
+  daemon.createThread({
+    id: "done",
+    workspaceId: "ace",
+    title: "Done",
+    provider: "codex",
+    hasSentMessage: true,
+  });
   daemon.apply("done", [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")]);
   const call = nativeStore();
 
@@ -84,7 +90,9 @@ test("a launch that cannot reach its machine still lists what it read last time,
   const firstSink = new RecordingSink();
   const stopFirst = followInbox(first, "mac", firstSink, { now: () => 2_000, set: () => () => {} });
   await until(
-    () => (firstSink.read("inbox:done") as { row?: { confirmed?: boolean } } | undefined)?.row?.confirmed === true,
+    () =>
+      (firstSink.read("inbox:done") as { row?: { confirmed?: boolean } } | undefined)?.row
+        ?.confirmed === true,
     "first launch confirmed",
   );
   stopFirst();
