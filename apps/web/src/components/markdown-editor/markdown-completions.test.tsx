@@ -128,24 +128,25 @@ test("Enter still continues a list once the person is chosen", async () => {
   expect(field.value).toBe("- ask @mira \n- ");
 });
 
+function InDialog() {
+  const [text, setText] = useState("");
+  const [open, setOpen] = useState(true);
+  return (
+    <TooltipProvider delay={0}>
+      <MarkdownCompletionsProvider value={source}>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogContent>
+            <DialogTitle>Edit</DialogTitle>
+            <MarkdownEditor label="Description" value={text} onChange={setText} />
+          </DialogContent>
+        </Dialog>
+      </MarkdownCompletionsProvider>
+    </TooltipProvider>
+  );
+}
+
 test("Escape in a dialog closes only the suggestions, then the dialog", async () => {
   const user = userEvent.setup();
-  function InDialog() {
-    const [text, setText] = useState("");
-    const [open, setOpen] = useState(true);
-    return (
-      <TooltipProvider delay={0}>
-        <MarkdownCompletionsProvider value={source}>
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogContent>
-              <DialogTitle>Edit</DialogTitle>
-              <MarkdownEditor label="Description" value={text} onChange={setText} />
-            </DialogContent>
-          </Dialog>
-        </MarkdownCompletionsProvider>
-      </TooltipProvider>
-    );
-  }
   render(<InDialog />);
   await user.type(await screen.findByRole("textbox", { name: "Description" }), "@mi");
   await options("People");
