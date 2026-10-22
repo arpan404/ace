@@ -20,6 +20,7 @@ import * as contextMeter from "@ace/protocol/context-meter";
 import * as protocol from "@ace/protocol";
 import * as forgeLifecycle from "@ace/protocol/forge-lifecycle";
 import * as forgeIssues from "@ace/protocol/forge-issues";
+import * as forgeInbox from "@ace/protocol/forge-inbox";
 import * as forgeMergeState from "@ace/protocol/forge-merge-state";
 import * as forgeReview from "@ace/protocol/forge-review";
 import * as forgeChecks from "@ace/protocol/forge-checks";
@@ -74,6 +75,7 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./thread-transitions", transitions],
   ["./handoff-read", handoffRead],
   ["./pi", pi],
+  ["./forge-inbox", forgeInbox],
 ]);
 
 export function protocolCatalog(): { entries: SchemaEntry[]; tools: ToolEntry[] } {
