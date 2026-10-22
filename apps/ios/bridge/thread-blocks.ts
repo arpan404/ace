@@ -428,6 +428,8 @@ export function followBlocks(
       positions.clear();
       counted.clear();
       following.clear();
+      ordered.clear();
+      single.clear();
       rebuild(touched);
     } else {
       let regroup = false;
