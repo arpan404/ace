@@ -39,7 +39,13 @@ let visit: { lease: Lease<ThreadSource>; stop: () => void; session: ThreadSessio
 const shelf = new LedgerShelf(6, 4 * 1024 * 1024);
 
 /** What `main.ts` does on open: bind the thread's ledger, follow it, start its session. */
-async function openVisit(client: ClientCore, held: Held, threadId: string, epoch: number, warm: boolean) {
+async function openVisit(
+  client: ClientCore,
+  held: Held,
+  threadId: string,
+  epoch: number,
+  warm: boolean,
+) {
   leave(epoch);
   held.epoch = epoch;
   const lease = client.thread(threadId);
@@ -134,15 +140,28 @@ test("a warm reopen the bridge no longer remembers resets native before sending 
 
 test("a whole-thread pass removes what native holds that the thread no longer has", () => {
   const ledger = new NativeLedger("thread");
-  const row = (id: string) => ({ type: "thread.item", id, row: { text: id }, threadId: "thread", epoch: 1 });
+  const row = (id: string) => ({
+    type: "thread.item",
+    id,
+    row: { text: id },
+    threadId: "thread",
+    epoch: 1,
+  });
   ledger.delivered("thread:reset", { type: "thread.reset", epoch: 1 }, "");
-  for (const id of ["a", "b", "c"]) ledger.delivered(`thread:item:${id}`, row(id), ledgerText(row(id)));
+  for (const id of ["a", "b", "c"])
+    ledger.delivered(`thread:item:${id}`, row(id), ledgerText(row(id)));
   expect(ledger.begin()).toBe(true);
   ledger.touch("thread:item:a");
   ledger.touch("thread:item:c");
   const removals = ledger.close(2);
   expect(removals.map(([key]) => key)).toEqual(["thread:item:b"]);
-  expect(removals[0]?.[1]()).toEqual({ type: "thread.item", id: "b", row: null, threadId: "thread", epoch: 2 });
+  expect(removals[0]?.[1]()).toEqual({
+    type: "thread.item",
+    id: "b",
+    row: null,
+    threadId: "thread",
+    epoch: 2,
+  });
 });
 
 test("a position moved apart from its row makes the row travel again", () => {

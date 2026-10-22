@@ -10,7 +10,8 @@
  * to one visit and are never kept.
  */
 
-const kept = /^thread:(item|interaction|block):|^thread:(metadata|cursor|controls|history|queue|activity|tune)$/;
+const kept =
+  /^thread:(item|interaction|block):|^thread:(metadata|cursor|controls|history|queue|activity|tune)$/;
 const removable = /^thread:(item|interaction|block):/;
 const moves: Record<string, string> = {
   "thread:position:": "thread:item:",
