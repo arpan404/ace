@@ -433,6 +433,7 @@ export class AndroidPlatform {
             port,
             window,
             platform: this.options.platform,
+            gpu: this.options.env["ACE_ANDROID_EMULATOR_GPU"],
           }),
           env: this.options.env,
           name: "device-emulator",

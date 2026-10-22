@@ -9,12 +9,15 @@
  *
  * Without a window, the emulator's automatic GPU choice falls back to software rendering
  * (SwiftShader); on macOS the host GPU (Metal) is always there, so it is asked for by name.
+ * `gpu` (from `ACE_ANDROID_EMULATOR_GPU`) overrides that choice: a mode the emulator's `-gpu`
+ * flag takes, or `none` to pass no flag at all.
  */
 export function emulatorBootArgs(input: {
   avd: string;
   port: number;
   window: boolean;
   platform: string;
+  gpu?: string | undefined;
 }): string[] {
   const base = [
     "-avd",
@@ -25,11 +28,18 @@ export function emulatorBootArgs(input: {
     // screen over gRPC on localhost, behind its console token, by the usual console + 3000 port.
     ...(input.platform === "darwin" ? ["-grpc", String(input.port + 3000), "-grpc-use-token"] : []),
   ];
-  if (input.window) return base;
-  return [
-    ...base,
-    "-no-window",
-    "-no-boot-anim",
-    ...(input.platform === "darwin" ? ["-gpu", "host"] : []),
-  ];
+  const gpu = emulatorGpu(input.gpu) ?? (input.window ? undefined : defaultGpu(input.platform));
+  const mode = gpu && gpu !== "none" ? ["-gpu", gpu] : [];
+  if (input.window) return [...base, ...mode];
+  return [...base, "-no-window", "-no-boot-anim", ...mode];
+}
+
+/** A `-gpu` mode as the person set it, when it is one the emulator could take. */
+function emulatorGpu(value: string | undefined): string | undefined {
+  const mode = value?.trim().toLowerCase();
+  return mode && /^[a-z_]{1,32}$/.test(mode) ? mode : undefined;
+}
+
+function defaultGpu(platform: string): string | undefined {
+  return platform === "darwin" ? "host" : undefined;
 }

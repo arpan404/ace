@@ -23,6 +23,8 @@ export type ViewerFrame = {
   codec: string;
   key: boolean;
   bytes: Buffer;
+  /** When the viewer received it (`performance.now()`). */
+  receivedAt: number;
 };
 
 /** What a viewer watches: computer-use screen sessions, or app devices. */
@@ -81,6 +83,7 @@ export class LiveViewer {
         codec: frame.codec,
         key: frame.key,
         bytes: Buffer.from(frame.bytes),
+        receivedAt: performance.now(),
       });
       // Acknowledged on arrival, as a client does once its decoder has taken the picture.
       const ack = { streamId: frame.streamId, sequence: frame.sequence };
