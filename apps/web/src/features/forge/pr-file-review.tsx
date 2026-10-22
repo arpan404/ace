@@ -1,14 +1,13 @@
 import { useMemo, useState, type ReactNode } from "react";
-import type { ForgeFile, ForgeReviewDraft, ForgePrStatus } from "@ace/protocol";
+import type { ForgeFile } from "@ace/protocol";
 import type { FileDiff } from "@ace/ui-core";
 import type { LineRange, LineTarget } from "@/features/panels/index.ts";
-import { lineKeyOf, placeThreads, type LineKey } from "./pr-code-model.ts";
+import { lineKeyOf, placeComments, type LineKey } from "./pr-code-comments.ts";
 import type { PrDiffContext } from "./pr-extensions.ts";
 import { PrLineComposer, PrPendingComment } from "./pr-line-composer.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
 import { PrThread } from "./pr-thread.tsx";
-
-type ReviewThread = ForgePrStatus["reviewThreads"][number];
+import { useAskFocus, usePick } from "./pr-ui-store.tsx";
 
 /** What the shared diff block needs to show and start comments on one file's lines. */
 export interface FileComments {
@@ -20,13 +19,29 @@ export interface FileComments {
 }
 
 const keyOf = (target: LineTarget): LineKey => `${target.side}:${target.line}`;
-const covers = (side: "old" | "new", start: number, end: number, target: LineTarget) =>
-  target.side === side && target.line >= start && target.line <= end;
+const none: readonly never[] = [];
+
+/**
+ * `list`, or the list returned last time when it holds the same items in the same order, so a
+ * poll that changed nothing about this file recomputes nothing.
+ */
+function useSameList<T>(list: readonly T[]): readonly T[] {
+  const [kept, setKept] = useState(list);
+  if (kept === list) return kept;
+  if (kept.length === list.length && list.every((item, at) => item === kept[at])) return kept;
+  setKept(list);
+  return list;
+}
+
+/** The composer's box id for focus: one per file. */
+export const lineComposerFocus = (path: string) => `line:${path}`;
 
 /**
  * A file's conversations on the diff: each review thread and pending review comment under its
  * last line (marking the lines it covers), and the comment being written under the lines
- * picked. New comments go only on the PR's current head, with All commits shown.
+ * picked. New comments go only on the PR's current head, with All commits shown. What is being
+ * written lives above the rows (`pr-ui-store`), so long files that mount only the rows on
+ * screen keep it while it scrolls away.
  */
 export function PrFileReview(props: {
   file: ForgeFile;
@@ -35,55 +50,53 @@ export function PrFileReview(props: {
   children(comments: FileComments): ReactNode;
 }) {
   const review = usePrReview();
-  const [writing, setWriting] = useState<LineRange>();
+  const path = props.file.path;
+  const [writing, setWriting] = usePick(path);
+  const askFocus = useAskFocus();
   const range = props.context.files;
   const { diff } = props;
   const current = !range.commit && review?.state?.headSha === range.headSha;
-  const threads = useMemo(
-    () =>
-      range.commit
-        ? new Map<LineKey, ReviewThread[]>()
-        : placeThreads(props.context.detail.status.reviewThreads, diff),
-    [range.commit, props.context.detail.status.reviewThreads, diff],
+  const allThreads = props.context.detail.status.reviewThreads;
+  const threads = useSameList(
+    useMemo(
+      () => (range.commit ? none : allThreads.filter((thread) => thread.file === path)),
+      [range.commit, allThreads, path],
+    ),
   );
-  const drafts = useMemo(() => {
-    const placed = new Map<LineKey, ForgeReviewDraft[]>();
-    if (!current) return placed;
-    for (const draft of review?.state?.drafts ?? []) {
-      const { anchor } = draft;
-      if (anchor.path !== props.file.path || anchor.commit !== range.headSha) continue;
-      const key = lineKeyOf(diff, anchor.side === "LEFT" ? "old" : "new", anchor.line);
-      if (key) placed.set(key, [...(placed.get(key) ?? []), draft]);
-    }
-    return placed;
-  }, [current, review?.state?.drafts, props.file.path, range.headSha, diff]);
+  const allDrafts = review?.state?.drafts;
+  const drafts = useSameList(
+    useMemo(
+      () =>
+        current
+          ? (allDrafts ?? none).filter(
+              (draft) => draft.anchor.path === path && draft.anchor.commit === range.headSha,
+            )
+          : none,
+      [current, allDrafts, path, range.headSha],
+    ),
+  );
+  const placed = useMemo(() => placeComments(diff, threads, drafts), [diff, threads, drafts]);
   const canComment =
     current && !!review?.state?.canComment && review.ready && !props.context.disabled;
-  const marked = (target: LineTarget) => {
-    for (const list of threads.values())
-      for (const thread of list) {
-        if (thread.line === null) continue;
-        const side = thread.side === "LEFT" ? "old" : "new";
-        if (covers(side, thread.startLine ?? thread.line, thread.line, target)) return true;
-      }
-    for (const list of drafts.values())
-      for (const { anchor } of list) {
-        const side = anchor.side === "LEFT" ? "old" : "new";
-        if (covers(side, anchor.startLine ?? anchor.line, anchor.line, target)) return true;
-      }
-    return false;
-  };
   const writingKey = writing && lineKeyOf(diff, writing.side, writing.end);
+  const pick = (picked: LineRange) => {
+    setWriting(picked);
+    askFocus(lineComposerFocus(path));
+  };
   return props.children({
     highlighted: (target) =>
-      (!!writing && covers(writing.side, writing.start, writing.end, target)) || marked(target),
+      placed.covered.has(keyOf(target)) ||
+      (!!writing &&
+        writing.side === target.side &&
+        target.line >= writing.start &&
+        target.line <= writing.end),
     selection: writing,
-    onComment: canComment ? setWriting : undefined,
-    onExtend: canComment ? setWriting : undefined,
+    onComment: canComment ? pick : undefined,
+    onExtend: canComment ? pick : undefined,
     renderAnnotation: (target) => {
       const key = keyOf(target);
-      const here = threads.get(key) ?? [];
-      const pending = drafts.get(key) ?? [];
+      const here = placed.threads.get(key) ?? none;
+      const pending = placed.drafts.get(key) ?? none;
       const composing = writing && writingKey === key;
       if (!here.length && !pending.length && !composing) return null;
       return (
@@ -96,8 +109,8 @@ export function PrFileReview(props: {
           ))}
           {composing && writing && (
             <PrLineComposer
-              key={`${writing.side}:${writing.start}-${writing.end}`}
-              path={props.file.path}
+              path={path}
+              patch={props.file.patch ?? null}
               diff={diff}
               range={writing}
               headSha={range.headSha}

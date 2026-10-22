@@ -73,3 +73,18 @@ it("a thread from a host that reports no side leaves the side unknown", async ()
     await fake.cleanup();
   }
 });
+
+it("a thread that starts on the deleted side and ends on the added side reports both sides", async () => {
+  const fixtures = standard();
+  fixtures["repos/octo/ace/pulls/7/comments?per_page=100"] = [{ body: [] }];
+  fixtures.graphql = [
+    { body: threads([node({ startLine: 9, startDiffSide: "LEFT", diffSide: "RIGHT" })]) },
+  ];
+  const fake = await fakeGh(fixtures);
+  try {
+    const [thread] = (await fake.forge.status(7, signal())).reviewThreads;
+    expect(thread).toMatchObject({ startLine: 9, startSide: "LEFT", side: "RIGHT", line: 14 });
+  } finally {
+    await fake.cleanup();
+  }
+});

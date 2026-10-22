@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { expect, test } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ClientProvider } from "@ace/client-react";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -10,6 +10,8 @@ import { LayoutProvider } from "@/lib/layout.tsx";
 import { harness } from "@/test/harness.tsx";
 import { PrFiles } from "./pr-files.tsx";
 import { PrReviewWorkspace } from "./pr-review-context.tsx";
+import { PrUiProvider } from "./pr-ui-store.tsx";
+import { reviewState } from "./review-harness.tsx";
 import { detail } from "./pr-workspace.fixture.ts";
 import type { PrWorkspaceContext } from "./pr-extensions.ts";
 
@@ -223,4 +225,65 @@ test("each conversation sits under the line it's on, on the side it was written 
   expect(follows(removed, onDeleted) && follows(onDeleted, added)).toBe(true);
   expect(follows(added, onAdded)).toBe(true);
   expect(screen.queryByRole("group", { name: "Conversations not on the current diff" })).toBeNull();
+});
+
+/** Two changes with unknown lines folded between them: new lines 1–2, then 20–21. */
+const twoChanges = changed(
+  "src/first.ts",
+  "",
+  "@@ -1,2 +1,2 @@\n-a\n+b\n c\n@@ -20,2 +20,2 @@\n-x\n+y\n z",
+);
+
+async function reviewing(app: ReturnType<typeof harness>) {
+  app.daemon.workspace.setForgeRead(page(1), filesPage([twoChanges]));
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.review-state", workspaceId, repository, number: 7 },
+    { resource: "prReviewState", value: reviewState({ headSha: detail.status.headSha }) },
+  );
+  await mount(
+    app,
+    <PrUiProvider>
+      <PrReviewWorkspace workspaceId="api" detail={detail} onRefresh={() => {}}>
+        {codeTab()}
+      </PrReviewWorkspace>
+    </PrUiProvider>,
+  );
+  await screen.findByText("y");
+}
+
+test("a pick stops at lines the diff doesn't show rather than spanning them", async () => {
+  const app = harness();
+  await reviewing(app);
+  const first = await screen.findByRole("button", { name: "Comment on line 1" });
+  first.focus();
+  await userEvent.keyboard("{Enter}");
+  await screen.findByText("Commenting on line 1");
+  // Shift-click line 21, past the fold: the pick reaches line 2, the last line shown.
+  fireEvent.pointerDown(screen.getByRole("button", { name: "Comment on line 21" }), {
+    button: 0,
+    shiftKey: true,
+  });
+  fireEvent.pointerUp(window);
+  await screen.findByText("Commenting on lines 1–2");
+});
+
+test("a comment being written keeps its text when its lines unmount and come back, without taking focus", async () => {
+  const app = harness();
+  await reviewing(app);
+  const first = await screen.findByRole("button", { name: "Comment on line 1" });
+  first.focus();
+  await userEvent.keyboard("{Enter}");
+  const field = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Line comment" });
+  // The pick asked for it, so focus arrives.
+  await waitFor(() => expect(document.activeElement).toBe(field));
+  await userEvent.type(field, "Keep me");
+  const header = screen.getByRole("button", { name: /src\/first\.ts/, expanded: true });
+  await userEvent.click(header);
+  expect(screen.queryByRole("textbox", { name: "Line comment" })).toBeNull();
+  await userEvent.click(header);
+  expect(
+    (await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Line comment" })).value,
+  ).toBe("Keep me");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  expect(document.activeElement).toBe(header);
 });

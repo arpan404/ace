@@ -42,15 +42,35 @@ export function hiddenWord(reason: string): string {
 }
 
 type Visibility = Pick<ForgeReviewState, "hidden" | "hideable">;
+const commentKey = (kind: "issue" | "inline", id: number) => `${kind}:${id}`;
+
+// Each review state's lists are indexed once, so every comment looks itself up in O(1).
+const hiddenIndexes = new WeakMap<object, ReadonlyMap<string, string>>();
+const hideableIndexes = new WeakMap<object, ReadonlySet<string>>();
+function hiddenIndex(list: NonNullable<Visibility["hidden"]>): ReadonlyMap<string, string> {
+  let index = hiddenIndexes.get(list);
+  if (!index) {
+    index = new Map(list.map((h) => [commentKey(h.source, h.commentId), h.reason]));
+    hiddenIndexes.set(list, index);
+  }
+  return index;
+}
+function hideableIndex(list: NonNullable<Visibility["hideable"]>): ReadonlySet<string> {
+  let index = hideableIndexes.get(list);
+  if (!index) {
+    index = new Set(list.map((h) => commentKey(h.source, h.commentId)));
+    hideableIndexes.set(list, index);
+  }
+  return index;
+}
 
 /** Why `comment` is hidden on GitHub, or undefined while it shows (or isn't hideable at all). */
 export function hiddenReasonOf(
   state: Visibility | undefined,
   comment: Pick<ForgeComment, "kind" | "id">,
 ): string | undefined {
-  if (comment.kind === "review") return undefined;
-  return state?.hidden?.find((h) => h.source === comment.kind && h.commentId === comment.id)
-    ?.reason;
+  if (comment.kind === "review" || !state?.hidden) return undefined;
+  return hiddenIndex(state.hidden).get(commentKey(comment.kind, comment.id));
 }
 
 /** Whether the viewer may hide or unhide `comment`. */
@@ -58,18 +78,23 @@ export function canHide(
   state: Visibility | undefined,
   comment: Pick<ForgeComment, "kind" | "id">,
 ): boolean {
-  if (comment.kind === "review") return false;
-  return !!state?.hideable?.some((h) => h.source === comment.kind && h.commentId === comment.id);
+  if (comment.kind === "review" || !state?.hideable) return false;
+  return hideableIndex(state.hideable).has(commentKey(comment.kind, comment.id));
+}
+
+/** A comment's first line for a one-line preview; a hidden comment's text is never shown. */
+export function previewOf(
+  state: Visibility | undefined,
+  comment: Pick<ForgeComment, "kind" | "id" | "body">,
+): { text: string; hidden: boolean } {
+  return hiddenReasonOf(state, comment) === undefined
+    ? { text: comment.body.split("\n")[0] ?? "", hidden: false }
+    : { text: "Hidden comment", hidden: true };
 }
 
 /** "1 comment", "3 comments". */
 export function plural(count: number, one: string, many = `${one}s`): string {
   return `${count.toLocaleString()} ${count === 1 ? one : many}`;
-}
-
-/** The diff side a thread's lines count on; reads without a side meant the new file. */
-export function threadSide(thread: Pick<ReviewThread, "side">): "old" | "new" {
-  return thread.side === "LEFT" ? "old" : "new";
 }
 
 /** "line 12", "lines 12–15", with "old" before lines of the base file. */

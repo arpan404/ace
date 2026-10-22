@@ -9,7 +9,7 @@ import { ReviewThreadsPage, ReviewCommentConnection } from "./github-schemas.ts"
 import { ForgeError } from "./errors.ts";
 
 const pageFields = `pageInfo { hasNextPage endCursor } nodes { databaseId body updatedAt createdAt author { login avatarUrl } }`;
-const threadsQuery = `query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor} nodes{id isResolved isOutdated path line startLine diffSide comments(first:100){${pageFields}}}}}}}`;
+const threadsQuery = `query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor} nodes{id isResolved isOutdated path line startLine diffSide startDiffSide comments(first:100){${pageFields}}}}}}}`;
 const commentsQuery = `query($id:ID!,$cursor:String){node(id:$id){... on PullRequestReviewThread{comments(first:100,after:$cursor){${pageFields}}}}}`;
 type Query = { query: string; variables: Record<string, string | number | null> };
 type Planned = { key: string; query: Query; page: Page };
@@ -27,6 +27,7 @@ function sameThread(a: SourceThread, b: SourceThread): boolean {
     a.line === b.line &&
     a.startLine === b.startLine &&
     a.diffSide === b.diffSide &&
+    a.startDiffSide === b.startDiffSide &&
     a.isResolved === b.isResolved &&
     a.isOutdated === b.isOutdated &&
     a.comments.nodes.length === b.comments.nodes.length &&
@@ -46,6 +47,13 @@ function sameThread(a: SourceThread, b: SourceThread): boolean {
 /** GitHub's diff side; an unknown or missing value leaves the side out rather than guessing. */
 function side(value: string | null | undefined): Pick<Thread, "side"> {
   return value === "LEFT" || value === "RIGHT" ? { side: value } : {};
+}
+/** A start side only when the thread starts on the other side from where it ends. */
+function startSide(
+  value: string | null | undefined,
+  end: string | null | undefined,
+): Pick<Thread, "startSide"> {
+  return (value === "LEFT" || value === "RIGHT") && value !== end ? { startSide: value } : {};
 }
 /** Bounded query plan avoids traversing every thread on unchanged GraphQL polls. */
 export class ReviewThreadReader {
@@ -146,6 +154,7 @@ export class ReviewThreadReader {
               line: thread.line,
               ...side(thread.diffSide),
               startLine: thread.startLine ?? null,
+              ...startSide(thread.startDiffSide, thread.diffSide),
               comments: connections.flat().map((comment) =>
                 Object.assign(
                   {

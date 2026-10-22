@@ -3,8 +3,9 @@ import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx
 import { draftKeys, useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { PrAvatar } from "./pr-presentation.tsx";
-import { appendTo, focusEnd, useQuotedInto } from "./pr-quote.tsx";
+import { appendTo, useQuotedInto } from "./pr-quote.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
+import { useFocusAsk } from "./pr-ui-store.tsx";
 
 /** The viewer's avatar, borrowed from anything they wrote here (ace never asks GitHub for it). */
 function useViewerAvatar(viewer: string | undefined): string | undefined {
@@ -26,9 +27,10 @@ export function PrConversationBox() {
   const draft = useMarkdownDraft(
     review ? draftKeys.prComment(review.workspaceId, prKey) : undefined,
   );
+  const askFocus = useFocusAsk("conversation", box);
   useQuotedInto("conversation", (text) => {
     draft.setText(appendTo(draft.text, text));
-    focusEnd(box);
+    askFocus();
   });
   const viewer = review?.state?.viewer;
   const avatar = useViewerAvatar(viewer);

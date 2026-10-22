@@ -19,6 +19,7 @@ import { TooltipProvider } from "@/components/ui/tooltip.tsx";
 import { LayoutProvider } from "@/lib/layout.tsx";
 import { memoryKeyValue } from "@/test/harness.tsx";
 import { PrQuoteProvider } from "./pr-quote.tsx";
+import { PrUiProvider } from "./pr-ui-store.tsx";
 import { PrReviewWorkspace } from "./pr-review-context.tsx";
 
 /* Test support: a pull request's review workspace on a real client and fake daemon. */
@@ -176,11 +177,13 @@ export async function reviewHarness(options: {
         <LayoutProvider storage={storage}>
           <TooltipProvider delay={0}>
             <ToastProvider>
-              <PrQuoteProvider onConversation={options.onConversation ?? (() => {})}>
-                <PrReviewWorkspace workspaceId="api" detail={detail} onRefresh={() => {}}>
-                  {ui}
-                </PrReviewWorkspace>
-              </PrQuoteProvider>
+              <PrUiProvider>
+                <PrQuoteProvider onConversation={options.onConversation ?? (() => {})}>
+                  <PrReviewWorkspace workspaceId="api" detail={detail} onRefresh={() => {}}>
+                    {ui}
+                  </PrReviewWorkspace>
+                </PrQuoteProvider>
+              </PrUiProvider>
             </ToastProvider>
           </TooltipProvider>
         </LayoutProvider>

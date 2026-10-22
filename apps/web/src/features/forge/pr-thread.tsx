@@ -6,60 +6,83 @@ import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrComment } from "./pr-comment.tsx";
-import { plural, threadPlace } from "./pr-comment-model.ts";
-import { appendTo, focusEnd, useQuotedInto } from "./pr-quote.tsx";
+import { plural, previewOf, threadPlace } from "./pr-comment-model.ts";
+import { appendTo, useQuotedInto } from "./pr-quote.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
+import { useFocusAsk, useReplyOpen } from "./pr-ui-store.tsx";
 
 type ReviewThread = ForgePrStatus["reviewThreads"][number];
 
-/** Where a reply's unsent text is kept on this device, one per thread. */
-export const replyDraftKey = (workspaceId: string, prKey: string, threadId: string) =>
-  `pr:${workspaceId}:${prKey}:reply:${threadId}`;
+/** Where a reply's unsent text is kept on this device, one per thread and place. */
+export const replyDraftKey = (
+  workspaceId: string,
+  prKey: string,
+  threadId: string,
+  place: ReplyPlace = "thread",
+) => `pr:${workspaceId}:${prKey}:reply:${threadId}${place === "thread" ? "" : `:${place}`}`;
 
 /**
- * A reply to a review thread: one quiet "Reply…" line until chosen, then the Markdown editor
- * with Cancel and Reply. Its text survives reloads; a quote reply opens it with the quote.
+ * Where a reply is written: under its conversation, or on the conversation's Needs attention
+ * row. Each keeps its own text, and quote replies go only to the conversation's own.
+ */
+export type ReplyPlace = "thread" | "attention";
+
+/** The open-state key of a reply field. */
+export const replyField = (threadId: string, place: ReplyPlace = "thread") =>
+  place === "thread" ? threadId : `${place}:${threadId}`;
+
+/**
+ * A reply to a review thread: under its conversation, one quiet "Reply…" line until chosen;
+ * elsewhere, opened by its own Reply button. Then the Markdown editor with Cancel and Reply.
+ * Its text survives reloads, and its open state survives the row scrolling away; only the
+ * person's own action focuses it.
  */
 export function PrReplyField(props: {
   threadId: string;
   /** GitHub takes replies on the thread's first comment. */
   rootCommentId: number;
-  /** Open at once, for a reply asked for elsewhere (a "Reply" beside the comment). */
-  startOpen?: boolean;
-  /** Called once the reply is posted or cancelled. */
-  onDone?: (() => void) | undefined;
+  place?: ReplyPlace;
   className?: string | undefined;
 }) {
   const review = usePrReview();
+  const place = props.place ?? "thread";
   const prKey = JSON.stringify(review?.detail.status.ref ?? null);
   const draft = useMarkdownDraft(
-    review ? replyDraftKey(review.workspaceId, prKey, props.threadId) : undefined,
+    review ? replyDraftKey(review.workspaceId, prKey, props.threadId, place) : undefined,
   );
-  const [open, setOpen] = useState(() => !!props.startOpen || draft.text.trim() !== "");
+  const field = replyField(props.threadId, place);
+  const [asked, setAsked] = useReplyOpen(field);
+  const open = !!asked || draft.text.trim() !== "";
   const box = useRef<HTMLDivElement>(null);
-  useQuotedInto(`thread:${props.threadId}`, (text) => {
-    draft.setText(appendTo(draft.text, text));
-    setOpen(true);
-    focusEnd(box);
-  });
+  const askFocus = useFocusAsk(`reply:${field}`, box);
+  useQuotedInto(
+    `thread:${props.threadId}`,
+    (text) => {
+      draft.setText(appendTo(draft.text, text));
+      setAsked(true);
+      askFocus();
+    },
+    place === "thread",
+  );
   const canComment = !!review?.state?.canComment;
   const disabled = !review?.ready || review.pending || !canComment;
   if (!review?.state || !canComment) return null;
+  const close = () => setAsked(undefined);
   const send = () => {
     const body = draft.text;
     if (disabled || !body.trim()) return;
     void review.run({ kind: "reply", commentId: props.rootCommentId, body }).then((ok) => {
-      if (ok && draft.clear(body)) {
-        setOpen(false);
-        props.onDone?.();
-      }
+      if (ok && draft.clear(body)) close();
     });
   };
   if (!open)
-    return (
+    return place === "thread" ? (
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setAsked(true);
+          askFocus();
+        }}
         className={cn(
           "flex h-8 w-full items-center rounded-md px-3 text-left text-ui text-subtle-foreground shadow-[inset_0_0_0_1px_var(--border-strong)] hover:text-muted-foreground focus-ring",
           props.className,
@@ -67,11 +90,10 @@ export function PrReplyField(props: {
       >
         Reply…
       </button>
-    );
+    ) : null;
   return (
     <div ref={box} className={cn("space-y-2", props.className)}>
       <MarkdownEditor
-        autoFocus
         label="Reply"
         placeholder="Reply"
         maxLength={60_000}
@@ -84,8 +106,7 @@ export function PrReplyField(props: {
           variant="ghost"
           onClick={() => {
             draft.clear();
-            setOpen(false);
-            props.onDone?.();
+            close();
           }}
         >
           Cancel
@@ -138,7 +159,9 @@ export function PrThread(props: {
     setOpen(!thread.resolved);
   }
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(() => new Set());
+  const state = usePrReview()?.state;
   const first = thread.comments[0];
+  const preview = first && previewOf(state, first);
   const toggle = (id: number) =>
     setExpanded((current) => {
       const next = new Set(current);
@@ -179,10 +202,10 @@ export function PrThread(props: {
             </span>
           )}
           {marks}
-          {!open && first && (
+          {!open && preview && first && (
             <span className="min-w-0 flex-1 truncate">
               <span className="font-medium text-foreground">{first.author}</span>{" "}
-              {first.body.split("\n")[0]}
+              <span className={cn(preview.hidden && "text-subtle-foreground")}>{preview.text}</span>
             </span>
           )}
           {!open && thread.comments.length > 1 && (
@@ -212,7 +235,7 @@ export function PrThread(props: {
               <PrReplyField
                 threadId={thread.id}
                 rootCommentId={first.id}
-                className="min-w-0 flex-1"
+                className="min-w-0 flex-1 basis-64"
               />
               <PrResolveButton thread={thread} />
             </div>
