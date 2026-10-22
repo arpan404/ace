@@ -39,4 +39,14 @@ enum SpikeConfiguration {
                                                        credential: { "{\"token\":\"ios-spike-token\"}" }))
         }
     }
+    /// Spike launches start without unsent thread words or a thread to reopen, so one UI test's
+    /// state never reaches the next; `--spike-keep-state` keeps both, for the relaunch checks.
+    static func threadDrafts(in directory: URL, defaults: UserDefaults = .standard) -> URL {
+        let url = directory.appendingPathComponent("spike-thread-drafts.json")
+        if !ProcessInfo.processInfo.arguments.contains("--spike-keep-state") {
+            try? FileManager.default.removeItem(at: url)
+            defaults.removeObject(forKey: "ace.inbox.openThread")
+        }
+        return url
+    }
 }

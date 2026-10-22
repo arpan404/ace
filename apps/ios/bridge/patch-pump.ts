@@ -30,6 +30,11 @@ interface Fragment extends Delivery {
   index: number;
 }
 
+/**
+ * While content waits, status may fill at most this many of a frame's 32 patches. Status still
+ * leads each frame, but a stream of status changes (a busy inbox) can't starve a transcript.
+ */
+const statusShare = 24;
 /** ADR 0074: a frame carries at most 32 patches and 32 KiB. */
 const framePatches = 32;
 
@@ -180,8 +185,12 @@ export class PatchPump {
     const tracing = host.tracing === true;
     let reading = 0;
     let serializing = 0;
-    outer: for (const queue of this.#queues) {
+    const contentWaits = this.#waiting(2, now);
+    outer: for (const [level, queue] of this.#queues.entries()) {
+      let taken = 0;
       for (const task of queue.values()) {
+        // A quarter of the frame, by count and by bytes, stays for waiting content.
+        if (level === 1 && contentWaits && (taken >= statusShare || bytes >= 24576)) break;
         if (task.parked || task.settled || task.readyAt > now) continue;
         if (this.#blocked(task)) continue;
         // Isolate a rejected row so its next attempt cannot reject unrelated valid updates.
@@ -232,6 +241,7 @@ export class PatchPump {
         frame.push(sent);
         texts.push(json);
         bytes += size + 1;
+        taken++;
         if (task.failures) break outer;
       }
     }
@@ -252,6 +262,12 @@ export class PatchPump {
         host.trace?.("pump.flush", host.now() - now, frame.length);
       }
     } else this.#schedule();
+  }
+  /** Whether the queue at `level` holds a patch that could go now. */
+  #waiting(level: 0 | 1 | 2, now: number): boolean {
+    for (const task of this.#queues[level].values())
+      if (!task.parked && !task.settled && task.readyAt <= now && !this.#blocked(task)) return true;
+    return false;
   }
   #emitFragment(): void {
     const fragment = this.#fragment;

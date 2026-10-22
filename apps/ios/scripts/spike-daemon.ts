@@ -11,7 +11,7 @@ import { waitingScenario } from "./waiting-scenario.ts";
 import { RequestScenario, requestScenarios, seedRequest } from "./request-scenarios.ts";
 import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
-import { seedArchive } from "./archive-scenario.ts";
+import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
 import { seedNativeMedia } from "./media-scenario.ts";
 import { answerScreenshot, browserControl, realVideo, seedBrowser } from "./spike-browser.ts";
@@ -80,6 +80,21 @@ daemon.apply("ios-stream", [
     false,
   ),
 ]);
+// `ACE_IOS_SPIKE_STREAMED=650000` starts the streaming thread as if it had already streamed that
+// many deltas (about nine hours at 20 a second), in one append, to check that a thread that has
+// run for hours opens as fast as a new one.
+const streamed = Number(process.env.ACE_IOS_SPIKE_STREAMED ?? 0);
+if (Number.isSafeInteger(streamed) && streamed > 0)
+  daemon.apply("ios-stream", [
+    facts.stream(
+      "root",
+      "stream",
+      Array.from(
+        { length: streamed },
+        (_, i) => ` Next step ${i + 1}: wire the safe kill-all filters.`,
+      ).join(""),
+    ),
+  ]);
 daemon.createThread({
   hasSentMessage: true,
   id: "ios-done",
@@ -150,10 +165,11 @@ seedMessages(daemon, details);
 requestScenarios(daemon, details);
 spikeDevices(daemon, details);
 let fresh = 0;
+let naps = 0;
 
 const connections = new Map<ServerWebSocket<undefined>, ReturnType<FakeDaemon["connect"]>>();
 let online = true;
-let deltas = 0;
+let deltas = streamed > 0 ? streamed : 0;
 let commands = 0;
 let snapshots = 0;
 let replays = 0;
@@ -229,6 +245,15 @@ const server = Bun.serve<undefined>({
       const threadId = `ios-fresh-${scenario}-${++fresh}`;
       seedRequest(daemon, scenario, threadId, details);
       return Response.json({ threadId });
+    }
+    // Restarts ios-nap's snooze from now, so the offline-snooze test never depends on how long
+    // the fixture has been running.
+    if (path === "/review/nap" && request.method === "POST") {
+      const { ms } = z
+        .object({ ms: z.number().int().min(1000).max(600_000) })
+        .parse(await request.json());
+      snoozeNap(daemon, Date.now() + ms, `ios-spike-nap-${++naps}`);
+      return Response.json({ ok: true });
     }
     if (path === "/review/notify" && request.method === "POST") {
       const input = z

@@ -55,7 +55,7 @@ struct TerminalView: View {
         }
         .padding(AceTheme.Spacing.lg)
         .navigationTitle("Terminal").navigationBarTitleDisplayMode(.inline)
-        .task { await read() }
+        .readWhenConnected(model) { await read() }
         .onDisappear { if let id = output.streamId { model.action(["type": "terminal.unwatch", "id": id]); output.streamId = nil } }
     }
     private func select(_ id: String) {

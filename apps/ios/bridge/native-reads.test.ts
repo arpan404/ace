@@ -238,3 +238,18 @@ test("a kept read the screen stopped waiting for still finishes and is kept for 
   expect(sink.read("service:left")).toMatchObject({ ok: true, cache: { key: "follow-up" } });
   expect(reads.fresh({ key: "follow-up", family: "settings" })).toBeDefined();
 });
+
+test("each return of the connection is counted for screens whose reads aren't kept", () => {
+  const { owner, connect } = fakeOwner();
+  const sink = new RecordingSink();
+  new NativeReads(owner, sink, { now: () => 0, schedule: noSchedule });
+  connect("reconnecting");
+  connect("ready");
+  expect(sink.read("service:generations")).toMatchObject({ generations: { reconnects: 1 } });
+  connect("ready");
+  connect("offline");
+  // Going away reads nothing; only coming back counts.
+  expect(sink.read("service:generations")).toMatchObject({ generations: { reconnects: 1 } });
+  connect("ready");
+  expect(sink.read("service:generations")).toMatchObject({ generations: { reconnects: 2 } });
+});

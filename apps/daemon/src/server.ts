@@ -74,6 +74,7 @@ export async function startServer(options: ServerOptions): Promise<{
         perMinute: z.number().int().positive(),
       })
       .parse({ ...defaultTicketLimits, ...options.ticketLimits }),
+    options.store.pairingCodes,
   );
   let remoteOrigin: string | undefined;
   const pairing = () =>
