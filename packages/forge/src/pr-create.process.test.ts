@@ -21,7 +21,7 @@ const input = {
   draft: false,
 };
 const lookup = (owner: string, repo = "octo/ace") =>
-  `repos/${repo}/pulls?${new URLSearchParams({ state: "open", head: `${owner}:work/card`, base: "main", per_page: "2" })}`;
+  `repos/${repo}/pulls?${new URLSearchParams({ state: "open", head: `${owner}:work/card`, base: "main", per_page: "10" })}`;
 const created = (number: number) => ({ ...pr, number, head: { sha, ref: "work/card" } });
 
 test("Create PR after a merged PR opens a new one", async () => {
@@ -55,8 +55,8 @@ test("a fork PR targets upstream with the fork's owner on the head", async () =>
     command: gh.executable,
     now: () => 1_000,
   });
-  expect(await forge.findPr("work/card", "main", signal(), "octo")).toBeNull();
-  expect(await forge.createPr("thread", input, signal(), "octo")).toEqual({
+  expect(await forge.findPr("work/card", "main", signal(), { owner: "octo", name: "ace" })).toBeNull();
+  expect(await forge.createPr("thread", input, signal(), { owner: "octo", name: "ace" })).toEqual({
     repository: upstream,
     number: 40,
   });
@@ -147,4 +147,41 @@ test("a PR written by hand keeps its text exactly, placeholders included", async
     body: "Body {{y}}",
     draft: true,
   });
+});
+
+test("a fork with its parent's owner opens from its own branch, named with head_repo", async () => {
+  const gh = await setup({
+    // GitHub's owner:branch filter matches the parent's branch of the same name too.
+    [lookup("octo")]: [
+      {
+        body: [
+          { ...created(5), base: { ref: "main" }, head: { sha, ref: "work/card", repo: { name: "ace", owner: { login: "octo" } } } },
+        ],
+      },
+    ],
+    "repos/octo/ace/pulls": [{ status: 201, body: created(6) }],
+  });
+  const fork = { owner: "octo", name: "ace-fork" };
+  // The parent's own PR from work/card isn't the fork's.
+  expect(await gh.forge.findPr("work/card", "main", signal(), fork)).toBeNull();
+  expect(await gh.forge.createPr("thread", input, signal(), fork)).toMatchObject({ number: 6 });
+  const post = (await gh.requests()).find((request) => request.path === "repos/octo/ace/pulls");
+  expect(post?.body).toMatchObject({ head: "octo:work/card", head_repo: "ace-fork" });
+});
+
+test("the fork's own open PR is found among same-named branches of its network", async () => {
+  const repo = (name: string) => ({ name, owner: { login: "octo" } });
+  const gh = await setup({
+    [lookup("octo")]: [
+      {
+        body: [
+          { ...created(5), base: { ref: "main" }, head: { sha, ref: "work/card", repo: repo("ace") } },
+          { ...created(8), base: { ref: "main" }, head: { sha, ref: "work/card", repo: repo("ace-fork") } },
+        ],
+      },
+    ],
+  });
+  expect(
+    await gh.forge.findPr("work/card", "main", signal(), { owner: "octo", name: "ace-fork" }),
+  ).toMatchObject({ number: 8 });
 });

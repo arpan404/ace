@@ -7,6 +7,11 @@ import {
 import { prCreateTarget } from "./pr-create-target.ts";
 import type { WorkspaceForgeContext } from "./workspace-forge-context.ts";
 
+/** How long reads reuse a checkout's resolved target (its remote and its fork parent). */
+const targetReuseMs = 30_000;
+
+type Target = Awaited<ReturnType<WorkspaceNewPr["resolveTarget"]>>;
+
 /**
  * A project's new pull request from any branch, with no thread: where it opens (a fork's
  * parent), its branches and template, and the create itself. The create shares the thread
@@ -14,10 +19,13 @@ import type { WorkspaceForgeContext } from "./workspace-forge-context.ts";
  */
 export class WorkspaceNewPr {
   private ctx: WorkspaceForgeContext;
+  /** Reads of one page (context, options, each compare page) share one resolved target. */
+  private targets = new Map<string, { at: number; value: Promise<Target> }>();
   constructor(ctx: WorkspaceForgeContext) {
     this.ctx = ctx;
   }
-  private async target(cwd: string) {
+  /** Where a PR from this checkout opens, read now: what every create uses. */
+  private async resolveTarget(cwd: string) {
     const checkout = await this.ctx.backends.checkoutRepository(cwd);
     const pushed = await this.ctx.backends.backend(cwd, checkout.repository);
     const metadata = await pushed.repositoryMetadata(this.ctx.signal);
@@ -28,8 +36,20 @@ export class WorkspaceNewPr {
         : await this.ctx.backends.backend(cwd, target.repository);
     return { target, pushed, backend, headDefault: metadata.defaultBranch };
   }
+  /** The target for reads, reused for a short while; a failed resolution is never reused. */
+  private cachedTarget(cwd: string): Promise<Target> {
+    const now = this.ctx.now();
+    const kept = this.targets.get(cwd);
+    if (kept && now - kept.at < targetReuseMs) return kept.value;
+    const value = this.resolveTarget(cwd);
+    this.targets.set(cwd, { at: now, value });
+    value.catch(() => {
+      if (this.targets.get(cwd)?.value === value) this.targets.delete(cwd);
+    });
+    return value;
+  }
   async context(cwd: string, signal: AbortSignal): Promise<ForgeNewPrContext> {
-    const { target, pushed, backend, headDefault } = await this.target(cwd);
+    const { target, pushed, backend, headDefault } = await this.cachedTarget(cwd);
     const fork = backend !== pushed;
     const [base, head, template] = await Promise.all([
       backend.branches(target.base, signal),
@@ -44,7 +64,7 @@ export class WorkspaceNewPr {
   }
   /** The backend for the repository the new PR opens on, for its options and comparisons. */
   async targetBackend(cwd: string): Promise<GitHubForge> {
-    return (await this.target(cwd)).backend;
+    return (await this.cachedTarget(cwd)).backend;
   }
   async create(
     input: unknown,
@@ -53,19 +73,29 @@ export class WorkspaceNewPr {
   ): Promise<Omit<CommandResult, "commandId">> {
     const p = ForgeHostedPrCreateCommand.parse(input);
     const signal = this.ctx.signal;
-    const { target, backend } = await this.target(cwd);
+    const { target, backend } = await this.resolveTarget(cwd);
     if (repositoryKey(p.repository) !== repositoryKey(target.repository))
       throw new Error("repository_mismatch");
-    // The branch lives in the pushed repository (a fork) or the target itself.
-    const owners = [target.headOwner, target.repository.owner].map((owner) => owner.toLowerCase());
-    if (!owners.includes(p.head.owner.toLowerCase())) throw new Error("repository_mismatch");
-    if (
-      p.head.owner.toLowerCase() === target.repository.owner.toLowerCase() &&
-      p.head.branch === p.base
-    )
+    // The branch lives in the pushed repository (a fork) or the target itself, by owner and
+    // name: a fork may share its owner with its parent.
+    const same = (a: { owner: string; name: string }, b: { owner: string; name: string }) =>
+      a.owner.toLowerCase() === b.owner.toLowerCase() &&
+      a.name.toLowerCase() === b.name.toLowerCase();
+    const head = { owner: p.head.owner, name: p.head.name };
+    if (!same(head, target.head) && !same(head, target.repository))
+      throw new Error("repository_mismatch");
+    if (same(head, target.repository) && p.head.branch === p.base)
       throw new ForgeError("no_commits");
-    const found = await backend.findPr(p.head.branch, p.base, signal, p.head.owner);
-    if (found) return this.result(backend, found.number, { prExisting: true });
+    const found = await backend.findPr(p.head.branch, p.base, signal, head);
+    if (found) {
+      // A create whose answer was lost, or one that raced another: the PR exists. What this
+      // create asked for is added to it, never replacing what it already has.
+      const incomplete = await this.addDetails(backend, found.number, p, allowed);
+      return this.result(backend, found.number, {
+        prExisting: true,
+        ...(incomplete ? { code: "forge_pr_details_incomplete" } : {}),
+      });
+    }
     signal.throwIfAborted();
     if (!allowed()) return { ok: false, error: "forbidden" };
     let created;
@@ -73,7 +103,7 @@ export class WorkspaceNewPr {
       created = await backend.openPr(
         { branch: p.head.branch, base: p.base, title: p.title, body: p.body, draft: p.draft },
         signal,
-        p.head.owner,
+        head,
       );
     } catch (error) {
       // GitHub may have opened it: the next attempt finds it rather than opening another.
@@ -83,31 +113,73 @@ export class WorkspaceNewPr {
     }
     // The pull request exists now. What follows only adds to it; a refusal is reported, and
     // nothing is sent again.
-    let incomplete = false;
-    const fields = {
-      ...(p.labels.length ? { labels: p.labels } : {}),
-      ...(p.assignees.length ? { assignees: p.assignees } : {}),
-      ...(p.milestone ? { milestone: p.milestone } : {}),
-    };
-    if (Object.keys(fields).length)
-      try {
-        if (!allowed()) throw new Error("forbidden");
-        await backend.setIssueFields(created.number, fields, signal);
-      } catch {
-        incomplete = true;
-      }
-    if (p.reviewers.length)
-      try {
-        if (!allowed()) throw new Error("forbidden");
-        await backend.requestReviews(created.number, p.reviewers, signal);
-      } catch {
-        incomplete = true;
-      }
+    const incomplete = await this.setDetails(backend, created.number, p, allowed);
     return this.result(
       backend,
       created.number,
       incomplete ? { code: "forge_pr_details_incomplete" } : {},
     );
+  }
+  /** Each write in turn; true when any was refused or not allowed. */
+  private async attempt(
+    allowed: () => boolean,
+    writes: readonly (() => Promise<void>)[],
+  ): Promise<boolean> {
+    let incomplete = false;
+    for (const write of writes)
+      try {
+        if (!allowed()) throw new Error("forbidden");
+        await write();
+      } catch {
+        incomplete = true;
+      }
+    return incomplete;
+  }
+  /** A new PR's labels, assignees and milestone in one issue write, then its reviewers. */
+  private setDetails(
+    backend: GitHubForge,
+    number: number,
+    p: ForgeHostedPrCreateCommand,
+    allowed: () => boolean,
+  ): Promise<boolean> {
+    const signal = this.ctx.signal;
+    const fields = {
+      ...(p.labels.length ? { labels: p.labels } : {}),
+      ...(p.assignees.length ? { assignees: p.assignees } : {}),
+      ...(p.milestone ? { milestone: p.milestone } : {}),
+    };
+    return this.attempt(allowed, [
+      ...(Object.keys(fields).length
+        ? [() => backend.setIssueFields(number, fields, signal)]
+        : []),
+      ...(p.reviewers.length ? [() => backend.requestReviews(number, p.reviewers, signal)] : []),
+    ]);
+  }
+  /** The same details added to an existing PR: labels and assignees join what it has. */
+  private addDetails(
+    backend: GitHubForge,
+    number: number,
+    p: ForgeHostedPrCreateCommand,
+    allowed: () => boolean,
+  ): Promise<boolean> {
+    const signal = this.ctx.signal;
+    const milestone = p.milestone;
+    return this.attempt(allowed, [
+      ...(p.labels.length || p.assignees.length
+        ? [
+            () =>
+              backend.addIssueFields(
+                number,
+                { labels: p.labels, assignees: p.assignees },
+                signal,
+              ),
+          ]
+        : []),
+      ...(milestone === undefined
+        ? []
+        : [() => backend.setIssueFields(number, { milestone }, signal)]),
+      ...(p.reviewers.length ? [() => backend.requestReviews(number, p.reviewers, signal)] : []),
+    ]);
   }
   private async result(
     backend: GitHubForge,

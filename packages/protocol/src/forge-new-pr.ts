@@ -72,8 +72,18 @@ export const ForgeRepoPrOptions = z.object({
 });
 export type ForgeRepoPrOptions = z.infer<typeof ForgeRepoPrOptions>;
 
-/** The head side of a comparison: a branch of the base repository, or of a fork of it. */
-export const ForgeCompareHead = z.object({ owner: login, branch: ForgeBranchName });
+/**
+ * The head side of a comparison: a branch and the repository it lives in, this one or a fork in
+ * its network. The name matters: a fork can share its owner with its parent.
+ */
+export const ForgeCompareHead = z.object({
+  owner: login,
+  name: z
+    .string()
+    .regex(/^[\w.-]+$/)
+    .max(100),
+  branch: ForgeBranchName,
+});
 export type ForgeCompareHead = z.infer<typeof ForgeCompareHead>;
 
 /** Commits and changed files between two branches, as a pull request of them would show. */

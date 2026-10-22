@@ -7,6 +7,7 @@ import {
   extraRecord,
   headRef,
   openPrsFrom,
+  openPrsOnto,
 } from "./testing/lifecycle-extra-fixtures.ts";
 import type { ForgeLifecycleAction } from "@ace/protocol/forge-lifecycle";
 
@@ -354,6 +355,36 @@ test("a milestone save sends assignees as GitHub spells their logins", async () 
     ).toEqual({ outcome: "accepted", headSha: sha });
     const [write] = await writes(f);
     expect(write?.body).toEqual({ assignees: ["octo"], milestone: 3 });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("after a close, a branch other open PRs are stacked on is kept: delete isn't offered", async () => {
+  // GitHub closes, rather than retargets, PRs based on a closed PR's deleted branch.
+  const f = await fakeGh(extraFixtures([extraRecord({ state: "CLOSED" })], { stackedOnto: [12] }));
+  try {
+    const snapshot = await f.forge.lifecycle.snapshot(7, signal());
+    expect(snapshot.actions).not.toContain("branch.delete");
+    expect(snapshot.headBranch?.usedBy).toEqual([12]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a PR stacked on a closed PR's branch after the snapshot stops the delete unsent", async () => {
+  const closed = extraRecord({ state: "CLOSED" });
+  const f = await fakeGh({
+    ...extraFixtures([closed]),
+    ...headRef("feature/fix"),
+    ...openPrsFrom("feature/fix", []),
+    ...openPrsOnto("feature/fix", [12]),
+  });
+  try {
+    await expect(apply(f, { kind: "branch.delete" })).rejects.toMatchObject({
+      kind: "branch_in_use",
+    });
+    expect(await writes(f)).toEqual([]);
   } finally {
     await f.cleanup();
   }

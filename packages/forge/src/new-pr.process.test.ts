@@ -19,7 +19,7 @@ const commit = (n: number) => ({
 });
 /** GitHub's open PRs from `owner:branch` into `base`, as the compare's lookup reads them. */
 const openFrom = (owner: string, branch: string, numbers: number[] = []) => ({
-  [`repos/octo/ace/pulls?${new URLSearchParams({ state: "open", head: `${owner}:${branch}`, base: "main", per_page: "2" })}`]:
+  [`repos/octo/ace/pulls?${new URLSearchParams({ state: "open", head: `${owner}:${branch}`, base: "main", per_page: "10" })}`]:
     [
       {
         body: numbers.map((number) => ({
@@ -59,7 +59,7 @@ test("a comparison lists its commits oldest first and its files a page at a time
   });
   const first = await gh.forge.compare(
     "main",
-    { owner: "octo", branch: "feature/card" },
+    { owner: "octo", name: "ace", branch: "feature/card" },
     1,
     signal(),
   );
@@ -71,7 +71,7 @@ test("a comparison lists its commits oldest first and its files a page at a time
   expect(first.existingPr).toBe(41);
   const second = await gh.forge.compare(
     "main",
-    { owner: "octo", branch: "feature/card" },
+    { owner: "octo", name: "ace", branch: "feature/card" },
     2,
     signal(),
   );
@@ -96,7 +96,7 @@ test("a fork's branch is compared as owner:branch", async () => {
       },
     ],
   });
-  const result = await gh.forge.compare("main", { owner: "fork", branch: "card" }, 1, signal());
+  const result = await gh.forge.compare("main", { owner: "fork", name: "ace", branch: "card" }, 1, signal());
   expect(result).toMatchObject({ status: "identical", headSha: nextSha, totalCommits: 0 });
   expect(result.existingPr).toBeUndefined();
 });
@@ -169,14 +169,14 @@ test("a branch name git wouldn't take never reaches GitHub", async () => {
   const gh = await setup({});
   for (const branch of ["a/../b", "..", "-x", "a b", "x.lock"]) {
     await expect(
-      gh.forge.compare("main", { owner: "octo", branch }, 1, signal()),
+      gh.forge.compare("main", { owner: "octo", name: "ace", branch }, 1, signal()),
     ).rejects.toMatchObject({ kind: "unprocessable" });
     await expect(
       gh.forge.openPr({ branch, base: "main", title: "T", body: "", draft: false }, signal()),
     ).rejects.toMatchObject({ kind: "unprocessable" });
   }
   await expect(
-    gh.forge.compare("../main", { owner: "octo", branch: "fix" }, 1, signal()),
+    gh.forge.compare("../main", { owner: "octo", name: "ace", branch: "fix" }, 1, signal()),
   ).rejects.toMatchObject({ kind: "unprocessable" });
 });
 
@@ -199,8 +199,40 @@ test("a comparison GitHub cuts at 250 commits still names the branch's newest as
       },
     ],
   });
-  const result = await gh.forge.compare("main", { owner: "octo", branch: "big" }, 1, signal());
+  const result = await gh.forge.compare("main", { owner: "octo", name: "ace", branch: "big" }, 1, signal());
   expect(result).toMatchObject({ headSha: commit(250).sha, truncated: true, totalCommits: 300 });
   const compared = (await gh.requests()).find((request) => request.path.includes("/compare/"));
   expect(compared?.path).not.toContain("page");
+});
+
+test("a fork with the parent's owner is compared at its own branch's commit, read from the fork", async () => {
+  const forkHead = "c".repeat(40);
+  const gh = await setup({
+    ...openFrom("octo", "card"),
+    "repos/octo/ace-fork/git/ref/heads/card": [{ body: { object: { sha: forkHead } } }],
+    [`repos/octo/ace/compare/main...${forkHead}`]: [
+      {
+        body: {
+          status: "ahead",
+          ahead_by: 1,
+          behind_by: 0,
+          total_commits: 1,
+          merge_base_commit: { sha },
+          commits: [commit(1)],
+          files: [file(1)],
+        },
+      },
+    ],
+  });
+  const result = await gh.forge.compare(
+    "main",
+    { owner: "octo", name: "ace-fork", branch: "card" },
+    1,
+    signal(),
+  );
+  expect(result).toMatchObject({ aheadBy: 1, totalFiles: 1 });
+  // Never `main...card`, which is the parent's own branch.
+  expect((await gh.requests()).some((request) => request.path.endsWith("/compare/main...card"))).toBe(
+    false,
+  );
 });

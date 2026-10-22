@@ -64,7 +64,7 @@ export function mapLifecycleExtras(
     deleteOnMerge: extras.deleteBranchOnMerge,
     // GitHub's one flag covers both: it may delete the head branch, or restore it once deleted.
     canRestoreHead: pr.viewerCanDeleteHeadRef,
-    openPrsOnHead: (pr.headRef?.associatedPullRequests.nodes ?? []).flatMap((node) =>
+    openPrsUsingBranch: (pr.headRef?.associatedPullRequests.nodes ?? []).flatMap((node) =>
       node && node.number !== number ? [node.number] : [],
     ),
   };
@@ -91,7 +91,7 @@ export function mapLifecycleExtras(
         sameRepository: facts.sameRepository,
         isDefault: facts.isDefault,
         deleteOnMerge: facts.deleteOnMerge,
-        usedBy: [...facts.openPrsOnHead],
+        usedBy: [...facts.openPrsUsingBranch],
       },
       closingIssues,
     },

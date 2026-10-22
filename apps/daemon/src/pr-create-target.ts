@@ -6,8 +6,8 @@ export type PrCreateTarget = {
   /** The fork's parent when the pushed repository is a fork, else the pushed repository. */
   repository: ForgeRepository;
   base: string;
-  /** Owner of the repository that holds the pushed branch (the fork, for fork PRs). */
-  headOwner: string;
+  /** The repository that holds the pushed branch, owner and name: a fork may share its owner. */
+  head: { owner: string; name: string };
 };
 
 /**
@@ -55,6 +55,6 @@ export function prCreateTarget(
   return {
     repository: parent?.repository ?? pushed,
     base: base.reviewed ?? base.recorded ?? parent?.defaultBranch ?? metadata.defaultBranch,
-    headOwner: pushed.owner,
+    head: { owner: pushed.owner, name: pushed.name },
   };
 }

@@ -12,7 +12,7 @@ import { WorkspaceRuntime } from "./workspace-runtime.ts";
 const execute = promisify(execFile);
 const upstream = { ...repository, owner: "acme" };
 const lookup = (repo: string, owner: string) =>
-  `repos/${repo}/pulls?${new URLSearchParams({ state: "open", head: `${owner}:feature/card`, base: "main", per_page: "2" })}`;
+  `repos/${repo}/pulls?${new URLSearchParams({ state: "open", head: `${owner}:feature/card`, base: "main", per_page: "10" })}`;
 const opened = { ...pr, number: 7, head: { sha, ref: "feature/card" }, base: { ref: "main" } };
 const metadata = (parent?: { owner: string; name: string }) => ({
   body: {

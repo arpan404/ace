@@ -51,9 +51,28 @@ export function extraRecord(
 /** Snapshots answered in order, from a host that reports the extra facts. */
 export function extraFixtures(
   records: ReturnType<typeof extraRecord>[],
-  repository: { permission?: string; deleteBranchOnMerge?: boolean; defaultBranch?: string } = {},
+  repository: {
+    permission?: string;
+    deleteBranchOnMerge?: boolean;
+    defaultBranch?: string;
+    /** Open PRs whose base is the head branch, as the closed-PR read finds them. */
+    stackedOnto?: number[];
+  } = {},
 ): Fixtures {
   return {
+    "graphql:query AceStackedOnto": [
+      {
+        body: {
+          data: {
+            repository: {
+              pullRequests: {
+                nodes: (repository.stackedOnto ?? []).map((number) => ({ number })),
+              },
+            },
+          },
+        },
+      },
+    ],
     "graphql:query AceLifecycleSnapshot": records.map((pullRequest) => ({
       body: {
         data: {
@@ -92,5 +111,11 @@ export function headRef(branch: string, at: string | null = sha) {
 /** GitHub's open PRs whose head is `branch` in octo/ace, as the delete recheck reads them. */
 export function openPrsFrom(branch: string, numbers: number[]) {
   const query = new URLSearchParams({ state: "open", head: `octo:${branch}`, per_page: "10" });
+  return { [`repos/octo/ace/pulls?${query}`]: [{ body: numbers.map((number) => ({ number })) }] };
+}
+
+/** GitHub's open PRs based on `branch` in octo/ace, as the delete recheck reads them. */
+export function openPrsOnto(branch: string, numbers: number[]) {
+  const query = new URLSearchParams({ state: "open", base: branch, per_page: "10" });
   return { [`repos/octo/ace/pulls?${query}`]: [{ body: numbers.map((number) => ({ number })) }] };
 }
