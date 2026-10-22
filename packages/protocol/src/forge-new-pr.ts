@@ -23,6 +23,7 @@ export const ForgeBranchName = z
   .min(1)
   .max(256)
   .regex(
+    // oxlint-disable-next-line no-control-regex -- git refuses control characters; so does this.
     /^(?!-)(?!\/)(?!.*\/$)(?!.*\.$)(?!.*\.\.)(?!.*\/\/)(?!.*@\{)(?!@$)(?!(?:.*\/)?\.)(?!.*\.lock(?:\/|$))[^\x00-\x20\x7f~^:?*[\\]+$/,
   );
 

@@ -400,6 +400,26 @@
     {
       "properties": {
         "resource": {
+          "const": "repoMilestones",
+          "type": "string"
+        },
+        "value": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ForgeMilestone.json"
+          },
+          "maxItems": 100,
+          "type": "array"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
           "const": "compare",
           "type": "string"
         },

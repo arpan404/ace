@@ -29,8 +29,8 @@ export function extraRecord(
     openOnHead?: number[];
   } = {},
 ) {
-  const { closing: issues = [], manual = [], openOnHead = [], headRef, ...rest } = overrides;
-  const ref = headRef === undefined ? { name: "feature/fix" } : headRef;
+  const { closing: issues = [], manual = [], openOnHead = [], headRef: given, ...rest } = overrides;
+  const ref = given === undefined ? { name: "feature/fix" } : given;
   return {
     ...lifecycleRecord(rest.state ? { state: rest.state } : {}),
     milestone: null,

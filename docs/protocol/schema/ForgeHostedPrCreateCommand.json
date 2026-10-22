@@ -13,9 +13,7 @@
       "type": "array"
     },
     "base": {
-      "maxLength": 256,
-      "minLength": 1,
-      "type": "string"
+      "$ref": "https://ace.local/protocol/v1/ForgeBranchName.json"
     },
     "body": {
       "maxLength": 65536,

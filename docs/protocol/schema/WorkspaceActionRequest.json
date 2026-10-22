@@ -547,10 +547,27 @@
         },
         {
           "properties": {
-            "base": {
-              "maxLength": 256,
-              "minLength": 1,
+            "op": {
+              "const": "forge.repo.milestones",
               "type": "string"
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "base": {
+              "$ref": "https://ace.local/protocol/v1/ForgeBranchName.json"
             },
             "head": {
               "$ref": "https://ace.local/protocol/v1/ForgeCompareHead.json"

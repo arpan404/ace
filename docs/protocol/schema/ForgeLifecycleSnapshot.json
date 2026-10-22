@@ -79,6 +79,15 @@
         },
         "sameRepository": {
           "type": "boolean"
+        },
+        "usedBy": {
+          "items": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "maxItems": 10,
+          "type": "array"
         }
       },
       "required": [

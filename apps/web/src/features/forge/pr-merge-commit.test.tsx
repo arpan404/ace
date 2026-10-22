@@ -38,7 +38,9 @@ test("a push keeps the edited title, follows GitHub for the untouched message, a
   );
   expect(screen.getByText(/The branch has new commits since this opened/)).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Confirm squash and merge" }));
-  expect(sent).toEqual([{ title: "Fix the build for good (#7)", message: "* Fix build\n* Add test" }]);
+  expect(sent).toEqual([
+    { title: "Fix the build for good (#7)", message: "* Fix build\n* Add test" },
+  ]);
 });
 
 test("an edited message keeps its words when GitHub's text changes, and can take the new text on request", async () => {

@@ -142,8 +142,10 @@ uncertain-write handling:
 - Milestone: `PATCH /repos/{o}/{r}/issues/{n}` with `milestone` (a number, or null to clear),
   for anyone who triages. The same request carries title, description, labels and assignees
   when they change with it; a base change can't, so the editor saves the base first and then the
-  milestone against the version after it. Open milestones come from
-  `GET /repos/{o}/{r}/milestones?state=open`.
+  milestone against the version after it. Labels and assignees in the same save go through the
+  same name lookup as an edit without a milestone, so an unknown name refuses both alike, and
+  GitHub's own spelling is sent. Open milestones come from
+  `GET /repos/{o}/{r}/milestones?state=open`, read alone for the editor.
 - Lock and unlock: `PUT` and `DELETE /repos/{o}/{r}/issues/{n}/lock` with GitHub's reasons.
   Locked, the PR page's composer and review actions refuse comments from accounts that can't
   push.
@@ -151,6 +153,10 @@ uncertain-write handling:
   for a branch in the same repository that isn't the default and still exists, and not after a
   merge when the repository deletes merged branches itself. The ref is read first: a branch
   that moved past the PR's head keeps commits the PR doesn't, so it is refused (`head_moved`).
+  A branch another open PR comes from is kept: the snapshot reads the head ref's open
+  `associatedPullRequests` and doesn't offer delete while any other is open, and the write
+  checks `GET pulls?state=open&head=owner:branch` again just before sending (`branch_in_use`).
+  A branch already gone by then is reported as `branch_gone`, not as a branch to push.
 - Restore branch: `POST /repos/{o}/{r}/git/refs` at the PR's head commit, when the branch is
   gone and nothing else took its name.
 - Link and unlink an issue: GraphQL `addCloseIssueReferences` and `removeCloseIssueReferences`.
@@ -177,4 +183,7 @@ PR open and returns `forge_pr_details_incomplete`. The page reads branches
 `pullRequestTemplates`, the default one when there are several), labels and assignable people
 (`GET /repos/{o}/{r}/labels` and `/assignees`), and the comparison
 (`GET /repos/{o}/{r}/compare/{base}...{head}`: up to 250 commits and 300 files, served 25 files a
-page from one cached read).
+page from one cached read). Compare is read without paging parameters, where GitHub documents
+the last listed commit as the newest of the whole comparison; its first page also looks up the
+open PR the pair already has, so the page offers that PR instead of Create. Branch names a client
+sends must pass git's ref name rules (`ForgeBranchName`) before they reach a URL path.

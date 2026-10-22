@@ -85,13 +85,7 @@ function FilePage(props: {
   page: number;
   sameRepository: boolean;
 }) {
-  const page = useCompare(
-    props.project,
-    props.base,
-    props.head,
-    props.page,
-    props.sameRepository,
-  );
+  const page = useCompare(props.project, props.base, props.head, props.page, props.sameRepository);
   if (page.error)
     return <p className="mt-2 text-ui text-muted-foreground">{readFailureText(page.error)}</p>;
   return page.data ? (
@@ -111,13 +105,7 @@ function MoreFiles(props: {
   sameRepository: boolean;
   onMore(): void;
 }) {
-  const last = useCompare(
-    props.project,
-    props.base,
-    props.head,
-    props.pages,
-    props.sameRepository,
-  );
+  const last = useCompare(props.project, props.base, props.head, props.pages, props.sameRepository);
   const next = props.pages === 1 ? props.first.nextPage : last.data?.nextPage;
   if (!next) return null;
   const shown = Math.min(props.pages * 25, props.first.totalFiles);

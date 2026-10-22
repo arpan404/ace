@@ -310,21 +310,19 @@ export class FakePrCatalog {
             )
           : undefined;
       const compared = compareBranches(
-          now,
-          op.base,
-          op.head,
-          op.page,
-          (branch) =>
-            pr(branch)?.files.map(
-              (each) => [each.path, each.additions, each.deletions] as [string, number, number],
-            ),
-          (branch) => pr(branch)?.detail.status.title,
+        now,
+        op.base,
+        op.head,
+        op.page,
+        (branch) =>
+          pr(branch)?.files.map(
+            (each) => [each.path, each.additions, each.deletions] as [string, number, number],
+          ),
+        (branch) => pr(branch)?.detail.status.title,
       );
       return {
         resource: "compare",
-        value: existing
-          ? { ...compared, existingPr: existing.detail.status.ref.number }
-          : compared,
+        value: existing ? { ...compared, existingPr: existing.detail.status.ref.number } : compared,
       };
     }
     if (op.op === "forge.pr.stack-memberships") {
