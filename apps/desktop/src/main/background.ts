@@ -30,6 +30,8 @@ export interface BackgroundOptions {
   open(link?: DeepLink): void;
   quitAll(): void;
   log(message: string): void;
+  /** Whether the desktop shows tray icons (`linuxTrayHost`); absent where it always does. */
+  trayHost?: (() => Promise<boolean>) | undefined;
 }
 
 /** How long Quit waits for the daemon link to close before it moves on. */
@@ -65,6 +67,8 @@ export class Background {
   /** Agents working, as the daemon link last reported. */
   private working = 0;
   private hadWindow = false;
+  /** The person was told, this run, that ace keeps running with no tray icon to show it. */
+  private toldUnseen = false;
   private notifier: NativeNotifier;
   private options: BackgroundOptions;
 
@@ -265,8 +269,34 @@ export class Background {
     });
     if (lifetime.tray) this.tray.show();
     else this.tray.hide();
+    if (lifetime.tray && !lifetime.quit && this.hadWindow && !this.hasWindow()) this.tellUnseen();
     // An app started hidden (in the background) has never had a window to close.
     if (lifetime.quit && this.hadWindow) this.options.quitAll();
+  }
+
+  /**
+   * The window closed and ace keeps running, with the tray icon as the way back. A desktop
+   * that shows no tray icons (stock GNOME) would leave ace running unseen: say so, once a run.
+   */
+  private tellUnseen(): void {
+    const check = this.options.trayHost;
+    if (!check || this.toldUnseen) return;
+    this.toldUnseen = true;
+    void check()
+      .then((shown) => {
+        if (shown || this.stopped || this.hasWindow()) return;
+        this.notifier.show({
+          tag: "ace-running",
+          groupId: "ace",
+          title: "ace is still running",
+          body: "This desktop shows no tray icon for it. Open ace from your apps to get back to it, or turn off Keep running in background.",
+          link: { kind: "settings", page: "general" },
+          actions: [],
+          reply: false,
+          alert: undefined,
+        });
+      })
+      .catch((error: unknown) => this.options.log(`Tray check failed: ${String(error)}`));
   }
 
   /** Draw (or hide) a thread's embedded view where a renderer's Browser tab is. */

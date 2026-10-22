@@ -34,6 +34,7 @@ import { applicationMenu } from "./menu.ts";
 import { cliShimCheck, cliShimLog, runningAppImage, type CliShimResult } from "./os/cli-shim.ts";
 import { installCliShim } from "./os/cli-shim-install.ts";
 import { linuxAutostart, nodeAutostartFiles } from "./os/autostart.ts";
+import { linuxTrayHost, runProgram } from "./os/tray-host.ts";
 import { backgroundArgument, startHidden } from "./os/login.ts";
 import { enableFeatures, linuxFeatures } from "./os/chromium-features.ts";
 import { settingsEffects } from "./os/settings-effects.ts";
@@ -52,6 +53,9 @@ import {
   openVisualizationWindow,
 } from "./visualization-isolation.ts";
 import { windowBackground, WindowBackgroundStore } from "./window/window-background.ts";
+
+/** How long the Linux tray check may take before ace assumes the desktop has a tray. */
+const trayCheckMs = 2_000;
 
 /** Set at build time; unpackaged runs have no app package.json for `app.getVersion()`. */
 declare const ACE_APP_VERSION: string;
@@ -195,6 +199,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
     open: (link) => open(link),
     quitAll: () => app.quit(),
     log: (message) => log("warn", message),
+    trayHost:
+      process.platform === "linux" ? () => linuxTrayHost(runProgram(trayCheckMs)) : undefined,
   });
 
   let quitting = false;
