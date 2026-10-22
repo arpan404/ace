@@ -46,10 +46,3 @@ export const antigravityIdentity = AcpIdentity.parse({
 });
 export const createAntigravityInstance = (userHome: string) =>
   createAcpInstance({ identity: antigravityIdentity, label: "Antigravity", userHome });
-
-export function acpIsolation(): { status: "unsupported"; reason: string } {
-  return {
-    status: "unsupported",
-    reason: "ACP home and credential-store isolation has not been verified",
-  };
-}

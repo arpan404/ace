@@ -43,8 +43,14 @@ export {
   antigravityIdentity,
   createAcpInstance,
   createAntigravityInstance,
-  acpIsolation,
 } from "./acp-instances.ts";
+export {
+  acpIsolation,
+  acpManagedHome,
+  createManagedAcpInstance,
+  managedAcpEnv,
+  type AcpManagedHome,
+} from "./acp-managed-home.ts";
 export { loginAcpAccount, AcpLoginPlan, type AcpLoginResolver } from "./acp-login.ts";
 
 export { daemonCursorAuth, cursorDaemonDriver, type CursorCliAuth } from "./cursor-cli-auth.ts";
