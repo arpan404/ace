@@ -31,8 +31,10 @@ export interface ScreenSessionView {
   stoppable: boolean;
   /** The machine's sharing dialog is waiting for the person to choose (Linux on Wayland). */
   awaitingChoice: boolean;
-  /** A whole screen is shared: watch only, nobody can take control. */
+  /** A whole display captured without a sharing dialog: watch only, nobody can take control. */
   viewOnly: boolean;
+  /** A screen the person shared in the machine's sharing dialog: theirs to control, never an agent's. */
+  personOnly: boolean;
 }
 
 const lifecycleOrder: Record<ScreenState["lifecycle"], number> = {
@@ -135,9 +137,8 @@ export function screenSession(
           ? state.target.picked?.title
           : undefined,
     awaitingChoice: state.target.kind === "chooser" && state.lifecycle === "starting",
-    viewOnly:
-      state.target.kind === "display" ||
-      (state.target.kind === "chooser" && state.target.picked?.source === "display"),
+    viewOnly: state.target.kind === "display",
+    personOnly: state.target.kind === "chooser" && state.target.picked?.source === "display",
     controller: state.controller,
     holder: state.holder,
     lifecycle: state.lifecycle,

@@ -39,7 +39,7 @@ test("an agent the phone can't name is said plainly", () => {
   expect(session?.status).toBe("An agent is in control");
 });
 
-test("a window waiting in the machine's sharing dialog says where to choose it; a shared screen is watch only", () => {
+test("a window waiting in the machine's sharing dialog says where to choose it; a shared screen is the person's alone", () => {
   const [waiting] = phoneScreenSessions(
     [state("x", { lifecycle: "starting", target: { kind: "chooser" } })],
     () => undefined,
@@ -55,5 +55,10 @@ test("a window waiting in the machine's sharing dialog says where to choose it; 
     [state("x", { target: { kind: "chooser", picked: { source: "display" } } })],
     () => undefined,
   );
-  expect(screen).toMatchObject({ app: "Shared screen", viewOnly: true, awaitingChoice: false });
+  expect(screen).toMatchObject({
+    app: "Shared screen",
+    viewOnly: false,
+    personOnly: true,
+    awaitingChoice: false,
+  });
 });

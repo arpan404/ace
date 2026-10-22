@@ -98,6 +98,9 @@ export function SessionCard(props: {
         <p role="status" className="truncate text-sm text-muted-foreground">
           {view.awaitingChoice ? `${chooserWaitingCopy(machine)}.` : view.status}
           {view.viewOnly && view.lifecycle === "live" && " · Watch only"}
+          {view.personOnly &&
+            view.lifecycle === "live" &&
+            " · Only you can control a shared screen"}
           {state.controller === "agent" && holderThread && ` · ${holderThread}`}
         </p>
         {view.error && <p className="text-sm text-status-failed">{view.error}</p>}
@@ -122,25 +125,33 @@ export function SessionCard(props: {
               Take over
             </Button>
           )}
-          {controllable && state.controller !== "agent" && previous && view.stoppable && (
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={busy}
-              onClick={() => void use.delegate(state.sessionId, previous)}
-            >
-              Hand back
-            </Button>
-          )}
-          {controllable && state.controller !== "agent" && delegateThread && view.stoppable && (
-            <DelegateMenu
-              threadId={delegateThread}
-              disabled={busy}
-              onDelegate={(agentId) =>
-                void use.delegate(state.sessionId, { threadId: delegateThread, agentId })
-              }
-            />
-          )}
+          {controllable &&
+            !view.personOnly &&
+            state.controller !== "agent" &&
+            previous &&
+            view.stoppable && (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => void use.delegate(state.sessionId, previous)}
+              >
+                Hand back
+              </Button>
+            )}
+          {controllable &&
+            !view.personOnly &&
+            state.controller !== "agent" &&
+            delegateThread &&
+            view.stoppable && (
+              <DelegateMenu
+                threadId={delegateThread}
+                disabled={busy}
+                onDelegate={(agentId) =>
+                  void use.delegate(state.sessionId, { threadId: delegateThread, agentId })
+                }
+              />
+            )}
           {view.foreground && (
             <Button
               size="sm"

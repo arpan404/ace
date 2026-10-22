@@ -30,8 +30,10 @@ export function phoneScreenSessions(
       status: view.awaitingChoice ? `${chooserWaitingCopy(machine)}.` : view.status,
       /** The machine's sharing dialog is waiting for the person there: Cancel is all there is. */
       awaitingChoice: view.awaitingChoice,
-      /** A whole screen: watch only, nobody takes control. */
+      /** A whole display captured without a sharing dialog: watch only. */
       viewOnly: view.viewOnly,
+      /** A screen shared in the machine's dialog: the person's to control, never an agent's. */
+      personOnly: view.personOnly,
       tone: view.tone,
       mode: view.mode,
       foreground: view.foreground,

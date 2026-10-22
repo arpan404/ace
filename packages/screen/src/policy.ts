@@ -35,11 +35,10 @@ export function takeControl(
 }
 export function authorizeInput(control: Control, actor: "human" | "agent", owner: string): void {
   const target = control.state.target;
-  if (
-    target.kind === "display" ||
-    (target.kind === "chooser" && target.picked?.source !== "window")
-  )
-    throw new Error("Display capture is view-only");
+  if (target.kind === "display") throw new Error("Display capture is view-only");
+  // A screen picked in the machine's sharing dialog was granted to the person, not to agents.
+  if (target.kind === "chooser" && target.picked?.source !== "window" && actor !== "human")
+    throw new Error("A shared screen takes only the person's input");
   if (control.state.controller !== actor || control.owner !== owner)
     throw new Error("Controller ownership required");
 }

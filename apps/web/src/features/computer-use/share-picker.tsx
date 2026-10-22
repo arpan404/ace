@@ -170,7 +170,7 @@ export function SharePicker(props: { use: ComputerUse; threadId: string }) {
             {chooser && !choosing && !error && (
               <p className="text-sm text-muted-foreground">
                 {machine || "That computer"} asks in its own sharing dialog which window or screen
-                to share. A screen can be watched, not controlled.
+                to share. Only you can control a shared screen; agents can watch it.
               </p>
             )}
             {inventory && !chooser && (

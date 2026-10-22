@@ -74,12 +74,20 @@ test("sharing on a desktop whose dialog picks waits for the person there, then t
   expect(within(live).getByRole("button", { name: /Take over/ })).toBeTruthy();
 });
 
-test("a shared screen is watch-only: nobody can take it over", async () => {
+test("a shared screen is the person's to control and no agent's", async () => {
   const { app, panel } = await openSharing();
   app.daemon.screen.answerSharingDialog({ source: "display" });
   const card = await within(panel).findByRole("article", { name: "Shared screen" });
-  await waitFor(() => expect(within(card).getByRole("status").textContent).toMatch(/Watch only/));
-  expect(within(card).queryByRole("button", { name: /Take over/ })).toBeNull();
+  await waitFor(() =>
+    expect(within(card).getByRole("status").textContent).toMatch(
+      /Only you can control a shared screen/,
+    ),
+  );
+  expect(within(card).getByRole("button", { name: /Take over/ })).toBeTruthy();
+  await userEvent.click(within(card).getByRole("button", { name: /Take over/ }));
+  // Taken over, it can't be handed to an agent.
+  await waitFor(() => expect(within(card).queryByRole("button", { name: /Take over/ })).toBeNull());
+  expect(within(card).queryByRole("button", { name: /Hand back|Delegate/ })).toBeNull();
 });
 
 test("a declined sharing dialog is said in a sentence and nothing keeps running", async () => {

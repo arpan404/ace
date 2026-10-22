@@ -38,8 +38,10 @@ struct ScreenSessionInfo: Decodable, Identifiable, Hashable {
     let secureInputAllowed: Bool
     /// The machine's sharing dialog waits for the person there (Linux on Wayland).
     let awaitingChoice: Bool?
-    /// A whole screen is shared: watch only.
+    /// A whole display captured without a sharing dialog: watch only.
     let viewOnly: Bool?
+    /// A screen shared in the machine's dialog: the person's to control, never an agent's.
+    let personOnly: Bool?
     var id: String { sessionId }
     var waiting: Bool { awaitingChoice == true }
     var controllable: Bool { awaitingChoice != true && viewOnly != true }

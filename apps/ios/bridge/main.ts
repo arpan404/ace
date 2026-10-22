@@ -178,7 +178,7 @@ async function start(json: string): Promise<void> {
     featureConfig,
     (holder) => deviceAgent(holder.threadId, holder.agentId)?.name,
     async () =>
-      (machineName ??= (await client.request({ type: "host.identity", requestId: host.uuid() }))
+      (machineName ??= (await owner.request({ type: "host.identity", requestId: host.uuid() }))
         .identity.displayName),
   );
   const search = compose.search;
