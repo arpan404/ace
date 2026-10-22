@@ -123,6 +123,53 @@ import XCTest
             }
         }
     }
+    /// Words typed and left unsent come back on returning to the thread and after the app is killed.
+    func testUnsentWordsSurviveLeavingTheThreadAndARelaunch() {
+        let app = launch()
+        reveal("thread.ios-agents", in: app)
+        app.buttons["thread.ios-agents"].tap()
+        let input = app.textViews["composer.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 25))
+        input.tap()
+        input.typeText("Half a thought")
+        app.navigationBars.buttons.firstMatch.tap()
+        reveal("thread.ios-agents", in: app)
+        app.buttons["thread.ios-agents"].tap()
+        XCTAssertTrue(input.waitForExistence(timeout: 25))
+        XCTAssertEqual(input.value as? String, "Half a thought")
+        app.terminate()
+        let relaunched = XCUIApplication()
+        relaunched.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "--spike-keep-state"]
+        relaunched.launch()
+        // The relaunch reopens the thread it was killed on, words and all.
+        let restored = relaunched.textViews["composer.input"]
+        XCTAssertTrue(restored.waitForExistence(timeout: 25))
+        XCTAssertEqual(restored.value as? String, "Half a thought")
+        screenshot("thread-draft-restored")
+    }
+    /// Ended in the background, as the system ends apps for memory, the app comes back on the
+    /// thread it showed instead of the inbox; back at the inbox, the next launch starts there.
+    func testTheOpenThreadComesBackAfterTheAppIsEndedInTheBackground() {
+        let app = launch()
+        reveal("thread.ios-agents", in: app)
+        app.buttons["thread.ios-agents"].tap()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 25))
+        XCUIDevice.shared.press(.home)
+        sleep(3)
+        app.terminate()
+        app.launchArguments.append("--spike-keep-state")
+        app.launch()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.buttons["work.toggle"].firstMatch.waitForExistence(timeout: 25))
+        screenshot("thread-restored")
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 10))
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 30))
+        sleep(3)
+        XCTAssertFalse(app.buttons["thread.menu"].exists)
+    }
     /// The inbox lists more fixture threads than fit; scroll until the row shows.
     private func reveal(_ identifier: String, in app: XCUIApplication) {
         let row = app.buttons[identifier]

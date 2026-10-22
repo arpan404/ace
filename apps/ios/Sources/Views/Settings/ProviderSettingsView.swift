@@ -53,7 +53,7 @@ struct ProviderSettingsView: View {
         }
         .insetGroupedList()
         .navigationTitle("Providers").navigationBarTitleDisplayMode(.inline)
-        .task { model.refreshMachine() }.refreshable { model.refreshMachine() }
+        .readWhenConnected(model) { model.refreshMachine() }.refreshable { model.refreshMachine() }
     }
 }
 struct ProviderSignInView: View {

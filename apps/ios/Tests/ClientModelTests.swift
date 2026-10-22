@@ -46,6 +46,15 @@ import Foundation
         model.receive(try frame([["type": "thread.reset", "threadId": "a", "epoch": 3]]))
         #expect(model.thread?.items.isEmpty == true)
     }
+    @Test func screensWhoseReadsArentKeptReadAgainWhenTheBridgeCountsAReconnect() throws {
+        let model = ClientModel(now: { 0 })
+        #expect(model.reads.reconnects == 0)
+        model.receive(try frame([["type": "service.generations", "generations": ["usage": 1, "reconnects": 1]]]))
+        #expect(model.reads.reconnects == 1)
+        // A daemon change to one family is not the machine coming back.
+        model.receive(try frame([["type": "service.generations", "generations": ["usage": 2, "reconnects": 1]]]))
+        #expect(model.reads.reconnects == 1)
+    }
     private func item(_ id: String, text: String, index: Int) -> [String: Any] {
         ["type": "thread.item", "threadId": "a", "epoch": 1, "id": id,
          "row": ["id": id, "index": index, "type": "message", "role": "assistant", "text": text, "complete": false, "createdAt": 0, "agentId": "root", "truncated": false]]

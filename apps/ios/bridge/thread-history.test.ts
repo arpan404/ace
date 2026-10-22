@@ -18,7 +18,7 @@ test("a long thread is ready with its latest items before any older page arrives
   fake.apply("long", [facts.rootAgent("codex"), facts.turn("root")]);
   for (let index = 0; index < 500; index++)
     fake.apply("long", [facts.message("root", `m-${index}`, "assistant", `Step ${index}`)]);
-  const client = connect(fake, 2200);
+  const client = connect(fake, { items: 2200 });
   open(client, "long");
   const lease = client.thread("long");
   const filled = fillHistory({
@@ -65,7 +65,7 @@ test("older pages keep the rows already shown where they are, and native still o
     fake.apply("paged", [
       facts.message("root", `m-${index}`, index % 5 ? "assistant" : "user", `Step ${index}`),
     ]);
-  const client = connect(fake, 2200);
+  const client = connect(fake, { items: 2200 });
   open(client, "paged");
   const lease = client.thread("paged");
   await fillHistory({

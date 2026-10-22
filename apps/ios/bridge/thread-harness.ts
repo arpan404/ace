@@ -1,5 +1,5 @@
 import { native } from "./test-host.ts";
-import { ClientCore, type Lease, type ThreadSource } from "@ace/client";
+import { ClientCore, type Lease, type ReadSnapshotStorage, type ThreadSource } from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, HostId } from "@ace/protocol";
 import { PatchPump, followThread } from "./patches.ts";
@@ -58,9 +58,22 @@ export function fixture(): FakeDaemon {
   return new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "ios-test-token" });
 }
 
-export function connect(daemon: FakeDaemon, items?: number): ClientCore {
+/**
+ * `items`: the SDK's window. `readSnapshots`: what an earlier launch kept, painted before the
+ * daemon's snapshot. `held`: nothing the daemon sends arrives until it settles, as on a slow
+ * network.
+ */
+export function connect(
+  daemon: FakeDaemon,
+  {
+    items,
+    readSnapshots,
+    held,
+  }: { items?: number; readSnapshots?: ReadSnapshotStorage; held?: Promise<void> } = {},
+): ClientCore {
   let saved: string | null = null;
   client = new ClientCore({
+    ...(readSnapshots ? { readSnapshots } : {}),
     deviceId: DeviceId.parse("ios-bridge-test"),
     expectedHostId: HostId.parse("ios-test-host"),
     ...(items ? { limits: { items } } : {}),
@@ -69,8 +82,16 @@ export function connect(daemon: FakeDaemon, items?: number): ClientCore {
       let deliver: ((text: string) => void) | undefined;
       return {
         open: (events) => {
-          deliver = (text) => events.message(text);
-          inner.open(events);
+          let arriving = held ?? Promise.resolve();
+          const later =
+            <A extends unknown[]>(run: (...args: A) => void) =>
+            (...args: A) => {
+              if (!held) return run(...args);
+              arriving = arriving.then(() => run(...args));
+            };
+          const gated = { ...events, open: later(events.open), message: later(events.message) };
+          deliver = (text) => gated.message(text);
+          inner.open(gated);
         },
         send: (text) => {
           sent.push(text);

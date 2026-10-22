@@ -7,19 +7,19 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
         app.launch()
-        XCTAssertTrue(app.buttons["thread.ios-tree"].waitForExistence(timeout: 25))
+        app.revealRow("thread.ios-tree")
         screenshot("inbox")
         // Snoozed threads wait folded on their shelf at the end of the list.
         XCTAssertFalse(app.buttons["thread.ios-snoozed"].exists)
         let shelf = app.buttons["inbox.snoozed"].firstMatch
-        for _ in 0..<8 where !shelf.isHittable { app.swipeUp() }
+        app.bringToMiddle(shelf)
         shelf.tap()
         XCTAssertTrue(app.buttons["thread.ios-snoozed"].waitForExistence(timeout: 10))
         screenshot("inbox-snoozed")
 
         // Trailing swipe: Snooze asks until when; a snoozed row offers Wake instead.
         let tree = app.buttons["thread.ios-tree"]
-        for _ in 0..<8 where !tree.isHittable { app.swipeDown() }
+        app.bringToMiddle(tree)
         tree.swipeLeft()
         XCTAssertTrue(app.buttons["Snooze"].waitForExistence(timeout: 5))
         app.buttons["Snooze"].tap()
@@ -34,14 +34,14 @@ import XCTest
             if !wakes { app.swipeUp() }
         }
         XCTAssertTrue(wakes)
-        for _ in 0..<8 where !tree.isHittable { app.swipeUp() }
+        app.bringToMiddle(tree)
         tree.swipeLeft()
         XCTAssertTrue(app.buttons["Wake"].waitForExistence(timeout: 5))
         app.buttons["Wake"].tap()
 
         // Settle moves a finished thread to the Settled shelf; Undo brings it back.
         let done = app.buttons["thread.ios-done"]
-        for _ in 0..<8 where !done.isHittable { app.swipeUp() }
+        app.bringToMiddle(done)
         done.swipeLeft()
         XCTAssertTrue(app.buttons["Settle"].waitForExistence(timeout: 5))
         app.buttons["Settle"].tap()
@@ -56,7 +56,7 @@ import XCTest
         XCTAssertTrue(done.waitForExistence(timeout: 10))
 
         // Leading swipe archives, with its own Undo.
-        for _ in 0..<8 where !done.isHittable { app.swipeUp() }
+        app.bringToMiddle(done)
         done.swipeRight()
         XCTAssertTrue(app.buttons["Archive"].waitForExistence(timeout: 5))
         app.buttons["Archive"].tap()
