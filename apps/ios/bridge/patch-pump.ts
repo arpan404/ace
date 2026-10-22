@@ -203,7 +203,9 @@ export class PatchPump {
         }
         const serializeAt = tracing ? host.now() : 0;
         // Streaming text crosses as an edit of what native confirmed holding (`text-edit.ts`).
-        const sent = record ? itemPatch(patch, record.ledger.confirmed(task.key)) : patch;
+        const sent = record
+          ? itemPatch(patch, record.ledger.streaming(task.key), host.utf8Length)
+          : patch;
         const json = JSON.stringify(sent);
         const size = host.utf8Length(json);
         if (tracing) serializing += host.now() - serializeAt;

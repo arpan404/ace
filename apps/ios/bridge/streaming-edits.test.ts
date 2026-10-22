@@ -24,13 +24,15 @@ let pump: PatchPump;
 
 function receive(frame: string): boolean {
   const patches = JSON.parse(frame) as Edit[];
+  // Native measures and cuts in UTF-8 bytes, as Swift's strings do.
+  const length = (id: string) => Buffer.byteLength(shown.get(id) ?? "");
   for (const patch of patches)
-    if (patch.type === "thread.item.text" && shown.get(patch.id)?.length !== patch.base)
-      return false;
+    if (patch.type === "thread.item.text" && length(patch.id) !== patch.base) return false;
   for (const patch of patches) {
-    if (patch.type === "thread.item.text")
-      shown.set(patch.id, (shown.get(patch.id) ?? "").slice(patch.cut) + patch.append);
-    else if (patch.type === "thread.item" && patch.row) shown.set(patch.id, patch.row.text);
+    if (patch.type === "thread.item.text") {
+      const kept = Buffer.from(shown.get(patch.id) ?? "").subarray(patch.cut);
+      shown.set(patch.id, kept.toString() + patch.append);
+    } else if (patch.type === "thread.item" && patch.row) shown.set(patch.id, patch.row.text);
   }
   return true;
 }
@@ -63,7 +65,7 @@ test("a streaming answer reaches native whole while only its new words cross", a
   let text = "";
   let whole = 0;
   for (let delta = 0; delta < 200; delta++) {
-    text += `word${delta} `.repeat(8);
+    text += `wörd${delta} `.repeat(8);
     pump.put("thread:item:a", item("a", text));
     whole += Buffer.byteLength(JSON.stringify(item("a", text)()));
     await settle();

@@ -145,7 +145,7 @@ import QuartzCore
         }
         // An edit made against text this model no longer shows turns the whole frame down, before
         // anything applies; the bridge then sends that row whole.
-        guard let edited = resolveTextEdits(patches) else { return false }
+        guard let edited = HostTrace.measure("main.edits", { resolveTextEdits(patches) }) else { return false }
         HostTrace.measure("main.apply") { apply(edited) }
         return true
     }

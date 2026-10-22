@@ -31,6 +31,7 @@ export function ledgerText(patch: Record<string, unknown>): string {
 export class NativeLedger {
   readonly threadId: string;
   #entries = new Map<string, string>();
+  #streaming = new Map<string, string>();
   #bytes = 0;
   /** Native holds this ledger's patches: an "all" pass diffs instead of resetting. */
   #held = false;
@@ -53,10 +54,12 @@ export class NativeLedger {
   same(key: string, text: string): boolean {
     return this.#entries.get(key) === text;
   }
-  /** The patch native last confirmed for `key`, without its generation. */
-  confirmed(key: string): Record<string, unknown> | undefined {
-    const text = this.#entries.get(key);
-    return text === undefined ? undefined : (JSON.parse(text) as Record<string, unknown>);
+  /**
+   * The row text native last confirmed for an item still streaming, kept apart from the entry so
+   * each delta reads it without parsing the row (`text-edit.ts`).
+   */
+  streaming(key: string): string | undefined {
+    return this.#entries.has(key) ? this.#streaming.get(key) : undefined;
   }
   /** Native's copy of `key` is no longer known, after it turned a frame down. */
   forget(key: string): void {
@@ -73,7 +76,13 @@ export class NativeLedger {
       if (key.startsWith(prefix)) this.#forget(row + key.slice(prefix.length));
     if (!keptKey(key)) return;
     if (removable.test(key) && patch.row === null) this.#forget(key);
-    else this.#set(key, text);
+    else {
+      this.#set(key, text);
+      const row = patch.row as { complete?: unknown; text?: unknown } | null | undefined;
+      if (row?.complete === false && typeof row.text === "string")
+        this.#streaming.set(key, row.text);
+      else this.#streaming.delete(key);
+    }
   }
   /**
    * Start a whole-thread pass (the SDK's "all"): every key put until the pass closes is still
@@ -104,6 +113,7 @@ export class NativeLedger {
   }
   clear(): void {
     this.#entries.clear();
+    this.#streaming.clear();
     this.#bytes = 0;
   }
   #set(key: string, text: string): void {
@@ -111,6 +121,7 @@ export class NativeLedger {
     this.#entries.set(key, text);
   }
   #forget(key: string): void {
+    this.#streaming.delete(key);
     this.#bytes -= this.#entries.get(key)?.length ?? 0;
     this.#entries.delete(key);
   }
