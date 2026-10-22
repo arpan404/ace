@@ -315,3 +315,46 @@ test("a branch deleted elsewhere since the snapshot is reported gone, not missin
     await f.cleanup();
   }
 });
+
+const labelLookup = (label: { id: string; name: string } | null) => ({
+  "graphql:label(name:": [{ body: { data: { repository: { id: "R_1", l0: label } } } }],
+});
+
+test("a label GitHub doesn't have refuses a milestone save exactly as it refuses a label-only save", async () => {
+  for (const changes of [{ labels: ["bgu"] }, { labels: ["bgu"], milestone: 3 }]) {
+    const record = extraRecord();
+    const f = await fakeGh({ ...extraFixtures([record]), ...labelLookup(null) });
+    try {
+      await expect(apply(f, { kind: "edit", changes })).rejects.toMatchObject({
+        kind: "unprocessable",
+      });
+      expect(await writes(f)).toEqual([]);
+    } finally {
+      await f.cleanup();
+    }
+  }
+});
+
+test("a milestone save sends assignees as GitHub spells their logins", async () => {
+  const before = extraRecord();
+  const after = {
+    ...extraRecord({ milestone: { number: 3, title: "v1", state: "OPEN", dueOn: null } }),
+    assignees: { nodes: [{ id: "U_9", login: "octo" }], pageInfo: { hasNextPage: false } },
+  };
+  const f = await fakeGh({
+    ...extraFixtures([before, before, before, after]),
+    "graphql:user(login:": [
+      { body: { data: { repository: { id: "R_1" }, u0: { id: "U_9", login: "octo" } } } },
+    ],
+    "repos/octo/ace/issues/7": [{ body: { number: 7 } }],
+  });
+  try {
+    expect(
+      await apply(f, { kind: "edit", changes: { assignees: ["OCTO"], milestone: 3 } }),
+    ).toEqual({ outcome: "accepted", headSha: sha });
+    const [write] = await writes(f);
+    expect(write?.body).toEqual({ assignees: ["octo"], milestone: 3 });
+  } finally {
+    await f.cleanup();
+  }
+});
