@@ -153,6 +153,7 @@ struct ForgePullPageView: View {
                         .frame(maxWidth: .infinity, minHeight: 44)
                     }
                     .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
                     .tint(AceTheme.Colours.foreground)
                     .foregroundStyle(AceTheme.Colours.background)
                     .disabled(writing || action.disabled != nil || !client.canOperate)
@@ -162,7 +163,11 @@ struct ForgePullPageView: View {
                             Picker("Merge method", selection: Binding(get: { method }, set: { savedMethod = $0 })) {
                                 ForEach(page.methods, id: \.self) { Text($0.label).tag($0.method) }
                             }
-                        } label: { Image(ace: .caretDown).frame(width: 44, height: 44) }
+                        } label: {
+                            Image(ace: .caretDown).frame(width: 44, height: 44)
+                                .aceGlass(in: Capsule(style: .continuous), interactive: true)
+                                .contentShape(Capsule(style: .continuous))
+                        }
                             .accessibilityLabel("Merge method").accessibilityIdentifier("forge.pull.method")
                     }
                 }
@@ -175,6 +180,9 @@ struct ForgePullPageView: View {
             }
             if let secondary = page.secondary {
                 Button(secondary.label) { Task { await write(secondary) } }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .tint(AceTheme.Colours.foreground)
                     .disabled(writing || secondary.disabled != nil || !client.canOperate)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("forge.pull.secondary")

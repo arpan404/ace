@@ -2,7 +2,8 @@ import SwiftUI
 
 /// A GitHub label in its own colour, as the web's pill draws it: a fifth of the colour behind,
 /// a stronger edge, and the name mixed toward the page's ink so it reads in either appearance.
-/// Labels are the one place a non-status hue appears (DESIGN.md allows GitHub's colours).
+/// Labels are the one place a non-status hue appears (DESIGN.md allows GitHub's colours). A
+/// capsule, like every iOS 26 control and pill.
 struct ForgeLabelPill: View {
     let label: ForgeLabel
 
@@ -15,8 +16,8 @@ struct ForgeLabelPill: View {
             .padding(.horizontal, 7)
             .frame(height: 18)
             .foregroundStyle(hue.map { $0.mix(with: AceTheme.Colours.foreground, by: 0.45) } ?? AceTheme.Colours.mutedForeground)
-            .background(Capsule().fill(hue?.opacity(0.2) ?? .clear))
-            .overlay(Capsule().strokeBorder(hue?.opacity(0.45) ?? AceTheme.Colours.separator, lineWidth: 1))
+            .background(Capsule(style: .continuous).fill(hue?.opacity(0.2) ?? .clear))
+            .overlay(Capsule(style: .continuous).strokeBorder(hue?.opacity(0.45) ?? AceTheme.Colours.separator, lineWidth: 1))
             .accessibilityLabel("Label \(label.name)")
     }
 }
