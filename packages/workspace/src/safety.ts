@@ -9,18 +9,28 @@ import {
 import { constants, type Stats } from "node:fs";
 import { type FileHandle } from "node:fs/promises";
 import { workspaceRuntime, type WorkspaceFileSystem, type WorkspaceRuntime } from "./runtime.ts";
+import { passesWindowsRelativePathPolicy } from "./path-policy.ts";
 import { isAbsolute, join, relative, sep, win32, dirname, basename } from "node:path";
 import { failure, errorCode, WorkspaceError } from "./types.ts";
 
 /** Shared lexical schema for explicit requests and discovered filesystem names. */
-export function validRelativePath(input: string): boolean {
-  return !(
+export function validRelativePath(
+  input: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (
     input.includes("\0") ||
     input.includes("\\") ||
     isAbsolute(input) ||
     win32.isAbsolute(input) ||
     input.split("/").includes("..")
-  );
+  ) {
+    return false;
+  }
+  if (platform === "win32" && !passesWindowsRelativePathPolicy(input)) {
+    return false;
+  }
+  return true;
 }
 function same(a: Stats, b: Stats): boolean {
   return a.dev === b.dev && a.ino === b.ino;
