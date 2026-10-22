@@ -32,7 +32,7 @@ test("a running turn's pill reads Working for its time and sweeps", async () => 
     facts.message("root", "ask", "user", "Go"),
   ]);
   open(connect(fake), "run");
-  const status = await until(() => pill()?.status, "the pill");
+  const status = await until(() => pill()?.status ?? undefined, "the pill");
   expect(status).toMatchObject({ label: "Working", lead: "Working for", live: true, opens: "" });
   expect(status.since).toBeTypeOf("number");
 });
@@ -54,7 +54,7 @@ test("a parent that only waits on its subagent says so on the pill, which opens 
     facts.endTurn("root"),
   ]);
   open(connect(fake), "tree");
-  const status = await until(() => pill()?.status, "the pill");
+  const status = await until(() => pill()?.status ?? undefined, "the pill");
   expect(status).toMatchObject({ label: "Waiting on 1", live: false, opens: "agents" });
 });
 

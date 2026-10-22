@@ -8,7 +8,10 @@ import { facts, type FakeDaemon } from "@ace/fake-daemon";
 
 const minute = 60_000;
 
-export function seedGoal(daemon: FakeDaemon, details: (branch: string) => Record<string, unknown>): void {
+export function seedGoal(
+  daemon: FakeDaemon,
+  details: (branch: string) => Record<string, unknown>,
+): void {
   daemon.createThread(
     {
       hasSentMessage: true,
