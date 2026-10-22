@@ -74,7 +74,7 @@ struct QuestionCard: View {
                         if !last { page = index + 1 }
                         else if let resolution = answers.resolution(for: questions) { answer(resolution, false) }
                     }
-                    .buttonStyle(.pillPrimary)
+                    .buttonStyle(RequestButtonStyle(primary: true, wide: true))
                     .disabled(question.map { answers.resolution(for: [$0]) == nil } ?? true)
                     .accessibilityIdentifier(last ? "question.answer" : "question.next")
                 }
@@ -131,7 +131,7 @@ private struct ChoiceRow<Content: View>: View {
         HStack(alignment: .center, spacing: AceTheme.Spacing.md) {
             Group {
                 if multiple {
-                    Image(systemName: chosen ? "checkmark.square.fill" : "square")
+                    AceIcon(chosen ? .checkSquare : .square, size: 20)
                 } else {
                     Circle()
                         .strokeBorder(chosen ? AceTheme.Colours.foreground : AceTheme.Colours.decoration,
@@ -146,8 +146,8 @@ private struct ChoiceRow<Content: View>: View {
         .aceFont(AceTheme.Typography.body, relativeTo: .body)
         .padding(.horizontal, AceTheme.Spacing.md + AceTheme.Spacing.xxs).padding(.vertical, AceTheme.Spacing.md)
         .frame(minHeight: AceTheme.Dimensions.touchTarget)
-        .requestInset(cornerRadius: AceTheme.Radii.card)
-        .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.card, style: .continuous)
+        .requestInset(cornerRadius: AceTheme.Radii.md)
+        .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.md, style: .continuous)
             .strokeBorder(chosen ? AceTheme.Colours.foreground : .clear, lineWidth: AceTheme.Dimensions.border * 1.5))
         .contentShape(Rectangle())
     }

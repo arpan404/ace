@@ -57,8 +57,8 @@ struct ConversationFeed: View {
             }
             .scrollTargetLayout()
             .padding(.top, AceTheme.Spacing.sm)
-            // Room for the live capsule and jump control floating above the composer.
-            .padding(.bottom, AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xl)
+            // Room under the last row so it clears the composer strip tucked above the composer.
+            .padding(.bottom, AceTheme.Spacing.xxl)
         }
         .coordinateSpace(name: "transcript.viewport")
         .scrollPosition($position, anchor: .top)

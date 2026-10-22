@@ -82,7 +82,15 @@ export class ThreadSession {
       this.#lane?.tap(keys);
       this.#steps.changed(keys);
       if (keys === "all") void this.#readSetting();
-      if (keys === "all" || keys.has("thread") || keys.has("interactions") || keys.has("cursor"))
+      if (
+        keys === "all" ||
+        keys.has("thread") ||
+        keys.has("interactions") ||
+        keys.has("cursor") ||
+        // A subagent starting or ending moves how a message goes (in now while the root only waits).
+        keys.has("agents") ||
+        [...keys].some((key) => key.startsWith("agent:"))
+      )
         this.#controls();
       if (keys === "all" || keys.has("thread")) this.#tune.update();
       if (keys === "all" || keys.has("order") || keys.has("history")) this.#history();

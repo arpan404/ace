@@ -6,12 +6,15 @@ import SwiftUI
 struct WorkProgressView: View {
     let groups: [BlockRow.WorkGroup]
     let thread: ThreadModel
+    /// Commands the log's calls left running, each its own line where it started.
+    var background: [BlockRow.Background] = []
     var openMedia: ((TranscriptRow) -> Void)? = nil
     var openMessage: ((TranscriptRow) -> Void)? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
             ForEach(groups) { group in
-                WorkProgressGroup(group: group, thread: thread, openMedia: openMedia, openMessage: openMessage)
+                WorkProgressGroup(group: group, thread: thread, background: background.first { group.single && $0.itemId == group.id },
+                                  openMedia: openMedia, openMessage: openMessage)
             }
         }
     }
@@ -21,11 +24,14 @@ struct WorkProgressGroup: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let group: BlockRow.WorkGroup
     let thread: ThreadModel
+    let background: BlockRow.Background?
     let openMedia: ((TranscriptRow) -> Void)?
     let openMessage: ((TranscriptRow) -> Void)?
     @State private var expanded = false
     var body: some View {
-        if group.single {
+        if let background {
+            BackgroundLine(line: background)
+        } else if group.single {
             if let item = thread.items[group.id] {
                 ItemRowView(item: item, openMedia: openMedia, openMessage: openMessage, workEnded: !group.running)
                     .stepNarration(item.row.type == "message")
@@ -42,7 +48,7 @@ struct WorkProgressGroup: View {
                             }
                         }
                         .shimmer(group.running)
-                        Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                        AceIcon(.caretRight, size: 12, relativeTo: .caption)
                             .rotationEffect(.degrees(expanded ? 90 : 0))
                             .foregroundStyle(AceTheme.Colours.subtleForeground)
                         Spacer(minLength: AceTheme.Spacing.none)
@@ -90,10 +96,10 @@ struct ThoughtRow: View {
         let settled = row.complete || row.step?.settled == true || workEnded
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { expanded.toggle() } } label: {
-                QuietRow(icon: "brain") {
+                QuietRow(icon: .brain) {
                     Text(settled ? "Thought" : "Thinking…").shimmer(!settled)
                     if !row.text.isEmpty {
-                        Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                        AceIcon(.caretRight, size: 12, relativeTo: .caption)
                             .rotationEffect(.degrees(expanded ? 90 : 0))
                             .foregroundStyle(AceTheme.Colours.subtleForeground)
                     }

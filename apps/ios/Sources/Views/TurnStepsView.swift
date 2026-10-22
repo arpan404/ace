@@ -77,7 +77,7 @@ struct AgentLaneSheet: View {
                         if let block = lane.blocks[id] { BlockView(block: block, thread: thread, links: links).listRowSeparator(.hidden) }
                     }
                 } else {
-                    ContentUnavailableView("Nothing from this agent yet", systemImage: "point.3.connected.trianglepath.dotted")
+                    EmptyState(icon: .graph, title: "Nothing from this agent yet")
                         .listRowSeparator(.hidden)
                 }
             }

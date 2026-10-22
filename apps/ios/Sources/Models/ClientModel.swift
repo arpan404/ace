@@ -19,8 +19,6 @@ import CryptoKit
     let screen = ThreadScreenModel()
     /// What this thread last showed, kept on screen while its reopened session catches up.
     var placeholder: ThreadModel?
-    /// Which folds are open; shared with the placeholder and history pages of the same thread.
-    @ObservationIgnored var disclosures = Disclosures()
     @ObservationIgnored var positions: [String: Int] = [:]
     init(id: String) { self.id = id }
     var approvals: [ApprovalRow] { interactions.values.filter { $0.state == "pending" }.sorted { $0.id < $1.id } }
@@ -236,7 +234,8 @@ import CryptoKit
         let opened = ThreadModel(id: id)
         opened.epoch = generation
         opened.placeholder = trail.reopen(id, leaving: thread)
-        if let placeholder = opened.placeholder { opened.disclosures = placeholder.disclosures }
+        // Coming back from a child finds its subagent groups as they were left.
+        opened.screen.openGroups = opened.placeholder?.screen.openGroups ?? []
         thread = opened
         action(["type": "open", "threadId": id])
     }
