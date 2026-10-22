@@ -28,8 +28,8 @@
 // identityOf before use.
 
 #ifdef _WIN32
-#include <windows.h>
 #include <uv.h>
+#include <windows.h>
 #include "windows_core.h"
 #include <string.h>
 

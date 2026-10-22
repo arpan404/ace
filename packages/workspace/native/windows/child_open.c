@@ -15,8 +15,8 @@
 // SYNCHRONIZE is required with FILE_SYNCHRONOUS_IO_NONALERT.
 
 #ifdef _WIN32
-#include <windows.h>
 #include <uv.h>
+#include <windows.h>
 #include "windows_core.h"
 #include <string.h>
 

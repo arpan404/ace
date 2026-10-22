@@ -31,8 +31,8 @@
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0A00
 #endif
-#include <windows.h>
 #include <uv.h>
+#include <windows.h>
 #include "windows_core.h"
 #include <stdint.h>
 #include <stdlib.h>
