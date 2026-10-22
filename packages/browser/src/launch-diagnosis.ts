@@ -7,6 +7,7 @@ import {
   classifyChromeLaunch,
   launchProblemDetail,
   type ChromeLaunchFacts,
+  type SandboxFacts,
 } from "./launch-failure.ts";
 import { linuxFamily } from "./linux-libraries.ts";
 
@@ -28,17 +29,28 @@ export const linuxMachine: LinuxMachine = {
   root: process.getuid?.() === 0,
 };
 
+/**
+ * The kernel switches Chrome's sandbox depends on. A switch the kernel does not have (no
+ * AppArmor, as on Arch; no Debian clone patch) is absent, which never blocks the sandbox.
+ */
+export async function sandboxFacts(machine: LinuxMachine): Promise<SandboxFacts> {
+  const flag = async (path: string) => (await machine.readText(path))?.trim();
+  const [apparmor, clone] = await Promise.all([
+    flag("/proc/sys/kernel/apparmor_restrict_unprivileged_userns"),
+    flag("/proc/sys/kernel/unprivileged_userns_clone"),
+  ]);
+  return { appArmorRestrictsUserns: apparmor === "1", usernsCloneDisabled: clone === "0" };
+}
+
 /** What a failed start of `executable` with `stderr` says about this machine. */
 export async function chromeLaunchFacts(
   executable: string,
   stderr: string,
   machine: LinuxMachine,
 ): Promise<ChromeLaunchFacts> {
-  const flag = async (path: string) => (await machine.readText(path))?.trim();
-  const [osRelease, apparmor, clone, ldd] = await Promise.all([
+  const [osRelease, sandbox, ldd] = await Promise.all([
     machine.readText("/etc/os-release"),
-    flag("/proc/sys/kernel/apparmor_restrict_unprivileged_userns"),
-    flag("/proc/sys/kernel/unprivileged_userns_clone"),
+    sandboxFacts(machine),
     // Only a loader failure needs the full list of what is missing.
     /error while loading shared libraries/.test(stderr) ? machine.ldd(executable) : undefined,
   ]);
@@ -47,8 +59,7 @@ export async function chromeLaunchFacts(
     stderr,
     ...(ldd === undefined ? {} : { ldd }),
     ...(family ? { family } : {}),
-    appArmorRestrictsUserns: apparmor === "1",
-    usernsCloneDisabled: clone === "0",
+    ...sandbox,
     root: machine.root,
   };
 }
