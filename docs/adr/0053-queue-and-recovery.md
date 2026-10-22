@@ -283,7 +283,13 @@ stayed held, so the parent waited forever.
 
 The person's Resume of a thread, or their next message to it (a parent agent's message to its
 child counts the same), now also resumes each of its running delegated children held with the
-`restart` reason. Each child's resume goes through the same path, so grandchildren follow.
+`restart` reason, and each thread its agents opened with `thread_start` that the restart held.
+Each resume goes through the same path, so grandchildren follow.
 A child the person stopped keeps its stop, and a child with uncertain delivery stays held for
 review. ace still never continues interrupted work by itself: only the person's action on the
 tree carries it on.
+
+Work that stays held no longer blocks a parent either. A watched thread whose queue is held for
+the person (the sidebar's attention rule: a restart, uncertain delivery, unsent message, Stop or
+pause with messages waiting) reads as `needs_you`, so the parent's `wait` returns at once, and
+the thread's step says what the person must do to release it.

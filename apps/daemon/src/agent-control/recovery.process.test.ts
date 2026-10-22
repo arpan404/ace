@@ -1,6 +1,10 @@
 import { join } from "node:path";
 import { backup, type DatabaseSync } from "node:sqlite";
 import { expect, test } from "vitest";
+import { AgentControlOperation, ThreadId } from "@ace/protocol";
+import { createAgentControlPort } from "@ace/daemon";
+import { WorkspaceRuntime } from "../workspace-runtime.ts";
+import { createConversationStarts } from "./conversations.ts";
 import { setup, wakes } from "./test-support.ts";
 import { start } from "../engine/test-support.ts";
 
@@ -136,4 +140,76 @@ test("resuming a parent after a daemon crash leaves a child the person stopped h
     paused: true,
     reason: "restart",
   });
+});
+
+test("a parent's wait on a child still held after a restart returns at once and says why", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  await h.emit(parent.threadId, start);
+  const edge = h.delegate(parent, "waited-child");
+  await h.engine.flush();
+  const recovered = await crash(h, "waited-child");
+  const waiting = recovered.service.monitor.wait(
+    parent,
+    { threadIds: [edge.childId], mode: "all", timeoutSeconds: 1 },
+    new AbortController().signal,
+  );
+  recovered.clock.advance(recovered.clock.now() + 2000);
+  const result = await waiting;
+  expect(result).toMatchObject({
+    ok: true,
+    data: { status: "needs_you", threads: [{ threadId: edge.childId, state: "needs_you" }] },
+  });
+  expect(JSON.stringify(result)).toContain("daemon restart");
+});
+
+test("resuming a parent after a daemon crash resumes the threads its agent started", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  await h.emit(parent.threadId, start);
+  const runtime = new WorkspaceRuntime(h.store, join(h.home, "owned"), h.clock.now);
+  let started: string | undefined;
+  try {
+    const context = {
+      store: h.store,
+      services: { workspaceActions: runtime },
+      signal: new AbortController().signal,
+    };
+    const port = createAgentControlPort(h.store, h.service, {
+      startConversation: createConversationStarts(context, h.service, h.service.conversations),
+    });
+    const opened = await port.execute(
+      parent,
+      AgentControlOperation.parse({
+        op: "thread.start",
+        requestId: "started-thread",
+        title: "Conversation",
+        text: "Build this",
+        provider: "claude",
+        model: "chosen-model",
+        effort: "high",
+        workspace: { kind: "project" },
+      }),
+      new AbortController().signal,
+    );
+    expect(opened.ok).toBe(true);
+    await h.engine.flush();
+    started = h.store.listThreads().find((row) => row.id !== parent.threadId)?.id;
+  } finally {
+    await runtime.close();
+  }
+  if (!started) throw new Error("Started thread missing");
+  const recovered = await crash(h, "started-thread");
+  const thread = recovered.store.getThread(ThreadId.parse(started))?.id;
+  if (!thread) throw new Error("Started thread lost");
+  expect(recovered.engine.queue(thread)).toMatchObject({ paused: true, reason: "restart" });
+  expect(
+    recovered.service.command("resume-owner", {
+      type: "thread.resume",
+      threadId: parent.threadId,
+      expectedRevision: recovered.engine.queue(parent.threadId).revision,
+    }).ok,
+  ).toBe(true);
+  await recovered.engine.flush();
+  expect(recovered.inputs.get(thread)).toEqual(["Continue where you left off."]);
 });

@@ -788,19 +788,29 @@ export class DelegationService {
     this.arm();
   }
   /**
-   * Resume `thread`'s running children that a daemon restart left held. Each resume passes
-   * through the command policy again, so their own restart-held children follow. A child the
-   * person stopped, or one whose delivery is uncertain, stays held for the person to review.
+   * Resume what `thread` started that a daemon restart left held: its running delegated
+   * children and the threads its agents opened. Each resume passes through the command policy
+   * again, so their own held work follows. Work the person stopped, or whose delivery is
+   * uncertain, stays held for the person to review.
    */
   private resumeRestartHeld(thread: ThreadId, request: string) {
-    for (const edge of this.journal.liveChildren(thread)) {
-      if (edge.phase !== "running" || this.journal.stopped(edge.childId)) continue;
-      const queue = this.deps.engine.queue(edge.childId);
+    const started = [
+      ...this.journal
+        .liveChildren(thread)
+        .flatMap((edge) =>
+          edge.phase === "running" ? [[edge.childId, edge.generation] as const] : [],
+        ),
+      ...this.conversations.waitingOwnedBy(thread).map((id) => [id, 0] as const),
+    ];
+    for (const [child, generation] of started) {
+      if (this.journal.stopped(child)) continue;
+      const queue = this.deps.engine.queue(child);
       if (!queue.paused || queue.reason !== "restart") continue;
-      this.command(
-        controlCommandId(edge.childId, `${request}:${edge.generation}`, "restart.resume"),
-        { type: "thread.resume", threadId: edge.childId, expectedRevision: queue.revision },
-      );
+      this.command(controlCommandId(child, `${request}:${generation}`, "restart.resume"), {
+        type: "thread.resume",
+        threadId: child,
+        expectedRevision: queue.revision,
+      });
     }
   }
   cancelDescendants(thread: ThreadId, request = this.deps.id()) {
