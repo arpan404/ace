@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Ace
 
@@ -78,5 +79,27 @@ import Testing
     @Test func aShortParagraphStaysWhole() {
         #expect(Markdown.pieces("One sentence. Two sentences.").map(\.text) == ["One sentence. Two sentences."])
         #expect(Markdown.pieces("").map(\.text) == [""])
+    }
+    @Test func plainProseIsStyledExactlyAsTheMarkdownParserStylesIt() {
+        let parsed = { (text: String) in
+            let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace, failurePolicy: .returnPartiallyParsedIfPossible)
+            return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+        }
+        let prose = [
+            " Next step 12: wire the safe kill-all filters. Next step 13: done!",
+            "  Leading and trailing spaces, a\ttab and 3.5 % (about) \"quoted\" — ünïcödé 🚀  ",
+            "Ends with a colon: 1/2 of 10, x+y=z, #hash, a|b, $5 and {braces}?",
+            "", " ", "www", "w.w.w. and a.b.c",
+        ]
+        for text in prose {
+            #expect(Markdown.isPlain(text), "\(text)")
+            #expect(Markdown.inline(text) == parsed(text), "\(text)")
+        }
+        // Anything the parser could read goes through it.
+        let marked = ["a **b**", "a `b`", "a _b_", "a ~~b~~", "[a](b)", "<b>", "a &amp; b", "a\\*b", "see https://ace.dev", "see www.ace.dev", "mail me@ace.dev", "line\nbreak"]
+        for text in marked {
+            #expect(!Markdown.isPlain(text), "\(text)")
+            #expect(Markdown.inline(text) == parsed(text), "\(text)")
+        }
     }
 }

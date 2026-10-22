@@ -231,8 +231,27 @@ enum Markdown {
         }
     }
 
+    /// Whether `text` holds nothing inline Markdown reads: no emphasis, strikethrough, code,
+    /// link, image, HTML, entity or escape marks, no autolink ("://", "www.", an address's "@")
+    /// and no line break.
+    static func isPlain(_ text: String) -> Bool {
+        var last: (UInt8, UInt8, UInt8) = (0, 0, 0)
+        for byte in text.utf8 {
+            switch byte {
+            case 0x5C, 0x60, 0x2A, 0x5F, 0x7E, 0x5B, 0x5D, 0x3C, 0x3E, 0x26, 0x40, 0x0A, 0x0D: return false
+            case 0x2F where last.2 == 0x3A: return false
+            case 0x2E where (last.0 | 0x20, last.1 | 0x20, last.2 | 0x20) == (0x77, 0x77, 0x77): return false
+            default: break
+            }
+            last = (last.1, last.2, byte)
+        }
+        return true
+    }
     /// Inline styling (emphasis, code spans, links); plain text when the span doesn't parse.
     static func inline(_ text: String) -> AttributedString {
+        // Prose with nothing the parser acts on comes back as it went in, without parsing: the
+        // piece of a streaming paragraph that grows is styled again on every delta.
+        if isPlain(text) { return AttributedString(text) }
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace, failurePolicy: .returnPartiallyParsedIfPossible)
         return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
     }
