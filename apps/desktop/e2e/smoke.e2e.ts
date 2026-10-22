@@ -71,6 +71,20 @@ describe.skipIf(!enabled)("desktop app (fake daemon)", () => {
     await page.getByRole("heading", { level: 1 }).first().waitFor({ timeout: 15_000 });
   });
 
+  it("shows its window on screen", async () => {
+    // Playwright drives a hidden page just as well, so only the window itself can tell. On
+    // Wayland a never-mapped window gets no frames and never reports that it has painted.
+    await expect
+      .poll(
+        () =>
+          app.evaluate(({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows().some((window) => window.isVisible()),
+          ),
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+  });
+
   it.runIf(process.platform === "darwin")(
     "keeps the sidebar's title and, with the sidebar hidden, the header clear of the traffic lights",
     async () => {
