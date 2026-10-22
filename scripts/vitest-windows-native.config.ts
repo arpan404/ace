@@ -40,6 +40,7 @@ export default defineConfig({
       "packages/provider-kit/src/windows-process-identity.test.ts",
       "packages/provider-kit/src/windows-command.test.ts",
       "packages/provider-kit/src/process-windows-native.process.test.ts",
+      "tools/release/src/pty-assets.test.ts",
     ],
     exclude: ["**/node_modules/**"],
     testTimeout: PROCESS_TEST_TIMEOUT,

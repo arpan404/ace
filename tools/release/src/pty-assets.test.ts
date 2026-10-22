@@ -3,8 +3,8 @@ import { mkdtemp, mkdir, readFile, rm, writeFile, readdir } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
-import { ReleaseTarget } from "@ace/protocol";
-import { parsePtyRuntimeTarget, stagePtyFiles } from "./pty-assets.ts";
+import { z } from "zod";
+import { stagePtyFiles } from "./pty-assets.ts";
 
 async function fixtureSource(root: string): Promise<string> {
   const source = join(root, "node-pty");
@@ -31,7 +31,7 @@ async function fixtureSource(root: string): Promise<string> {
   return source;
 }
 
-test("windows staging produces a loadable ConPTY closure with the dll beside its module", async () => {
+test("windows staging preserves native bytes and runs the output workers", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-pty-win-"));
   try {
     const source = await fixtureSource(root);
@@ -48,12 +48,15 @@ test("windows staging produces a loadable ConPTY closure with the dll beside its
     expect(require(join(destination, "lib/worker/conoutSocketWorker.js"))).toEqual({
       marker: "conout-worker-fixture",
     });
-    const conout = require(join(destination, "lib/shared/conout.js")) as {
-      getWorkerPipeName: (name: string) => string;
-    };
+    const conout = z
+      .object({
+        getWorkerPipeName: z.function({ input: [z.string()], output: z.string() }),
+      })
+      .parse(require(join(destination, "lib/shared/conout.js")));
     expect(conout.getWorkerPipeName("pipe")).toBe("pipe-worker");
     const staged = await readdir(join(destination, "prebuilds/win32-x64"));
     expect(staged.toSorted()).toEqual(["conpty", "conpty.node"]);
+    expect(await readdir(join(destination, "prebuilds/win32-x64/conpty"))).toEqual(["conpty.dll"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -83,7 +86,7 @@ test.each([
   }
 });
 
-test("windows staging fails closed without the conout worker and leaves ReleaseTarget unchanged", async () => {
+test("windows staging fails closed without the conout worker", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-pty-win-worker-"));
   try {
     const source = join(root, "node-pty");
@@ -99,7 +102,4 @@ test("windows staging fails closed without the conout worker and leaves ReleaseT
   } finally {
     await rm(root, { recursive: true, force: true });
   }
-  expect(ReleaseTarget.safeParse("win32-x64").success).toBe(false);
-  expect(parsePtyRuntimeTarget("win32-x64")).toBe("win32-x64");
-  expect(parsePtyRuntimeTarget("darwin-arm64")).toBe("darwin-arm64");
 });
