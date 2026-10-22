@@ -14,7 +14,7 @@ import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { cn } from "@/lib/cn.ts";
-import { startedTitle } from "@/features/thread/index.ts";
+import { startedTitle, useDiscardSend } from "@/features/thread/index.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
 import { publishStartedTitles } from "./started-titles.ts";
 
@@ -33,7 +33,7 @@ function titleOf(send: PendingSend): string {
 /**
  * Threads started from this window that the list doesn't show yet (UX audit SY-2): each is a
  * row in Unsent at once, opening the thread on its pending
- * route or its real one. Once the daemon accepts the create, its own row takes over, reading
+ * route or its real one. One that wasn't sent offers Discard, with Undo. Once the daemon accepts the create, its own row takes over, reading
  * the title published here while the daemon's still says "New thread". Successful receipts
  * must never become provisional rows again when a thread leaves the list.
  */
@@ -95,6 +95,7 @@ function StartedRow(props: { send: PendingSend }) {
   const accepted = useIntent(send.commandId)?.state === "acked";
   const name = useProjectName();
   const failed = send.state === "failed";
+  const discard = useDiscardSend();
   const label = failed
     ? "Not sent"
     : state !== "ready"
@@ -107,7 +108,7 @@ function StartedRow(props: { send: PendingSend }) {
   const provider =
     send.payload.type === "thread.create" ? providerNames[send.payload.provider] : "";
   return (
-    <li className="pb-1">
+    <li className="group/started relative pb-1">
       <Link
         data-row-focus=""
         to="/t/$threadId"
@@ -142,6 +143,16 @@ function StartedRow(props: { send: PendingSend }) {
           )}
         </span>
       </Link>
+      {failed && (
+        <button
+          type="button"
+          aria-label={`Discard ${titleOf(send)}`}
+          className="absolute right-2 bottom-3 rounded-sm bg-sidebar px-2 py-1 text-xs text-muted-foreground opacity-0 focus-ring group-hover/started:opacity-100 group-focus-within/started:opacity-100 hover:text-foreground pointer-coarse:opacity-100"
+          onClick={() => discard(send.commandId, send.payload)}
+        >
+          Discard
+        </button>
+      )}
     </li>
   );
 }
