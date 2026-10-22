@@ -42,7 +42,80 @@ It takes 10–20 minutes (notarization is most of it); run it in the background 
 
 ## 3. Notes
 
-Write `dist/releases/v<version>/notes.md`. The app shows these notes when it offers the update, so write them for users, in Markdown: a platform and install line, then `## New`, `## Improved` and `## Fixed`, covering the user-facing changes since the previous tag (merged PR titles from `git log --merges <previous-tag>..HEAD`). Leave out internal changes such as version bumps.
+Write `dist/releases/v<version>/notes.md`. Users read these notes in the app's update prompt, and the app shows less than GitHub does (`apps/desktop/src/main/os/release-notes.ts`):
+
+- Only the **first 8 lines** of the note appear; the rest show as "and N more".
+- Each line is **cut at 220 characters**.
+- Headings are hidden, and bold and links become plain text, so a line must make sense without its section heading.
+
+Earlier notes broke all three rules: the install line took the first slot, every feature line was cut off mid-sentence, and the fixes never showed. Other mistakes from earlier notes: internal words such as "settling", "frost", "strip", "daemon" and "fencing"; unrelated changes joined into one line; and fixes for features that were new in the same release.
+
+### Collect the changes
+
+1. **Range.** `base` is the latest *published* release, read before your draft exists: `gh release list -R arpan404/ace --exclude-drafts --exclude-pre-releases -L 1 --json tagName -q '.[0].tagName'`. Don't use the previous git tag: a tag that never became a published release (v0.0.3, for example) shipped nothing to users. `head` is `commit` in `dist/releases/v<version>/release.json`, the commit that was built. `main` may have moved since the build.
+2. **Pull requests.** PRs land as merge commits or as squash commits, so read the first-parent history, not just `--merges`:
+   ```sh
+   git log --first-parent --format='%h %s' <base>..<head> \
+     | sed -nE 's/^[0-9a-f]+ (Merge pull request #([0-9]+).*|.*\(#([0-9]+)\))$/\2\3/p'
+   git log --first-parent --format='%h %s' <base>..<head> | grep -vE 'Merge pull request #[0-9]+|\(#[0-9]+\)$'
+   ```
+   The first command lists PR numbers. The second lists commits pushed straight to `main`; include those too.
+3. **What each PR changed.** Run `gh pr view <n> -R arpan404/ace --json title,body,files` for every PR. A merge commit's subject is only the branch name, and a title can overstate or leave out what a PR does, so read the body. When the body is unclear, read the PR's commits (`git log --format='%s' <merge>^1..<merge>^2`) and the diff.
+4. **Check names against the app.** Grep `apps/web/src` for every button, page and setting you name, and use the label exactly as the app shows it.
+
+### Decide what goes in
+
+Leave out:
+- Version bumps, release tooling, CI, tests, ADRs and docs, refactors, lint and format changes, and dev-only changes.
+- iOS-only changes. The iPhone app ships on its own.
+- Fixes for something added in this same release. Users never saw the bug, so describe the finished feature instead.
+- Anything replaced or reverted within the range. Describe only how it works at `head`.
+- Anything already in the previous release's notes (`gh release view <base> -R arpan404/ace --json body -q .body`).
+
+When a PR changes several unrelated things, give each user-visible change its own line, or drop the minor ones.
+
+### Write
+
+```markdown
+## New
+
+- **Pull requests show what to do next.** Each open PR has one button: Review, Fix checks, Resolve conflicts or Merge.
+
+## Improved
+
+- ...
+
+## Fixed
+
+- ...
+
+## Install
+
+macOS, Apple silicon. Download `ace-<version>-arm64.dmg`, open it and drag ace to Applications.
+```
+
+- **Order by importance across the whole note.** The first 8 lines are all most users see. Lead with the most important new feature. Keep the total to about 6–12 lines. A small release can be 3 lines.
+- **One line per change, under 200 characters.** Start with a short bold phrase that says what the user gets, then one plain sentence with the detail. No sub-bullets and no paragraphs between bullets.
+- **Write for someone who uses ace but has never seen the code.** Say what they can do now or what looks different, and where to find it in the app. Don't use internal names (daemon, socket, settle, lease, worktree internals, service or module names) or commit-message wording.
+- **Fixed lines say what used to go wrong**, in the user's terms: "Images no longer get stuck on *Image unavailable*," not "Retry image chunks across reconnects."
+- **Install goes last.** It only matters to new users downloading from the release page. Put a step users must take once (such as installing by hand from an old version) at the top, as one line, only when it applies.
+- Don't add text the parser counts as a line, such as a summary paragraph, a "Full Changelog" link at the top, or `---`.
+
+### Check
+
+Preview what the app will show, from the main checkout (it needs the installed packages):
+
+```sh
+node --input-type=module -e "
+import { readFileSync } from 'node:fs';
+import { releaseNoteItems } from './apps/desktop/src/main/os/release-notes.ts';
+const r = releaseNoteItems(readFileSync(process.argv[1], 'utf8'));
+r.items.forEach((line, i) => console.log(i + 1 + '. ' + line));
+console.log('shown ' + r.items.length + ' of ' + r.total);
+" dist/releases/v<version>/notes.md
+```
+
+Done when no shown line ends in `…`, the 8 shown lines are the 8 most important changes, and every line comes from a PR in the range and matches what the app does at `head`. Show the owner the notes and the preview together with the draft.
 
 ## 4. Draft release
 
@@ -58,7 +131,7 @@ Only with `publish` in the arguments or the owner's go-ahead in this conversatio
 
 ## Report
 
-The release URL, draft or published, the asset names and sizes, and the verification results from the build.
+The release URL, draft or published, the asset names and sizes, the verification results from the build, the PR range the notes cover (`<base>..<head>`, with the number of PRs included and left out), and the in-app preview of the notes.
 
 ## Known limits
 
