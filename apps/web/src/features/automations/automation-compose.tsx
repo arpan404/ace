@@ -2,7 +2,6 @@ import type { Automation } from "@ace/protocol";
 import { useConnectionState } from "@ace/client-react";
 import { useNavigate } from "@tanstack/react-router";
 import { useId, useMemo, useRef, useState } from "react";
-import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { ProjectPicker } from "@/features/home/index.ts";
 import { ProjectsEmptyState } from "@/features/projects/index.ts";
@@ -11,7 +10,6 @@ import {
   Composer,
   composerEnvironmentRow,
   composerEnvironmentSurface,
-  composerStrip,
   readingColumn,
   writeDraft,
 } from "@/features/thread/index.ts";
@@ -34,7 +32,7 @@ const newDraftKey = "automation-new";
 
 /**
  * /automations/new, laid out like New thread: "What should run on its own in <project>?", the
- * strip with when it runs and whether it gets a worktree, the composer with the prompt, access
+ * strip with when it runs, the composer with the prompt, access
  * and the model chip, and ideas that fill it. Sending creates the automation; its name comes from
  * the prompt.
  */
@@ -74,9 +72,8 @@ function ComposeAutomation(props: { initial: AutomationForm }) {
   const { ids: projects, name } = useRegisteredProjects();
   const [form, setForm] = useState(props.initial);
   const projectDefaults = useProjectMetadata()(form.workspace)?.defaults;
-  // A new automation takes the project's worktree default until the person picks.
-  const [pickedWorktree, setPickedWorktree] = useState(false);
-  const worktree = pickedWorktree ? form.worktree : (projectDefaults?.worktree ?? form.worktree);
+  // Each run starts a thread the way the project starts threads: in a worktree or not.
+  const worktree = projectDefaults?.worktree ?? form.worktree;
   const [touched, setTouched] = useState<ReadonlySet<keyof AutomationForm>>(new Set());
   const [showAll, setShowAll] = useState(false);
   const [whenOpen, setWhenOpen] = useState(false);
@@ -227,17 +224,6 @@ function ComposeAutomation(props: { initial: AutomationForm }) {
                         onOpenChange={setWhenOpen}
                         returnFocus={messageField}
                       />
-                      <span aria-hidden className="mx-0.5 h-3.5 w-px shrink-0 bg-border" />
-                      <label className={cn(composerStrip, "shrink-0 cursor-default")}>
-                        <span>Worktree</span>
-                        <Checkbox
-                          checked={worktree}
-                          onCheckedChange={(checked) => {
-                            setPickedWorktree(true);
-                            change({ worktree: checked });
-                          }}
-                        />
-                      </label>
                     </section>
                   </div>
                 </div>

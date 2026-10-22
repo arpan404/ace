@@ -1,7 +1,6 @@
 import type { Automation } from "@ace/protocol";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import { Checkbox } from "@/components/ui/checkbox.tsx";
 import {
   Dialog,
   DialogBody,
@@ -18,7 +17,7 @@ import { fieldErrors, WhenFields } from "./when-popover.tsx";
 
 /**
  * Everything about an automation in one dialog: its name, the message it sends, when it sends
- * it and whether the run gets a worktree. It closes once the daemon has the change.
+ * it. It closes once the daemon has the change.
  */
 export function EditDialog(props: {
   open: boolean;
@@ -118,13 +117,6 @@ function EditForm(props: {
           className="-mx-2 flex flex-col border-t border-border pt-2"
         >
           <WhenFields form={form} onChange={change} errors={errors} now={now} />
-          <label className="flex items-center gap-3 px-2 py-0.5">
-            <span className="w-18 shrink-0 text-ui text-muted-foreground">Worktree</span>
-            <Checkbox
-              checked={form.worktree}
-              onCheckedChange={(worktree) => change({ worktree })}
-            />
-          </label>
         </section>
       </DialogBody>
       <DialogFooter>
