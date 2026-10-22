@@ -361,7 +361,13 @@ export class Helper {
     if ((windows || linux) && command.op === "input") {
       const { kind, ...input } = command.input;
       return this.send(
-        ScreenHelperRequestV2.parse({ op: kind, ...input, version: 2, id: "input" }),
+        ScreenHelperRequestV2.parse({
+          op: kind,
+          ...input,
+          ...(command.person ? { person: true } : {}),
+          version: 2,
+          id: "input",
+        }),
       );
     }
     const request = (

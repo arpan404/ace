@@ -178,7 +178,7 @@ impl Portal {
             };
         let (code, results): (u32, Dict) = message.body().deserialize().map_err(internal)?;
         if code != 0 {
-            return Err(Fault::new("permission_denied", DECLINED));
+            return Err(Fault::new("denied", DECLINED));
         }
         Ok(results)
     }

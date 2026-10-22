@@ -167,7 +167,7 @@ export class FakeScreen {
     return session;
   }
   private bundles(state: ScreenState): string[] {
-    return state.target.kind === "display" ? state.target.bundleIds : [state.target.bundleId];
+    return targetBundles(state.target);
   }
   private controller(
     session: Session,
@@ -248,7 +248,7 @@ export class FakeScreen {
         return { bundleId: op.bundleId, pid: 101, mode: "background" };
       case "start": {
         const scope = op.threadId ? { threadId: op.threadId, agentId: "human" } : undefined;
-        const bundles = op.target.kind === "display" ? op.target.bundleIds : [op.target.bundleId];
+        const bundles = targetBundles(op.target);
         this.requireEnabled();
         if (!this.permissions.screenRecording)
           throw new FakeScreenError("permission_denied", "Screen Recording permission required");
@@ -356,4 +356,10 @@ export class FakeScreen {
         throw new FakeScreenError("not_supported", "Recording unavailable in fake mode");
     }
   }
+}
+
+function targetBundles(target: ScreenState["target"]): string[] {
+  if (target.kind === "display") return target.bundleIds;
+  if (target.kind === "chooser") return target.picked?.bundleId ? [target.picked.bundleId] : [];
+  return [target.bundleId];
 }

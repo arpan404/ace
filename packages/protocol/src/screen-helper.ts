@@ -29,6 +29,8 @@ const HelperEnvelope = z.object({
   mode: z.enum(["background", "foreground"]).optional(),
   secureInputAllowed: z.boolean().optional(),
   humanDeviceInput: z.boolean().optional(),
+  /** The person at a live view sent this input, not an agent. */
+  person: z.boolean().optional(),
 });
 export const ScreenHelperRequest = z.discriminatedUnion("op", [
   HelperEnvelope.extend({ op: z.literal("hello") }),
