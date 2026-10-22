@@ -1,6 +1,7 @@
 import type { Item } from "@ace/protocol";
 import { describeStep, handoffMarker, opensAgentPage, stepLabels } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
+import { bubbleOf } from "./thread-messages.ts";
 
 /*
  * What a transcript row shows beyond its text: a step's one-line wording (shared with the web's
@@ -84,6 +85,7 @@ export function itemDetail(item: Item) {
     synthetic: item.type === "message" && item.synthetic === true,
     level: item.type === "notice" ? item.level : "",
     step: stepOf(item),
+    bubble: bubbleOf(item),
     ...attachmentsOf(item),
   };
 }

@@ -16,7 +16,7 @@ const user = (id: string, text: string, extra: Record<string, unknown> = {}) =>
   });
 
 function thread(items: Item[]) {
-  const byId = new Map(items.map((item) => [item.id, item]));
+  const byId = new Map<string, Item>(items.map((item) => [item.id, item]));
   return { order: items.map((item) => item.id), item: (id: string) => byId.get(id) };
 }
 const view = (items: Item[], id: string) => {
