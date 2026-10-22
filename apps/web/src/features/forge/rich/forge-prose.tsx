@@ -59,6 +59,7 @@ export function ForgeProse(props: {
     () =>
       forgeExtensions({
         host,
+        source: text,
         footnotes,
         tasks: tasks ? { source: text, change: tasks } : undefined,
       }),

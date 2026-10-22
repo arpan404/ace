@@ -1,5 +1,5 @@
 import { useClient } from "@ace/client-react";
-import type { ClientApi } from "@ace/client";
+import { ClientError, type ClientApi } from "@ace/client";
 import type { ForgeMediaRole, ForgeMediaUnavailable } from "@ace/protocol";
 import { useContext, useLayoutEffect, useState } from "react";
 import { permanentFailure } from "@/components/byte-loads.ts";
@@ -13,6 +13,10 @@ export type MediaView =
   /** A link the forge shows as a link. */
   | { phase: "none" }
   | { phase: "unavailable"; reason: ForgeMediaUnavailable };
+
+/** A download the daemon answered with "not here": the hash isn't (or no longer) served. */
+const missingBytes = (error: unknown) =>
+  error instanceof ClientError && error.code === "daemon" && error.message === "NOT_FOUND";
 
 const passing = new Set<ForgeMediaUnavailable>(["failed", "offline", "rate_limited"]);
 /** A failure that may pass is asked about again this much later, or when the connection is back. */
@@ -32,6 +36,8 @@ export function useForgeMedia(url: string | undefined, role: ForgeMediaRole): Me
   const known = scope && item ? loads.known(scope, item) : undefined;
   const [view, setView] = useState<{ client: ClientApi; key: string; view: MediaView }>();
   const [round, setRound] = useState(0);
+  // Bytes the daemon no longer holds are resolved again, once per item.
+  const [renewed, setRenewed] = useState<string>();
   // oxlint-disable-next-line react/exhaustive-effect-dependencies -- `key` names scope and item.
   useLayoutEffect(() => {
     if (!scope || !item) return;
@@ -69,6 +75,14 @@ export function useForgeMedia(url: string | undefined, role: ForgeMediaRole): Me
         (blob) => live && shown(blob),
         (error: unknown) => {
           if (!live) return;
+          if (missingBytes(error) && renewed !== key) {
+            // Evicted from the daemon's cache, or not granted since it restarted: a fresh
+            // resolve fetches it again (or grants it), rather than "couldn't load" for half an hour.
+            loads.forget(scope, item);
+            setRenewed(key);
+            setRound((count) => count + 1);
+            return;
+          }
           show({ phase: "unavailable", reason: "failed" });
           if (!permanentFailure(error)) stopRecheck = recheck();
         },

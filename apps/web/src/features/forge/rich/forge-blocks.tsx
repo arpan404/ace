@@ -13,7 +13,7 @@ import { useContext, useState, type ReactNode } from "react";
 import { blockRhythm } from "@/components/markdown/rhythm.ts";
 import { cn } from "@/lib/cn.ts";
 import { ForgeDocument, ForgeText, scrollToAnchor } from "./forge-text.tsx";
-import { withTask } from "./source-marks.ts";
+import { withTask, type TaskMark } from "./source-marks.ts";
 
 /*
  * Block-level pieces of GitHub's markdown that agent prose doesn't have (ADR 0096): alerts
@@ -79,23 +79,20 @@ export interface TaskControl {
 }
 
 /**
- * A task box. With `control` it ticks: the text is saved with only this box's mark changed,
- * showing the new state while it saves and going back if the forge refuses. Without it, or when
- * the boxes on the page can't be matched to the text, it only shows its state.
+ * A task box, named by its item's text. With `control` it ticks: the text is saved with only
+ * this box's mark changed, showing the new state while it saves and going back if the forge
+ * refuses. Without it, or when the box couldn't be placed in the text, it only shows its state.
  */
 export function TaskBox(props: {
   checked: boolean;
-  index: number | undefined;
-  drawn: number;
+  mark: TaskMark | undefined;
   control: TaskControl | undefined;
 }) {
   const [saving, setSaving] = useState<{ from: boolean; to: boolean }>();
   const checked = saving && saving.from === props.checked ? saving.to : props.checked;
   const next =
-    props.control && props.index !== undefined
-      ? withTask(props.control.source, props.index, !checked, props.drawn)
-      : undefined;
-  const label = checked ? "Done" : "Not done";
+    props.control && props.mark ? withTask(props.control.source, props.mark, !checked) : undefined;
+  const label = props.mark?.label ?? (checked ? "Done" : "Not done");
   if (!props.control || next === undefined)
     return (
       <input
