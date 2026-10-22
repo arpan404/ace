@@ -29,6 +29,13 @@ const Index = z.object({
   /** Files least recently used first, so eviction keeps its order across restarts. */
   order: z.array(sha256).optional(),
 });
+/** Runs `run` after `ms`; returns a cancel. Injected so tests control when the index is written. */
+export type Schedule = (ms: number, run: () => void) => () => void;
+const systemSchedule: Schedule = (ms, run) => {
+  const timer = setTimeout(run, ms);
+  timer.unref?.();
+  return () => clearTimeout(timer);
+};
 /** How long index writes wait to gather the stores that follow. */
 const persistDelayMs = 1000;
 
@@ -58,11 +65,17 @@ export class ForgeMediaCache {
   private bytes = 0;
   private writing: Promise<void> = Promise.resolve();
   /** A gathered index write waiting its turn. */
-  private pending: ReturnType<typeof setTimeout> | undefined;
+  private pending: (() => void) | undefined;
+  private readonly schedule: Schedule;
   /** Files being moved into place: counted once, however many stores race for them. */
   private readonly arriving = new Map<string, Promise<void>>();
-  constructor(root: string, limits: Partial<ForgeMediaCacheLimits> = {}) {
+  constructor(
+    root: string,
+    limits: Partial<ForgeMediaCacheLimits> = {},
+    schedule: Schedule = systemSchedule,
+  ) {
     this.root = root;
+    this.schedule = schedule;
     this.limits = { ...defaults, ...limits };
     mkdirSync(root, { recursive: true, mode: 0o700 });
     // Startup reads the folder and the index once, bounded by the limits above.
@@ -165,13 +178,12 @@ export class ForgeMediaCache {
   /** Gathers the stores of the next second into one index write. */
   private persist(): void {
     if (this.pending) return;
-    this.pending = setTimeout(() => this.write(), persistDelayMs);
-    this.pending.unref?.();
+    this.pending = this.schedule(persistDelayMs, () => this.write());
   }
 
   /** Writes the index after the ones before it, never two at once. */
   private write(): void {
-    clearTimeout(this.pending);
+    this.pending?.();
     this.pending = undefined;
     const keys = [...this.keys].map(([key, entry]) => [key, entry.media, entry.at]);
     const order = [...this.files.keys()];

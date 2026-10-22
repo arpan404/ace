@@ -19,6 +19,11 @@ import { fetchMedia, mediaHostAllowed, type FetchedMedia } from "./media-fetch.t
  * on every render and a network blip doesn't stick.
  */
 
+/** Confirms the user's forge access still reads the repository; throws a `ForgeError` if not. */
+export type MediaVerify = (signal: AbortSignal) => Promise<void>;
+/** How long a repository stays confirmed readable before kept bytes ask again. */
+const verifyMs = 10 * 60_000;
+
 export type MediaRender = (
   items: readonly ForgeMediaRequest[],
   signal: AbortSignal,
@@ -69,6 +74,9 @@ export class ForgeMediaService {
   /** Remembered misses, oldest first, at most `missEntries`. */
   private readonly misses = new Map<string, Remembered>();
   private readonly flying = new Map<string, Promise<ForgeMediaResult>>();
+  /** When each repository was last confirmed readable, oldest first. */
+  private readonly verified = new Map<string, number>();
+  private readonly verifying = new Map<string, Promise<boolean>>();
   private readonly waiting: (() => void)[] = [];
   private active = 0;
   constructor(options: ForgeMediaServiceOptions) {
@@ -85,9 +93,11 @@ export class ForgeMediaService {
     scope: MediaScope,
     render: MediaRender,
     items: readonly ForgeMediaRequest[],
+    verify?: MediaVerify,
   ): Promise<ForgeMediaResult[]> {
     const now = this.options.now();
     const results: (ForgeMediaResult | Promise<ForgeMediaResult>)[] = [];
+    const kept: number[] = [];
     const wanted: Wanted[] = [];
     const refresh: Wanted[] = [];
     for (const [index, item] of items.entries()) {
@@ -104,7 +114,8 @@ export class ForgeMediaService {
       const flying = this.flying.get(slot);
       if (cached) {
         // Cached bytes answer at once, fresh or not; old ones are refreshed behind them.
-        results[index] = this.granted(scope, { state: "ready", ...cached.media });
+        results[index] = { state: "ready", ...cached.media };
+        kept.push(index);
         if (!cached.fresh && !flying && !(remembered && remembered.until > now))
           refresh.push({ index, item, key, slot });
       } else if (remembered && remembered.until > now) results[index] = remembered.result;
@@ -124,7 +135,51 @@ export class ForgeMediaService {
           results[entry.index] = result.then((answer) => this.granted(scope, answer));
       }
     }
+    // Kept bytes answer only while the user's own forge access still reads the repository.
+    const readable = kept.length && verify ? await this.access(scope.repository, verify) : true;
+    for (const index of kept) {
+      const result = results[index];
+      if (result && !("then" in result))
+        results[index] = readable ? this.granted(scope, result) : unavailable("forbidden");
+    }
     return Promise.all(results);
+  }
+
+  /**
+   * Whether the repository is still readable through the user's forge access, asked at most every
+   * ten minutes per repository. A refusal (no access, gone) withholds kept bytes; an answer that
+   * can't come now (offline, rate-limited) leaves what was resolved before standing.
+   */
+  private async access(repository: string, verify: MediaVerify): Promise<boolean> {
+    const at = this.verified.get(repository);
+    if (at !== undefined && this.options.now() - at < verifyMs) return true;
+    let running = this.verifying.get(repository);
+    if (!running) {
+      running = verify(new AbortController().signal).then(
+        () => {
+          this.verified.delete(repository);
+          this.verified.set(repository, this.options.now());
+          for (const oldest of this.verified.keys()) {
+            if (this.verified.size <= missEntries) break;
+            this.verified.delete(oldest);
+          }
+          return true;
+        },
+        (error: unknown) => {
+          const refused =
+            error instanceof ForgeError &&
+            (error.kind === "forbidden" || error.kind === "not_found");
+          if (refused) this.verified.delete(repository);
+          return !refused;
+        },
+      );
+      const pending = running;
+      this.verifying.set(repository, pending);
+      void pending.finally(() => {
+        if (this.verifying.get(repository) === pending) this.verifying.delete(repository);
+      });
+    }
+    return running;
   }
 
   private granted(scope: MediaScope, result: ForgeMediaResult): ForgeMediaResult {
@@ -227,6 +282,11 @@ export class ForgeMediaService {
    * a passing failure briefly at first, then longer each time it fails again (15 s doubling to
    * 30 minutes), so a large video that a slow link can't finish isn't fetched over and over.
    */
+  /** Writes what the cache gathered (for shutdown). */
+  close(): Promise<void> {
+    return this.options.cache.flushed();
+  }
+
   private remember(slot: string, result: ForgeMediaResult): void {
     const lasting =
       result.state === "none" || (result.state === "unavailable" && settled.has(result.reason));

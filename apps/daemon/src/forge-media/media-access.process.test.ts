@@ -2,9 +2,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
+import { ForgeError } from "@ace/forge";
 import type { ForgeMediaRequest } from "@ace/protocol";
 import { ForgeMediaCache } from "./media-cache.ts";
-import { forgeAddressPolicy } from "./media-fetch.ts";
+import { fetchMedia, forgeAddressPolicy } from "./media-fetch.ts";
 import { ForgeMediaGrants } from "./media-grants.ts";
 import { ForgeMediaService } from "./media-service.ts";
 import { localMediaHost, png } from "./media-test-hosts.ts";
@@ -25,6 +26,13 @@ const scope = (workspaceId: string, repository = "github.com/octo/ace") => ({
   workspaceId,
 });
 const image = (url: string): ForgeMediaRequest => ({ url, role: "image" });
+/** A repository check the forge refuses, and one it can't answer now. */
+const refused = async () => {
+  throw new ForgeError("forbidden", undefined, false);
+};
+const offline = async () => {
+  throw new ForgeError("offline");
+};
 /** GitHub's rendering of every item as one proxied file. */
 const renderedAs =
   (kind: "image" | "video", url: string) => async (items: readonly ForgeMediaRequest[]) =>
@@ -174,4 +182,56 @@ test("what one repository's text resolved is never answered for another's, and o
   expect(renders).toBe(2);
   expect(grants.allows("project-a", a.sha256)).toBe(true);
   expect(grants.allows("project-c", a.sha256)).toBe(false);
+});
+
+test("by default every URL in the chain must be on the forge's media hosts over https", async () => {
+  const host = await localMediaHost((_request, response) => {
+    response.writeHead(200, { "content-type": "image/png" }).end(png);
+  }, cleanups);
+  const root = await folder();
+  // No `hop` given: the forge's own check applies, and a plain-http local URL is no media host.
+  const result = await fetchMedia(`http://127.0.0.1:${host.port}/a.png`, join(root, "a.tmp"), {
+    maxBytes: 1024 * 1024,
+    forgeHost: "github.com",
+    allowed: () => true,
+  });
+  expect(result).toEqual({ kind: "refused" });
+  expect(host.requests()).toBe(0);
+});
+
+test("kept bytes are served only while the user's own access still reads their repository", async () => {
+  const host = await localMediaHost((_request, response) => {
+    response.writeHead(200, { "content-type": "image/png" }).end(png);
+  }, cleanups);
+  let now = 0;
+  const grants = new ForgeMediaGrants();
+  const service = new ForgeMediaService({
+    cache: new ForgeMediaCache(await folder()),
+    now: () => now,
+    grants,
+    fetch: (url, temporary) => host.fetch(url, temporary),
+  });
+  const render = renderedAs("image", "https://private-user-images.githubusercontent.com/1/2.png");
+  const item = image(
+    "https://github.com/user-attachments/assets/98705180-e07b-4a5d-b44e-2941ed073508",
+  );
+  const repository = "github.com/octo/private";
+  const [first] = await service.resolve(scope("project-a", repository), render, [item]);
+  if (first?.state !== "ready") throw new Error("Not resolved");
+  // Another project naming the repository after the user lost access gets nothing kept.
+  now = 1000;
+  expect(await service.resolve(scope("project-b", repository), render, [item], refused)).toEqual([
+    { state: "unavailable", reason: "forbidden" },
+  ]);
+  expect(grants.allows("project-b", first.sha256)).toBe(false);
+  // While the repository reads, kept bytes answer and the project may download them.
+  expect(
+    await service.resolve(scope("project-b", repository), render, [item], async () => {}),
+  ).toEqual([first]);
+  expect(grants.allows("project-b", first.sha256)).toBe(true);
+  // A check that can't be answered now (offline) leaves what was resolved before standing.
+  now = 20 * 60_000;
+  expect(await service.resolve(scope("project-c", repository), render, [item], offline)).toEqual([
+    first,
+  ]);
 });

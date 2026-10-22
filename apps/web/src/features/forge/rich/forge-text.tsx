@@ -63,8 +63,9 @@ export function ForgeText(props: {
   // GitHub's own image emoji are read only for a shortcode its Unicode list doesn't know.
   const imageEmoji = useImageEmoji(
     !!emoji &&
-      [...props.text.matchAll(/:([a-z0-9_+-]{1,64}):/g)].some(
-        (match) => !emoji.has(match[1] ?? ""),
+      // A shortcode names something: `10:30:45` holds none.
+      [...props.text.matchAll(/:([a-z0-9_+-]*[a-z][a-z0-9_+-]*):/g)].some(
+        (match) => (match[1]?.length ?? 0) <= 64 && !emoji.has(match[1] ?? ""),
       ),
   );
   // GitHub leaves code as written, and links nothing inside a link (no link in a link).
