@@ -188,7 +188,10 @@ the desktop AppImage under a headless GNOME Wayland session. The daemon's Linux 
 the distro's xdg-desktop-portal-hyprland or a build of Arch's version) and Sway, with
 waybar, mako and hypridle running and a scripted screen-sharing chooser. Neither portal has
 RemoteDesktop, so there the live view is watch-only and raw agent input is unsupported;
-ace never works around the portal with compositor IPC or virtual input. Arch with Hyprland
+ace never works around the portal with compositor IPC or virtual input. KDE Plasma 6 runs
+in the same suites (`run.sh kde`); its live view is watch-only too. Person control in a live
+view is X11 and GNOME on Wayland only (ADR 0049, Live view by desktop), and clients say why
+elsewhere instead of offering a take-over. Arch with Hyprland
 (Omarchy) on x86 is still checked by hand before the first release: AT-SPI outline and
 actions, the real share picker, portal capture, and the AppImage.
 

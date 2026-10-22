@@ -3,7 +3,7 @@
  * pictures (sizes, keyframes, whether the screen changed), not on messages. Needs ffmpeg.
  */
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -34,6 +34,7 @@ export async function decodeH264(
   try {
     const stream = join(directory, "view.h264");
     await writeFile(stream, Buffer.concat(units));
+    if (keep) await mkdir(keep.directory, { recursive: true });
     if (keep)
       await writeFile(
         join(keep.directory, `${keep.name}-${++decodes}.h264`),

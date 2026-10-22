@@ -73,6 +73,8 @@ it.each([
   ["a password manager", "KeePassXC", "passwords"],
   ["a polkit authentication agent", "Polkit Agent", "authentication"],
   ["ace's own desktop app", "ace-desktop", "ace itself"],
+  ["ace's desktop app by its Linux app id", "dev.ace.app", "ace itself"],
+  ["ace's desktop app from the tar.gz", "ace-desktop-bin", "ace itself"],
 ])("%s is refused before any look or action reaches it", async (_label, app, reason) => {
   const { call, ops } = await world({ client: { environment: manager("DISPLAY=:0\n") } });
   const refused = await call("screen_act", { app, actions: [{ type: "type", text: "ls" }] });

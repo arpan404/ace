@@ -43,6 +43,7 @@ const apps: Record<string, App> = {
   kitty: { bundleId: "kitty", name: "kitty" },
   "polkit agent": { bundleId: "polkit-gnome-authentication-agent-1", name: "Polkit Agent" },
   "ace-desktop": { bundleId: "ace-desktop", name: "ace" },
+  "ace-desktop-bin": { bundleId: "ace-desktop-bin", name: "ace" },
 };
 const find = (query: unknown) =>
   apps[String(query ?? "").toLowerCase()] ??

@@ -120,7 +120,12 @@ impl Portal {
         let view_only = self.picked.as_ref().is_some_and(|p| p.display);
         let picked = self.picked.as_ref().map(Picked::json);
         let remote = self.offer.remote_desktop;
-        json!({"version":2,"platform":"linux-wayland","capture":{"windows":p.windows,"displays":p.displays,"changeDriven":false},"input":{"pointer":p.pointer,"keyboard":p.keyboard,"scroll":p.pointer,"text":(ui && !view_only) || p.keyboard},"uiTree":ui,"semanticActions":if ui {vec!["press","focus","setValue","scroll","expand","select"]} else {vec![]},"codecs":["jpeg"],"permissions":{"screen":screen,"input":input},"watchOnly":watch_only,"portal":{"remoteDesktop":remote.is_some(),"remoteDesktopVersion":remote.map_or(0, |rd| rd.version),"screenCastVersion":self.offer.screencast_version,"restore":p.persistent,"desktop":self.desktop,"windowIdentity":false,"picked":picked,"semanticScope":"the app the person picked in the sharing dialog, when the desktop records it","notes":"The sharing dialog picks the source; there are no window ids to target. Person input only through RemoteDesktop where it reaches exactly what was shared (GNOME)"}})
+        let mut capabilities = json!({"version":2,"platform":"linux-wayland","capture":{"windows":p.windows,"displays":p.displays,"changeDriven":false},"input":{"pointer":p.pointer,"keyboard":p.keyboard,"scroll":p.pointer,"text":(ui && !view_only) || p.keyboard},"uiTree":ui,"semanticActions":if ui {vec!["press","focus","setValue","scroll","expand","select"]} else {vec![]},"codecs":["jpeg"],"permissions":{"screen":screen,"input":input},"portal":{"remoteDesktop":remote.is_some(),"remoteDesktopVersion":remote.map_or(0, |rd| rd.version),"screenCastVersion":self.offer.screencast_version,"restore":p.persistent,"desktop":self.desktop,"windowIdentity":false,"picked":picked,"semanticScope":"the app the person picked in the sharing dialog, when the desktop records it","notes":"The sharing dialog picks the source; there are no window ids to target. Person input only through RemoteDesktop where it reaches exactly what was shared (GNOME)"}});
+        // Present only when the view is watch-only: clients read its absence as "can take over".
+        if let Some(reason) = watch_only {
+            capabilities["watchOnly"] = json!(reason);
+        }
+        capabilities
     }
     pub(crate) async fn proxy(&self, interface: &str) -> Result<Proxy<'_>> {
         Proxy::new(

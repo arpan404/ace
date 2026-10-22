@@ -132,6 +132,8 @@ const builtIn: ReadonlyMap<string, string> = new Map(
       ...linuxPasswords.map((id) => [id, passwords] as const),
       ...linuxAuthentication.map((id) => [id, authentication] as const),
       ["ace-desktop", ace],
+      // The tar.gz's Electron, started through its `ace-desktop` launcher.
+      ["ace-desktop-bin", ace],
       ["ace-screen-helper-linux", ace],
     ] as const
   ).map(([bundleId, reason]) => [bundleId.toLowerCase(), reason]),
