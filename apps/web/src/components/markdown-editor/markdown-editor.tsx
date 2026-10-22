@@ -1,9 +1,13 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { WordChoice } from "@/components/ui/word-choice.tsx";
 import { cn } from "@/lib/cn.ts";
 import { applePlatform } from "@/lib/keymap.ts";
 import { applyChange, selectionOf } from "./apply-change.ts";
+import { caretRect } from "./caret.ts";
+import { CompletionList } from "./completion-list.tsx";
+import { useMarkdownCompletions, type MarkdownCompletions } from "./completion-source.ts";
+import { useCompletions } from "./use-completions.ts";
 import { commandFor, type FormatCommand } from "./commands.ts";
 import { FormatToolbar } from "./format-toolbar.tsx";
 import { linkOnPaste } from "./inline.ts";
@@ -21,7 +25,8 @@ const heights = {
  * with the usual shortcuts, lists that continue on Enter and nest on Tab, and a web address
  * pasted over words linking them. Every edit goes through the browser's own undo. Preview
  * renders with `preview` (the page's own renderer) so it reads as the posted text will.
- * ⌘↵ submits: `onSubmit`, or else the form around it.
+ * ⌘↵ submits: `onSubmit`, or else the form around it. Typing `@` suggests people and `#`
+ * issues and pull requests, from `completions` or else the page's `MarkdownCompletionsProvider`.
  */
 export function MarkdownEditor(props: {
   /** The text's accessible name ("Comment", "Description"). */
@@ -36,9 +41,14 @@ export function MarkdownEditor(props: {
   onSubmit?: (() => void) | undefined;
   preview?: ((text: string) => ReactNode) | undefined;
   className?: string | undefined;
+  /** Where `@` and `#` suggestions come from, over the page's own. */
+  completions?: MarkdownCompletions | undefined;
 }) {
   const field = useRef<HTMLTextAreaElement>(null);
   const [tab, setTab] = useState<"write" | "preview">("write");
+  const pageCompletions = useMarkdownCompletions();
+  const suggest = useCompletions(field, props.completions ?? pageCompletions);
+  const listId = useId();
   const run = (command: FormatCommand) => {
     const target = field.current;
     if (!target || props.disabled) return;
@@ -46,6 +56,7 @@ export function MarkdownEditor(props: {
   };
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
+    if (suggest.onKeyDown(event)) return;
     const target = event.currentTarget;
     const mod = applePlatform ? event.metaKey : event.ctrlKey;
     if (event.key === "Enter" && mod) {
@@ -106,7 +117,16 @@ export function MarkdownEditor(props: {
         maxLength={props.maxLength}
         // oxlint-disable-next-line jsx-a11y/no-autofocus -- Only where the field opens to write in.
         autoFocus={props.autoFocus}
-        onChange={(event) => props.onChange(event.currentTarget.value)}
+        aria-autocomplete={suggest.match ? "list" : undefined}
+        aria-controls={suggest.match ? listId : undefined}
+        aria-expanded={suggest.match ? true : undefined}
+        aria-activedescendant={suggest.match ? `${listId}-${suggest.active}` : undefined}
+        onChange={(event) => {
+          props.onChange(event.currentTarget.value);
+          suggest.update();
+        }}
+        onSelect={suggest.update}
+        onBlur={suggest.close}
         onKeyDown={onKeyDown}
         onPaste={(event) => {
           const change = linkOnPaste(
@@ -122,6 +142,22 @@ export function MarkdownEditor(props: {
           heights[props.size ?? "comment"],
         )}
       />
+      {writing && suggest.match && (
+        <CompletionList
+          id={listId}
+          label={suggest.match.kind === "mention" ? "People" : "Issues and pull requests"}
+          items={suggest.items}
+          active={suggest.active}
+          anchor={() => {
+            const target = field.current;
+            const at = suggest.match?.from ?? 0;
+            return target ? caretRect(target, at) : new DOMRect();
+          }}
+          onHighlight={suggest.setActive}
+          onChoose={suggest.choose}
+          onDismiss={suggest.close}
+        />
+      )}
       {!writing && (
         <div
           role="region"

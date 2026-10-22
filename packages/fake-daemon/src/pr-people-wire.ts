@@ -138,7 +138,8 @@ function references(
   const query = op.query.trim().toLowerCase();
   const inRepository = fixtures.filter(
     (f) =>
-      !op.repository || JSON.stringify(f.detail.status.ref.repository) === JSON.stringify(op.repository),
+      !op.repository ||
+      JSON.stringify(f.detail.status.ref.repository) === JSON.stringify(op.repository),
   );
   const all: ForgeReference[] = [
     ...inRepository.map((f): ForgeReference => {
@@ -151,9 +152,12 @@ function references(
       };
     }),
     ...(["open", "closed"] as const).flatMap((state) =>
-      issues(state).map(
-        (row): ForgeReference => ({ number: row.ref.number, title: row.title, kind: "issue", state }),
-      ),
+      issues(state).map((row): ForgeReference => ({
+        number: row.ref.number,
+        title: row.title,
+        kind: "issue",
+        state,
+      })),
     ),
   ];
   const matches = all.filter(
@@ -163,7 +167,11 @@ function references(
   return {
     resource: "references",
     references: matches
-      .toSorted((a, b) => Number(b.state === "open" || b.state === "draft") - Number(a.state === "open" || a.state === "draft"))
+      .toSorted(
+        (a, b) =>
+          Number(b.state === "open" || b.state === "draft") -
+          Number(a.state === "open" || a.state === "draft"),
+      )
       .filter((r) => !seen.has(r.number) && seen.add(r.number))
       .slice(0, 20),
   };

@@ -62,9 +62,7 @@ const Reviewers = z.object({
         viewerCanUpdate: z.boolean(),
         author: z.looseObject({ login }).nullable(),
         reviewRequests: z.object({
-          nodes: z
-            .array(z.object({ requestedReviewer: Requested.nullable() }).nullable())
-            .max(100),
+          nodes: z.array(z.object({ requestedReviewer: Requested.nullable() }).nullable()).max(100),
         }),
         latestReviews: z.object({
           nodes: z
