@@ -70,7 +70,7 @@ export function isolatedTestEnvironment(
     ...(ambient.ACE_COMPUTER_LIVE === "1" ? { ACE_COMPUTER_LIVE: "1" } : {}),
     ...(ambient.ACE_DEVICE_LIVE === "1" ? { ACE_DEVICE_LIVE: "1" } : {}),
     ...linuxDesktopSession(ambient),
-    ...androidDevice(ambient),
+    ...androidDevice(ambient, realHome),
     // `bun run eval:mcp` names where the MCP eval harness writes its report.
     ...(ambient.ACE_EVAL_REPORT !== undefined ? { ACE_EVAL_REPORT: ambient.ACE_EVAL_REPORT } : {}),
     ...(ambient.ACE_EVAL_LABEL !== undefined ? { ACE_EVAL_LABEL: ambient.ACE_EVAL_LABEL } : {}),
@@ -122,15 +122,27 @@ function linuxDesktopSession(ambient: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 
 /**
  * The Android end-to-end suite (`ACE_ANDROID_E2E_SDK`) drives a device its runner booted, through
- * that SDK's adb. Only the SDK folder is kept; homes stay isolated.
+ * that SDK's adb, or an AVD it asks ace to boot (`ACE_ANDROID_E2E_BOOT_AVD`), which lives in the
+ * runner's AVD folder. Only those are kept; the other homes stay isolated.
  */
-function androidDevice(ambient: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+function androidDevice(ambient: NodeJS.ProcessEnv, realHome: string): NodeJS.ProcessEnv {
   const sdk = ambient.ACE_ANDROID_E2E_SDK;
   if (!sdk) return {};
-  return {
-    ACE_ANDROID_E2E_SDK: sdk,
-    ...(ambient.ACE_E2E_ARTIFACTS ? { ACE_E2E_ARTIFACTS: ambient.ACE_E2E_ARTIFACTS } : {}),
-  };
+  const kept: NodeJS.ProcessEnv = { ACE_ANDROID_E2E_SDK: sdk };
+  for (const key of [
+    "ACE_E2E_ARTIFACTS",
+    "ACE_ANDROID_E2E_SERIAL",
+    "ACE_ANDROID_E2E_BOOT_AVD",
+    "ACE_ANDROID_EMULATOR_GPU",
+  ]) {
+    const value = ambient[key];
+    if (value) kept[key] = value;
+  }
+  if (kept.ACE_ANDROID_E2E_BOOT_AVD) {
+    kept.ANDROID_USER_HOME = ambient.ANDROID_USER_HOME ?? join(realHome, ".android");
+    kept.ANDROID_AVD_HOME = ambient.ANDROID_AVD_HOME ?? join(realHome, ".android/avd");
+  }
+  return kept;
 }
 
 /** Where Playwright installs its browsers for the real user (its documented default). */

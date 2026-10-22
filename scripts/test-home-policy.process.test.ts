@@ -51,4 +51,24 @@ test("the Android run reaches the SDK its runner points at, with homes still iso
   );
   expect(env.ACE_ANDROID_E2E_SDK).toBe("/tmp/ace-android-sdk.abc");
   expect(env.XDG_RUNTIME_DIR).toBe(join(home, ".runtime"));
+  expect(env.ANDROID_AVD_HOME).toBe(join(home, ".android/avd"));
+});
+
+test("an Android run that boots an AVD reaches the runner's AVD folder and its gpu choice", () => {
+  const env = isolatedTestEnvironment(
+    {
+      ...desktop,
+      ACE_ANDROID_E2E_SDK: "/tmp/ace-android-sdk.abc",
+      ACE_ANDROID_E2E_BOOT_AVD: "ace_ci",
+      ACE_ANDROID_EMULATOR_GPU: "swiftshader_indirect",
+    },
+    home,
+    "/home/person",
+  );
+  expect(env).toMatchObject({
+    ACE_ANDROID_E2E_BOOT_AVD: "ace_ci",
+    ACE_ANDROID_EMULATOR_GPU: "swiftshader_indirect",
+    ANDROID_AVD_HOME: "/home/person/.android/avd",
+    HOME: home,
+  });
 });
