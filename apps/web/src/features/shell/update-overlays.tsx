@@ -2,8 +2,8 @@ import { useEffect, useRef, type ReactElement, type RefObject } from "react";
 import type { UpdateStatus } from "@/boot/desktop-updates.ts";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { RestartConfirm } from "./restart-confirm.tsx";
 import { UpdateNotes } from "./update-notes.tsx";
+import { UpdateRestartDialog } from "./update-restart-dialog.tsx";
 import { showsReleaseNotes } from "./update-status.ts";
 
 /**
@@ -48,12 +48,11 @@ export function UpdateOverlays(props: {
     }
   });
   const confirm = (
-    <RestartConfirm
+    <UpdateRestartDialog
       open={confirming}
-      title="Restart to update?"
       busy={busy}
       onOpenChange={onConfirmingChange}
-      onRestart={onInstall}
+      onInstall={onInstall}
     />
   );
   if (!showsReleaseNotes(status))

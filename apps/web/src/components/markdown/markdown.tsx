@@ -17,6 +17,7 @@ import { Formula } from "./math.tsx";
 import { CodeBlock } from "./code-block.tsx";
 import { MarkdownLoading } from "./loading.tsx";
 import { useMarkdown } from "./use-markdown.ts";
+import { WebLink } from "@/components/web-link.tsx";
 
 /*
  * Agent prose rendered from marked's lexer tokens into React elements. No HTML string is ever
@@ -140,9 +141,9 @@ function Inline(props: { token: Token }): ReactNode {
           </PullRequestLink>
         );
       return (
-        <a href={href} target="_blank" rel="noreferrer noopener" className={linkClass}>
+        <WebLink href={href} className={linkClass}>
           {children}
-        </a>
+        </WebLink>
       );
     }
     case "image":

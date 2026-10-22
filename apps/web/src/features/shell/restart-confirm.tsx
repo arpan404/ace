@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog.tsx";
 
 /** What a restart of the app does to the agents working in the daemon it started. */
-export function restartWords(busy: number | null | undefined): string {
+function restartWords(busy: number | null | undefined): string {
   if (busy === undefined) return "Checking for running agents…";
   if (busy === null)
     return "Agents running on this computer will stop. Their threads keep their progress.";

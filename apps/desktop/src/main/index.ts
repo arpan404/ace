@@ -20,6 +20,7 @@ import { Background } from "./background.ts";
 import { logFolders } from "./daemon/logs.ts";
 import { logFreshStart } from "./daemon/fresh-start-log.ts";
 import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
+import { startFailed } from "./daemon/status.ts";
 import type { DaemonTarget } from "./daemon/target.ts";
 import { createDesktopLog, type Log } from "./log/desktop-log.ts";
 import { createFileLog } from "./log/file-log.ts";
@@ -432,6 +433,17 @@ function main(target: DaemonTarget, crashDumps: string): void {
       missedConnection = false;
       window?.webContents.reload();
     });
+    // View › Reload and ⌘R. The page's client worker goes with the page, so the new page opens
+    // a fresh socket. A daemon that crashed or failed to start is restarted; a running one,
+    // and the agents in it, is left alone.
+    const reload = () => {
+      if (startFailed(runtime.current()))
+        void runtime
+          .restart()
+          .catch((error: unknown) => log("warn", `Could not restart the daemon: ${String(error)}`));
+      if (!window || window.isDestroyed()) open();
+      else window.webContents.reloadIgnoringCache();
+    };
     /** The daemon's and the app's log folders in the file manager; false when none opened. */
     const showLogs = async (): Promise<boolean> => {
       const folders = logFolders(runtime.target, app.getPath("logs"), existsSync);
@@ -449,6 +461,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
       connection,
       authorizeDaemon: (url) => network.authorize(url),
       quit: () => app.quit(),
+      reload,
       showLogs,
       reportDiagnostic: rendererReports({ log: logger("renderer"), now: Date.now }),
       desktopChecks: () => {
@@ -494,6 +507,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
                 log("warn", `Could not show the logs: ${String(error)}`),
               ),
             // The focused window (a visualization's own window too), else the app window.
+            reload,
             zoom: (change) =>
               applyZoom(BrowserWindow.getFocusedWindow()?.webContents ?? contents(), change),
           }),

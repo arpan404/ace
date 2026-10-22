@@ -54,6 +54,8 @@ export const requests = {
   "app.info": { request: None, result: AppInfo },
   /** Quit ace (the daemon this app started stops with it). */
   "app.quit": { request: None, result: None },
+  /** Reload the window with a fresh daemon connection; restarts a daemon that failed. */
+  "app.reload": { request: None, result: None },
   "daemon.connection": { request: None, result: DaemonConnection },
   "daemon.authorize": { request: SocketUrl, result: None },
   "daemon.status": { request: None, result: DaemonStatus },
