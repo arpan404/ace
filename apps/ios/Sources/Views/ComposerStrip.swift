@@ -56,8 +56,8 @@ struct StripSurface<Content: View>: View {
 }
 
 enum StripMetrics {
-    /// The composer and its strip share `rounded-xl`.
-    static let radius = AceTheme.Radii.xl
+    /// The composer and its strip share the composer radius: a capsule while one line tall.
+    static let radius = AceTheme.Radii.composer
     /// How far the strip's lower edge sits behind the composer.
     static let tuck = AceTheme.Spacing.lg
     /// The strip is narrower than the composer by this much on each side.
