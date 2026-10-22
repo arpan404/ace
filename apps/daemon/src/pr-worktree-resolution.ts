@@ -31,6 +31,26 @@ export function prRemote(
   if (!found) throw new Error("repository_mismatch");
   return found.name;
 }
+/** The checkout's remote for `repository`: `remote` when a test substitutes it, else by URL. */
+export async function checkoutPrRemote(input: {
+  git: Pick<GitService, "repositoryInfo">;
+  cwd: string;
+  repository: ForgeRepository;
+  signal: AbortSignal;
+  remote?: ((remotes: PrRemotes, repository: ForgeRepository) => string) | undefined;
+  hostAliases?:
+    | ((urls: readonly string[], signal: AbortSignal) => Promise<Record<string, string>>)
+    | undefined;
+}): Promise<string> {
+  const info = await input.git.repositoryInfo(input.cwd);
+  if (input.remote) return input.remote(info.remotes, input.repository);
+  const aliases =
+    (await input.hostAliases?.(
+      info.remotes.flatMap((entry) => entry.fetchUrls),
+      input.signal,
+    )) ?? {};
+  return prRemote(info.remotes, input.repository, aliases);
+}
 export function prReviewContext(detail: ForgePrDetail): {
   context: string;
   contextTruncated: boolean;

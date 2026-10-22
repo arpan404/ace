@@ -1,4 +1,4 @@
-import { ClockIcon, CubeIcon, GitPullRequestIcon } from "@phosphor-icons/react";
+import { ClockIcon, CubeIcon } from "@phosphor-icons/react";
 import type { IconGlyph } from "@/components/icon.tsx";
 import type { KeymapId } from "@/lib/keymap.ts";
 
@@ -35,16 +35,16 @@ export const menuViews: readonly MenuView[] = [
     matches: ["/skills"],
     shortcut: "goSkills",
   },
-  {
-    id: "forge",
-    label: "Pull requests",
-    icon: GitPullRequestIcon,
-    to: "/pulls",
-    // Issues is a tab of the same view.
-    matches: ["/pulls", "/issues"],
-    shortcut: "goPullRequests",
-  },
 ];
+
+/** Pull requests (Issues is a tab of it): a quiet row over the profile, not in its menu. */
+const forgeView: View = {
+  id: "forge",
+  label: "Pull requests",
+  to: "/pulls",
+  matches: ["/pulls", "/issues"],
+  shortcut: "goPullRequests",
+};
 
 /**
  * Every view, in the palette's order. Home is the thread list the sidebar always shows.
@@ -52,6 +52,7 @@ export const menuViews: readonly MenuView[] = [
 export const views: readonly View[] = [
   { id: "home", label: "Home", to: "/", matches: ["/t/", "/new"], shortcut: "goHome" },
   ...menuViews,
+  forgeView,
 ];
 
 export function activeView(pathname: string): View["id"] | "settings" | undefined {

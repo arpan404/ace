@@ -108,8 +108,10 @@ export const requests = {
   "updates.current": { request: None, result: UpdateStatus },
   /** Download the update on offer. */
   "updates.download": { request: None, result: UpdateStatus },
-  /** Restart into the downloaded update once running agents finish. */
+  /** Restart into the downloaded update now, stopping the agents still at work. */
   "updates.install": { request: None, result: UpdateStatus },
+  /** How many agents Restart would stop; null when the daemon could not say. */
+  "updates.busy": { request: None, result: z.number().int().min(0).nullable() },
 } as const;
 export type RequestChannel = keyof typeof requests;
 export type RequestOf<C extends RequestChannel> = z.input<(typeof requests)[C]["request"]>;

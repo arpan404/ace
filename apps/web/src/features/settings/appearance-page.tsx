@@ -2,7 +2,12 @@ import { useId, type ReactNode } from "react";
 import { AccentPicker } from "./accent-picker.tsx";
 import { ModePicker } from "./mode-picker.tsx";
 import { ThemeChooser } from "./theme-chooser.tsx";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import {
+  SettingRow,
+  SettingSection,
+  settingsGroup,
+  SettingsGroupTitle,
+} from "@/components/setting-row.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Slider } from "@/components/ui/slider.tsx";
@@ -41,14 +46,9 @@ const sizeOptions = TranscriptSize.options.map((value) => ({
 function PickerGroup(props: { id: SettingId; children: ReactNode }) {
   const titleId = useId();
   return (
-    <section id={props.id} aria-labelledby={titleId} className="mb-(--settings-group-gap)">
-      <h3
-        id={titleId}
-        className="mb-3 flex min-h-7 items-center text-md font-medium text-foreground"
-      >
-        {settingRow(props.id).title}
-      </h3>
-      {props.children}
+    <section id={props.id} aria-labelledby={titleId} className={settingsGroup}>
+      <SettingsGroupTitle id={titleId}>{settingRow(props.id).title}</SettingsGroupTitle>
+      <div className="pt-1">{props.children}</div>
     </section>
   );
 }

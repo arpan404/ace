@@ -86,12 +86,6 @@ const entries = [
     keywords: ["usage", "quota", "rate limit", "resume", "snooze", "migrate", "switch account"],
   },
   {
-    id: "overview",
-    page: "/settings/overview",
-    title: "Machines and providers that need attention",
-    keywords: ["status", "health", "updates", "sign in", "offline", "machines"],
-  },
-  {
     id: "threads.useWorktree",
     page: "/settings/agents",
     title: "New threads use a worktree",
@@ -300,24 +294,30 @@ const entries = [
     title: "Keyboard shortcuts",
     keywords: ["keys", "hotkeys", "rebind", "keybindings"],
   },
-  // Remote devices
+  // Fleet
   {
     id: "remote.enabled",
     page: "/settings/remote",
     title: "Remote access",
-    keywords: ["lan", "tailscale", "relay"],
+    keywords: ["lan", "tailscale", "relay", "fleet", "network"],
   },
   {
     id: "remote.transport",
     page: "/settings/remote",
-    title: "Transport",
-    keywords: ["lan", "tailscale", "relay"],
+    title: "Reached over",
+    keywords: ["lan", "tailscale", "relay", "transport", "network"],
   },
   {
     id: "remote.agentAccess",
     page: "/settings/remote",
-    title: "Agents on other devices can use this machine",
-    keywords: ["machines", "delegate", "cross-device", "mcp", "agents", "browser"],
+    title: "Agents from other machines",
+    keywords: ["machines", "delegate", "cross-device", "mcp", "agents", "browser", "fleet"],
+  },
+  {
+    id: "fleet.link",
+    page: "/settings/remote",
+    title: "Link machines",
+    keywords: ["fleet", "machines", "link", "connect", "add machine", "servers"],
   },
   // Browser
   {
@@ -378,7 +378,18 @@ const entries = [
     id: "remote.pair",
     page: "/settings/remote",
     title: "Pair a device",
-    keywords: ["phone", "qr", "remote", "mobile", "devices", "pair", "ipad", "tablet"],
+    keywords: [
+      "phone",
+      "qr",
+      "remote",
+      "mobile",
+      "devices",
+      "pair",
+      "ipad",
+      "tablet",
+      "pairing link",
+      "revoke",
+    ],
   },
   // Advanced
   {

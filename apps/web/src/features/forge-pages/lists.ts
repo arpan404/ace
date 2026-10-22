@@ -5,10 +5,12 @@ import type {
   ForgeIssueList,
   ForgeIssueSearch,
   ForgePrList,
+  ForgePrRow,
   ForgePrSearch,
+  ForgeIssueRow,
 } from "@ace/protocol";
 import { useClient, useConnectionState } from "@ace/client-react";
-import { keepPreviousData, useQueries } from "@tanstack/react-query";
+import { keepPreviousData, useQueries, type QueryClient } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "@/lib/forge-read.ts";
 
@@ -155,4 +157,33 @@ export function useIssueDetail(project: string, number: number) {
       return value.value;
     },
   });
+}
+
+const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
+/**
+ * A row a list already read for this pull request or issue, if any: its page shows what the row
+ * says (title, state, author) at once while the rest loads.
+ */
+export function cachedRow<K extends "prList" | "issueList">(
+  cache: QueryClient,
+  project: string,
+  kind: K,
+  number: number,
+  repository?: { owner: string; name: string },
+): (K extends "prList" ? ForgePrRow : ForgeIssueRow) | undefined {
+  type Row = K extends "prList" ? ForgePrRow : ForgeIssueRow;
+  for (const [, data] of cache.getQueriesData<{ items: Row[] }>({
+    queryKey: ["forge", project, "browse", kind],
+  })) {
+    const row = data?.items.find(
+      (item) =>
+        item.ref.number === number &&
+        (!repository ||
+          (same(item.ref.repository.owner, repository.owner) &&
+            same(item.ref.repository.name, repository.name))),
+    );
+    if (row) return row;
+  }
+  return undefined;
 }

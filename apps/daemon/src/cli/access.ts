@@ -3,9 +3,25 @@ import { accessRequest } from "../client-access.ts";
 import { readLocalToken } from "../local-token.ts";
 import { hostConnection } from "./connection.ts";
 import { terminalQr } from "./qr.ts";
-import { validateArgs, type Args } from "./args.ts";
+import { option, validateArgs, type Args } from "./args.ts";
 import { result } from "./io.ts";
 import { CliFailure } from "./output.ts";
+const durations: Record<string, { ms: number; words: string }> = {
+  "5m": { ms: 5 * 60_000, words: "5 minutes" },
+  "1h": { ms: 60 * 60_000, words: "1 hour" },
+  "24h": { ms: 24 * 60 * 60_000, words: "1 day" },
+  "1d": { ms: 24 * 60 * 60_000, words: "1 day" },
+  "7d": { ms: 7 * 24 * 60 * 60_000, words: "7 days" },
+  "30d": { ms: 30 * 24 * 60 * 60_000, words: "30 days" },
+};
+/** `--ttl 1h` and the like; the daemon refuses lifetimes it doesn't offer. */
+function duration(args: Args, name: string) {
+  const value = option(args, name);
+  if (value === undefined) return undefined;
+  const known = durations[value];
+  if (!known) throw new CliFailure("refused", `--${name} takes 5m, 1h, 24h, 1d, 7d or 30d`);
+  return known;
+}
 export async function accessCommand(args: Args, home: string) {
   const command = args.words[0];
   if (command === "token") {
@@ -34,19 +50,28 @@ export async function accessCommand(args: Args, home: string) {
   }
   const { origin, token } = hostConnection(home);
   if (command === "pair") {
-    validateArgs(args, [], 1, 2);
+    validateArgs(args, ["label", "ttl", "device-ttl"], 1, 2);
+    const label = option(args, "label");
+    const ttl = duration(args, "ttl");
+    const deviceTtl = duration(args, "device-ttl");
     const paired = PairingResponse.parse(
       await accessRequest(origin, "/v1/pairings", {
         method: "POST",
         token,
-        body: args.words[1] ? { scopes: args.words[1].split(",") } : {},
+        body: {
+          ...(args.words[1] ? { scopes: args.words[1].split(",") } : {}),
+          ...(label ? { label } : {}),
+          ...(ttl ? { ttlMs: ttl.ms } : {}),
+          ...(deviceTtl ? { deviceTtlMs: deviceTtl.ms } : {}),
+        },
       }),
     );
+    const access = deviceTtl ? ` The device keeps access for ${deviceTtl.words}.` : "";
     return result(
       args,
       args.flags.json || args.flags.jq
         ? paired
-        : `${paired.url}\nValid for 5 minutes, single use.\n${terminalQr(paired.url)}`,
+        : `${paired.url}\nValid for ${ttl?.words ?? "5 minutes"}, single use.${access}\n${terminalQr(paired.url)}`,
     );
   }
   const verb = args.words[1];

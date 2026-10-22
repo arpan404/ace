@@ -209,7 +209,7 @@ export function PrHeader(props: {
   );
   return (
     <header className="shrink-0 pt-2">
-      <div className="flex h-7 min-w-0 items-center gap-1 px-4">
+      <div className="flex h-7 min-w-0 items-center gap-1 px-[var(--forge-gutter,1rem)]">
         {props.onBack && (
           <IconButton
             icon={ArrowLeftIcon}
@@ -259,7 +259,7 @@ export function PrHeader(props: {
         )}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="mt-1 space-y-1.5 px-4 pb-2.5">
+          <div className="mt-1 space-y-1.5 px-[var(--forge-gutter,1rem)] pb-2.5">
             {!props.condensed && <PrTitle actions={actions} condensed={false} />}
             <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
               <PrAvatar name={detail.author} url={detail.authorAvatarUrl} />
@@ -304,7 +304,7 @@ export function PrHeader(props: {
         </div>
       </div>
       {props.condensed && (
-        <p className="fx-cross-in truncate px-4 pb-1.5 font-mono text-2xs text-subtle-foreground">
+        <p className="fx-cross-in truncate px-[var(--forge-gutter,1rem)] pb-1.5 font-mono text-2xs text-subtle-foreground">
           {branches}
         </p>
       )}

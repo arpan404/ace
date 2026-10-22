@@ -215,7 +215,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
     random: Math.random,
     report: (status) => emit(contents(), "updates.status", status),
     drain: (deadlineMs, waiting) => runtime.drainForUpdate(deadlineMs, waiting),
-    // Quit's own question and shutdown are skipped: the drain already let agents finish.
+    busy: () => runtime.busyForUpdate(),
+    // Quit's own question is skipped: the person already confirmed Restart.
     prepareQuit: async () => {
       quitting = true;
       await shutDown();

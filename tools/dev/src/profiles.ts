@@ -4,11 +4,14 @@ import type { ProcessSpec } from "./runner.ts";
 /** Ports and directories of the isolated development environment. */
 export interface DevLayout {
   repo: string;
-  /** `.ace-dev/`: git-ignored, never `~/.ace`. */
+  /** `~/.ace/dev/`, shared by every checkout so dev data survives across worktrees. */
   root: string;
-  /** ACE_HOME of the development daemon. */
+  /** ACE_HOME of the development daemon: the root itself, never `~/.ace`. */
   home: string;
-  /** Electron's userData in development (window state, sessions, settings). */
+  /**
+   * Electron's userData in development (window state, sessions, settings). A sibling of the
+   * home, never inside it: the daemon treats an unmarked, non-empty home as an old data format.
+   */
   electron: string;
   daemonPort: number;
   webPort: number;
@@ -17,13 +20,13 @@ export interface DevLayout {
 export const profileNames = ["dev", "dev:web", "dev:fake", "dev:desktop:fake", "daemon"] as const;
 export type ProfileName = (typeof profileNames)[number];
 
-export function devLayout(repo: string, env: NodeJS.ProcessEnv): DevLayout {
-  const root = env.ACE_DEV_DIR ?? join(repo, ".ace-dev");
+export function devLayout(repo: string, env: NodeJS.ProcessEnv, userHome: string): DevLayout {
+  const root = env.ACE_DEV_DIR ?? join(userHome, ".ace", "dev");
   return {
     repo,
     root,
-    home: join(root, "home"),
-    electron: join(root, "electron"),
+    home: root,
+    electron: `${root}-electron`,
     daemonPort: Number(env.ACE_DEV_DAEMON_PORT ?? 4343),
     webPort: Number(env.ACE_DEV_WEB_PORT ?? 5173),
   };

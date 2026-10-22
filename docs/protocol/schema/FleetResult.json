@@ -1,0 +1,181 @@
+{
+  "$id": "https://ace.local/protocol/v1/FleetResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "result": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "links",
+              "type": "string"
+            },
+            "links": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/FleetLink.json"
+              },
+              "maxItems": 64,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "links"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "linked",
+              "type": "string"
+            },
+            "link": {
+              "$ref": "https://ace.local/protocol/v1/FleetLink.json"
+            }
+          },
+          "required": [
+            "kind",
+            "link"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "unlinked",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "code": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "expiresAt": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "const": "pairing",
+              "type": "string"
+            },
+            "url": {
+              "format": "ace-whatwg-url",
+              "type": "string",
+              "x-ace-constraint": "Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "url",
+            "code",
+            "expiresAt"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "pairings",
+              "type": "string"
+            },
+            "pairings": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/PendingPairing.json"
+              },
+              "maxItems": 100,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "pairings"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "pairingCancelled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "devices": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/Device.json"
+              },
+              "maxItems": 10000,
+              "type": "array"
+            },
+            "kind": {
+              "const": "devices",
+              "type": "string"
+            },
+            "selfId": {
+              "$ref": "https://ace.local/protocol/v1/DeviceId.json"
+            }
+          },
+          "required": [
+            "kind",
+            "devices"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "count": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "revoked",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "type": {
+      "const": "fleet.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "result"
+  ],
+  "type": "object"
+}

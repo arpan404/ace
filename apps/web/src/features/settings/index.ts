@@ -2,7 +2,6 @@
 export {
   AdvancedSettingsScreen,
   AgentsSettingsScreen,
-  OverviewSettingsScreen,
   StorageSettingsScreen,
   BrowserSettingsScreen,
   PairDeviceScreen,
@@ -15,6 +14,7 @@ export {
   ProviderDetailScreen,
   ProviderSettingsScreen,
   RemoteSettingsScreen,
+  FleetMachineScreen,
   SourceControlSettingsScreen,
   SettingsIndexScreen,
 } from "./settings-screens.tsx";

@@ -96,7 +96,11 @@ export function recoverEngine(
           )
             repo.queue.uncertain(intent.id);
         recovery.dropContinuationBehindStop(state.threadId);
-        recovery.capture(state.threadId);
+        // A settled thread is finished for the person: a restart leaves it nothing to resume,
+        // and a hold an earlier restart left goes now.
+        if (repo.store.getThread(state.threadId)?.settledAt !== undefined)
+          recovery.closeSettled(state.threadId);
+        else recovery.capture(state.threadId);
         // A stopped provider no longer owns an admitted continuation. Native history
         // remains the source for a new restart continuation, never the old input.
         if (!repo.pending.uncertainContinuation(state.threadId))

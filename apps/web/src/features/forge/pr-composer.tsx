@@ -1,5 +1,7 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { ChatCircleIcon, PaperPlaneTiltIcon, XIcon } from "@phosphor-icons/react";
+import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
+import { draftKeys, useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
@@ -25,8 +27,10 @@ export function PrComposer(props: {
   context: PrWorkspaceContext;
   extensions?: PrWorkspaceExtensions | undefined;
 }) {
-  const [body, setBody] = useState("");
-  const currentBody = useRef(body);
+  const draft = useMarkdownDraft(
+    draftKeys.prComment(props.context.workspaceId, JSON.stringify(props.context.detail.status.ref)),
+  );
+  const body = draft.text;
   const [mode, setMode] = useState<"comment" | "review">(
     props.extensions?.comment ? "comment" : "review",
   );
@@ -59,9 +63,8 @@ export function PrComposer(props: {
     setPending(true);
     try {
       await run(submitted, props.context);
-      if (currentBody.current === submitted) {
-        currentBody.current = "";
-        setBody("");
+      // Text typed while it posted stays, with the composer open.
+      if (draft.clear(submitted)) {
         setOpen(false);
         setClosing(false);
       }
@@ -127,18 +130,17 @@ export function PrComposer(props: {
             )
           ) : (
             <>
-              <textarea
+              <MarkdownEditor
                 autoFocus
-                aria-label={selected === "review" ? "Review body" : "Comment body"}
+                label={selected === "review" ? "Review body" : "Comment body"}
                 placeholder={selected === "review" ? "Leave a review" : "Leave a comment"}
                 value={body}
-                onChange={(e) => {
-                  currentBody.current = e.target.value;
-                  setBody(e.target.value);
+                onChange={(text) => {
+                  draft.setText(text);
                   setClosing(false);
                 }}
+                onSubmit={() => void send(false)}
                 maxLength={65_536}
-                className="min-h-24 w-full resize-y rounded-md border border-border bg-input p-2 text-ui focus-ring"
               />
               {closing && (
                 <p role="status" className="text-sm">

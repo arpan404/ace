@@ -38,14 +38,14 @@ Rules: never hard-code a colour; never put a status hue on something that is not
 
 | Token               | Where                                                                                 |
 | ------------------- | ------------------------------------------------------------------------------------- |
-| `--depth-highlight` | Lit top edge: the active tab (not the composer or buttons, which stay flat).          |
+| `--depth-highlight` | Lit top edge. No control uses it: tabs, segments, buttons and the composer are flat.  |
 | `--depth-dock`      | The composer's soft lift off the page (shadow only, no highlight).                    |
 | `--depth-strip`     | The smaller lift of the card attached above the composer (shadow only, no highlight). |
-| `--depth-raise`     | 1px rest shadow: active tab, picker previews (not buttons).                           |
+| `--depth-raise`     | 1px rest shadow: picker previews and small badges over media (not tabs or buttons).   |
 | `--depth-fill`      | Highlight and bottom shade on a checked checkbox (not buttons).                       |
 | `--depth-well`      | Slight recess of text inputs.                                                         |
 
-Pressed controls take their pressed wash (`active:shadow-none` only where a shadow remains). Rows, cards, bubbles, the sidebar, settings cards and the header stay flat.
+Pressed controls take their pressed wash (`active:shadow-none` only where a shadow remains). Rows, cards, bubbles, the sidebar, settings cards, the header, tabs and segmented controls stay flat.
 
 ### Hairlines
 
@@ -102,6 +102,7 @@ Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, contex
 - **Setting row:** `--setting-row-height`, label (`text-ui` 500) left, optional one-line description (`text-xs` subtle) under it, the control right-aligned at a fixed width (select 160–200, text 160, number 80 + unit, toggle, segmented). Add actions are a `SettingAddRow` inside the card. Notes and footers use `SettingNote` and `SettingFooter`.
 - **List row (sidebar task):** 80px, three lines of 16/20/16 with 4px between them and 10px above and below, 12px side padding, `rounded-md`, inset 8px from the sidebar edge, 4px between rows, no dividers. Line 1 (`text-meta` muted): project mark + project name … status word with its elapsed time, or relative time when at rest. Line 2: title (`text-md` 500). Line 3 (`text-meta`): branch (mono) · PR … machine only with more than one device · provider glyph with the account bubble. Open thread: `--active` fill, no bar; hover: `--hover`. Hover actions appear beside the status, which stays. Settled rows are one 32px line, muted (title subtle, project mark greyed), showing the PR or `+added −removed`, then the age.
 - **View rows** (settings nav, automations, skills): `ViewRow`, 32px, `rounded-md`, selected = the same `--active` fill as the task list.
+- **Full pages (pull requests, issues, their lists):** one gutter for every band (`--forge-gutter`: 16px in a narrow column, 32px beside it). Titles, bylines, merge gates, tab bars, section headings and rows all start and end on it. Anything drawn as a box (icon buttons, row hover washes, word tabs) overhangs it, so its text or glyph lands on the edge rather than its box. Back hangs in the gutter left of the title. Bands above a scroller keep the scroller's track space (`scrollbar-gutter: stable`) so right edges agree.
 - **Side panel:** toolbar (44px, `toolbarEdge`) with a `SegmentedControl` or `Tabs`, a close and an expand icon; body opaque; sections separated by `sectionRule`; `rowCard` for outlined list rows. Nothing else is drawn.
 - **Dialog:** `rounded-card`, 20px padding, solid, 480px (confirmations) or 640px, title `text-lg` 600, body `text-ui` muted, footer right-aligned: Cancel then the action. Danger confirmations: solid red action, focus starts on Cancel.
 - **Popover / menu:** `rounded-popup`, 4px padding, 30px rows `rounded-md` (concentric), 16px icon muted, label `text-ui`, shortcut `text-xs` subtle right-aligned; `--border` separators with 6px margins; destructive rows in `--destructive`.
@@ -125,8 +126,8 @@ Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, contex
 | **Select**              | `Select` (never native) for 4+ options; shows the value, caret faint.                                                                                                                                                              | Default provider, Chat width                 | A select for 2–3 states                                 |
 | **Toggle**              | `Switch` for on/off that applies at once.                                                                                                                                                                                          | Notifications, Enabled                       | A toggle that needs Save                                |
 | **Slider**              | `Slider` with the value at the right (tabular numbers) and a one-shot preview when the setting is visual.                                                                                                                          | Contrast, Translucency, Motion speed         | Sliders for discrete choices under 5                    |
-| **SegmentedControl**    | 2–4 exclusive states in a toolbar or row; 28px; thumb springs.                                                                                                                                                                     | Read-only / Ask / Auto review / Full access  | Segments as page navigation; more than 4                |
-| **Tabs**                | Panel sections: 28px, `rounded-sm`; the active tab takes an 8% ink fill with `--depth-highlight` + `--depth-raise`.                                                                                                                | Side panel sections                          | Underlines and pills mixed in one bar                   |
+| **SegmentedControl**    | 2–4 exclusive states in a settings row; 28px; a flat thumb that springs, no shadow. In a page toolbar use `WordChoice` (words; the chosen one on the `--active` fill at 500).                                                      | Read-only / Ask / Auto review / Full access  | Segments as page navigation; more than 4                |
+| **Tabs**                | Panel sections: 28px, `rounded-sm`; the active tab takes a flat 8% ink fill, no shadow. Page-level tabs (Pull requests / Issues, Summary / Timeline / Code) take the `--active` fill, as the open thread does.                     | Side panel sections                          | Underlines and pills mixed in one bar                   |
 | **Chip / Badge**        | `rounded-xs`, 20px, `text-xs`, surface fill, monochrome.                                                                                                                                                                           | File chips, model chip, counts               | Coloured badges for identity                            |
 | **Status glyph + word** | `StatusGlyph` 12px and `StatusLabel`, via `data-tone`. Colour never alone: a glyph or a word accompanies it.                                                                                                                       | "● Approve", "✕ Failed"                      | A bare coloured dot; a coloured title                   |
 | **Link**                | `text-link`, no underline at rest, underline on hover; only for navigation.                                                                                                                                                        | "Open source", docs                          | Links styled as buttons; buttons styled as links        |
@@ -189,7 +190,7 @@ Answer every one with yes before approving a UI PR.
 8. Do primary/secondary/ghost/danger follow §4, with one primary per surface and danger only on the confirming action?
 9. Does the page title row carry at most one action, and do add actions sit inside cards?
 10. Do empty, error and loading states use `EmptyState` and `--skel` as in §3?
-11. Are tabs either `SegmentedControl` or `Tabs`, never a third style?
+11. Are tabs `SegmentedControl`, `Tabs` or `WordChoice`, never a fourth style, all flat (no shadow) with the selection shown by a fill?
 12. Does every animation use `--motion-*` and `--ease-*`, animate only transform/opacity, and respect `[data-reduce-motion]`?
 13. Is focus visible on every interactive element, and does focus return to the opener when a layer closes?
 14. Are hit targets 30px fine / 44px coarse, and does every icon-only control have an `aria-label`?

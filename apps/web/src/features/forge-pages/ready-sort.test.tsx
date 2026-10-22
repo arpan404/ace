@@ -10,7 +10,7 @@ const waiting = (number: number): PrSketch => ({
   title: `Waiting change ${number}`,
   state: "open",
   author: "sam",
-  reviewers: ["you"],
+  reviewers: ["mira"],
   decision: "REVIEW_REQUIRED",
   ci: "success",
   updated: number * minute,
@@ -56,12 +56,13 @@ async function groups() {
 test("a ready pull request older than the first page still leads the list", async () => {
   const app = withBusyRepository();
   await app.open("/pulls?project=ace");
-  await waitFor(async () => expect(await groups()).toEqual({ Ready: 1, "Waiting on review": 25 }));
-  const ready = within(await screen.findByRole("region", { name: "Ready" }));
+  await waitFor(async () => expect(await groups()).toEqual({ "Ready to merge": 1, Waiting: 25 }));
+  const ready = within(await screen.findByRole("region", { name: "Ready to merge" }));
   expect(ready.getByRole("link", { name: /Old but ready/ })).toBeTruthy();
-  // 25 of the 30 waiting on review are loaded; the heading says GitHub's 30.
-  await waitFor(() => expect(heading("Waiting on review")).toBe("Waiting on review30"));
-  expect(heading("Ready")).toBe("Ready1");
+  // 25 of the 30 waiting are loaded: a group counts its rows once every page is read.
+  expect(heading("Waiting")).toBe("Waiting");
   await userEvent.click(screen.getByRole("button", { name: "Show more" }));
-  await waitFor(async () => expect(await groups()).toEqual({ Ready: 1, "Waiting on review": 30 }));
+  await waitFor(async () => expect(await groups()).toEqual({ "Ready to merge": 1, Waiting: 30 }));
+  await waitFor(() => expect(heading("Waiting")).toBe("Waiting30"));
+  expect(heading("Ready to merge")).toBe("Ready to merge1");
 });

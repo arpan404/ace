@@ -23,7 +23,7 @@ import {
   type CloneOptions,
   type ProjectGitPolicy,
 } from "./projects.ts";
-import { integrateRevision } from "./integration.ts";
+import { forgetIntegrations, integrateRevision } from "./integration.ts";
 import { commitChanges, pushBranch, probeRemote, listBranches, switchBranch } from "./actions.ts";
 import { pushLeasedRefs, type LeasedPushOptions } from "./leased-push.ts";
 import {
@@ -204,6 +204,10 @@ export class GitService {
 
   integrate(input: { worktree: string; revision: string; key: string }) {
     return integrateRevision(this.repository, input);
+  }
+  /** Drop the receipts `integrate` kept under keys starting with `prefix`. */
+  forgetIntegrations(input: { repo: string; prefix: string }) {
+    return forgetIntegrations(this.repository, input);
   }
 
   async writingContext(worktree: string, selection: SourceControlSelection) {

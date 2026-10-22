@@ -23,7 +23,7 @@ export function PrMergeLines(props: { actions: PrActions }) {
   const estimate = state.queue?.estimatedTimeToMerge;
   if (!rules.length && !state.queue && !deployments.length) return null;
   return (
-    <div className="space-y-0.5 px-4 pb-2 text-xs text-muted-foreground tabular-nums">
+    <div className="space-y-0.5 px-[var(--forge-gutter,1rem)] pb-2 text-xs text-muted-foreground tabular-nums">
       {state.queue && (
         <p>
           Merge queue · {humanize(state.queue.state)}

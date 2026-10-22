@@ -178,7 +178,7 @@ function SpeedSegment(props: { view: ModelControlView; onSpeed(speed: Speed): vo
               onClick={() => choose(tier.speed)}
               className={cn(
                 "grid size-7 place-items-center rounded-full pointer-coarse:size-8 text-muted-foreground focus-ring-inset transition-[background-color,color] duration-(--motion-fast) hover:text-foreground aria-disabled:opacity-40",
-                checked && "bg-popover text-foreground shadow-raised",
+                checked && "bg-popover text-foreground",
               )}
             >
               <SpeedGlyph speed={tier.speed} size={14} />

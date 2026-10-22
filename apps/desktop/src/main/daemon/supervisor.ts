@@ -144,6 +144,13 @@ export class DaemonSupervisor {
     return this.status;
   }
 
+  /** Threads still at work in the daemon this app started; 0 when it started none. */
+  async busy(): Promise<number> {
+    const daemon = this.daemon;
+    if (!daemon || !this.child) return 0;
+    return this.ports.blockers(daemon);
+  }
+
   /**
    * Before an app update replaces the daemon: close admission and wait for running work to
    * finish naturally. Returns false (and reopens admission) if work remains at the deadline.
