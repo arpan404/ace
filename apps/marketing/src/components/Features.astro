@@ -1,42 +1,10 @@
 ---
-import Icon, { type IconName } from "./Icon.astro";
-
-const features: { icon: IconName; title: string; body: string }[] = [
-  {
-    icon: "lock",
-    title: "Runs on your machine",
-    body: "A small daemon lives next to your code. It owns the agent processes, terminals and worktrees. Provider credentials never pass through it.",
-  },
-  {
-    icon: "devices",
-    title: "Pick up from any device",
-    body: "Pair a browser or your phone and answer an agent from the couch. Devices talk through an end-to-end encrypted relay you can host yourself.",
-  },
-  {
-    icon: "browser",
-    title: "A browser agents can drive",
-    body: "Agents open your dev server in ace's browser, click through it and read the console. You watch the same page and can take over.",
-  },
-  {
-    icon: "tree-structure",
-    title: "Switch models mid-thread",
-    body: "Hand a thread from Claude to Codex with its context, or send one task to several agents and keep the best result.",
-  },
-  {
-    icon: "git-pull-request",
-    title: "Pull requests and issues",
-    body: "Open them as full pages, link them to the thread that wrote the code, and merge once checks pass.",
-  },
-  {
-    icon: "clock-countdown",
-    title: "Automations",
-    body: "Run a prompt on a schedule, like a nightly flaky-test sweep. Each run gets its own thread to read in the morning.",
-  },
-];
+import { features } from "../content/product.ts";
+import Icon from "./Icon.astro";
 ---
 
 <section id="features" class="features page">
-  <h2 class="section-title reveal">The rest of the workbench.</h2>
+  <h2 class="section-title reveal">Everything else in the workbench.</h2>
   <div class="grid">
     {
       features.map((feature) => (
@@ -75,12 +43,13 @@ const features: { icon: IconName; title: string; body: string }[] = [
   }
 
   .icon {
-    grid-row: span 2;
+    grid-row: 1;
     color: var(--muted);
     padding-top: 2px;
   }
 
   .feature p {
+    grid-column: 2;
     color: var(--muted);
     max-width: 36em;
   }

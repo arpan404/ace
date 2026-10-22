@@ -1,6 +1,7 @@
 ---
 import { links } from "../site.ts";
 import AceMark from "./AceMark.astro";
+import DownloadButton from "./DownloadButton.astro";
 import Icon from "./Icon.astro";
 ---
 
@@ -12,15 +13,16 @@ import Icon from "./Icon.astro";
     </a>
     <nav class="nav-links" aria-label="Sections">
       <a href="#agents">Agents</a>
-      <a href="#status">Status</a>
-      <a href="#review">Review</a>
-      <a href="#features">Features</a>
+      <a href="#machine">Computer use</a>
+      <a href="#fleet">Fleet</a>
+      <a href="#mcp">MCP</a>
+      <a href="#faq">FAQ</a>
     </nav>
     <div class="nav-actions">
       <a class="icon-link" href={links.source} aria-label="ace on GitHub">
         <Icon name="github-logo" size={20} />
       </a>
-      <a class="button button-primary button-small" href={links.download}>Download for Mac</a>
+      <DownloadButton small />
     </div>
   </div>
 </header>

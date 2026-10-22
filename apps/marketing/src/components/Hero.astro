@@ -1,23 +1,18 @@
 ---
 import homeDark from "../assets/shots/home-dark.png";
 import homeLight from "../assets/shots/home-light.png";
+import { product } from "../content/product.ts";
 import { links } from "../site.ts";
-import Icon from "./Icon.astro";
+import DownloadButton from "./DownloadButton.astro";
 import ThemeShot from "./ThemeShot.astro";
 ---
 
 <section class="hero">
   <div class="page hero-copy">
-    <h1>All your coding agents, one window.</h1>
-    <p class="lede">
-      ace drives Claude Code, Codex, Cursor and the other CLIs you already use, and tells you
-      which one needs you.
-    </p>
+    <h1>{product.headline}</h1>
+    <p class="lede">{product.summary}</p>
     <div class="hero-actions">
-      <a class="button button-primary" href={links.download}>
-        <Icon name="apple-logo" size={18} />
-        Download for Mac
-      </a>
+      <DownloadButton withNote />
       <a class="button button-secondary" href={links.source}>View source</a>
     </div>
   </div>

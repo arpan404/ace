@@ -1,16 +1,8 @@
 ---
 import sidebarDark from "../assets/shots/sidebar-dark.png";
 import sidebarLight from "../assets/shots/sidebar-light.png";
+import { statuses as states } from "../content/product.ts";
 import ThemeShot from "./ThemeShot.astro";
-
-/* The app's own status words, each in the colour the app gives it. */
-const states = [
-  { tone: "working", word: "Working", meaning: "The agent, or one of its subagents, is running." },
-  { tone: "needs-you", word: "Approve", meaning: "It is stopped on a permission or a question for you." },
-  { tone: "waiting", word: "Waiting", meaning: "Its turn ended, but subagents or commands still run." },
-  { tone: "failed", word: "Failed", meaning: "It stopped on an error you should read." },
-  { tone: "done", word: "Done", meaning: "Every agent and command in the thread has finished." },
-];
 ---
 
 <section id="status" class="status">

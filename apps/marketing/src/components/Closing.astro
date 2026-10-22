@@ -1,7 +1,7 @@
 ---
 import { links } from "../site.ts";
 import AceMark from "./AceMark.astro";
-import Icon from "./Icon.astro";
+import DownloadButton from "./DownloadButton.astro";
 ---
 
 <section class="closing">
@@ -13,10 +13,7 @@ import Icon from "./Icon.astro";
       agent you have logged in.
     </p>
     <div class="actions">
-      <a class="button button-primary" href={links.download}>
-        <Icon name="apple-logo" size={18} />
-        Download for Mac
-      </a>
+      <DownloadButton withNote />
       <a class="button button-secondary" href={links.source}>View source</a>
     </div>
   </div>

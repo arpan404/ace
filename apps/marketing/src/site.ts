@@ -1,6 +1,11 @@
 /** Where the site's links point. One place, so a moved repository is one edit. */
+export const repository = "arpan404/ace";
+
+const github = `https://github.com/${repository}`;
+
 export const links = {
-  source: "https://github.com/arpan404/ace",
-  download: "https://github.com/arpan404/ace/releases/latest",
-  license: "https://github.com/arpan404/ace/blob/main/LICENSE",
+  source: github,
+  releases: `${github}/releases`,
+  latestRelease: `${github}/releases/latest`,
+  license: `${github}/blob/main/LICENSE`,
 } as const;

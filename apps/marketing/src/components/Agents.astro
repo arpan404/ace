@@ -1,20 +1,6 @@
 ---
-import type { ProviderKind } from "@ace/protocol";
-import { acpAgentBrands, providerIcon, type Brand } from "@ace/ui-core/provider-icons";
+import { acpAgents as acp, builtInAgents as providers } from "../content/agents.ts";
 import BrandMark from "./BrandMark.astro";
-
-/* The providers ace runs natively, in the order the app lists them. */
-const builtIn: ProviderKind[] = ["claude", "codex", "cursor", "opencode", "antigravity", "pi"];
-const providers = builtIn.flatMap((provider) => {
-  const { brand, label } = providerIcon({ provider });
-  return brand ? [{ brand, label }] : [];
-});
-
-/* ACP registry agents with a mark, skipping any that are already shown as built-in. */
-const shown = new Set<Brand>(providers.map((provider) => provider.brand));
-const acp = Object.values(acpAgentBrands)
-  .flatMap(({ name, brand }) => (brand && !shown.has(brand) ? [{ brand, label: name }] : []))
-  .toSorted((a, b) => a.label.localeCompare(b.label));
 ---
 
 <section id="agents" class="agents page reveal">
