@@ -30,8 +30,11 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
   return (
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
+      // A dialog opened from a sheet (the narrow window's sidebar) is nested in it; it still
+      // blurs what is behind it, sheet included, on the modal layer after that sheet.
+      forceRender
       className={cn(
-        layers.overlay,
+        layers.modal,
         "ace-backdrop fixed inset-0 [-webkit-app-region:no-drag] transition-opacity duration-(--motion-base) ease-smooth data-ending-style:opacity-0 data-ending-style:duration-(--motion-exit) data-starting-style:opacity-0",
         className,
       )}
