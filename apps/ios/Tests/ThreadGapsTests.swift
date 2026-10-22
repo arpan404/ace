@@ -101,6 +101,23 @@ import Testing
         #expect(model.thread?.screen.steps[2]?.rows.map(\.id) == ["s0", "s1"])
     }
 
+    /// A goal change saved on the phone is still pending: Pause or Clear resolves only on the
+    /// daemon's answer, and a refusal comes back to the sheet, not as the screen-wide error.
+    @Test func aGoalChangeStaysPendingUntilTheDaemonAnswersAndItsRefusalStaysOnTheSheet() async throws {
+        let (model, session) = try await connected()
+        let epoch = try #require(model.thread?.epoch)
+        var answer: String?? = .none
+        let changing = Task { answer = .some(await model.changeGoal("pause", epoch: epoch)) }
+        for _ in 0..<50 where session.threadActions.isEmpty { await Task.yield() }
+        let id = try #require(session.threadActions.first?["requestId"] as? String)
+        model.receive(try frame([["type": "admission", "id": id, "ok": true, "message": ""]]))
+        for _ in 0..<50 { await Task.yield() }
+        #expect(answer == nil, "saved on the phone is not taken by the daemon")
+        model.receive(try frame([["type": "receipt", "id": id, "ok": false, "message": "unsupported_goal"]]))
+        await changing.value
+        #expect(answer == .some("unsupported_goal"))
+        #expect(model.error == nil)
+    }
     private func connected() async throws -> (ClientModel, ThreadActionRecorder) {
         let session = ThreadActionRecorder()
         let model = ClientModel(now: { 0 }, makeRuntime: { _, _, _, _ in session })

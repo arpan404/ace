@@ -72,6 +72,8 @@ import QuartzCore
     @ObservationIgnored private var shutdown: Task<Void, Never>?
     @ObservationIgnored private var frames = BridgeFrames()
     @ObservationIgnored let admissions = CommandAdmissions()
+    /// Goal changes waiting on the daemon's receipt, apart from the screen-wide error.
+    @ObservationIgnored let receipts = CommandReceipts()
     @ObservationIgnored let services = NativeServiceCalls()
     @ObservationIgnored var approvalRequests: [String: String] = [:]
     @ObservationIgnored let now: () -> Double
@@ -215,6 +217,11 @@ import QuartzCore
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
             case .notification(let patch): notificationSink?(patch)
+            case .receipt(let id, let ok, let message) where receipts.tracks(id):
+                // A goal change answers on its own sheet, never as the screen-wide error.
+                receipts.resolve(id, refused: ok ? nil : (message.isEmpty ? "Your computer refused that change." : message))
+            case .admission(let id, let ok, let message) where receipts.tracks(id):
+                if !ok { receipts.resolve(id, refused: message.isEmpty ? CommandReceipts.unsent : message) }
             case .receipt(let id, let ok, let message):
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
                     if ok { approvalSubmissions[interactionId]?.phase = .waiting }
@@ -421,6 +428,7 @@ import QuartzCore
         if let hostId { liveActivity.update(rows: inbox.dictionary, hostId: hostId, online: false) }
         services.cancel()
         admissions.cancel()
+        receipts.cancel()
         approvalSubmissions = [:]; approvalRequests = [:]
         browser.close(streams: runtime?.browserStreams)
         guard let runtime else { return shutdown }
