@@ -55,7 +55,6 @@ export class ThreadSession {
     epoch: number,
     pump: PatchPump,
     chunks: ChunkReader = nativeChunks,
-    initialItemLimit = 200,
   ) {
     this.#client = client;
     this.#store = store;
@@ -96,7 +95,7 @@ export class ThreadSession {
       if (keys === "all" || keys.has("order") || keys.has("history")) this.#history();
       if (keys === "all" || keys.has("queue") || keys.has("thread") || keys.has("agents"))
         this.#queue.update();
-      if (keys === "all" && initialItemLimit <= 200) this.#ready();
+      if (keys === "all") this.#ready();
     });
     this.#blocks.tap("all");
     this.#activity("all");
@@ -104,11 +103,12 @@ export class ThreadSession {
     this.#history();
     this.#queue.update();
     this.#tune.update();
-    if (initialItemLimit <= 200) this.#ready();
+    this.#ready();
     void this.#readSetting();
   }
 
-  // Queued after the snapshot's items AND blocks. Native can reveal one coherent transcript.
+  // Queued after the snapshot's items AND blocks, so native reveals one coherent transcript: the
+  // latest window, never waiting for older history (`thread-history.ts`).
   #ready(): void {
     if (this.#store.thread)
       this.#put("ready", () => ({ type: "thread.ready", count: this.#store.order.length }));
