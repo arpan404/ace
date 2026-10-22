@@ -25,6 +25,25 @@ import Testing
             try PinnedTrust.verify(certificate: DaemonCertificate.der, pin: DaemonCertificate.pin, now: DaemonCertificate.notAfter)
         }
     }
+    @Test func aTsNetHostWhoseCertificateTheSystemTrustsPassesWithoutThePin() throws {
+        let other = String(DaemonCertificate.pin.reversed())
+        try PinnedTrust.decide(certificate: DaemonCertificate.der, pin: other, host: "studio.tail1234.ts.net", now: during) { true }
+        try PinnedTrust.decide(certificate: DaemonCertificate.der, pin: nil, host: "Studio.tail1234.ts.net.", now: during) { true }
+    }
+    @Test func aChangedKeyIsStillRefusedUnlessTheHostIsTsNetAndSystemTrusted() {
+        let other = String(DaemonCertificate.pin.reversed())
+        #expect(throws: TrustFailure.mismatch) {
+            try PinnedTrust.decide(certificate: DaemonCertificate.der, pin: other, host: "studio.tail1234.ts.net", now: during) { false }
+        }
+        for host in ["studio.example.com", "100.64.0.1", "ts.net", "studio.ts.net.example.com"] {
+            #expect(throws: TrustFailure.mismatch) {
+                try PinnedTrust.decide(certificate: DaemonCertificate.der, pin: other, host: host, now: during) { true }
+            }
+        }
+    }
+    @Test func thePinnedCertificateStillPassesOnATsNetHost() throws {
+        try PinnedTrust.decide(certificate: DaemonCertificate.der, pin: DaemonCertificate.pin, host: "studio.tail1234.ts.net", now: during) { false }
+    }
     @Test func malformedCertificatesAreRefused() {
         #expect(throws: TrustFailure.malformed) { try PinnedTrust.verify(certificate: Data([0x30, 0x03, 0x02, 0x01]), pin: DaemonCertificate.pin, now: during) }
         #expect(throws: TrustFailure.malformed) { try PinnedTrust.verify(certificate: DaemonCertificate.der.prefix(400), pin: DaemonCertificate.pin, now: during) }
