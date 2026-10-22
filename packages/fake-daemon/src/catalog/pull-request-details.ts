@@ -232,7 +232,7 @@ function failingWithChanges(now: number): PullRequestFixture {
   const inline = (
     id: number,
     author: string,
-    file: string,
+    path: string,
     line: number | null,
     ago: number,
     body: string,
@@ -243,7 +243,7 @@ function failingWithChanges(now: number): PullRequestFixture {
     body,
     author,
     authorAvatarUrl: `https://avatars.githubusercontent.com/${author}`,
-    file,
+    file: path,
     line,
     createdAt: iso(now - ago * minute),
     updatedAt: iso(now - ago * minute),

@@ -18,6 +18,13 @@ const mutations = async (f: Awaited<ReturnType<typeof fakeGh>>) =>
         typeof b.query === "string" &&
         b.query.startsWith("mutation"),
     );
+const node = (databaseId: number, isMinimized: boolean, reason: string | null, can: boolean) => ({
+  databaseId,
+  reactionGroups: [],
+  isMinimized,
+  minimizedReason: reason,
+  viewerCanMinimize: can,
+});
 function withComment(source: "issue" | "inline"): Fixtures {
   const fixtures = reviewFixtures();
   const comment = { id: 5, node_id: "IC_5", body: "Old note", user: { login: "reviewer" } };
@@ -106,13 +113,6 @@ test("hiding is refused without a mutation when the viewer can't, or the comment
 
 test("review decorations report hidden comments with their reason and the ones the viewer may hide", async () => {
   const fixtures = reviewFixtures();
-  const node = (databaseId: number, isMinimized: boolean, reason: string | null, can: boolean) => ({
-    databaseId,
-    reactionGroups: [],
-    isMinimized,
-    minimizedReason: reason,
-    viewerCanMinimize: can,
-  });
   fixtures["graphql:query PrReactions("] = [
     {
       body: {

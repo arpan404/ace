@@ -106,7 +106,7 @@ function mapComment(
   return withStatus(fixture, {
     comments: map(status.comments),
     reviewThreads: status.reviewThreads
-      .map((t) => ({ ...t, comments: map(t.comments) }))
+      .map((t) => Object.assign({}, t, { comments: map(t.comments) }))
       .filter((t) => t.comments.length > 0),
   });
 }
@@ -311,7 +311,7 @@ export function applyHostedReview(
       return done(
         withStatus(fixture, {
           reviewThreads: status.reviewThreads.map((t) =>
-            t.id === action.threadId ? { ...t, resolved } : t,
+            t.id === action.threadId ? Object.assign({}, t, { resolved }) : t,
           ),
         }),
       );
