@@ -91,7 +91,7 @@ export function CompletionList(props: {
         anchor={{ getBoundingClientRect: props.anchor }}
         initialFocus={false}
         finalFocus={false}
-        className="w-80 max-w-[calc(100vw-16px)]"
+        className="w-96 max-w-[calc(100vw-16px)]"
       >
         <div id={props.id} role="listbox" aria-label={props.label}>
           {props.items.map((item, index) => (

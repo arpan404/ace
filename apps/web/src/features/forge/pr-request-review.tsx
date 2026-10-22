@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { parseReviewRequest } from "@ace/ui-core";
 import {
   useMarkdownCompletions,
@@ -73,6 +73,7 @@ function useCandidates(typing: string, suggested: readonly Candidate[]) {
  */
 export function RequestReviewDialog(props: { actions: PrActions; open: boolean; onClose(): void }) {
   const [text, setText] = useState("");
+  const field = useRef<HTMLInputElement>(null);
   const parsed = parseReviewRequest(text);
   const { writes, context } = props.actions;
   const review = usePrReview();
@@ -127,6 +128,7 @@ export function RequestReviewDialog(props: { actions: PrActions; open: boolean; 
             <DialogTitle>Request review</DialogTitle>
           </DialogHeader>
           <Input
+            ref={field}
             aria-label="Reviewers"
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -149,10 +151,15 @@ export function RequestReviewDialog(props: { actions: PrActions; open: boolean; 
                       <button
                         type="button"
                         aria-pressed={added}
+                        aria-label={person.name ? `${person.login}, ${person.name}` : person.login}
                         className={cn(
                           "flex h-10 w-full items-center gap-2 rounded-sm px-1 text-left hover:bg-accent focus-ring",
                         )}
-                        onClick={() => setText(toggled(text, person.login))}
+                        onClick={() => {
+                          setText(toggled(text, person.login));
+                          // Typing goes on in the field, ready for the next name.
+                          field.current?.focus();
+                        }}
                       >
                         <PrAvatar name={person.login} url={person.avatarUrl} />
                         <span className="min-w-0 flex-1">
