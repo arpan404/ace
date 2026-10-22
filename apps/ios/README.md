@@ -33,7 +33,8 @@ loopback port 9841, invokes no provider CLIs and spends no provider quota. It se
 2,000 items, streams 20 deltas per second, opens a shell approval and keeps a child
 working after its root finishes. Restart the fixture before independent screenshot
 or performance runs. Contract sends deliberately add inputs to its history. The
-streaming thread's turn never ends, so a queued follow-up waits in the daemon queue,
+streaming thread's turn never ends (`ACE_IOS_SPIKE_STREAMED=650000` starts it as if it had
+streamed that many deltas, about nine hours, to check that a long-running thread opens at once), so a queued follow-up waits in the daemon queue,
 outside the transcript, as it would on a real daemon; `GET /queue?thread=ID` lists it.
 
 XcodeGen output, generated `Resources/client.js`, build products and xcresult bundles
