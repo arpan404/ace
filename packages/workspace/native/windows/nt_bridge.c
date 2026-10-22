@@ -164,8 +164,8 @@ const char *wcore_wide_from_utf8(
 
 // Open one relative component inside `parent` without any path join.
 // The caller picks directory vs file semantics via `options`.
-const char *wcore_nt_create_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
-    ULONG options, ACCESS_MASK access, HANDLE *out) {
+static const char *nt_open_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
+    ULONG options, ACCESS_MASK access, ULONG disposition, HANDLE *out) {
   const char *load = wcore_load_ntdll();
   if (load != NULL) return load;
   if (parent == NULL || parent == INVALID_HANDLE_VALUE || wname == NULL ||
@@ -189,7 +189,7 @@ const char *wcore_nt_create_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
   WCORE_NTSTATUS status = g_nt_create(&handle, access, &attr, &iosb, NULL,
       FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ | FILE_SHARE_WRITE |
           FILE_SHARE_DELETE,
-      WCORE_FILE_OPEN_DISPOSITION, options, NULL, 0);
+      disposition, options, NULL, 0);
   if (!WCORE_NT_SUCCESS(status)) {
     DWORD dos = g_nt_to_dos(status);
     const char *code = wcore_dos_to_code(dos);
@@ -197,6 +197,18 @@ const char *wcore_nt_create_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
   }
   *out = handle;
   return NULL;
+}
+
+const char *wcore_nt_create_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
+    ULONG options, ACCESS_MASK access, HANDLE *out) {
+  return nt_open_child(parent, wname, wlen, options, access,
+      WCORE_FILE_OPEN_DISPOSITION, out);
+}
+
+const char *wcore_nt_create_new_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
+    ULONG options, ACCESS_MASK access, HANDLE *out) {
+  // FILE_CREATE (2): fail with collision if any object already has this name.
+  return nt_open_child(parent, wname, wlen, options, access, 2UL, out);
 }
 
 const char *wcore_assert_noreparse(HANDLE handle) {

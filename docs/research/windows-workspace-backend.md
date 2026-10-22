@@ -1,6 +1,6 @@
 # Windows workspace backend — safe design (research)
 
-Status: design research. No implementation. No Windows host run has verified it.
+Status: independent native addon implements pinned reads, identity, metadata and enumeration. Native MSVC/Windows CI verification is in progress. Production descriptor integration, mutations and ACL enforcement remain unfinished.
 
 ## 1. Consumers pin numeric fds; HANDLE-only is rejected
 
@@ -26,8 +26,8 @@ All opens use user-mode [NtCreateFile](https://learn.microsoft.com/en-us/windows
 
 Each op borrows the parent `HANDLE` via `uv_get_osfhandle(parentFd)`; the fd must stay open for the call.
 
-- `statAt`: `FileIdInfo` + `FileBasicInfo` + `FileStandardInfo` + `FileAttributeTagInformation` on a zero-access `OPEN_REPARSE_POINT` handle. Synthesize `S_IFREG`/`S_IFDIR`/`S_IFLNK`; any reparse point reports `symlink`, callers deny. ([GetFileInformationByHandleEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandleex), [FILE_ID_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info), [FILE_ATTRIBUTE_TAG_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_attribute_tag_info).)
-- `names`: `FileIdExtdDirectoryInformation` on the pinned directory handle; skip `.`/`..`; cap 1..10000 else `E2BIG`. ([FILE_ID_EXTD_DIR_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_extd_dir_info).)
+- `statAt`: `FileIdInfo` + `FileBasicInfo` + `FileStandardInfo` + `FileAttributeTagInfo` on a metadata-access `OPEN_REPARSE_POINT` handle. Synthesize `S_IFREG`/`S_IFDIR`/`S_IFLNK`; any reparse point reports `symlink`, callers deny. ([GetFileInformationByHandleEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandleex), [FILE_ID_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info), [FILE_ATTRIBUTE_TAG_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_attribute_tag_info).)
+- `names`: `FileIdExtdDirectoryRestartInfo` followed by `FileIdExtdDirectoryInfo` batches on the pinned directory handle until `ERROR_NO_MORE_FILES`; skip `.`/`..`; invalid cap is `EINVAL`, accepted entries beyond cap are `E2BIG`. ([FILE_ID_EXTD_DIR_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_extd_dir_info).)
 - `mkdirAt`: `NtCreateFile(RootDirectory=parent, FILE_CREATE, FILE_DIRECTORY_FILE)`.
 - `renameAt` (same-parent only): `SetFileInformationByHandle` + `FILE_RENAME_INFO{ReplaceIfExists, RootDirectory=parent, FileName=one component}`; `FALSE` is exclusive (keeps `rename-worker.ts` semantics), `TRUE` is replacing publish. ([SetFileInformationByHandle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfileinformationbyhandle), [FILE_RENAME_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info).)
 - `unlinkAt` / `removeDirectoryAt`: open child `OPEN_REPARSE_POINT` with `DELETE`, then `FileDispositionInfo{DeleteFile=TRUE}`; deletes the link itself, never follows; junction removal keeps the target. ([FILE_DISPOSITION_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_disposition_info).)

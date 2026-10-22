@@ -1,7 +1,7 @@
 // Bounded Windows workspace handle core (W04 first cut) — shared declarations.
 //
-// Scope: openRoot + single-component no-follow opens + lossless FileIdInfo
-// identity. No mutation, no ACL, no pipe yet. HANDLEs never cross NAPI;
+// Scope: pinned opens, exclusive file creation, metadata, enumeration and
+// lossless FileIdInfo identity. No ACL or pipe yet. HANDLEs never cross NAPI;
 // every returned handle is converted with uv_open_osfhandle before NAPI
 // carries it, so NAPI carries only CRT fds. Each call borrows parent HANDLEs
 // via uv_get_osfhandle and stores nothing.
@@ -80,6 +80,10 @@ const char *wcore_open_dir_at(int parent_fd, const char *name, int *out_fd);
 // regular file (fails closed on directories and reparse points).
 const char *wcore_open_file_at(int parent_fd, const char *name, int *out_fd);
 
+// Exclusively create a regular file. Existing files, links and directories
+// are never overwritten. The writable fd remains owned by Node.
+const char *wcore_create_file_at(int parent_fd, const char *name, int *out_fd);
+
 // Lossless identity of an open fd: VolumeSerialNumber as 16 lowercase hex
 // chars plus the 128-bit FileId as 32 lowercase hex chars (raw identifier
 // byte order, string equality only — never truncated to JS doubles).
@@ -147,6 +151,8 @@ const char *wcore_wide_from_utf8(
 
 // Open one relative component inside `parent` (RootDirectory, no path join).
 const char *wcore_nt_create_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
+    ULONG options, ACCESS_MASK access, HANDLE *out);
+const char *wcore_nt_create_new_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
     ULONG options, ACCESS_MASK access, HANDLE *out);
 #endif
 

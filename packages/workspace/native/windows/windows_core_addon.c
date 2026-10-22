@@ -1,8 +1,9 @@
-// NAPI surface for the Windows handle core: exactly six exports.
+// NAPI surface for the Windows handle core.
 //
 // openRoot(volumePath) -> fd
 // openDirectoryAt(parentFd, name) -> fd
 // openFileAt(parentFd, name) -> fd
+// createFileAt(parentFd, name) -> writable fd, exclusive create
 // identityOf(fd) -> { vol: string, id: string }
 // statAt(parentFd, name) -> { vol, id, mode, size, mtimeMs, attrs }
 // names(dirFd, cap) -> string[] (at most cap, no "." / "..")
@@ -170,8 +171,10 @@ static napi_value do_open_root(napi_env env, napi_callback_info info) {
   return result;
 }
 
+typedef const char *(*fd_opener)(int, const char *, int *);
+
 static napi_value open_child_at(napi_env env, napi_callback_info info,
-    const char *op, int expect_dir) {
+    const char *op, fd_opener open) {
   napi_value args[2];
   napi_value result = NULL;
   size_t count = 2;
@@ -182,8 +185,7 @@ static napi_value open_child_at(napi_env env, napi_callback_info info,
       !read_string(env, args[1], name, sizeof(name), NULL))
     return fail_for(env, op, "EINVAL", NULL);
   int fd = -1;
-  const char *code = expect_dir ? wcore_open_dir_at(parent, name, &fd)
-                                : wcore_open_file_at(parent, name, &fd);
+  const char *code = open(parent, name, &fd);
   if (code != NULL) return fail_for(env, op, code, name);
   if (napi_create_int32(env, fd, &result) != napi_ok) {
     close_fd_quiet(fd);
@@ -193,11 +195,15 @@ static napi_value open_child_at(napi_env env, napi_callback_info info,
 }
 
 static napi_value do_open_directory_at(napi_env env, napi_callback_info info) {
-  return open_child_at(env, info, "openDirectoryAt", 1);
+  return open_child_at(env, info, "openDirectoryAt", wcore_open_dir_at);
 }
 
 static napi_value do_open_file_at(napi_env env, napi_callback_info info) {
-  return open_child_at(env, info, "openFileAt", 0);
+  return open_child_at(env, info, "openFileAt", wcore_open_file_at);
+}
+
+static napi_value do_create_file_at(napi_env env, napi_callback_info info) {
+  return open_child_at(env, info, "createFileAt", wcore_create_file_at);
 }
 
 static napi_value do_identity_of(napi_env env, napi_callback_info info) {
@@ -331,6 +337,7 @@ static napi_value init(napi_env env, napi_value exports) {
     {"openRoot", NULL, do_open_root, NULL, NULL, NULL, napi_default, NULL},
     {"openDirectoryAt", NULL, do_open_directory_at, NULL, NULL, NULL, napi_default, NULL},
     {"openFileAt", NULL, do_open_file_at, NULL, NULL, NULL, napi_default, NULL},
+    {"createFileAt", NULL, do_create_file_at, NULL, NULL, NULL, napi_default, NULL},
     {"identityOf", NULL, do_identity_of, NULL, NULL, NULL, napi_default, NULL},
     {"statAt", NULL, do_stat_at, NULL, NULL, NULL, napi_default, NULL},
     {"names", NULL, do_names, NULL, NULL, NULL, napi_default, NULL},

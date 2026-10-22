@@ -32,13 +32,18 @@ static const char *bridge_to_fd(HANDLE handle, int *out_fd) {
   return NULL;
 }
 
+typedef const char *(*child_opener)(HANDLE, const WCHAR *, DWORD, ULONG,
+    ACCESS_MASK, HANDLE *);
+
 static const char *open_child(
     int parent_fd, const char *name, ULONG options, ACCESS_MASK access,
-    int expect_dir, int *out_fd) {
+    int expect_dir, child_opener open, int *out_fd) {
   if (name == NULL || out_fd == NULL) return "EINVAL";
   HANDLE parent = NULL;
   const char *borrowed = wcore_borrow_handle(parent_fd, &parent);
   if (borrowed != NULL) return borrowed;
+  const char *directory = wcore_assert_dir_noreparse(parent);
+  if (directory != NULL) return directory;
   size_t len = strlen(name);
   const char *valid = wcore_validate_component(name, len);
   if (valid != NULL) return valid;
@@ -48,7 +53,7 @@ static const char *open_child(
   if (conv != NULL) return conv;
   HANDLE child = NULL;
   const char *opened =
-      wcore_nt_create_child(parent, wname, wlen, options, access, &child);
+      open(parent, wname, wlen, options, access, &child);
   if (opened != NULL) {
     // The OS reports a directory found by a file open as ERROR_DIRECTORY
     // (STATUS_FILE_IS_A_DIRECTORY maps alongside STATUS_NOT_A_DIRECTORY).
@@ -86,11 +91,18 @@ static const char *open_child(
 
 const char *wcore_open_dir_at(int parent_fd, const char *name, int *out_fd) {
   return open_child(parent_fd, name, WCORE_OPTS_DIR,
-      FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | SYNCHRONIZE, 1, out_fd);
+      FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | SYNCHRONIZE, 1,
+      wcore_nt_create_child, out_fd);
 }
 
 const char *wcore_open_file_at(int parent_fd, const char *name, int *out_fd) {
   return open_child(parent_fd, name, WCORE_OPTS_FILE,
-      GENERIC_READ | SYNCHRONIZE, 0, out_fd);
+      GENERIC_READ | SYNCHRONIZE, 0, wcore_nt_create_child, out_fd);
+}
+
+const char *wcore_create_file_at(int parent_fd, const char *name, int *out_fd) {
+  return open_child(parent_fd, name, WCORE_OPTS_FILE,
+      GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE, 0,
+      wcore_nt_create_new_child, out_fd);
 }
 #endif

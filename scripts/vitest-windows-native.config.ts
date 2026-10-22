@@ -29,6 +29,7 @@ export default defineConfig({
     include: [
       "packages/workspace/src/windows-core.process.test.ts",
       "packages/workspace/src/windows-metadata.process.test.ts",
+      "packages/workspace/src/windows-write.process.test.ts",
       "packages/provider-kit/src/windows-job.process.test.ts",
       "packages/provider-kit/src/windows-process-identity.process.test.ts",
       "packages/terminal/src/win32.process.test.ts",

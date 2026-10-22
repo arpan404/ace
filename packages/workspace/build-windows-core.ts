@@ -2,7 +2,7 @@
  * Explicit Windows-only probe/build entry for the bounded W04 handle core.
  *
  * Produces an independently loadable dist/windows-core.node exposing exactly
- * openRoot, openDirectoryAt, openFileAt, identityOf, statAt, names. It does NOT activate the
+ * openRoot, openDirectoryAt, openFileAt, createFileAt, identityOf, statAt, names. It does NOT activate the
  * default daemon, hook any build, or change the root postinstall (which still
  * builds only the POSIX descriptor addon).
  *
