@@ -13,7 +13,7 @@ import {
 } from "@ace/ui-core";
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
-import { thoughtLabel, thoughtMs } from "./thought-time.ts";
+import { thoughtLabel, thoughtMs } from "@ace/ui-core";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
 import {
   BrainIcon,
