@@ -7,6 +7,9 @@ import SwiftUI
 struct MarkdownView: View {
     let text: String
     @State private var stream = MarkdownStream()
+    /// Off where the message's own long-press menu offers Copy and Select text instead: the
+    /// system's whole-block selection would take the long press from it.
+    var selectable = true
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
             ForEach(stream.update(text)) { block in
@@ -14,7 +17,7 @@ struct MarkdownView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .textSelection(.enabled)
+        .modifier(Selectable(on: selectable))
     }
     /// Inline code on the code surface at about 0.92 of the prose, in SF Mono; links in the
     /// accent, as the web's `text-link`.
@@ -98,5 +101,12 @@ private struct MarkdownProse: View, Equatable {
     let text: String
     var body: some View {
         Text(MarkdownView.styled(text)).aceFont(AceTheme.Typography.body, relativeTo: .body)
+    }
+}
+
+private struct Selectable: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View {
+        if on { content.textSelection(.enabled) } else { content }
     }
 }

@@ -142,6 +142,7 @@ extension AceIcon {
         case stop = "stop"
         case stopCircle = "stop-circle"
         case sun = "sun"
+        case target = "target"
         case television = "television"
         case terminal = "terminal"
         case terminalWindow = "terminal-window"

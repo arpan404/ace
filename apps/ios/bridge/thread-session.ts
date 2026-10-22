@@ -9,8 +9,8 @@ import type { PatchPump } from "./patch-pump.ts";
 import { preview } from "./presentation.ts";
 import { questionDraft, ThreadAction, type QuestionReply } from "./thread-actions.ts";
 import { AttachmentTray, nativeChunks, type ChunkReader } from "./thread-attachments.ts";
-import { followActivity } from "./thread-activity.ts";
 import { followBlocks } from "./thread-blocks.ts";
+import { goalPayload, PillFollower } from "./thread-pill.ts";
 import { QueueFollower } from "./thread-queue.ts";
 import { requestResolution } from "./thread-requests.ts";
 import { StepsFollower } from "./thread-steps.ts";
@@ -39,7 +39,7 @@ export class ThreadSession {
   readonly #stop: () => void;
   readonly #queue: QueueFollower;
   readonly #blocks: ReturnType<typeof followBlocks>;
-  readonly #activity: ChangeTap;
+  readonly #pill: PillFollower;
   readonly #steps: StepsFollower;
   readonly #tune: TuneFollower;
   readonly #tray: AttachmentTray;
@@ -73,8 +73,10 @@ export class ThreadSession {
     const put: Put = (key, read) => this.#put(key, read);
     const signal = this.#abort.signal;
     this.#blocks = followBlocks(store, put);
-    this.#activity = followActivity(store, put);
-    this.#queue = new QueueFollower(client, store, this.#threadId, signal, put);
+    this.#pill = new PillFollower(store, put);
+    this.#queue = new QueueFollower(client, store, this.#threadId, signal, put, (count) =>
+      this.#pill.queued(count),
+    );
     this.#steps = new StepsFollower(client, store, this.#threadId, put);
     this.#tune = new TuneFollower(client, store, signal, put, () => host.now());
     this.#tray = new AttachmentTray(
@@ -86,7 +88,7 @@ export class ThreadSession {
     );
     this.#stop = store.observe((keys) => {
       this.#blocks.tap(keys);
-      this.#activity(keys);
+      this.#pill.tap(keys);
       this.#lane?.tap(keys);
       this.#steps.changed(keys);
       if (keys === "all") void this.#readSetting();
@@ -107,7 +109,7 @@ export class ThreadSession {
       if (keys === "all") this.#ready();
     });
     this.#blocks.tap("all");
-    this.#activity("all");
+    this.#pill.tap("all");
     this.#controls();
     this.#history();
     this.#queue.update();
@@ -206,6 +208,13 @@ export class ThreadSession {
           this.#queue.edit(action.messageId, action.change),
           action.requestId,
           "That queued message has changed. Check the queue and try again.",
+        );
+        break;
+      case "goal":
+        this.#dispatch(
+          goalPayload(this.#threadId, this.#store.thread?.goal, this.#pill.editable, action.change),
+          action.requestId,
+          "That goal has changed. Check it and try again.",
         );
         break;
       case "steps.open":

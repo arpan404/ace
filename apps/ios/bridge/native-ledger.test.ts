@@ -183,3 +183,41 @@ test("a visit's steps, lane and attachments are never treated as kept", () => {
   ledger.delivered("thread:steps:1", steps, ledgerText(steps));
   expect(ledger.same("thread:steps:1", ledgerText(steps))).toBe(false);
 });
+
+test("an unchanged pill is sent once, not again with every streamed delta", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "pill", workspaceId: "ace", title: "Pill", provider: "codex" });
+  fake.apply("pill", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Run the tests"),
+    facts.tool("root", "sh", {
+      kind: "shell",
+      title: "Run tests",
+      detail: { kind: "shell", command: "bun run test" },
+    }),
+  ]);
+  // A long objective and reason: the payload the ledger keeps from going out again.
+  fake.updateThread("pill", {
+    goal: {
+      objective: "every test passes ".repeat(100),
+      status: "active",
+      lastReason: "two tests still fail ".repeat(100),
+    },
+  });
+  const held = new Held();
+  const opened = await openVisit(connect(fake), held, "pill", 1, false);
+  expect(opened.filter((frame) => frame.type === "thread.pill")).not.toHaveLength(0);
+  const before = native.frames.length;
+  // The running step's output streams: each delta re-reads the pill, which hasn't changed.
+  for (let index = 0; index < 5; index++) {
+    fake.apply("pill", [facts.output("root", "sh", `line ${index}\n`)]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  await until(
+    () => native.frames.slice(before).some((frame) => frame.type === "thread.item"),
+    "the streamed output",
+  );
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(native.frames.slice(before).filter((frame) => frame.type === "thread.pill")).toEqual([]);
+});

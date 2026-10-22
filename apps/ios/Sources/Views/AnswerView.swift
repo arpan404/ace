@@ -25,7 +25,11 @@ struct AnswerRow: View {
         // Text left incomplete by a turn that stopped no longer streams.
         let live = streaming && !row.complete
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-            if !shown.isEmpty { MarkdownView(text: shown).fileLinks(fileLinks, itemId: row.id) }
+            if !shown.isEmpty {
+                let menu = !between && !live
+                MarkdownView(text: shown, selectable: !menu).fileLinks(fileLinks, itemId: row.id)
+                    .messageMenu(menu ? shown : "", title: "Answer")
+            }
             if live { StreamingCaret() }
             if row.truncated && !live && full == nil { partial }
             if !between && (row.complete || (row.truncated && !live)) {

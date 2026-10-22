@@ -11,7 +11,7 @@
  */
 
 const kept =
-  /^thread:(item|interaction|block):|^thread:(metadata|cursor|controls|history|queue|activity|tune)$/;
+  /^thread:(item|interaction|block):|^thread:(metadata|cursor|controls|history|queue|pill|tune)$/;
 const removable = /^thread:(item|interaction|block):/;
 const moves: Record<string, string> = {
   "thread:position:": "thread:item:",
