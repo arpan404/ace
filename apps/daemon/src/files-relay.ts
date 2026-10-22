@@ -4,7 +4,7 @@ import { attachRelayService, type RelayServices } from "./services/relay-channel
 import { mayCompress } from "./compression-policy.ts";
 import { HostId } from "@ace/protocol";
 import type { KeyPair } from "@ace/secure-channel";
-import { allows, type Devices } from "./devices.ts";
+import { activeDevice, allows, type Devices } from "./devices.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
 
 /** The production host composes authenticated relay frames with the same file service. */
@@ -61,7 +61,7 @@ export async function startFilesRelay(
             sessionId: randomUUID(),
             authorize: (scope) => {
               const current = options.devices.get(device.id);
-              return current?.revokedAt === null && allows(current, scope);
+              return activeDevice(current, options.auth.now()) && allows(current, scope);
             },
           });
         } catch {

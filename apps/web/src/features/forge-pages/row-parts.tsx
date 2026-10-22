@@ -16,7 +16,7 @@ import type { LinkedThread } from "./linked-threads.ts";
 
 /** A two-line list row: the whole row opens the item's page. */
 export const rowClass = cn(
-  "flex w-full min-w-0 gap-3 px-4 py-2.5 text-left transition-colors duration-(--motion-fast)",
+  "flex w-full min-w-0 gap-3 px-(--forge-gutter) py-2.5 text-left transition-colors duration-(--motion-fast)",
   "hover:bg-hover focus-ring-inset",
 );
 
@@ -77,7 +77,7 @@ export function Thread(props: { thread: LinkedThread | undefined }) {
 /** A group of rows: its glyph, name, GitHub's total once known, and a hairline to the edge. */
 export function GroupHeader(props: { icon: IconGlyph; label: string; count: number | undefined }) {
   return (
-    <h2 className="flex items-center gap-2 px-4 pt-5 pb-1.5 text-xs font-medium text-muted-foreground">
+    <h2 className="flex items-center gap-2 px-(--forge-gutter) pt-5 pb-1.5 text-xs font-medium text-muted-foreground">
       <Icon icon={props.icon} size={14} className="text-faint-foreground" />
       {props.label}
       {props.count !== undefined && (
@@ -96,7 +96,7 @@ export function RowActions(props: {
   children?: ReactNode;
 }) {
   return (
-    <span className="absolute top-1.5 right-3 hidden items-center gap-0.5 rounded-md bg-hover group-focus-within/row:flex group-hover/row:flex">
+    <span className="absolute top-1.5 right-[calc(var(--forge-gutter)-0.5rem)] hidden items-center gap-0.5 rounded-md bg-hover group-focus-within/row:flex group-hover/row:flex">
       {props.children}
       <IconButton
         size="sm"

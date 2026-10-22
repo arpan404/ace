@@ -9,7 +9,6 @@ import {
   NotePencilIcon,
   KeyboardIcon,
   PaletteIcon,
-  SquaresFourIcon,
   TerminalWindowIcon,
   WrenchIcon,
 } from "@phosphor-icons/react";
@@ -17,7 +16,6 @@ import { ComputerUseIcon } from "@/components/ace-icons.tsx";
 import type { IconGlyph } from "@/components/icon.tsx";
 
 export type SettingsPath =
-  | "/settings/overview"
   | "/settings/prompts"
   | "/settings/general"
   | "/settings/agents"
@@ -33,11 +31,11 @@ export type SettingsPath =
   | "/settings/storage";
 
 /**
- * Where a page's settings live. `device`: only on the screen in use. `machine`: on the machine
- * picked in the Settings sidebar, for every device that uses it. `network`: how machines and
- * devices reach each other. `overview` heads the list on its own.
+ * Where a page's settings live. `machine`: on the environment picked at the top of the Settings
+ * sidebar, for every device that uses it. `device`: only on the screen in use, whatever
+ * environment is picked. `network`: how machines and devices reach each other.
  */
-export type SettingsGroup = "overview" | "device" | "machine" | "network";
+export type SettingsGroup = "machine" | "device" | "network";
 
 export interface SettingsPage {
   to: SettingsPath;
@@ -46,18 +44,13 @@ export interface SettingsPage {
   group: SettingsGroup;
 }
 
-export const settingsGroupTitles: Record<Exclude<SettingsGroup, "overview">, string> = {
+export const settingsGroupTitles: Record<SettingsGroup, string | undefined> = {
+  machine: "Environment",
   device: "This device",
-  machine: "Machine",
-  network: "Network",
+  network: undefined,
 };
 
 export const settingsPages: readonly SettingsPage[] = [
-  { to: "/settings/overview", title: "Overview", icon: SquaresFourIcon, group: "overview" },
-  { to: "/settings/general", title: "General", icon: GearSixIcon, group: "device" },
-  { to: "/settings/appearance", title: "Appearance", icon: PaletteIcon, group: "device" },
-  { to: "/settings/notifications", title: "Notifications", icon: BellSimpleIcon, group: "device" },
-  { to: "/settings/keyboard", title: "Keyboard", icon: KeyboardIcon, group: "device" },
   { to: "/settings/agents", title: "Agents", icon: ChatsCircleIcon, group: "machine" },
   { to: "/settings/providers", title: "Providers", icon: TerminalWindowIcon, group: "machine" },
   { to: "/settings/prompts", title: "Prompts", icon: NotePencilIcon, group: "machine" },
@@ -71,7 +64,11 @@ export const settingsPages: readonly SettingsPage[] = [
   { to: "/settings/computer-use", title: "Computer use", icon: ComputerUseIcon, group: "machine" },
   { to: "/settings/storage", title: "Storage", icon: DatabaseIcon, group: "machine" },
   { to: "/settings/advanced", title: "Advanced", icon: WrenchIcon, group: "machine" },
-  { to: "/settings/remote", title: "Machines and devices", icon: DevicesIcon, group: "network" },
+  { to: "/settings/general", title: "General", icon: GearSixIcon, group: "device" },
+  { to: "/settings/appearance", title: "Appearance", icon: PaletteIcon, group: "device" },
+  { to: "/settings/notifications", title: "Notifications", icon: BellSimpleIcon, group: "device" },
+  { to: "/settings/keyboard", title: "Keyboard", icon: KeyboardIcon, group: "device" },
+  { to: "/settings/remote", title: "Fleet", icon: DevicesIcon, group: "network" },
 ];
 
 export function visibleSettingsPages(): readonly SettingsPage[] {

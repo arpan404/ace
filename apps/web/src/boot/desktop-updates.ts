@@ -37,6 +37,7 @@ interface UpdatesBridge {
   check?(): Promise<unknown>;
   download?(): Promise<unknown>;
   install?(): Promise<unknown>;
+  busy?(): Promise<unknown>;
 }
 
 function updatesBridge(scope: object): UpdatesBridge | undefined {
@@ -69,6 +70,7 @@ function updatesBridge(scope: object): UpdatesBridge | undefined {
   const check = call("check");
   const download = call("download");
   const install = call("install");
+  const busy = call("busy");
   return {
     onStatus,
     ...(onChecked ? { onChecked } : {}),
@@ -76,6 +78,7 @@ function updatesBridge(scope: object): UpdatesBridge | undefined {
     ...(check ? { check } : {}),
     ...(download ? { download } : {}),
     ...(install ? { install } : {}),
+    ...(busy ? { busy } : {}),
   };
 }
 
@@ -206,6 +209,8 @@ export interface DesktopUpdate {
   check(): Promise<UpdateStatus | undefined>;
   download(): void;
   install(): void;
+  /** How many agents on this machine Restart would stop; undefined when unknown. */
+  busy(): Promise<number | undefined>;
 }
 
 /** Where the app's update stands, and its actions, for the sidebar; undefined in a browser. */
@@ -248,5 +253,15 @@ export function useDesktopUpdate(scope: object = globalThis): DesktopUpdate {
     },
     download: () => void bridge.current?.download?.().catch(() => {}),
     install: () => void bridge.current?.install?.().catch(() => {}),
+    busy: async () => {
+      try {
+        const value: unknown = await bridge.current?.busy?.();
+        return typeof value === "number" && Number.isInteger(value) && value >= 0
+          ? value
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    },
   };
 }

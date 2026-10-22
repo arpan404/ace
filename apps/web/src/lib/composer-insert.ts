@@ -48,6 +48,30 @@ export function insertTextInComposer(threadId: string, text: string): boolean {
   receive(text);
   return true;
 }
+/**
+ * Put `text` in the thread's composer as soon as one mounts (the thread was just opened); false
+ * when none mounts within `waitMs`.
+ */
+export function insertTextWhenMounted(
+  threadId: string,
+  text: string,
+  waitMs = 3_000,
+  pollMs = 100,
+): Promise<boolean> {
+  if (insertTextInComposer(threadId, text)) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const started = performance.now();
+    const timer = setInterval(() => {
+      if (insertTextInComposer(threadId, text)) {
+        clearInterval(timer);
+        resolve(true);
+      } else if (performance.now() - started > waitMs) {
+        clearInterval(timer);
+        resolve(false);
+      }
+    }, pollMs);
+  });
+}
 /** Put a mention of `tab` in the thread's composer; false when no composer is mounted. */
 export function mentionTabInComposer(threadId: string, tab: ComposerTab): boolean {
   const receive = tabReceivers.get(threadId);

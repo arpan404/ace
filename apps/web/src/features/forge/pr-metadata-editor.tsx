@@ -6,6 +6,7 @@ import {
   type ForgeLifecycleAction,
 } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
+import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { Input, Textarea } from "@/components/ui/input.tsx";
 const Draft = z.object({
   version: z.string(),
@@ -105,16 +106,16 @@ export function PrMetadataEditor(props: {
           onChange={(e) => update("title", e.target.value)}
         />
       </label>
-      <label className="block text-sm">
-        PR description
-        <Textarea
-          aria-label="PR description"
+      <div className="block text-sm">
+        <span>PR description</span>
+        <MarkdownEditor
+          label="PR description"
           value={value.body}
           maxLength={65_536}
           disabled={props.disabled || !editable("body")}
-          onChange={(e) => update("body", e.target.value)}
+          onChange={(body) => update("body", body)}
         />
-      </label>
+      </div>
       <label className="block text-sm">
         Base branch
         <Input

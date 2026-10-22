@@ -250,6 +250,8 @@ test("a listed PR carries its label colours, people, branches, review decision, 
                 additions: 12,
                 deletions: 3,
                 mergeable: "CONFLICTING",
+                mergeStateStatus: "BEHIND",
+                headRefOid: "a".repeat(40),
                 reviewRequests: {
                   nodes: [{ requestedReviewer: { login: "mira", avatarUrl: "https://a/mira" } }],
                 },
@@ -279,6 +281,8 @@ test("a listed PR carries its label colours, people, branches, review decision, 
       additions: 12,
       deletions: 3,
       conflicting: true,
+      behind: true,
+      headSha: "a".repeat(40),
       ci: "success",
     });
     expect(result.items[0]?.labelColors).not.toHaveProperty("odd");
@@ -310,6 +314,7 @@ test("an active search finds open PRs drafts included, and a failing-checks sear
                 comments: { totalCount: 0 },
                 reviews: { totalCount: 0 },
                 statusCheckRollup: { state: "FAILURE" },
+                mergeStateStatus: "CLEAN",
               },
             },
           },
@@ -320,7 +325,7 @@ test("an active search finds open PRs drafts included, and a failing-checks sear
   try {
     const result = await f.forge.listPrs(query, signal());
     expect(result).toMatchObject({
-      items: [{ ref: { repository, number: 7 }, state: "draft", ci: "failure" }],
+      items: [{ ref: { repository, number: 7 }, state: "draft", ci: "failure", behind: false }],
       total: 1,
       counts: { open: 2, draft: 1, closed: 3, merged: 4 },
     });

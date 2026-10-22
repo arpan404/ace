@@ -2,6 +2,34 @@
   "$id": "https://ace.local/protocol/v1/PairingRequest.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "deviceTtlMs": {
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "const": 86400000,
+              "type": "number"
+            },
+            {
+              "const": 604800000,
+              "type": "number"
+            },
+            {
+              "const": 2592000000,
+              "type": "number"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "label": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
     "scopes": {
       "default": [
         "read",
@@ -20,6 +48,26 @@
       "maxItems": 5,
       "minItems": 1,
       "type": "array"
+    },
+    "ttlMs": {
+      "anyOf": [
+        {
+          "const": 300000,
+          "type": "number"
+        },
+        {
+          "const": 3600000,
+          "type": "number"
+        },
+        {
+          "const": 86400000,
+          "type": "number"
+        },
+        {
+          "const": 604800000,
+          "type": "number"
+        }
+      ]
     }
   },
   "type": "object"

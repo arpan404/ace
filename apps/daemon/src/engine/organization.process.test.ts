@@ -49,9 +49,8 @@ test("settlement and deletion follow real human interaction and background execu
     expect(h.store.getThread(id)?.settledAt).toBeUndefined();
     await command("thread.autoSettle", "auto-settle-on");
     await organizer.sweep();
-    expect(h.store.getThread(id)).toMatchObject({
-      settledReason: "pr_merged",
-    });
+    // The merged PR never settles it while its question waits on the person.
+    expect(h.store.getThread(id)?.settledAt).toBeUndefined();
     await command("thread.unsettle", "unsettled-merged");
     await organizer.sweep();
     expect(h.store.getThread(id)?.settledAt).toBeUndefined();
@@ -77,11 +76,12 @@ test("settlement and deletion follow real human interaction and background execu
       ok: true,
     });
     await command("thread.unsettle", "unsettled-background");
+    await command("thread.autoSettle", "auto-settle-again");
+    await organizer.sweep();
+    // A background shell still runs: the merged PR waits for the tree to finish.
+    expect(h.store.getThread(id)?.settledAt).toBeUndefined();
     context.onFrame(frames.frame({ type: "background.ended", task: "shell", status: "completed" }));
     await h.engine.flush();
-    await organizer.sweep();
-    expect(h.store.getThread(id)?.settledAt).toBeUndefined();
-    await command("thread.autoSettle", "auto-settle-again");
     await organizer.sweep();
     expect(h.store.getThread(id)?.settledReason).toBe("pr_merged");
     expect(await command("thread.delete", "completed-tree")).toMatchObject({ ok: true });

@@ -94,6 +94,13 @@ export const ForgePrRow = z.object({
   deletions: z.number().int().nonnegative().optional(),
   /** GitHub found conflicts with the base branch. */
   conflicting: z.boolean().optional(),
+  /** The branch is behind its base (GitHub's merge state `BEHIND`). */
+  behind: z.boolean().optional(),
+  /** The head commit the row describes: what a merge from the list is pinned to. */
+  headSha: z
+    .string()
+    .regex(/^[a-fA-F0-9]{40,64}$/)
+    .optional(),
 });
 export type ForgePrRow = z.infer<typeof ForgePrRow>;
 export const ForgePrList = z.object({

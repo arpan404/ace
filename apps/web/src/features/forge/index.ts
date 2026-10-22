@@ -5,6 +5,9 @@ export { usePrSource } from "./pr-source.ts";
 export const loadPrDetail = () => import("./pr-detail.tsx");
 export { useIssueSource } from "./issue-source.ts";
 export { useOpenIssues, useOpenPullRequests, useOpenWork } from "./open-work.ts";
+export { useMergeMethod } from "./pr-merge-method.ts";
+export { PrCheckLog } from "./pr-check-log.tsx";
+export { PrPageSkeleton, type PrSeed } from "./pr-page-skeleton.tsx";
 export type {
   PrWorkspaceExtensions,
   PrWorkspaceContext,

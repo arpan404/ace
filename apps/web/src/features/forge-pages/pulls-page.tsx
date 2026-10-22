@@ -1,31 +1,36 @@
 import { useState } from "react";
-import { useLocation } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
+  BellIcon,
   CheckCircleIcon,
-  CircleDashedIcon,
   ClockIcon,
   EyeIcon,
   GitPullRequestIcon,
   UserIcon,
   UsersIcon,
-  XCircleIcon,
 } from "@phosphor-icons/react";
-import type { ForgePrRow } from "@ace/protocol";
+import type { ForgePrRow, VerifyRun } from "@ace/protocol";
+import { useVerifyRuns } from "@/lib/verify.ts";
+import { useMergeMethod } from "@/features/forge/index.ts";
+import { useProjectDialogs } from "@/features/projects/index.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
-import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { WordChoice } from "@/components/ui/word-choice.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { FiltersMenu, type FilterSection } from "./filters-menu.tsx";
 import { useLinkedThreads, workKey } from "./linked-threads.ts";
-import { ListFrame } from "./list-frame.tsx";
+import { RowsSkeleton } from "./list-skeletons.tsx";
+import { ListFrame, ToolbarRule } from "./list-frame.tsx";
 import { useGroupCounts, usePrPages } from "./lists.ts";
 import { PrRow } from "./pr-row.tsx";
 import { useReadyPages } from "./ready-pages.ts";
-import { rankByReadiness } from "./ready-ranking.ts";
+import { groupBySteps } from "./next-steps.ts";
+import { useMergeRun } from "./merge-run.ts";
+import { MergeStrip } from "./merge-strip.tsx";
+import { useRowSteps } from "./row-steps.ts";
 import { useProjectChoice } from "./project-choice.ts";
 import {
   groupPrs,
@@ -34,6 +39,7 @@ import {
   sortPrs,
   type PullsSearch,
   type PullsSort,
+  type RowGroup,
 } from "./pulls-model.ts";
 import { GroupHeader } from "./row-parts.tsx";
 
@@ -42,13 +48,13 @@ const groupIcons = {
   reviewing: EyeIcon,
   others: UsersIcon,
   all: GitPullRequestIcon,
-  ready: CheckCircleIcon,
-  checks: ClockIcon,
-  review: EyeIcon,
-  changes: XCircleIcon,
-  other: CircleDashedIcon,
+  you: BellIcon,
+  merge: CheckCircleIcon,
+  wait: ClockIcon,
   drafts: GitPullRequestIcon,
 } as const;
+const noRuns: readonly VerifyRun[] = [];
+const noRows: readonly ForgePrRow[] = [];
 const unique = (values: readonly string[]) =>
   [...new Set(values)].toSorted((a, b) => a.localeCompare(b));
 
@@ -149,25 +155,47 @@ export function PullRequestsPage(props: {
   const pages = paging.key === listKey ? paging.pages : 1;
   const sort: PullsSort = search.sort ?? "ready";
   const listed = usePrPages(project, query, pages);
-  // "Ready to merge" ranks the whole repository, so it reads its own pages, readiest first.
-  // Readiness ranks open pull requests; merged or closed ones group by who they concern.
+  // "Ready to merge" reads the whole repository readiest first, and groups open pull requests by
+  // what each needs next; merged or closed ones group by who they concern.
   const byReadiness = sort === "ready" && (search.state ?? "open") === "open";
   const ranked = useReadyPages(project, search, byReadiness);
   const list = byReadiness ? ranked : listed;
-  const totals = useGroupCounts(
-    project,
-    byReadiness ? { by: "readiness", query } : { by: "pr-people", query },
-  ).data;
+  // Next-step groups have no GitHub totals: they count their rows once every page is read.
+  const totals = useGroupCounts(byReadiness ? undefined : project, {
+    by: "pr-people",
+    query,
+  }).data;
   const linked = useLinkedThreads().pulls;
   const keys = useViewListKeys<HTMLElement>();
+  const verify = useVerifyRuns(project);
+  const runs = verify.data?.runs ?? noRuns;
+  const steps = useRowSteps({
+    project: project ?? "",
+    back: listAddress,
+    rows: list.rows,
+    viewer: list.first?.viewer,
+    linked,
+    runs,
+    command: verify.data?.command,
+  });
   const groups = byReadiness
-    ? rankByReadiness(list.rows)
+    ? groupBySteps(list.rows, (row) => steps.stepOf(row).step)
     : groupPrs(sortPrs(list.rows, sort === "ready" ? "updated" : sort), list.first?.viewer);
+  const merge = useMergeRun(
+    project ?? "",
+    groups.find((group) => group.id === "merge")?.rows ?? noRows,
+    runs,
+  );
+  const [method, setMethod] = useMergeMethod(project ?? "");
+  const navigate = useNavigate();
+  const dialogs = useProjectDialogs();
+  const count = (group: RowGroup<ForgePrRow>) =>
+    byReadiness ? (list.more ? undefined : group.rows.length) : totals?.[group.id];
   const counts = list.first?.counts;
   const stateOptions = [
-    { value: "open" as const, label: counts ? `Open ${counts.open + counts.draft}` : "Open" },
-    { value: "merged" as const, label: counts ? `Merged ${counts.merged}` : "Merged" },
-    { value: "closed" as const, label: counts ? `Closed ${counts.closed}` : "Closed" },
+    { value: "open" as const, label: "Open", count: counts && counts.open + counts.draft },
+    { value: "merged" as const, label: "Merged", count: counts?.merged },
+    { value: "closed" as const, label: "Closed", count: counts?.closed },
     { value: "all" as const, label: "All" },
   ];
   const rows = (
@@ -175,27 +203,49 @@ export function PullRequestsPage(props: {
       kind="pulls"
       address={listAddress}
       ready={list.rows.length > 0}
+      strip={
+        project && (
+          <MergeStrip
+            merge={merge}
+            method={method}
+            onMethod={setMethod}
+            command={verify.data?.command}
+            onSetCommand={() => dialogs.open({ kind: "edit", projectId: project })}
+            onOpenPr={(number) =>
+              void navigate({
+                to: "/pulls/$project/$number",
+                params: { project, number: String(number) },
+                search: { back: listAddress },
+              })
+            }
+          />
+        )
+      }
       search={search.q ?? ""}
       onSearch={(text) => onSearch({ q: text.trim() || undefined })}
       controls={
         <>
-          <SegmentedControl
-            label="Involvement"
-            size="sm"
-            value={search.who ?? "all"}
-            options={[
-              { value: "all", label: "All" },
-              { value: "authored", label: "Authored" },
-              { value: "reviewing", label: "Reviewing" },
-            ]}
-            onValueChange={(who) => onSearch({ who: who === "all" ? undefined : who })}
-          />
-          <FilterMenu
+          <WordChoice
             label="State"
             value={search.state ?? "open"}
             options={stateOptions}
             onValueChange={(state) => onSearch({ state: state === "open" ? undefined : state })}
           />
+          <ToolbarRule />
+          <WordChoice
+            label="Involvement"
+            value={search.who ?? "all"}
+            options={[
+              { value: "all", label: "Everyone" },
+              { value: "authored", label: "Authored" },
+              { value: "reviewing", label: "Reviewing" },
+            ]}
+            onValueChange={(who) => onSearch({ who: who === "all" ? undefined : who })}
+          />
+        </>
+      }
+      menus={
+        <>
           {project && choice.projects.length > 1 && (
             <FilterMenu
               label="Project"
@@ -249,7 +299,7 @@ export function PullRequestsPage(props: {
           }
         />
       ) : list.loading ? (
-        <ListSkeleton label="pull requests" shape="row" rows={8} className="px-4" />
+        <RowsSkeleton kind="pulls" />
       ) : !list.rows.length ? (
         <EmptyState title="No pull requests match" />
       ) : (
@@ -268,7 +318,7 @@ export function PullRequestsPage(props: {
                 <GroupHeader
                   icon={groupIcons[group.id as keyof typeof groupIcons] ?? UsersIcon}
                   label={group.label}
-                  count={totals?.[group.id]}
+                  count={count(group)}
                 />
               ) : null}
               <ul>
@@ -279,13 +329,16 @@ export function PullRequestsPage(props: {
                     back={listAddress}
                     row={row}
                     thread={linked.get(workKey(row.ref.repository, row.ref.number))}
+                    local={steps.stepOf(row).local}
+                    step={steps.view(row, group.id === "merge" ? merge : undefined)}
+                    selected={group.id === "merge" && merge.isPicked(row)}
                   />
                 ))}
               </ul>
             </section>
           ))}
           {list.more && (
-            <div className="px-4 pt-2">
+            <div className="px-(--forge-gutter) pt-2">
               <Button
                 size="sm"
                 variant="ghost"

@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/VerifyChanged.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "run": {
+      "$ref": "https://ace.local/protocol/v1/VerifyRun.json"
+    },
+    "type": {
+      "const": "verify.changed",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "run"
+  ],
+  "type": "object"
+}

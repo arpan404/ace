@@ -119,3 +119,22 @@ test("the command palette panel takes the near-solid modal tint, not the thin fl
   expect(fill(layers("ace-floating ace-modal").outer)).toContain("--glass-tint-modal");
   expect(fill(layers("ace-floating").outer)).not.toContain("--glass-tint-modal");
 });
+
+test("a control over media frosts even inside the composer's glass, and is solid at Solid", () => {
+  // An attachment's remove button sits on its preview image inside the composer: it blurs the
+  // image under it, the one place a layer inside the dock may frost.
+  const dock = document.createElement("div");
+  dock.className = "ace-glass-dock";
+  const badge = document.createElement("button");
+  badge.className = "ace-glass-badge";
+  dock.append(badge);
+  document.body.append(dock);
+  for (const engine of ["liquid", "blur"] as const) {
+    setRoot("translucent", engine);
+    expect(blurs(badge)).toBe(true);
+    expect(fill(badge)).toBe("var(--glass-tint)");
+    setRoot("solid", engine);
+    expect(blurs(badge)).toBe(false);
+    expect(fill(badge)).toBe("var(--surface-2)");
+  }
+});

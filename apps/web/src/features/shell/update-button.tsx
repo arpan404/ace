@@ -70,6 +70,8 @@ function UpdateGlyph(props: { status: UpdateStatus }) {
 export function UpdateButton(props: { scope?: object }) {
   const update = useDesktopUpdate(props.scope);
   const [confirming, setConfirming] = useState(false);
+  /** Agents the Restart would stop: undefined while counting, null when unknown. */
+  const [busy, setBusy] = useState<number | null | undefined>(undefined);
   const [triggerFocused, setTriggerFocused] = useState(false);
   const [hoverIntent, setHoverIntent] = useState(false);
   const [overlaysArmed, setOverlaysArmed] = useState(false);
@@ -92,6 +94,8 @@ export function UpdateButton(props: { scope?: object }) {
       // Arm in the same press that asks: the swap commits with the dialog, never mid-press.
       setOverlaysArmed(true);
       setConfirming(true);
+      setBusy(undefined);
+      void update.busy().then((count) => setBusy(count ?? null));
     }
   };
   const button = (
@@ -128,6 +132,7 @@ export function UpdateButton(props: { scope?: object }) {
         status={status}
         scope={props.scope}
         confirming={confirming}
+        busy={busy}
         onConfirmingChange={setConfirming}
         onInstall={() => update.install()}
       />

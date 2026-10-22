@@ -59,6 +59,8 @@ export function prRow(fixture: PullRequestFixture): ForgePrRow {
     ...(detail.additions === undefined ? {} : { additions: detail.additions }),
     ...(detail.deletions === undefined ? {} : { deletions: detail.deletions }),
     conflicting: status.mergeability === "conflicting",
+    ...(fixture.mergeState?.mergeState === "BEHIND" ? { behind: true } : {}),
+    ...(/^[a-f0-9]{40,64}$/i.test(status.headSha) ? { headSha: status.headSha } : {}),
   };
 }
 

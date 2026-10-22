@@ -18,7 +18,7 @@ export const offlineReason = "Reconnect to change settings stored on ace";
  * once a write is slow. The control itself takes `disabled={control.offline}`.
  */
 export function DaemonSlot(props: {
-  control: Pick<SettingControl<unknown>, "loaded" | "offline" | "pending">;
+  control: Pick<SettingControl<unknown>, "loaded" | "offline" | "pending" | "differs">;
   children: ReactNode;
 }) {
   const { control } = props;
@@ -29,6 +29,10 @@ export function DaemonSlot(props: {
   return (
     <>
       {control.pending && <Spinner label="Saving" />}
+      {control.differs && (
+        // Under "All machines", the value shown is this machine's; another holds something else.
+        <span className="text-xs text-muted-foreground">Differs</span>
+      )}
       <DisabledReason reason={control.offline ? offlineReason : undefined}>
         {props.children}
       </DisabledReason>

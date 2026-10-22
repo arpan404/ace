@@ -58,7 +58,7 @@ export function Actions(props: { children: ReactNode }) {
 export const refusals: Record<LoginRefusal, (name: string) => [string, string | undefined]> = {
   forbidden: () => [
     "This device can't sign in to providers",
-    "Pair it with full access from Settings › Machines and devices on the computer running ace.",
+    "Pair it with full access from Settings › Fleet on the computer running ace.",
   ],
   busy: (name) => [
     `${name} is already signing in`,
