@@ -6,7 +6,8 @@
 #
 # Usage, from anywhere inside a Linux checkout after `bun install`:
 #   apps/desktop/scripts/linux-e2e.sh [vitest filters]   e.g. browser-video
-# Needs: Xvfb, openbox. Environment: ACE_E2E_DISPLAY (X display number, default 52),
+# Needs: Xvfb, openbox; the browser tests fetch ace's pinned Chrome (as the daemon's runner does,
+# ACE_E2E_CHROME_HOME). Environment: ACE_E2E_DISPLAY (X display number, default 52),
 # ACE_E2E_APPARMOR_PROFILE (default ace-electron-e2e), ACE_E2E_DESKTOP (openbox, the default;
 # kde-wayland or kde-x11 run the app on KDE Plasma 6 through
 # native/screen-helper-linux/tests/computer/kde-session.sh, which lists what KDE needs).
@@ -20,7 +21,6 @@ case $desktop in openbox | kde-wayland | kde-x11) ;; *)
   ;;
 esac
 profile=${ACE_E2E_APPARMOR_PROFILE:-ace-electron-e2e}
-profile_path="/etc/apparmor.d/$profile"
 if [ -e "/tmp/.X11-unix/X$display" ]; then
   echo "Display :$display is taken; set ACE_E2E_DISPLAY" >&2
   exit 1
@@ -32,22 +32,32 @@ fi
 
 # The electron package fetches its binary the first time it is required.
 electron=$(cd "$root/apps/desktop" && readlink -f "$(node -p 'require("electron")')")
-loaded=""
+# The browser tests' sandboxed Chrome: ace's pinned build, kept where the daemon's runner keeps it.
+chrome_home=${ACE_E2E_CHROME_HOME:-$HOME/.cache/ace-linux-e2e}
+echo "Fetching ace's pinned Chrome into $chrome_home"
+ACE_CHROMIUM_PATH=$(cd "$root" && node apps/daemon/scripts/linux-e2e/chrome.ts install "$chrome_home" | tail -n 1)
+export ACE_CHROMIUM_PATH
+loaded=()
 cleanup() {
   kill $(jobs -p) 2>/dev/null || true
   wait 2>/dev/null || true
-  if [ -n "$loaded" ]; then
-    sudo apparmor_parser -R "$profile_path" >/dev/null 2>&1 || true
-    sudo rm -f "$profile_path"
-  fi
+  local path
+  for path in "${loaded[@]}"; do
+    sudo apparmor_parser -R "$path" >/dev/null 2>&1 || true
+    sudo rm -f "$path"
+  done
 }
 trap cleanup EXIT
 if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ]; then
-  echo "Installing AppArmor profile $profile for $electron"
-  (cd "$root" && node apps/daemon/scripts/linux-e2e/chrome.ts apparmor "$electron" "$profile") |
-    sudo tee "$profile_path" >/dev/null
-  loaded=1
-  sudo apparmor_parser -r "$profile_path"
+  for binary in "$electron" "$ACE_CHROMIUM_PATH"; do
+    name=$profile
+    [ "$binary" = "$ACE_CHROMIUM_PATH" ] && name=$profile-chrome
+    echo "Installing AppArmor profile $name for $binary"
+    (cd "$root" && node apps/daemon/scripts/linux-e2e/chrome.ts apparmor "$binary" "$name") |
+      sudo tee "/etc/apparmor.d/$name" >/dev/null
+    loaded+=("/etc/apparmor.d/$name")
+    sudo apparmor_parser -r "/etc/apparmor.d/$name"
+  done
 fi
 
 if [ "$desktop" != openbox ]; then
