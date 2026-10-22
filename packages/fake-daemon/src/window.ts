@@ -1,5 +1,5 @@
 import { inRootLane, retainedTail } from "@ace/projection";
-import type { Item, ItemsPage, ThreadView } from "@ace/protocol";
+import type { Item, ItemsPage, TextSource, ThreadView } from "@ace/protocol";
 
 function seqs(ids: readonly string[], creation: ReadonlyMap<string, number>) {
   const result: Record<string, number> = {};
@@ -9,11 +9,53 @@ function seqs(ids: readonly string[], creation: ReadonlyMap<string, number>) {
   }
   return result;
 }
+/** UTF-16 units of one text a snapshot or page carries; the rest is named by its source. */
+export const previewUnits = 16 * 1024;
+/**
+ * The daemon bounds what a snapshot or history page carries of a long text (its previews, within
+ * a 1 MiB window), however long the item has streamed. Here a longer text keeps its newest
+ * `previewUnits`, where a live stream's deltas continue, with a source that names the whole, so a
+ * client marks it clipped. Without this, a message streamed for hours made one oversized frame.
+ */
+function bounded(item: Item): Item {
+  const clip = (text: string, part: number, source: TextSource | undefined) => {
+    if (text.length <= previewUnits) return { text, source };
+    return {
+      text: text.slice(-previewUnits),
+      source: {
+        streamId: source?.streamId ?? `text:${JSON.stringify([item.id, part])}`,
+        bytes: text.length * 2,
+        encoding: "utf-16le" as const,
+      },
+    };
+  };
+  if (item.type === "message") {
+    if (!item.parts.some((part) => part.type === "text" && part.text.length > previewUnits))
+      return structuredClone(item);
+    const { parts, ...rest } = item;
+    return {
+      ...structuredClone(rest),
+      parts: parts.map((part, index) => {
+        if (part.type !== "text") return structuredClone(part);
+        const { text, source } = clip(part.text, index, part.source);
+        const copy: typeof part = { type: "text", text };
+        if (source) copy.source = source;
+        return copy;
+      }),
+    };
+  }
+  if ((item.type === "reasoning" || item.type === "notice") && item.text.length > previewUnits) {
+    const { text: whole, ...rest } = item;
+    const { text, source } = clip(whole, 0, item.source);
+    return { ...structuredClone(rest), text, ...(source ? { source } : {}) };
+  }
+  return structuredClone(item);
+}
 function pick(view: ThreadView, ids: readonly string[]): Item[] {
   const items: Item[] = [];
   for (const id of ids) {
     const item = Object.hasOwn(view.items, id) ? view.items[id] : undefined;
-    if (item) items.push(structuredClone(item));
+    if (item) items.push(bounded(item));
   }
   return items;
 }
