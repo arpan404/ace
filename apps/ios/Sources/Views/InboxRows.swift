@@ -1,102 +1,174 @@
 import SwiftUI
 
-/// One thread in the inbox, in three lines: project … status (and how long it has worked),
-/// the title, then branch · pull request or machine … provider. Every word and token arrives
-/// from the bridge; colour comes from its token. Rows that need the person stay loud; work in
-/// progress recedes. The machine shows only when more than one is paired (DESIGN.md list rows).
+/// One thread in the inbox (DESIGN.md §3 list row): project … status, the title, then branch ·
+/// pull request … machine · subagents · provider. How loud it reads comes from the bridge's
+/// `look` (the web's `rowAttention`): only what needs the person takes colour; live work keeps a
+/// small glyph and its elapsed time in muted ink; a row at rest shows only its age.
 struct InboxThreadRow: View {
     let row: ThreadRow
     let snoozed: Bool
     var machine: String? = nil
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    /// Working and waiting rows recede: the person has nothing to do there yet.
-    private var recedes: Bool { row.status.token == "working" || row.status.token == "waiting" }
+    /// Old payloads without a look read quietly with the shared word.
+    private var look: RowLook {
+        row.look ?? RowLook(level: "quiet", word: row.status.label, tone: row.status.token, muted: true,
+                            glyph: nil, since: nil, settled: false, subagents: max(0, row.agents - 1))
+    }
+    private var titleInk: Color {
+        look.level == "needs-you" || look.level == "failed" || !look.muted
+            ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground
+    }
 
     var body: some View {
+        let look = look
         // At accessibility text sizes the side-by-side lines stack, so nothing is cut off.
         let stacked = typeSize.isAccessibilitySize
-        let lines = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.xxs))
-                            : AnyLayout(HStackLayout(spacing: 7))
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            lines {
-                if !row.project.isEmpty {
-                    HStack(spacing: 7) {
-                        ProjectTag(initials: row.badge ?? row.project)
-                        Text(row.project).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).lineLimit(stacked ? nil : 1)
-                    }
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .opacity(recedes ? 0.7 : 1)
-                }
+        let line = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.xxs))
+                           : AnyLayout(HStackLayout(spacing: AceTheme.Spacing.sm))
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+            line {
+                project(quiet: look.muted)
                 if !stacked { Spacer(minLength: AceTheme.Spacing.sm) }
-                status
+                InboxRowStatus(row: row, look: look, snoozed: snoozed)
             }
-            .frame(minHeight: 20)
             Text(row.title)
                 .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
-                .fontWeight(recedes ? .regular : .medium)
-                .foregroundStyle(recedes ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
+                .foregroundStyle(titleInk)
                 .lineLimit(stacked ? nil : 1)
-                .padding(.top, 3).padding(.bottom, AceTheme.Spacing.xs)
-            lines {
-                if !row.branch.isEmpty {
-                    Text(row.branch).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .lineLimit(stacked ? nil : 1).truncationMode(.middle)
-                }
-                if let extra { Text(row.branch.isEmpty || stacked ? extra : "·  \(extra)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1) }
+            line {
+                context
                 if !stacked { Spacer(minLength: AceTheme.Spacing.sm) }
-                providers
+                trailing(look)
             }
             .foregroundStyle(AceTheme.Colours.subtleForeground)
-            .frame(minHeight: 18)
-            .opacity(recedes ? 0.7 : 1)
         }
-        .padding(.top, 11).padding(.bottom, AceTheme.Spacing.md)
-        .frame(minHeight: AceTheme.Dimensions.touchTarget)
-        .contentShape(Rectangle())
+        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.vertical, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 
-    /// The shared status word, then how long the tree has worked or when a snooze ends.
-    private var status: some View {
+    @ViewBuilder private func project(quiet: Bool) -> some View {
+        if !row.project.isEmpty {
+            HStack(spacing: AceTheme.Spacing.sm) {
+                ProjectTag(initials: row.badge ?? String(row.project.prefix(2)), quiet: quiet)
+                Text(row.project).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).lineLimit(1)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+            }
+        }
+    }
+    /// Branch (mono) and pull request lead the last line.
+    @ViewBuilder private var context: some View {
+        HStack(spacing: AceTheme.Spacing.sm) {
+            if !row.branch.isEmpty {
+                Text(row.branch).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            if let pr = row.pr { InboxPullRequest(pr: pr) }
+        }
+    }
+    /// The machine when several are paired, running subagents, then the provider.
+    private func trailing(_ look: RowLook) -> some View {
+        HStack(spacing: AceTheme.Spacing.sm) {
+            if let machine, !machine.isEmpty {
+                Text(machine).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).lineLimit(1)
+            }
+            if look.subagents > 0 {
+                HStack(spacing: AceTheme.Spacing.xxs) {
+                    AceIcon(.treeStructure, size: 13, relativeTo: .footnote)
+                    Text(look.subagents.formatted()).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).monospacedDigit()
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(look.subagents) subagents running")
+            }
+            ProviderMark(provider: row.provider, account: row.account, quiet: look.muted)
+        }
+    }
+}
+
+/// The first line's status, as loud as the row's look: a word with its glyph and, for live
+/// work, how long it has run; a snoozed row says when it wakes; a row at rest shows its age.
+struct InboxRowStatus: View {
+    let row: ThreadRow
+    let look: RowLook
+    let snoozed: Bool
+
+    var body: some View {
         TimelineView(.everyMinute) { context in
-            HStack(spacing: 5) {
-                StateLabel(status: row.status)
-                if let time = time(at: context.date) {
-                    Text(time).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).monospacedDigit()
-                        .foregroundStyle(snoozed ? AceTheme.Colours.subtleForeground : StateStyle.text(row.status.token))
-                        .lineLimit(1)
+            // On the Snoozed shelf a row says when it wakes, unless it asks for the person.
+            if snoozed, !look.loud, let until = row.snoozedUntil {
+                HStack(spacing: AceTheme.Spacing.xs) {
+                    AceIcon(.clock, size: 13, relativeTo: .footnote)
+                    Text(Self.wake(until))
+                }
+                .meta()
+            } else if let word = look.word {
+                StatusLabel(word: word, tone: AceTone(look.tone), glyph: look.glyph.flatMap(GlyphState.init(rawValue:)),
+                            loud: look.loud, elapsed: look.level == "active" ? elapsed(at: context.date) : nil)
+            } else {
+                Text(age(at: context.date)).monospacedDigit().meta()
+            }
+        }
+    }
+
+    /// Native date formatting of the bridge's timestamps; no state is derived here.
+    private func elapsed(at now: Date) -> String? {
+        guard let start = look.since ?? row.activityAt else { return nil }
+        return ActivityTime.elapsed(since: Date(timeIntervalSince1970: start / 1000), now: now)
+    }
+    private func age(at now: Date) -> String {
+        ActivityTime.age(since: Date(timeIntervalSince1970: (row.activityAt ?? row.updatedAt) / 1000), now: now)
+    }
+    static func wake(_ until: Double) -> String {
+        let date = Date(timeIntervalSince1970: until / 1000)
+        let time = date.formatted(date: .omitted, time: .shortened)
+        return Calendar.current.isDateInToday(date) ? "Until \(time)" : "Until \(date.formatted(.dateTime.weekday(.abbreviated))) \(time)"
+    }
+}
+
+/// A settled thread at rest, one quiet line: its grey tag and title, then what the work left
+/// behind (the pull request, else the lines changed) and its age.
+struct InboxSettledRow: View {
+    let row: ThreadRow
+
+    var body: some View {
+        HStack(spacing: AceTheme.Spacing.sm) {
+            ProjectTag(initials: row.badge ?? String(row.project.prefix(2)), quiet: true)
+            Text(row.title)
+                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+                .foregroundStyle(AceTheme.Colours.subtleForeground)
+                .lineLimit(1)
+            Spacer(minLength: AceTheme.Spacing.sm)
+            Group {
+                if let pr = row.pr { InboxPullRequest(pr: pr) }
+                else if let diff = row.diff, diff.additions + diff.deletions > 0 {
+                    Text("+\(diff.additions) −\(diff.deletions)").monospacedDigit()
+                }
+                TimelineView(.everyMinute) { context in
+                    Text(ActivityTime.age(since: Date(timeIntervalSince1970: (row.activityAt ?? row.updatedAt) / 1000), now: context.date))
+                        .monospacedDigit()
                 }
             }
+            .meta(AceTheme.Colours.faintForeground)
         }
+        .padding(.horizontal, AceTheme.Spacing.md)
+        .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
-    /// The pull request when the thread has one, else the machine when several are paired.
-    private var extra: String? {
-        if let pr = row.pr { return "#\(pr.number)" }
-        if let machine, !machine.isEmpty { return machine }
-        return nil
-    }
-    /// The thread's provider; a tree of several agents adds how many more there are.
-    private var providers: some View {
-        HStack(spacing: 3) {
-            ProviderMark(provider: row.provider).foregroundStyle(AceTheme.Colours.mutedForeground)
-            if row.agents > 1 {
-                Text("+\(row.agents - 1)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit()
-                    .accessibilityLabel("\(row.agents) agents")
-            }
+}
+
+/// "#188" after the pull request glyph; merged requests take the merge glyph.
+struct InboxPullRequest: View {
+    let pr: PullRequestRef
+    var body: some View {
+        HStack(spacing: AceTheme.Spacing.xxs) {
+            AceIcon(pr.state == "merged" ? .gitMerge : .gitPullRequest, size: 13, relativeTo: .footnote)
+            Text("#\(pr.number)").monospacedDigit()
         }
-        .opacity(0.75)
-    }
-    /// Native date formatting of the bridge's timestamps; no state is derived here.
-    private func time(at now: Date) -> String? {
-        if snoozed, let until = row.snoozedUntil {
-            let date = Date(timeIntervalSince1970: until / 1000)
-            let time = date.formatted(date: .omitted, time: .shortened)
-            return Calendar.current.isDateInToday(date) ? "Until \(time)" : "Until \(date.formatted(.dateTime.weekday(.abbreviated))) \(time)"
-        }
-        if let since = row.workingSince { return ActivityTime.elapsed(since: Date(timeIntervalSince1970: since / 1000), now: now) }
-        return nil
+        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(pr.state.capitalized) pull request \(pr.number)")
     }
 }
 
@@ -106,31 +178,31 @@ struct InboxUnsentRow: View {
     let entry: PendingRow
     let thread: ThreadRow?
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            HStack(spacing: 7) {
+        let tone = AceTone(entry.token ?? "neutral")
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+            HStack(spacing: AceTheme.Spacing.sm) {
                 if let thread, !thread.project.isEmpty {
-                    ProjectTag(initials: thread.badge ?? thread.project)
-                    Text(thread.project).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).lineLimit(1)
+                    ProjectTag(initials: thread.badge ?? String(thread.project.prefix(2)))
+                    Text(thread.project).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).lineLimit(1)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
                 Spacer(minLength: AceTheme.Spacing.sm)
-                Text(entry.label ?? "").aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.semibold)
-                    .foregroundStyle(StateStyle.text(entry.token ?? "neutral")).lineLimit(1)
+                StatusLabel(word: entry.label ?? "", tone: tone, glyph: tone == .needsYou ? .needsYou : nil, loud: tone == .needsYou)
             }
-            .foregroundStyle(AceTheme.Colours.mutedForeground)
-            .frame(minHeight: 20)
-            Text(entry.text).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
-                .padding(.top, 3).padding(.bottom, AceTheme.Spacing.xs)
+            Text(entry.text).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
+                .foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
             if let thread {
-                Text(thread.title).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1)
+                Text(thread.title).meta(AceTheme.Colours.subtleForeground).lineLimit(1)
             }
         }
-        .padding(.top, 11).padding(.bottom, AceTheme.Spacing.md)
-        .contentShape(Rectangle())
+        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.vertical, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 }
 
-/// "Snoozed (2) ⌄": a folded group at the end of the list, quiet until opened.
+/// "Snoozed 2 ›": a folded group at the end of the list, quiet until opened.
 struct InboxShelf: View {
     let label: String
     let count: Int
@@ -138,18 +210,27 @@ struct InboxShelf: View {
     let toggle: () -> Void
     var body: some View {
         Button(action: toggle) {
-            HStack(spacing: AceTheme.Spacing.sm) {
-                Text("\(label) (\(count.formatted()))")
-                Spacer(minLength: AceTheme.Spacing.sm)
-                Image(systemName: "chevron.down").imageScale(.small)
-                    .rotationEffect(.degrees(expanded ? 180 : 0))
+            HStack(spacing: AceTheme.Spacing.xs) {
+                Text(label).fontWeight(.medium)
+                Text(count.formatted()).monospacedDigit().foregroundStyle(AceTheme.Colours.subtleForeground)
+                AceIcon(.caretRight, size: 12, weight: .bold, relativeTo: .footnote)
+                    .foregroundStyle(AceTheme.Colours.faintForeground)
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                Spacer(minLength: AceTheme.Spacing.none)
             }
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-            .foregroundStyle(AceTheme.Colours.subtleForeground)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget)
-            .contentShape(Rectangle())
+            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+            .foregroundStyle(AceTheme.Colours.mutedForeground)
+            .padding(.horizontal, AceTheme.Spacing.md)
+            .frame(minHeight: 40)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.row)
         .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+    }
+}
+
+extension View {
+    /// Row metadata (`text-meta`): caption size in the given tier, muted by default.
+    func meta(_ ink: Color = AceTheme.Colours.mutedForeground) -> some View {
+        aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(ink).lineLimit(1)
     }
 }

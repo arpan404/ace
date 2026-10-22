@@ -14,15 +14,18 @@ struct InboxRowActions {
 /// Which folded groups at the end of the list are open.
 struct InboxShelves: Equatable { var snoozed = false; var settled = false }
 
-/// One tab's flat list: the shared sections merged by rank with no headings, rows separated by
-/// inset hairlines, then the Snoozed and Settled shelves. `includes` applies the tab and the
-/// filter chips; grouping and wording come from each machine's runtime.
+/// The flat task list (DESIGN.md §3, §8): the shared sections merged by rank with no headings,
+/// rows separated by space rather than rules, a soft rounded fill on the pressed row, then the
+/// Snoozed and Settled shelves. `includes` applies the scope; grouping and wording come from
+/// each machine's runtime.
 struct InboxList: View {
     @Bindable var inbox: MachineInbox
     let includes: (InboxKey) -> Bool
     let pulls: Bool
     @Binding var shelves: InboxShelves
     let actions: InboxRowActions
+    /// Opens New thread; nil while every machine is view-only.
+    let compose: (() -> Void)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private static let shelved = ["snoozed", "settled"]
 
@@ -39,8 +42,7 @@ struct InboxList: View {
             if !inbox.sessions.isEmpty && inbox.sessions.allSatisfy({ !$0.client.canOperate }) {
                 ViewOnlyNote(message: "View only")
                     .accessibilityHint("Pair with View and act to send, archive or snooze.")
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AceTheme.Colours.background)
+                    .inboxRowChrome()
             }
             ForEach(sections.filter { !Self.shelved.contains($0.key) }) { section in
                 rows(section)
@@ -55,23 +57,27 @@ struct InboxList: View {
                     }
                     .accessibilityIdentifier("inbox.\(key)")
                     .inboxRowChrome()
+                    .padding(.top, AceTheme.Spacing.sm)
                     if open { rows(section) }
                 }
             }
             if !inbox.merged.more.isEmpty {
-                Button("Show older threads") { for id in inbox.merged.more { inbox.client(id)?.loadOlderThreads() } }
-                    .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.subtleForeground)
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
-                    .accessibilityIdentifier("inbox.more")
-                    .inboxRowChrome()
-                    .listRowSeparator(.hidden)
+                Button { for id in inbox.merged.more { inbox.client(id)?.loadOlderThreads() } } label: {
+                    Text("Show older threads").meta()
+                        .padding(.horizontal, AceTheme.Spacing.md)
+                        .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+                }
+                .buttonStyle(.row)
+                .accessibilityIdentifier("inbox.more")
+                .inboxRowChrome()
             }
-            if sections.isEmpty { emptyState.listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background) }
+            if sections.isEmpty { emptyState.inboxRowChrome() }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(AceTheme.Colours.background)
         .environment(\.defaultMinListRowHeight, 0)
+        .contentMargins(.vertical, AceTheme.Spacing.xs, for: .scrollContent)
     }
 
     @ViewBuilder private func rows(_ section: MergedInbox.Section) -> some View {
@@ -80,7 +86,7 @@ struct InboxList: View {
                 if let entry = inbox.pending(key) {
                     let thread = InboxKey(machineId: key.machineId, id: entry.threadId)
                     Button { actions.open(thread) } label: { InboxUnsentRow(entry: entry, thread: inbox.row(thread)) }
-                        .buttonStyle(.plain).accessibilityIdentifier("unsent.\(key.id)")
+                        .buttonStyle(.row).accessibilityIdentifier("unsent.\(key.id)")
                         .inboxRowChrome()
                 }
             }
@@ -99,39 +105,41 @@ struct InboxList: View {
         // The daemon refuses to settle a tree that still runs.
         let canSettle = canOperate && !settled && row.state != "working"
         return Button { actions.open(key) } label: {
-            InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.showsMachineNames ? inbox.name(key.machineId) : nil)
+            if settled { InboxSettledRow(row: row) }
+            else { InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.showsMachineNames ? inbox.name(key.machineId) : nil) }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.row)
         .accessibilityIdentifier(inbox.showsMachineNames ? "thread.\(key.machineId).\(row.id)" : "thread.\(row.id)")
         .inboxRowChrome()
+        // Neutral swipe fills: status hues belong to status only.
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             if canOperate {
                 if settled {
-                    Button("Unsettle", systemImage: "arrow.uturn.backward") { actions.unsettle(row, key) }.tint(Color(uiColor: .systemGray2))
+                    Button("Unsettle", ace: .arrowUUpLeft) { actions.unsettle(row, key) }.tint(Color(uiColor: .systemGray))
                 } else if canSettle {
-                    Button("Settle", systemImage: "checkmark") { actions.settle(row, key) }.tint(.blue)
+                    Button("Settle", ace: .check) { actions.settle(row, key) }.tint(Color(uiColor: .systemGray))
                 }
                 if snoozed {
-                    Button("Wake", systemImage: "sun.max") { actions.wake(row, key) }.tint(Color(uiColor: .systemGray2))
+                    Button("Wake", ace: .sun) { actions.wake(row, key) }.tint(Color(uiColor: .systemGray2))
                 } else if !settled {
-                    Button("Snooze", systemImage: "clock") { actions.snooze(key) }.tint(Color(uiColor: .systemGray2))
+                    Button("Snooze", ace: .clock) { actions.snooze(key) }.tint(Color(uiColor: .systemGray2))
                 }
             }
         }
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
-            if canOperate { Button("Archive", systemImage: "archivebox") { actions.archive(row, key) }.tint(Color(uiColor: .systemGray2)) }
+            if canOperate { Button("Archive", ace: .archive) { actions.archive(row, key) }.tint(Color(uiColor: .systemGray2)) }
         }
         .contextMenu {
             if canOperate {
-                if settled { Button("Unsettle", systemImage: "arrow.uturn.backward") { actions.unsettle(row, key) } }
-                else if canSettle { Button("Settle", systemImage: "checkmark") { actions.settle(row, key) } }
-                if snoozed { Button("Wake", systemImage: "sun.max") { actions.wake(row, key) } }
+                if settled { Button("Unsettle", ace: .arrowUUpLeft) { actions.unsettle(row, key) } }
+                else if canSettle { Button("Settle", ace: .check) { actions.settle(row, key) } }
+                if snoozed { Button("Wake", ace: .sun) { actions.wake(row, key) } }
                 else if !settled {
-                    Menu("Snooze", systemImage: "clock") {
+                    Menu {
                         ForEach(inbox.merged.snooze) { option in Button(option.label) { actions.snoozeUntil(row, key, option.id) } }
-                    }
+                    } label: { Label("Snooze", ace: .clock) }
                 }
-                Button("Archive", systemImage: "archivebox") { actions.archive(row, key) }
+                Button("Archive", ace: .archive) { actions.archive(row, key) }
             }
         }
     }
@@ -139,33 +147,60 @@ struct InboxList: View {
     @ViewBuilder private var emptyState: some View {
         if !inbox.anyLoaded || !inbox.allReady {
             if inbox.sessions.contains(where: { ["fatal", "offline", "reconnecting"].contains($0.client.connection) }) {
-                ContentUnavailableView {
-                    Label(inbox.showsMachineNames ? "Can't reach your machines" : "Can't reach your machine", systemImage: "wifi.slash")
-                } description: { Text("Your threads appear once it's back.") } actions: {
+                EmptyState(icon: .wifiSlash, title: inbox.showsMachineNames ? "Can't reach your machines" : "Can't reach your machine",
+                           line: "Your threads appear once it's back.") {
                     Button("Retry") { for session in inbox.sessions { session.client.retry() } }
                 }
+                .padding(.top, 120)
             } else {
-                ContentUnavailableView { Label { Text("Connecting to your machine…") } icon: { ProgressView() } }
+                InboxSkeleton()
             }
         } else if pulls {
-            ContentUnavailableView("No pull requests in review", image: "tab-pulls",
-                                   description: Text("Threads with an open pull request show here."))
+            EmptyState(icon: .gitPullRequest, title: "No pull requests in review")
+                .padding(.top, 120)
         } else {
-            ContentUnavailableView("Your inbox is clear", systemImage: "tray", description: Text("Tasks from your machines appear here."))
+            EmptyState(icon: .tray, title: "No threads yet") {
+                if let compose { Button("New thread", action: compose).accessibilityIdentifier("inbox.empty.compose") }
+            }
+            .padding(.top, 120)
         }
     }
 }
 
+/// The list while the first rows load (DESIGN.md §3 "Loading"): skeleton pills in the shape of
+/// rows, never a page spinner.
+private struct InboxSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.xl) {
+            ForEach(0..<5, id: \.self) { index in
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+                    pill(width: 96, height: 11)
+                    pill(width: index.isMultiple(of: 2) ? 220 : 180, height: 15)
+                    pill(width: 120, height: 11)
+                }
+            }
+        }
+        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.vertical, AceTheme.Spacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading threads")
+    }
+    private func pill(width: CGFloat, height: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: AceTheme.Radii.xs, style: .continuous)
+            .fill(AceTheme.Colours.fill)
+            .frame(width: width, height: height)
+    }
+}
+
 extension View {
-    /// The inbox's row chrome: 20pt side insets, page colour, and one hairline under each row
-    /// inset to the text on both sides.
+    /// The task list's row chrome: inset 8pt from the screen edge, 4pt between rows, the page
+    /// colour behind, and no rules (DESIGN.md: nothing in the task list is ruled).
     func inboxRowChrome() -> some View {
         self
-            .listRowInsets(EdgeInsets(top: 0, leading: AceTheme.Spacing.xl, bottom: 0, trailing: AceTheme.Spacing.xl))
+            .listRowInsets(EdgeInsets(top: AceTheme.Spacing.xxs, leading: AceTheme.Spacing.sm,
+                                      bottom: AceTheme.Spacing.xxs, trailing: AceTheme.Spacing.sm))
             .listRowBackground(AceTheme.Colours.background)
-            .listRowSeparator(.hidden, edges: .top)
-            .listRowSeparatorTint(AceTheme.Colours.separator)
-            .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
-            .alignmentGuide(.listRowSeparatorTrailing) { $0[.trailing] }
+            .listRowSeparator(.hidden)
     }
 }

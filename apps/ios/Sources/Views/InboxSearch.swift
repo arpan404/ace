@@ -52,7 +52,7 @@ struct InboxSearchList: View {
                         Button { open(match.key) } label: {
                             InboxThreadRow(row: match.row, snoozed: false, machine: inbox.showsMachineNames ? inbox.name(match.key.machineId) : nil)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.row)
                         .accessibilityIdentifier("search.thread.\(match.row.id)")
                         .inboxRowChrome()
                     }
@@ -76,10 +76,11 @@ struct InboxSearchList: View {
             }
             if messages.loading {
                 ProgressView().frame(maxWidth: .infinity).accessibilityLabel("Searching conversations")
-                    .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
+                    .inboxRowChrome()
             } else if threads.isEmpty && messages.settled && inbox.sessions.allSatisfy({ messages.hits($0.hostId).isEmpty }) {
-                ContentUnavailableView.search(text: query)
-                    .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
+                EmptyState(icon: .magnifyingGlass, title: "Nothing matches “\(query)”")
+                    .padding(.top, 80)
+                    .inboxRowChrome()
             }
         }
         .listStyle(.plain)
@@ -92,8 +93,9 @@ struct InboxSearchList: View {
     }
 
     private func header(_ title: String) -> some View {
-        Text(title).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).textCase(nil)
-            .foregroundStyle(AceTheme.Colours.subtleForeground)
+        Text(title).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(.medium).textCase(nil)
+            .foregroundStyle(AceTheme.Colours.mutedForeground)
+            .padding(.horizontal, AceTheme.Spacing.md)
     }
 }
 
@@ -102,9 +104,10 @@ private struct MessageHitLabel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             Text(hit.threadTitle).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-            Text(hit.excerpt).aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2)
+            Text(hit.excerpt).aceFont(AceTheme.Typography.caption, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2)
         }
-        .padding(.vertical, AceTheme.Spacing.md)
+        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.vertical, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
         .accessibilityElement(children: .combine)
     }
 }

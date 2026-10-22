@@ -14,7 +14,7 @@ struct PairingView: View {
     var body: some View {
         Form {
             Section {
-                Button { scanning = true } label: { Label("Scan pairing QR code", systemImage: "qrcode.viewfinder") }
+                Button { scanning = true } label: { Label("Scan pairing QR code", ace: .qrCode) }
                     .accessibilityIdentifier("pairing.scan")
             } footer: {
                 Text("On your computer, run `ace pair` or open Settings › Machines and devices and create a pairing link.")

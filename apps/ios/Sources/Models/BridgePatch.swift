@@ -39,6 +39,9 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     var workingSince: Double? = nil
     /// Inbox rows only: how loudly the row asks for the person (`inbox-look.ts`).
     var look: RowLook? = nil
+    /// Inbox rows only: the account mark the provider glyph wears when its provider has several
+    /// accounts (`inbox-accounts.ts`); nil draws the plain mark.
+    var account: String? = nil
 }
 /// How an inbox row reads, by the web's Home row rule (`rowAttention`): the attention level,
 /// the status word (none at rest: the row shows its age), its tone and glyph, and whether the
