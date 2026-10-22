@@ -209,7 +209,10 @@ export class DelegationJournal {
   reserve(reservation: DelegationReservation) {
     this.assertCapacity();
     const r = reservation.record;
-    this.origins.note(r.childId, r.generation, r.parentId, { kind: "parent-turn" });
+    this.origins.note(r.childId, r.generation, r.parentId, {
+      kind: "parent-turn",
+      agentId: r.parentAgentId,
+    });
     this.sql("INSERT INTO delegation_reservations VALUES (?,?,?,?,?)").run(
       r.childId,
       r.parentId,
@@ -232,7 +235,10 @@ export class DelegationJournal {
     if (!reservation || reservation.record.childId !== record.childId)
       throw new Error("Missing reservation");
     this.sql("DELETE FROM delegation_reservations WHERE child_id=?").run(record.childId);
-    this.origins.note(record.childId, record.generation, record.parentId, { kind: "parent-turn" });
+    this.origins.note(record.childId, record.generation, record.parentId, {
+      kind: "parent-turn",
+      agentId: record.parentAgentId,
+    });
     this.sql(
       "INSERT INTO delegated_threads(child_id,parent_id,root_id,request_id,record,phase) VALUES (?,?,?,?,?,?)",
     ).run(
@@ -334,12 +340,22 @@ export class DelegationJournal {
       this.ancestorStopped(thread)
     );
   }
-  /** New input reopens a settled child: `byParent` when its parent agent sent it. */
-  reopen(record: DelegationRecord, now: number, byParent: boolean) {
+  /**
+   * New input reopens a settled child: `byAgent` is the parent's agent that sent it, if one did
+   * (the root when the sender is unknown); without one, someone else reopened it.
+   */
+  reopen(
+    record: DelegationRecord,
+    now: number,
+    byAgent: { agentId?: string | undefined } | undefined,
+  ) {
     this.sql("DELETE FROM delegation_subtree_stops WHERE thread_id=?").run(record.childId);
     this.sql("DELETE FROM delegation_member_stops WHERE thread_id=?").run(record.childId);
     this.sql("UPDATE delegated_threads SET wake_suppressed=0 WHERE child_id=?").run(record.childId);
-    this.revive(record, byParent ? { kind: "parent-turn" } : { kind: "independent" });
+    this.revive(
+      record,
+      byAgent ? { kind: "parent-turn", agentId: byAgent.agentId } : { kind: "independent" },
+    );
     this.rearm(record.childId, now);
   }
   /**
@@ -547,6 +563,7 @@ function edgeOwnerFacts(edge: DelegationRecord, live: boolean) {
   return {
     childId: edge.childId,
     parentId: edge.parentId,
+    parentAgentId: edge.parentAgentId,
     generation: edge.generation,
     createdAt: edge.createdAt,
     live,

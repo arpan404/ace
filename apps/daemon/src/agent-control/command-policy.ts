@@ -14,29 +14,36 @@ export function delegationCommandPolicy(deps: {
   now(): number;
   admits(): boolean;
   cancel(thread: ThreadId, request: string): void;
+  /** Cancel what agent `agentId` of the thread and its subagents delegated or are preparing. */
+  cancelAgent?(thread: ThreadId, agentId: string, request: string): void;
   changed(): void;
   suspending?(thread: ThreadId): boolean;
   /** Starts a child still waiting for a slot, so explicit input never overtakes its task. */
   launchQueued?(child: ThreadId): void;
   conversationAccepted?(thread: ThreadId): void;
   conversationAdmission?(thread: ThreadId): string | undefined;
+  /** The parent's agent whose message is being admitted now, when an agent's tool sends one. */
+  requestingAgent?(): string | undefined;
 }) {
   return (command: Command, accept: () => CommandResult): CommandResult => {
     const p = command.payload;
     const fail = (error: string) => ({ commandId: command.id, ok: false, error });
     if (p.type === "thread.interrupt") {
       const accepted = accept();
-      // Stopping one of the thread's own agents leaves its delegated threads alone.
+      // Stopping one of the thread's own agents stops what it and its subagents delegated, and
+      // leaves the rest of the thread's delegated work alone.
       const oneAgent =
         p.agentId !== undefined && deps.store.getThread(p.threadId)?.rootAgentId !== p.agentId;
       if (
         accepted.ok &&
-        !oneAgent &&
         p.cascade &&
         !deps.suspending?.(p.threadId) &&
         deps.journal.get(p.threadId)?.phase !== "cancelling"
-      )
-        deps.cancel(p.threadId, command.id);
+      ) {
+        if (oneAgent && p.agentId !== undefined)
+          deps.cancelAgent?.(p.threadId, p.agentId, command.id);
+        else if (!oneAgent) deps.cancel(p.threadId, command.id);
+      }
       return accepted;
     }
     if (
@@ -85,7 +92,9 @@ export function delegationCommandPolicy(deps: {
       deps.journal.reopen(
         edge,
         deps.now(),
-        p.type === "thread.send" && p.trigger === "parent_agent",
+        p.type === "thread.send" && p.trigger === "parent_agent"
+          ? { agentId: deps.requestingAgent?.() }
+          : undefined,
       );
     else if (edge.phase === "created") {
       edge.phase = "running";

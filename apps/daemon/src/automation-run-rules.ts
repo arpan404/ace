@@ -26,6 +26,8 @@ export interface OpenWork {
   reservations: number;
   /** Live delegated work in the thread whose owner can't be established: maybe the run's. */
   unowned: number;
+  /** The provider said the run's work carries on in another turn about to start. */
+  continuing: boolean;
 }
 
 /**
@@ -47,7 +49,8 @@ export function runTreeState(facts: {
   const states: TreeState[] = [rootState(facts.root, facts.cancelling), childState(facts.children)];
   if (work.questions > 0) states.push("needs-human");
   if (work.unowned > 0) states.push("uncertain");
-  if (work.tasks > 0 || work.agentRuns > 0 || work.reservations > 0) states.push("working");
+  if (work.tasks > 0 || work.agentRuns > 0 || work.reservations > 0 || work.continuing)
+    states.push("working");
   for (const state of ["uncertain", "needs-human", "working", "failed"] as const)
     if (states.includes(state)) return state;
   return "ok";

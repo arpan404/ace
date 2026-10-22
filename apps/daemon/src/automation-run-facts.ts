@@ -125,6 +125,12 @@ export interface TurnWork {
   agentRuns: { agentId: string; runId: string }[];
   /** Questions still waiting on the person. */
   questions: number;
+  /**
+   * The provider said another turn of the run's work is coming (background work it started
+   * finished, so the agent wakes to read it): its root, while the run's turn is the latest, or
+   * one of its own subagents is starting that turn.
+   */
+  continuing: boolean;
 }
 
 const TaskValue = z.object({
@@ -135,7 +141,15 @@ const TaskValue = z.object({
 });
 const RunValue = z.object({ agentId: z.string(), state: z.string() });
 const OwnedValue = z.object({ agentId: z.string() });
-const AgentValue = z.object({ parentId: z.string().nullable().optional() });
+const AgentValue = z.object({
+  parentId: z.string().nullable().optional(),
+  status: z.object({ state: z.string(), activity: z.string().optional() }).optional(),
+});
+/** An agent between turns that the provider said is about to start another (`wake.expected`). */
+const startingTurn = (value: unknown) => {
+  const status = AgentValue.safeParse(value).data?.status;
+  return status?.state === "working" && status.activity === "starting_turn";
+};
 
 /**
  * The turn's open native work, by cause rather than by when it appeared. A native subagent
@@ -160,11 +174,15 @@ export function readTurnWork(
         JOIN view_entities e ON e.thread_id=w.thread_id AND e.collection=w.collection AND e.id=w.id
         WHERE w.thread_id=? AND w.collection='agents' AND w.created_seq>=? ORDER BY w.created_seq`)
       .all(threadId, turn.start.seq)
-      .map((row) => ({
-        id: z.string().parse(row.id),
-        parent: AgentValue.safeParse(JSON.parse(z.string().parse(row.value))).data?.parentId,
-        seq: Number(row.seq),
-      }));
+      .map((row) => {
+        const value: unknown = JSON.parse(z.string().parse(row.value));
+        return {
+          id: z.string().parse(row.id),
+          parent: AgentValue.safeParse(value).data?.parentId,
+          starting: startingTurn(value),
+          seq: Number(row.seq),
+        };
+      });
     for (const agent of agents)
       if (agent.id !== rootAgentId)
         if (agent.parent === rootAgentId ? inTurn(agent.seq) : owned.has(agent.parent ?? ""))
@@ -201,16 +219,30 @@ export function readTurnWork(
       const owner = OwnedValue.safeParse(value);
       return owner.success && ours(owner.data.agentId, seq);
     }).length;
-    return { tasks, agentRuns, questions };
+    const root = rootAgentId
+      ? db
+          .prepare(
+            "SELECT value FROM view_entities WHERE thread_id=? AND collection='agents' AND id=?",
+          )
+          .get(threadId, rootAgentId)
+      : undefined;
+    const continuing =
+      (turn.later === undefined &&
+        root !== undefined &&
+        startingTurn(JSON.parse(z.string().parse(root.value)))) ||
+      agents.some((agent) => agent.starting && owned.has(agent.id));
+    return { tasks, agentRuns, questions, continuing };
   });
 }
 
 /**
- * The delegated work the turn began: children whose current generation one of the turn's runs
- * asked for (`DelegationOrigins`), settled or not, with their whole subtrees, so a child that
- * failed still counts in how the run went; and reservations still preparing a child for it.
- * `uncertain` are the thread's live children whose owner nobody can establish (work from before
- * owners were kept): they hold the run open and are never stopped for it. Undefined while
+ * The delegated work the turn began (`DelegationOrigins`): children whose current generation
+ * one of the turn's runs asked for, settled or not, so a child that failed still counts in how
+ * the run went; then, level by level, each owned child's own children whose current generation
+ * that child's agents asked for during its owned generation. Work someone else started or
+ * reopened anywhere below is not the run's. `uncertain` is live work, at any level, whose owner
+ * nobody can establish (from before owners were kept): it holds the run open and is never
+ * stopped for it. Reservations are preparations of children for owned threads. Undefined while
  * delegated children can't be read.
  */
 export function turnDelegations(
@@ -223,22 +255,39 @@ export function turnDelegations(
     return delegatedChildPersisted(store, threadId)
       ? undefined
       : { children: [], reservations: [], uncertain: [] };
-  const direct = new Set<ThreadId>();
+  const origins = journal.origins;
+  const children: ThreadId[] = [];
   const reservations: ThreadId[] = [];
-  for (const { child, generation } of journal.origins.byRuns(threadId, turn.runIds)) {
+  const uncertain: ThreadId[] = [];
+  const pending: { thread: ThreadId; since: number }[] = [];
+  const own = (child: ThreadId, generation: number) => {
+    children.push(child);
+    pending.push({ thread: child, since: origins.owner(child, generation)?.seq ?? 0 });
+  };
+  for (const { child, generation } of origins.byRuns(threadId, turn.runIds)) {
     const edge = journal.get(child);
-    if (edge?.generation === generation) direct.add(child);
+    if (edge?.generation === generation) own(child, generation);
     else if (!edge && generation === 0 && journal.reservationOf(child)) reservations.push(child);
   }
-  const uncertain = journal
-    .liveChildren(threadId)
-    .filter((edge) => !direct.has(edge.childId))
-    .filter((edge) => journal.origins.uncertain(edge.childId, edge.generation))
-    .map((edge) => edge.childId);
-  const children = new Set<ThreadId>(direct);
-  for (const child of direct)
-    for (const edge of journal.descendants(child)) children.add(edge.childId);
-  return { children: [...children], reservations, uncertain };
+  for (const edge of journal.liveChildren(threadId))
+    if (!children.includes(edge.childId) && origins.uncertain(edge.childId, edge.generation))
+      uncertain.push(edge.childId);
+  for (let next = pending.shift(); next && children.length < 64; next = pending.shift()) {
+    for (const edge of journal.children(next.thread)) {
+      const owner = origins.owner(edge.childId, edge.generation);
+      if (!owner || owner.kind === "uncertain") {
+        if (edge.phase !== "settled") uncertain.push(edge.childId);
+      } else if (owner.kind === "turn" && owner.seq >= next.since)
+        own(edge.childId, edge.generation);
+    }
+    for (const reservation of journal.reservations())
+      if (reservation.record.parentId === next.thread) {
+        const owner = origins.owner(reservation.record.childId, 0);
+        if (owner?.kind === "turn" && owner.seq >= next.since)
+          reservations.push(reservation.record.childId);
+      }
+  }
+  return { children, reservations, uncertain };
 }
 
 /**

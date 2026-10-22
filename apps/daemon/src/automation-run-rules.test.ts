@@ -22,7 +22,14 @@ const facts = (patch: Partial<RunFacts>): RunFacts => ({
   tree: "ok",
   ...patch,
 });
-const idle: OpenWork = { tasks: 0, agentRuns: 0, questions: 0, reservations: 0, unowned: 0 };
+const idle: OpenWork = {
+  tasks: 0,
+  agentRuns: 0,
+  questions: 0,
+  reservations: 0,
+  unowned: 0,
+  continuing: false,
+};
 const none = CliTree.parse([]);
 const child = (state: "working" | "done", cancelled = false) =>
   CliTree.parse([

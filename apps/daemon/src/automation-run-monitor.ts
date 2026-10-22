@@ -222,6 +222,7 @@ async function inspect(
               questions: open.work.questions,
               reservations: open.delegations.reservations.length,
               unowned: open.delegations.uncertain.length,
+              continuing: open.work.continuing,
             },
             children: readTreeMembers(context, open.delegations.children, journal),
             cancelling: record.cancel !== undefined,

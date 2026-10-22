@@ -3,6 +3,7 @@ import { AgentControlError, controlAdmissionError, engineFull } from "./failure.
 import { callerThread } from "./authorization.ts";
 import { ReservationLifetimes } from "./reservation-lifetimes.ts";
 import { controlCommandId } from "./command-id.ts";
+import { agentSubtree } from "./agent-subtree.ts";
 export { controlCommandId } from "./command-id.ts";
 import { delegationCommandPolicy } from "./command-policy.ts";
 import { childResultPrompt, launchSlots } from "@ace/orchestrator";
@@ -105,8 +106,10 @@ export class DelegationService {
         now: () => deps.clock.now(),
         admits: () => !this.closed && deps.admitsWork?.() !== false,
         cancel: (thread, request) => this.cancelDescendants(thread, request),
+        cancelAgent: (thread, agentId, request) => this.cancelAgentWork(thread, agentId, request),
         changed: () => this.arm(),
         suspending: (thread) => this.suspending.has(thread),
+        requestingAgent: () => this.requesting,
         launchQueued: (child) => this.launchQueued(child),
         conversationAccepted: (thread) => {
           this.journal.activity(thread, 1);
@@ -237,12 +240,20 @@ export class DelegationService {
         trigger: "parent_agent",
       },
     });
-    const result = this.deps.store.recordCommand(command.id, command.deviceId, () =>
-      this.deps.engine.internalHandler.handle(command, commandContext(this.deps.store)),
-    );
+    // The child's new work, if this reopens it, belongs to the turn of the agent asking.
+    this.requesting = caller.agentId;
+    let result: CommandResult;
+    try {
+      result = this.deps.store.recordCommand(command.id, command.deviceId, () =>
+        this.deps.engine.internalHandler.handle(command, commandContext(this.deps.store)),
+      );
+    } finally {
+      this.requesting = undefined;
+    }
     this.arm();
     return result;
   }
+  private requesting: string | undefined;
   async prepareModels(caller: McpAttribution, value: DelegationRequest) {
     const request = delegationRequest(value);
     this.admission.validate(caller, request);
@@ -685,9 +696,11 @@ export class DelegationService {
   }
   /**
    * Cancel delegated work for the host (an automation stopping what its run's turn started):
-   * each child with its subtree, and each reservation still preparing a child, durably, so its
-   * preparation never commits. As when their parent is stopped, the children's results never
-   * wake it, though `hostStop` left the parent no Stop marker. Whether every cancel was accepted.
+   * exactly these children, each on its own, and these reservations, durably, so their
+   * preparations never commit. Nothing cascades through the journal: work below a child that
+   * isn't the run's (the person's, or of unknown owner) is left alone, so the caller lists every
+   * owned descendant itself. As when their parent is stopped, the children's results never wake
+   * it, though `hostStop` left the parent no Stop marker. Whether every cancel was accepted.
    */
   hostCancel(
     children: readonly ThreadId[],
@@ -702,15 +715,61 @@ export class DelegationService {
       }
       return children
         .map((child) => {
+          const edge = this.journal.get(child);
+          if (!edge || edge.phase === "settled") return true;
+          this.journal.stopMember(child);
           this.journal.suppressWake(child);
-          return this.command(controlCommandId(child, request, "host.cancel"), {
-            type: "thread.interrupt",
-            threadId: child,
-            cascade: true,
-          }).ok;
+          if (edge.phase === "created") {
+            this.settleUnlaunched(edge, "cancelled");
+            return true;
+          }
+          if (this.deps.store.getThread(child)) this.deps.engine.discardRecovery(child);
+          edge.phase = "cancelling";
+          this.journal.save(edge);
+          const thread = this.deps.store.getThread(child);
+          if (thread) this.deps.engine.delegationStarted(edge, thread);
+          this.suspending.add(child);
+          try {
+            return this.command(controlCommandId(child, request, "host.cancel"), {
+              type: "thread.interrupt",
+              threadId: child,
+              cascade: true,
+            }).ok;
+          } finally {
+            this.suspending.delete(child);
+          }
         })
         .every(Boolean);
     });
+  }
+  /**
+   * A Stop of one of a thread's agents: everything that agent and its subagents delegated is
+   * cancelled with all under it, and their preparations never commit. The root's delegations
+   * and other agents' go on.
+   */
+  cancelAgentWork(thread: ThreadId, agentId: string, request: string) {
+    const agents = agentSubtree(this.deps.store, thread, agentId);
+    this.deps.store.atomic(() => {
+      for (const reservation of this.journal.reservations())
+        if (
+          reservation.record.parentId === thread &&
+          agents.has(reservation.record.parentAgentId)
+        ) {
+          this.reservationLifetimes.cancelChild(reservation.record.childId);
+          this.journal.release(reservation);
+        }
+      for (const edge of this.journal.liveChildren(thread)) {
+        if (!agents.has(edge.parentAgentId) || edge.phase === "cancelling") continue;
+        this.cancelDescendants(edge.childId, request);
+        const result = this.command(
+          controlCommandId(edge.childId, `${request}:${edge.generation}`, "agent.interrupt"),
+          { type: "thread.interrupt", threadId: edge.childId, cascade: true },
+        );
+        if (!result.ok && result.error !== "thread_not_found")
+          throw controlAdmissionError(result.error ?? "Stop failed");
+      }
+    });
+    this.arm();
   }
   onRemoteCancel: ((thread: ThreadId) => void) | undefined;
   private cancelPreparations(thread: ThreadId): void {
