@@ -201,7 +201,11 @@ function NewPrForm(props: {
               picked={head ? [head] : []}
               trigger={
                 head ? (
-                  fork ? `${context.head.repository.owner}:${head}` : head
+                  fork ? (
+                    `${context.head.repository.owner}:${head}`
+                  ) : (
+                    head
+                  )
                 ) : (
                   <span className="font-sans text-ui text-muted-foreground">Pick a branch</span>
                 )
@@ -222,12 +226,9 @@ function NewPrForm(props: {
                 {compareSummary(ready)}
               </span>
             ) : compare.error ? (
-              <span className="ml-1.5 text-muted-foreground">
-                {readFailureText(compare.error)}
-              </span>
+              <span className="ml-1.5 text-muted-foreground">{readFailureText(compare.error)}</span>
             ) : (
-              head &&
-              blocker && <span className="ml-1.5 text-muted-foreground">{blocker}</span>
+              head && blocker && <span className="ml-1.5 text-muted-foreground">{blocker}</span>
             )}
           </span>
         }
@@ -328,7 +329,7 @@ function NewPrForm(props: {
       </div>
       <div className="mt-4 flex items-center justify-end gap-3">
         <label className="mr-auto flex items-center gap-2 text-ui text-muted-foreground">
-          <Switch checked={draft} onCheckedChange={setDraft}/>
+          <Switch checked={draft} onCheckedChange={setDraft} />
           Open as a draft
         </label>
         <Button type="button" variant="ghost" onClick={props.onBack}>

@@ -63,7 +63,12 @@ export function PrDetails(props: { actions: PrActions; onDialog(dialog: PrDialog
         label="Milestone"
         action={
           editMilestone && (
-            <Button variant="ghost" size="xs" disabled={busy} onClick={() => props.onDialog("edit")}>
+            <Button
+              variant="ghost"
+              size="xs"
+              disabled={busy}
+              onClick={() => props.onDialog("edit")}
+            >
               {snapshot.milestone ? "Change" : "Set milestone"}
             </Button>
           )
@@ -122,7 +127,9 @@ export function PrDetails(props: { actions: PrActions; onDialog(dialog: PrDialog
             </Button>
           </span>
         ) : (
-          !issues.length && <span className="flex h-7 items-center text-subtle-foreground">None</span>
+          !issues.length && (
+            <span className="flex h-7 items-center text-subtle-foreground">None</span>
+          )
         )}
       </Row>,
     );
@@ -145,14 +152,20 @@ export function PrDetails(props: { actions: PrActions; onDialog(dialog: PrDialog
         }
       >
         <span className="block truncate leading-7">
-          {conversation.reason ? `Locked as ${lockReasonLabels[conversation.reason].toLowerCase()}` : "Locked"}
+          {conversation.reason
+            ? `Locked as ${lockReasonLabels[conversation.reason].toLowerCase()}`
+            : "Locked"}
           {!conversation.viewerCanComment && (
             <span className="text-subtle-foreground"> · only collaborators can comment</span>
           )}
         </span>
       </Row>,
     );
-  if (done && branch?.sameRepository && (lifecycle.can("branch.delete") || lifecycle.can("branch.restore") || !branch.exists))
+  if (
+    done &&
+    branch?.sameRepository &&
+    (lifecycle.can("branch.delete") || lifecycle.can("branch.restore") || !branch.exists)
+  )
     rows.push(
       <Row
         key="branch"
@@ -191,7 +204,9 @@ export function PrDetails(props: { actions: PrActions; onDialog(dialog: PrDialog
           >
             {branch.name}
           </span>
-          {!branch.exists && <span className="shrink-0 text-xs text-subtle-foreground">Deleted</span>}
+          {!branch.exists && (
+            <span className="shrink-0 text-xs text-subtle-foreground">Deleted</span>
+          )}
         </span>
       </Row>,
     );

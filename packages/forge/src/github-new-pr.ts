@@ -29,7 +29,13 @@ const Label = z.looseObject({
   color: z.string().nullish(),
   description: text.nullish(),
 });
-const Person = z.looseObject({ login: z.string().regex(/^[\w-]+$/).max(100), avatar_url: text.optional() });
+const Person = z.looseObject({
+  login: z
+    .string()
+    .regex(/^[\w-]+$/)
+    .max(100),
+  avatar_url: text.optional(),
+});
 const Milestone = z.looseObject({
   number: z.number().int().positive(),
   title: text,
@@ -142,15 +148,19 @@ export class GitHubNewPr {
       ),
     ]);
     return ForgeRepoPrOptions.parse({
-      labels: labels.items.slice(0, 500).map((label) => ({
-        name: label.name,
-        ...(label.color && /^[0-9a-fA-F]{6}$/.test(label.color) ? { color: label.color } : {}),
-        description: label.description ?? "",
-      })),
-      assignable: people.items.slice(0, 500).map((person) => ({
-        login: person.login,
-        ...(person.avatar_url ? { avatarUrl: person.avatar_url } : {}),
-      })),
+      labels: labels.items.slice(0, 500).map((label) => {
+        const color = label.color && /^[0-9a-fA-F]{6}$/.test(label.color) ? label.color : undefined;
+        return color
+          ? { name: label.name, color, description: label.description ?? "" }
+          : { name: label.name, description: label.description ?? "" };
+      }),
+      assignable: people.items
+        .slice(0, 500)
+        .map((person) =>
+          person.avatar_url
+            ? { login: person.login, avatarUrl: person.avatar_url }
+            : { login: person.login },
+        ),
       milestones: decode(z.array(Milestone).max(100), milestones.body).map((milestone) => ({
         number: milestone.number,
         title: milestone.title,

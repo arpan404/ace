@@ -38,7 +38,10 @@ const unpublished: Record<
   "feature/release-notes": {
     commits: [
       { message: "Add a release notes page", author: "you" },
-      { message: "Group release notes by version\n\nNewest first, each version folded.", author: "you" },
+      {
+        message: "Group release notes by version\n\nNewest first, each version folded.",
+        author: "you",
+      },
       { message: "Link release notes from Settings", author: "dana" },
     ],
     files: [
@@ -114,7 +117,9 @@ export function compareBranches(
     headSha: commits.at(-1)?.sha ?? sha(base),
     commits,
     totalCommits: commits.length,
-    files: files.slice(first, first + 25).map(([path, add, del]) => file(path, add, del, del ? "modified" : "added")),
+    files: files
+      .slice(first, first + 25)
+      .map(([path, add, del]) => file(path, add, del, del ? "modified" : "added")),
     totalFiles: files.length,
     ...(first + 25 < files.length ? { nextPage: page + 1 } : {}),
     truncated: false,

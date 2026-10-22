@@ -88,7 +88,10 @@ export class FakePrCatalog {
       closingIssues: before.closingIssues ?? [],
       ...(conversation?.locked
         ? {
-            locked: { reason: conversation.reason, viewerCanComment: conversation.viewerCanComment },
+            locked: {
+              reason: conversation.reason,
+              viewerCanComment: conversation.viewerCanComment,
+            },
           }
         : {}),
     });
@@ -108,7 +111,8 @@ export class FakePrCatalog {
     const operation = payload.operation;
     if (operation.kind !== "apply") return { ok: false, error: "forge_not_found" };
     const snapshot = fixture.lifecycle.snapshot;
-    if (operation.expectedVersion !== snapshot.version) return { ok: false, error: "forge_conflict" };
+    if (operation.expectedVersion !== snapshot.version)
+      return { ok: false, error: "forge_conflict" };
     const action = operation.action;
     const handled =
       action.kind === "edit" ||
@@ -191,9 +195,17 @@ export class FakePrCatalog {
         prStatus: existing.detail.status,
         prExisting: true,
       };
-    const compared = compareBranches(now, payload.base, payload.head, 1, () => undefined, () => undefined);
+    const compared = compareBranches(
+      now,
+      payload.base,
+      payload.head,
+      1,
+      () => undefined,
+      () => undefined,
+    );
     if (!compared.totalCommits) return { ok: false, error: "forge_no_commits" };
-    const number = Math.max(240, ...this.fixtures.map((entry) => entry.detail.status.ref.number)) + 1;
+    const number =
+      Math.max(240, ...this.fixtures.map((entry) => entry.detail.status.ref.number)) + 1;
     const [created] = sketchPullRequests(now, [
       {
         number,
@@ -216,12 +228,18 @@ export class FakePrCatalog {
     const files = compared.files;
     const fixture: PullRequestFixture = {
       ...created,
-      detail: { ...created.detail, baseBranch: payload.base, changedFiles: compared.totalFiles, commits: compared.totalCommits },
+      detail: {
+        ...created.detail,
+        baseBranch: payload.base,
+        changedFiles: compared.totalFiles,
+        commits: compared.totalCommits,
+      },
       files,
       lifecycle: withManagement(
         { ...created.lifecycle, snapshot: { ...created.lifecycle.snapshot, pr: ref } },
         {
-          milestone: catalogPrOptions().milestones.find((each) => each.number === payload.milestone) ?? null,
+          milestone:
+            catalogPrOptions().milestones.find((each) => each.number === payload.milestone) ?? null,
         },
       ),
     };
@@ -269,7 +287,8 @@ export class FakePrCatalog {
   }
   read(op: WorkspaceActionRequest["operation"], now = 0): ForgeBrowserResult | undefined {
     if (op.op === "forge.pr.list") return catalogPrList(op, this.fixtures);
-    if (op.op === "forge.repo.pr-options") return { resource: "repoPrOptions", value: catalogPrOptions() };
+    if (op.op === "forge.repo.pr-options")
+      return { resource: "repoPrOptions", value: catalogPrOptions() };
     if (op.op === "forge.pr.new-context")
       return {
         resource: "newPrContext",
@@ -286,7 +305,9 @@ export class FakePrCatalog {
           op.head,
           op.page,
           (branch) =>
-            pr(branch)?.files.map((each) => [each.path, each.additions, each.deletions] as [string, number, number]),
+            pr(branch)?.files.map(
+              (each) => [each.path, each.additions, each.deletions] as [string, number, number],
+            ),
           (branch) => pr(branch)?.detail.status.title,
         ),
       };

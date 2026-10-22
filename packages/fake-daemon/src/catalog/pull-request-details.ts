@@ -83,32 +83,32 @@ export const mergeState = (headSha: string, patchState: Partial<ForgeMergeState>
 export const lifecycle = (detail: ForgePrDetail, actions: string[]) =>
   withManagement(
     ForgeLifecycleState.parse({
-    snapshot: {
-      pr: detail.status.ref,
-      id: `PR_${detail.status.ref.number}`,
-      version: detail.status.ref.number.toString(16).padStart(64, "a"),
-      headSha: detail.status.headSha,
-      baseSha: detail.baseSha,
-      state: detail.status.state === "unknown" ? "open" : detail.status.state,
-      metadata: {
-        title: detail.status.title,
-        body: detail.body,
-        baseBranch: detail.baseBranch,
-        labels: detail.labels,
-        assignees: [],
+      snapshot: {
+        pr: detail.status.ref,
+        id: `PR_${detail.status.ref.number}`,
+        version: detail.status.ref.number.toString(16).padStart(64, "a"),
+        headSha: detail.status.headSha,
+        baseSha: detail.baseSha,
+        state: detail.status.state === "unknown" ? "open" : detail.status.state,
+        metadata: {
+          title: detail.status.title,
+          body: detail.body,
+          baseBranch: detail.baseBranch,
+          labels: detail.labels,
+          assignees: [],
+        },
+        editableFields: detail.status.state === "merged" ? [] : ["title", "body", "labels"],
+        actions,
+        unsupported: [],
+        headBranch: {
+          name: detail.headBranch,
+          exists: true,
+          sameRepository: true,
+          isDefault: false,
+          deleteOnMerge: false,
+        },
       },
-      editableFields: detail.status.state === "merged" ? [] : ["title", "body", "labels"],
-      actions,
-      unsupported: [],
-      headBranch: {
-        name: detail.headBranch,
-        exists: true,
-        sameRepository: true,
-        isDefault: false,
-        deleteOnMerge: false,
-      },
-    },
-    operations: [],
+      operations: [],
     }),
   );
 export const review = (headSha: string, open: boolean) =>

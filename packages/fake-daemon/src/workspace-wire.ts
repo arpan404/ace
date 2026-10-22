@@ -90,7 +90,8 @@ export class FakeWorkspaceWire {
   /** An issue's title, as the seeded issue reads have it. */
   private issueTitle(number: number): string | undefined {
     for (const read of this.forgeReads.values())
-      if (read.resource === "issueDetail" && read.value.ref.number === number) return read.value.title;
+      if (read.resource === "issueDetail" && read.value.ref.number === number)
+        return read.value.title;
     return undefined;
   }
   private seededRead(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
@@ -241,7 +242,9 @@ export class FakeWorkspaceWire {
       });
     }
     const catalogued =
-      (op.op.startsWith("forge.pr.") || op.op === "forge.repo.pr-options" || op.op === "forge.compare") &&
+      (op.op.startsWith("forge.pr.") ||
+        op.op === "forge.repo.pr-options" ||
+        op.op === "forge.compare") &&
       !this.forgeReads.has(JSON.stringify(op))
         ? this.pullRequests.read(op, this.context.now())
         : undefined;
