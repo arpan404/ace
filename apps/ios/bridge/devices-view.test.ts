@@ -234,3 +234,31 @@ test("a channel that opened but never answered its first reads says so instead o
     hint: "ace keeps trying.",
   });
 });
+
+test("a machine that refuses this phone's device list says why instead of loading", () => {
+  const refused = {
+    message: "Administrator scope is required for device access",
+    hint: "Pair again.",
+  };
+  const shown = phoneDevicesView({
+    snapshot: {
+      connected: true,
+      inventoryLoaded: false,
+      devices: [],
+      states: [],
+      issues: [],
+    },
+    closed: false,
+    refused,
+    threadId: "thread-1",
+    deviceId: undefined,
+    query: "",
+    platform: "all",
+    now: 0,
+    agent: () => undefined,
+    previous: new Map(),
+  });
+
+  expect(shown.offline).toEqual(refused);
+  expect(view([], { refused }).offline).toBeNull();
+});
