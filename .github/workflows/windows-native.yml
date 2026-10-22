@@ -63,9 +63,6 @@ jobs:
     env:
       NODE_VERSION: 24.13.0
       BUN_VERSION: 1.4.0
-      TEMP: ${{ runner.temp }}
-      TMP: ${{ runner.temp }}
-      TMPDIR: ${{ runner.temp }}
 
     steps:
       - name: Checkout
@@ -176,6 +173,10 @@ jobs:
 
       - name: Run bounded Windows-native Vitest suite
         timeout-minutes: 25
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TMPDIR: ${{ runner.temp }}
         run: |
           $ErrorActionPreference = "Stop"
           node -p "JSON.stringify({ nativeNodeArch: process.arch, platform: process.platform, version: process.version })"
