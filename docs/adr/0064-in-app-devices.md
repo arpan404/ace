@@ -427,3 +427,32 @@ they only ever needed an adb serial.
   verified on Ubuntu 26.04, adb 34.0.5) drives phones and network devices, and the device list
   says once, as an inventory note, that emulators aren't available there. The doctor's
   `linux.kvm` check says the same and asks for /dev/kvm only when an emulator is installed.
+
+### Headless Linux emulators boot with `-gpu auto`
+
+Measured 2026-10-21 on GitHub's `ubuntu-latest` x64 runners (4 vCPU, KVM through the documented
+udev rule, no GPU), Android Emulator 37.2.12, an API 34 `google_apis` x86_64 AVD made by
+avdmanager. Each run boots the shut-down AVD through ace (`-no-window -no-boot-anim`), streams
+scrcpy H.264 to a viewer and decodes it, taps, types, screenshots, and reads the UI tree through
+an agent's sim tools (`apps/daemon/src/linux-android.e2e.process.test.ts`). Two runs per mode;
+first picture is from `start` to the first keyframe at the viewer; frame rate and emulator CPU
+are over 8 back-and-forth swipes on the Settings list.
+
+| `-gpu`                 | Guest GLES renderer             | Boot (s)  | First picture (s) | Scroll fps | Emulator CPU |
+| ---------------------- | ------------------------------- | --------- | ----------------- | ---------- | ------------ |
+| none (AVD's `auto`)    | SwiftShader GLES 3.0            | 39.9–40.4 | 5.8–6.1           | 4.0–13.6   | 272–351%     |
+| `auto` (ace's default) | SwiftShader GLES 3.0            | 36.2–39.5 | 4.6–8.0           | 3.3–5.5    | 343–388%     |
+| `swiftshader_indirect` | SwiftShader GLES 3.0            | 29.7–40.7 | 4.9–5.5           | 2.3–2.9    | 355–374%     |
+| `swangle_indirect`     | ANGLE on SwiftShader Vulkan 3.1 | 26.3–37.5 | 5.6–7.3           | 2.8–5.1    | 368–378%     |
+| `guest`                | SwiftShader GLES 3.0            | 27.5–39.4 | 6.1–6.6           | 4.2–5.4    | 352–365%     |
+| `host`                 | none                            | no boot   | —                 | —          | —            |
+
+Every software mode booted and passed the whole flow; on a four-core machine with no GPU they
+differ by less than run-to-run noise, and the guest got the same SwiftShader renderer from all
+but `swangle_indirect`. `host` never finished booting. So ace passes `-gpu auto` on Linux when it
+boots an emulator without its window: it is the mode Google's documentation recommends, it is
+not deprecated (`swiftshader_indirect` is), it uses the GPU where the emulator judges one usable
+and software elsewhere, and, unlike passing nothing, it overrides an AVD saved with hardware
+graphics (`hw.gpu.mode=host`, Android Studio's "Hardware" choice), which on a machine without a
+usable GPU hangs the boot exactly as `host` did here. With the emulator's own window the AVD's
+setting stands. `ACE_ANDROID_EMULATOR_GPU` overrides the mode (`none` drops the flag).
