@@ -54,7 +54,7 @@ struct LockView: View {
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
             }
             Button("Unlock") { Task { await lock.unlock() } }
-                .buttonStyle(.borderedProminent).disabled(lock.authenticating)
+                .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).disabled(lock.authenticating)
                 .accessibilityIdentifier("lock.unlock")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -28,7 +28,7 @@ struct EmptyState<Action: View>: View {
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
             }
             action()
-                .buttonStyle(.bordered)
+                .buttonStyle(.bordered).buttonBorderShape(.capsule)
                 .tint(AceTheme.Colours.foreground)
                 .padding(.top, AceTheme.Spacing.sm)
         }
