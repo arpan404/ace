@@ -72,7 +72,7 @@ struct TaskRowView: View {
                     .aceFont(AceTheme.Typography.label, relativeTo: .footnote).fontWeight(.semibold)
                     .foregroundStyle(AceTheme.StatusText.failed)
                     .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 34)
-                    .background(AceTheme.Colours.diffDelete, in: Capsule())
+                    .background(AceTheme.Colours.diffDelete, in: AceShape.capsule)
                     .buttonStyle(.plain)
                     .frame(minHeight: AceTheme.Dimensions.touchTarget)
                     .accessibilityIdentifier("agents.task.stop.\(task.id)")

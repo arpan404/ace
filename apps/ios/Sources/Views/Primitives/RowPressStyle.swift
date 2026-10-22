@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// A list row's press (DESIGN.md §3 list rows, §5 press): no dividers; while pressed, or while
-/// `selected`, the row takes a soft `rounded-md` fill, concentric with its 12pt padding. Rows
+/// `selected`, the row takes a soft fill, concentric with its container and never
+/// rounder than its 12pt padding. Rows
 /// stay flat: no shadow, no tint.
 struct RowPressStyle: ButtonStyle {
     var selected = false
@@ -9,13 +10,13 @@ struct RowPressStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(
+            .aceConcentricBackground(
                 AceTheme.Colours.fill.opacity(configuration.isPressed || selected ? 1 : 0),
-                in: RoundedRectangle(cornerRadius: AceTheme.Radii.md, style: .continuous)
+                minimum: AceShape.rowRadius
             )
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
             .animation(.easeOut(duration: AceTheme.Motion.fast), value: configuration.isPressed)
-            .contentShape(RoundedRectangle(cornerRadius: AceTheme.Radii.md, style: .continuous))
+            .aceConcentricContentShape(minimum: AceShape.rowRadius)
     }
 }
 

@@ -144,7 +144,7 @@ struct AgentRow: View {
                             if entry.detailKind == "human", opens {
                                 Text("Review").fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
                                     .padding(.horizontal, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.xxs)
-                                    .background(AceTheme.Colours.fill, in: Capsule())
+                                    .background(AceTheme.Colours.fill, in: AceShape.capsule)
                                     .accessibilityHidden(true)
                             }
                         }
@@ -168,14 +168,14 @@ struct AgentRow: View {
     }
 }
 
-/// A transcript row you can press: no box at rest, the soft `--active` fill at radius 8 while
-/// pressed, a full-width touch target.
+/// A transcript row you can press: no box at rest, the soft `--active` fill, concentric with its
+/// container, while pressed, a full-width touch target.
 struct TranscriptRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm, alignment: .leading)
             .padding(.horizontal, AceTheme.Spacing.sm)
-            .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: RoundedRectangle(cornerRadius: AceTheme.Radii.md, style: .continuous))
+            .aceConcentricBackground(configuration.isPressed ? AceTheme.Colours.fill : .clear, minimum: AceShape.rowRadius)
             .padding(.horizontal, -AceTheme.Spacing.sm)
             .contentShape(Rectangle())
     }
