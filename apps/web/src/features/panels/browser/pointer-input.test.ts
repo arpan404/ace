@@ -78,26 +78,23 @@ describe("touch gestures", () => {
     expect(inputs(end)).toEqual([{ kind: "touch", event: "touchEnd", points: [] }]);
   });
 
-  it("a one-finger drag pans the view by the finger's movement and is no tap", () => {
+  it("a one-finger drag sends every move to the page in page pixels and is no tap", () => {
     const gestures = new TouchGestures();
     gestures.down(1, at(100, 100), 0);
-    // Within the slop it is still a press: nothing pans.
-    expect(kinds(gestures.move(1, at(104, 103)))).toEqual(["input"]);
-    const moved = gestures.move(1, at(100, 60));
-    expect(moved).toContainEqual({
-      type: "pan",
-      screen: { x: 0, y: -40 },
-      page: { x: 0, y: -80 },
-    });
-    expect(inputs(moved)).toEqual([
-      { kind: "touch", event: "touchMove", points: [{ x: 200, y: 120, id: 0 }] },
+    expect(inputs(gestures.move(1, at(104, 103)))).toEqual([
+      { kind: "touch", event: "touchMove", points: [{ x: 208, y: 206, id: 0 }] },
     ]);
-    const next = gestures.move(1, at(100, 50));
-    expect(next).toContainEqual({ type: "pan", screen: { x: 0, y: -10 }, page: { x: 0, y: -20 } });
+    expect(gestures.move(1, at(100, 60))).toEqual([
+      {
+        type: "input",
+        input: { kind: "touch", event: "touchMove", points: [{ x: 200, y: 120, id: 0 }] },
+      },
+    ]);
+    // Quick enough for a tap, but it moved past the slop: the page's drag, not a tap.
     expect(kinds(gestures.up(1, at(100, 50), 200))).not.toContain("tap");
   });
 
-  it("a pinch sends both fingers on every move and never pans or taps", () => {
+  it("a pinch sends both fingers on every move and never taps", () => {
     const gestures = new TouchGestures();
     gestures.down(1, at(100, 100), 0);
     const second = gestures.down(2, at(200, 200), 10);
