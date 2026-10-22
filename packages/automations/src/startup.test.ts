@@ -121,9 +121,10 @@ it("isolates a failed startup watcher while keeping healthy schedules and recove
 
 it("stops startup recovery before subscribing to later durable runs", async () => {
   const h = harness();
-  h.service.put(definition({ concurrency: 2 }));
+  h.service.put(definition());
+  h.service.put(definition({ id: "other" }));
   const first = h.service.trigger("triage", { key: "first", variables: { subject: "first" } });
-  const second = h.service.trigger("triage", { key: "second", variables: { subject: "second" } });
+  const second = h.service.trigger("other", { key: "second", variables: { subject: "second" } });
   h.service.stop();
   const observed = new Set<string>();
   const active = new Map<string, ReturnType<typeof deferred<ExecutionResult | undefined>>>();

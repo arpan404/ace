@@ -61,8 +61,9 @@ export class AutomationService {
       deps,
       (run) => {
         this.publish(run);
-        // One message at a time: the next waiting run starts once this one is done.
-        this.drain(run.automationId);
+        // One run at a time per automation: its waiting run starts once this one is done, and
+        // a run that waited only for room anywhere starts now that there is some.
+        this.drainWaiting();
       },
       (error) => this.report(error),
       () => this.arm(),
@@ -123,10 +124,7 @@ export class AutomationService {
         }
       }
       // Runs that were waiting when ace stopped start once nothing of theirs is running.
-      for (const id of this.store.waitingAutomations()) {
-        if (!this.live) break;
-        this.drain(id);
-      }
+      this.drainWaiting();
       this.arm();
     } catch (error) {
       this.stop();
@@ -213,7 +211,21 @@ export class AutomationService {
       this.report(error);
     }
   }
-  /** Start the automation's oldest waiting run, if it has one and nothing of it runs. */
+  /** Start every waiting run that may start now, oldest first. */
+  private drainWaiting(): void {
+    let waiting: string[];
+    try {
+      waiting = this.store.waitingAutomations();
+    } catch (error) {
+      this.report(error);
+      return;
+    }
+    for (const id of waiting) {
+      if (!this.live) return;
+      this.drain(id);
+    }
+  }
+  /** Start the automation's oldest waiting run, if it has one, nothing of it runs and ace has room. */
   private drain(id: string): void {
     if (!this.live) return;
     const generation = this.generation;

@@ -10,7 +10,7 @@ import {
   AutomationTriggerError,
   maxMessageBytes,
 } from "@ace/protocol";
-import { canAdmit } from "./decisions.ts";
+import { admission, canPromote } from "./decisions.ts";
 import type { ExecutionInput, ExecutionResult } from "./contracts.ts";
 
 const JobMetadata = z.object({
@@ -342,17 +342,14 @@ export class AutomationStore {
       this.sql("SELECT COUNT(*) AS n FROM automation_runs WHERE status='running'").get()?.n,
     );
     const waiting = this.queued(automation.id);
-    // A file automation's own edits must never start it again (ADR 0015): a change while one
-    // of its runs works or waits makes no run and leaves no history.
-    const busy = active > 0 || waiting;
-    const ready =
-      failure === undefined && input !== undefined && total < 256 && !(trigger === "file" && busy);
-    const admitted = ready && !waiting && canAdmit(active, automation.concurrency);
-    // A run that finds the last one still going waits for it; one waiting is enough, so a
-    // second fire meanwhile is skipped rather than piling up behind it.
-    const queued = ready && !admitted && !waiting && total < 256;
     const status =
-      failure !== undefined ? "failed" : admitted ? "running" : queued ? "queued" : "skipped";
+      failure !== undefined
+        ? "failed"
+        : input === undefined
+          ? "skipped"
+          : admission({ active, waiting, total, file: trigger === "file" });
+    const admitted = status === "running";
+    const queued = status === "queued";
     const run = AutomationRun.parse({
       id,
       automationId: automation.id,
@@ -391,10 +388,10 @@ export class AutomationStore {
       ).get(id) !== undefined
     );
   }
-  /** Automations with a run waiting, for start-up to pick up where they left off. */
+  /** Automations with a run waiting, oldest first, to start as room allows. */
   waitingAutomations(): string[] {
     return this.sql(
-      "SELECT DISTINCT automation_id AS aid FROM automation_runs WHERE status='queued'",
+      "SELECT automation_id AS aid FROM automation_runs WHERE status='queued' GROUP BY automation_id ORDER BY MIN(seq) LIMIT 1000",
     )
       .all()
       .map((row) => String(row.aid));
@@ -412,7 +409,10 @@ export class AutomationStore {
         "SELECT COUNT(*) AS n FROM automation_runs WHERE automation_id=? AND status='running'",
       ).get(automation.id)?.n,
     );
-    if (!canAdmit(active, automation.concurrency)) return undefined;
+    const total = Number(
+      this.sql("SELECT COUNT(*) AS n FROM automation_runs WHERE status='running'").get()?.n,
+    );
+    if (!canPromote({ active, total })) return undefined;
     const row = this.sql(
       "SELECT id,body,input FROM automation_runs WHERE automation_id=? AND status='queued' ORDER BY seq LIMIT 1",
     ).get(automation.id);

@@ -50,6 +50,10 @@ export const Automation = z.object({
   worktree: z.boolean(),
   trigger: AutomationTrigger,
   missedRun: z.enum(["skip", "run_once"]),
+  /**
+   * Kept for stored definitions. Every run goes into the automation's one thread, so one runs
+   * at a time whatever this says: a fire meanwhile waits behind it.
+   */
   concurrency: z.number().int().min(1).max(32),
   jitterMs: z.number().int().min(0).max(3_600_000),
 });

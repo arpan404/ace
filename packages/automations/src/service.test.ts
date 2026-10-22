@@ -44,22 +44,18 @@ it("deduplicates repeated events even after restart", async () => {
   expect(h.inputs).toHaveLength(1);
   expect(h.service.inbox().runs).toHaveLength(1);
 });
-it("keeps concurrency occupied while an executor waits for a human", async () => {
+it("runs one at a time even when a stored definition asks for more", async () => {
   const h = harness();
-  h.service.put(definition({ concurrency: 2 }));
+  h.service.put(definition({ concurrency: 4 }));
   for (let i = 0; i < 3; i++)
     h.service.trigger("triage", { key: `event-${i}`, variables: { subject: "review" } });
-  expect(h.inputs).toHaveLength(2);
-  expect(h.service.inbox().runs.map((r) => r.status)).toEqual(["queued", "running", "running"]);
+  // Every run goes into the automation's one thread: one runs, one waits, the third is skipped.
+  expect(h.inputs).toHaveLength(1);
+  expect(h.service.inbox().runs.map((r) => r.status)).toEqual(["skipped", "queued", "running"]);
   h.completions[0]?.resolve({ threadId: "one", status: "succeeded", result: "done" });
-  h.completions[1]?.resolve({ threadId: "two", status: "succeeded", result: "done" });
-  // The waiting run takes the first free slot, leaving one for the next fire.
-  await h.nextExecution(2);
-  expect(
-    h.service.trigger("triage", { key: "event-3", variables: { subject: "review" } }).status,
-  ).toBe("running");
-  h.completions[2]?.resolve({ threadId: "three", status: "succeeded", result: "done" });
-  await h.finish(3);
+  await h.nextExecution(1);
+  expect(h.store.active()).toHaveLength(1);
+  await h.finish(1);
 });
 it("records a missing template variable as failure without creating a thread", () => {
   const h = harness();
