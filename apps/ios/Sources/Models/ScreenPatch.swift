@@ -80,6 +80,8 @@ struct PillRow: Codable, Sendable, Equatable {
         let code: String
         /// The main agent itself works: the words sweep.
         let live: Bool
+        /// `needs-you` while the tree waits on the person with no card here: drawn in that tone.
+        let tone: String
         let opens: String
     }
     struct Segment: Codable, Sendable, Equatable, Identifiable {

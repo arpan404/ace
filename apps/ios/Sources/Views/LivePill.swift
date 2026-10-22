@@ -48,7 +48,7 @@ struct LivePillCapsule: View {
             }
         }
         .padding(.horizontal, AceTheme.Spacing.xs)
-        .frame(minHeight: Self.height)
+        .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, AceTheme.Spacing.md)
         .aceGlass(in: AceShape.capsule, interactive: true)
         .sensoryFeedback(.selection, trigger: tapped)
@@ -66,7 +66,8 @@ struct LivePillCapsule: View {
         let content = words()
             .lineLimit(1)
             .padding(.horizontal, AceTheme.Spacing.md - AceTheme.Spacing.xxs)
-            .frame(maxHeight: .infinity)
+            // Each part as tall as the pill (taller with large text), never the space around it.
+            .frame(minHeight: Self.height)
             .contentShape(Rectangle())
         if opens.isEmpty {
             content.accessibilityElement(children: .combine)
@@ -90,12 +91,15 @@ struct LivePillCapsule: View {
 private struct StatusWords: View {
     let status: PillRow.Status
     var body: some View {
+        let needsYou = status.tone == "needs-you"
         HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
-            if status.live { StatusGlyph(.working, tone: .working, live: true) }
+            if needsYou { StatusGlyph(.needsYou, tone: .needsYou) }
+            else if status.live { StatusGlyph(.working, tone: .working, live: true) }
             words.shimmer(status.live)
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(.medium)
-        .foregroundStyle(AceTheme.Colours.foreground)
+        // Needs-you is always strong (DESIGN.md §5): its word in its status colour.
+        .foregroundStyle(needsYou ? AceTheme.StatusText.needsYou : AceTheme.Colours.foreground)
     }
     @ViewBuilder private var words: some View {
         if let since = status.since, !status.lead.isEmpty {
