@@ -37,6 +37,23 @@ export class FakeInboxWire {
   private deferred: (() => void)[] | undefined;
   /** How many inbox reads clients made, as GitHub would count them. */
   reads = 0;
+  private held: Promise<void> | undefined;
+  /**
+   * Reads asked from now on answer only once the returned release runs, with what GitHub held
+   * when they were asked: a slow poll that a write overtakes.
+   */
+  hold(): () => void {
+    const gate = Promise.withResolvers<void>();
+    this.held = gate.promise;
+    return () => {
+      if (this.held === gate.promise) this.held = undefined;
+      gate.resolve();
+    };
+  }
+  /** What a read started now waits for before its answer goes out. */
+  gate(): Promise<void> {
+    return this.held ?? Promise.resolve();
+  }
   /** Every write the inbox received, in order. */
   readonly writes: CommandPayload[] = [];
   seed(rows: readonly ForgeInboxRow[]): void {

@@ -254,6 +254,7 @@ export class FakeWorkspaceWire {
         result: { kind: "forge", data: fakeOpenWork(op, (list) => this.seededRead(list)) },
       });
     const inbox = this.inbox.read(op);
+    if (inbox) await this.inbox.gate();
     if (inbox)
       return ServerMessage.parse({
         type: "workspace.result",
