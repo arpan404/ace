@@ -36,6 +36,7 @@ function pushedPatch(patch: string): string {
 
 /** A line ten further down, as a push of ten lines above it leaves it. */
 const shift = (line: number | null | undefined) => (line == null ? line : line + pushedLines);
+import { FakePrPeople } from "./pr-people-wire.ts";
 
 /**
  * Whole pull requests the fake app can open in its PR panel: detail, merge state, lifecycle,
@@ -52,6 +53,7 @@ export class FakePrCatalog {
   constructor(now: () => number = () => 0) {
     this.now = now;
   }
+  private people = new FakePrPeople();
   seed(fixtures: readonly PullRequestFixture[]): void {
     // As GitHub answers: each label with its colour.
     this.fixtures = fixtures.map((fixture) => ({
@@ -355,6 +357,9 @@ export class FakePrCatalog {
    */
   review(payload: CommandPayload, commandId: string): Omit<CommandResult, "commandId"> | undefined {
     if (payload.type !== "forge.hosted.review") return undefined;
+    // Reviewer requests, withdrawals and dismissals live in the people model.
+    const people = this.people.review(payload, (pr) => this.find(pr));
+    if (people) return people;
     const fixture = this.find(payload.pr);
     if (!fixture) return undefined;
     const applied = applyHostedReview(
@@ -365,6 +370,56 @@ export class FakePrCatalog {
     );
     this.fixtures = this.fixtures.map((entry) => (entry === fixture ? applied.fixture : entry));
     return applied.result;
+  }
+  /**
+   * Another person reviews catalog PR `number` on GitHub: the PR's detail gains the review and
+   * its new decision, and its reviewers read shows the review as theirs.
+   */
+  submitReview(
+    number: number,
+    review: { login: string; state: "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED"; at: string },
+  ): void {
+    const fixture = this.fixtures.find((entry) => entry.detail.status.ref.number === number);
+    if (!fixture) return;
+    const id = 10_000 + fixture.detail.status.comments.length;
+    const decision = this.people.submit(fixture, { ...review, id });
+    const { detail } = fixture;
+    const next: PullRequestFixture = {
+      ...fixture,
+      detail: {
+        ...detail,
+        updatedAt: review.at,
+        reviewDecision: decision,
+        status: {
+          ...detail.status,
+          comments: [
+            ...detail.status.comments,
+            {
+              kind: "review",
+              id,
+              body: "",
+              author: review.login,
+              file: null,
+              line: null,
+              createdAt: review.at,
+              updatedAt: review.at,
+              replyTo: null,
+              reviewState: review.state,
+            },
+          ],
+        },
+      },
+    };
+    this.fixtures = this.fixtures.map((entry) => (entry === fixture ? next : entry));
+  }
+  /** `@` people, `#` references and a catalog PR's reviewers; `issues` lists the repository's. */
+  peopleRead(
+    op: WorkspaceActionRequest["operation"],
+    issues: (state: "open" | "closed") => readonly { ref: { number: number }; title: string }[],
+  ): ForgeBrowserResult | undefined {
+    return this.people.read(op, this.fixtures, issues, (read) =>
+      "number" in read ? this.find(read) : undefined,
+    );
   }
   /** Each list group's total, from these pull requests and the issues in `reads`. */
   groupCounts(
@@ -429,7 +484,10 @@ export class FakePrCatalog {
     if (!fixture) return undefined;
     switch (op.op) {
       case "forge.pr.detail":
-        return { resource: "prDetail", value: fixture.detail };
+        return {
+          resource: "prDetail",
+          value: { ...fixture.detail, reviewers: this.people.requestedLogins(fixture) },
+        };
       case "forge.pr.merge-state":
         return fixture.mergeState
           ? {

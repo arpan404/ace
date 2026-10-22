@@ -432,7 +432,10 @@ export class WorkspaceRuntime {
       op.op === "forge.pr.new-context" ||
       op.op === "forge.repo.pr-options" ||
       op.op === "forge.repo.milestones" ||
-      op.op === "forge.compare"
+      op.op === "forge.compare" ||
+      op.op === "forge.people" ||
+      op.op === "forge.references" ||
+      op.op === "forge.pr.reviewers"
     ) {
       if (
         op.op === "forge.pr.stack" &&

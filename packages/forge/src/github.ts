@@ -15,6 +15,7 @@ import { GitHubChecks } from "./github-checks.ts";
 import { GitHubBrowser } from "./github-browser.ts";
 import { GitHubFileContent } from "./github-file-content.ts";
 import { GitHubNewPr } from "./github-new-pr.ts";
+import { GitHubPeople } from "./github-people.ts";
 import { ForgeGroupCounting, ForgePrSearch } from "@ace/protocol/forge-browser";
 import { ForgeMergeCommit } from "@ace/protocol/forge-merge-state";
 import { ForgeBranchName, ForgeRepositoryName } from "@ace/protocol/forge-new-pr";
@@ -62,6 +63,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
   readonly #browser: GitHubBrowser;
   readonly #content: GitHubFileContent;
   readonly #newPr: GitHubNewPr;
+  readonly #people: GitHubPeople;
   readonly #issues: GitHubIssues;
   readonly #mergeState: GitHubMergeState;
   readonly #stacks: GitHubStacks;
@@ -99,6 +101,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
     this.#browser = new GitHubBrowser(this.#api, this.repository);
     this.#content = new GitHubFileContent(this.#api, this.#root);
     this.#newPr = new GitHubNewPr(this.#api, this.repository);
+    this.#people = new GitHubPeople(this.#api, this.repository);
     this.lifecycle = new GitHubLifecycle(this.#api, this.repository);
     this.reviews = new GitHubReviews(this.#api, (number) => this.#ref(number));
     this.checks = new GitHubChecks(this.#api, this.repository);
@@ -289,6 +292,23 @@ export class GitHubForge implements Forge, ForgeBrowser {
   }
   fileContent(input: Parameters<GitHubFileContent["read"]>[0], signal: AbortSignal) {
     return this.#content.read(input, signal);
+  }
+  /** Mentionable people matching `query`, for `@` completion. */
+  people(query: string, signal: AbortSignal) {
+    return this.#lists.people.read(query.trim().toLowerCase(), signal, (shared) =>
+      this.#people.people(query, shared),
+    );
+  }
+  /** Issues and PRs matching `query`, for `#` completion. */
+  references(query: string, signal: AbortSignal) {
+    return this.#lists.references.read(query.trim().toLowerCase(), signal, (shared) =>
+      this.#people.references(query, shared),
+    );
+  }
+  /** Who is asked to review, each reviewer's latest review, and GitHub's suggestions. */
+  prReviewers(number: number, signal: AbortSignal) {
+    this.#ref(number);
+    return this.#people.reviewers(number, signal);
   }
   async states(numbers: readonly number[], signal: AbortSignal) {
     return githubStates(this.#api, this.repository, numbers, signal);

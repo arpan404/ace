@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useCallback,
   useLayoutEffect,
   useRef,
   useState,
@@ -31,6 +32,7 @@ import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { prDetailKey, prDetailStaleMs, readPrDetail } from "@/lib/forge-pr-detail.ts";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrReviewWorkspace, usePrReview } from "./pr-review-context.tsx";
+import { ForgeCompletions, prParticipants } from "./forge-completions.tsx";
 import { PrSuggestionBatch } from "./pr-suggestions.tsx";
 import { usePrActions } from "./pr-actions.ts";
 import { PrOverflowMenu } from "./pr-overflow-menu.tsx";
@@ -305,6 +307,7 @@ function PrDetailLoaded(props: {
   const conversation = actions.lifecycle.snapshot?.conversation;
   const lockedOut = !!conversation?.locked && !conversation.viewerCanComment;
   const canRequestReview = detail.status.state === "open";
+  const participants = useCallback(() => prParticipants(detail), [detail]);
   return (
     // Shortcuts work anywhere in the panel; `contents` keeps the layout the article's. On a
     // page it is the page's one scroller instead.
@@ -314,147 +317,153 @@ function PrDetailLoaded(props: {
       className={props.page ? "flex min-h-0 flex-1 flex-col overflow-y-auto" : "contents"}
       onKeyDown={onKeyDown}
     >
-      <PrUiProvider key={JSON.stringify(detail.status.ref)}>
-        <PrQuoteProvider onConversation={() => props.onTab("timeline")}>
-          <PrReviewWorkspace
-            key={JSON.stringify(detail.status.ref)}
-            workspaceId={context.workspaceId}
-            detail={detail}
-            disabled={context.disabled}
-            commentsLocked={lockedOut}
-            onRefresh={refresh}
-            header={
-              <div>
-                <div className={readable}>
-                  {props.page ? (
-                    <PrPageHeader
-                      actions={actions}
-                      extensions={props.extensions}
-                      behindOpen={behindOpen}
-                      onBehindOpen={setBehindOpen}
-                      gates={<PrGatesLine actions={actions} onSelect={onGate} />}
-                      onBack={props.onBack}
-                      menu={menu}
-                    />
-                  ) : (
-                    <PrHeader
-                      actions={actions}
-                      extensions={props.extensions}
-                      condensed={condensed[props.tab]}
-                      behindOpen={behindOpen}
-                      onBehindOpen={setBehindOpen}
-                      gates={<PrGatesRow actions={actions} onSelect={onGate} />}
-                      onBack={props.onBack}
-                      onOpen={props.onOpen}
-                      menu={menu}
-                    />
-                  )}
-                  {props.refreshFailed && (
-                    <p
-                      role="status"
-                      className="flex items-center gap-2 px-[var(--forge-gutter,1rem)] pb-1 text-xs"
-                    >
-                      <span className="min-w-0 truncate text-muted-foreground">
-                        {`Couldn't refresh: ${props.refreshFailed}`}
-                      </span>
-                      <Button size="xs" onClick={refresh}>
-                        Retry
-                      </Button>
-                    </p>
-                  )}
-                  <PrWriteStatus actions={actions} refreshing={props.refreshing} />
-                  <PrSuggestionBatch />
-                </div>
-              </div>
-            }
-          >
-            <PrTabs
-              tab={props.tab}
-              onTab={props.onTab}
-              onScroll={onScroll}
-              readable={readable}
-              context={{
-                // On a page the Summary needs no counter; how many files are viewed is Code's.
-                summary: props.page ? null : <SummaryContext detail={detail} />,
-                timeline: (
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span
-                      aria-label={`${detail.status.comments.length} comments`}
-                      className="inline-flex items-center gap-1 tabular-nums"
-                    >
-                      <ChatCircleIcon aria-hidden size={14} />
-                      {detail.status.comments.length}
-                    </span>
-                    <span
-                      aria-label={`${detail.commits} commits`}
-                      className="inline-flex items-center gap-1 tabular-nums"
-                    >
-                      <GitCommitIcon aria-hidden size={14} />
-                      {detail.commits}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => setOrder(order === "newest" ? "oldest" : "newest")}
-                    >
-                      <ArrowsDownUpIcon aria-hidden size={14} />
-                      {order === "newest" ? "Newest first" : "Oldest first"}
-                    </Button>
+      <ForgeCompletions
+        workspaceId={context.workspaceId}
+        repository={detail.status.ref.repository}
+        participants={participants}
+      >
+        <PrUiProvider key={JSON.stringify(detail.status.ref)}>
+          <PrQuoteProvider onConversation={() => props.onTab("timeline")}>
+            <PrReviewWorkspace
+              key={JSON.stringify(detail.status.ref)}
+              workspaceId={context.workspaceId}
+              detail={detail}
+              disabled={context.disabled}
+              commentsLocked={lockedOut}
+              onRefresh={refresh}
+              header={
+                <div>
+                  <div className={readable}>
+                    {props.page ? (
+                      <PrPageHeader
+                        actions={actions}
+                        extensions={props.extensions}
+                        behindOpen={behindOpen}
+                        onBehindOpen={setBehindOpen}
+                        gates={<PrGatesLine actions={actions} onSelect={onGate} />}
+                        onBack={props.onBack}
+                        menu={menu}
+                      />
+                    ) : (
+                      <PrHeader
+                        actions={actions}
+                        extensions={props.extensions}
+                        condensed={condensed[props.tab]}
+                        behindOpen={behindOpen}
+                        onBehindOpen={setBehindOpen}
+                        gates={<PrGatesRow actions={actions} onSelect={onGate} />}
+                        onBack={props.onBack}
+                        onOpen={props.onOpen}
+                        menu={menu}
+                      />
+                    )}
+                    {props.refreshFailed && (
+                      <p
+                        role="status"
+                        className="flex items-center gap-2 px-[var(--forge-gutter,1rem)] pb-1 text-xs"
+                      >
+                        <span className="min-w-0 truncate text-muted-foreground">
+                          {`Couldn't refresh: ${props.refreshFailed}`}
+                        </span>
+                        <Button size="xs" onClick={refresh}>
+                          Retry
+                        </Button>
+                      </p>
+                    )}
+                    <PrWriteStatus actions={actions} refreshing={props.refreshing} />
+                    <PrSuggestionBatch />
                   </div>
-                ),
-                code: null,
-              }}
-              panels={{
-                summary: (
-                  <PrSummary
-                    context={context}
-                    extensions={props.extensions}
-                    hostThreadId={props.hostThreadId}
-                    stack={actions.stack}
-                    refreshing={props.refreshing}
-                    revealChecks={revealChecks}
-                    onRefresh={refresh}
-                    onOpen={props.onOpen}
-                    onOpenCode={openCode}
-                    onRequestReview={canRequestReview ? () => setDialog("review") : undefined}
-                    onEdit={editable ? () => setDialog("edit") : undefined}
-                    details={<PrDetails actions={actions} onDialog={setDialog} />}
-                  />
-                ),
-                timeline: (
-                  <PrActivity
-                    workspaceId={context.workspaceId}
-                    detail={detail}
-                    order={order}
-                    // On a page the column already sets the width and the edges.
-                    className={props.page ? "mx-0 max-w-none" : undefined}
-                  />
-                ),
-                code: (
-                  <PrFiles
-                    workspaceId={context.workspaceId}
-                    repository={detail.status.ref.repository}
-                    detail={detail}
-                    context={context}
-                    focus={codeFocus}
-                  />
-                ),
-              }}
-            />
-            <PrDialogs
-              actions={actions}
-              hostThreadId={props.hostThreadId}
-              open={dialog}
-              onClose={() => setDialog(undefined)}
-            />
-            <PrMergeCommitDialog
-              actions={actions}
-              when={commitWhen}
-              onClose={() => setCommitWhen(undefined)}
-            />
-          </PrReviewWorkspace>
-        </PrQuoteProvider>
-      </PrUiProvider>
+                </div>
+              }
+            >
+              <PrTabs
+                tab={props.tab}
+                onTab={props.onTab}
+                onScroll={onScroll}
+                readable={readable}
+                context={{
+                  // On a page the Summary needs no counter; how many files are viewed is Code's.
+                  summary: props.page ? null : <SummaryContext detail={detail} />,
+                  timeline: (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span
+                        aria-label={`${detail.status.comments.length} comments`}
+                        className="inline-flex items-center gap-1 tabular-nums"
+                      >
+                        <ChatCircleIcon aria-hidden size={14} />
+                        {detail.status.comments.length}
+                      </span>
+                      <span
+                        aria-label={`${detail.commits} commits`}
+                        className="inline-flex items-center gap-1 tabular-nums"
+                      >
+                        <GitCommitIcon aria-hidden size={14} />
+                        {detail.commits}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => setOrder(order === "newest" ? "oldest" : "newest")}
+                      >
+                        <ArrowsDownUpIcon aria-hidden size={14} />
+                        {order === "newest" ? "Newest first" : "Oldest first"}
+                      </Button>
+                    </div>
+                  ),
+                  code: null,
+                }}
+                panels={{
+                  summary: (
+                    <PrSummary
+                      context={context}
+                      extensions={props.extensions}
+                      hostThreadId={props.hostThreadId}
+                      stack={actions.stack}
+                      refreshing={props.refreshing}
+                      revealChecks={revealChecks}
+                      onRefresh={refresh}
+                      onOpen={props.onOpen}
+                      onOpenCode={openCode}
+                      onRequestReview={canRequestReview ? () => setDialog("review") : undefined}
+                      onEdit={editable ? () => setDialog("edit") : undefined}
+                      details={<PrDetails actions={actions} onDialog={setDialog} />}
+                    />
+                  ),
+                  timeline: (
+                    <PrActivity
+                      workspaceId={context.workspaceId}
+                      detail={detail}
+                      order={order}
+                      // On a page the column already sets the width and the edges.
+                      className={props.page ? "mx-0 max-w-none" : undefined}
+                    />
+                  ),
+                  code: (
+                    <PrFiles
+                      workspaceId={context.workspaceId}
+                      repository={detail.status.ref.repository}
+                      detail={detail}
+                      context={context}
+                      focus={codeFocus}
+                    />
+                  ),
+                }}
+              />
+              <PrDialogs
+                actions={actions}
+                hostThreadId={props.hostThreadId}
+                open={dialog}
+                onClose={() => setDialog(undefined)}
+              />
+              <PrMergeCommitDialog
+                actions={actions}
+                when={commitWhen}
+                onClose={() => setCommitWhen(undefined)}
+              />
+            </PrReviewWorkspace>
+          </PrQuoteProvider>
+        </PrUiProvider>
+      </ForgeCompletions>
     </div>
   );
 }

@@ -1,22 +1,12 @@
-import { useState } from "react";
-import { parseReviewers } from "@ace/ui-core";
 import type { ForgeLifecycleAction } from "@ace/protocol";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog.tsx";
-import { Button } from "@/components/ui/button.tsx";
-import { Input } from "@/components/ui/input.tsx";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog.tsx";
 import type { PrActions } from "./pr-actions.ts";
 import { PrMetadataEditor } from "./pr-metadata-editor.tsx";
 import { useRepoMilestones } from "./pr-repo-options.ts";
 import { PrRevertForm } from "./pr-revert-form.tsx";
-import { usePrReview } from "./pr-review-context.tsx";
 import { PrConflictsDialog } from "./pr-conflicts-view.tsx";
 import { DeleteBranchDialog, LinkIssueDialog, LockDialog } from "./pr-manage-dialogs.tsx";
+import { RequestReviewDialog } from "./pr-request-review.tsx";
 
 export type PrDialog =
   | "edit"
@@ -109,64 +99,5 @@ export function PrDialogs(props: {
         onClose={props.onClose}
       />
     </>
-  );
-}
-
-function RequestReviewDialog(props: { actions: PrActions; open: boolean; onClose(): void }) {
-  const [text, setText] = useState("");
-  const parsed = parseReviewers(text);
-  const { writes, context } = props.actions;
-  const review = usePrReview();
-  const reviewers = "reviewers" in parsed ? parsed.reviewers : [];
-  return (
-    <Dialog open={props.open} onOpenChange={(open) => !open && props.onClose()}>
-      <DialogContent>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!reviewers.length || !review) return;
-            props.onClose();
-            // Asked of the PR itself: no linked task is needed.
-            void review.run({ kind: "reviewers.request", reviewers }).then((ok) => {
-              if (ok) setText("");
-            });
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>Request review</DialogTitle>
-          </DialogHeader>
-          <Input
-            aria-label="Reviewers"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="GitHub usernames"
-          />
-          {"error" in parsed && text.trim() && (
-            <p role="status" className="text-xs text-muted-foreground">
-              {parsed.error}
-            </p>
-          )}
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={props.onClose}>
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={
-                !reviewers.length ||
-                !review?.ready ||
-                review.pending ||
-                writes.fenced ||
-                context.disabled
-              }
-            >
-              Request review
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }

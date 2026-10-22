@@ -199,6 +199,75 @@
         },
         {
           "properties": {
+            "op": {
+              "const": "forge.people",
+              "type": "string"
+            },
+            "query": {
+              "$ref": "https://ace.local/protocol/v1/ForgeCompletionQuery.json"
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "forge.references",
+              "type": "string"
+            },
+            "query": {
+              "$ref": "https://ace.local/protocol/v1/ForgeCompletionQuery.json"
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "number": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "op": {
+              "const": "forge.pr.reviewers",
+              "type": "string"
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId",
+            "number"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "number": {
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991,

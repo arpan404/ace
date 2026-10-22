@@ -133,6 +133,62 @@
     },
     {
       "properties": {
+        "people": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ForgePerson.json"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "resource": {
+          "const": "people",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource",
+        "people"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "references": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ForgeReference.json"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "resource": {
+          "const": "references",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource",
+        "references"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
+          "const": "prReviewers",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgePrReviewers.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "resource": {
           "const": "prMergeState",
           "type": "string"

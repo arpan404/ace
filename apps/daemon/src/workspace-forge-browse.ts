@@ -157,6 +157,18 @@ export class WorkspaceForgeBrowse {
       };
     if (operation.op === "forge.file.content")
       return { resource: "fileContent", value: await backend.fileContent(operation, signal) };
+    if (operation.op === "forge.people")
+      return { resource: "people", people: await backend.people(operation.query, signal) };
+    if (operation.op === "forge.references")
+      return {
+        resource: "references",
+        references: await backend.references(operation.query, signal),
+      };
+    if (operation.op === "forge.pr.reviewers")
+      return {
+        resource: "prReviewers",
+        value: await backend.prReviewers(operation.number, signal),
+      };
     const ref = { repository, number: operation.number };
     const revision = this.ctx.owner.capture(ref);
     const { value, writeState } = await this.parts.actions.readDetail(

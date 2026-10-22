@@ -311,6 +311,10 @@ export function applyHostedReview(
         detail: { ...fixture.detail, reviewers: [...fixture.detail.reviewers, ...added] },
       });
     }
+    case "reviewers.remove":
+    case "review.dismiss":
+      // The catalog's people model answers these before a review action reaches here.
+      return fail("forge_unsupported");
     case "suggestions.apply":
       // Applying suggestions makes a commit; the sample PRs have no branch to commit to.
       return fail("forge_unsupported");

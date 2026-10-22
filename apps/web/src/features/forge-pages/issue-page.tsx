@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import {
   ArrowSquareOutIcon,
   ChatsCircleIcon,
@@ -18,7 +19,8 @@ import { Screen } from "@/features/shell/index.ts";
 import { backLabel, useBackToList } from "./back-to-list.ts";
 import { IssueActionsStrip } from "./issue-actions-strip.tsx";
 import { IssueComposer } from "./issue-composer.tsx";
-import { IssueTimeline } from "./issue-timeline.tsx";
+import { IssueTimeline, timelineSpeakers } from "./issue-timeline.tsx";
+import { ForgeCompletions, issueParticipants } from "@/features/forge/index.ts";
 import { IssuePageSkeleton } from "./issue-skeletons.tsx";
 import { useIssueWrites } from "./issue-writes.ts";
 import { cachedRow, useIssueDetail } from "./lists.ts";
@@ -142,29 +144,42 @@ function IssueBody(props: {
 }) {
   const { issue } = props;
   const writes = useIssueWrites(props.project, issue.ref.repository);
+  // Read when a search runs: everyone who has spoken on the pages read so far, latest first.
+  const cache = useQueryClient();
+  const { project, repository } = props;
+  const participants = useCallback(
+    () => issueParticipants(issue, timelineSpeakers(cache, project, repository, issue.ref.number)),
+    [cache, project, repository, issue],
+  );
   return (
-    <div className={`${readable} pt-6 pb-16`}>
-      <Header
-        project={props.project}
-        issue={issue}
-        backLabel={props.backLabel}
-        onBack={props.onBack}
-      />
-      <IssueActionsStrip project={props.project} issue={issue} writes={writes} />
-      <div className="mt-6 border-t border-border pt-5">
-        {issue.body.trim() ? (
-          <Prose text={issue.body} className="text-ui" />
-        ) : (
-          <p className="text-ui text-subtle-foreground">No description.</p>
-        )}
+    <ForgeCompletions
+      workspaceId={props.project}
+      repository={issue.ref.repository}
+      participants={participants}
+    >
+      <div className={`${readable} pt-6 pb-16`}>
+        <Header
+          project={props.project}
+          issue={issue}
+          backLabel={props.backLabel}
+          onBack={props.onBack}
+        />
+        <IssueActionsStrip project={props.project} issue={issue} writes={writes} />
+        <div className="mt-6 border-t border-border pt-5">
+          {issue.body.trim() ? (
+            <Prose text={issue.body} className="text-ui" />
+          ) : (
+            <p className="text-ui text-subtle-foreground">No description.</p>
+          )}
+        </div>
+        <IssueTimeline
+          project={props.project}
+          repository={props.repository}
+          number={issue.ref.number}
+        />
+        <IssueComposer project={props.project} issue={issue} writes={writes} />
       </div>
-      <IssueTimeline
-        project={props.project}
-        repository={props.repository}
-        number={issue.ref.number}
-      />
-      <IssueComposer project={props.project} issue={issue} writes={writes} />
-    </div>
+    </ForgeCompletions>
   );
 }
 

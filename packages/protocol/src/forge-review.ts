@@ -5,6 +5,15 @@ const id = z.string().min(1).max(256);
 const body = z.string().max(60_000);
 const hostedBody = z.string().max(65_536);
 const sha = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
+const reviewerLogin = z
+  .string()
+  .regex(/^[\w-]+$/)
+  .max(39);
+/** A team as review requests name it: its slug within the repository's organization. */
+const teamSlug = z
+  .string()
+  .regex(/^[\w.-]+$/)
+  .max(100);
 export const ForgeReviewAnchor = z.object({
   commit: sha,
   path: z.string().min(1).max(4096),
@@ -116,17 +125,35 @@ export const ForgeReviewAction = z.discriminatedUnion("kind", [
     subject: ForgeReactionSubject,
     content: ForgeReactionContent,
   }),
+  /** Ask people and teams to review; asking someone who already reviewed asks them again. */
+  z
+    .object({
+      kind: z.literal("reviewers.request"),
+      reviewers: z.array(reviewerLogin).max(100),
+      teams: z.array(teamSlug).max(100).optional(),
+    })
+    .refine((a) => a.reviewers.length + (a.teams?.length ?? 0) > 0)
+    .meta({
+      "x-ace-constraint": "Names at least one reviewer or team.",
+      examples: [{ kind: "reviewers.request", reviewers: ["octocat"] }],
+    }),
+  /** Withdraw review requests from people and teams who haven't answered yet. */
+  z
+    .object({
+      kind: z.literal("reviewers.remove"),
+      reviewers: z.array(reviewerLogin).max(100),
+      teams: z.array(teamSlug).max(100).optional(),
+    })
+    .refine((a) => a.reviewers.length + (a.teams?.length ?? 0) > 0)
+    .meta({
+      "x-ace-constraint": "Names at least one reviewer or team.",
+      examples: [{ kind: "reviewers.remove", reviewers: ["octocat"] }],
+    }),
+  /** Dismiss an approving or changes-requested review, saying why. */
   z.object({
-    kind: z.literal("reviewers.request"),
-    reviewers: z
-      .array(
-        z
-          .string()
-          .regex(/^[\w-]+$/)
-          .max(39),
-      )
-      .min(1)
-      .max(100),
+    kind: z.literal("review.dismiss"),
+    reviewId: z.number().int().positive(),
+    message: z.string().max(4096).regex(/\S/),
   }),
   /** One commit on the head branch applying each inline comment's suggestion, only at `headSha`. */
   z.object({

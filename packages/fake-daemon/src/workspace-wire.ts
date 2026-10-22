@@ -2,6 +2,7 @@ import { FakeSourceControlDrafts } from "./source-control-drafts.ts";
 import { FakeProjects } from "./projects.ts";
 import {
   ForgeBrowserResult,
+  ForgeIssueSearch,
   type ForgeBrowserOperation,
   gitStatusLimit,
   ServerMessage,
@@ -22,12 +23,37 @@ import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
 import { fakeOpenWork } from "./open-work-wire.ts";
 import { emptyIssueList, FakeIssueWire } from "./issue-wire.ts";
 import { FakeInboxWire } from "./inbox-wire.ts";
-import { catalogIssueList } from "./forge-list-wire.ts";
+import { catalogIssueList, matchingIssues } from "./forge-list-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import { FakeGitStates } from "./git-states.ts";
 import { FakeConflicts } from "./conflict-wire.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 const emptyDiff = { files: 0, additions: 0, deletions: 0 };
+
+/** What tests and scenarios may steer of the fake workspace (`FakeDaemon.workspace`). */
+export type FakeWorkspaceControls = Pick<
+  FakeWorkspaceWire,
+  | "gitStatus"
+  | "setGitStatus"
+  | "setGitDiff"
+  | "setEditors"
+  | "setForgeRead"
+  | "holdForgeRead"
+  | "failForgeRead"
+  | "forgeReadCount"
+  | "seedPullRequests"
+  | "mergePullRequest"
+  | "submitPullRequestReview"
+  | "pushPullRequest"
+  | "setDraftGenerator"
+  | "setIssueOutcome"
+  | "inbox"
+  | "checkReruns"
+  | "git"
+  | "conflicts"
+  | "failMoves"
+  | "setDetails"
+>;
 
 export class FakeWorkspaceWire {
   readonly drafts = new FakeSourceControlDrafts();
@@ -80,6 +106,13 @@ export class FakeWorkspaceWire {
   /** Push to a catalog PR's branch: a new head with every new-side line moved down by ten. */
   pushPullRequest(number: number): boolean {
     return this.pullRequests.push(number);
+  }
+  /** Another person reviews catalog PR `number` on GitHub (`FakePrCatalog.submitReview`). */
+  submitPullRequestReview(
+    number: number,
+    review: Parameters<FakePrCatalog["submitReview"]>[1],
+  ): void {
+    this.pullRequests.submitReview(number, review);
   }
   /** Mark a catalog PR merged, as a Verify merge run does on GitHub. */
   mergePullRequest(number: number): void {
@@ -151,6 +184,18 @@ export class FakeWorkspaceWire {
       gate.resolve();
     };
   }
+  private failing = new Map<string, string>();
+  /**
+   * Refuse `operation` with `code`, as GitHub refusing it would (`forge_rate_limit`), until the
+   * returned undo runs.
+   */
+  failForgeRead(operation: ForgeBrowserOperation, code: string): () => void {
+    const key = JSON.stringify(operation);
+    this.failing.set(key, code);
+    return () => {
+      this.failing.delete(key);
+    };
+  }
   private forgeReadCounts = new Map<string, number>();
   /** How many times clients asked for this forge read, as GitHub would see them. */
   forgeReadCount(operation: ForgeBrowserOperation): number {
@@ -208,6 +253,13 @@ export class FakeWorkspaceWire {
     }
     const held = this.held.size ? this.held.get(JSON.stringify(op)) : undefined;
     if (held) await held;
+    const failure = this.failing.size ? this.failing.get(JSON.stringify(op)) : undefined;
+    if (failure)
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: { kind: "error", code: failure },
+      });
     if (op.op === "git.draft.cancel") {
       this.drafts.cancel(op.generationId);
       return ServerMessage.parse({
@@ -271,14 +323,19 @@ export class FakeWorkspaceWire {
         },
       });
     }
-    const catalogued =
-      (op.op.startsWith("forge.pr.") ||
+    const catalogued = this.forgeReads.has(JSON.stringify(op))
+      ? undefined
+      : (this.pullRequests.peopleRead(op, (state) =>
+          "workspaceId" in op
+            ? (matchingIssues(op, ForgeIssueSearch.parse({ state }), this.forgeReads) ?? [])
+            : [],
+        ) ??
+        (op.op.startsWith("forge.pr.") ||
         op.op === "forge.repo.pr-options" ||
         op.op === "forge.repo.milestones" ||
-        op.op === "forge.compare") &&
-      !this.forgeReads.has(JSON.stringify(op))
-        ? this.pullRequests.read(op, this.context.now())
-        : undefined;
+        op.op === "forge.compare"
+          ? this.pullRequests.read(op, this.context.now())
+          : undefined));
     if (catalogued)
       return ServerMessage.parse({
         type: "workspace.result",

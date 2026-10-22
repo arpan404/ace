@@ -17,3 +17,4 @@ export type {
 export { useRepoPrOptions } from "./pr-repo-options.ts";
 export { PrCompareFiles } from "./pr-compare-files.tsx";
 export { readFailureText } from "./query-state.tsx";
+export { ForgeCompletions, issueParticipants } from "./forge-completions.tsx";

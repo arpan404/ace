@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { QueryClient } from "@tanstack/react-query";
 import type { ForgeBrowserResult, ForgeRepository } from "@ace/protocol";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -13,6 +14,47 @@ import { WebLink } from "@/components/web-link.tsx";
 type TimelinePage = Extract<ForgeBrowserResult, { resource: "issueTimeline" }>;
 type IssueEvent = TimelinePage["events"][number];
 
+const timelineKey = (
+  project: string,
+  repository: ForgeRepository | undefined,
+  number: number,
+  page: number,
+) => [
+  "forge",
+  project,
+  "browse",
+  "issueTimeline",
+  number,
+  page,
+  repository ? repositoryParam(repository) : "",
+];
+
+/**
+ * Who has spoken in the issue so far, oldest first, from every page of its conversation this
+ * device has read: what the page shows, read when asked rather than on every render.
+ */
+export function timelineSpeakers(
+  cache: QueryClient,
+  project: string,
+  repository: ForgeRepository | undefined,
+  number: number,
+): string[] {
+  const speakers: string[] = [];
+  // Page by page as the conversation links them, at most as many as GitHub lists.
+  let page: number | undefined = 1;
+  for (let read = 0; page !== undefined && read < 120; read++) {
+    const answer: TimelinePage | undefined = cache.getQueryData<TimelinePage>(
+      timelineKey(project, repository, number, page),
+    );
+    if (!answer) break;
+    for (const event of answer.events)
+      if (event.kind === "issue_comment") speakers.push(event.actor);
+    page = answer.nextPage;
+  }
+  return speakers;
+}
+
+/** One page of an issue's conversation, oldest first. */
 function useTimelinePage(
   project: string,
   repository: ForgeRepository | undefined,
@@ -20,15 +62,7 @@ function useTimelinePage(
   page: number,
 ) {
   return useDaemonQuery<TimelinePage>({
-    queryKey: [
-      "forge",
-      project,
-      "browse",
-      "issueTimeline",
-      number,
-      page,
-      repository ? repositoryParam(repository) : "",
-    ],
+    queryKey: timelineKey(project, repository, number, page),
     staleTime: 15_000,
     gcTime: 10 * 60_000,
     retry: false,

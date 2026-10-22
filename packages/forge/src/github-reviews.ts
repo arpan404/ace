@@ -17,6 +17,7 @@ import {
   anchorCoordinates,
   assertHostedAnchors,
 } from "./github-line-comment.ts";
+import { GitHubReviewerWrites, isReviewerAction } from "./github-reviewer-writes.ts";
 const text = z.string().max(65_536);
 const positive = z.number().int().positive();
 const Comment = z.looseObject({
@@ -82,9 +83,6 @@ const Files = z.object({
     }),
   }),
 });
-const Requested = z.looseObject({
-  users: z.array(z.looseObject({ login: text })).max(1_000),
-});
 export function reviewWriteMarker(operationId: string): string {
   return `<!-- ace-write:${createHash("sha256").update(operationId).digest("hex")} -->`;
 }
@@ -98,6 +96,7 @@ export class GitHubReviews {
   readonly #visibility: GitHubCommentVisibility;
   readonly #lineComment: GitHubLineComment;
   readonly #io: ReviewIo;
+  readonly #reviewers: GitHubReviewerWrites;
   constructor(api: GhApi, pr: (number: number) => ForgePrRef) {
     this.#api = api;
     this.#pr = pr;
@@ -114,6 +113,7 @@ export class GitHubReviews {
     this.#visibility = new GitHubCommentVisibility(io, (...args) => this.#mutation(...args));
     this.#lineComment = new GitHubLineComment(io);
     this.#io = io;
+    this.#reviewers = new GitHubReviewerWrites(io);
   }
   /** Reactions plus which comments are hidden and which the viewer may hide, read together. */
   decorations(number: number, signal: AbortSignal) {
@@ -255,15 +255,7 @@ export class GitHubReviews {
       return this.#reactions.reconcile(number, action, host.viewer, signal);
     if (action.kind === "suggestions.apply")
       return this.#suggestions.reconcile(number, action, signal);
-    if (action.kind === "reviewers.request") {
-      const requested = new Set(
-        decode(
-          Requested,
-          (await this.#request(`${this.#root}/pulls/${number}/requested_reviewers`, signal)).body,
-        ).users.map((u) => u.login.toLowerCase()),
-      );
-      return action.reviewers.every((name) => requested.has(name.toLowerCase()));
-    }
+    if (isReviewerAction(action)) return this.#reviewers.reconcile(number, action, signal);
     return false;
   }
   async #mutation(
@@ -432,17 +424,7 @@ export class GitHubReviews {
       return this.#reactions.write(number, action, host.viewer, signal, allowed, dispatch);
     if (action.kind === "suggestions.apply")
       return this.#suggestions.write(number, action, host, operationId, signal, allowed, dispatch);
-    if (action.kind === "reviewers.request") {
-      if (host.pr.state !== "OPEN") throw new ForgeError("conflict");
-      if (signal.aborted || !allowed()) throw new ForgeError("cancelled");
-      const response = await this.#request(
-        `${this.#root}/pulls/${number}/requested_reviewers`,
-        signal,
-        { reviewers: action.reviewers },
-        "POST",
-        dispatch,
-      );
-      decode(z.looseObject({ number: positive }), response.body);
-    }
+    if (isReviewerAction(action))
+      return this.#reviewers.write(number, action, host, signal, allowed, dispatch);
   }
 }

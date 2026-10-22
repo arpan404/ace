@@ -9,7 +9,7 @@ import { useMergeMethod } from "./pr-merge-method.ts";
 import { useStackMemberships } from "./pr-stack-groups.tsx";
 import { prPrimaryAction } from "./pr-primary-action.ts";
 import { mergeBlockers, prGates } from "./pr-gates.ts";
-import { reviewerOutcomes } from "./pr-summary-model.ts";
+import { useFollowPrReviewers, useReviewOutcomes } from "./pr-reviewers-query.ts";
 import { usePrLocalCheck } from "./pr-local-check.ts";
 
 const newCommandId = () => crypto.randomUUID();
@@ -64,6 +64,10 @@ export function usePrActions(props: {
   const membership = useStackMemberships(workspaceId, status.ref.repository, [status.ref.number]);
   const stack = membership.isError ? undefined : (membership.data?.[0]?.stack ?? undefined);
   const local = usePrLocalCheck(workspaceId, status);
+  // The PR view is mounted whichever tab shows: here the reviewers follow the PR, so the gates
+  // and the merge button never read a verdict older than the PR itself.
+  useFollowPrReviewers(workspaceId, detail);
+  const outcomes = useReviewOutcomes(workspaceId, detail);
   // The same gates the header shows decide whether a merge is blocked.
   const blockers = mergeBlockers(
     prGates({
@@ -71,7 +75,7 @@ export function usePrActions(props: {
       reviewDecision: detail.reviewDecision,
       mergeState: mergeState.state,
       baseBranch: detail.baseBranch,
-      outcomes: reviewerOutcomes(status.comments),
+      outcomes,
       local: local.result,
     }),
   );
