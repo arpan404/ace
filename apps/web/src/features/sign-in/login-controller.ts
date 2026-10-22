@@ -1,4 +1,4 @@
-import { NativeAccountProvider } from "@ace/protocol/accounts";
+import { ManagedAccountProvider } from "@ace/protocol/accounts";
 import type { z } from "zod";
 import type { ClientApi } from "@ace/client";
 import type {
@@ -210,7 +210,7 @@ export class LoginController {
       const reply = newAccount
         ? await this.client.request({
             type: "provider.accounts.add",
-            provider: NativeAccountProvider.parse(provider),
+            provider: ManagedAccountProvider.parse(provider),
             label: newAccount,
             ...(this.target.shortLabel ? { shortLabel: this.target.shortLabel } : {}),
             method: method ?? "login",

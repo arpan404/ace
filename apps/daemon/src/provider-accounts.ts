@@ -43,7 +43,12 @@ export async function providerAccounts(
       const account = management.summaries(request.provider).find((row) => row.id === instanceId);
       if (!account) return fail("not_found");
       homeUnavailable = account.quota.blockers.homeUnavailable !== undefined;
-      if (request.type === "provider.accounts.remove" && account.implicit) return fail("failed");
+      // A CLI's own login, or an agent's default home, is never removed (nor signed out first).
+      if (
+        request.type === "provider.accounts.remove" &&
+        (account.implicit || account.homeStrategy === "default_cli")
+      )
+        return fail("failed");
     }
     if (request.type === "provider.accounts.add" || request.type === "provider.accounts.reauth") {
       if (
@@ -72,9 +77,13 @@ export async function providerAccounts(
       }
       progress = result.result.progress;
     } else if (request.type === "provider.accounts.remove") {
-      // These providers expose reviewed unattended logout. A failed logout retains metadata/home.
-      // Unavailable folders cannot be signed out. Forget their registration without touching them.
-      if (!homeUnavailable && ["codex", "claude", "cursor"].includes(request.provider)) {
+      // These providers expose reviewed unattended logout (Antigravity's through its ACP server).
+      // A failed logout retains metadata/home. Unavailable folders cannot be signed out. Forget
+      // their registration without touching them.
+      if (
+        !homeUnavailable &&
+        ["codex", "claude", "cursor", "antigravity"].includes(request.provider)
+      ) {
         const result = await login.handle(owner, {
           type: "provider.logout",
           requestId: request.requestId,

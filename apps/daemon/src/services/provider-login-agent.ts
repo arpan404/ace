@@ -1,8 +1,21 @@
 import { acpModelInstanceId } from "../acp-model-instance.ts";
 import { acpLoginDriver } from "../provider-login-acp.ts";
 import { acpAgentCli } from "../acp-agent-cli.ts";
-import { antigravityDiscovery, registerAntigravityAccount } from "./antigravity.ts";
-import { antigravityIdentity, createAcpInstance, type ProviderLoginDriver } from "@ace/accounts";
+import {
+  antigravityDiscovery,
+  antigravityLaunch,
+  registerAntigravityAccount,
+} from "./antigravity.ts";
+import {
+  isAddedAntigravityAccount,
+  registerAntigravityAccountCatalog,
+} from "./antigravity-accounts.ts";
+import {
+  antigravityIdentity,
+  createAcpInstance,
+  instanceEnv,
+  type ProviderLoginDriver,
+} from "@ace/accounts";
 import type { ServiceContext } from "./types.ts";
 
 export async function prepareAgentLogin(
@@ -57,11 +70,33 @@ export async function prepareAgentLogin(
     target.provider === "antigravity" ? await antigravityDiscovery(context, signal) : undefined;
   const command = launch?.command ?? cli?.path;
   if (!command) throw new Error("Agent not installed");
+  // An Antigravity account ace added signs in inside its own home; the CLI's own login doesn't.
+  const added =
+    target.provider === "antigravity" &&
+    target.instance &&
+    target.instance !== antigravityIdentity.instanceId
+      ? registry.get(target.instance)?.instance
+      : undefined;
+  if (
+    target.provider === "antigravity" &&
+    target.instance &&
+    target.instance !== antigravityIdentity.instanceId &&
+    !isAddedAntigravityAccount(added)
+  )
+    throw new Error("Agent unavailable");
+  // Its home must still be the private one ace made before the agent signs in there.
+  if (added) await registry.validateHome(added);
+  const cliEnv = cli && "launch" in cli ? cli.launch.env : env;
   signal.throwIfAborted();
-  const release =
-    target.provider === "acp" && target.instance
-      ? await services.accounts.reserveAuthChange(target.instance)
-      : () => {};
+  // Threads on the login stop before it changes, and none start until it has; for Antigravity's
+  // CLI login too, once ace knows it.
+  const reserved =
+    (target.provider === "acp" && target.instance) || added
+      ? target.instance
+      : target.provider === "antigravity" && registry.get(antigravityIdentity.instanceId)
+        ? antigravityIdentity.instanceId
+        : undefined;
+  const release = reserved ? await services.accounts.reserveAuthChange(reserved) : () => {};
   const management = services.accountManagement;
   const ownLogout =
     target.provider === "acp" && target.instance
@@ -72,7 +107,7 @@ export async function prepareAgentLogin(
     action,
     command,
     args: launch?.args ?? (cli && "launch" in cli ? cli.launch.args : []),
-    env: launch?.env ?? (cli && "launch" in cli ? cli.launch.env : env),
+    env: launch?.env ?? (added ? instanceEnv(added, cliEnv) : cliEnv),
     cwd: config.dataDir,
     ...(ownLogout ? { ownLogout } : {}),
     ...(management
@@ -84,7 +119,19 @@ export async function prepareAgentLogin(
     release,
     async changed() {
       const auth = action === "login" ? "logged_in" : "logged_out";
-      if (target.provider === "antigravity") {
+      if (added) {
+        registry.recordAcpAuth(added.id, auth, now(), driver.signedInWith());
+        const models = services.models;
+        if (auth === "logged_out") await models?.removeInstance(added.id);
+        else if (models?.hasInstance(added.id))
+          // Never a sign-in method: discovery must not open a browser if the login lapses.
+          await models.loginChanged(added.id, id(), null);
+        else if (cli?.path) {
+          // Signed in: its catalog is discovered inside its own home from now on.
+          registerAntigravityAccountCatalog(context, added, antigravityLaunch(cli, cli.path));
+          if (models?.hasInstance(added.id)) await models.refresh({ instance: added.id });
+        }
+      } else if (target.provider === "antigravity") {
         // Kept on the account row, so a restart still knows the ACP server is signed in.
         await registerAntigravityAccount(context);
         if (registry.get(antigravityIdentity.instanceId))

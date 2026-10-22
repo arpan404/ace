@@ -3,8 +3,9 @@ import { AccountLabelEditor } from "./account-label-editor.tsx";
 import { ApiKeyUpstream, type ProviderKind } from "@ace/protocol";
 import {
   accountStatus,
-  antigravityIdentity,
   headlineWindows,
+  isAddedAgentAccount,
+  providerAccountViews,
   type AccountView,
 } from "@ace/ui-core";
 import { DotsThreeIcon } from "@phosphor-icons/react";
@@ -51,17 +52,9 @@ import {
  */
 
 /**
- * Whether an account is this provider page's. ace runs Antigravity through its ACP agent, so
- * Antigravity's account is the ACP row of its own CLI login, never another installation of the
- * same agent (its actions sign that CLI login in and out).
+ * Agents reached over ACP sign in through their own ACP sign-in. Antigravity can have accounts
+ * added; any other agent keeps its one CLI login, which ace signs in and out.
  */
-function ownAccount(account: AccountView, provider: ProviderKind, acpAgentId?: string): boolean {
-  if (provider === "antigravity")
-    return account.provider === "acp" && account.id === antigravityIdentity.instanceId;
-  return account.provider === provider && (provider !== "acp" || account.acpAgentId === acpAgentId);
-}
-
-/** Agents reached over ACP keep one sign-in of their own: ace signs it in and out, never adds. */
 const agentProvider = (provider: ProviderKind) => provider === "acp" || provider === "antigravity";
 
 export function ProviderAccounts(props: {
@@ -70,9 +63,7 @@ export function ProviderAccounts(props: {
   acpAgentId?: string | undefined;
 }) {
   const accounts = useAccountViews();
-  const own = (accounts.data ?? []).filter((account) =>
-    ownAccount(account, props.provider, props.acpAgentId),
-  );
+  const own = providerAccountViews(accounts.data ?? [], props.provider, props.acpAgentId);
   const addable = canAddAccounts(props.provider);
   const manageable = addable || agentProvider(props.provider);
   if (!own.length && !addable && !accounts.isPending && !accounts.isError) return null;
@@ -142,12 +133,16 @@ function AccountItem(props: {
   const provider = props.provider;
   const support = useApiKeySupport(provider);
   const native = canAddAccounts(provider) ? provider : undefined;
-  // Antigravity signs in through its own CLI login; any other account is named. The dialog
-  // names the agent, not "ACP agent".
+  // Antigravity's CLI login and the CLIs' own logins go unnamed; any other account is named.
+  // The dialog names the agent, not "ACP agent".
+  const cliLogin =
+    account.implicit || (provider === "antigravity" && !isAddedAgentAccount(account));
   const target = {
     ...(agentProvider(provider) ? { name: props.name } : {}),
-    ...(provider === "antigravity" || account.implicit ? {} : { instance: account.id }),
+    ...(cliLogin ? {} : { instance: account.id }),
   };
+  // Accounts ace added can be removed; a CLI's or agent's own login can't.
+  const removable = native !== undefined && !account.implicit && account.acpHome !== "default_cli";
   const needsSignIn =
     state.text === "Signed out" ||
     state.text === "Not signed in yet" ||
@@ -280,7 +275,7 @@ function AccountItem(props: {
                 </MenuItem>
                 <MenuItem onClick={() => setRenaming(true)}>Rename</MenuItem>
                 <MenuItem onClick={() => setRenaming(true)}>Change badge</MenuItem>
-                {!account.implicit && native && (
+                {removable && (
                   <>
                     <MenuSeparator />
                     <MenuItem className="text-destructive" onClick={() => setRemoving(true)}>
@@ -338,7 +333,7 @@ function RemoveAccount(props: {
           <DialogTitle>Remove {props.label}?</DialogTitle>
           <DialogDescription>
             {props.apiKey ? "ace never stored your API key. " : ""}
-            {["codex", "claude", "cursor"].includes(props.provider)
+            {["codex", "claude", "cursor", "antigravity"].includes(props.provider)
               ? `This removes the account from ace and ${props.apiKey ? "the CLI's stored key" : "its stored sign-in"}. Sign in again to add it back.`
               : `This removes the account from ace. ${props.apiKey ? "The key stays in the CLI's credential store" : "Its sign-in stays with the CLI"}; remove it through the CLI if needed.`}
           </DialogDescription>

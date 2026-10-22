@@ -209,3 +209,54 @@ test("fake onboarding dismissal belongs to the device and terminal fallback uses
     await reader.client.close();
   }
 });
+
+test("signing Antigravity's CLI login in again keeps its models", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  const f = await connect(daemon);
+  const models = async () => {
+    const listed = await f.client.request({
+      type: "models.list",
+      options: { instance: "antigravity-cli-default" },
+    });
+    return "models" in listed.result ? listed.result.models.length : 0;
+  };
+  // Only Antigravity's CLI login, with the catalog it discovered.
+  const services = daemon.services;
+  services.installed.add("antigravity");
+  const status = services.providerStatuses.find((row) => row.provider === "antigravity");
+  if (status) Object.assign(status, { installed: true, version: "1.4.1", auth: "logged_in" });
+  const example = services.accounts.find((entry) => entry.provider === "acp");
+  const template = services.models.find((entry) => entry.provider === "claude");
+  if (!example || !template) throw new Error("Missing fixtures");
+  services.accounts.push({
+    ...example,
+    id: "antigravity-cli-default",
+    acpAgentId: "official:antigravity-acp",
+    installationId: "antigravity-cli",
+    instanceId: "antigravity-cli-default",
+    homeStrategy: "default_cli",
+    label: "Antigravity",
+  });
+  services.models.push({
+    ...template,
+    id: "gemini-3.8-flash",
+    nativeModelId: "gemini-3.8-flash",
+    provider: "antigravity",
+    instance: "antigravity-cli-default",
+  });
+  try {
+    const before = await models();
+    expect(before).toBe(1);
+    const started = await f.client.request({
+      type: "provider.login.start",
+      provider: "antigravity",
+    });
+    if (!started.result.ok) throw new Error("Fixture login failed");
+    await f.wait("awaiting_browser");
+    daemon.services.providerLogin.complete(started.result.progress.session);
+    await f.wait("succeeded");
+    expect(await models()).toBe(before);
+  } finally {
+    await f.client.close();
+  }
+});

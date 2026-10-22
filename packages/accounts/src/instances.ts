@@ -1,5 +1,6 @@
 import { cursorSdkEnvironment } from "@ace/adapter-cursor/instance";
 import { openCodeAuthArgs } from "./opencode-auth.ts";
+import { managedAcpEnv } from "./acp-managed-home.ts";
 import { ghConfigDir } from "@ace/provider-kit/user-tool-paths";
 import { opendir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
@@ -19,9 +20,7 @@ export function createInstance(input: {
   homeDir: string;
 }): ProviderInstance {
   if (input.provider === "acp")
-    throw new Error(
-      "ACP account isolation is unsupported; use createAcpInstance for the CLI default",
-    );
+    throw new Error("ACP accounts are created with createAcpInstance or createManagedAcpInstance");
   const homeDir = resolve(input.homeDir);
   const env: ProviderInstance["env"] =
     input.provider === "codex"
@@ -97,7 +96,10 @@ export function instanceEnv(
 ): NodeJS.ProcessEnv {
   const parsed = ProviderInstance.parse(instance);
   if (parsed.implicit) return { ...base };
-  if (parsed.provider === "acp") return { ...base };
+  // An ACP account on the agent's default home runs as the person does; a managed one in the
+  // home its verified profile selects.
+  if (parsed.provider === "acp")
+    return parsed.homeStrategy === "managed" ? managedAcpEnv(parsed, base) : { ...base };
   const allowed =
     parsed.provider === "codex"
       ? ["CODEX_HOME"]
