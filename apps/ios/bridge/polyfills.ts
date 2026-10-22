@@ -1,12 +1,20 @@
 import { z } from "zod";
+import { installDecompression } from "./decompression.ts";
 import { host } from "./host.ts";
 
-// Only the portable SDK's required Web APIs. Encoding and entropy belong to the native host.
+// Only the portable SDK's required Web APIs. Encoding, decompression and entropy belong to the
+// native host, which reads and writes typed arrays by pointer.
 class UTF8Encoder {
   encode(text = ""): Uint8Array {
-    return Uint8Array.from(host.encode(text));
+    return host.encode(text);
   }
   encodeInto(text: string, destination: Uint8Array): { read: number; written: number } {
+    const whole = this.encode(text);
+    if (whole.length <= destination.length) {
+      destination.set(whole);
+      return { read: text.length, written: whole.length };
+    }
+    // Only part fits: whole characters, in order, until the next would overflow.
     let read = 0;
     let written = 0;
     for (const character of text) {
@@ -32,7 +40,7 @@ class UTF8Decoder {
       input instanceof ArrayBuffer
         ? new Uint8Array(input)
         : new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
-    return host.decode(Array.from(bytes), this.encoding, this.options.fatal ?? false);
+    return host.decode(bytes, this.encoding, this.options.fatal ?? false);
   }
 }
 class CancellationSignal {
@@ -112,6 +120,7 @@ class AbsoluteURL {
   }
 }
 if (typeof globalThis.URL === "undefined") Object.assign(globalThis, { URL: AbsoluteURL });
+installDecompression();
 
 Object.assign(globalThis, {
   TextEncoder: UTF8Encoder,
