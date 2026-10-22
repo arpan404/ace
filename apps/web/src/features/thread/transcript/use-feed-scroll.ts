@@ -1,4 +1,4 @@
-import type { Virtualizer } from "@tanstack/react-virtual";
+import type { VirtualItem, Virtualizer } from "@tanstack/react-virtual";
 import {
   useCallback,
   useEffect,
@@ -210,6 +210,40 @@ export function useFeedScroll(options: FeedScrollOptions) {
     [rows, virtualizer],
   );
 
+  /**
+   * Reads the first row in view and refreshes where the held row is, so the next correction
+   * counts only what changed since. Runs on every gesture and scroll, not just once a frame:
+   * rows that land between a scroll and the next frame (older history arriving as the reader
+   * leaves the end) must be corrected against where the reader is now, never against a stale
+   * place or no held row at all.
+   */
+  const look = useCallback(
+    (el: HTMLElement): VirtualItem | undefined => {
+      const fold = el.scrollTop + options.topRoom;
+      const first = virtualizer.getVirtualItems().find((item) => item.end > fold);
+      if (!first) return undefined;
+      top.current = { index: first.index, offset: first.start - el.scrollTop };
+      const row = rows[first.index];
+      const shown = row && { key: row.key, itemId: blockItems(row.block)[0] };
+      const was = held.current;
+      const still = settling.current && was ? locate(was.key, was.itemId) : undefined;
+      const inView =
+        !!still && still.end > el.scrollTop && still.start < el.scrollTop + el.clientHeight;
+      const which = heldKey(mode.current, shown, inView ? was : undefined);
+      const at = which && locate(which.key, which.itemId);
+      held.current =
+        which && at ? { ...which, key: at.key, top: at.start - el.scrollTop } : undefined;
+      // The rows above this one are what the virtualizer compensates for, as the reader moves.
+      compensate();
+      return first;
+    },
+    [options.topRoom, virtualizer, rows, locate, compensate],
+  );
+  const latestLook = useRef(look);
+  useLayoutEffect(() => {
+    latestLook.current = look;
+  });
+
   // The reader's gestures, before the scrolls they cause.
   useEffect(() => {
     const el = viewport.current;
@@ -223,6 +257,8 @@ export function useFeedScroll(options: FeedScrollOptions) {
         onDirection(up);
         const atEnd = distanceToEnd(el) < nearEdge;
         apply({ type: "gesture", upward: up, atEnd, detached, at: now() }, el);
+        // Leaving the end holds the row in view at once, before any rows can land.
+        latestLook.current(el);
       },
       () => {
         settling.current = false;
@@ -342,27 +378,10 @@ export function useFeedScroll(options: FeedScrollOptions) {
      */
     observe: () => {
       const el = viewport.current;
-      if (!el) return undefined;
-      const fold = el.scrollTop + options.topRoom;
-      const first = virtualizer.getVirtualItems().find((item) => item.end > fold);
-      if (!first) return undefined;
-      top.current = { index: first.index, offset: first.start - el.scrollTop };
-      const row = rows[first.index];
-      const shown = row && { key: row.key, itemId: blockItems(row.block)[0] };
-      const was = held.current;
-      const still = settling.current && was ? locate(was.key, was.itemId) : undefined;
-      const inView =
-        !!still && still.end > el.scrollTop && still.start < el.scrollTop + el.clientHeight;
-      const which = heldKey(mode.current, shown, inView ? was : undefined);
-      const at = which && locate(which.key, which.itemId);
-      held.current =
-        which && at ? { ...which, key: at.key, top: at.start - el.scrollTop } : undefined;
-      // The rows above this one are what the virtualizer compensates for, as the reader moves.
-      compensate();
-      return first;
+      return el ? look(el) : undefined;
     },
     /** A scroll event, from any cause. */
-    scrolled: (el: HTMLElement) =>
+    scrolled: (el: HTMLElement) => {
       apply(
         {
           type: "scrolled",
@@ -372,7 +391,9 @@ export function useFeedScroll(options: FeedScrollOptions) {
           gliding: now() < glidingUntil.current,
         },
         el,
-      ),
+      );
+      look(el);
+    },
     /** Bring row `index` into view and hold it there while the rows around it measure. */
     jumpTo: (index: number, align: "start" | "center", itemId?: string) => {
       const el = viewport.current;
