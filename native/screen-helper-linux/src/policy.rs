@@ -85,6 +85,37 @@ pub fn portal_policy(sources: u32, devices: u32, version: u32) -> PortalPolicy {
     }
 }
 
+/// How a Wayland capture asks the portal for its source.
+#[derive(Debug, PartialEq)]
+pub enum PortalRoute {
+    /// One RemoteDesktop session with a ScreenCast source: the picture and the person's input.
+    RemoteDesktop,
+    /// ScreenCast alone: the person picks the window, and no input goes through the portal.
+    ScreenCastOnly,
+}
+
+/// KDE's RemoteDesktop portal ignores the source type a session asks for and shares whole
+/// outputs, so a window asked of it would show the person's entire screen. A window on KDE is
+/// asked of ScreenCast alone, whose chooser lists windows.
+pub fn portal_route(desktop: &str, window: bool) -> PortalRoute {
+    if window && desktop.split(':').any(|name| name.eq_ignore_ascii_case("KDE")) {
+        PortalRoute::ScreenCastOnly
+    } else {
+        PortalRoute::RemoteDesktop
+    }
+}
+
+/// Whether the portal shared the kind of source that was asked for, from the stream's
+/// `source_type` (1 monitor, 2 window, 4 virtual; absent before ScreenCast version 3). A
+/// window never stands in for a screen, nor a screen for a window.
+pub fn stream_matches(window: bool, source_type: Option<u32>) -> bool {
+    match source_type {
+        None => true,
+        Some(kind) if window => kind == 2,
+        Some(kind) => kind != 2,
+    }
+}
+
 /// A tree request cannot silently switch the approved capture scope.
 pub fn scoped_target(requested: Option<&crate::protocol::Target>, active: Option<&crate::protocol::Target>) -> Result<()> {
     if requested.is_some() && requested != active {

@@ -178,3 +178,26 @@ fn frame_connection_rejects_public_directories_and_symlink_endpoints() {
     drop(listener);
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn a_window_on_kde_is_asked_of_screencast_because_its_remote_desktop_shares_whole_screens() {
+    use ace_screen_helper_linux::policy::{PortalRoute, portal_route};
+    assert_eq!(portal_route("KDE", true), PortalRoute::ScreenCastOnly);
+    assert_eq!(portal_route("ubuntu:KDE", true), PortalRoute::ScreenCastOnly);
+    // A screen keeps the person's input; GNOME shares windows through RemoteDesktop.
+    assert_eq!(portal_route("KDE", false), PortalRoute::RemoteDesktop);
+    assert_eq!(portal_route("ubuntu:GNOME", true), PortalRoute::RemoteDesktop);
+    assert_eq!(portal_route("", true), PortalRoute::RemoteDesktop);
+}
+
+#[test]
+fn a_shared_source_of_the_wrong_kind_is_never_shown() {
+    use ace_screen_helper_linux::policy::stream_matches;
+    assert!(stream_matches(true, Some(2)));
+    assert!(!stream_matches(true, Some(1)), "a whole screen given for a window");
+    assert!(!stream_matches(false, Some(2)), "a window given for a screen");
+    assert!(stream_matches(false, Some(1)));
+    assert!(stream_matches(false, Some(4)));
+    // Portals before ScreenCast version 3 don't say.
+    assert!(stream_matches(true, None));
+}

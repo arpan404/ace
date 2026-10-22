@@ -1,6 +1,6 @@
 //! Portal session persistence is owned by RemoteDesktop for a combined session.
 use crate::{
-    policy::portal_policy,
+    policy::{PortalRoute, portal_policy, portal_route, stream_matches},
     protocol::{Fault, Result, internal},
 };
 use futures_util::StreamExt;
@@ -25,8 +25,12 @@ pub struct Portal {
     pub node: u32,
     pub size: (u32, u32),
     pub devices: u32,
+    /// The input devices the portal offers; `devices` is what the current session was granted.
+    available_devices: u32,
     pub sources: u32,
     pub version: u32,
+    screencast_version: u32,
+    desktop: String,
     token_path: PathBuf,
     counter: u64,
 }
@@ -52,14 +56,18 @@ impl Portal {
             )
         })?;
         let version: u32 = rd.get_property("version").await.map_err(internal)?;
+        let screencast_version: u32 = sc.get_property("version").await.map_err(internal)?;
         Ok(Self {
             conn,
             session: None,
             node: 0,
             size: (0, 0),
             devices,
+            available_devices: devices,
             sources,
             version,
+            screencast_version,
+            desktop: std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),
             token_path,
             counter: 0,
         })
@@ -164,9 +172,14 @@ impl Portal {
                 "Compositor cannot capture this source type",
             ));
         }
+        let route = portal_route(&self.desktop, window);
+        let interface = match route {
+            PortalRoute::RemoteDesktop => "RemoteDesktop",
+            PortalRoute::ScreenCastOnly => "ScreenCast",
+        };
         let created = self
             .request(
-                "RemoteDesktop",
+                interface,
                 "CreateSession",
                 None,
                 dict([("session_handle_token", string("ace_session")?)]),
@@ -181,7 +194,10 @@ impl Portal {
             .map_err(internal)?;
         let session = OwnedObjectPath::try_from(path).map_err(internal)?;
         self.session = Some(session.clone());
-        let result = self.configure(&session, source).await;
+        let result = match route {
+            PortalRoute::RemoteDesktop => self.configure(&session, source).await,
+            PortalRoute::ScreenCastOnly => self.configure_screencast(&session, source).await,
+        };
         if result.is_err() {
             let _ = self.stop().await;
         }
@@ -192,7 +208,7 @@ impl Portal {
         session: &OwnedObjectPath,
         source: u32,
     ) -> Result<std::os::fd::OwnedFd> {
-        let mut options = dict([("types", OwnedValue::from(self.devices & 3))]);
+        let mut options = dict([("types", OwnedValue::from(self.available_devices & 3))]);
         if self.version >= 2 {
             options.insert("persist_mode".into(), OwnedValue::from(2u32));
             if let Some(token) = read_token(&self.token_path)? {
@@ -223,6 +239,46 @@ impl Portal {
             .map_err(internal)?
             .try_into()
             .map_err(internal)?;
+        let token_path = self.token_path.clone();
+        self.opened(session, source, &result, &token_path).await
+    }
+    /// A window on a desktop whose RemoteDesktop portal can't share one (`PortalRoute`): the
+    /// person picks it in ScreenCast's chooser, which keeps its own restore token, and the
+    /// session has no input devices.
+    async fn configure_screencast(
+        &mut self,
+        session: &OwnedObjectPath,
+        source: u32,
+    ) -> Result<std::os::fd::OwnedFd> {
+        let token_path = self.token_path.with_file_name("screencast-restore-token");
+        let mut options = dict([
+            ("types", OwnedValue::from(source)),
+            ("multiple", OwnedValue::from(false)),
+            ("cursor_mode", OwnedValue::from(1u32)),
+        ]);
+        if self.screencast_version >= 4 {
+            options.insert("persist_mode".into(), OwnedValue::from(2u32));
+            if let Some(token) = read_token(&token_path)? {
+                options.insert("restore_token".into(), string(&token)?);
+            }
+        }
+        self.request("ScreenCast", "SelectSources", Some(session), options)
+            .await?;
+        let result = self
+            .request("ScreenCast", "Start", Some(session), HashMap::new())
+            .await?;
+        self.devices = 0;
+        self.opened(session, source, &result, &token_path).await
+    }
+    /// The started session's one stream: its node and size, the restore token kept, and the
+    /// PipeWire connection to read it.
+    async fn opened(
+        &mut self,
+        session: &OwnedObjectPath,
+        source: u32,
+        result: &Dict,
+        token_path: &std::path::Path,
+    ) -> Result<std::os::fd::OwnedFd> {
         let streams: Vec<(u32, Dict)> = result
             .get("streams")
             .ok_or_else(|| internal("Portal omitted streams"))?
@@ -240,32 +296,44 @@ impl Portal {
             .into_iter()
             .next()
             .ok_or_else(|| internal("No streams"))?;
+        let source_type = props
+            .get("source_type")
+            .and_then(|value| value.try_clone().ok())
+            .and_then(|value| u32::try_from(value).ok());
+        if !stream_matches(source == 2, source_type) {
+            return Err(Fault::new(
+                "not_supported",
+                "The desktop shared a different kind of source than was asked for (a whole screen for a window, or a window for a screen); nothing is shown",
+            ));
+        }
         self.node = node;
-        let (w, h): (i32, i32) = props
-            .get("size")
-            .ok_or_else(|| {
-                Fault::new(
+        // The logical size maps the person's input onto the picture. KDE's window streams leave
+        // it out; with no input to map (`configure_screencast`), the picture's own pixels do.
+        self.size = match props.get("size") {
+            Some(size) => {
+                let (w, h): (i32, i32) = size.try_clone().map_err(internal)?.try_into().map_err(internal)?;
+                if w <= 0 || h <= 0 || w > 8192 || h > 8192 {
+                    return Err(Fault::new("bounds", "Invalid portal size"));
+                }
+                (w as u32, h as u32)
+            }
+            None if self.devices == 0 => (0, 0),
+            None => {
+                return Err(Fault::new(
                     "not_supported",
                     "Portal omitted logical size; cannot map input safely",
-                )
-            })?
-            .try_clone()
-            .map_err(internal)?
-            .try_into()
-            .map_err(internal)?;
-        if w <= 0 || h <= 0 || w > 8192 || h > 8192 {
-            return Err(Fault::new("bounds", "Invalid portal size"));
-        }
-        self.size = (w as u32, h as u32);
+                ));
+            }
+        };
         if let Some(value) = result.get("restore_token") {
             let token: String = value
                 .try_clone()
                 .map_err(internal)?
                 .try_into()
                 .map_err(internal)?;
-            save_token(&self.token_path, &token)?;
-        } else if self.token_path.exists() {
-            std::fs::remove_file(&self.token_path).map_err(internal)?;
+            save_token(token_path, &token)?;
+        } else if token_path.exists() {
+            std::fs::remove_file(token_path).map_err(internal)?;
         }
         let fd: zbus::zvariant::OwnedFd = self
             .proxy("ScreenCast")
@@ -276,6 +344,7 @@ impl Portal {
         Ok(fd.into())
     }
     pub async fn stop(&mut self) -> Result<()> {
+        self.devices = self.available_devices;
         if let Some(path) = self.session.take() {
             let proxy = Proxy::new(
                 &self.conn,
