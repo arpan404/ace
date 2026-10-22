@@ -58,6 +58,12 @@ test("a run whose turn ended with its background task still going stays running 
     await f.h.emit(f.caller.threadId, shell(true), end);
     await settle(f);
     expect((await f.latest("alpha"))?.status).toBe("running");
+    await f.h.emit(f.caller.threadId, {
+      type: "background.ended",
+      task: "shell",
+      status: "completed",
+    });
+    await expect.poll(async () => (await f.latest("alpha"))?.status).toBe("succeeded");
   } finally {
     await f.close();
   }

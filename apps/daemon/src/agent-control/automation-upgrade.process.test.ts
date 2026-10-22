@@ -1,6 +1,13 @@
 import { join } from "node:path";
 import { AutomationStore, type ExecutionInput } from "@ace/automations";
-import { AgentAutomation, AutomationInbox, type Automation } from "@ace/protocol";
+import {
+  AgentAutomation,
+  AutomationInbox,
+  Command,
+  ThreadId,
+  type Automation,
+} from "@ace/protocol";
+import { commandContext } from "../commands.ts";
 import { expect, test } from "vitest";
 import { automationFixture } from "./automation-test-support.ts";
 
@@ -166,7 +173,7 @@ test("a stop asked for while a run is being sent still stops that run", async ()
   }
 });
 
-test("a run sent before run records existed is picked up from its receipt after an upgrade", async () => {
+test("a run sent before run records existed is picked up from its receipt after a crash and upgrade", async () => {
   const f = await automationFixture("claude");
   try {
     await f.save("alpha", "Run alpha");
@@ -174,22 +181,87 @@ test("a run sent before run records existed is picked up from its receipt after 
     await f.settings.settled({ kind: "global" });
     await f.run("alpha", "alpha-1");
     await expect.poll(() => f.h.inputs.get(f.caller.threadId)?.at(-1)).toBe("Run alpha");
+    // The turn finishes while automations are off, then ace goes down.
+    await f.settings.set("automations.enabled", false, { kind: "global" });
+    await f.settings.settled({ kind: "global" });
+    await f.answer(2, "alpha-answer", "Alpha survived the upgrade.");
     // As an older build left it: no run record, only the send's receipt and the old table.
-    await f.restart();
     f.h.store.atomic((db) =>
       db.exec(`DELETE FROM automation_executions;
         CREATE TABLE agent_automation_run_threads(command_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL);`),
     );
-    await f.restart();
+    await f.restartDaemon();
     const tables = f.h.store.atomic((db) =>
       db.prepare("SELECT name FROM sqlite_master WHERE name LIKE '%automation_run_threads'").all(),
     );
     expect(tables).toEqual([]);
-    await f.answer(2, "alpha-answer", "Alpha survived the upgrade.");
+    await f.settings.set("automations.enabled", true, { kind: "global" });
+    await f.settings.settled({ kind: "global" });
     await expect
       .poll(() => f.latest("alpha"))
       .toMatchObject({ status: "succeeded", result: "Alpha survived the upgrade." });
-    expect(f.h.inputs.get(f.caller.threadId)).toEqual(["plan", "Run alpha"]);
+    expect(f.h.inputs.get(f.caller.threadId) ?? []).not.toContain("Run alpha");
+  } finally {
+    await f.close();
+  }
+});
+
+test("a child an older build reopened for a run holds that run open after the upgrade, and a pause leaves it be", async () => {
+  const f = await automationFixture("claude");
+  try {
+    await f.save("alpha", "Run alpha");
+    await f.settings.set("automations.enabled", true, { kind: "global" });
+    await f.settings.settled({ kind: "global" });
+    // An earlier turn of the person's made the child, and it finished.
+    const ask = Command.parse({
+      id: "person-plan",
+      deviceId: "person",
+      payload: {
+        type: "thread.send",
+        threadId: f.caller.threadId,
+        input: [{ type: "text", text: "Plan more" }],
+      },
+    });
+    expect(f.h.engine.handler.handle(ask, commandContext(f.h.store)).ok).toBe(true);
+    await expect.poll(() => f.h.inputs.get(f.caller.threadId)?.at(-1)).toBe("Plan more");
+    const child = ThreadId.parse(f.h.delegate(f.caller, "helper").childId);
+    await f.h.engine.flush();
+    await f.h.complete(child, "First pass.");
+    await f.answer(2, "plan-answer", "Planned more.");
+    // The child's result comes back to the agent as one more input of that turn: end it too.
+    f.h.clock.advance(f.h.clock.now() + 60_000);
+    await expect.poll(() => f.h.inputs.get(f.caller.threadId)?.length).toBe(3);
+    for (
+      let i = 0;
+      i < 5 && f.h.store.getThread(f.caller.threadId)?.status.state === "working";
+      i++
+    )
+      await f.answer(3, `result-answer-${i}`, "Read the result.");
+    f.h.clock.advance(f.h.clock.now() + 60_000);
+    await f.run("alpha", "alpha-1");
+    await expect.poll(() => f.h.inputs.get(f.caller.threadId)?.at(-1)).toBe("Run alpha");
+    // Alpha's agent sends the settled child more work: a reopened generation, still working.
+    expect(f.h.service.message(f.caller, "more", child, "Once more", "queue").ok).toBe(true);
+    await f.h.engine.flush();
+    await f.answer(4, "alpha-answer", "Alpha waits on its helper.");
+    await f.settings.set("automations.enabled", false, { kind: "global" });
+    await f.settings.settled({ kind: "global" });
+    // An older build kept no owners for delegations.
+    f.h.store.atomic((db) =>
+      db.exec("DELETE FROM delegation_origins; DELETE FROM delegation_origin_backfill;"),
+    );
+    await f.restartDaemon();
+    await f.settings.set("automations.enabled", true, { kind: "global" });
+    await f.settings.settled({ kind: "global" });
+    await f.h.engine.flush();
+    expect(f.h.service.journal.get(child)?.phase).not.toBe("settled");
+    // Nobody can tell whose the reopened work is: the run stays open rather than claim it's done.
+    expect((await f.latest("alpha"))?.status).toBe("running");
+    await f.setEnabled("alpha", false);
+    await f.h.engine.flush();
+    expect((await f.latest("alpha"))?.status).toBe("running");
+    // Nor does the pause guess: the child is not cancelled for it.
+    expect(f.h.service.journal.get(child)?.phase).not.toBe("cancelling");
   } finally {
     await f.close();
   }
