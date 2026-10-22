@@ -83,6 +83,12 @@ export const NativeServiceAction = z.discriminatedUnion("type", [
 
 export class NativeServices {
   #pending = new Map<string, AbortController>();
+  /**
+   * Kept reads in flight. A screen that closes stops waiting for one, but the read finishes
+   * and is kept, as the web's query cache lets a fetch finish after its view unmounts, so
+   * opening the screen again draws it at once.
+   */
+  #keeping = new Set<string>();
   readonly transcript: NativeTranscript;
   readonly owner: ClientCore;
   readonly sink: PatchSink;
@@ -111,7 +117,7 @@ export class NativeServices {
   }
   handle(action: z.infer<typeof NativeServiceAction>): void {
     if (action.type === "service.cancel") {
-      this.#pending.get(action.id)?.abort();
+      if (!this.#keeping.has(action.id)) this.#pending.get(action.id)?.abort();
       return;
     }
     if (this.#pending.has(action.id)) return;
@@ -131,6 +137,7 @@ export class NativeServices {
       return;
     }
     this.#pending.set(id, controller);
+    if (read) this.#keeping.add(id);
     try {
       const screen = NativeScreenRequest.safeParse(raw);
       if (screen.success && this.screen) {
@@ -243,6 +250,7 @@ export class NativeServices {
       );
     } finally {
       this.#pending.delete(id);
+      this.#keeping.delete(id);
     }
   }
   /** A daemon answer: kept when it is a kept read, else whatever it changed is read again. */

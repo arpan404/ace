@@ -211,3 +211,29 @@ test("the kept record holds the newest answers that fit, and another version rea
   expect(parseKeptRecord('{"version":0,"reads":[]}')).toEqual([]);
   expect(parseKeptRecord("not json")).toEqual([]);
 });
+
+test("a kept read the screen stopped waiting for still finishes and is kept for the next visit", async () => {
+  const { client, daemon } = sheetFixture();
+  close = () => client.close();
+  await client.start();
+  await until(() => client.state === "ready", "connected");
+  daemon.holdRequests("settings.get");
+  const sink = new RecordingSink();
+  const reads = new NativeReads(client, sink, { now: () => 0, schedule: noSchedule });
+  const services = new NativeServices(
+    client,
+    sink,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    reads,
+  );
+  const read = { type: "settings.get", key: "threads.followUpBehavior", scope: {} };
+  services.handle({ type: "service", id: "left", request: read, cache: "follow-up" });
+  services.handle({ type: "service.cancel", id: "left" });
+  daemon.restoreRequests();
+  await until(() => sink.read("service:left") !== undefined, "finished");
+  expect(sink.read("service:left")).toMatchObject({ ok: true, cache: { key: "follow-up" } });
+  expect(reads.fresh({ key: "follow-up", family: "settings" })).toBeDefined();
+});
