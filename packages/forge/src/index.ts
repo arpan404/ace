@@ -37,3 +37,4 @@ export { replyIntent } from "./reply-receipts.ts";
 export { ForgeIntents } from "./intents.ts";
 export * from "./repositories.ts";
 export * from "./stack-publish.ts";
+export { GitHubInbox } from "./github-inbox.ts";
