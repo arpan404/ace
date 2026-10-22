@@ -94,7 +94,7 @@ struct AttachmentChip: View {
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
         .padding(.horizontal, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.xs)
-        .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.button))
+        .background(AceTheme.Colours.fill, in: AceShape.capsule)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("composer.attachment")
     }

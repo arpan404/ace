@@ -23,7 +23,7 @@ struct ComposerActionButton: View {
             Group {
                 if saving { ProgressView().tint(AceTheme.Colours.onAccent) }
                 else if stopping {
-                    RoundedRectangle(cornerRadius: AceTheme.Radii.xs / 2)
+                    AceShape.stopGlyph
                         .frame(width: AceTheme.Spacing.sm + AceTheme.Spacing.xxs, height: AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
                 } else {
                     AceIcon(.arrowUp, size: 16, weight: .bold, relativeTo: .body)
