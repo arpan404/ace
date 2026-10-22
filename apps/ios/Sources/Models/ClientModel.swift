@@ -93,10 +93,15 @@ import CryptoKit
         connection = "connecting"; error = nil; problem = nil
         activityGeneration = 0
         frames = BridgeFrames(); generation = 0
+        // The last known inbox, unconfirmed, in the first frame; the runtime replaces it in place.
+        let restoring = LaunchTrace.begin("inbox.restore", target.hostId)
+        let database = Self.database(hostId: target.hostId, deviceId: target.deviceId, in: directory)
+        apply(InboxCheckpoint.read(database: database))
+        restoring.end()
         await closing?.value
         guard connectionEpoch == epoch, !Task.isCancelled else { return }
         shutdown = nil
-        let runtime = makeRuntime(target, Self.database(hostId: target.hostId, deviceId: target.deviceId, in: directory), { [weak self] data in
+        let runtime = makeRuntime(target, database, { [weak self] data in
             Task { @MainActor in
                 guard let self, self.connectionEpoch == epoch else { return }
                 let accepted = self.receive(data)
@@ -121,6 +126,10 @@ import CryptoKit
             error = "Could not read a client update"
             return false
         }
+        apply(patches)
+        return true
+    }
+    private func apply(_ patches: [BridgePatch]) {
         var reorder = false
         var activityChanged = false
         for patch in patches {
@@ -130,9 +139,9 @@ import CryptoKit
             case .terminal(let patch):
                 if let offset = terminal.receive(patch) { action(["type": "terminal.credit", "id": patch.id, "offset": offset]) }
             case .fragment: break // BridgeFrames only returns complete patches.
-            case .inboxReset:
+            case .inboxReset(let ids):
                 LaunchTrace.mark("inbox.reset", "\(inbox.count) rows held")
-                inbox.removeAll(keepingCapacity: true); inboxLoaded = true; activityChanged = true
+                resetInbox(keeping: ids); inboxLoaded = true; activityChanged = true
             case .inbox(let id, let row):
                 if let generation = row?.generation, generation > activityGeneration {
                     activityGeneration = generation
@@ -232,7 +241,17 @@ import CryptoKit
                 (thread.positions[$0] ?? 0) < (thread.positions[$1] ?? 0)
             }
         }
-        return true
+    }
+    /// A new list keeps the rows it names until each fresh copy lands, so the inbox never blanks
+    /// or jumps to the top while the rest arrive; it drops every other row. A kept row is no
+    /// longer confirmed: only its fresh copy may say it is current again.
+    private func resetInbox(keeping ids: [String]?) {
+        guard let ids else { inbox.removeAll(keepingCapacity: true); return }
+        let listed = Set(ids)
+        for (id, row) in inbox {
+            if !listed.contains(id) { inbox[id] = nil }
+            else if row.confirmed != nil { var held = row; held.confirmed = nil; inbox[id] = held }
+        }
     }
     func open(_ id: String) {
         generation += 1

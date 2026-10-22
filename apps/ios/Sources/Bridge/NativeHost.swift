@@ -83,6 +83,10 @@ final class NativeHost: @unchecked Sendable {
                 }
                 if let value = try services.perform(operation, input: data) { return value }
                 guard let storageURL else { throw HostError.unsupported }
+                if operation == "inbox.checkpoint" {
+                    try InboxCheckpoint.write(try JSONDecoder().decode(String.self, from: data), database: storageURL)
+                    return ""
+                }
                 if store == nil { store = try DurableStore(url: storageURL) }
                 guard let store else { throw HostError.storage }
                 return try store.perform(operation, input: data)

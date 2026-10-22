@@ -141,6 +141,7 @@ import Testing
         let database = ClientModel.database(hostId: "studio", deviceId: "phone-1", in: fixture.storage)
         try FileManager.default.createDirectory(at: fixture.storage, withIntermediateDirectories: true)
         try Data("outbox".utf8).write(to: database)
+        try InboxCheckpoint.write("[]", database: database)
         let removal = Task { await fixture.model.remove("studio") }
         await drain()
         #expect(studio.stopped)
@@ -149,6 +150,7 @@ import Testing
         await removal.value
         #expect(fixture.access.removed == ["studio"])
         #expect(!FileManager.default.fileExists(atPath: database.path))
+        #expect(!FileManager.default.fileExists(atPath: InboxCheckpoint.url(database: database).path))
         #expect(fixture.model.machines.map(\.hostId) == ["laptop"])
         #expect(fixture.model.inbox.sessions.map(\.hostId) == ["laptop"])
         #expect(!laptop.stopped)

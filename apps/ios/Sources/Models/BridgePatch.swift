@@ -166,7 +166,8 @@ enum BridgePatch: Decodable, Sendable {
     case service(ServiceReply)
     case terminal(TerminalOutputPatch)
     case fragment(BridgeFragment)
-    case inboxReset
+    /// A new list: the ids of every row that follows (nil from older bridges, which clear all).
+    case inboxReset([String]?)
     case inbox(String, ThreadRow?)
     case threadReset(String, Int)
     case position(String, Int, String, Int?)
@@ -207,7 +208,7 @@ enum BridgePatch: Decodable, Sendable {
     /// A thread's Devices screen and its logs (`bridge/native-devices.ts`).
     case devices(DevicesPatch)
 
-    private enum Keys: String, CodingKey { case type, id, row, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation }
+    private enum Keys: String, CodingKey { case type, id, ids, row, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -216,7 +217,7 @@ enum BridgePatch: Decodable, Sendable {
         case "service.reply": self = .service(try ServiceReply(from: decoder))
         case "terminal.output": self = .terminal(try TerminalOutputPatch(from: decoder))
         case "fragment": self = .fragment(try BridgeFragment(from: decoder))
-        case "inbox.reset": self = .inboxReset
+        case "inbox.reset": self = .inboxReset(try box.decodeIfPresent([String].self, forKey: .ids))
         case "inbox.row": self = .inbox(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(ThreadRow.self, forKey: .row))
         case "thread.reset": let (id, epoch) = try scope(); self = .threadReset(id, epoch)
         case "thread.position":
