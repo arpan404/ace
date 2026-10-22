@@ -11,6 +11,7 @@ import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { useMachines } from "@/lib/machines.ts";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import { MiddleTruncate } from "@/components/ui/middle-truncate.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useThreadBrowsing } from "@/lib/browsing.ts";
 import { useThreadComputerUse } from "@/lib/computer-using.ts";
@@ -238,11 +239,7 @@ export function RowContext(props: { card: ThreadCard }) {
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-meta leading-4 text-subtle-foreground">
       {card.run && <RunMark run={card.run} />}
-      {card.branch && (
-        <span className="min-w-0 flex-1 truncate font-mono" title={card.branch.name}>
-          {card.branch.name}
-        </span>
-      )}
+      {card.branch && <MiddleTruncate text={card.branch.name} className="flex-1 font-mono" />}
       {card.pr !== undefined && (
         <span className="shrink-0">
           <PullRequest card={card} />
