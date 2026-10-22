@@ -99,7 +99,11 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
       command: instance.executable,
       args,
       cwd: instance.cwd,
-      env: instance.env,
+      env: {
+        ...instance.env,
+        // Unset over the daemon environment the process would otherwise inherit.
+        ...Object.fromEntries((instance.unsetEnv ?? []).map((key) => [key, undefined])),
+      },
       name: "model-discovery",
       maxOutputBytes: 4 * 1024 * 1024,
     });

@@ -1,5 +1,7 @@
 import type { FakeAuthTerminal } from "../auth-terminal-output.ts";
 import { fakeProviderAccounts } from "./provider-accounts.ts";
+import { addedAccountIdentity, ofManagedProvider } from "./managed-accounts.ts";
+import { accountProvider } from "@ace/accounts/acp-instances";
 import { fakeApiKeySupport } from "../provider-auth-support.ts";
 import { FakeProviderInstalls, fakeLatestVersions } from "../provider-install.ts";
 import { onboardingChecklist } from "@ace/core";
@@ -214,8 +216,12 @@ export class FakeServices {
       host.clock,
       () => this.providerRows(),
       (provider, signedIn, instance, method) => {
+        // Antigravity's accounts are ACP accounts of its installation; its CLI login is the
+        // agent's default home rather than an implicit row.
         const selected = this.accounts.find(
-          (row) => row.provider === provider && (instance ? row.id === instance : row.implicit),
+          (row) =>
+            accountProvider(row) === provider &&
+            (instance ? row.id === instance : row.implicit || row.homeStrategy === "default_cli"),
         );
         if (selected) {
           selected.quota.auth = signedIn ? "logged_in" : "logged_out";
@@ -226,9 +232,14 @@ export class FakeServices {
               : "browser"
             : "unknown";
           selected.loginRevision = String(Number(selected.loginRevision ?? "0") + 1);
+          // The catalog's rows for the provider; a provider it has none for (Antigravity) copies
+          // what its accounts list, this one's included, before its own rows are replaced.
+          const listed = modelCatalog().filter((entry) => entry.provider === provider);
+          const templates = listed.length
+            ? listed
+            : this.models.filter((entry) => entry.provider === provider);
           this.models = this.models.filter((entry) => entry.instance !== selected.id);
           if (signedIn) {
-            const templates = modelCatalog().filter((entry) => entry.provider === provider);
             const first = templates[0]?.instance;
             this.models.push(
               ...templates
@@ -531,9 +542,10 @@ export class FakeServices {
           ? this.accounts.find((entry) => entry.id === request.instanceId)
           : undefined;
       if (request.type === "accounts.add") {
+        const id = `account-fake-${++this.accountCounter}`;
         account = {
-          id: `account-fake-${++this.accountCounter}`,
-          provider: request.provider,
+          id,
+          ...addedAccountIdentity(request.provider, id),
           label: request.label,
           shortLabel: request.shortLabel,
           implicit: false,
@@ -559,9 +571,10 @@ export class FakeServices {
           this.host.broadcast?.({ type: "usage.limits_changed", account });
         }
         if (request.type === "accounts.setDefault") {
-          if (account.provider !== request.provider) return fail();
+          const provider = request.provider;
+          if (!ofManagedProvider(account, provider)) return fail();
           for (const entry of this.accounts)
-            if (entry.provider === request.provider) entry.isDefault = entry.id === account.id;
+            if (ofManagedProvider(entry, provider)) entry.isDefault = entry.id === account.id;
         }
         if (request.type === "accounts.remove") {
           this.accounts = this.accounts.filter((entry) => entry !== account);
