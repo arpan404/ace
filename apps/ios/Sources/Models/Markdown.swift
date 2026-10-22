@@ -140,6 +140,33 @@ enum Markdown {
         return (true, Int(digits) ?? 1, String(rest.dropFirst(2)))
     }
 
+    /// A long paragraph cut into pieces at sentence ends, each at least `size` characters but
+    /// the last. A piece ends only once the character after its sentence end has arrived, so
+    /// text appended while a message streams only ever changes the last piece: the pieces
+    /// before it are laid out and drawn once rather than on every delta.
+    static func pieces(_ paragraph: String, size: Int = 2_000) -> [Substring] {
+        var pieces: [Substring] = []
+        var start = paragraph.startIndex
+        var length = 0
+        var index = paragraph.startIndex
+        while index < paragraph.endIndex {
+            let character = paragraph[index]
+            let next = paragraph.index(after: index)
+            length += 1
+            if length >= size, ".!?".contains(character), next < paragraph.endIndex, paragraph[next].isWhitespace {
+                pieces.append(paragraph[start..<next])
+                // The space between two sentences belongs to neither piece.
+                start = paragraph.index(after: next)
+                index = start
+                length = 0
+                continue
+            }
+            index = next
+        }
+        if start < paragraph.endIndex || pieces.isEmpty { pieces.append(paragraph[start...]) }
+        return pieces
+    }
+
     /// Inline styling (emphasis, code spans, links); plain text when the span doesn't parse.
     static func inline(_ text: String) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace, failurePolicy: .returnPartiallyParsedIfPossible)
