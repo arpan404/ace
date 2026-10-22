@@ -1,4 +1,4 @@
-import type { Question } from "@ace/protocol";
+import type { InteractionResolution, Question } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { closedMeta, closedQuestionWords } from "./question-line.ts";
 
@@ -15,7 +15,10 @@ const indent: Question = {
 };
 
 test("an answered question's line carries the options picked and anything typed", () => {
-  const resolution = { kind: "question", answers: { q1: ["tabs", "two wide"] } } as const;
+  const resolution: InteractionResolution = {
+    kind: "question",
+    answers: { q1: ["tabs", "two wide"] },
+  };
   const meta = closedMeta({ state: "resolved", resolution }, false);
   expect(closedQuestionWords([indent], resolution, meta)).toEqual({
     answer: "Tabs, two wide",
@@ -24,12 +27,12 @@ test("an answered question's line carries the options picked and anything typed"
 });
 
 test("a skipped question shows no answer, only that it was skipped and why", () => {
-  const resolution = {
+  const resolution: InteractionResolution = {
     kind: "question",
     answers: { q1: ["tabs"] },
     dismissed: true,
     feedback: "  later ",
-  } as const;
+  };
   const meta = closedMeta({ state: "resolved", resolution }, true);
   expect(closedQuestionWords([indent], resolution, meta)).toEqual({
     answer: "",
