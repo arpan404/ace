@@ -28,11 +28,14 @@ const desktop = kde
       calculator: "org.kde.kcalc",
       title: "KCalc",
       keys: ["Seven", "Multiply", "Six", "Equals"],
+      // KCalc writes its result small: "42" is about 90 of the window's 325,000 pixels.
+      resultChange: 0.0001,
     }
   : {
       calculator: "org.gnome.Calculator",
       title: "Calculator",
       keys: ["7", "×", "6", "="],
+      resultChange: 0.001,
     };
 const calculator = desktop.calculator;
 
@@ -64,7 +67,7 @@ const portalDialog = join(tests, "portal_dialog.py");
 /** A Wayland window target: the portal's chooser, not the id, decides what is shared. */
 const waylandCalculator: ScreenTarget = {
   kind: "window",
-  bundleId: kde ? "org.kde.kcalc" : "gnome-calculator",
+  bundleId: kde ? "kcalc" : "gnome-calculator",
   windowId: 1,
 };
 
@@ -174,7 +177,9 @@ describe.skipIf(!enabled)(`Linux live view (${session ?? "off"})`, () => {
       expect({ width: after[index]?.width, height: after[index]?.height }).toEqual(expected);
     }
     // The last picture shows the result, which the one before the agent acted didn't.
-    expect(changed(at(decoded, before.length - 1), at(decoded, -1))).toBeGreaterThan(0.001);
+    expect(changed(at(decoded, before.length - 1), at(decoded, -1))).toBeGreaterThan(
+      desktop.resultChange,
+    );
   }, 120_000);
 
   it.skipIf(session !== "wayland")(

@@ -9,7 +9,7 @@ and its "Allow restoring on future sessions" box is ticked when the app asked fo
 grant. It has no accessible Cancel button, so cancelling closes its window through KWin, as the
 person closing the dialog would.
 
-Usage as a script: python3 portal_dialog.py approve <window title> | cancel | is-open
+Usage as a script: python3 portal_dialog.py approve <window title> | cancel | is-open | dump
 """
 import os
 import sys
@@ -100,7 +100,21 @@ def approve(window_title: str, remember: bool = True, wait: float = 10.0) -> boo
     restore = _find(dialog, "check box", KDE_RESTORE)
     if restore is not None and restore.get_state_set().contains(Atspi.StateType.CHECKED) != remember:
         _press(restore, "Toggle")
-    return _press(entry)
+    # A press that lands while the chooser is still setting up is dropped and the chooser stays
+    # open, so the pick counts once the chooser has closed; until then it is pressed again.
+    for _ in range(5):
+        if not _press(entry):
+            return False
+        closing = time.time() + 2
+        while time.time() < closing:
+            if _dialog() is None:
+                return True
+            time.sleep(0.2)
+        dialog = _dialog()
+        entry = _entry(dialog, window_title) if dialog else None
+        if entry is None:
+            return dialog is None
+    return False
 
 
 def _close_with_kwin() -> bool:
@@ -147,14 +161,47 @@ def cancel() -> bool:
     return True
 
 
+def dump(out=sys.stdout) -> bool:
+    """Prints every portal window's accessibility tree: roles, names, states and actions."""
+    desktop = Atspi.get_desktop(0)
+
+    def show(node, depth: int) -> None:
+        if node is None or depth > 40:
+            return
+        try:
+            actions = [Atspi.Action.get_action_name(node, i) for i in range(Atspi.Action.get_n_actions(node))]
+        except GLib.Error:
+            actions = []
+        try:
+            role, name = node.get_role_name(), node.get_name()
+            states = [s.value_nick for s in node.get_state_set().get_states()]
+        except GLib.Error as error:
+            print(f"{'  ' * depth}(unreadable: {error.message})", file=out)
+            return
+        print(f"{'  ' * depth}{role} {name!r} {actions} {states}", file=out)
+        for index in range(node.get_child_count()):
+            show(node.get_child_at_index(index), depth + 1)
+
+    for index in range(desktop.get_child_count()):
+        app = desktop.get_child_at_index(index)
+        if app and "portal" in (app.get_name() or "").lower():
+            show(app, 0)
+    return True
+
+
 if __name__ == "__main__":
     command = sys.argv[1] if len(sys.argv) > 1 else ""
     if command == "approve":
         ok = approve(sys.argv[2])
+        if not ok:
+            print(f"No window titled {sys.argv[2]!r} to pick; the portal's windows:", file=sys.stderr)
+            dump(sys.stderr)
     elif command == "cancel":
         ok = cancel()
     elif command == "is-open":
         ok = is_open()
+    elif command == "dump":
+        ok = dump()
     else:
         print(__doc__, file=sys.stderr)
         sys.exit(2)
