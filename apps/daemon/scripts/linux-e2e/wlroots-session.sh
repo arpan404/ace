@@ -47,6 +47,21 @@ wlroots_env() { # <XDG_CURRENT_DESKTOP>
   wireplumber >"$logs/wireplumber.log" 2>&1 &
 }
 
+# ACE_E2E_XDPH_PREFIX=<install prefix>: use that xdg-desktop-portal-hyprland build instead of
+# the distro's (Omarchy runs Arch's newer one). It starts before any client asks the portal,
+# and the portal frontend reads that build's list of interfaces.
+hyprland_portal() { # <prefix>
+  local portals=$XDG_RUNTIME_DIR/portals
+  mkdir -p "$portals"
+  cp /usr/share/xdg-desktop-portal/portals/*.portal "$portals/"
+  cp "$1/share/xdg-desktop-portal/portals/hyprland.portal" "$portals/"
+  export XDG_DESKTOP_PORTAL_DIR=$portals
+  dbus-update-activation-environment XDG_DESKTOP_PORTAL_DIR >/dev/null 2>&1 || true
+  "$1/libexec/xdg-desktop-portal-hyprland" --verbose >"$logs/xdph.log" 2>&1 &
+  sleep 1
+  echo "xdg-desktop-portal-hyprland from $1"
+}
+
 inner_hyprland() {
   wlroots_env Hyprland
   local config=$XDG_CONFIG_HOME/hypr
@@ -80,6 +95,7 @@ EOF
   wait_for 10 test -d "$XDG_RUNTIME_DIR/hypr"
   HYPRLAND_INSTANCE_SIGNATURE=$(ls "$XDG_RUNTIME_DIR/hypr")
   export HYPRLAND_INSTANCE_SIGNATURE
+  [ -z "${ACE_E2E_XDPH_PREFIX:-}" ] || hyprland_portal "$ACE_E2E_XDPH_PREFIX"
   wlroots_desktop
   local status=0
   run_suite hyprland "$@" 2>&1 || status=$?

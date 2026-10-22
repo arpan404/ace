@@ -14,6 +14,8 @@
 # Environment: ACE_E2E_DISPLAY (X display number, default 51), ACE_E2E_APPARMOR_PROFILE
 # (default ace-chromium-e2e), ACE_E2E_CHROME_HOME (where the pinned Chrome is kept, default
 # ~/.cache/ace-linux-e2e), ACE_E2E_LOGS (session logs, default a new temp directory).
+# ACE_E2E_XDPH_PREFIX (hyprland: an xdg-desktop-portal-hyprland install prefix to use instead
+# of the distro's, e.g. a build of the version Arch ships).
 set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
 self="$root/apps/daemon/scripts/linux-e2e/run.sh"
