@@ -12,6 +12,9 @@ import QuartzCore
     private var started = CACurrentMediaTime()
     private var frames = 0, late = 0
     private var lost = 0.0, worst = 0.0
+    /// Time lost to late frames since launch, never reset, so a test can read what one stretch
+    /// of scrolling cost without a five-second window mixing in idle time.
+    private var lostTotal = 0.0
 
     func run(_ on: Bool) {
         guard on != (link != nil) else { return }
@@ -31,7 +34,10 @@ import QuartzCore
         if let last {
             let gap = now - last
             frames += 1
-            if gap > interval * 1.5 { late += 1; lost += gap - interval }
+            if gap > interval * 1.5 {
+                late += 1; lost += gap - interval; lostTotal += gap - interval
+                PerfProbe.record(["frames.lostMsTotal": String(format: "%.1f", lostTotal * 1000)])
+            }
             worst = max(worst, gap)
         }
         last = now

@@ -277,6 +277,9 @@ const server = Bun.serve<undefined>({
     if (path === "/health")
       return Response.json({
         head: daemon.head,
+        // The seed, so performance tests can refuse a fixture without their workload.
+        streamed: Number.isSafeInteger(streamed) && streamed > 0 ? streamed : 0,
+        busy: Number.isSafeInteger(busy) && busy > 0 ? busy : 0,
         deltas,
         commands,
         snapshots,
