@@ -78,6 +78,18 @@ const indent = {
   secret: false,
 };
 
+type QuestionLine = {
+  asking: boolean;
+  asker: string;
+  title: string;
+  answer: string;
+  outcome: string;
+};
+
+/** The waiting question as the transcript draws it, if it is still shown. */
+const questionLine = () =>
+  rows("thread.block").find((row) => row.kind === "question")?.question as QuestionLine | undefined;
+
 test("a waiting question reads as the agent asking it, then leaves for the work log once answered", async () => {
   const fake = fixture();
   fake.createThread({ id: "ask", workspaceId: "ace", title: "Ask", provider: "codex" });
@@ -100,12 +112,8 @@ test("a waiting question reads as the agent asking it, then leaves for the work 
     },
   ]);
   open(connect(fake), "ask");
-  const line = () =>
-    rows("thread.block").find((row) => row.kind === "question")?.question as
-      | { asking: boolean; asker: string; title: string; answer: string; outcome: string }
-      | undefined;
-  const asking = await until(line, "the question line");
-  expect(asking).toEqual({
+  const openQuestion = await until(questionLine, "the question line");
+  expect(openQuestion).toEqual({
     asking: true,
     asker: "Codex",
     title: "Tabs or spaces?",
@@ -121,7 +129,7 @@ test("a waiting question reads as the agent asking it, then leaves for the work 
     },
   ]);
   // Once answered, its step reads in the turn's work log, as on the web.
-  await until(() => !line(), "the question line leaving");
+  await until(() => !questionLine(), "the question line leaving");
   expect(rows("thread.block").some((row) => row.kind === "work")).toBe(true);
 });
 
