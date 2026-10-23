@@ -7,51 +7,100 @@ import {
   Win32FileIdentitySchema,
   type IdentifiedStats,
 } from "./file-identity.ts";
-import { posixBinding as binding } from "./descriptor-native.ts";
+import { posixBinding, windowsBinding } from "./descriptor-native.ts";
 import { DIRECTORY_CAP, WorkspaceError } from "./types.ts";
 
 function nativeFailure(error: unknown): never {
-  if (error instanceof Error && "errno" in error && typeof error.errno === "number") {
-    const code = getSystemErrorName(error.errno);
-    if (code === "E2BIG")
+  if (error instanceof Error) {
+    const existing = "code" in error ? error.code : undefined;
+    if (existing === "E2BIG")
       throw new WorkspaceError("LIMIT_EXCEEDED", "Directory exceeds 10,000 entries");
-    Object.assign(error, { code });
+    if ("errno" in error && typeof error.errno === "number") {
+      const code = getSystemErrorName(error.errno);
+      if (code === "E2BIG")
+        throw new WorkspaceError("LIMIT_EXCEEDED", "Directory exceeds 10,000 entries");
+      if (existing === undefined) Object.assign(error, { code });
+    }
   }
   throw error;
 }
-export function openAt(parent: number, name: string, flags: number): Descriptor {
+function onWindows(): boolean {
+  return process.platform === "win32";
+}
+export function openRoot(path: string): Descriptor {
   try {
-    return new Descriptor(binding().openAt(parent, name, flags));
+    const fd = onWindows() ? windowsBinding().openRoot(path) : posixBinding().openRoot(path);
+    return new Descriptor(fd);
   } catch (error) {
     return nativeFailure(error);
   }
 }
 export function openDirectoryAt(parent: number, name: string): Descriptor {
-  return openAt(parent, name, constants.O_RDONLY | constants.O_DIRECTORY);
+  try {
+    const fd = onWindows()
+      ? windowsBinding().openDirectoryAt(parent, name)
+      : posixBinding().openAt(parent, name, constants.O_RDONLY | constants.O_DIRECTORY);
+    return new Descriptor(fd);
+  } catch (error) {
+    return nativeFailure(error);
+  }
 }
 export function openFileAt(parent: number, name: string): Descriptor {
-  return openAt(parent, name, constants.O_RDONLY);
+  try {
+    const fd = onWindows()
+      ? windowsBinding().openFileAt(parent, name)
+      : posixBinding().openAt(parent, name, constants.O_RDONLY);
+    return new Descriptor(fd);
+  } catch (error) {
+    return nativeFailure(error);
+  }
 }
 export function createFileAt(parent: number, name: string): Descriptor {
-  return openAt(parent, name, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL);
+  try {
+    const fd = onWindows()
+      ? windowsBinding().createPrivateFileAt(parent, name)
+      : posixBinding().openAt(
+          parent,
+          name,
+          constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
+        );
+    return new Descriptor(fd);
+  } catch (error) {
+    return nativeFailure(error);
+  }
 }
 export function openMetadataAt(parent: number, name: string): Descriptor {
   try {
-    return new Descriptor(binding().openMetadataAt(parent, name));
+    const fd = onWindows()
+      ? windowsBinding().openMetadataAt(parent, name)
+      : posixBinding().openMetadataAt(parent, name);
+    return new Descriptor(fd);
+  } catch (error) {
+    return nativeFailure(error);
+  }
+}
+export function openPrivateMetadataAt(parent: number, name: string): Descriptor {
+  try {
+    const fd = onWindows()
+      ? windowsBinding().openPrivateMetadataAt(parent, name)
+      : posixBinding().openMetadataAt(parent, name);
+    return new Descriptor(fd);
   } catch (error) {
     return nativeFailure(error);
   }
 }
 export function mkdirAt(parent: number, name: string): void {
   try {
-    binding().mkdirAt(parent, name);
+    if (onWindows()) windowsBinding().mkdirAt(parent, name);
+    else posixBinding().mkdirAt(parent, name);
   } catch (error) {
     nativeFailure(error);
   }
 }
 export function descriptorNames(fd: number, limit = DIRECTORY_CAP): string[] {
   try {
-    return binding().names(fd, limit).toSorted();
+    const names = onWindows() ? windowsBinding().names(fd, limit) : posixBinding().names(fd, limit);
+    return names.toSorted();
   } catch (error) {
     return nativeFailure(error);
   }
@@ -114,19 +163,57 @@ export function windowsDescriptorStats(statFd: (fd: number) => unknown): Descrip
   };
 }
 
+const windowsDefaultStats: DescriptorStatSource = windowsDescriptorStats((fd) =>
+  windowsBinding().statFd(fd),
+);
+function defaultStats(): DescriptorStatSource {
+  if (process.platform === "win32") return windowsDefaultStats;
+  return posixDescriptorStats;
+}
+
 /** Own a descriptor acquired by openat. Node's callback API accepts it directly.
  * The descriptor owns normal fd lifetime; the stat source only observes it.
  */
 export class Descriptor {
   readonly fd: number;
   private readonly statsSource: DescriptorStatSource;
-  constructor(fd: number, statsSource: DescriptorStatSource = posixDescriptorStats) {
+  constructor(fd: number, statsSource?: DescriptorStatSource) {
     this.fd = fd;
-    this.statsSource = statsSource;
+    this.statsSource = statsSource ?? defaultStats();
+  }
+  checkPrivate(owner: number): void {
+    try {
+      if (process.platform === "win32") {
+        windowsBinding().checkPrivateFd(this.fd);
+        return;
+      }
+      const info = this.statSync();
+      if (!info.isFile() || info.uid !== owner || info.nlink > 1 || (info.mode & 0o077) !== 0)
+        throw new Error("Refusing private descriptor: expected a regular file owned by the owner");
+      if (info.nlink === 0)
+        throw Object.assign(new Error("Private file was removed during read"), { code: "ENOENT" });
+    } catch (error) {
+      nativeFailure(error);
+    }
   }
   chmod(mode: number): void {
     try {
-      binding().chmodMetadata(this.fd, mode);
+      if (process.platform === "win32") {
+        if (mode !== 0o600)
+          throw Object.assign(
+            new Error(`Unsupported mode ${mode.toString(8)}: Windows private files use 0600`),
+            { code: "ENOTSUP" },
+          );
+        try {
+          windowsBinding().checkPrivateFd(this.fd);
+          return;
+        } catch (error) {
+          if (!(error instanceof Error && "code" in error && error.code === "EACCES")) throw error;
+        }
+        windowsBinding().securePrivateFd(this.fd);
+        return;
+      }
+      posixBinding().chmodMetadata(this.fd, mode);
     } catch (error) {
       nativeFailure(error);
     }
@@ -170,15 +257,16 @@ export class Descriptor {
 
 export function statAt(parent: number, name: string) {
   try {
-    return binding().statAt(parent, name);
-  } catch (error) {
-    return nativeFailure(error);
-  }
-}
-
-export function openRoot(path: string): Descriptor {
-  try {
-    return new Descriptor(binding().openRoot(path));
+    if (process.platform === "win32") {
+      const raw = windowsBinding().statAt(parent, name);
+      return {
+        identity: { kind: "win32" as const, vol: raw.vol, id: raw.id },
+        mode: raw.mode,
+        size: raw.size,
+        mtime: raw.mtimeMs,
+      };
+    }
+    return posixBinding().statAt(parent, name);
   } catch (error) {
     return nativeFailure(error);
   }
@@ -186,7 +274,11 @@ export function openRoot(path: string): Descriptor {
 
 export function pipeDescriptors() {
   try {
-    return binding().pipe();
+    if (process.platform === "win32")
+      throw Object.assign(new Error("pipeDescriptors is not supported on Windows"), {
+        code: "ENOTSUP",
+      });
+    return posixBinding().pipe();
   } catch (error) {
     return nativeFailure(error);
   }
@@ -194,7 +286,8 @@ export function pipeDescriptors() {
 
 export function unlinkAt(parent: number, name: string): void {
   try {
-    binding().unlinkAt(parent, name);
+    if (onWindows()) windowsBinding().unlinkAt(parent, name);
+    else posixBinding().unlinkAt(parent, name);
   } catch (error) {
     nativeFailure(error);
   }
@@ -202,14 +295,16 @@ export function unlinkAt(parent: number, name: string): void {
 /** Removes an empty child directory; a symlink of that name is never followed. */
 export function removeDirectoryAt(parent: number, name: string): void {
   try {
-    binding().removeDirectoryAt(parent, name);
+    if (onWindows()) windowsBinding().removeDirectoryAt(parent, name);
+    else posixBinding().removeDirectoryAt(parent, name);
   } catch (error) {
     nativeFailure(error);
   }
 }
 export function renameAt(parent: number, from: string, to: string): void {
   try {
-    binding().renameAt(parent, from, to);
+    if (onWindows()) windowsBinding().renameAt(parent, from, to);
+    else posixBinding().renameAt(parent, from, to);
   } catch (error) {
     nativeFailure(error);
   }

@@ -117,18 +117,11 @@ export class PinnedDirectory {
     const file = openFileAt(this.fd, name);
     try {
       const info = file.statSync();
-      if (
-        !info.isFile() ||
-        info.size > limit ||
-        (owner !== undefined && (info.uid !== owner || info.nlink > 1 || (info.mode & 0o077) !== 0))
-      )
+      if (!info.isFile() || info.size > limit)
         throw new Error(
           `Refusing ${name}: expected a bounded regular file owned by the home owner`,
         );
-      // The name can be unlinked after openat but before fstat. Never return
-      // removed private-file contents; report absence so lock contenders retry.
-      if (owner !== undefined && info.nlink === 0)
-        throw Object.assign(new Error(`${name} was removed during read`), { code: "ENOENT" });
+      if (owner !== undefined) file.checkPrivate(owner);
       const bytes = Buffer.alloc(limit + 1);
       let length = 0;
       while (length < bytes.length) {
@@ -163,7 +156,7 @@ export class PinnedDirectory {
     try {
       this.stage(fd, text);
       renameAt(this.fd, temporary, name);
-      fsyncSync(this.fd);
+      this.syncPublication();
     } finally {
       closeSync(fd);
       this.removeTemporary(temporary);
@@ -182,11 +175,18 @@ export class PinnedDirectory {
         if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
       }
       renameAt(this.fd, temporary, name);
-      fsyncSync(this.fd);
+      this.syncPublication();
     } finally {
       closeSync(fd);
       this.removeTemporary(temporary);
     }
+  }
+  private syncPublication(): void {
+    // Windows publication flushes the staged data handle before the relative
+    // rename. Directory fsync is a POSIX durability fence; it is not supported
+    // by these Windows directory handles. No power-loss guarantee is made for
+    // the Windows rename. See research/windows-workspace-backend.md.
+    if (process.platform !== "win32") fsyncSync(this.fd);
   }
   private removeTemporary(name: string): void {
     try {

@@ -3,6 +3,8 @@ import { watch, type FSWatcher } from "node:fs";
 import { lstat, open, realpath, stat, type FileHandle } from "node:fs/promises";
 import { posixStats, type IdentifiedStats } from "./file-identity.ts";
 import { Worker } from "node:worker_threads";
+import { windowsBinding } from "./descriptor-native.ts";
+import { createWindowsFilesystem } from "./windows-filesystem.ts";
 
 export interface WorkspaceFileSystem {
   realpath(path: string): Promise<string>;
@@ -10,18 +12,14 @@ export interface WorkspaceFileSystem {
   lstat(path: string): Promise<IdentifiedStats>;
   open(path: string, flags: number): Promise<FileHandle>;
 }
-function requirePosixIdentity(): void {
-  if (process.platform === "win32")
-    throw new Error("Windows path metadata requires native file identity integration");
-}
 export const filesystem: WorkspaceFileSystem = {
   realpath,
   async stat(path) {
-    requirePosixIdentity();
+    if (process.platform === "win32") return createWindowsFilesystem(windowsBinding()).stat(path);
     return posixStats(await stat(path, { bigint: true }));
   },
   async lstat(path) {
-    requirePosixIdentity();
+    if (process.platform === "win32") return createWindowsFilesystem(windowsBinding()).lstat(path);
     return posixStats(await lstat(path, { bigint: true }));
   },
   open,

@@ -1,12 +1,11 @@
-import { execFile } from "node:child_process";
 import { closeSync, openSync, readFileSync, writeSync } from "node:fs";
 import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { expect, test, type TestContext } from "vitest";
 import { z } from "zod";
+import { broadenParent } from "./windows-private-fixture.ts";
 
 const require = createRequire(import.meta.url);
 const Binding = z.object({
@@ -19,38 +18,11 @@ const Binding = z.object({
   checkPrivateAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
 });
 const win = test.runIf(process.platform === "win32");
-const runFile = promisify(execFile);
 
 async function fixture(onTestFinished: TestContext["onTestFinished"]) {
   const root = await mkdtemp(join(tmpdir(), "ace-private-create-"));
   onTestFinished(() => rm(root, { recursive: true, force: true }));
   return { root, core: Binding.parse(require("../dist/windows-core.node")) };
-}
-
-// Give Everyone inheritable read access, so ordinary creation is observably public.
-async function broadenParent(root: string) {
-  const script = [
-    "$ErrorActionPreference='Stop'",
-    "$p=$env:ACE_PRIVATE_PARENT",
-    "$a=[System.IO.Directory]::GetAccessControl($p)",
-    "$a.SetAccessRuleProtection($true,$false)",
-    "foreach($r in @($a.Access)){[void]$a.RemoveAccessRuleAll($r)}",
-    "$m=[System.Security.Principal.WindowsIdentity]::GetCurrent().User",
-    "$everyone=[System.Security.Principal.SecurityIdentifier]::new('S-1-1-0')",
-    "$inherit=[System.Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'",
-    "$owner=[System.Security.AccessControl.FileSystemAccessRule]::new($m,'FullControl',$inherit,'None','Allow')",
-    "$reader=[System.Security.AccessControl.FileSystemAccessRule]::new($everyone,'ReadAndExecute',$inherit,'None','Allow')",
-    "$a.AddAccessRule($owner)",
-    "$a.AddAccessRule($reader)",
-    "[System.IO.Directory]::SetAccessControl($p,$a)",
-  ].join(";");
-  const powershell = join(
-    process.env.SystemRoot ?? "C:\\Windows",
-    "System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-  );
-  await runFile(powershell, ["-NoProfile", "-NonInteractive", "-Command", script], {
-    env: { ...process.env, ACE_PRIVATE_PARENT: root },
-  });
 }
 
 win(

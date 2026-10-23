@@ -37,6 +37,7 @@ export default defineConfig({
       "packages/workspace/src/windows-private-metadata.process.test.ts",
       "packages/workspace/src/windows-descriptor-stat.process.test.ts",
       "packages/workspace/src/windows-filesystem.process.test.ts",
+      "packages/workspace/src/windows-workspace.process.test.ts",
       "packages/workspace/src/command-stdin.process.test.ts",
       "packages/workspace/src/rg-stdin.process.test.ts",
       "packages/provider-kit/src/windows-job.process.test.ts",

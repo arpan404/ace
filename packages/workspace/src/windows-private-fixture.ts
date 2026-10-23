@@ -57,3 +57,29 @@ export async function ensureOwner(target: string): Promise<void> {
     { env: { ...process.env, ACE_PRIVATE_TARGET: target } },
   );
 }
+
+// Give Everyone inheritable read access, so ordinary creation is observably public.
+export async function broadenParent(root: string) {
+  const script = [
+    "$ErrorActionPreference='Stop'",
+    "$p=$env:ACE_PRIVATE_PARENT",
+    "$a=[System.IO.Directory]::GetAccessControl($p)",
+    "$a.SetAccessRuleProtection($true,$false)",
+    "foreach($r in @($a.Access)){[void]$a.RemoveAccessRuleAll($r)}",
+    "$m=[System.Security.Principal.WindowsIdentity]::GetCurrent().User",
+    "$everyone=[System.Security.Principal.SecurityIdentifier]::new('S-1-1-0')",
+    "$inherit=[System.Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'",
+    "$owner=[System.Security.AccessControl.FileSystemAccessRule]::new($m,'FullControl',$inherit,'None','Allow')",
+    "$reader=[System.Security.AccessControl.FileSystemAccessRule]::new($everyone,'ReadAndExecute',$inherit,'None','Allow')",
+    "$a.AddAccessRule($owner)",
+    "$a.AddAccessRule($reader)",
+    "[System.IO.Directory]::SetAccessControl($p,$a)",
+  ].join(";");
+  const powershell = join(
+    process.env.SystemRoot ?? "C:\\Windows",
+    "System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+  );
+  await runFile(powershell, ["-NoProfile", "-NonInteractive", "-Command", script], {
+    env: { ...process.env, ACE_PRIVATE_PARENT: root },
+  });
+}
