@@ -5,6 +5,12 @@ import { pairedMachines } from "./machine-test-support.ts";
 
 const Delegated = z.object({ threadId: ThreadId });
 
+/**
+ * Two daemons talk over TLS and poll each other every 50ms; on a busy machine a step can take
+ * well over vitest's one-second default. The condition is the same, only the patience differs.
+ */
+const eventually = <T>(check: () => T | Promise<T>) => vi.waitFor(check, { timeout: 15_000 });
+
 /** A child delegated to the paired machine `studio`, its first turn still running there. */
 async function remoteChild(pair: Awaited<ReturnType<typeof pairedMachines>>) {
   await pair.source.call({ op: "machines" });
@@ -18,9 +24,9 @@ async function remoteChild(pair: Awaited<ReturnType<typeof pairedMachines>>) {
     project: "project",
   });
   const { threadId } = Delegated.parse(started.data);
-  await vi.waitFor(() => {
-    if (pair.target.daemon.store.getThread(threadId)?.status.state !== "working")
-      throw new Error("Not running yet");
+  await eventually(() => {
+    const status = pair.target.daemon.store.getThread(threadId)?.status;
+    if (status?.state !== "working") throw new Error(`Not running yet: ${JSON.stringify(status)}`);
   });
   return threadId;
 }
@@ -50,7 +56,7 @@ it("a parent messages its child on another machine and is told the message waits
   // A retried call is the same message, never a second one.
   await pair.source.call(message(child, "Also cover the retry path"));
   await pair.finish(child, "Fixed the test.");
-  await vi.waitFor(() => expect(received(pair, child)).toContain("Also cover the retry path"));
+  await eventually(() => expect(received(pair, child)).toContain("Also cover the retry path"));
   expect(received(pair, child).filter((text) => text === "Also cover the retry path")).toHaveLength(
     1,
   );
@@ -61,7 +67,7 @@ it("a restart sent to another machine stops the child's turn there and starts th
   const child = await remoteChild(pair);
   const sent = await pair.source.call(message(child, "Start over from main", "restart"));
   expect(sent).toMatchObject({ ok: true, data: { arrival: "starting" } });
-  await vi.waitFor(() => expect(received(pair, child).at(-1)).toBe("Start over from main"));
+  await eventually(() => expect(received(pair, child).at(-1)).toBe("Start over from main"));
 });
 
 it("a machine that now lets agents only read refuses the message and says why", async () => {
@@ -90,7 +96,7 @@ it("a message that fails on the other machine reaches the parent here and shows 
   pair.target.h.failNextSend("rejected", "queue");
   await pair.finish(child, "First pass done.");
   const parent = pair.source.caller.threadId;
-  await vi.waitFor(() =>
+  await eventually(() =>
     expect((pair.source.h.inputs.get(parent) ?? []).join("\n")).toContain("wasn't sent"),
   );
   const status = MonitorSnapshot.parse((await pair.source.call({ op: "agents.status" })).data);
@@ -105,16 +111,16 @@ it("a finished child on another machine messaged again reports its next result t
   const parent = pair.source.caller.threadId;
   const results = () => (pair.source.h.inputs.get(parent) ?? []).join("\n");
   await pair.finish(child, "First pass done.");
-  await vi.waitFor(() => expect(results()).toContain("First pass done."));
+  await eventually(() => expect(results()).toContain("First pass done."));
   expect(await pair.source.call(message(child, "Now the docs"))).toMatchObject({
     ok: true,
     data: { arrival: "starting" },
   });
   // Until it answers, the parent's tree reads working, never done.
   expect(pair.source.daemon.store.getThread(parent)?.status.state).not.toBe("done");
-  await vi.waitFor(() => expect(received(pair, child)).toContain("Now the docs"));
+  await eventually(() => expect(received(pair, child)).toContain("Now the docs"));
   await pair.finish(child, "Docs updated.");
-  await vi.waitFor(() => expect(results()).toContain("Docs updated."));
+  await eventually(() => expect(results()).toContain("Docs updated."));
 });
 
 it("a restart sent to another machine also stops what that child delegated there", async () => {
@@ -139,7 +145,7 @@ it("a restart sent to another machine also stops what that child delegated there
   await pair.target.daemon.engine?.flush();
   expect(pair.target.daemon.store.getThread(grandchild)?.status.state).toBe("working");
   await pair.source.call(message(child, "Start over from main", "restart"));
-  await vi.waitFor(() =>
+  await eventually(() =>
     expect(pair.target.daemon.store.getThread(grandchild)?.status.state).not.toBe("working"),
   );
   expect(delegations.journal.get(grandchild)?.phase).not.toBe("running");
@@ -154,10 +160,10 @@ it("a notice from the other machine clears once the parent sends its child a new
   const notice = async () =>
     MonitorSnapshot.parse((await pair.source.call({ op: "agents.status" })).data).children[0]
       ?.notice;
-  await vi.waitFor(async () => expect(await notice()).toContain("wasn't sent"));
+  await eventually(async () => expect(await notice()).toContain("wasn't sent"));
   await pair.source.call(message(child, "Never mind, use the old one", "queue"));
   // Read once the other machine has been polled again, not from the reopened placeholder.
-  await vi.waitFor(async () => {
+  await eventually(async () => {
     const [shown] = MonitorSnapshot.parse(
       (await pair.source.call({ op: "agents.status" })).data,
     ).children;
@@ -171,7 +177,7 @@ it("a message whose reply is lost keeps a finished child on another machine work
   const child = await remoteChild(pair);
   const parent = pair.source.caller.threadId;
   await pair.finish(child, "First pass done.");
-  await vi.waitFor(() =>
+  await eventually(() =>
     expect((pair.source.h.inputs.get(parent) ?? []).join("\n")).toContain("First pass done."),
   );
   const store = pair.target.daemon.store;
