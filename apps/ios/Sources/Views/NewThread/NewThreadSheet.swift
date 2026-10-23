@@ -93,7 +93,8 @@ struct NewThreadSheet: View {
         }
         .sheet(isPresented: $choosingModel) {
             if let client {
-                NewThreadModelSheet(compose: client.compose, drafts: drafts) { client.composeAction(["kind": "agents"]) }
+                NewThreadModelSheet(compose: client.compose, drafts: drafts, reload: { client.composeAction(["kind": "agents"]) },
+                                    star: { client.composeAction(["kind": "favorite", "key": $0]) })
             }
         }
     }

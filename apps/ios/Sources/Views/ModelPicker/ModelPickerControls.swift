@@ -1,47 +1,64 @@
 import SwiftUI
 
-/// One model: its name (and a muted line when there's more to say), and a check when it's the
-/// one chosen.
+/// One model: its name (and a muted line when there's more to say), a check when it's the one
+/// chosen, and a star that adds it to Favorites or takes it off.
 struct ModelChoiceRow: View {
-    let label: String
-    var detail: String? = nil
-    let chosen: Bool
-    var busy = false
+    let row: ModelPickerRow
+    /// The choose button's accessibility identifier.
+    let identifier: String
+    var enabled = true
     let choose: () -> Void
+    let star: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        Button(action: choose) {
-            HStack(spacing: AceTheme.Spacing.md) {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                    // One line per model keeps the list even; accessibility sizes wrap instead.
-                    Text(label).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-                        .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                    if let detail, !detail.isEmpty {
-                        Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+        HStack(spacing: AceTheme.Spacing.sm) {
+            Button(action: choose) {
+                HStack(spacing: AceTheme.Spacing.md) {
+                    VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                        // One line per model keeps the list even; accessibility sizes wrap instead.
+                        Text(row.label).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                            .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                        if let detail = row.detail, !detail.isEmpty {
+                            Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                                .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                        }
                     }
+                    Spacer(minLength: AceTheme.Spacing.sm)
+                    if row.chosen { Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(AceTheme.Colours.foreground) }
                 }
-                Spacer(minLength: AceTheme.Spacing.sm)
-                if busy { ProgressView() }
-                else if chosen { Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(AceTheme.Colours.foreground) }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .disabled(!enabled)
+            .accessibilityAddTraits(row.chosen ? .isSelected : [])
+            .accessibilityIdentifier(identifier)
+            Button(action: star) {
+                Image(systemName: row.starred ? "star.fill" : "star")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(row.starred ? AceTheme.Colours.foreground : AceTheme.Colours.decoration)
+                    .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(row.starred ? "Remove \(row.label) from favorites" : "Add \(row.label) to favorites")
+            .accessibilityIdentifier("star.\(row.label)")
+            .sensoryFeedback(.selection, trigger: row.starred)
         }
-        .buttonStyle(.plain)
+        .opacity(enabled ? 1 : 0.5)
         .listRowBackground(Color.clear)
-        .accessibilityAddTraits(chosen ? .isSelected : [])
-        .sensoryFeedback(.selection, trigger: chosen)
+        .listRowInsets(EdgeInsets(top: 0, leading: AceTheme.Spacing.xl, bottom: 0, trailing: AceTheme.Spacing.xs))
+        .sensoryFeedback(.selection, trigger: row.chosen)
     }
 }
 
-/// "Options" under the models: effort, speed and access for the chosen model, plain rows.
+/// "Options" under the models: effort, speed and access for the chosen model.
 struct ModelOptionsSection<Rows: View, Footer: View>: View {
     @ViewBuilder var rows: () -> Rows
     @ViewBuilder var footer: () -> Footer
     var body: some View {
         Section {
-            rows().listRowBackground(Color.clear)
+            rows().listRowBackground(Color.clear).listRowSeparator(.hidden)
         } header: { InsetHeader("Options") } footer: {
             footer().aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -50,37 +67,30 @@ struct ModelOptionsSection<Rows: View, Footer: View>: View {
     }
 }
 
-/// An option picked from a menu: "Effort … High ⌃⌄", "Access … Auto review ⌃⌄".
-struct ModelOptionMenu<Items: View>: View {
+/// One option as its choices in words: "Effort" over Low · Medium · High, "Speed" over
+/// Standard · Fast · Ultra. `note` says why it can't change now, or what the choice does.
+struct OptionChoiceRow: View {
     let title: String
-    let value: String
-    @ViewBuilder var items: () -> Items
+    let items: [GlassChoiceItem]
+    let selection: String?
+    var note: String? = nil
+    var disabled = false
+    let idPrefix: String
+    let select: (String) -> Void
+
     var body: some View {
-        Menu(content: items) {
-            InsetRow(systemImage: nil, title: title) {
-                HStack(spacing: AceTheme.Spacing.xs) {
-                    InsetValue(text: value)
-                    Image(systemName: "chevron.up.chevron.down").font(.caption.weight(.semibold))
-                        .foregroundStyle(AceTheme.Colours.decoration)
-                }
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+            Text(title).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+            GlassChoice(items: items, selection: selection, idPrefix: idPrefix, disabled: disabled, select: select)
+            if let note, !note.isEmpty {
+                Text(note).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title).accessibilityValue(value)
-    }
-}
-
-/// Fast mode: on runs the model's quickest tier, off its standard one. Shown only for models
-/// that offer exactly a standard and a faster tier; more tiers get a menu instead.
-struct FastModeRow: View {
-    let on: Bool
-    var reason: String? = nil
-    let set: (Bool) -> Void
-    var body: some View {
-        InsetRow(systemImage: nil, title: "Fast mode", subtitle: reason) {
-            Toggle("Fast mode", isOn: Binding(get: { on }, set: set)).labelsHidden()
-        }
-        .accessibilityElement(children: .combine)
-        .sensoryFeedback(.selection, trigger: on)
+        .padding(.vertical, AceTheme.Spacing.sm)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier(idPrefix)
     }
 }

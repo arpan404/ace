@@ -11,7 +11,7 @@ import { resetCountdown } from "./usage-limits.ts";
  * The native model picker's tabs, by the web picker's rules: Favorites, then one tab per account
  * that is set up (`pickerEntries`), each listing that account's models in the picker's order.
  * Favorites lists the starred models in the order they were starred, each once, on the account
- * in use where it can (`pickerList`).
+ * in use where it can (`pickerList`). A tab of an agent that can't start a thread says why.
  */
 
 export interface NewThreadTab {
@@ -50,7 +50,7 @@ export function newThreadTabs(
     },
     keep ? { provider: keep.provider, instance: input.current?.account } : undefined,
   );
-  const rows = new Map(agents.providers.map((row) => [row.provider, row.models]));
+  const rows = new Map(agents.providers.map((row) => [row.provider, row]));
   const starred = pickerList(picker.models, {
     query: "",
     favorites: input.favorites,
@@ -58,14 +58,17 @@ export function newThreadTabs(
   }).rows.flatMap((model) => (model.instance ? [{ key: model.key, account: model.instance }] : []));
   return entries.map((entry): NewThreadTab => {
     if (entry.id === "favorites") return tab(entry, starred, starred.length);
-    const own: NewThreadModelRow[] = (
-      entry.provider ? (rows.get(entry.provider) ?? []) : []
-    ).filter((model) => entry.instance === undefined || model.account === entry.instance);
+    const agent = entry.provider ? rows.get(entry.provider) : undefined;
+    const own: NewThreadModelRow[] = (agent?.models ?? []).filter(
+      (model) => entry.instance === undefined || model.account === entry.instance,
+    );
     const inUse =
       input.current && input.current.provider === entry.provider ? input.current : undefined;
     const list = newThreadModelList(own, inUse);
+    // An agent that can't start a thread (signed out, needs attention) says why on its tabs.
+    const reason = entry.reason ?? (agent && !agent.ready ? agent.reason : undefined);
     return tab(
-      entry,
+      { ...entry, reason },
       list.models.map((model) => ({ key: model.key, account: model.account })),
       list.lead,
     );

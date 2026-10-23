@@ -221,6 +221,25 @@ struct ModelOption: Codable, Sendable, Equatable, Identifiable {
     let current: Bool
 }
 
+/// The open thread's model sheet (`thread.models`): its provider's models, the one in use marked,
+/// the ids starred among them in the order they were starred, and why the last star didn't save.
+struct ThreadModels: Decodable, Sendable, Equatable {
+    var state = "idle"
+    var models: [ModelOption] = []
+    var favorites: [String] = []
+    var starProblem: String? = nil
+
+    init() {}
+    private enum Keys: String, CodingKey { case state, models, favorites, starProblem }
+    init(from decoder: any Decoder) throws {
+        let box = try decoder.container(keyedBy: Keys.self)
+        state = try box.decode(String.self, forKey: .state)
+        models = try box.decode([ModelOption].self, forKey: .models)
+        favorites = try box.decodeIfPresent([String].self, forKey: .favorites) ?? []
+        starProblem = try box.decodeIfPresent(String.self, forKey: .starProblem)
+    }
+}
+
 extension ApprovalRow {
     /// One of the three verbs, naming an offered option by its index in `options`.
     struct Decision: Codable, Sendable, Equatable {

@@ -9,15 +9,15 @@ enum ModelPickerState: Equatable {
 }
 
 /// The model sheet shared by a thread's composer and New thread: X on the left, a check on the
-/// right, a row of providers under the title when there is more than one to choose from, then the
-/// shown provider's models as plain rows under hairlines and the options for the chosen model
-/// below them. A provider that can't start a thread shows one line saying why instead of models.
+/// right, Favorites and one tab per account on a glass bar under the title, then the shown tab's
+/// models as plain rows under hairlines, each with a star, and the options for the chosen model
+/// below them. A tab that can't take work says why in one line above its models.
 struct ModelPicker<Options: View>: View {
     @Binding var query: String
-    var providers: [ModelPickerProvider] = []
+    let tabs: [ModelPickerTab]
     @Binding var shown: String
     let state: ModelPickerState
-    let groups: [ModelPickerGroup]
+    let rows: [ModelPickerRow]
     /// Models waiting behind "More models"; `toggleMore` opens and closes them.
     var hidden = 0
     var expanded = false
@@ -25,17 +25,20 @@ struct ModelPicker<Options: View>: View {
     /// Accessibility identifiers: "<prefix>.<label>" for a model, "<prefix>.more" for More models.
     let rowPrefix: String
     var morePrefix = ""
+    /// Why the last star didn't save.
+    var starProblem: String? = nil
     var retry: () -> Void = {}
     var confirming = false
     /// Puts back what the sheet changed as it went, when X closes it.
     var cancel: () -> Void = {}
     let confirm: () -> Void
     let choose: (ModelPickerRow) -> Void
+    let star: (ModelPickerRow) -> Void
     @ViewBuilder var options: () -> Options
     @Environment(\.dismiss) private var dismiss
 
-    private var provider: ModelPickerProvider? { providers.first { $0.id == shown } }
-    private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
+    private var tab: ModelPickerTab? { tabs.first { $0.id == shown } }
+    private var searching: Bool { ModelSearch.active(query) }
 
     var body: some View {
         NavigationStack {
@@ -50,7 +53,7 @@ struct ModelPicker<Options: View>: View {
             .searchBarEdge()
             .searchable(text: $query, prompt: "Find a model")
             .navigationTitle("Model").navigationBarTitleDisplayMode(.inline)
-            .inboxTopBar { if providers.count > 1 { ProviderStrip(providers: providers, shown: $shown) } }
+            .inboxTopBar { if tabs.count > 1 && !searching { tabBar } }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button { cancel(); dismiss() } label: { Image(systemName: "xmark") }
@@ -64,6 +67,17 @@ struct ModelPicker<Options: View>: View {
         .presentationDetents([.large]).presentationDragIndicator(.visible)
     }
 
+    private var tabBar: some View {
+        GlassChoice(items: tabs.map(item), selection: shown, idPrefix: "tab") { shown = $0 }
+            .padding(.horizontal, AceTheme.Spacing.lg)
+            .padding(.top, AceTheme.Spacing.xs)
+            .padding(.bottom, AceTheme.Spacing.sm)
+    }
+    private func item(_ tab: ModelPickerTab) -> GlassChoiceItem {
+        GlassChoiceItem(id: tab.id, label: tab.name,
+                        glyph: tab.provider.map { .provider($0, quiet: tab.note != nil) } ?? .symbol("star"))
+    }
+
     @ViewBuilder private var content: some View {
         switch state {
         case .loading:
@@ -74,24 +88,24 @@ struct ModelPicker<Options: View>: View {
             } description: { Text(message) } actions: { Button("Try again", action: retry) }
             .listRowSeparator(.hidden)
         case .ready:
-            if let note = provider?.note {
-                PickerNote(text: note).accessibilityIdentifier("agent.\(shown).reason")
-            } else if groups.isEmpty {
+            if let starProblem { PickerNote(text: starProblem).accessibilityIdentifier("modelSheet.starProblem") }
+            if !searching, let note = tab?.note {
+                PickerNote(text: note).accessibilityIdentifier("tab.\(shown).reason")
+            }
+            if rows.isEmpty {
                 if searching { ContentUnavailableView.search(text: query).listRowSeparator(.hidden) }
-                else { PickerNote(text: "No models listed. Check this account on your computer.") }
+                else if shown == ModelPickerTab.favorites {
+                    PickerNote(text: "Star a model to keep it here.").accessibilityIdentifier("favorites.empty")
+                } else if tab?.note == nil { PickerNote(text: "No models on this account.") }
             } else {
-                ForEach(groups) { group in
-                    Section {
-                        ForEach(group.rows) { row in
-                            ModelChoiceRow(label: row.label, detail: row.detail, chosen: row.chosen) { choose(row) }
-                                .accessibilityIdentifier("\(rowPrefix).\(row.label)")
-                        }
-                    } header: {
-                        if let title = group.title { PickerHeading(title: title, value: group.value) }
+                Section {
+                    ForEach(rows) { row in
+                        ModelChoiceRow(row: row, identifier: "\(rowPrefix).\(row.label)", enabled: searching || tab?.note == nil,
+                                       choose: { choose(row) }, star: { star(row) })
                     }
-                    .listSectionSeparator(group.title == nil ? .hidden : .automatic, edges: .top)
+                    if hidden > 0 || expanded { moreRow }
                 }
-                if hidden > 0 || expanded { moreRow }
+                .listSectionSeparator(.hidden, edges: .top)
             }
         }
     }
@@ -125,61 +139,7 @@ struct ModelPicker<Options: View>: View {
     }
 }
 
-/// The providers in words with their marks; the shown one sits on the quiet fill.
-private struct ProviderStrip: View {
-    let providers: [ModelPickerProvider]
-    @Binding var shown: String
-
-    var body: some View {
-        ScrollViewReader { scroller in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: AceTheme.Spacing.xs) {
-                    ForEach(providers) { provider in chip(provider).id(provider.id) }
-                }
-                .padding(.horizontal, AceTheme.Spacing.md)
-                .padding(.vertical, AceTheme.Spacing.xs)
-            }
-            .onAppear { scroller.scrollTo(shown, anchor: .center) }
-            .onChange(of: shown) { _, id in withAnimation(.easeOut(duration: 0.2)) { scroller.scrollTo(id, anchor: .center) } }
-        }
-    }
-
-    private func chip(_ provider: ModelPickerProvider) -> some View {
-        let on = provider.id == shown
-        return Button { shown = provider.id } label: {
-            HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
-                ProviderMark(provider: provider.id, size: 16, quiet: provider.note != nil)
-                Text(provider.name).lineLimit(1)
-            }
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-            .foregroundStyle(on ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
-            .padding(.horizontal, AceTheme.Spacing.md)
-            .frame(minHeight: 36)
-            .background(on ? AceTheme.Colours.fill : Color.clear, in: AceShape.capsule)
-            .contentShape(AceShape.capsule)
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(on ? .isSelected : [])
-        .accessibilityIdentifier("provider.\(provider.id)")
-        .sensoryFeedback(.selection, trigger: on)
-    }
-}
-
-/// An account's name over its models, with its usage on the right.
-private struct PickerHeading: View {
-    let title: String
-    let value: String?
-    var body: some View {
-        HStack {
-            InsetHeader(title)
-            Spacer()
-            if let value { Text(value).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground) }
-        }
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// One plain muted line in place of a list.
+/// One plain muted line in place of, or above, a list.
 private struct PickerNote: View {
     let text: String
     var body: some View {

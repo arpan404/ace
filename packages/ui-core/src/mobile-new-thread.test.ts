@@ -8,6 +8,7 @@ import {
   selectNewThreadAgent,
   type NewThreadModelRow,
 } from "./mobile-new-thread.ts";
+import { newThreadTabs } from "./mobile-new-thread-tabs.ts";
 
 const row = (provider: ProviderKind, fields: Partial<ProviderStatus> = {}): ProviderStatus => ({
   provider,
@@ -84,6 +85,22 @@ test("the picker leaves out a CLI that isn't on the computer unless the draft na
     "codex",
     "antigravity",
   ]);
+});
+
+test("the picker opens with Favorites, then a tab per account, and an agent that can't start says why", () => {
+  const tabs = newThreadTabs(agents(), { favorites: [], current: undefined });
+  expect(tabs[0]).toMatchObject({ id: "favorites", models: [] });
+  const claude = tabs.find((tab) => tab.provider === "claude");
+  expect(claude?.reason).toBeUndefined();
+  expect(claude?.models.length).toBe(2);
+  expect(tabs.find((tab) => tab.provider === "codex")?.reason).toBe(
+    "Signed out. Sign in on your computer.",
+  );
+  const starred = newThreadTabs(agents(), {
+    favorites: [claude?.models[1]?.key ?? ""],
+    current: undefined,
+  });
+  expect(starred[0]?.models).toEqual([claude?.models[1]]);
 });
 
 test("choosing an unready agent is refused with its reason instead of starting elsewhere", () => {

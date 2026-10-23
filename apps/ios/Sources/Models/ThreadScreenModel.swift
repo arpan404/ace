@@ -17,8 +17,9 @@ import Observation
     var controls: ControlsRow?
     var hasOlder = false
     var loadingOlder = false
-    var modelsState = "idle"
-    var models: [ModelOption] = []
+    var modelList = ThreadModels()
+    var modelsState: String { modelList.state }
+    var models: [ModelOption] { modelList.models }
     /// Follow-ups waiting in the daemon's queue, outside the transcript until delivered.
     var queue: QueueRow?
     /// Stop was pressed; cleared when the tree stops working, or when this Stop's own request
@@ -64,8 +65,7 @@ import Observation
         steps = [:]
         lane = nil
         attachments = []
-        modelsState = "idle"
-        models = []
+        modelList = ThreadModels()
         stopping = false
         stopRequest = nil
     }
@@ -92,9 +92,8 @@ import Observation
             loadingOlder = loading
         case .queue(_, _, let row):
             queue = row
-        case .models(_, _, let state, let list):
-            modelsState = state
-            models = list
+        case .models(_, _, let list):
+            modelList = list
         default: break
         }
     }
@@ -117,7 +116,7 @@ extension BridgePatch {
     var screenScope: (thread: String, epoch: Int)? {
         switch self {
         case .block(let id, let epoch, _, _), .blockPosition(let id, let epoch, _, _): (id, epoch)
-        case .controls(let id, let epoch, _), .history(let id, let epoch, _, _), .models(let id, let epoch, _, _), .queue(let id, let epoch, _): (id, epoch)
+        case .controls(let id, let epoch, _), .history(let id, let epoch, _, _), .models(let id, let epoch, _), .queue(let id, let epoch, _): (id, epoch)
         default: nil
         }
     }

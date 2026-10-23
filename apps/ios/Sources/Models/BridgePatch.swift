@@ -202,7 +202,7 @@ enum BridgePatch: Decodable, Sendable {
     case blockPosition(String, Int, String, Int?)
     case controls(String, Int, ControlsRow?)
     case history(String, Int, Bool, Bool)
-    case models(String, Int, String, [ModelOption])
+    case models(String, Int, ThreadModels)
     case queue(String, Int, QueueRow)
     case inboxSections(InboxLayout)
     case problem(ProblemNotice?)
@@ -283,7 +283,7 @@ enum BridgePatch: Decodable, Sendable {
         case "thread.queue": let (id, epoch) = try scope(); self = .queue(id, epoch, try QueueRow(from: decoder))
         case "thread.models":
             let (id, epoch) = try scope()
-            self = .models(id, epoch, try box.decode(String.self, forKey: .state), try box.decode([ModelOption].self, forKey: .models))
+            self = .models(id, epoch, try ThreadModels(from: decoder))
         case "inbox.sections": self = .inboxSections(try InboxLayout(from: decoder))
         case "connection.problem": self = .problem(try box.decodeIfPresent(ProblemNotice.self, forKey: .problem))
         case "machine.status": self = .machineStatus(try MachineStatusInfo(from: decoder))

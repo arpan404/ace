@@ -29,6 +29,33 @@ struct ComposeAgent: Codable, Sendable, Identifiable, Equatable {
     var leading: ArraySlice<Model> { models.prefix(lead ?? models.count) }
     var more: ArraySlice<Model> { models.dropFirst(lead ?? models.count) }
 }
+/// One tab of the model picker, by the web's rules (`newThreadTabs` in `@ace/ui-core/mobile`):
+/// Favorites, or one account of one provider with its models in the picker's order.
+struct ComposeTab: Codable, Sendable, Identifiable, Equatable {
+    struct Ref: Codable, Sendable, Hashable { let key: String; let account: String }
+    let id: String
+    /// Nil for Favorites.
+    let provider: String?
+    /// "Codex", or "Codex · Work" when the provider has several accounts.
+    let name: String
+    /// Why it can't take work now (at its limit); nil when it can.
+    let reason: String?
+    let models: [Ref]
+    /// How many show before "More models".
+    let lead: Int
+    var favorites: Bool { id == "favorites" }
+}
+/// What `compose.agents` carries: the agents, the picker's tabs and the stars.
+struct ComposeAgentsRead: Sendable, Equatable {
+    var state = "idle"
+    var agents: [ComposeAgent] = []
+    var start: ComposeChoice?
+    var tabs: [ComposeTab] = []
+    /// Starred models as picker keys (`modelKey`), in the order they were starred.
+    var favorites: [String] = []
+    /// Why the last star didn't save.
+    var starProblem: String?
+}
 /// One access mode the chosen agent supports, worded by the shared rules.
 struct ComposeAccessChoice: Codable, Sendable, Identifiable, Equatable {
     let mode: String; let label: String; let description: String; let attention: Bool
@@ -66,7 +93,7 @@ struct ComposeClone: Decodable, Sendable { let id: String; let label: String; le
 /// `compose.*` patches from `bridge/new-thread.ts` and `bridge/compose-search.ts`.
 enum ComposePatch: Decodable, Sendable {
     case projects(state: String, [ComposeProject])
-    case agents(state: String, [ComposeAgent], start: ComposeChoice?)
+    case agents(ComposeAgentsRead)
     case branches(workspaceId: String, state: String, [ComposeBase], start: ComposeBaseRef?, noWorktree: String?)
     case mentions(workspaceId: String, query: String, state: String, [String])
     case folders(query: String, state: String, [ComposeFolder])
@@ -77,7 +104,7 @@ enum ComposePatch: Decodable, Sendable {
     case attachments(workspaceId: String, [AttachmentFile], blocked: String?)
 
     private enum Keys: String, CodingKey {
-        case type, state, projects, providers, start, workspaceId, bases, noWorktree, query, paths, folders, id, ok, threadId, projectId, message
+        case type, state, projects, providers, start, tabs, favorites, starProblem, workspaceId, bases, noWorktree, query, paths, folders, id, ok, threadId, projectId, message
         case files, blocked
     }
     init(from decoder: any Decoder) throws {
@@ -87,8 +114,12 @@ enum ComposePatch: Decodable, Sendable {
         case "compose.clone": self = .clone(try ComposeClone(from: decoder))
         case "compose.projects": self = .projects(state: try state(), try box.decode([ComposeProject].self, forKey: .projects))
         case "compose.agents":
-            self = .agents(state: try state(), try box.decode([ComposeAgent].self, forKey: .providers),
-                           start: try box.decodeIfPresent(ComposeChoice.self, forKey: .start))
+            self = .agents(ComposeAgentsRead(
+                state: try state(), agents: try box.decode([ComposeAgent].self, forKey: .providers),
+                start: try box.decodeIfPresent(ComposeChoice.self, forKey: .start),
+                tabs: try box.decodeIfPresent([ComposeTab].self, forKey: .tabs) ?? [],
+                favorites: try box.decodeIfPresent([String].self, forKey: .favorites) ?? [],
+                starProblem: try box.decodeIfPresent(String.self, forKey: .starProblem)))
         case "compose.branches":
             self = .branches(workspaceId: try box.decode(String.self, forKey: .workspaceId), state: try state(),
                              try box.decode([ComposeBase].self, forKey: .bases),
@@ -120,9 +151,10 @@ enum ComposePatch: Decodable, Sendable {
 @MainActor @Observable final class ComposeModel {
     var projectsState = "idle"
     var projects: [ComposeProject] = []
-    var agentsState = "idle"
-    var agents: [ComposeAgent] = []
-    var start: ComposeChoice?
+    var agentsRead = ComposeAgentsRead()
+    var agentsState: String { agentsRead.state }
+    var agents: [ComposeAgent] { agentsRead.agents }
+    var start: ComposeChoice? { agentsRead.start }
     var branches: (workspaceId: String, state: String, bases: [ComposeBase], start: ComposeBaseRef?, noWorktree: String?)?
     var mentions: (workspaceId: String, query: String, state: String, paths: [String])?
     var folders: (query: String, state: String, folders: [ComposeFolder])?
@@ -139,7 +171,7 @@ enum ComposePatch: Decodable, Sendable {
         switch patch {
         case .clone(let progress): clone = progress
         case .projects(let state, let rows): projectsState = state; projects = rows
-        case .agents(let state, let rows, let choice): agentsState = state; agents = rows; start = choice
+        case .agents(let read): agentsRead = read
         case .branches(let workspaceId, let state, let bases, let start, let noWorktree):
             branches = (workspaceId, state, bases, start, noWorktree)
         case .mentions(let workspaceId, let query, let state, let paths): mentions = (workspaceId, query, state, paths)
@@ -151,7 +183,7 @@ enum ComposePatch: Decodable, Sendable {
         }
     }
     func reset() {
-        projectsState = "idle"; projects = []; agentsState = "idle"; agents = []; start = nil
+        projectsState = "idle"; projects = []; agentsRead = ComposeAgentsRead()
         branches = nil; mentions = nil; folders = nil; started = [:]; added = [:]; access = nil; attachments = nil; clone = nil
     }
 }

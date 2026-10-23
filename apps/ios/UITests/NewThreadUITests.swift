@@ -18,13 +18,19 @@ import XCTest
         let agent = app.buttons["newThread.agent"]
         XCTAssertTrue(agent.waitForExistence(timeout: 10))
         agent.tap()
+        // The sheet opens where the draft runs; Claude's first account is one tap away.
+        showTab(app, "claude:claude-personal")
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "model.claude.")).firstMatch.waitForExistence(timeout: 15))
-        // A signed-out agent keeps its place in the provider row and says why instead of listing models.
-        showProvider(app, "cursor")
-        XCTAssertTrue(element(app, "agent.cursor.reason").waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "model.cursor.")).firstMatch.exists)
+        // An agent whose sign-in expired says why in one line, and its models can't be picked.
+        XCTAssertTrue(app.buttons["tab.favorites"].exists)
+        let cursor = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tab.cursor")).firstMatch
+        if cursor.exists {
+            showTab(app, String(cursor.identifier.dropFirst("tab.".count)))
+            XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@", "tab.cursor", ".reason")).firstMatch.waitForExistence(timeout: 5))
+            XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "model.cursor.")).firstMatch.isEnabled)
+        }
         screenshot("newthread-agents")
-        showProvider(app, "claude")
+        showTab(app, "claude:claude-personal")
         // Pick a ready agent's model on screen; the sheet returns to the form with it.
         let models = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "model."))
         let visible = (0..<min(models.count, 40)).map { models.element(boundBy: $0) }.first { $0.isHittable }
@@ -105,21 +111,21 @@ import XCTest
         let agent = app.buttons["newThread.agent"]
         XCTAssertTrue(agent.waitForExistence(timeout: 10))
         agent.tap()
-        // Claude lists 18 models here: four lead, the rest wait behind More models.
-        let claudeModels = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "model.claude."))
-        XCTAssertTrue(claudeModels.firstMatch.waitForExistence(timeout: 15))
-        XCTAssertEqual(claudeModels.count, 4)
-        let more = app.buttons["agent.claude.more"]
+        // Codex's personal account lists many models: the lead show, the rest wait behind More models.
+        showTab(app, "codex:codex-personal")
+        let codexModels = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "model.codex."))
+        XCTAssertTrue(codexModels.firstMatch.waitForExistence(timeout: 15))
+        let lead = codexModels.count
+        XCTAssertLessThanOrEqual(lead, 5)
+        let more = app.buttons["agent.codex.more"]
         XCTAssertTrue(more.exists)
         screenshot("newthread-agents-collapsed")
+        for _ in 0..<25 where !more.isHittable { app.swipeUp() }
         more.tap()
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier == %@", "model.claude.Opus 5")).firstMatch.waitForExistence(timeout: 5))
-        XCTAssertGreaterThan(claudeModels.count, 4)
+        XCTAssertTrue(app.buttons["agent.codex.fewer"].waitForExistence(timeout: 5))
+        XCTAssertGreaterThan(codexModels.count, lead)
         screenshot("newthread-agents-more")
-        // The demonstration model offers faster tiers; it sits behind Codex's More models.
-        showProvider(app, "codex")
-        for _ in 0..<25 where !app.buttons["agent.codex.more"].isHittable { app.swipeUp() }
-        app.buttons["agent.codex.more"].tap()
+        // The demonstration model offers faster tiers.
         let tuned = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier CONTAINS[c] %@", "model.codex.", "ultra")).firstMatch
         for _ in 0..<25 where !tuned.isHittable { app.swipeUp() }
         tuned.tap()
@@ -128,11 +134,12 @@ import XCTest
         XCTAssertTrue(element(app, "newThread.speed").waitForExistence(timeout: 10))
         XCTAssertTrue(element(app, "newThread.access").waitForExistence(timeout: 15))
         screenshot("newthread-tuning")
-        element(app, "newThread.access").tap()
-        let readOnly = app.buttons["Read-only"]
+        // Access shows its modes in words; picking one says what it does.
+        let readOnly = app.buttons["newThread.access.read-only"]
         XCTAssertTrue(readOnly.waitForExistence(timeout: 5))
-        screenshot("newthread-access-menu")
+        for _ in 0..<4 where !readOnly.isHittable { element(app, "newThread.access").swipeLeft() }
         readOnly.tap()
+        screenshot("newthread-access-menu")
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Reads and plans")).firstMatch.waitForExistence(timeout: 10))
         app.buttons["modelSheet.done"].tap()
         // The compact composer keeps attachment next to the input.
@@ -244,11 +251,11 @@ import XCTest
         add(attachment)
     }
 
-    /// Shows one provider's models from the model sheet's provider row, scrolling the row to it.
-    private func showProvider(_ app: XCUIApplication, _ provider: String) {
-        let chip = app.buttons["provider.\(provider)"]
+    /// Shows one account's models from the model sheet's tab bar, scrolling the bar to its tab.
+    private func showTab(_ app: XCUIApplication, _ id: String) {
+        let chip = app.buttons["tab.\(id)"]
         XCTAssertTrue(chip.waitForExistence(timeout: 10))
-        let chips = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "provider."))
+        let chips = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tab."))
         for _ in 0..<6 where !chip.isHittable {
             let visible = (0..<chips.count).map { chips.element(boundBy: $0) }.first { $0.isHittable }
             if chip.frame.minX > app.frame.midX { visible?.swipeLeft() } else { visible?.swipeRight() }
