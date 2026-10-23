@@ -100,8 +100,10 @@ opened descriptor is private.
 checks the returned data descriptor before returning it. The owner is the current
 TokenUser SID, with exactly one zero-flag owner allow ACE. Four new fixtures cover
 public inheritance, collisions without ACL repair, replaced ancestors and invalid
-names/descriptors. Source checks pass and the fixtures skip on macOS; native x64
-and ARM64 compilation/execution remain pending.
+names/descriptors. Source checks pass and the fixtures skip on macOS.
+[Run 39986601606](https://github.com/arpan404/ace/actions/runs/39986601606), pinned
+to `3f2e415b4`, passes MSVC compilation and 19 files / 150 tests on each native
+architecture, including all four private-creation cases.
 
 Generic `createFileAt` still uses inherited security. Production private writers
 must select the private operation, then use that verified descriptor. Creating a

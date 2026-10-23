@@ -342,9 +342,11 @@ passed to exclusive `NtCreateFile`, then the returned data descriptor is checked
 before it is returned. Existing names are refused without changing their ACLs.
 The shared handle-to-fd bridge keeps allocation and cleanup in Node's libuv.
 Four new fixtures cover public parent inheritance, collisions, pinned ancestor
-replacement and invalid names/descriptors. They skip on macOS; native x64 and
-ARM64 compilation and execution are pending. Production reader/writer
-integration and Windows identity mapping remain required.
+replacement and invalid names/descriptors. They skip on macOS.
+[Run 39986601606](https://github.com/arpan404/ace/actions/runs/39986601606), pinned
+to `3f2e415b4`, passes native MSVC compilation and 19 files / 150 tests on each
+of x64 and ARM64, including all four new private-creation cases. Production
+reader/writer integration and Windows identity mapping remain required.
 
 The two-worker full gate finished with 2,764 files passed, 38 failed and 26
 skipped; 17,005 tests passed and 59 failed, plus one unhandled error. It exited 1
