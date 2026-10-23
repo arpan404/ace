@@ -40,6 +40,6 @@ test.runIf(process.platform === "win32")(
     const bytes = await readFile(file);
     await rm(file);
     await writeFile(file, bytes);
-    expect(builtinSkillRootUnused(root)).toBe(false);
+    expect(() => builtinSkillRootUnused(root)).toThrow(expect.objectContaining({ code: "EACCES" }));
   },
 );
