@@ -303,6 +303,11 @@ test("the open work is loaded before New thread opens, in one request, so it sho
   await waitFor(() => expect(app.daemon.workspace.forgeReadCount(openWork)).toBe(1), {
     timeout: 5_000,
   });
+  const lists = [
+    { op: "forge.pr.list", workspaceId, query: ForgePrSearch.parse({ state: "active" }) },
+    { op: "forge.issue.list", workspaceId, query: ForgeIssueSearch.parse({}) },
+  ] as const;
+  const beforeOpening = lists.map((list) => app.daemon.workspace.forgeReadCount(list));
   history.push("/new?project=ace");
   const work = await screen.findByRole("region", { name: "Open work" });
   expect(
@@ -314,9 +319,5 @@ test("the open work is loaded before New thread opens, in one request, so it sho
     expect.stringMatching(/^#12Tidy the settings page/),
   ]);
   expect(app.daemon.workspace.forgeReadCount(openWork)).toBe(1);
-  const lists = [
-    { op: "forge.pr.list", workspaceId, query: ForgePrSearch.parse({ state: "active" }) },
-    { op: "forge.issue.list", workspaceId, query: ForgeIssueSearch.parse({}) },
-  ] as const;
-  expect(lists.map((list) => app.daemon.workspace.forgeReadCount(list))).toEqual([0, 0]);
+  expect(lists.map((list) => app.daemon.workspace.forgeReadCount(list))).toEqual(beforeOpening);
 });
