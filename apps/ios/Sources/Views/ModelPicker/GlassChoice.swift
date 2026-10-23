@@ -31,7 +31,7 @@ struct GlassChoice: View {
                 .padding(AceTheme.Spacing.xxs + 1)
             }
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-            .aceGlass(in: AceShape.capsule, interactive: !disabled)
+            .modifier(GlassTrack(interactive: !disabled))
             .clipShape(AceShape.capsule)
             .opacity(disabled ? AceTheme.Opacity.disabled(scheme) : 1)
             .onAppear { if let selection { scroller.scrollTo(selection, anchor: .center) } }
@@ -75,5 +75,19 @@ struct GlassChoice: View {
         .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
         .accessibilityIdentifier("\(idPrefix).\(item.id)")
         .sensoryFeedback(.selection, trigger: on)
+    }
+}
+
+/// The choice's capsule. On iOS 26 it is system glass over the quiet fill, so the track still
+/// shows on a plain sheet and the lifted thumb reads on it; iOS 18 gets the regular material.
+private struct GlassTrack: ViewModifier {
+    let interactive: Bool
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            content.background(AceTheme.Colours.fill, in: AceShape.capsule)
+                .glassEffect(.regular.interactive(interactive), in: AceShape.capsule)
+        } else {
+            content.aceGlass(in: AceShape.capsule, interactive: interactive)
+        }
     }
 }
