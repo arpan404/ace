@@ -61,8 +61,9 @@ struct ComposerView<Top: View, Leading: View, Trailing: View>: View {
         .onChange(of: scenePhase) { _, phase in if phase != .active { draft.flush() } }
         .onDisappear { draft.flush() }
     }
-    private var leadingControl: some View { leading().matchedGeometryEffect(id: "leading", in: controlsSpace) }
-    private var trailingControl: some View { trailing().matchedGeometryEffect(id: "trailing", in: controlsSpace) }
+    // Names (the access mode's) show only when the controls have their own row under the words.
+    private var leadingControl: some View { leading().environment(\.composerRoomy, card).matchedGeometryEffect(id: "leading", in: controlsSpace) }
+    private var trailingControl: some View { trailing().environment(\.composerRoomy, card).matchedGeometryEffect(id: "trailing", in: controlsSpace) }
     private var actionControl: some View { action.matchedGeometryEffect(id: "action", in: controlsSpace) }
     private var input: some View {
         NativeTextInput(text: $draft.text, inputBegan: inputBegan, submit: { if !disabled && !stops { submit(alternate: false) } },

@@ -52,21 +52,6 @@ struct ModelChoiceRow: View {
     }
 }
 
-/// "Options" under the models: effort, speed and access for the chosen model.
-struct ModelOptionsSection<Rows: View, Footer: View>: View {
-    @ViewBuilder var rows: () -> Rows
-    @ViewBuilder var footer: () -> Footer
-    var body: some View {
-        Section {
-            rows().listRowBackground(Color.clear).listRowSeparator(.hidden)
-        } header: { InsetHeader("Options") } footer: {
-            footer().aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-        }
-        .listSectionSeparator(.hidden, edges: .bottom)
-    }
-}
-
 /// One option as its choices in words: "Effort" over Low · Medium · High, "Speed" over
 /// Standard · Fast · Ultra. `note` says why it can't change now, or what the choice does.
 struct OptionChoiceRow: View {

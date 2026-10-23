@@ -12,6 +12,7 @@ struct ThreadView: View {
     @State private var acceptedSend = 0
     @State private var attachProblem: String?
     @State private var showModels = false
+    @State private var showTune = false
     @State private var lane: BlockRow.Agents.Entry?
     @State private var showFiles = false
     @State private var media: TranscriptRow?
@@ -114,6 +115,9 @@ struct ThreadView: View {
             .sheet(isPresented: $showModels) {
                 ModelPickerSheet(model: model, screen: screen)
             }
+            .sheet(isPresented: $showTune) {
+                if let tune = screen.tune { ThreadTunePanel(tune: tune, model: model) }
+            }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
             .sheet(isPresented: $showGoal) {
                 if let goal = screen.goal {
@@ -186,10 +190,13 @@ struct ThreadView: View {
                                  draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) }) {
                         ComposerAccessories(model: model, screen: screen, problem: attachProblem)
                     } leading: {
-                        AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        HStack(spacing: AceTheme.Spacing.none) {
+                            AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
+                                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                            ThreadAccessChip(access: screen.access) { mode in Task { _ = await model.setAccess(mode) } }
+                        }
                     } trailing: {
-                        ComposerModelButton(screen: screen, open: { showModels = true })
+                        ComposerModelButton(screen: screen, open: { showModels = true }, openTune: { showTune = true })
                     }
                 } else {
                     ViewOnlyNote.thread

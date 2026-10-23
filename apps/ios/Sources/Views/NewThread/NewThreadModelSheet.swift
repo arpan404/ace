@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// New thread's model sheet: Favorites and one tab per account on a glass bar, the shown tab's
-/// models below with stars, then effort, speed and access for the first turn. It opens on
+/// New thread's model sheet, models only: Favorites and one tab per account on a glass bar and the
+/// shown tab's models below with stars. Effort, speed and access live in the composer. It opens on
 /// Favorites when the person has starred any model, else on the account the draft runs on, with
 /// its model checked wherever it shows. The tabs follow the web's rules (`newThreadTabs` in
 /// `@ace/ui-core/mobile`): a CLI that isn't installed or signed in has no tab, and an account at
@@ -50,10 +50,7 @@ struct NewThreadModelSheet: View {
             rowPrefix: "model.\(providerOf(tab))", morePrefix: "agent.\(providerOf(tab))",
             starProblem: read.starProblem, retry: reload, cancel: restore, confirm: { dismiss() },
             choose: pick, star: { star($0.key) }
-        ) {
-            // The options belong to the chosen model, whichever tab shows.
-            NewThreadOptions(compose: compose, drafts: drafts, choice: choice)
-        }
+        )
         .onAppear { if snapshot == nil { snapshot = .init(draft) } }
         // Where it opens is decided once the tabs arrive, so a new star never moves the sheet.
         .task(id: compose.agentsState) { if shown == nil, compose.agentsState == "ready", !tabs.isEmpty { shown = tab } }

@@ -8,11 +8,11 @@ enum ModelPickerState: Equatable {
     case failed(title: String, message: String)
 }
 
-/// The model sheet shared by a thread's composer and New thread: X on the left, a check on the
-/// right, Favorites and one tab per account on a glass bar under the title, then the shown tab's
-/// models as plain rows under hairlines, each with a star, and the options for the chosen model
-/// below them. A tab that can't take work says why in one line above its models.
-struct ModelPicker<Options: View>: View {
+/// The model sheet shared by a thread's composer and New thread, models only: X on the left, a
+/// check on the right, "Find a model" under the title, Favorites and one tab per account on a
+/// glass bar, then the shown tab's models as plain rows under hairlines, each with a star. A tab
+/// that can't take work says why in one line above its models.
+struct ModelPicker: View {
     @Binding var query: String
     let tabs: [ModelPickerTab]
     @Binding var shown: String
@@ -34,7 +34,6 @@ struct ModelPicker<Options: View>: View {
     let confirm: () -> Void
     let choose: (ModelPickerRow) -> Void
     let star: (ModelPickerRow) -> Void
-    @ViewBuilder var options: () -> Options
     @Environment(\.dismiss) private var dismiss
 
     private var tab: ModelPickerTab? { tabs.first { $0.id == shown } }
@@ -42,16 +41,13 @@ struct ModelPicker<Options: View>: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                content
-                if !searching { options() }
-            }
+            List { content }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(AceTheme.Colours.background)
             .environment(\.defaultMinListRowHeight, InsetStyle.rowHeight)
-            .searchBarEdge()
-            .searchable(text: $query, prompt: "Find a model")
+            // Under the title on every iOS, above the tabs, so it never moves to the bottom.
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Find a model")
             .navigationTitle("Model").navigationBarTitleDisplayMode(.inline)
             .inboxTopBar { if tabs.count > 1 && !searching { tabBar } }
             .toolbar {

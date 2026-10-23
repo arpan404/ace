@@ -18,6 +18,7 @@ struct NewThreadSheet: View {
     @State private var failure: String?
     @State private var browsing = false
     @State private var choosingModel = false
+    @State private var choosingTune = false
     @State private var choosingProject = false
     @State private var attachProblem: String?
     @State private var profiles: [TaskProfile] = []
@@ -97,6 +98,7 @@ struct NewThreadSheet: View {
                                     star: { client.composeAction(["kind": "favorite", "key": $0]) })
             }
         }
+        .sheet(isPresented: $choosingTune) { NewThreadTunePanel(drafts: drafts, choice: choice) }
     }
 
     /// "What should we build in ace-next? ⌄": the question opens the project picker; the
@@ -170,7 +172,7 @@ struct NewThreadSheet: View {
             }
             NewThreadComposer(drafts: drafts, client: client, files: files, choice: choice, agentsState: compose?.agentsState,
                               sending: sending, blocker: blocker, attachProblem: $attachProblem,
-                              chooseModel: { choosingModel = true }, send: send)
+                              chooseModel: { choosingModel = true }, chooseTune: { choosingTune = true }, send: send)
         }
         .padding(.horizontal, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
         .padding(.bottom, AceTheme.Spacing.sm)
