@@ -16,6 +16,8 @@ const TimelineRecord = z.looseObject({
   submitted_at: z.string().max(64).nullable().optional(),
   label: z.looseObject({ name: name }).optional(),
   requested_reviewer: z.looseObject({ login: name }).nullable().optional(),
+  milestone: z.looseObject({ title: name }).optional(),
+  lock_reason: name.nullable().optional(),
 });
 /** The timeline page is a list; its records are judged one by one. */
 export const TimelinePage = z.array(z.unknown()).max(100);
@@ -39,7 +41,12 @@ export function timelineActivity(record: unknown, page: number, index: number): 
     };
   }
   const value = parsed.data;
-  const subject = value.label?.name ?? value.requested_reviewer?.login;
+  const subject =
+    value.label?.name ??
+    value.requested_reviewer?.login ??
+    value.milestone?.title ??
+    value.lock_reason ??
+    undefined;
   return {
     id: String(value.id ?? value.node_id ?? fallbackId),
     event: value.event,

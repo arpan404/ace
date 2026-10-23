@@ -62,10 +62,14 @@ export function useCreateThread(
   draftKey?: string | undefined,
   /** False when the person navigated here: a recovered start then never takes them away. */
   recoverStart = true,
+  /** False when the composer is empty, so a recovered refusal is not reported. */
+  holdsMessage?: () => boolean,
 ): {
   /** Resolves false when the composer must keep its draft, including uncertain worker delivery. */
   create(request: CreateRequest, after?: AfterCreate): Promise<boolean>;
   error: string | undefined;
+  /** Clears the last start's problem once it no longer applies (the message was discarded). */
+  dismissError(): void;
   /** A thread start not yet settled carries this draft scope, so no editor may resume it. */
   claims(draftId: string | undefined): boolean;
 } {
@@ -103,6 +107,7 @@ export function useCreateThread(
     onError: setError,
     onRecovered,
     canNavigate: () => recoverStart && canNavigate?.() !== false,
+    holdsMessage,
   });
 
   const submit = useCallback(
@@ -213,7 +218,8 @@ export function useCreateThread(
     },
     [storage, recoveryKey],
   );
-  return { create, error, claims };
+  const dismissError = useCallback(() => setError(undefined), []);
+  return { create, error, dismissError, claims };
 }
 
 /**

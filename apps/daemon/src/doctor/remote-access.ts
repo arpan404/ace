@@ -14,6 +14,12 @@ const accessFix = "Change remote access in Settings › Remote.";
 const tailscaleFix =
   "Install Tailscale, sign in and connect, or switch remote access to LAN in Settings › Remote.";
 const BackendState = z.object({ BackendState: z.string().max(64) });
+const CertificateNames = z.object({
+  Self: z.object({ DNSName: z.string().max(512) }),
+  CertDomains: z.array(z.string().max(512)).nullish(),
+});
+const httpsFix =
+  "Turn on HTTPS Certificates on the DNS page of the Tailscale admin console. ace picks the certificate up on its own.";
 
 /** The daemon's plan, plus whether the relay was chosen without an address to reach it. */
 type Plan = ReturnType<typeof remotePlan> & { relayMissing: boolean };
@@ -36,7 +42,11 @@ export function remoteAccessFeature(ports: RemoteAccessPorts = remoteAccessPorts
             saved["remote.enabled"] && saved["remote.transport"] === "relay" && !planned.relayUrl;
           return { ...planned, relayMissing };
         }));
-      return [accessCheck(context, ports, load), certificateCheck(context, load)];
+      return [
+        accessCheck(context, ports, load),
+        certificateCheck(context, load),
+        tailscaleHttpsCheck(ports, load),
+      ];
     },
   };
 }
@@ -129,6 +139,41 @@ async function tailscaleState(ports: RemoteAccessPorts): Promise<string> {
   } catch {
     return "";
   }
+}
+
+/** Whether Tailscale can issue the certificate browsers need for this machine's ts.net name. */
+function tailscaleHttpsCheck(ports: RemoteAccessPorts, load: () => Promise<Plan>): Check {
+  return {
+    id: "remote.tailscale-https",
+    fix: httpsFix,
+    async run() {
+      if ((await load()).listen !== "tailscale")
+        return {
+          status: "ok",
+          message: "Not used: remote access isn't on Tailscale",
+          fix: httpsFix,
+        };
+      let names;
+      try {
+        names = CertificateNames.safeParse(JSON.parse(await ports.network.status()));
+      } catch {
+        names = undefined;
+      }
+      if (!names?.success)
+        return { status: "ok", message: "Not checked: Tailscale isn't connected", fix: httpsFix };
+      const name = names.data.Self.DNSName.replace(/\.$/, "").toLowerCase();
+      const issuable = (names.data.CertDomains ?? []).some(
+        (domain) => domain.replace(/\.$/, "").toLowerCase() === name,
+      );
+      return issuable
+        ? { status: "ok", message: `Browsers trust ${name}`, fix: httpsFix }
+        : {
+            status: "warn",
+            message: `Browsers can't pair over Tailscale: HTTPS certificates are off for ${name || "this tailnet"}`,
+            fix: httpsFix,
+          };
+    },
+  };
 }
 
 function certificateCheck(context: DoctorContext, load: () => Promise<Plan>): Check {

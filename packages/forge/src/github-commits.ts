@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { restCommit } from "./rest-records.ts";
 import type { ForgeRepository } from "@ace/protocol/forge";
 import type { ForgeCommit } from "@ace/protocol/forge-browser";
 import { ForgeError } from "./errors.ts";
@@ -178,15 +179,7 @@ async function readComparedPage(
   if (parsed.data.total_commits !== at.older + listedCommits) throw new ForgeError("conflict");
   const first = (at.page - 1) * pageSize;
   const records = parsed.data.commits.slice(0, Math.max(0, at.older - first));
-  const commits: ForgeCommit[] = records.map((item) => ({
-    raw: item,
-    sha: item.sha,
-    message: item.commit.message,
-    author: item.author?.login ?? item.commit.author?.name ?? "deleted user",
-    authorAvatarUrl: item.author?.avatar_url,
-    date: item.commit.author?.date ?? null,
-    url: item.html_url,
-  }));
+  const commits: ForgeCommit[] = records.map(restCommit);
   const stats = await statistics(api, repository, commits, signal);
   commits.forEach((commit, i) => {
     const stat = stats?.[`c${i}`];

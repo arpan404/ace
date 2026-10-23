@@ -37,6 +37,8 @@ export function CommentsSkeleton(props: { count?: number }) {
 export function IssuePageSkeleton(props: {
   number: number;
   seed?: Pick<ForgeIssueRow, "title" | "state" | "author" | "authorAvatarUrl"> | undefined;
+  /** The list Back returns to: "Issues", or "Inbox" when opened from there. */
+  backLabel: string;
   onBack(): void;
   /** The page's readable column and gutter. */
   readable: string;
@@ -47,12 +49,12 @@ export function IssuePageSkeleton(props: {
       <div className="mb-2 flex min-h-8 items-center">
         <button
           type="button"
-          aria-label="Back to issues"
+          aria-label={`Back to ${props.backLabel.toLowerCase()}`}
           onClick={props.onBack}
           className="-ml-1 inline-flex h-6 items-center gap-1 rounded-sm px-1 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit hover:text-foreground"
         >
           <ArrowLeftIcon aria-hidden size={14} />
-          Issues
+          {props.backLabel}
         </button>
       </div>
       {seed ? (

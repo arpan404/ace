@@ -1,10 +1,24 @@
 import { ProviderLoginRequest, ProviderLoginProgress } from "@ace/protocol";
-import type { ProviderLoginInput, ProviderLoginResult, ProviderKind } from "@ace/protocol";
+import type {
+  AntigravitySignIn,
+  ProviderLoginInput,
+  ProviderLoginResult,
+  ProviderKind,
+} from "@ace/protocol";
 import { ProviderLoginFailure } from "./login-failure.ts";
 
 export type LoginUpdate = Pick<
   ProviderLoginProgress,
-  "state" | "url" | "userCode" | "prompt" | "choices" | "message" | "hint" | "manual" | "codeEntry"
+  | "state"
+  | "url"
+  | "userCode"
+  | "prompt"
+  | "choices"
+  | "message"
+  | "hint"
+  | "manual"
+  | "codeEntry"
+  | "returnUrlEntry"
 >;
 export interface ProviderLoginDriver {
   manual?: ProviderLoginProgress["manual"];
@@ -17,7 +31,8 @@ export interface ProviderLoginDriver {
     /** ace-authored outcome detail, such as a credential that still signs the provider in. */
     message?: string;
   }>;
-  input?(input: ProviderLoginInput): boolean;
+  /** Accepts input for the step it waits on; a pasted return address is answered asynchronously. */
+  input?(input: ProviderLoginInput): boolean | Promise<boolean>;
   apiKey?(key: Buffer): boolean;
   drain?(): Promise<void>;
   /** Completion still belongs to the effective configuration admitted by this driver. */
@@ -35,6 +50,7 @@ export interface LoginSessionsOptions {
       instance?: string;
       method?: "login" | "api_key";
       upstream?: "openai" | "anthropic" | "openrouter" | "opencode";
+      signIn?: AntigravitySignIn;
     },
     action: "login" | "logout",
     signal: AbortSignal,
@@ -52,6 +68,7 @@ interface Job {
   owner: string;
   settled?: ((state: "succeeded" | "failed" | "cancelled") => Promise<void>) | undefined;
   upstream?: "openai" | "anthropic" | "openrouter" | "opencode";
+  signIn?: AntigravitySignIn;
   key: string;
   requestId: string;
   progress: ProviderLoginProgress;
@@ -103,15 +120,18 @@ export class ProviderLoginSessions {
       // A pasted sign-in code answers the CLI once; no copy outlives the request.
       if (request?.type === "provider.login.input" && "code" in request.input)
         request.input.code = "";
+      if (request?.type === "provider.login.input" && "returnUrl" in request.input)
+        request.input.returnUrl = "";
       if (
         typeof input === "object" &&
         input !== null &&
         "input" in input &&
         typeof input.input === "object" &&
-        input.input !== null &&
-        "code" in input.input
-      )
-        input.input.code = "";
+        input.input !== null
+      ) {
+        if ("code" in input.input) input.input.code = "";
+        if ("returnUrl" in input.input) input.input.returnUrl = "";
+      }
     }
   }
   private async dispatch(
@@ -137,6 +157,13 @@ export class ProviderLoginSessions {
         requestId: request.requestId,
         result: { ok: false, error: "unavailable", reason: "stopping" },
       };
+    // A choice of sign-in method is Antigravity's alone; every other provider keeps its own path.
+    if (
+      request.type === "provider.login.start" &&
+      request.signIn &&
+      (request.provider !== "antigravity" || request.method === "api_key")
+    )
+      return failure("invalid_input");
     if (request.type === "provider.login.start" || request.type === "provider.logout") {
       const key = JSON.stringify([
         request.provider,
@@ -164,6 +191,9 @@ export class ProviderLoginSessions {
         ...(settled ? { settled } : {}),
         ...(request.type === "provider.login.start" && request.upstream
           ? { upstream: request.upstream }
+          : {}),
+        ...(request.type === "provider.login.start" && request.signIn
+          ? { signIn: request.signIn }
           : {}),
         key,
         requestId: request.requestId,
@@ -246,12 +276,17 @@ export class ProviderLoginSessions {
         if (!accepted) key.fill(0);
       }
     } else if (request.type === "provider.login.input") {
-      // A code is taken only while the CLI waits for one; other input only at a prompt.
+      // A code is taken only while the CLI waits for one, a return address only while the agent
+      // waits on its browser sign-in, other input only at a prompt.
       const expected =
         "code" in request.input
           ? job.progress.codeEntry === true
-          : job.progress.state === "awaiting_input";
-      if (!expected || !job.driver?.input?.(request.input)) return failure("invalid_input");
+          : "returnUrl" in request.input
+            ? job.progress.state === "awaiting_browser" &&
+              job.progress.returnUrlEntry === true &&
+              this.active.get(job.key) === job
+            : job.progress.state === "awaiting_input";
+      if (!expected || !(await job.driver?.input?.(request.input))) return failure("invalid_input");
     }
     return reply(job);
   }
@@ -282,6 +317,7 @@ export class ProviderLoginSessions {
           provider: job.progress.provider,
           ...(job.progress.method ? { method: job.progress.method } : {}),
           ...(job.upstream ? { upstream: job.upstream } : {}),
+          ...(job.signIn ? { signIn: job.signIn } : {}),
           ...(job.progress.instance ? { instance: job.progress.instance } : {}),
         },
         job.progress.action,

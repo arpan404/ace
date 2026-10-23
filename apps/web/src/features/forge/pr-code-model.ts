@@ -1,5 +1,6 @@
 import type { ForgeFile, ForgePrFiles, ForgePrStatus } from "@ace/protocol";
 import type { FileChanges, FileDiff } from "@ace/ui-core";
+import { diffSide, lineKeyOf } from "./pr-code-comments.ts";
 
 /** Both sides of a file, read whole where GitHub withheld its patch; null where there is none. */
 export type SideTexts = ReadonlyMap<string, { oldText: string | null; newText: string | null }>;
@@ -80,15 +81,11 @@ export function joinFilePages(pages: readonly ForgePrFiles[]): ForgePrFiles | un
 
 type ReviewThread = ForgePrStatus["reviewThreads"][number];
 
-/** Whether the diff draws `line` of `diff` on either side, outside folded runs. */
-function draws(diff: FileDiff, line: number): boolean {
-  return diff.rows.some((row) => row.kind !== "fold" && (row.new === line || row.old === line));
-}
-
 /**
- * Open review threads the diff can't show beside their line: outdated, without a line, on a
- * line the patch doesn't draw, or on a file the range doesn't touch (known only once every page
- * has loaded). A file whose diff is still being prepared keeps its threads until it is ready.
+ * Review threads the diff can't show beside their line: outdated, without a line, on a line
+ * the patch doesn't draw, or on a file the range doesn't touch (known only once every page has
+ * loaded). A file whose diff is still being prepared keeps its threads until it is ready.
+ * Resolved threads are left out.
  */
 export function offDiffThreads(
   threads: readonly ReviewThread[],
@@ -101,7 +98,7 @@ export function offDiffThreads(
     if (thread.outdated || thread.line === null) return true;
     if (!listed.has(thread.file)) return range.complete;
     const diff = diffs.get(thread.file);
-    return diff !== undefined && !draws(diff, thread.line);
+    return diff !== undefined && !lineKeyOf(diff, diffSide(thread.side), thread.line);
   });
 }
 

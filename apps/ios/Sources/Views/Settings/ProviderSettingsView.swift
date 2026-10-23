@@ -19,6 +19,7 @@ struct LoginProgress: Decodable {
     let hint: String?
     let choices: [Choice]?
     let codeEntry: Bool?
+    let returnUrlEntry: Bool?
     var finished: Bool { ["succeeded", "failed", "cancelled"].contains(state) }
 }
 struct ProviderSettingsView: View {
@@ -51,6 +52,7 @@ struct ProviderSignInView: View {
     @State private var problem: String?
     @State private var busy = false
     @State private var code = ""
+    @State private var returnAddress = ""
     var body: some View {
         Form {
             Section {
@@ -82,6 +84,14 @@ struct ProviderSignInView: View {
                             request(["type": "provider.login.input", "session": progress.session, "input": ["code": entry]])
                         }.disabled(code.isEmpty)
                     }
+                    if progress.returnUrlEntry == true {
+                        // The page after signing in points at the paired machine and can't load here.
+                        SecureField("Address the page ended on", text: $returnAddress).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                        Button("Continue") {
+                            let entry = returnAddress.trimmingCharacters(in: .whitespacesAndNewlines); returnAddress = ""
+                            request(["type": "provider.login.input", "session": progress.session, "input": ["returnUrl": entry]])
+                        }.disabled(returnAddress.isEmpty)
+                    }
                     if !progress.finished { Button("Cancel sign-in", role: .cancel) { request(["type": "provider.login.cancel", "session": progress.session]) } }
                 }.disabled(busy || !model.canOperate)
             }
@@ -102,6 +112,7 @@ struct ProviderSignInView: View {
         }
         .onDisappear {
             code = ""
+            returnAddress = ""
             if let progress, !progress.finished { request(["type": "provider.login.cancel", "session": progress.session]) }
         }
     }

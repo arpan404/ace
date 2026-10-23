@@ -7,6 +7,7 @@ import {
   ForgeReviewState,
   type ForgeRepository,
 } from "@ace/protocol";
+import { withManagement } from "./pr-management.ts";
 
 /*
  * The full pull request views the design's PR panel opens, one for each state it has to look
@@ -40,13 +41,22 @@ const patch = (adds: number, dels: number) =>
     ...Array.from({ length: adds }, (_, i) => `+new line ${i + 1}`),
     " // unchanged context",
   ].join("\n");
-export const file = (path: string, additions: number, deletions: number, status = "modified") =>
+/** A changed file whose sample patch draws at most 12 added and 8 removed lines, or all of them. */
+export const file = (
+  path: string,
+  additions: number,
+  deletions: number,
+  status = "modified",
+  whole = false,
+) =>
   ForgeFile.parse({
     path,
     status,
     additions,
     deletions,
-    patch: patch(Math.min(additions, 12), Math.min(deletions, 8)),
+    patch: whole
+      ? patch(additions, deletions)
+      : patch(Math.min(additions, 12), Math.min(deletions, 8)),
     truncated: false,
   });
 export const check = (
@@ -80,38 +90,75 @@ export const mergeState = (headSha: string, patchState: Partial<ForgeMergeState>
     ...patchState,
   });
 export const lifecycle = (detail: ForgePrDetail, actions: string[]) =>
-  ForgeLifecycleState.parse({
-    snapshot: {
-      pr: detail.status.ref,
-      id: `PR_${detail.status.ref.number}`,
-      version: detail.status.ref.number.toString(16).padStart(64, "a"),
-      headSha: detail.status.headSha,
-      baseSha: detail.baseSha,
-      state: detail.status.state === "unknown" ? "open" : detail.status.state,
-      metadata: {
-        title: detail.status.title,
-        body: detail.body,
-        baseBranch: detail.baseBranch,
-        labels: detail.labels,
-        assignees: [],
+  withManagement(
+    ForgeLifecycleState.parse({
+      snapshot: {
+        pr: detail.status.ref,
+        id: `PR_${detail.status.ref.number}`,
+        version: detail.status.ref.number.toString(16).padStart(64, "a"),
+        headSha: detail.status.headSha,
+        baseSha: detail.baseSha,
+        state: detail.status.state === "unknown" ? "open" : detail.status.state,
+        metadata: {
+          title: detail.status.title,
+          body: detail.body,
+          baseBranch: detail.baseBranch,
+          labels: detail.labels,
+          assignees: [],
+        },
+        editableFields: detail.status.state === "merged" ? [] : ["title", "body", "labels"],
+        actions,
+        unsupported: [],
+        headBranch: {
+          name: detail.headBranch,
+          exists: true,
+          sameRepository: true,
+          isDefault: false,
+          deleteOnMerge: false,
+        },
       },
-      editableFields: detail.status.state === "merged" ? [] : ["title", "body", "labels"],
-      actions,
-      unsupported: [],
-    },
-    operations: [],
-  });
-export const review = (headSha: string, open: boolean) =>
-  ForgeReviewState.parse({
-    viewer: "you",
+      operations: [],
+    }),
+  );
+/** The account `gh` is signed in as in the fake app. */
+export const viewer = "you";
+/**
+ * The review state of a sample PR as the daemon reports it: GitHub refuses approving or
+ * requesting changes on your own PR, and you may hide your own comments.
+ */
+export const review = (
+  headSha: string,
+  open: boolean,
+  facts: {
+    detail?: ForgePrDetail;
+    drafts?: ForgeReviewState["drafts"];
+    hidden?: ForgeReviewState["hidden"];
+  } = {},
+) => {
+  const status = facts.detail?.status;
+  const own = [
+    ...(status?.comments ?? []),
+    ...(status?.reviewThreads ?? []).flatMap((t) => t.comments),
+  ]
+    .filter((c) => c.author === viewer && c.kind !== "review")
+    .map((c) => ({
+      source: c.kind === "issue" ? ("issue" as const) : ("inline" as const),
+      commentId: c.id,
+    }));
+  return ForgeReviewState.parse({
+    viewer,
     headSha,
-    drafts: [],
+    drafts: facts.drafts ?? [],
     viewed: [],
-    canReview: open,
+    canReview: open && facts.detail?.author !== viewer,
     canComment: true,
-    resolvableThreads: [],
+    resolvableThreads: open ? (status?.reviewThreads ?? []).map((t) => t.id) : [],
     operations: [],
+    reactions: [],
+    hidden: facts.hidden ?? [],
+    hideable: [...new Map(own.map((c) => [`${c.source}:${c.commentId}`, c])).values()],
   });
+};
 
 function readyToMerge(now: number): PullRequestFixture {
   const repository = repo("billing-api");
@@ -183,7 +230,7 @@ function readyToMerge(now: number): PullRequestFixture {
     detail,
     mergeState: mergeState(headSha, {}),
     lifecycle: lifecycle(detail, ["draft", "close"]),
-    review: review(headSha, true),
+    review: review(headSha, true, { detail }),
     files: [
       file("src/invoices/pdf/render-invoice.ts", 88, 21),
       file("src/invoices/locale/resolve-locale.ts", 54, 0, "added"),
@@ -199,17 +246,83 @@ function readyToMerge(now: number): PullRequestFixture {
 function failingWithChanges(now: number): PullRequestFixture {
   const repository = repo("docs-site");
   const headSha = "31".padEnd(40, "3");
-  const question = {
+  // Every file's sample patch is one hunk: line 1 is context, removed lines are 2-9 on the
+  // left, added lines are 2-13 on the right (service.md, a new file, removes none).
+  const inline = (
+    id: number,
+    author: string,
+    path: string,
+    line: number | null,
+    ago: number,
+    body: string,
+    replyTo: number | null = null,
+  ) => ({
     kind: "inline" as const,
-    id: 311,
-    body: "Which port does the daemon default to in docker? This still says 3000.",
-    author: "mira",
-    file: "docs/install.md",
-    line: 12,
-    createdAt: iso(now - 31 * minute),
-    updatedAt: iso(now - 31 * minute),
-    replyTo: null,
-  };
+    id,
+    body,
+    author,
+    authorAvatarUrl: `https://avatars.githubusercontent.com/${author}`,
+    file: path,
+    line,
+    createdAt: iso(now - ago * minute),
+    updatedAt: iso(now - ago * minute),
+    replyTo,
+  });
+  const issue = (id: number, author: string, ago: number, body: string) => ({
+    ...inline(id, author, "", null, ago, body),
+    kind: "issue" as const,
+    file: null,
+  });
+  const question = inline(
+    311,
+    "mira",
+    "docs/install.md",
+    12,
+    31,
+    "Which port does the daemon default to in docker? This still says 3000.",
+  );
+  const answer = inline(
+    316,
+    "you",
+    "docs/install.md",
+    12,
+    20,
+    "It is 8080 now; fixing it in the next push.",
+    311,
+  );
+  const range = inline(
+    313,
+    "ola",
+    "docs/service.md",
+    6,
+    28,
+    "These four steps could be one `ace service install` call now.",
+  );
+  const removed = inline(
+    314,
+    "mira",
+    "docs/install.md",
+    4,
+    27,
+    "Older installs still need this flag. Keep it under a note instead of deleting it?",
+  );
+  const settled = inline(315, "ola", "docs/troubleshooting.md", 5, 26, "Typo: lockfile.");
+  const settledReply = inline(317, "you", "docs/troubleshooting.md", 5, 22, "Fixed.", 315);
+  const stale = inline(318, "mira", "docs/docker.md", null, 40, "Port 3000 here too.");
+  const thread = (
+    id: string,
+    comments: ReturnType<typeof inline>[],
+    anchor: { side: "LEFT" | "RIGHT"; startLine?: number; resolved?: boolean; outdated?: boolean },
+  ) => ({
+    id,
+    resolved: anchor.resolved ?? false,
+    outdated: anchor.outdated ?? false,
+    file: comments[0]?.file ?? "",
+    line: comments[0]?.line ?? null,
+    side: anchor.side,
+    startLine: anchor.startLine ?? null,
+    comments,
+  });
   const detail = ForgePrDetail.parse({
     status: {
       ref: { repository, number: 31 },
@@ -245,17 +358,27 @@ function failingWithChanges(now: number): PullRequestFixture {
           replyTo: null,
           reviewState: "CHANGES_REQUESTED",
         },
+        issue(
+          320,
+          "you",
+          90,
+          "First pass is up. Ignore the port numbers for now, they're placeholders.",
+        ),
+        issue(321, "ola", 25, "The preview reads well on a phone too."),
         question,
+        answer,
+        range,
+        removed,
+        settled,
+        settledReply,
+        stale,
       ],
       reviewThreads: [
-        {
-          id: "RT_31",
-          resolved: false,
-          outdated: false,
-          file: "docs/install.md",
-          line: 12,
-          comments: [question],
-        },
+        thread("RT_31", [question, answer], { side: "RIGHT" }),
+        thread("RT_32", [range], { side: "RIGHT", startLine: 3 }),
+        thread("RT_33", [removed], { side: "LEFT" }),
+        thread("RT_34", [settled, settledReply], { side: "RIGHT", resolved: true }),
+        thread("RT_35", [stale], { side: "RIGHT", outdated: true }),
       ],
       raw: {},
     },
@@ -307,13 +430,45 @@ function failingWithChanges(now: number): PullRequestFixture {
       blockers: ["Changes requested", "A required check failed"],
     }),
     lifecycle: lifecycle(detail, ["draft", "close", "update.merge", "update.rebase"]),
-    review: review(headSha, true),
+    review: review(headSha, true, {
+      detail,
+      hidden: [{ source: "issue", commentId: 320, reason: "outdated" }],
+      drafts: [
+        {
+          id: "draft-stop",
+          body: "Mention `ace stop` here as well, next to the restart step.",
+          anchor: { commit: headSha, path: "docs/install.md", line: 7, side: "RIGHT" },
+        },
+        {
+          id: "draft-volume",
+          body: "This volume block repeats the service section; link to it instead?",
+          anchor: { commit: headSha, path: "docs/docker.md", line: 5, side: "RIGHT", startLine: 3 },
+        },
+      ],
+    }),
     files: [
       file("docs/install.md", 188, 97),
       file("docs/service.md", 64, 0, "added"),
-      file("docs/troubleshooting.md", 41, 12),
+      // Long enough that the diff mounts only the rows near the viewport.
+      file("docs/troubleshooting.md", 441, 12, "modified", true),
       file("docs/docker.md", 16, 30),
-      file("sidebar.json", 3, 2),
+      // Two changes with unchanged lines GitHub doesn't send between them: a pick stops there.
+      {
+        ...file("sidebar.json", 3, 2),
+        patch: [
+          "@@ -1,3 +1,3 @@",
+          " {",
+          '-  "install": "Install",',
+          '+  "install": "Install the daemon",',
+          '   "service": "Service",',
+          "@@ -20,3 +20,4 @@",
+          '   "docker": "Docker",',
+          '-  "faq": "FAQ"',
+          '+  "faq": "FAQ",',
+          '+  "troubleshooting": "Troubleshooting"',
+          " }",
+        ].join("\n"),
+      },
     ],
     activity: [],
   };
@@ -365,8 +520,9 @@ function merged(now: number): PullRequestFixture {
     ForgeActivity.parse({ id, event: name, actor, at: iso(at), raw: {} });
   return {
     detail,
-    lifecycle: lifecycle(detail, ["revert"]),
-    review: review(headSha, false),
+    // Its branch also heads another open PR, so GitHub would close that one with it.
+    lifecycle: withManagement(lifecycle(detail, ["revert"]), { usedBy: [233] }),
+    review: review(headSha, false, { detail }),
     files: [
       file("apps/daemon/src/providers/codex/app-server.ts", 212, 180),
       file("apps/daemon/src/providers/codex/events.ts", 96, 71),

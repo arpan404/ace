@@ -7,6 +7,7 @@ export * from "./notice-text.ts";
  * TypeScript over @ace/protocol and @ace/client types; no React, DOM or platform APIs.
  */
 export * from "./accounts.ts";
+export * from "./antigravity-sign-in.ts";
 export * from "./account-threads.ts";
 export * from "./agents.ts";
 export * from "./agent-runs.ts";
@@ -20,6 +21,7 @@ export * from "./elicitation-form.ts";
 export * from "./catalog-ids.ts";
 export * from "./checkout.ts";
 export * from "./action-errors.ts";
+export * from "./inbox-words.ts";
 export * from "./pull-request.ts";
 export * from "./pr-next-step.ts";
 export * from "./worktree-base.ts";
@@ -184,6 +186,8 @@ export {
   subagentBranchStates,
   subagentLabels,
   subagentGroupStatus,
+  subagentGroupTitle,
+  subagentGroupCounts,
   type SubagentGroupStatus,
   type SubagentState,
 } from "./subagents.ts";

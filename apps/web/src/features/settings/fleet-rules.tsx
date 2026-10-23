@@ -9,7 +9,7 @@ import { AllMachinesScope } from "./all-machines-scope.tsx";
 import { settingKeys } from "./data/setting-keys.ts";
 import { useSettingControl } from "./data/use-settings.ts";
 import { DaemonSlot } from "./setting-control.tsx";
-import { ConfirmDialog, type Confirming } from "./confirm-dialog.tsx";
+import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { listNames } from "./data/list-names.ts";
 
 export const transportOptions = [
@@ -20,7 +20,8 @@ export const transportOptions = [
 
 export const transportNotes: Record<(typeof transportOptions)[number]["value"], string> = {
   lan: "Same network only. Browsers must trust its HTTPS certificate.",
-  tailscale: "Your private Tailscale network, from anywhere. Tailscale must be running.",
+  tailscale:
+    "Your private Tailscale network, from anywhere. For browsers, turn on HTTPS certificates in Tailscale.",
   relay: "Through a relay you host. The local network stays on for pairing.",
 };
 

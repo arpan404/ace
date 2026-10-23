@@ -115,6 +115,33 @@
     },
     {
       "properties": {
+        "anchor": {
+          "$ref": "https://ace.local/protocol/v1/ForgeReviewAnchor.json"
+        },
+        "body": {
+          "maxLength": 60000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "headSha": {
+          "pattern": "^[a-fA-F0-9]{40,64}$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "line.comment",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "headSha",
+        "anchor",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "body": {
           "maxLength": 60000,
           "minLength": 1,
@@ -202,6 +229,62 @@
         "commentId",
         "source",
         "expectedBody"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "commentId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "comment.hide",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "https://ace.local/protocol/v1/ForgeHiddenReason.json"
+        },
+        "source": {
+          "enum": [
+            "issue",
+            "inline"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "commentId",
+        "source",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "commentId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "comment.unhide",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "issue",
+            "inline"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "commentId",
+        "source"
       ],
       "type": "object"
     },
@@ -328,6 +411,14 @@
       "type": "object"
     },
     {
+      "examples": [
+        {
+          "kind": "reviewers.request",
+          "reviewers": [
+            "octocat"
+          ]
+        }
+      ],
       "properties": {
         "kind": {
           "const": "reviewers.request",
@@ -340,13 +431,86 @@
             "type": "string"
           },
           "maxItems": 100,
-          "minItems": 1,
+          "type": "array"
+        },
+        "teams": {
+          "items": {
+            "maxLength": 100,
+            "pattern": "^[\\w.-]+$",
+            "type": "string"
+          },
+          "maxItems": 100,
           "type": "array"
         }
       },
       "required": [
         "kind",
         "reviewers"
+      ],
+      "type": "object",
+      "x-ace-constraint": "Names at least one reviewer or team."
+    },
+    {
+      "examples": [
+        {
+          "kind": "reviewers.remove",
+          "reviewers": [
+            "octocat"
+          ]
+        }
+      ],
+      "properties": {
+        "kind": {
+          "const": "reviewers.remove",
+          "type": "string"
+        },
+        "reviewers": {
+          "items": {
+            "maxLength": 39,
+            "pattern": "^[\\w-]+$",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "teams": {
+          "items": {
+            "maxLength": 100,
+            "pattern": "^[\\w.-]+$",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "reviewers"
+      ],
+      "type": "object",
+      "x-ace-constraint": "Names at least one reviewer or team."
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "review.dismiss",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 4096,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "reviewId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "reviewId",
+        "message"
       ],
       "type": "object"
     },

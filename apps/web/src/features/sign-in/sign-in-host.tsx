@@ -30,6 +30,17 @@ export function useSignIn(): OpenSignIn | undefined {
 const SignInDialog = deferredComponent(() =>
   import("./sign-in-dialog.tsx").then((module) => module.SignInDialog),
 );
+/** Antigravity asks how to sign in before its sign-in starts. */
+const MethodDialog = deferredComponent(() =>
+  import("./antigravity-method.tsx").then((module) => module.AntigravityMethodDialog),
+);
+/** An Antigravity sign-in without a chosen method asks for one first; sign-out never does. */
+const needsMethod = (target: SignInTarget) =>
+  target.provider === "antigravity" &&
+  target.action !== "logout" &&
+  !target.signIn &&
+  !target.newAccount;
+
 /** Start loading the dialog (a Sign in button hovered or focused). */
 export const preloadSignIn = (): Promise<unknown> => SignInDialog.preload();
 
@@ -41,6 +52,7 @@ export function SignInHost(props: { children: ReactNode }) {
   const client = useClient();
   const [login, setLogin] = useState<LoginController>();
   const [open, setOpen] = useState(false);
+  const [choosing, setChoosing] = useState<SignInTarget>();
   // The running login, outside state: starting and cancelling are effects of a click, and
   // state updaters may run twice.
   const running = useRef<LoginController | undefined>(undefined);
@@ -55,6 +67,13 @@ export function SignInHost(props: { children: ReactNode }) {
   );
   const show = useCallback<OpenSignIn>(
     (target) => {
+      if (needsMethod(target)) {
+        running.current?.dispose();
+        setOpen(false);
+        setChoosing(target);
+        return;
+      }
+      setChoosing(undefined);
       begin(target);
       setOpen(true);
     },
@@ -72,6 +91,17 @@ export function SignInHost(props: { children: ReactNode }) {
   return (
     <SignInContext.Provider value={show}>
       {props.children}
+      {choosing && (
+        <LocalBoundary label="sign in" fallback={null}>
+          <Suspense fallback={null}>
+            <MethodDialog.Component
+              instance={choosing.instance}
+              onClose={() => setChoosing(undefined)}
+              onContinue={(signIn) => show({ ...choosing, signIn })}
+            />
+          </Suspense>
+        </LocalBoundary>
+      )}
       {login && (
         <LocalBoundary label="sign in" fallback={null}>
           <Suspense fallback={null}>

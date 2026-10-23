@@ -86,12 +86,16 @@ async function environment(records: Fixtures, linkedThread?: string) {
       forgeRunner: () => (request) => gh.runner({ ...request, command: gh.executable }),
     });
   let runtime = create();
-  const merge = (method: "merge" | "squash" | "rebase" = "squash"): CommandPayload => ({
+  const merge = (
+    method: "merge" | "squash" | "rebase" = "squash",
+    commit?: { title: string; message: string },
+  ): CommandPayload => ({
     type: "forge.hosted.merge",
     workspaceId,
     pr: ref,
     headSha: sha,
     method,
+    ...(commit ? { commit } : {}),
   });
   return {
     gh,
@@ -189,6 +193,36 @@ test("a thread's merge waits on the page's unconfirmed merge of the same PR", as
       }),
     ).toMatchObject({ ok: false, error: "forge_write_uncertain" });
     expect(await merges(app.gh)).toHaveLength(1);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a squash from the PR page writes the commit title and message the person edited", async () => {
+  const records = fixtures();
+  records[mergePath] = [{ body: { merged: true } }];
+  records[path] = [{ body: merged }];
+  const app = await environment(records);
+  try {
+    expect(
+      await app.command(
+        "edited",
+        app.merge("squash", {
+          title: "Fix the build (#7)",
+          message: "* Fix build\n\nCo-authored-by: A <a@x>",
+        }),
+      ),
+    ).toMatchObject({ ok: true, prStatus: { state: "merged" } });
+    expect(await merges(app.gh)).toEqual([
+      expect.objectContaining({
+        body: {
+          sha,
+          merge_method: "squash",
+          commit_title: "Fix the build (#7)",
+          commit_message: "* Fix build\n\nCo-authored-by: A <a@x>",
+        },
+      }),
+    ]);
   } finally {
     await app.close();
   }

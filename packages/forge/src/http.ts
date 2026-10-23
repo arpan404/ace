@@ -3,7 +3,7 @@ import { MutationDispatch, isForgeMutation } from "./mutation.ts";
 import { createHash } from "node:crypto";
 import { immutable } from "./immutable.ts";
 import { z } from "zod";
-import { ForgeError, ForgeQueryRefused } from "./errors.ts";
+import { ForgeAccessRefused, ForgeError, ForgeQueryRefused } from "./errors.ts";
 import { redactData } from "./redact.ts";
 import type { CommandRunner } from "./command.ts";
 
@@ -79,6 +79,11 @@ function noResponse(
     return new ForgeError("forbidden", undefined, false);
   }
   return output.unreachable ? new ForgeError("offline") : new ForgeError("cli");
+}
+/** GitHub's `X-Poll-Interval`, kept only when it is a plain number of seconds. */
+function pollInterval(headers: Record<string, string>): string | undefined {
+  const value = headers["x-poll-interval"];
+  return value && /^\d{1,5}$/.test(value) ? value : undefined;
 }
 export type Page = {
   body: unknown;
@@ -173,6 +178,9 @@ export class GhApi {
     const cached = reusable ? this.#cache.get(cacheKey) : undefined;
     if (method === "GET" && cached?.headers.etag)
       args.push("--header", `If-None-Match: ${cached.headers.etag}`);
+    // Notifications are versioned by time: GitHub answers 304 to their Last-Modified.
+    if (method === "GET" && cached?.headers["last-modified"])
+      args.push("--header", `If-Modified-Since: ${cached.headers["last-modified"]}`);
     if (input !== undefined) args.push("--input", "-");
     const output = await this.#runner({
       command: this.#command,
@@ -205,6 +213,8 @@ export class GhApi {
     }
     if (code === 304) {
       if (!cached) throw new ForgeError("invalid_data");
+      const poll = pollInterval(headers);
+      if (poll) cached.headers = { ...cached.headers, "x-poll-interval": poll };
       this.#retain(cacheKey, cached);
       return cached;
     }
@@ -220,7 +230,7 @@ export class GhApi {
     }
     if ([401, 403, 404, 422].includes(code)) dispatch.reject();
     if (code === 404) throw new ForgeError("not_found", undefined, false);
-    if (code === 401 || code === 403) throw new ForgeError("forbidden", undefined, false);
+    if (code === 401 || code === 403) throw new ForgeAccessRefused(code);
     // Only a validated native result can turn an error status into acknowledgement.
     const nativeResultCandidate =
       (code === 409 || code === 400) &&
@@ -273,9 +283,14 @@ export class GhApi {
     }
     if (output.code !== 0 && !mergeResult) throw new ForgeError("cli");
     const version = createHash("sha256").update(text).digest("hex");
+    const polled = pollInterval(headers);
     const safeHeaders = {
       ...(headers.etag && /^[\x20-\x7e]{1,512}$/.test(headers.etag) ? { etag: headers.etag } : {}),
       ...(headers.link ? { link: headers.link } : {}),
+      ...(headers["last-modified"] && /^[\x20-\x7e]{1,128}$/.test(headers["last-modified"])
+        ? { "last-modified": headers["last-modified"] }
+        : {}),
+      ...(polled ? { "x-poll-interval": polled } : {}),
     };
     if (cached?.version === version) {
       cached.headers = safeHeaders;
@@ -321,6 +336,44 @@ export class GhApi {
     }
     this.#cache.set(key, page);
     this.#cacheBytes += page.bytes;
+  }
+  /**
+   * GitHub's own rendering of `text` as a comment in `context` (`owner/name`): HTML in which
+   * private attachments carry short-lived signed URLs and other images their proxy URLs. A read
+   * (rendering changes nothing), never cached: the signed URLs in it expire within minutes.
+   */
+  async renderMarkdown(text: string, context: string, signal: AbortSignal): Promise<string> {
+    const output = await this.#runner({
+      command: this.#command,
+      args: [
+        "api",
+        "markdown",
+        "--hostname",
+        this.#host,
+        "--include",
+        "--method",
+        "POST",
+        "--header",
+        "Accept: text/html",
+        "--input",
+        "-",
+      ],
+      input: JSON.stringify({ text, mode: "gfm", context }),
+      signal,
+      mode: "json",
+    });
+    const split = /\r?\n\r?\n/.exec(output.stdout);
+    if (!split) throw noResponse(output, new MutationDispatch());
+    const head = output.stdout.slice(0, split.index);
+    const code = Number(/^HTTP\/[\d.]+ (\d{3})/i.exec(head)?.[1]);
+    const body = output.stdout.slice(split.index + split[0].length);
+    if (code === 429 || (code === 403 && /rate limit/i.test(body)))
+      throw new ForgeError("rate_limit", this.#now() + 60_000, false);
+    if (code === 401 || code === 403) throw new ForgeError("forbidden", undefined, false);
+    if (code === 404) throw new ForgeError("not_found", undefined, false);
+    if (code !== 200 || output.code !== 0) throw new ForgeError("cli");
+    if (output.truncated) throw new ForgeError("limit");
+    return body;
   }
   async pages(path: string, signal: AbortSignal, budget: ReadBudget): Promise<Page[]> {
     const result: Page[] = [];

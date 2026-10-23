@@ -23,6 +23,7 @@ import { PrPrimaryButton } from "./pr-primary-button.tsx";
 import { WorkTitle } from "@/components/work-heading.tsx";
 import { PrMergeLines } from "./pr-merge-lines.tsx";
 import { PrAgentChip } from "./pr-agent-chip.tsx";
+import { PrReviewButton } from "./pr-review-popover.tsx";
 
 /** The title, editable in place where GitHub lets this account change it. */
 export function PrTitle(props: {
@@ -167,6 +168,7 @@ export function PrPrimaryControl(props: { actions: PrActions }) {
       blocked={actions.primaryBlocked}
       working={working}
       onRun={() => void actions.runPrimary()}
+      confirmsItself={actions.editsCommit}
       onDisable={() => void actions.mergeState.run("disable", actions.method)}
       disableBlocked={
         actions.mergeState.blocked ??
@@ -246,6 +248,7 @@ export function PrHeader(props: {
         <div className="ml-auto flex shrink-0 items-center gap-1">
           {props.extensions?.headerActions?.(context)}
           <PrAgentChip detail={detail} compact={props.condensed} />
+          <PrReviewButton />
           <PrPrimaryControl actions={actions} />
           {props.menu}
         </div>
