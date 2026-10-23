@@ -104,7 +104,9 @@ import SQLite3
         #expect(model.error == nil)
         #expect(model.largestFrame <= 32768)
     }
-    @Test func theSharedClientStreamsTwoThousandItemsAndKeepsALiveChildWorking() async throws {
+    /// The live tail is the daemon's latest 200 items, never the whole history: older rows open
+    /// in the reading window beside it (`TranscriptReading`).
+    @Test func theSharedClientStreamsTheLatestItemsAndKeepsALiveChildWorking() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let model = ClientModel(now: { 0 })
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
@@ -112,12 +114,13 @@ import SQLite3
         try await until { model.connection == "ready" && model.inbox["ios-tree"] != nil }
         #expect(model.inbox["ios-tree"]?.state == "working")
         model.open("ios-stream")
-        try await until { (model.thread?.items.count ?? 0) >= 2000 && model.thread?.loaded == true }
+        try await until { (model.thread?.items.count ?? 0) >= 200 && model.thread?.loaded == true }
         let text = model.thread?.items.values.first { !$0.row.complete }?.row.text
         try await until { model.thread?.items.values.first { !$0.row.complete }?.row.text != text }
         #expect(model.error == nil)
         #expect(model.largestFrame <= 32768)
-        #expect((model.thread?.order.count ?? 0) >= 2000)
+        #expect((model.thread?.order.count ?? 0) >= 200)
+        #expect((model.thread?.order.count ?? 0) <= 2200)
     }
     /// The stream thread's turn never ends, so the daemon holds a queued follow-up in its queue,
     /// outside the transcript, until that turn ends, as the real daemon does.

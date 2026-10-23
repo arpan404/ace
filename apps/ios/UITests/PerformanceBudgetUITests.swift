@@ -170,6 +170,55 @@ import XCTest
         XCTAssertLessThan(hitches, PerfBudget.scrollHitchMsPerS)
     }
 
+    /// Reading far back through a history longer than the window (`ACE_IOS_SPIKE_HISTORY`), then
+    /// back toward live: memory stays flat as the window slides and evicts, each page costs the
+    /// main thread little, and frames stay on time while pages land under the finger.
+    func testReadingFarBackKeepsMemoryAndFramesBounded() throws {
+        let history = try XCTUnwrap(try fixtureHealth()["history"] as? Int, "fixture /health has no history count")
+        XCTAssertGreaterThanOrEqual(history, Workload.longHistoryItems,
+                                    "Start the fixture with ACE_IOS_SPIKE_HISTORY=\(Workload.longHistoryItems)")
+        let app = try longThreadApp()
+        app.launch()
+        XCTAssertTrue(app.openThread("ios-stream"))
+        let list = app.scrollViews["transcript"]
+        XCTAssertTrue(list.waitForExistence(timeout: 10))
+        let opened = try XCTUnwrap(app.probeValue("footprintMiB"))
+        let lostBefore = app.probeValue("frames.lostMsTotal") ?? 0
+        let began = Date()
+        var swipes = 0
+        // Toward older, until the window has slid well past its bound.
+        while (app.probeValue("pages.older") ?? 0) < Workload.olderPages, swipes < 600 {
+            list.fling(older: true)
+            swipes += 1
+        }
+        let older = app.probeValue("pages.older") ?? 0
+        XCTAssertGreaterThanOrEqual(older, Workload.olderPages, "older pages read in \(swipes) swipes")
+        let farBack = try XCTUnwrap(app.probeValue("page.footprintMiB"))
+        // Back toward live for a few pages: the window slides the other way.
+        swipes = 0
+        while (app.probeValue("pages.newer") ?? 0) < Workload.newerPages, swipes < 300 {
+            list.fling(older: false)
+            swipes += 1
+        }
+        XCTAssertGreaterThanOrEqual(app.probeValue("pages.newer") ?? 0, Workload.newerPages, "newer pages read")
+        let spent = Date().timeIntervalSince(began)
+        let lost = (app.probeValue("frames.lostMsTotal") ?? 0) - lostBefore
+        let pages = (app.probeValue("pages.older") ?? 0) + (app.probeValue("pages.newer") ?? 0)
+        let mainPerPage = (app.probeValue("page.mainMsTotal") ?? 0) / max(pages, 1)
+        let peak = try XCTUnwrap(app.probeValue("page.peakMiB"))
+        report("reading far back: pages older, newer", [older, app.probeValue("pages.newer") ?? 0])
+        report("reading far back: main-thread ms per page", [mainPerPage])
+        report("reading far back: late-frame ms per s", [lost / max(spent, 0.001)])
+        report("reading far back: footprint opened, far back, peak (MiB)", [opened, farBack, peak])
+        XCTAssertLessThan(mainPerPage, PerfBudget.pageMainMs)
+        XCTAssertLessThan(lost / max(spent, 0.001), PerfBudget.readingHitchMsPerS)
+        XCTAssertLessThan(peak - opened, PerfBudget.readingGrowthMiB)
+        // Scroll to end discards the window and follows the live end again.
+        app.buttons["Scroll to end"].tap()
+        let value = NSPredicate(format: "value == %@", "Ready")
+        XCTAssertEqual(XCTWaiter.wait(for: [expectation(for: value, evaluatedWith: list)], timeout: 10), .completed)
+    }
+
     func testTypingWithTheLongThreadBehindIt() throws {
         let app = try longThreadApp()
         app.launch()
@@ -282,6 +331,10 @@ private final class HealthBody: @unchecked Sendable {
 enum Workload {
     static let longThreadDeltas = 650_000         // ACE_IOS_SPIKE_STREAMED
     static let busyThreads = 300                  // ACE_IOS_SPIKE_INBOX
+    static let longHistoryItems = 8_000           // ACE_IOS_SPIKE_HISTORY
+    /// Older pages read: about 5,000 items, two and a half times the window's bound.
+    static let olderPages = 25.0
+    static let newerPages = 5.0
     static let streamingRowUpdatesPer5s = 50.0    // the fixture streams 100 deltas (20 a second)
     /// Known bug, 2026-10-22: with ACE_IOS_SPIKE_STREAMED of 1,000 or more, the open thread's
     /// streaming row stops updating after the open (only `thread.cursor` patches arrive; the screen
@@ -312,6 +365,18 @@ enum PerfBudget {
     static let typingMs = 1_800.0                 // [830, XCUITest's own typing pace]
     static let sheetFillMs = 350.0                // [Agents 140, Changes 128]
     static let modelSheetTapMs = 3_000.0          // [1,940, mostly XCUITest waiting]
+    static let pageMainMs = 1_000.0               // [measuring]
+    static let readingHitchMsPerS = 1_000.0       // [measuring]
+    static let readingGrowthMiB = 1_000.0         // [measuring]
+}
+
+extension XCUIElement {
+    /// One fast fling, several screens long: toward older rows (down the screen) or newer.
+    func fling(older: Bool) {
+        let from = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: older ? 0.3 : 0.75))
+        let to = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: older ? 0.75 : 0.3))
+        from.press(forDuration: 0.01, thenDragTo: to, withVelocity: XCUIGestureVelocity(6_000), thenHoldForDuration: 0)
+    }
 }
 
 extension XCUIApplication {

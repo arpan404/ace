@@ -52,10 +52,6 @@ extension ClientModel {
         let id = admissions.nextId()
         return await admissions.wait(id: id) { threadAction(["type": "retrySend", "id": pending.id, "requestId": id]) }
     }
-    func loadOlder() {
-        guard let thread, thread.loaded, thread.screen.hasOlder, !thread.screen.loadingOlder else { return }
-        threadAction(["type": "loadOlder"])
-    }
     func requestModels() { threadAction(["type": "models"]) }
     func switchModel(_ model: ModelOption) async -> Bool {
         guard canOperate else { return false }

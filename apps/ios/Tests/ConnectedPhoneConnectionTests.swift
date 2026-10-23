@@ -57,66 +57,60 @@ import Testing
         #expect(missing.isEmpty, "Ready conversation contains \(missing.count) empty work rows out of \(groups.count)")
     }
     @Test func inlineHistoryPagesStayOrderedAndLeaveTheLiveTailSubscribed() async throws {
-        struct Directory: Decodable { let machines: [MachineEntry] }
-        struct Reading: Decodable {
-            struct Row: Decodable { let id: String; let seq: Int }
-            let active: Bool; let items: [Row]
+        let (model, temporary, _) = try await openPairedThread()
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: temporary) } }
+        let live = try #require(model.thread)
+        let reading = TranscriptReading()
+        var oldest: String?
+        for _ in 0..<3 {
+            reading.read("older", model: model, live: live)
+            for _ in 0..<200 where reading.loading { try await Task.sleep(for: .milliseconds(100)) }
+            #expect(reading.problem == nil)
+            let rows = try #require(reading.thread)
+            for _ in 0..<50 where rows.order.first == oldest { try await Task.sleep(for: .milliseconds(100)) }
+            #expect(rows.order.count <= 2200)
+            #expect(Set(rows.order).count == rows.order.count)
+            #expect(rows.order.first != oldest, "Each upward page must reach earlier messages")
+            oldest = rows.order.first
+            #expect(model.thread?.loaded == true && (model.thread?.items.count ?? 0) <= 200)
         }
+        reading.live(model: model, thread: live)
+        for _ in 0..<50 where reading.loading { try await Task.sleep(for: .milliseconds(100)) }
+        #expect(reading.thread == nil && model.reading == nil)
+    }
+    @Test func anEarlierMessageOpensInItsWindowWithoutReplacingTheLiveConversation() async throws {
+        struct Full: Decodable { let text: String }
+        let (model, temporary, threadId) = try await openPairedThread()
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: temporary) } }
+        let live = try #require(model.thread)
+        let reading = TranscriptReading()
+        reading.read("older", model: model, live: live)
+        for _ in 0..<200 where reading.loading || (reading.thread?.order.isEmpty ?? true) { try await Task.sleep(for: .milliseconds(100)) }
+        let earlier = try #require(reading.thread?.order.first { reading.thread?.items[$0]?.row.text.isEmpty == false && model.thread?.items[$0] == nil })
+        reading.jump(to: earlier, model: model, live: live)
+        for _ in 0..<200 where reading.loading || reading.thread?.items[earlier] == nil { try await Task.sleep(for: .milliseconds(100)) }
+        #expect(reading.thread?.items[earlier] != nil, "The jump opens a window around the message")
+        #expect(model.thread?.items[earlier] == nil, "The history window must remain separate from the live tail")
+        let full = try await model.service(["type": "native.message", "threadId": threadId, "itemId": earlier], as: Full.self)
+        #expect(!full.text.isEmpty)
+        #expect(model.thread?.items[earlier] == nil, "Reading a historical message must preserve the live tail")
+    }
+    /// The paired machine's long conversation, open and ready.
+    private func openPairedThread() async throws -> (ClientModel, URL, String) {
+        struct Directory: Decodable { let machines: [MachineEntry] }
         let directory = try ProductionApp.storageDirectory()
         let saved = try JSONDecoder().decode(Directory.self, from: Data(contentsOf: ProductionApp.machineDirectory(in: directory)))
         let target = try #require(saved.machines.first?.connectionTarget)
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let model = ClientModel(now: { Date().timeIntervalSince1970 * 1000 })
         await model.connect(target: target, directory: temporary)
-        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: temporary) } }
         for _ in 0..<200 where model.connection != "ready" { try await Task.sleep(for: .milliseconds(100)) }
+        try #require(model.connection == "ready")
         let id = "01a15b0e-7eef-705b-a011-fde54ae8afd1"
         model.open(id)
         for _ in 0..<200 where model.thread?.loaded != true { try await Task.sleep(for: .milliseconds(100)) }
         try #require(model.thread?.loaded == true)
-        let hold = try await model.service(["type": "native.transcript", "threadId": id, "operation": "hold"], as: Reading.self)
-        let first = try #require(hold.items.first?.seq)
-        var oldest = first
-        for _ in 0..<2 {
-            let page = try await model.service(["type": "native.transcript", "threadId": id, "operation": "older"], as: Reading.self)
-            #expect(page.active)
-            #expect(page.items.count <= 2200)
-            #expect(Set(page.items.map(\.id)).count == page.items.count)
-            #expect(zip(page.items, page.items.dropFirst()).allSatisfy { $0.seq < $1.seq })
-            let next = try #require(page.items.first?.seq)
-            #expect(next < oldest, "Each upward page must reach earlier creation sequences")
-            oldest = next
-            #expect(model.thread?.loaded == true && (model.thread?.items.count ?? 0) <= 200)
-        }
-        let live = try await model.service(["type": "native.transcript", "threadId": id, "operation": "live"], as: Reading.self)
-        #expect(!live.active)
-    }
-    @Test func anEarlierMessageCanBeReadWithoutReplacingTheLiveConversation() async throws {
-        struct Directory: Decodable { let machines: [MachineEntry] }
-        struct Window: Decodable {
-            struct Row: Decodable { let id: String; let type: String; let text: String }
-            let rows: [Row]
-        }
-        struct Full: Decodable { let text: String }
-        let directory = try ProductionApp.storageDirectory()
-        let saved = try JSONDecoder().decode(Directory.self, from: Data(contentsOf: ProductionApp.machineDirectory(in: directory)))
-        let target = try #require(saved.machines.first?.connectionTarget)
-        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let model = ClientModel(now: { Date().timeIntervalSince1970 * 1000 })
-        await model.connect(target: target, directory: temporary)
-        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: temporary) } }
-        for _ in 0..<200 where model.connection != "ready" { try await Task.sleep(for: .milliseconds(100)) }
-        try #require(model.connection == "ready")
-        let threadId = "01a15b0e-7eef-705b-a011-fde54ae8afd1"
-        model.open(threadId)
-        for _ in 0..<200 where model.thread?.loaded != true { try await Task.sleep(for: .milliseconds(100)) }
-        try #require(model.thread?.loaded == true)
-        let window = try await model.service(["type": "native.history.window", "threadId": threadId, "aroundSeq": 0], as: Window.self)
-        let earlier = try #require(window.rows.first { $0.type == "message" && !$0.text.isEmpty })
-        #expect(model.thread?.items[earlier.id] == nil, "The history window must remain separate from the live tail")
-        let full = try await model.service(["type": "native.message", "threadId": threadId, "itemId": earlier.id], as: Full.self)
-        #expect(full.text.contains(earlier.text))
-        #expect(model.thread?.items[earlier.id] == nil, "Reading a historical message must preserve the live tail")
+        return (model, temporary, id)
     }
     @Test func pairedProjectsPluginsAccountsAndDevicesAnswerThroughTheNativeBridge() async throws {
         struct Directory: Decodable { let machines: [MachineEntry] }

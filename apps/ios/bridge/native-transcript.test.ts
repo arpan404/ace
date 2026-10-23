@@ -184,6 +184,7 @@ test("streaming into the live tail while reading old history never evicts live i
   for (let pages = 0; pages < 6; pages++) state = await read("older");
   expect(state.joined).toBe(false);
   const window = held(-1);
+  const mark = native.frames.length;
   fake.apply("long", [facts.message("root", "stream", "assistant", "Working", false)]);
   for (let index = 0; index < 30; index++)
     fake.apply("long", [facts.stream("root", "stream", ` delta ${index}`)]);
@@ -198,6 +199,9 @@ test("streaming into the live tail while reading old history never evicts live i
   for (let index = 0; index < 20; index++) expect(shown).toContain(idOf(live, `New ${index}`));
   expect(text(live, stream)).toMatch(/delta 29$/);
   expect(held(-1)).toEqual(window);
+  // The window far back gets no rows for it: not even removals of rows it doesn't hold.
+  const rows = native.frames.slice(mark).filter((frame) => frame.epoch === -1);
+  expect(rows.filter((frame) => frame.type === "thread.item")).toEqual([]);
 });
 
 test("a window joined to the live tail keeps streaming its live rows", async () => {

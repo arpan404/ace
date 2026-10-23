@@ -107,7 +107,20 @@ import Darwin
     }
     /// A page of history read into the transcript, from asking to the window replaced.
     static func page(_ operation: String, items: Int, blocks: Int, seconds: Double) {
+        PerfProbe.add("pages.\(operation)", 1)
         log.notice("page \(operation, privacy: .public) items=\(items) blocks=\(blocks) ms=\(String(format: "%.0f", seconds * 1000), privacy: .public) footprintMiB=\(footprint(), privacy: .public)")
+    }
+    private static var peakFootprint = 0.0
+    /// A frame moved the reading rows; `started` is when it began applying. The time runs to the
+    /// next run-loop turn, so the layout and commit the rows caused count with it.
+    static func readingFrame(started: Double) {
+        RunLoop.main.perform(inModes: [.common]) {
+            let ms = (CACurrentMediaTime() - started) * 1000
+            let mib = Double(footprint()) ?? 0
+            peakFootprint = max(peakFootprint, mib)
+            PerfProbe.record(["page.footprintMiB": String(format: "%.0f", mib), "page.peakMiB": String(format: "%.0f", peakFootprint)])
+            PerfProbe.add("page.mainMsTotal", ms)
+        }
     }
     /// The app's physical footprint, as the system counts it against its memory limit.
     nonisolated static func footprint() -> String {

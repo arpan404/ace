@@ -11,6 +11,8 @@ export class ReadingSource {
   readonly source: ThreadSource;
   #view: ThreadSource;
   readonly #taps = new Set<ChangeTap>();
+  #heldOrder: readonly string[] | undefined;
+  #heldIds: ReadonlySet<string> = new Set();
   readonly #stop: () => void;
 
   /** `live`: the leased tail, whose change keys every view of the window follows. */
@@ -18,14 +20,18 @@ export class ReadingSource {
     this.#view = view;
     const current = () => this.#view;
     this.#stop = live.observe((keys) => {
-      if (keys !== "all" && keys.has("history")) {
-        // Only the tail's paging moved; a window's own items never depend on it.
-        const rest = new Set([...keys].filter((key) => key !== "history"));
-        if (!rest.size) return;
-        this.#emit(rest);
+      if (keys === "all") {
+        this.#emit(keys);
         return;
       }
-      this.#emit(keys);
+      // The tail's paging never moves a window's own items, and a change to an item the view
+      // doesn't show (the tail streaming past a detached window) is not the view's to hear.
+      const held = this.#held();
+      const rest = new Set<string>();
+      for (const key of keys)
+        if (key !== "history" && (!key.startsWith("item:") || held.has(key.slice(5))))
+          rest.add(key);
+      if (rest.size) this.#emit(rest);
     });
     this.source = {
       get error() {
@@ -90,6 +96,16 @@ export class ReadingSource {
     const keys = new Set<string>(["order"]);
     for (const id of view.order) if (old.item(id) !== view.item(id)) keys.add(`item:${id}`);
     this.#emit(keys);
+  }
+
+  /** The ids the view shows, rebuilt only when its order changes (new rows, a new window). */
+  #held(): ReadonlySet<string> {
+    const order = this.#view.order;
+    if (this.#heldOrder !== order) {
+      this.#heldOrder = order;
+      this.#heldIds = new Set(order);
+    }
+    return this.#heldIds;
   }
 
   dispose(): void {

@@ -10,13 +10,11 @@ import Testing
         let detail = result.detail
         let pages = detail.int("pages")
         let counts = detail.numbers("counts")
-        let firstSeqs = detail.numbers("firstSeqs")
         #expect(pages >= 2)
         #expect(counts.allSatisfy { $0 <= 2200 })
-        // Successive windows overlap (older pages prepend): shared items must keep their
-        // order and sequence, and only older items may appear.
-        #expect(detail.bool("allSequenced"))
-        #expect(zip(firstSeqs, firstSeqs.dropFirst()).allSatisfy { $0 > $1 })
+        // Successive windows overlap (older pages prepend): shared rows must keep their order,
+        // and only older rows may appear, before them.
+        #expect(detail.bool("firstMoved"))
         #expect(detail.int("withinPageDupes") == 0)
         #expect(detail.bool("overlapConsistent"))
         #expect(detail.bool("prependedAreOlder"))

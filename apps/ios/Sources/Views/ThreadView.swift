@@ -107,7 +107,7 @@ struct ThreadView: View {
                 NavigationStack { NativeMediaView(model: model, threadId: thread.id, item: item) }.presentationDetents([.large]).presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showSearch) {
-                NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; openThread(id) }) }
+                NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; if id != thread.id { openThread(id) } }) }
             }
             .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle, showFiles: $showFiles,
                                        mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil))
