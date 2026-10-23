@@ -9,7 +9,8 @@ import { readConfig, startDaemon, stubHandler } from "./index.ts";
 test.runIf(process.platform === "win32")(
   "windows daemon cold boot shuts down cleanly then restarts from the same home",
   async () => {
-    const home = await mkdtemp(join(tmpdir(), "ace-win-startup-"));
+    const base = await mkdtemp(join(tmpdir(), "ace-win-startup-"));
+    const home = join(base, "home");
     const workspaceRoot = await mkdtemp(join(tmpdir(), "ace-win-workspace-"));
     try {
       const options = () => ({
@@ -75,7 +76,7 @@ test.runIf(process.platform === "win32")(
         await second.close();
       }
     } finally {
-      await rm(home, { recursive: true, force: true });
+      await rm(base, { recursive: true, force: true });
       await rm(workspaceRoot, { recursive: true, force: true });
     }
   },
