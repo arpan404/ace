@@ -1,5 +1,5 @@
 import { closeSync, fsyncSync, fstatSync, writeSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +10,8 @@ const require = createRequire(import.meta.url);
 const Binding = z.object({
   openRoot: z.function({ input: [z.string()], output: z.number().int() }),
   createFileAt: z.function({ input: [z.number().int(), z.string()], output: z.number().int() }),
+  unlinkAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
+  removeDirectoryAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
   mkdirAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
   openDirectoryAt: z.function({ input: [z.number().int(), z.string()], output: z.number().int() }),
   identityOf: z.function({
@@ -140,3 +142,74 @@ win("a replaced ancestor cannot redirect a pinned file creation", async ({ onTes
     closeSync(directory);
   }
 });
+
+win("deletion enforces file and empty-directory semantics", async ({ onTestFinished }) => {
+  const core = Binding.parse(require("../dist/windows-core.node"));
+  const root = await mkdtemp(join(tmpdir(), "ace-wdelete-"));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, "directory"));
+  await writeFile(join(root, "directory", "keep.txt"), "keep");
+  await writeFile(join(root, "café-日本語.txt"), "file");
+  const parent = core.openRoot(root);
+  try {
+    expect(() => core.unlinkAt(parent, "directory")).toThrowError(
+      expect.objectContaining({ code: "EISDIR" }),
+    );
+    expect(() => core.removeDirectoryAt(parent, "café-日本語.txt")).toThrowError(
+      expect.objectContaining({ code: "ENOTDIR" }),
+    );
+    expect(() => core.removeDirectoryAt(parent, "directory")).toThrowError(
+      expect.objectContaining({ code: "ENOTEMPTY" }),
+    );
+    expect(await readFile(join(root, "directory", "keep.txt"), "utf8")).toBe("keep");
+    const nested = core.openDirectoryAt(parent, "directory");
+    try {
+      core.unlinkAt(nested, "keep.txt");
+    } finally {
+      closeSync(nested);
+    }
+    core.removeDirectoryAt(parent, "directory");
+    core.unlinkAt(parent, "café-日本語.txt");
+    for (const name of ["directory", "café-日本語.txt"])
+      await expect(readFile(join(root, name))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(() => core.unlinkAt(parent, "missing")).toThrowError(
+      expect.objectContaining({ code: "ENOENT" }),
+    );
+    for (const name of ["..", "../escape", "NUL", "file:stream", "trailing."])
+      for (const remove of [core.unlinkAt, core.removeDirectoryAt])
+        expect(() => remove(parent, name)).toThrowError(
+          expect.objectContaining({ code: "EINVAL" }),
+        );
+  } finally {
+    closeSync(parent);
+  }
+});
+
+win(
+  "deletion stays pinned after ancestor replacement and removes only a junction",
+  async ({ onTestFinished }) => {
+    const core = Binding.parse(require("../dist/windows-core.node"));
+    const base = await mkdtemp(join(tmpdir(), "ace-wdelete-pinned-"));
+    onTestFinished(() => rm(base, { recursive: true, force: true }));
+    const root = join(base, "root");
+    const pinned = join(base, "pinned");
+    const outside = join(base, "outside");
+    await mkdir(root);
+    await mkdir(outside);
+    await writeFile(join(root, "same.txt"), "inside");
+    await writeFile(join(outside, "same.txt"), "outside");
+    await symlink(outside, join(root, "junction"), "junction");
+    const parent = core.openRoot(root);
+    try {
+      await rename(root, pinned);
+      await symlink(outside, root, "junction");
+      core.unlinkAt(parent, "same.txt");
+      core.removeDirectoryAt(parent, "junction");
+      await expect(readFile(join(pinned, "same.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(lstat(join(pinned, "junction"))).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(join(outside, "same.txt"), "utf8")).toBe("outside");
+    } finally {
+      closeSync(parent);
+    }
+  },
+);

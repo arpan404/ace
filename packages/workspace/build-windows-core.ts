@@ -39,6 +39,7 @@ const SOURCES = [
   "nt_bridge.c",
   "volume_root.c",
   "child_open.c",
+  "delete_child.c",
   "file_identity.c",
   "directory_metadata.c",
   "windows_core_addon.c",

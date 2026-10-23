@@ -174,3 +174,18 @@ Related contracts: [desktop shell](adr/0054-desktop-shell.md),
 [Windows process launch](adr/0091-windows-process-launch.md),
 [screen helper](adr/0048-windows-screen-helper.md),
 [launch acceptance checklist](verification/windows-launch-checklist.md).
+
+## Latest native verification
+
+[Run 39874497061](https://github.com/arpan404/ace/actions/runs/39874497061)
+on `d6eb04ff1` passed on both native Windows x64 and ARM64, each with
+14 files and 122 tests. This includes MSVC compilation, ConPTY, retained Job
+ownership, process identity, filesystem metadata, exclusive creation and mkdir.
+It does not establish the clean-install, production integration or installed-app
+gates.
+
+The next W05 slice adds handle-relative `unlinkAt` and `removeDirectoryAt`,
+including type errors, nonempty-directory rejection, junction removal without
+following its target, and pinned-parent behavior after ancestor replacement.
+Its native verification is pending. Rename, ACLs and production descriptor
+integration remain unfinished.

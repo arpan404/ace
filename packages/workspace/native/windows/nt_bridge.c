@@ -135,6 +135,8 @@ const char *wcore_dos_to_code(DWORD dos) {
       return "EEXIST";
     case ERROR_INVALID_NAME:
       return "EINVAL";
+    case ERROR_DIR_NOT_EMPTY:
+      return "ENOTEMPTY";
     case ERROR_DIRECTORY:
       return "ENOTDIR";
     case ERROR_FILENAME_EXCED_RANGE:

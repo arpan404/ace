@@ -85,6 +85,11 @@ const char *wcore_open_file_at(int parent_fd, const char *name, int *out_fd);
 const char *wcore_create_file_at(int parent_fd, const char *name, int *out_fd);
 const char *wcore_mkdir_at(int parent_fd, const char *name);
 
+// Delete the opened child itself, including reparse points, never its target.
+// unlink rejects directories; remove_directory rejects files and nonempty dirs.
+const char *wcore_unlink_at(int parent_fd, const char *name);
+const char *wcore_remove_directory_at(int parent_fd, const char *name);
+
 // Lossless identity of an open fd: VolumeSerialNumber as 16 lowercase hex
 // chars plus the 128-bit FileId as 32 lowercase hex chars (raw identifier
 // byte order, string equality only — never truncated to JS doubles).
