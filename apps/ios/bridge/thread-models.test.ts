@@ -16,14 +16,19 @@ type Models = {
 };
 const models = () => latest("thread.models") as Models | undefined;
 
-function runningOn(model: string) {
+function runningOn(model: string | undefined) {
   const fake = fixture();
   fake.createThread({
     id: "models",
     workspaceId: "ace",
     title: "Models",
     provider: "codex",
-    execution: { provider: "codex", model, instanceId: "codex-personal", options: {} },
+    execution: {
+      provider: "codex",
+      ...(model ? { model } : {}),
+      instanceId: "codex-personal",
+      options: {},
+    },
   });
   fake.apply("models", [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")]);
   return fake;
@@ -50,4 +55,12 @@ test("a listed model in use is marked once, and a star on it shows under favorit
   await until(() => models()?.favorites.includes("gpt-6"), "the star saved");
   thread.handle({ type: "favorite", model: "gpt-6" });
   await until(() => models()?.favorites.length === 0, "the star removed");
+});
+
+test("a thread that names no model has its account's default marked as the one in use", async () => {
+  const thread = open(connect(runningOn(undefined)), "models");
+  await until(() => latest("thread.tune"), "the thread");
+  thread.handle({ type: "models" });
+  const ready = await until(() => (models()?.state === "ready" ? models() : undefined), "the list");
+  expect(ready.models.filter((row) => row.current)).toHaveLength(1);
 });

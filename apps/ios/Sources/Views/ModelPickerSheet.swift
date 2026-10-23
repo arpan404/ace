@@ -45,6 +45,8 @@ struct ModelPickerSheet: View {
             }
         }
         .onAppear { model.requestModels() }
+        // Where it opens is decided once the list arrives, so a new star never moves the sheet.
+        .task(id: screen.modelsState) { if shown == nil, screen.modelsState == "ready" { shown = tab } }
     }
     private func confirm() {
         guard let picked, picked != current?.id, let option = screen.models.first(where: { $0.id == picked }) else { dismiss(); return }

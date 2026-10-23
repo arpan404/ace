@@ -55,6 +55,8 @@ struct NewThreadModelSheet: View {
             NewThreadOptions(compose: compose, drafts: drafts, choice: choice)
         }
         .onAppear { if snapshot == nil { snapshot = .init(draft) } }
+        // Where it opens is decided once the tabs arrive, so a new star never moves the sheet.
+        .task(id: compose.agentsState) { if shown == nil, compose.agentsState == "ready", !tabs.isEmpty { shown = tab } }
     }
     private var hasMore: Bool {
         guard let entry = read.tabs.first(where: { $0.id == tab }) else { return false }

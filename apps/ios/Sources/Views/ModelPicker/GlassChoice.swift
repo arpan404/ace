@@ -42,8 +42,8 @@ struct GlassChoice: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// A lifted page-coloured thumb in light, the quiet fill in dark.
-    private var thumbFill: Color { scheme == .dark ? AceTheme.Colours.fill : AceTheme.Colours.glass }
+    /// A lifted white thumb in light; in dark, a lighter wash of the ink so it reads on the bar.
+    private var thumbFill: Color { scheme == .dark ? AceTheme.Colours.foreground.opacity(0.16) : AceTheme.Colours.glass }
 
     private func segment(_ item: GlassChoiceItem) -> some View {
         let on = item.id == selection

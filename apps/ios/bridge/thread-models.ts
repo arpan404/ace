@@ -4,7 +4,7 @@ import type { Preview } from "./agents.ts";
 
 /*
  * The open thread's model sheet rows: the models its provider and account list (`models.list`),
- * each once, the one it runs on marked. The thread's model always shows and stays marked, listed
+ * each once, the one it runs on marked (its account's default when it names none). The thread's model always shows and stays marked, listed
  * first under its own name when the catalog doesn't carry it (a retired or custom model).
  * `favorites` are this provider's starred models among them, in the order they were starred.
  */
@@ -23,7 +23,10 @@ export function threadModelRows(
   preview: Preview,
 ): { models: ThreadModelRow[]; favorites: string[] } {
   const canonical = catalogModelIds(listed);
-  const running = canonical(selection.provider, selection.model);
+  // A thread that names no model runs its account's default.
+  const running = selection.model
+    ? canonical(selection.provider, selection.model)
+    : (listed.find((model) => model.isDefault)?.id ?? null);
   const seen = new Set<string>();
   const models = listed.flatMap((model) => {
     if (seen.has(model.id)) return [];

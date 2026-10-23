@@ -42,7 +42,9 @@ struct NewThreadOptions: View {
     }
     /// What the chosen mode does, then why it runs stricter than asked or why Send waits.
     private func accessNote(_ access: ComposeAccess) -> String? {
-        let shown = access.choices.first { $0.mode == access.selected }?.description
+        let chosen = access.choices.first { $0.mode == access.selected }
+        // A mode the shared rules flag (Full access) says it is the riskier one, in words.
+        let shown = chosen.map { $0.attention ? "Riskier: " + $0.description.prefix(1).lowercased() + $0.description.dropFirst() : $0.description }
         let notes = [shown, access.problem ?? access.stricter].compactMap { $0 }.filter { !$0.isEmpty }
         return notes.isEmpty ? nil : notes.joined(separator: " ")
     }
