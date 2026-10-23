@@ -17,7 +17,6 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
         NavigationSplitView(columnVisibility: $visibility, preferredCompactColumn: compactColumn) {
             list()
                 .environment(\.openThreadRow, ThreadColumns.selection(path))
-                .navigationSplitViewColumnWidth(min: ThreadColumns.listWidth.min, ideal: ThreadColumns.listWidth.ideal, max: ThreadColumns.listWidth.max)
                 // As a stack, the tab bar hides once a thread is pushed; beside the list it stays.
                 .toolbarVisibility(ThreadColumns.showsTabBar(sizeClass, path: path) ? .automatic : .hidden, for: .tabBar)
         } detail: {
