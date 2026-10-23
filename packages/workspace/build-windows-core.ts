@@ -41,6 +41,7 @@ const SOURCES = [
   "child_open.c",
   "delete_child.c",
   "rename_child.c",
+  "private_file.c",
   "file_identity.c",
   "directory_metadata.c",
   "windows_core_addon.c",

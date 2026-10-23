@@ -1,0 +1,158 @@
+import { closeSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { link, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+import { expect, test } from "vitest";
+import { z } from "zod";
+
+const require = createRequire(import.meta.url);
+const Binding = z.object({
+  openRoot: z.function({ input: [z.string()], output: z.number().int() }),
+  checkPrivateAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
+});
+const win = test.runIf(process.platform === "win32");
+const runFile = promisify(execFile);
+
+function systemPowerShell(): string {
+  return join(
+    process.env.SystemRoot ?? "C:\\Windows",
+    "System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+  );
+}
+
+// Owner-only DACL via documented .NET FileSecurity: current TokenUser owns,
+// inheritance disabled and stripped, then one FullControl allow (zero flags,
+// FILE_ALL_ACCESS) for the owner. Optional Everyone reader broadens it.
+const SET_DACL_PS = [
+  "$ErrorActionPreference='Stop'",
+  "$p=$env:ACE_PRIVATE_TARGET",
+  "$x=$env:ACE_PRIVATE_EXTRA",
+  "$a=Get-Acl -LiteralPath $p",
+  "$m=[System.Security.Principal.WindowsIdentity]::GetCurrent().User",
+  "$a.SetOwner($m)",
+  "$a.SetAccessRuleProtection($true,$false)",
+  "foreach($r in @($a.Access)){[void]$a.RemoveAccessRuleAll($r)}",
+  "$o=New-Object System.Security.AccessControl.FileSystemAccessRule($m,'FullControl','Allow')",
+  "$a.AddAccessRule($o)",
+  "$everyone=New-Object System.Security.Principal.SecurityIdentifier('S-1-1-0')",
+  "if($x -eq 'read'){$e=New-Object System.Security.AccessControl.FileSystemAccessRule($everyone,'ReadAndExecute','Allow');$a.AddAccessRule($e)}",
+  "elseif($x -eq 'full'){$e=New-Object System.Security.AccessControl.FileSystemAccessRule($everyone,'FullControl','Allow');$a.AddAccessRule($e)}",
+  "Set-Acl -LiteralPath $p -AclObject $a",
+].join(";");
+
+async function secureOwnerOnly(target: string, extra = "none"): Promise<void> {
+  await runFile(
+    systemPowerShell(),
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", SET_DACL_PS],
+    { env: { ...process.env, ACE_PRIVATE_TARGET: target, ACE_PRIVATE_EXTRA: extra } },
+  );
+}
+
+function expectCode(fn: () => unknown, code: string): void {
+  try {
+    fn();
+  } catch (caught) {
+    expect(caught).toMatchObject({ code });
+    return;
+  }
+  throw new Error(`Expected failure with code ${code}, got success`);
+}
+
+win("accepts an owner-only Unicode regular file as private", async ({ onTestFinished }) => {
+  const core = Binding.parse(require("../dist/windows-core.node"));
+  const root = await mkdtemp(join(tmpdir(), "ace-wprivate-ok-"));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const name = "privé-日本語-✓.txt";
+  await writeFile(join(root, name), "secret bytes");
+  await secureOwnerOnly(join(root, name));
+  const parent = core.openRoot(root);
+  try {
+    expect(core.checkPrivateAt(parent, name)).toBeUndefined();
+    expect(await readFile(join(root, name), "utf8")).toBe("secret bytes");
+  } finally {
+    closeSync(parent);
+  }
+});
+
+win("rejects inherited and broadened DACLs with EACCES", async ({ onTestFinished }) => {
+  const core = Binding.parse(require("../dist/windows-core.node"));
+  const root = await mkdtemp(join(tmpdir(), "ace-wprivate-acl-"));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, "hérité-日本語.txt"), "inherited");
+  await writeFile(join(root, "lecture-✓.txt"), "reader");
+  await writeFile(join(root, "large-日本語.txt"), "broad");
+  await secureOwnerOnly(join(root, "lecture-✓.txt"), "read");
+  await secureOwnerOnly(join(root, "large-日本語.txt"), "full");
+  const parent = core.openRoot(root);
+  try {
+    for (const name of ["hérité-日本語.txt", "lecture-✓.txt", "large-日本語.txt"])
+      expectCode(() => core.checkPrivateAt(parent, name), "EACCES");
+  } finally {
+    closeSync(parent);
+  }
+});
+
+win("refuses a hard link even after owner-only security", async ({ onTestFinished }) => {
+  const core = Binding.parse(require("../dist/windows-core.node"));
+  const root = await mkdtemp(join(tmpdir(), "ace-wprivate-link-"));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const name = "origine-日本語-✓.txt";
+  const alias = "alias-✓.txt";
+  await writeFile(join(root, name), "linked bytes");
+  await link(join(root, name), join(root, alias));
+  await secureOwnerOnly(join(root, name));
+  const parent = core.openRoot(root);
+  try {
+    expectCode(() => core.checkPrivateAt(parent, name), "EACCES");
+    expectCode(() => core.checkPrivateAt(parent, alias), "EACCES");
+    expect(await readFile(join(root, name), "utf8")).toBe("linked bytes");
+  } finally {
+    closeSync(parent);
+  }
+});
+
+win("rejects directories with EISDIR and junctions with ELOOP", async ({ onTestFinished }) => {
+  const core = Binding.parse(require("../dist/windows-core.node"));
+  const base = await mkdtemp(join(tmpdir(), "ace-wprivate-type-"));
+  onTestFinished(() => rm(base, { recursive: true, force: true }));
+  const root = join(base, "root");
+  const outside = join(base, "outside");
+  await mkdir(root);
+  await mkdir(outside);
+  await mkdir(join(root, "dossier-日本語"));
+  await writeFile(join(outside, "keep-✓.txt"), "outside bytes");
+  try {
+    await symlink(outside, join(root, "lien-✓"), "junction");
+  } catch {
+    throw new Error("Windows host cannot create junctions; reparse refusal untestable here");
+  }
+  const parent = core.openRoot(root);
+  try {
+    expectCode(() => core.checkPrivateAt(parent, "dossier-日本語"), "EISDIR");
+    expectCode(() => core.checkPrivateAt(parent, "lien-✓"), "ELOOP");
+    expect((await lstat(join(root, "lien-✓"))).isSymbolicLink()).toBe(true);
+    expect(await readFile(join(outside, "keep-✓.txt"), "utf8")).toBe("outside bytes");
+  } finally {
+    closeSync(parent);
+  }
+});
+
+win("rejects bad lexical names with EINVAL", async ({ onTestFinished }) => {
+  const core = Binding.parse(require("../dist/windows-core.node"));
+  const root = await mkdtemp(join(tmpdir(), "ace-wprivate-names-"));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, "ok-✓.txt"), "ok");
+  await secureOwnerOnly(join(root, "ok-✓.txt"));
+  const parent = core.openRoot(root);
+  try {
+    expect(core.checkPrivateAt(parent, "ok-✓.txt")).toBeUndefined();
+    for (const name of ["..", "../escape", "NUL.txt", "file:stream", "trailing.", "a/b", ""])
+      expectCode(() => core.checkPrivateAt(parent, name), "EINVAL");
+    expectCode(() => core.checkPrivateAt(parent, "missing-✓.txt"), "ENOENT");
+  } finally {
+    closeSync(parent);
+  }
+});
