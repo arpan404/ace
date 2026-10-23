@@ -67,6 +67,16 @@ export interface InboxSection {
   keys: string[];
   /** Each row's rank, parallel to `keys` (`inboxRank`, `unsentRank`). */
   ranks: string[];
+  /** How many threads the section holds, loaded or not: Settled counts what the daemon pages. */
+  total: number;
+}
+
+export interface InboxSectionOptions {
+  /**
+   * Settled threads in all on the daemon (`settledTotal`), loaded or not. Pass it only for the
+   * daemon's own copy: an unconfirmed copy reads Syncing, so it has no Settled section to count.
+   */
+  settledTotal?: number | undefined;
 }
 
 /**
@@ -199,12 +209,14 @@ const byRank = (a: { rank: string }, b: { rank: string }) =>
 
 /**
  * The inbox's sections in order, empty ones left out, each row with its rank. Unsent lists each
- * machine's outbox in its own order.
+ * machine's outbox in its own order. Settled counts the daemon's total, as the web's sidebar
+ * does, so it shows even while every loaded settled thread sits elsewhere (snoozed).
  */
 export function inboxSections(
   threads: Iterable<InboxThread>,
   unsent: Iterable<InboxUnsent>,
   now: number,
+  options: InboxSectionOptions = {},
 ): InboxSection[] {
   const groups = new Map<InboxGroupKey, { key: string; rank: string }[]>();
   for (const thread of threads) {
@@ -225,12 +237,15 @@ export function inboxSections(
           rows.push({ key: row.key, rank: unsentRank(row.machineId, rows.length) });
       rows.sort(byRank);
     } else rows = (groups.get(key) ?? []).toSorted(byRank);
-    if (rows.length)
+    const total =
+      key === "settled" ? Math.max(rows.length, options.settledTotal ?? 0) : rows.length;
+    if (total)
       sections.push({
         key,
         label: inboxGroupLabels[key],
         keys: rows.map((row) => row.key),
         ranks: rows.map((row) => row.rank),
+        total,
       });
   }
   return sections;
