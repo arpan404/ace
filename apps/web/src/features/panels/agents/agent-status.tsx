@@ -1,7 +1,7 @@
 import type { AgentStatus } from "@ace/protocol";
 import { glyphOf, type AgentGlyph } from "@ace/ui-core";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
-import { agentGlyph } from "@/components/status-glyph-state.ts";
+import { agentGlyph } from "@ace/ui-core";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 
 /**

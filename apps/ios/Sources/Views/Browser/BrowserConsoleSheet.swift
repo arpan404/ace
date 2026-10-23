@@ -23,7 +23,7 @@ struct BrowserConsoleSheet: View {
             .background(AceTheme.Colours.background)
             .overlay {
                 if entries.isEmpty {
-                    ContentUnavailableView(section == "console" ? "No messages" : "No requests", systemImage: "terminal")
+                    EmptyState(icon: .terminal, title: section == "console" ? "No messages" : "No requests")
                 }
             }
             .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
@@ -40,7 +40,7 @@ struct BrowserConsoleSheet: View {
                 SheetClose()
                 ToolbarItemGroup(placement: .primaryAction) {
                     filter
-                    Button("Clear", systemImage: "circle.slash") { send(clear: true) }
+                    Button("Clear", ace: .prohibit) { send(clear: true) }
                         .accessibilityIdentifier("browser.console.clear")
                 }
             }
@@ -60,7 +60,7 @@ struct BrowserConsoleSheet: View {
                     Text("Warnings").tag("warning")
                     Text("Info").tag("info")
                 }
-            } label: { Label("Level", systemImage: "line.3.horizontal.decrease") }
+            } label: { Label("Level", ace: .funnelSimple) }
             .accessibilityIdentifier("browser.console.level")
         } else {
             Menu {
@@ -68,7 +68,7 @@ struct BrowserConsoleSheet: View {
                     Text("All requests").tag("all")
                     Text("Failed").tag("failed")
                 }
-            } label: { Label("Requests", systemImage: "line.3.horizontal.decrease") }
+            } label: { Label("Requests", ace: .funnelSimple) }
         }
     }
 
@@ -78,18 +78,17 @@ struct BrowserConsoleSheet: View {
 
     private func consoleRow(_ entry: BrowserLog.Entry) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
-            Image(systemName: entry.level == "error" ? "xmark.circle" : entry.level == "warning" ? "exclamationmark.triangle" : "circle")
-                .font(.caption)
+            AceIcon(entry.level == "error" ? .xCircle : entry.level == "warning" ? .warning : .circle, size: 14, relativeTo: .caption)
                 .foregroundStyle(entry.level == "error" ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground)
                 .opacity(entry.level == "info" ? 0 : 1)
-                .accessibilityLabel(entry.level == "error" ? "Error" : entry.level == "warning" ? "Warning" : "")
+                .accessibilityElement(children: .ignore).accessibilityLabel(entry.level == "error" ? "Error" : entry.level == "warning" ? "Warning" : "")
             Text(entry.text)
                 .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
                 .foregroundStyle(entry.level == "error" ? AceTheme.StatusText.failed : AceTheme.Colours.foreground)
                 .textSelection(.enabled)
         }
         .browserRow()
-        .contextMenu { Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = entry.text } }
+        .contextMenu { Button("Copy", ace: .copy) { UIPasteboard.general.string = entry.text } }
     }
 
     private func requestRow(_ entry: BrowserLog.Entry) -> some View {
@@ -116,8 +115,7 @@ struct BrowserShotSheet: View {
                 if let image {
                     ScrollView { Image(uiImage: image).resizable().scaledToFit().padding(AceTheme.Spacing.lg) }
                 } else {
-                    ContentUnavailableView("Screenshot saved to this thread", systemImage: "camera",
-                                           description: Text(shot.path))
+                    EmptyState(icon: .camera, title: "Screenshot saved to this thread", line: shot.path)
                 }
             }
             .background(AceTheme.Colours.background)

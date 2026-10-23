@@ -16,11 +16,11 @@ struct FullMessageView: View {
                     else if problem == nil { ProgressView("Reading full message…") }
                     ServiceProblem(message: problem)
                     if problem != nil { Button("Retry") { Task { await read() } } }
-                }.padding(AceTheme.Spacing.lg).frame(maxWidth: .infinity, alignment: .leading)
+                }.padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.lg).frame(maxWidth: .infinity, alignment: .leading)
             }
             .navigationTitle(item.type == "reasoning" ? "Thought" : "Message").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-        }.task { await read() }
+        }.readWhenConnected(model) { await read() }
     }
     private func read() async {
         problem = nil

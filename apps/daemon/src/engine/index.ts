@@ -26,11 +26,13 @@ import { commandContext } from "../commands.ts";
 import { AccessError, type PermissionSettings } from "./permissions.ts";
 import { reportedOrTable } from "@ace/provider-kit/access-modes";
 import { changeEngineWorkspace, type WorkspaceChangeReservation } from "./workspace-change.ts";
-import { CommandId, ProviderKind, ThreadId } from "@ace/protocol";
+import { ProviderKind, ThreadId } from "@ace/protocol";
 import type { PrepareInput } from "./input.ts";
 import { Recovery, RecoveryPreferences, type RecoveryPorts } from "./recovery.ts";
 import { ContextMeters } from "./context-meter.ts";
 import { recoverEngine } from "./restart.ts";
+import { DelegationFacts } from "./delegation-facts.ts";
+import { continuesNatively, heldInterrupted } from "./restart-eligibility.ts";
 import { IntentDelivery } from "./intent-delivery.ts";
 import { ThreadTransitions, type TransitionIO } from "./transitions.ts";
 import { Sessions } from "./sessions.ts";
@@ -153,6 +155,7 @@ export class Engine {
   private delivery: IntentDelivery;
   private transitions: ThreadTransitions;
   private liveness: ThreadLiveness;
+  private delegationFacts: DelegationFacts;
   private readyPromise: Promise<void>;
   private readyState = false;
   private closing = false;
@@ -296,6 +299,7 @@ export class Engine {
       report: this.report,
     });
     this.meters = new ContextMeters(store, options.recovery?.contextWindow);
+    this.delegationFacts = new DelegationFacts(this.repo, this.clock, (id) => this.wake(id));
     this.liveness = new ThreadLiveness({
       repo: this.repo,
       clock: this.clock,
@@ -416,6 +420,7 @@ export class Engine {
         (intent, message) => this.delivery.fail(intent, message),
         (id) => this.wake(id),
         unreadable,
+        (id) => continuesNatively(this.repo, this.registry, id),
       );
     const recovery = this.recovery;
     const repo = this.repo;
@@ -691,167 +696,14 @@ export class Engine {
     );
     this.wake(parentId);
   }
-  /**
-   * A child on another paired machine (ADR 0078): its launch row names the machine, and a
-   * background hold keeps the parent from reading done while the child works there.
-   */
-  machineChild(
-    child: {
-      id: ThreadId;
-      parentId: ThreadId;
-      parentAgentId: AgentId;
-      machine: string;
-      name: string;
-      provider: import("@ace/protocol").ProviderKind;
-      model?: string | undefined;
-      role: string;
-      title: string;
-      status: import("@ace/protocol").ThreadStatus;
-      outcome: import("@ace/protocol").DelegationOutcome | null;
-    },
-    hold: "start" | "end" | undefined,
-  ): void {
-    const state = this.repo.requireState(child.parentId);
-    const agent = state.indexes.agentKeysById[child.parentAgentId];
-    if (!agent) throw new Error("Unknown machine delegation parent");
-    const task = `ace-machine:${child.id}`;
-    const settled = child.outcome !== null;
-    const now = this.clock.now();
-    this.repo.apply(
-      child.parentId,
-      [
-        {
-          type: "item.upsert",
-          agent,
-          item: `ace-delegation:${child.id}`,
-          draft: {
-            type: "delegation.started",
-            origin: "ace",
-            childThreadId: child.id,
-            provider: child.provider,
-            ...(child.model ? { model: child.model } : {}),
-            title: child.title,
-            role: child.role,
-            phase: settled ? "settled" : "running",
-            status: child.status,
-            updatedAt: now,
-            generation: 0,
-            complete: settled,
-            outcome: child.outcome,
-            machine: { machine: child.machine, name: child.name },
-          },
-        },
-        ...(hold === "start"
-          ? [
-              {
-                type: "background.started" as const,
-                owner: "ace" as const,
-                agent,
-                task,
-                kind: "subagent" as const,
-                title: `${child.role} · ${child.name}`,
-                stoppable: true,
-              },
-            ]
-          : hold === "end"
-            ? [
-                {
-                  type: "background.ended" as const,
-                  task,
-                  status:
-                    child.outcome?.outcome === "completed"
-                      ? ("completed" as const)
-                      : child.outcome?.outcome === "cancelled"
-                        ? ("stopped" as const)
-                        : ("failed" as const),
-                },
-              ]
-            : []),
-      ],
-      now,
-    );
-    if (hold === "end") this.wake(child.parentId);
+  machineChild(...args: Parameters<DelegationFacts["machineChild"]>): void {
+    this.delegationFacts.machineChild(...args);
   }
-  /** One stable parent item follows each independently owned child thread. */
-  delegationStarted(record: import("@ace/protocol").DelegationRecord, child: Thread) {
-    const state = this.repo.requireState(record.parentId);
-    const agent = state.indexes.agentKeysById[record.parentAgentId];
-    if (!agent) throw new Error("Unknown delegation parent");
-    const selection = this.repo.session(child.id);
-    this.repo.apply(
-      record.parentId,
-      [
-        {
-          type: "item.upsert",
-          agent,
-          item: `ace-delegation:${child.id}`,
-          draft: {
-            type: "delegation.started",
-            origin: "ace",
-            childThreadId: child.id,
-            provider: child.provider,
-            ...(selection.model ? { model: selection.model } : {}),
-            ...(selection.instanceId ? { accountId: selection.instanceId } : {}),
-            title: child.title,
-            role: record.request.role,
-            phase: record.phase,
-            status: child.status,
-            updatedAt: this.clock.now(),
-            generation: record.generation,
-            complete: record.phase === "settled",
-            outcome: record.outcome ?? null,
-          },
-        },
-      ],
-      this.clock.now(),
-    );
+  delegationStarted(...args: Parameters<DelegationFacts["delegationStarted"]>): void {
+    this.delegationFacts.delegationStarted(...args);
   }
-  /** Host-only result attribution; ordinary wire sends cannot impersonate ace. */
-  delegationSettled(
-    parentId: ThreadId,
-    parentAgentId: AgentId,
-    commandId: string,
-    results: import("@ace/protocol").DelegationOutcome[],
-    delivery: "tool" | "ace-input",
-    text?: string,
-  ) {
-    const state = this.repo.requireState(parentId);
-    const agent = state.indexes.agentKeysById[parentAgentId];
-    if (!agent) throw new Error("Unknown delegation parent");
-    const item = `ace-results:${commandId}`;
-    const summaries = results.map((result) => ({
-      ...result,
-      result: result.result.slice(0, 128),
-      truncated: result.truncated || result.result.length > 128,
-    }));
-    this.repo.store.atomic(() => {
-      if (text) {
-        this.repo.inputs.register(parentId, `input:${commandId}`, [{ type: "text", text }], {
-          kind: "subagent_result",
-          commandId: CommandId.parse(commandId),
-          threadIds: results.map((result) => result.threadId),
-        });
-        this.repo.aceInputs.record(parentId, commandId, { agent, item, results: summaries });
-      }
-      this.repo.apply(
-        parentId,
-        [
-          {
-            type: "item.upsert",
-            agent,
-            item,
-            draft: {
-              type: "delegation.settled",
-              origin: "ace",
-              delivery,
-              results: summaries,
-              complete: true,
-            },
-          },
-        ],
-        this.clock.now(),
-      );
-    });
+  delegationSettled(...args: Parameters<DelegationFacts["delegationSettled"]>): void {
+    this.delegationFacts.delegationSettled(...args);
   }
   /** On-demand metrics visit bounded live actors and indexed outstanding intents only. */
   workload(): { activeSessions: number; queues: Record<string, number> } {
@@ -1217,6 +1069,18 @@ export class Engine {
   queue(id: ThreadId): QueueSnapshot {
     return this.repo.queue.snapshot(id);
   }
+  /** The maintenance gate reopened: turns ace deferred while it was closed can start now. */
+  admissionReopened(): void {
+    if (this.closing) return;
+    this.recovery.schedule();
+  }
+  /** A resume or limit continuation of the thread is accepted and not yet started. */
+  resuming(id: ThreadId): boolean {
+    return this.repo.state(id) !== undefined && this.repo.pending.recovering(id);
+  }
+  heldInterrupted(id: ThreadId): boolean {
+    return heldInterrupted(this.repo, id, Boolean(this.actors.get(id)?.session));
+  }
   /** A fresh reading says account `instanceId` has room: threads its limit held carry on. */
   accountRecovered(instanceId: string): void {
     if (this.closing || this.repo.store.isHistoryWriting()) return;
@@ -1225,7 +1089,6 @@ export class Engine {
         if (this.repo.session(id).instanceId === instanceId) this.recovery.accountRecovered(id);
     });
   }
-
   private wakeQueued(): void {
     if (this.closing) return;
     for (const id of this.repo.pending.runnableThreads(this.limits.maxActiveThreads))
@@ -1442,7 +1305,7 @@ export class Engine {
       this.recovery.close();
       for (const actor of this.actors.values()) {
         await actor.flush();
-        this.recovery.capture(actor.id);
+        this.recovery.captureRestart(actor.id);
       }
       this.sends.stop();
       this.controls.stop();

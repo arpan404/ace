@@ -17,6 +17,22 @@ import Foundation
         #expect(model.thread?.items["first"] === first)
         #expect(first?.row.text == "One")
     }
+    @Test func newItemsJoinInPositionOrderWhetherTheyLandAtTheEndOrAboveIt() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("a")
+        model.receive(try frame([["type": "thread.reset", "threadId": "a", "epoch": 1],
+                                 item("b", text: "B", index: 10), item("c", text: "C", index: 20)]))
+        // Streaming adds after the end, out of order within the frame.
+        model.receive(try frame([item("e", text: "E", index: 40), item("d", text: "D", index: 30)]))
+        #expect(model.thread?.order == ["b", "c", "d", "e"])
+        // An older page lands above what is shown, and one item between.
+        model.receive(try frame([item("a", text: "A", index: 5), item("bc", text: "BC", index: 15)]))
+        #expect(model.thread?.order == ["a", "b", "bc", "c", "d", "e"])
+        // A position given before its item arrives counts once the item does.
+        model.receive(try frame([["type": "thread.position", "threadId": "a", "epoch": 1, "id": "z", "index": 1]]))
+        model.receive(try frame([item("z", text: "Z", index: 1)]))
+        #expect(model.thread?.order.first == "z")
+    }
     @Test func anOldThreadPatchCannotReplaceTheNewConversation() throws {
         let model = ClientModel(now: { 0 })
         model.open("a")
@@ -45,6 +61,46 @@ import Foundation
         #expect(model.thread?.items.isEmpty == true)
         model.receive(try frame([["type": "thread.reset", "threadId": "a", "epoch": 3]]))
         #expect(model.thread?.items.isEmpty == true)
+    }
+    @Test func screensWhoseReadsArentKeptReadAgainWhenTheBridgeCountsAReconnect() throws {
+        let model = ClientModel(now: { 0 })
+        #expect(model.reads.reconnects == 0)
+        model.receive(try frame([["type": "service.generations", "generations": ["usage": 1, "reconnects": 1]]]))
+        #expect(model.reads.reconnects == 1)
+        // A daemon change to one family is not the machine coming back.
+        model.receive(try frame([["type": "service.generations", "generations": ["usage": 2, "reconnects": 1]]]))
+        #expect(model.reads.reconnects == 1)
+    }
+    @Test func aReopenedThreadShowsTheInboxStatusNotTheDoneItWasLeftAt() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("a")
+        model.receive(try frame([["type": "thread.metadata", "threadId": "a", "epoch": 1, "row": row(label: "Done", token: "done")],
+                                 ["type": "thread.ready", "threadId": "a", "epoch": 1, "count": 0]]))
+        model.back()
+        var working = row(label: "Working", token: "working")
+        working["confirmed"] = true; working["generation"] = 1
+        model.receive(try frame([["type": "inbox.row", "id": "a", "row": working]]))
+        model.open("a")
+        let thread = try #require(model.thread)
+        #expect(model.headerStatus(of: thread)?.label == "Working")
+    }
+    @Test func aReopenedThreadWithoutAnInboxRowSyncsUntilItsCurrentMetadataArrives() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("a")
+        model.receive(try frame([["type": "thread.metadata", "threadId": "a", "epoch": 1, "row": row(label: "Done", token: "done")],
+                                 ["type": "thread.ready", "threadId": "a", "epoch": 1, "count": 0]]))
+        model.back()
+        model.open("a")
+        let thread = try #require(model.thread)
+        // The warm copy keeps its title, but not the Done it was left at.
+        #expect(thread.metadata?.title == "A")
+        #expect(model.headerStatus(of: thread)?.label == "Syncing")
+        model.receive(try frame([["type": "thread.metadata", "threadId": "a", "epoch": 3, "row": row(label: "Working", token: "working")]]))
+        #expect(model.headerStatus(of: thread)?.label == "Working")
+    }
+    private func row(label: String, token: String) -> [String: Any] {
+        ["id": "a", "title": "A", "state": token, "project": "p", "branch": "", "machine": "m", "provider": "codex", "model": "x",
+         "agents": 1, "updatedAt": 0, "canSteer": false, "status": ["label": label, "token": token]]
     }
     private func item(_ id: String, text: String, index: Int) -> [String: Any] {
         ["type": "thread.item", "threadId": "a", "epoch": 1, "id": id,

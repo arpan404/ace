@@ -32,6 +32,8 @@ export function MergeDialog(props: { thread: ThreadRef; onClose(): void }) {
           item.role === "assistant" &&
           item.complete &&
           !item.synthetic &&
+          // What the fork copied from its parent is not its own work to bring back.
+          !item.inherited &&
           item.agentId === meta?.rootAgentId
         )
           return item;

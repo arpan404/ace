@@ -1,10 +1,14 @@
 import type { ChangeTap, ClientCore, ThreadSource } from "@ace/client";
 import { TurnStepsCache, type TurnStepsEntry } from "@ace/client/turn-steps";
-import type { ThreadId } from "@ace/protocol";
+import type { Item, ThreadId } from "@ace/protocol";
 import { rootRunOf } from "@ace/ui-core";
 import { scheduler } from "./host.ts";
+import { backgroundRows } from "./background-rows.ts";
 import { itemRow, preview } from "./presentation.ts";
-import { itemDetail } from "./thread-rows.ts";
+import { logFacts } from "./thread-blocks.ts";
+import { itemDetail, stepContext } from "./thread-rows.ts";
+import { turnThoughtMs, turnThoughts } from "./thread-messages.ts";
+import { workLog } from "./work-log.ts";
 
 /*
  * A finished turn's full steps, read from the daemon (`turn.steps`, the SDK's bounded cache) only
@@ -33,8 +37,8 @@ interface Open {
   again: boolean;
 }
 
-function stepRow(item: Parameters<typeof itemRow>[0]) {
-  const row = { ...itemRow(item), ...itemDetail(item) };
+function stepRow(store: ThreadSource, item: Parameters<typeof itemRow>[0], thought: string | null) {
+  const row = { ...itemRow(item), ...itemDetail(item, stepContext(store, item)), thought };
   // Steps read as one line each; a long thought or command keeps a bounded head.
   return { ...row, text: preview(row.text, 1024) };
 }
@@ -165,6 +169,12 @@ export class StepsFollower {
       (step) =>
         (owner === undefined || step.item.agentId === owner) && !slot.answers.has(step.item.id),
     );
+    // The daemon's copy of the turn times its thoughts; the live store may not hold them.
+    const took = turnThoughtMs(
+      this.#store,
+      (entry?.steps ?? []).map((step) => step.item),
+    );
+    const thoughts = turnThoughts(took);
     const pages = Math.ceil(steps.length / pageSize);
     const changed = entry !== slot.entry;
     slot.entry = entry;
@@ -177,17 +187,35 @@ export class StepsFollower {
         type: "thread.stepsPage",
         ordinal,
         page,
-        rows: part.map((step) => stepRow(step.item)),
+        rows: part.map((step) => stepRow(this.#store, step.item, thoughts(step.item))),
       }));
     }
     slot.pages.length = Math.min(slot.pages.length, pages);
-    this.#put(`steps:${ordinal}`, () => ({
-      type: "thread.steps",
-      ordinal,
-      state: entry?.state ?? "loading",
-      pages,
-      count: steps.length,
-      more: entry?.more === true,
-    }));
+    this.#put(`steps:${ordinal}`, () => {
+      // The turn's steps in groups, as the web's opened log groups them; rows name items the
+      // pages carry. The turn is over, so nothing in it still runs.
+      const items = new Map<string, Item>(steps.map((step) => [step.item.id, step.item]));
+      const ids = [...items.keys()];
+      const background = backgroundRows(this.#store, ids);
+      const log = workLog(ids, (id) => items.get(id), {
+        ...logFacts(this.#store),
+        ended: () => true,
+        took,
+        background,
+      });
+      return {
+        type: "thread.steps",
+        ordinal,
+        state: entry?.state ?? "loading",
+        pages,
+        count: steps.length,
+        more: entry?.more === true,
+        log: log.rows,
+        aceSteps: log.ace,
+        retried: log.retried,
+        thoughts: log.thoughts,
+        background,
+      };
+    });
   }
 }

@@ -26,10 +26,20 @@ struct ThreadView: View {
     @State private var showBrowser = false
     @State private var showSearch = false
     @State private var showQueue = false
+    @State private var showGoal = false
+    /// The navigation generation the goal's sheet was opened on: its changes are for that one.
+    @State private var goalEpoch = 0
+    /// The person reads away from the live end: Scroll to end floats beside the pill.
+    @State private var behind = false
+    /// Each Scroll to end the person taps.
+    @State private var jumps = 0
+    /// The question card's picks and page, kept here so a reply typed below keeps them.
+    @State private var questionDraft = QuestionDraftState()
     @State private var height: CGFloat = 0
+    @State private var barHeight: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
-    private var metadata: ThreadRow? { thread.metadata ?? thread.placeholder?.metadata ?? model.inbox[thread.id] }
+    private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
     /// Starting prefers the inbox's current row (confirmed or not, so an unconfirmed start
     /// still reads Syncing); without one it falls back conservatively as unconfirmed.
     private var activityRow: ThreadRow? {
@@ -42,9 +52,11 @@ struct ThreadView: View {
     private var screen: ThreadScreenModel { thread.screen }
     /// An archived thread opens read-only (from the archive browser) until it's unarchived.
     private var archived: Bool { (model.inbox[thread.id] ?? metadata)?.archivedAt != nil }
-    private var queued: Int { screen.queue?.messages.count ?? 0 }
-    /// The live state floats above the composer unless a request has the person's attention.
-    private var capsuleShown: Bool { thread.approvals.isEmpty && (screen.activity != nil || queued > 0) }
+    /// The question on the strip, whose card the composer's words may answer.
+    private var asking: ApprovalRow? {
+        guard let request = thread.approvals.first, request.kind == "question" else { return nil }
+        return request
+    }
     private var subtitle: String {
         guard let metadata else { return "" }
         let place = metadata.branch.isEmpty ? metadata.machine : metadata.branch
@@ -53,34 +65,25 @@ struct ThreadView: View {
 
     var body: some View {
         ConversationFeed(model: model, thread: thread, acceptedSend: acceptedSend,
-                         links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: screen, epoch: thread.epoch),
+                         links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: thread.screen, epoch: thread.epoch),
                                                 openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { fullMessage = $0 },
-                                                openAgents: { showAgents = true }))
-            .overlay(alignment: .bottom) {
-                if capsuleShown {
-                    LiveCapsule(activity: screen.activity, queued: queued, stopping: screen.stopping) { showQueue.toggle() }
-                        .padding(.horizontal, AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xl)
-                        .padding(.bottom, AceTheme.Spacing.md)
-                        .transition(.opacity)
-                }
-            }
-            .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: capsuleShown)
-            .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { bottomBar }
+                                                openAgents: { showAgents = true }, threadStatus: { model.inbox[$0]?.status }),
+                         barHeight: barHeight, behind: $behind, jumps: jumps)
+            .modifier(FloatingBar(height: $barHeight) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
                 Color.clear.ignoresSafeArea()
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
             }
             .toolbar {
-                ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: metadata?.status.label ?? "",
-                              openChanges: { showChanges = true }, openAgents: { showAgents = true },
+                ThreadToolbar(title: metadata?.title ?? "Thread", project: metadata?.project ?? "", badge: metadata?.badge, status: model.headerStatus(of: thread),
                               menu: ThreadMenu(model: model, thread: thread, archived: archived, activityRow: activityRow,
                                                open: open, problem: { activityProblem = $0 }, leave: { dismiss() }))
             }
-            .threadTitle(metadata?.title ?? "Thread", subtitle: subtitle)
+            .navigationTitle(metadata?.title ?? "Thread")
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
-                if typeSize.isAccessibilitySize, let status = metadata?.status {
+                if typeSize.isAccessibilitySize, let status = model.headerStatus(of: thread) {
                     StateLabel(status: status)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.sm)
@@ -112,22 +115,38 @@ struct ThreadView: View {
                 ModelPickerSheet(model: model, screen: screen)
             }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
+            .sheet(isPresented: $showGoal) {
+                if let goal = screen.goal {
+                    GoalSheet(goal: goal, canOperate: model.canOperate) { [goalEpoch] change in await model.changeGoal(change, epoch: goalEpoch) }
+                }
+            }
+            .sheet(isPresented: $showQueue) {
+                if let queue = screen.queue {
+                    QueueSheet(queue: queue, canAct: model.canOperate,
+                               canSteer: screen.controls?.delivery == "steer" || screen.controls?.alternate == "steer") { message, change in
+                        await model.editQueued(message, change: change)
+                    }
+                }
+            }
+            // A sheet whose subject went away closes.
+            .onChange(of: screen.goal == nil) { _, gone in if gone { showGoal = false } }
+            .onChange(of: screen.queue?.messages.isEmpty ?? true) { _, gone in if gone { showQueue = false } }
             // The agent may open its browser after the thread was opened: ask again as it works.
             .onChange(of: metadata?.state) { model.probeBrowser() }
             // A browser opened mid-turn leaves the state unchanged: follow it, bounded, while this
             // thread is on screen, working and the app is active. Leaving cancels the follow.
             .task(id: browserFollow) { if browserFollow != nil { await model.followBrowser() } }
-            .onChange(of: queued) { _, count in if count == 0 { showQueue = false } }
             .navigationDestination(isPresented: $showBrowser) {
                 let help = thread.approvals.first { $0.kind == "browser_help" }
                 BrowserScreen(model: model, help: help) { answer in if let help { model.resolve(help, answer: answer) } }
             }
             .environment(\.openBrowser, { showBrowser = true })
-            #if DEBUG
+            .environment(\.stopBackground, model.canOperate ? { id in Task { _ = await model.stopTask(id) } } : nil)
+            #if ACE_FIXTURE
             .overlay(alignment: .topLeading) {
                 if SpikeConfiguration.enabled && ProcessInfo.processInfo.arguments.contains("--spike-metrics") {
                     Text(verbatim: "\(thread.items.count) items · \(model.connection)").aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                        .padding(AceTheme.Spacing.xs).background(.thinMaterial, in: Capsule()).allowsHitTesting(false)
+                        .padding(AceTheme.Spacing.xs).background(.thinMaterial, in: AceShape.capsule).allowsHitTesting(false)
                         .accessibilityLabel("Loaded transcript").accessibilityValue(String(thread.items.count))
                         .accessibilityIdentifier("spike.loaded")
                 }
@@ -135,56 +154,65 @@ struct ThreadView: View {
             #endif
     }
 
-    /// Above the composer: the oldest open request (a question takes the composer's place), the
-    /// queued messages when the capsule opened them, then the composer.
+    /// The composer with what floats above it: the live pill and Scroll to end, and the one strip
+    /// tucked under the composer's top edge, which holds the oldest open request (a question
+    /// too, the composer staying under it). While a request needs the person the pill steps
+    /// aside. Nothing renders below the composer.
     @ViewBuilder private var bottomBar: some View {
         let request = thread.approvals.first
         VStack(spacing: AceTheme.Spacing.none) {
-            if let request, request.kind != "question" { requestCard(request) }
-            if showQueue, let queue = screen.queue, !queue.messages.isEmpty {
-                QueueStrip(queue: queue, canAct: model.canOperate,
-                           canSteer: screen.controls?.delivery == "steer" || screen.controls?.alternate == "steer") { message, change in
-                    await model.editQueued(message, change: change)
-                }
-                .transition(.opacity)
+            // Whether a request takes the pill's place is the bridge's (`livePill`).
+            ComposerFloaters(pill: screen.pill, behind: behind, open: openPill) { jumps += 1 }
+                .padding(.bottom, AceTheme.Spacing.sm)
+            Group {
+                if let request { StripSurface(maxHeight: height * 0.6) { requestCard(request) } }
             }
+            .transition(.opacity)
             if archived {
                 ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
-                    .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
-                    .floatingGlass()
-                    .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.sm)
-            } else if let request, request.kind == "question" {
-                QuestionCard(interaction: request, submission: model.approvalSubmissions[request.id], canAct: model.canOperate, maxHeight: height * 0.6) {
-                    model.answer(request, answers: $0, dismissed: $1)
-                }
-                .id(request.id)
+                    .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.lg)))
             } else if model.canOperate {
-                ComposerAccessories(model: model, screen: screen)
-                ServiceProblem(message: attachProblem)
-                ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: placeholder,
+                ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: asking == nil ? placeholder : "Reply…",
                              send: { text, alternate in
-                                 let saved = await model.sendMessage(text, alternate: alternate)
+                                 let reply = asking.map { QuestionReply(interactionId: $0.id, draft: questionDraft) }
+                                 let saved = await model.sendMessage(text, alternate: alternate, reply: reply)
                                  if saved { acceptedSend += 1 }
                                  return saved
                              }, stop: { model.stopTree() },
                              inputBegan: { model.metrics?.inputBegan() }, mention: mention,
-                             files: screen.attachments.count) {
+                             files: screen.attachments.count,
+                             draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) }) {
+                    ComposerAccessories(model: model, screen: screen, problem: attachProblem)
+                } leading: {
                     AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
                 } trailing: {
                     ComposerModelButton(screen: screen, open: { showModels = true })
                 }
             } else {
                 ViewOnlyNote.thread
-                    .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
-                    .floatingGlass()
-                    .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.sm)
+                    .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.md, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.md, trailing: AceTheme.Spacing.lg)))
             }
         }
-        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: showQueue)
+        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: request?.id)
+        .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
+    }
+    /// A pill part opens what it names.
+    private func openPill(_ opens: String) {
+        switch opens {
+        case "agents": showAgents = true
+        case "queue": showQueue = true
+        case "goal": goalEpoch = thread.epoch; showGoal = true
+        default: break
+        }
     }
     @ViewBuilder private func requestCard(_ request: ApprovalRow) -> some View {
         let submission = model.approvalSubmissions[request.id]
         switch request.kind {
+        case "question":
+            QuestionCard(interaction: request, submission: submission, canAct: model.canOperate, maxHeight: height * 0.6, draft: $questionDraft) {
+                model.answer(request, answers: $0, dismissed: $1)
+            }.id(request.id)
         case "plan_review":
             PlanReviewCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
         case "elicitation":
@@ -196,14 +224,12 @@ struct ThreadView: View {
             ApprovalCard(approval: request, submission: submission, canAct: model.canOperate) { model.approve(request, option: $0) }.id(request.id)
         }
     }
-    private var placeholder: String {
-        if !thread.approvals.isEmpty { return "Reply instead" }
-        guard screen.controls?.busy == true else { return "Message" }
-        if screen.controls?.alternate != nil { return "Steer or queue a message" }
-        return screen.controls?.delivery == "steer" ? "Steer the agent" : "Queue a message"
-    }
+    /// The composer always reads the same; how a message goes while the agent works is the send
+    /// button's to say.
+    private let placeholder = "Ask anything"
     private func open(_ destination: ThreadDestination) {
         switch destination {
+        case .changes: showChanges = true
         case .search: showSearch = true
         case .files: showFiles = true
         case .terminal: showTerminal = true
@@ -211,6 +237,7 @@ struct ThreadView: View {
         case .devices: devicesRoute = .list
         case .computer: showComputer = true
         case .tools: showTools = true
+        case .agents: showAgents = true
         }
     }
     /// Restarts the browser follow on a new visit, a new turn or a return to the foreground.
@@ -219,3 +246,40 @@ struct ThreadView: View {
         return thread.epoch
     }
 }
+
+/// The composer floats over the feed and rides the keyboard, while the feed keeps its size under
+/// the keyboard and makes room for the bar, strip included, at its end. The transcript fades out
+/// under the bar, as a scroll edge does under the system's own bars, so words never read through
+/// the glass or show in the gap above the keyboard.
+private struct FloatingBar<Bar: View>: ViewModifier {
+    @Binding var height: CGFloat
+    @ViewBuilder let bar: () -> Bar
+    func body(content: Content) -> some View {
+        ZStack(alignment: .bottom) {
+            content.ignoresSafeArea(.keyboard, edges: .bottom)
+            bar()
+                .background(alignment: .top) { BarFade() }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+        }
+    }
+}
+
+/// The page colour rising under the composer: clear at the bar's top, solid by its middle, and
+/// solid on down behind the keyboard's translucent edge and the home indicator.
+private struct BarFade: View {
+    var body: some View {
+        GeometryReader { box in
+            VStack(spacing: AceTheme.Spacing.none) {
+                LinearGradient(stops: [.init(color: AceTheme.Colours.background.opacity(0), location: 0),
+                                       .init(color: AceTheme.Colours.background.opacity(0.94), location: 0.5),
+                                       .init(color: AceTheme.Colours.background, location: 1)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: box.size.height)
+                AceTheme.Colours.background.frame(height: box.size.height + AceTheme.Dimensions.touchTarget * 8)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+

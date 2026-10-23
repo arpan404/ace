@@ -281,6 +281,21 @@ unreachable host. A physical phone over Tailscale remains unverified.
 `offlineInputSurvivesRuntimeDestructionAndIsAdmittedOnce` fails on the base commit
 `95a097ea7` too, so this work did not cause it.
 
+## Bytes and compression on the phone, 2026-10-22
+
+JavaScriptCore has no `DecompressionStream`, so the shared client never asked for gzip file
+parts and the phone read every file as plain base64. The bridge now installs a
+`DecompressionStream` backed by the system's zlib (`NativeBytes.swift`), and the client checks
+for one on each use (`@ace/client` `inflate.ts`), so file reads ask for gzip and the relay
+would ask for deflate the same way. Native text decoding read bytes as an array of numbers
+(about 340 ms per MiB); `Uint8Array`s now cross by pointer, and base64 uses the platform's
+`fromBase64`/`toBase64` where JavaScriptCore has them (iOS 18.2 and later). The main socket
+already had per-message deflate: `URLSessionWebSocketTask` negotiates it with the daemon's
+remote listener, and a thread opens with 16 to 25 percent of its JSON size on the wire.
+
+The bridge's way to Swift is now one versioned, typed contract shared with Android
+([ADR 0096](0096-native-host-contract.md)); frames are decoded off the main thread.
+
 ## Phase 1 status, 2026-10-18
 
 Phase 1 is built on `ace/ios-mvp`; [the app's README](../../apps/ios/README.md) describes each

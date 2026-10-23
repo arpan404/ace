@@ -49,4 +49,19 @@ import Testing
         ])
         #expect(Markdown.blocks("```\n| Raw | Table |\n| --- | --- |\n```") == [.code(language: "", text: "| Raw | Table |\n| --- | --- |")])
     }
+    @Test func streamingALongParagraphOnlyChangesItsLastPiece() {
+        let sentence = "Next step: wire the safe kill-all filters. "
+        let text = String(repeating: sentence, count: 120)
+        let before = Markdown.pieces(text, size: 400)
+        let after = Markdown.pieces(text + "More", size: 400)
+        #expect(before.count > 2)
+        #expect(Array(after.prefix(before.count - 1)) == Array(before.dropLast()))
+        #expect(after.last?.hasSuffix("More") == true)
+        // Nothing is lost between pieces: they cut only at the space after a sentence.
+        #expect(after.joined(separator: " ") == text + "More")
+    }
+    @Test func aShortParagraphStaysWhole() {
+        #expect(Markdown.pieces("One sentence. Two sentences.") == ["One sentence. Two sentences."])
+        #expect(Markdown.pieces("") == [""])
+    }
 }

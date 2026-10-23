@@ -35,7 +35,7 @@ function originKind(item: Item): string | undefined {
 }
 
 /** A message the person wrote, as opposed to ace's or the agent's. */
-function personMessage(item: Item): boolean {
+export function personMessage(item: Item): boolean {
   if (item.type !== "message" || item.role !== "user") return false;
   const kind = originKind(item);
   return kind === undefined

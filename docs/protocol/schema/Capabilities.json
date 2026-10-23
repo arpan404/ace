@@ -105,6 +105,9 @@
     "forkSubagents": {
       "type": "boolean"
     },
+    "forkTranscript": {
+      "type": "boolean"
+    },
     "goals": {
       "type": "boolean"
     },

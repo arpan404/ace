@@ -33,7 +33,6 @@ import {
 import {
   NotificationMessage,
   type Notification,
-  AgentId,
   CommandId,
   DeviceId,
   EventId,
@@ -84,7 +83,13 @@ import {
   type ThreadCommandOutcome,
 } from "./thread-commands.ts";
 import { holdOnLimit, isQueueCommand, queueCommand, queuePage } from "./queue-commands.ts";
-import { forkPointError, mergeFacts, mergeForkError, switchEvents } from "./transitions.ts";
+import {
+  forkPointError,
+  forkOpening,
+  mergeFacts,
+  mergeForkError,
+  switchEvents,
+} from "./transitions.ts";
 import { fakeCheckoutPath, fakeWorktreeBase } from "./worktree-base.ts";
 
 export type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
@@ -1137,17 +1142,12 @@ export class FakeDaemon implements Host {
           title: payload.title ?? `${from.title} (fork)`,
           input: [{ type: "text", text: payload.input }],
         });
+        const opening = forkOpening(source, payload.point, provider);
         this.createThread({
           ...started.thread,
           ...(from.details ? { details: from.details } : {}),
           execution: payload.selection ?? { provider, options: {} },
-          lineage: {
-            parentThreadId: from.id,
-            parentAgentId: AgentId.parse(source.view.thread.rootAgentId ?? `${from.id}.root`),
-            point: payload.point,
-            mode: provider === from.provider ? "native" : "portable",
-            lossy: provider !== from.provider,
-          },
+          lineage: opening.lineage,
         });
         if (attachments.length)
           this.servicesWire.context.inherit(
@@ -1163,7 +1163,8 @@ export class FakeDaemon implements Host {
             attachments.length
           )
             fact.draft.attachments = attachments;
-        this.apply(id, started.facts);
+        const [root, ...rest] = started.facts;
+        this.apply(id, [...(root ? [root] : []), ...opening.facts, ...rest]);
         return { commandId, ok: true, forkThreadId: ThreadId.parse(id) };
       }
       case "thread.merge": {

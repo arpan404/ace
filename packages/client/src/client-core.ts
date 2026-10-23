@@ -113,7 +113,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           yielded ||
           !(error instanceof ClientError) ||
           error.code !== "daemon" ||
-          error.message !== "NOT_FOUND" ||
+          // A daemon without the attachment stream (an older one) reads through chunk requests.
+          (error.message !== "NOT_FOUND" && error.message !== "UNSUPPORTED") ||
           scope.signal.aborted
         )
           throw error;
@@ -431,6 +432,10 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   }
   reconnectNow(): void {
     this.connection.reconnectNow();
+  }
+  /** The app is in front again: check the socket now and skip a waiting backoff (`Connection.wake`). */
+  wake(): void {
+    this.connection.wake();
   }
   /** Worker-owned allocation also supplies tab prefixes; no tab reaches for randomness. */
   commandId(): string {

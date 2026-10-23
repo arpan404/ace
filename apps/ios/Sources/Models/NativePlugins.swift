@@ -55,6 +55,18 @@ extension ClientModel {
         guard reply.response.type == expecting else { throw ServiceFailure(message: "The plugin service returned a different response. Refresh and try again.") }
         return reply.response
     }
+    /// A plugin list the bridge keeps (`bridge/read-policy.ts`), read like `plugin`.
+    func pluginRead(_ request: [String: Any], expecting: String) async throws -> PluginResponseRow {
+        let reply = try await read(["type": "pluginRequest", "request": request], as: PluginEnvelope.self)
+        guard reply.response.type == expecting else { throw ServiceFailure(message: "The plugin service returned a different response. Refresh and try again.") }
+        return reply.response
+    }
+    /// The last kept answer to a plugin list, for drawing before it is read again.
+    func keptPlugin(_ request: [String: Any], expecting: String) -> PluginResponseRow? {
+        kept(["type": "pluginRequest", "request": request], as: PluginEnvelope.self).map(\.response).flatMap { $0.type == expecting ? $0 : nil }
+    }
+    /// Moves when a kept plugin list goes out of date.
+    func pluginGeneration(_ request: [String: Any]) -> Int { readGeneration(["type": "pluginRequest", "request": request]) }
 }
 
 struct PluginReviewRequest: Identifiable {
