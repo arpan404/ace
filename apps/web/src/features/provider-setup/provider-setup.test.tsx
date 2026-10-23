@@ -72,7 +72,12 @@ test.each(providers)(
     if (provider === "opencode") await within(dialog).findByText("Sign in to OpenCode here");
     else if (provider === "codex" || provider === "pi")
       await within(dialog).findByLabelText("Sign-in code");
-    else await within(dialog).findByRole("link", { name: "Open sign-in page" });
+    else if (provider === "antigravity") {
+      await within(dialog).findByRole("combobox", { name: "Sign in with" });
+      await userEvent.click(await within(dialog).findByRole("button", { name: "Continue" }));
+      const signInDialog = await screen.findByRole("dialog", { name: `Sign in to ${name}` });
+      await within(signInDialog).findByRole("link", { name: "Open sign-in page" });
+    } else await within(dialog).findByRole("link", { name: "Open sign-in page" });
     app.daemon.services.providerLogin.complete("fake-login-1");
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: `Sign in to ${name}` })).toBeNull(),
@@ -172,6 +177,9 @@ test("a download-only distribution explains the platform limit and opens the off
   await userEvent.click(
     await within(installedRow).findByRole("button", { name: "Sign in to Antigravity" }),
   );
+  const methodDialog = await screen.findByRole("dialog", { name: "Sign in to Antigravity" });
+  await within(methodDialog).findByRole("combobox", { name: "Sign in with" });
+  await userEvent.click(await within(methodDialog).findByRole("button", { name: "Continue" }));
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Antigravity" });
   await within(dialog).findByRole("link", { name: "Open sign-in page" });
   app.daemon.services.providerLogin.complete("fake-login-1");
