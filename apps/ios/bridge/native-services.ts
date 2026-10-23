@@ -29,6 +29,7 @@ import type { PatchSink } from "./agents.ts";
 import type { CheckoutFiles } from "./checkout-files.ts";
 import { NativeFilesRequest } from "./checkout-request.ts";
 import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
+import { NativeTerminalInputRequest, writeNativeTerminalInput } from "./native-terminal-input.ts";
 import { NativeHistoryWindow, readHistoryWindow } from "./native-search.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
 import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
@@ -227,6 +228,16 @@ export class NativeServices {
       const media = NativeMediaRequest.safeParse(raw);
       if (media.success) {
         this.#reply(id, true, await readNativeMedia(this.owner, media.data, controller.signal), "");
+        return;
+      }
+      const typed = NativeTerminalInputRequest.safeParse(raw);
+      if (typed.success) {
+        this.#reply(
+          id,
+          true,
+          await writeNativeTerminalInput(this.owner, typed.data, controller.signal),
+          "",
+        );
         return;
       }
       const request = Request.parse({
