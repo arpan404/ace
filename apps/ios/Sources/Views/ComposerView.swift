@@ -82,6 +82,8 @@ struct ComposerView<Top: View, Leading: View, Trailing: View>: View {
                 Button(alternate == "steer" ? "Steer now" : "Queue for after this turn", ace: alternate == "steer" ? .arrowElbowDownRight : .queue) { submit(alternate: true) }
             }
         }
+        // ⌘↩ sends from a hardware keyboard; it never stops a running tree.
+        .keyboardShortcut(stops ? nil : KeyboardShortcut(.return, modifiers: .command))
         .accessibilityIdentifier("composer.send")
     }
     private var disabled: Bool { draft.saving || (stops ? stopping : empty) }

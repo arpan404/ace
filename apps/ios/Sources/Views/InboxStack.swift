@@ -38,43 +38,71 @@ struct InboxStack<Destination: View>: View {
     }
 
     var body: some View {
-        NavigationStack(path: $path) {
-            Group {
-                if pulls {
-                    ForgeHome(inbox: inbox, machine: $machine, project: $project, query: query, kind: $forgeKind,
-                              actions: ForgeTabActions(open: { path.append(.forge($0)) }, openThread: forge.openThread, startThread: forge.startThread))
-                } else {
-                    // The list stays mounted under the results, so it keeps its place while the
-                    // person searches and is back where it was when they cancel.
-                    ZStack {
-                        let results = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        InboxList(inbox: inbox, includes: includes, shelves: $shelves, actions: actions, compose: nil)
-                            .refreshable { await refresh() }
-                            .opacity(results ? 0 : 1)
-                            .allowsHitTesting(!results)
-                            .accessibilityHidden(results)
-                        if results {
-                            InboxSearchList(inbox: inbox, query: query, includes: includes, open: actions.open)
-                        }
+        if pulls {
+            NavigationStack(path: $path) {
+                root
+                    // The root owns the tab bar: it hides as a page is pushed and returns as soon as
+                    // the path empties, while the page is still sliding away, rather than each page
+                    // hiding it and the bar popping back only once the pop has finished.
+                    .toolbarVisibility(path.isEmpty ? .automatic : .hidden, for: .tabBar)
+                    .navigationDestination(for: InboxRoute.self) { page($0) }
+            }
+        } else {
+            // Threads: the list beside the open thread in a regular window, a stack in a compact one.
+            InboxSplit(path: $path) { root.inboxCommands(commands) } page: { page($0) }
+        }
+    }
+
+    @ViewBuilder private var root: some View {
+        Group {
+            if pulls {
+                ForgeHome(inbox: inbox, machine: $machine, project: $project, query: query, kind: $forgeKind,
+                          actions: ForgeTabActions(open: { path.append(.forge($0)) }, openThread: forge.openThread, startThread: forge.startThread))
+            } else {
+                // The list stays mounted under the results, so it keeps its place while the
+                // person searches and is back where it was when they cancel.
+                ZStack {
+                    let results = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    InboxList(inbox: inbox, includes: includes, shelves: $shelves, actions: actions, compose: nil)
+                        .refreshable { await refresh() }
+                        .opacity(results ? 0 : 1)
+                        .allowsHitTesting(!results)
+                        .accessibilityHidden(results)
+                    if results {
+                        InboxSearchList(inbox: inbox, query: query, includes: includes, open: actions.open)
                     }
                 }
             }
-            .inboxTopBar { if !pulls { InboxFilters(inbox: inbox, machine: $machine, project: $project) } }
-            .modifier(InboxSearchField(query: $query, searching: $searching,
-                                       prompt: pulls ? (forgeKind == .pulls ? "Search pull requests" : "Search issues") : "Search threads and messages"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { toolbar }
-            // The root owns the tab bar: it hides as a page is pushed and returns as soon as the
-            // path empties, while the page is still sliding away, rather than each page hiding it
-            // and the bar popping back only once the pop has finished.
-            .toolbarVisibility(path.isEmpty ? .automatic : .hidden, for: .tabBar)
-            .navigationDestination(for: InboxRoute.self) { route in
-                switch route {
-                case .thread(let key): destination(key)
-                case .forge(let page): forgePage(page)
-                }
-            }
         }
+        .inboxTopBar { if !pulls { InboxFilters(inbox: inbox, machine: $machine, project: $project) } }
+        .modifier(InboxSearchField(query: $query, searching: $searching,
+                                   prompt: pulls ? (forgeKind == .pulls ? "Search pull requests" : "Search issues") : "Search threads and messages"))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { toolbar }
+    }
+
+    @ViewBuilder private func page(_ route: InboxRoute) -> some View {
+        switch route {
+        case .thread(let key): destination(key)
+        case .forge(let page): forgePage(page)
+        }
+    }
+
+    /// The hardware keyboard's thread commands (`InboxCommands`). Next and previous read the
+    /// list's order only when pressed, so the stack never redraws for rows it doesn't show.
+    private var commands: InboxCommands {
+        InboxCommands(
+            newThread: inbox.canStartThreads ? forge.startThread : nil,
+            search: { withAnimation(.smooth) { searching = true } },
+            next: { step(1) }, previous: { step(-1) })
+    }
+    private func step(_ step: Int) {
+        let order = ThreadColumns.order(inbox.merged.sections.map { section in
+            MergedInbox.Section(key: section.key, label: section.label, rows: section.rows.filter(includes))
+        }, shelves: shelves) { key in
+            inbox.pending(key).map { InboxKey(machineId: key.machineId, id: $0.threadId) } ?? key
+        }
+        if let key = ThreadColumns.neighbour(of: ThreadColumns.selection(path), in: order, step: step) { actions.open(key) }
     }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {

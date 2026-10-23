@@ -1,0 +1,67 @@
+import SwiftUI
+
+/// The Threads tab's list and open thread as one split view (`ThreadColumns`). A regular window
+/// (iPad, the unfolded iPhone Duo) keeps the list beside the thread; a compact one (iPhone, the
+/// folded Duo, a narrow iPad window) collapses it into a stack. The system moves the same views
+/// between the two, so a resize or a fold keeps the thread, its scroll place, the draft and any
+/// open sheet. Pages pushed from the thread open on the detail column's own stack.
+struct InboxSplit<Sidebar: View, Page: View>: View {
+    @Binding var path: [InboxRoute]
+    @ViewBuilder let list: () -> Sidebar
+    @ViewBuilder let page: (InboxRoute) -> Page
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @State private var visibility = NavigationSplitViewVisibility.all
+    @State private var width: CGFloat = 0
+
+    var body: some View {
+        NavigationSplitView(columnVisibility: $visibility, preferredCompactColumn: compactColumn) {
+            list()
+                .environment(\.openThreadRow, ThreadColumns.selection(path))
+                .navigationSplitViewColumnWidth(min: ThreadColumns.listWidth.min, ideal: ThreadColumns.listWidth.ideal, max: ThreadColumns.listWidth.max)
+                // As a stack, the tab bar hides once a thread is pushed; beside the list it stays.
+                .toolbarVisibility(ThreadColumns.showsTabBar(sizeClass, path: path) ? .automatic : .hidden, for: .tabBar)
+        } detail: {
+            NavigationStack(path: detail) {
+                Group {
+                    // A new thread is a new page: its feed, sheets and draft start fresh.
+                    if let first = path.first {
+                        page(first).id(first)
+                            .environment(\.closeOpenThread, first.thread.map { key in CloseOpenThread(id: key.id) { path = [] } })
+                    }
+                    else { EmptyState(icon: nil, title: "No thread open").frame(maxHeight: .infinity) }
+                }
+                .navigationDestination(for: InboxRoute.self) { page($0) }
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        // The columns follow the window's shape when it changes, and leave the person's own
+        // sidebar toggle alone in between.
+        .onChange(of: columns, initial: true) { _, wanted in visibility = wanted }
+    }
+
+    private var columns: NavigationSplitViewVisibility {
+        ThreadColumns.visibility(sizeClass, width: width, open: !path.isEmpty)
+    }
+    private var detail: Binding<[InboxRoute]> {
+        Binding(get: { ThreadColumns.detail(path) }, set: { path = ThreadColumns.path(path, detail: $0) })
+    }
+    /// Going back to the list in a compact window closes the thread, as popping it did.
+    private var compactColumn: Binding<NavigationSplitViewColumn> {
+        Binding(get: { ThreadColumns.compactColumn(path) }, set: { column in
+            if column == .sidebar, sizeClass == .compact, !path.isEmpty { path = [] }
+        })
+    }
+}
+
+extension EnvironmentValues {
+    /// The thread open beside the list, whose row reads as selected.
+    @Entry var openThreadRow: InboxKey?
+    /// Closes the detail column's own thread; pages pushed over it go back instead.
+    @Entry var closeOpenThread: CloseOpenThread?
+}
+
+struct CloseOpenThread {
+    let id: String
+    let close: () -> Void
+}

@@ -1,0 +1,75 @@
+import SwiftUI
+
+/// How the Threads tab lays out its list and the open thread, decided from the window alone: its
+/// horizontal size class and width, never the device, the screen or its orientation. A phone, the
+/// folded iPhone Duo and a narrow iPad window are compact: the list and the thread stack. A wide
+/// iPad window and the unfolded Duo are regular: the list stays beside the thread.
+///
+/// The open thread and its pushed pages are one path in every layout. The split shows its first
+/// page as the list's selection and the rest on the detail column's own stack, so a window that
+/// narrows or widens (an iPad resize, the Duo folding) keeps the same thread and pages.
+enum ThreadColumns {
+    /// A regular window narrower than this keeps the thread full width and shows the list over
+    /// it: a list beside the thread would leave the transcript too narrow to read.
+    static let sideBySideMinimum: CGFloat = 700
+    /// The list column's width beside the thread.
+    static let listWidth = (min: CGFloat(300), ideal: CGFloat(340), max: CGFloat(400))
+
+    /// Whether the list sits beside the open thread.
+    static func sideBySide(_ sizeClass: UserInterfaceSizeClass?, width: CGFloat) -> Bool {
+        sizeClass == .regular && width >= sideBySideMinimum
+    }
+
+    /// Which columns a regular window shows. Side by side, both; too narrow for both, the thread
+    /// alone once one is open (the list slides over it from the toolbar), the list until then.
+    static func visibility(_ sizeClass: UserInterfaceSizeClass?, width: CGFloat, open: Bool) -> NavigationSplitViewVisibility {
+        sideBySide(sizeClass, width: width) || !open ? .all : .detailOnly
+    }
+
+    /// The column a compact window shows: the open thread, or the list when none is open.
+    static func compactColumn(_ path: [InboxRoute]) -> NavigationSplitViewColumn {
+        path.isEmpty ? .sidebar : .detail
+    }
+
+    /// The thread the list shows as open.
+    static func selection(_ path: [InboxRoute]) -> InboxKey? { path.first?.thread }
+    /// The pages pushed over the open thread in the detail column: child threads and the like.
+    static func detail(_ path: [InboxRoute]) -> [InboxRoute] { Array(path.dropFirst()) }
+    /// The whole path once the detail column's own stack changed.
+    static func path(_ path: [InboxRoute], detail: [InboxRoute]) -> [InboxRoute] {
+        guard let first = path.first else { return [] }
+        return [first] + detail
+    }
+
+    /// The tab bar steps aside while a compact window shows a thread; beside the list it stays.
+    static func showsTabBar(_ sizeClass: UserInterfaceSizeClass?, path: [InboxRoute]) -> Bool {
+        sizeClass == .regular || path.isEmpty
+    }
+
+    /// The thread before or after `current` in the list's order (`step` -1 or 1); the first or
+    /// last when none is open. Nil past either end, or with nothing listed.
+    static func neighbour(of current: InboxKey?, in order: [InboxKey], step: Int) -> InboxKey? {
+        guard let current, let index = order.firstIndex(of: current) else {
+            return step < 0 ? order.last : order.first
+        }
+        let next = index + step
+        return order.indices.contains(next) ? order[next] : nil
+    }
+
+    /// The threads in the order the list shows them: its sections, then the Snoozed and Settled
+    /// shelves only while they are open. Unsent rows open the thread they belong to.
+    static func order(_ sections: [MergedInbox.Section], shelves: InboxShelves, thread: (InboxKey) -> InboxKey?) -> [InboxKey] {
+        let shelved = ["snoozed", "settled"]
+        let open = sections.filter { !shelved.contains($0.key) }
+            + (shelves.snoozed ? sections.filter { $0.key == "snoozed" } : [])
+            + (shelves.settled ? sections.filter { $0.key == "settled" } : [])
+        var seen = Set<InboxKey>()
+        return open.flatMap { $0.rows.compactMap(thread) }.filter { seen.insert($0).inserted }
+    }
+}
+
+/// The transcript and composer's widest line: comfortable reading on an iPad or a landscape phone,
+/// no limit below it.
+enum ReadingColumn {
+    static let maxWidth: CGFloat = 720
+}

@@ -88,6 +88,9 @@ struct ConversationFeed: View {
                 TranscriptTail(thread: thread, following: pinned) { if !keyboardMoving { toEnd(proxy) } }
             }
             .padding(.top, AceTheme.Spacing.sm)
+            // A comfortable line on a wide window; the scroll itself stays full width.
+            .frame(maxWidth: ReadingColumn.maxWidth)
+            .frame(maxWidth: .infinity)
         }
         .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { feedBottom = $0 }
         .coordinateSpace(name: "transcript.viewport")

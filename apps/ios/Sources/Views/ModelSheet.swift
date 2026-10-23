@@ -21,7 +21,7 @@ struct ModelSheet<Content: View>: View {
                 .navigationTitle("Model").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button { cancel(); dismiss() } label: { Image(systemName: "xmark") }
+                        Button { cancel(); dismiss() } label: { Image(systemName: "xmark") }.keyboardShortcut(.cancelAction)
                             .accessibilityLabel("Close").accessibilityIdentifier("modelSheet.close")
                     }
                     ToolbarItem(placement: .confirmationAction) { confirmButton }

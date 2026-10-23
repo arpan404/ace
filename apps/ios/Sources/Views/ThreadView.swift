@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ThreadView: View {
     @Environment(\.dismiss) private var dismiss
+    /// Closes the thread open beside the list, which has no page under it to go back to.
+    @Environment(\.closeOpenThread) private var closeOpenThread
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -78,7 +80,7 @@ struct ThreadView: View {
             .toolbar {
                 ThreadToolbar(title: metadata?.title ?? "Thread", project: metadata?.project ?? "", badge: metadata?.badge, status: model.headerStatus(of: thread),
                               menu: ThreadMenu(model: model, thread: thread, archived: archived, activityRow: activityRow,
-                                               open: open, problem: { activityProblem = $0 }, leave: { dismiss() }))
+                                               open: open, problem: { activityProblem = $0 }, leave: leave))
             }
             .navigationTitle(metadata?.title ?? "Thread")
             .navigationBarTitleDisplayMode(.inline)
@@ -111,9 +113,6 @@ struct ThreadView: View {
             }
             .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle, showFiles: $showFiles,
                                        mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil))
-            .sheet(isPresented: $showModels) {
-                ModelPickerSheet(model: model, screen: screen)
-            }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
             .sheet(isPresented: $showGoal) {
                 if let goal = screen.goal {
@@ -189,6 +188,12 @@ struct ThreadView: View {
                 } trailing: {
                     ComposerModelButton(screen: screen, open: { showModels = true })
                 }
+                // Anchored by the model chip's end of the composer: a popover beside the list, the
+                // same sheet on a phone. The composer, unlike the chip, keeps its place as it wraps.
+                .popover(isPresented: $showModels, attachmentAnchor: .point(UnitPoint(x: 0.85, y: 0)), arrowEdge: .bottom) {
+                    ModelPickerSheet(model: model, screen: screen)
+                        .frame(idealWidth: 420, idealHeight: 640)
+                }
             } else {
                 ViewOnlyNote.thread
                     .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.md, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.md, trailing: AceTheme.Spacing.lg)))
@@ -196,6 +201,10 @@ struct ThreadView: View {
         }
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: request?.id)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
+    }
+    /// Archiving or snoozing leaves the thread: back a page, or closed when it is the open one.
+    private func leave() {
+        if let close = closeOpenThread, close.id == thread.id { close.close() } else { dismiss() }
     }
     /// A pill part opens what it names.
     private func openPill(_ opens: String) {
@@ -257,7 +266,10 @@ private struct FloatingBar<Bar: View>: ViewModifier {
     func body(content: Content) -> some View {
         ZStack(alignment: .bottom) {
             content.ignoresSafeArea(.keyboard, edges: .bottom)
+            // The composer keeps the transcript's reading width; its fade spans the window.
             bar()
+                .frame(maxWidth: ReadingColumn.maxWidth)
+                .frame(maxWidth: .infinity)
                 .background(alignment: .top) { BarFade() }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         }

@@ -170,6 +170,8 @@ private struct InboxThreadCell: View {
     let key: InboxKey
     let section: String
     let actions: InboxRowActions
+    /// The thread open beside the list.
+    @Environment(\.openThreadRow) private var open
 
     var body: some View {
         if let row = inbox.row(key) { threadRow(row) }
@@ -186,7 +188,8 @@ private struct InboxThreadCell: View {
             if settled { InboxSettledRow(row: row) }
             else { InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.showsMachineNames ? inbox.name(key.machineId) : nil) }
         }
-        .buttonStyle(.row)
+        .buttonStyle(RowPressStyle(selected: open == key))
+        .accessibilityAddTraits(open == key ? .isSelected : [])
         .accessibilityIdentifier(inbox.showsMachineNames ? "thread.\(key.machineId).\(row.id)" : "thread.\(row.id)")
         .inboxRowChrome()
         // Neutral swipe fills: status hues belong to status only.
