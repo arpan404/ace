@@ -3,8 +3,10 @@ import Observation
 
 @MainActor @Observable final class BlockModel: Identifiable {
     let id: String
-    var row: BlockRow
-    init(id: String, row: BlockRow) { self.id = id; self.row = row }
+    var row: BlockRow { didSet { if row.room != room { room = row.room } } }
+    /// Observed apart from `row`, so the feed's spacing never re-reads on a block's live update.
+    private(set) var room: BlockRow.Room?
+    init(id: String, row: BlockRow) { self.id = id; self.row = row; self.room = row.room }
 }
 
 /// The open thread's blocks, composer controls, history paging and model list. Block identity
@@ -26,8 +28,13 @@ import Observation
     @ObservationIgnored var stopRequest: String?
     /// Finished turns' steps read on demand, by turn ordinal.
     var steps: [Int: TurnStepsModel] = [:]
-    /// The live line the capsule above the composer shows; nil when nothing is live.
-    var activity: ActivityRow?
+    /// The live pill over the composer; nil when nothing is live, queued or pursued.
+    var pill: PillRow?
+    /// The thread's goal, for its sheet; nil without one.
+    var goal: GoalRow?
+    /// Subagent groups the person opened, by block id. Kept across a reload of the thread, so
+    /// coming back from a child finds the group as it was left.
+    var openGroups: Set<String> = []
     /// Effort and speed for the next message.
     var tune: TuneRow?
     /// Files on the next message and their uploads.
@@ -43,12 +50,24 @@ import Observation
         blockOrder = []
         controls = nil
         queue = nil
-        activity = nil
+        pill = nil
+        goal = nil
         steps = [:]
         tune = nil
         attachments = []
         hasOlder = false
         loadingOlder = false
+    }
+    /// Opening a kept thread again: what belonged to the last visit's bridge session goes (its
+    /// steps, lane, files and model list are read again on request); the transcript stays.
+    func revisit() {
+        steps = [:]
+        lane = nil
+        attachments = []
+        modelsState = "idle"
+        models = []
+        stopping = false
+        stopRequest = nil
     }
     /// Applies one thread-screen patch already scoped to this thread's navigation generation.
     func apply(_ patch: BridgePatch) {

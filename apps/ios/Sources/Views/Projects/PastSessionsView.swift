@@ -30,25 +30,29 @@ struct PastSessionsView: View {
     @State private var loading = false
     var body: some View {
         List {
-            ForEach(sessions) { session in
-                Button {
-                    importing = session.id
-                    Task { await open(session) }
-                } label: {
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                        Text(session.title.isEmpty ? "Untitled session" : session.title).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
-                        Text("\(session.provider.capitalized) · \(session.messageCount) messages").foregroundStyle(AceTheme.Colours.mutedForeground)
-                        if let reason = session.support.reason { Text(reason).foregroundStyle(AceTheme.Colours.subtleForeground) }
-                    }
-                }.disabled(importing != nil || session.support.status != "supported" || !model.canOperate)
+            Group {
+                ForEach(sessions) { session in
+                    Button {
+                        importing = session.id
+                        Task { await open(session) }
+                    } label: {
+                        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                            Text(session.title.isEmpty ? "Untitled session" : session.title).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
+                            Text("\(session.provider.capitalized) · \(session.messageCount) messages").foregroundStyle(AceTheme.Colours.mutedForeground)
+                            if let reason = session.support.reason { Text(reason).foregroundStyle(AceTheme.Colours.subtleForeground) }
+                        }
+                    }.disabled(importing != nil || session.support.status != "supported" || !model.canOperate)
+                }
+                if loading || importing != nil { ProgressView().accessibilityLabel(importing == nil ? "Loading sessions" : "Opening session") }
+                ServiceProblem(message: problem)
+                if problem != nil { Button("Retry") { Task { await read() } } }
+                if ["scanning", "retrying"].contains(state) { Label("Reading CLI history", systemImage: "clock") }
+                if !loading && sessions.isEmpty && problem == nil { ContentUnavailableView.search(text: query) }
+                if next != nil { Button("Show more sessions") { Task { await read(more: true) } }.disabled(loading) }
             }
-            if loading || importing != nil { ProgressView().accessibilityLabel(importing == nil ? "Loading sessions" : "Opening session") }
-            ServiceProblem(message: problem)
-            if problem != nil { Button("Retry") { Task { await read() } } }
-            if ["scanning", "retrying"].contains(state) { Label("Reading CLI history", systemImage: "clock") }
-            if !loading && sessions.isEmpty && problem == nil { ContentUnavailableView.search(text: query) }
-            if next != nil { Button("Show more sessions") { Task { await read(more: true) } }.disabled(loading) }
+            .insetRowBackground()
         }
+        .insetGroupedList()
         .searchable(text: $query, prompt: "Search past sessions")
         .navigationTitle("Past CLI sessions").navigationBarTitleDisplayMode(.inline)
         .task(id: query) {

@@ -49,6 +49,37 @@ describe("native theme data", () => {
       });
     });
 
+    it(`${scheme} ink, accent and status words stay identical to the web's Ace theme`, () => {
+      const web = themeDeclarations(defaultThemeId, scheme);
+      const { colours, statusText } = designTokens.schemes[scheme];
+      expect({
+        background: colours.background,
+        foreground: colours.foreground,
+        mutedForeground: colours.mutedForeground,
+        subtleForeground: colours.subtleForeground,
+        separator: colours.separator,
+        fill: colours.fill,
+        accent: colours.accent,
+        onAccent: colours.onAccent,
+        ...statusText,
+      }).toEqual({
+        background: web["--background"],
+        foreground: web["--foreground"],
+        mutedForeground: web["--muted-foreground"],
+        subtleForeground: web["--subtle-foreground"],
+        separator: web["--border"],
+        fill: web["--active"],
+        accent: web["--ring"],
+        onAccent: web["--ring-foreground"],
+        needsYou: web["--status-needs-you-text"],
+        working: web["--status-working-text"],
+        waiting: web["--status-waiting-text"],
+        unresponsive: web["--status-unresponsive-text"],
+        done: web["--status-done-text"],
+        failed: web["--status-failed-text"],
+      });
+    });
+
     const theme = designTokens.schemes[scheme];
     const textColours = {
       foreground: theme.colours.foreground,

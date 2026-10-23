@@ -42,7 +42,7 @@ struct ConversationHistoryView: View {
                         .listRowSeparator(.hidden).id(item.id)
                 }
                 if loading { ProgressView().accessibilityLabel("Loading messages") }
-                if !loading && window != nil && items.isEmpty { ContentUnavailableView("No messages recorded", systemImage: "bubble.left") }
+                if !loading && window != nil && items.isEmpty { EmptyState(icon: .chatCircle, title: "No messages recorded") }
                 if let problem { ServiceProblem(message: problem); Button("Retry") { Task { await read() } } }
                 if let openThread {
                     Button("Open conversation") { openThread(threadId) }.accessibilityIdentifier("search.openThread")
@@ -52,10 +52,10 @@ struct ConversationHistoryView: View {
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                 if let window {
                     HStack {
-                        Button("Earlier messages", systemImage: "chevron.left") { Task { if let before = window.before { await read(sequence: before) } } }
+                        Button("Earlier messages", ace: .caretLeft) { Task { if let before = window.before { await read(sequence: before) } } }
                             .disabled(loading || window.before == nil).accessibilityIdentifier("history.earlier")
                         Spacer(minLength: AceTheme.Spacing.sm)
-                        Button("Later messages", systemImage: "chevron.right") { Task { if let after = window.after { await read(sequence: after) } } }
+                        Button("Later messages", ace: .caretRight) { Task { if let after = window.after { await read(sequence: after) } } }
                             .disabled(loading || window.after == nil).accessibilityIdentifier("history.later")
                     }
                     .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
@@ -67,7 +67,7 @@ struct ConversationHistoryView: View {
             .listStyle(.plain).scrollContentBackground(.hidden).background(AceTheme.Colours.background)
             .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-            .task { await read() }
+            .readWhenConnected(model) { await read() }
             .task(id: targetId) { await Task.yield(); if let targetId, !Task.isCancelled { proxy.scrollTo(targetId, anchor: .center) } }
             .sheet(item: $fullMessage) { FullMessageView(model: model, threadId: threadId, item: $0) }
             .sheet(item: $media) { item in NavigationStack { NativeMediaView(model: model, threadId: threadId, item: item) } }

@@ -16,6 +16,8 @@ import type { FakeWireSession } from "./services-wire.ts";
 import { CommandFlights } from "./command-status.ts";
 
 /** What a connection needs from the host. FakeDaemon implements it. */
+/** The daemon's default replay bound: further behind than this, a subscriber gets a snapshot. */
+const replayLimit = 5000;
 export interface Host {
   readonly hostId: HostId;
   readonly displayName?: string;
@@ -317,7 +319,14 @@ export class Connection {
       if (paced) this.send({ type: "subscription.ready", subscriptionId: id, seq: head });
       return;
     }
-    if (afterSeq !== undefined && afterSeq <= head && this.host.snapshot(scope)) {
+    // Like the daemon (its replayLimit), a cursor too far behind gets a snapshot, not every event
+    // since: a client away for hours of streaming must not replay them all to paint.
+    if (
+      afterSeq !== undefined &&
+      afterSeq <= head &&
+      head - afterSeq <= replayLimit &&
+      this.host.snapshot(scope)
+    ) {
       this.subscriptions.set(id, { scope, cursor: head });
       this.deliver(id, afterSeq, head, this.host.replay(scope, afterSeq));
     } else {

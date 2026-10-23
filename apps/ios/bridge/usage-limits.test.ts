@@ -1,4 +1,4 @@
-import { until } from "./test-native.ts";
+import { until } from "./test-host.ts";
 import { afterEach, expect, test } from "vitest";
 import { ClientCore } from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";

@@ -51,9 +51,9 @@ struct PillButtonStyle: ButtonStyle {
             .minimumScaleFactor(0.8)
             .foregroundStyle(foreground)
             .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget)
-            .background(background, in: Capsule())
+            .background(background, in: AceShape.capsule)
             .opacity(enabled ? (configuration.isPressed ? 0.7 : 1) : AceTheme.Opacity.disabled(scheme))
-            .contentShape(Capsule())
+            .contentShape(AceShape.capsule)
     }
     private var foreground: Color {
         switch kind {

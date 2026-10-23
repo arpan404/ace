@@ -1,6 +1,6 @@
 import { ClientMessage, ServerMessage } from "@ace/protocol";
 import { MAX_MESSAGE, NoiseXX, type HandshakeOptions, type Transport } from "@ace/secure-channel";
-import { inflateRaw } from "./inflate.ts";
+import { inflate } from "./inflate.ts";
 
 /** Browser and React Native socket boundary; no Node or ws dependency. */
 export interface PortableSocket {
@@ -219,7 +219,7 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
           offset += chunk.length;
         }
         if (kind === 2) return payload;
-        const json = kind === 4 ? await inflateRaw(payload, logicalLimit) : payload;
+        const json = kind === 4 ? await inflate("deflate-raw", payload, logicalLimit) : payload;
         return ServerMessage.parse(
           JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(json)),
         );

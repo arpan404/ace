@@ -1,11 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import {
-  fixture,
-  cleanupRecovery,
-  restart,
-  resume,
-  replaceProvider,
-} from "./recovery-test-support.ts";
+import { fixture, cleanupRecovery, restart, replaceProvider } from "./recovery-test-support.ts";
 import { scriptFrames, start, end } from "./test-support.ts";
 import type { Fact } from "@ace/core";
 
@@ -261,9 +255,10 @@ test("native continuation invalidates a pre-restart occupancy until a fresh prov
   const root = h.store.getThread(id)?.rootAgentId;
   if (!root) throw new Error("Missing root");
   replaceProvider(h, frames, [{ on: "send", frames: [frames.frame(start)] }]);
+  // The interrupted turn continues natively by itself after the restart.
   const recovered = await restart(h);
-  expect(resume(h, recovered, id).ok).toBe(true);
   await recovered.flush();
+  expect(h.contexts.at(-1)?.resume).toEqual({ nativeSessionId: "native-1" });
   expect(h.store.snapshotThread(id).contextMeters?.[root]?.usedTokens).toBeNull();
   h.contexts.at(-1)?.onFrame(
     frames.frame(

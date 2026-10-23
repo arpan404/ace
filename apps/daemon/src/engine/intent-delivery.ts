@@ -231,10 +231,12 @@ export class IntentDelivery {
         this.dependencies.repo.session(actor.id).cwd,
       );
       const key = `input:${intent.command.id}`;
+      // A restart continuation tells the agent what died; a limit resume just carries on.
+      const continuation = queue.continuation || continueMessage;
       this.dependencies.repo.syntheticInput(
         actor.id,
         key,
-        continueMessage,
+        continuation,
         { kind: queue.trigger ?? "restart", commandId: intent.command.id },
         this.dependencies.clock.now(),
       );
@@ -242,10 +244,7 @@ export class IntentDelivery {
         ...this.dependencies.transitions
           .input(actor.id)
           .map((text) => ({ type: "text" as const, text })),
-        {
-          type: "text" as const,
-          text: continueMessage,
-        },
+        { type: "text" as const, text: continuation },
       ];
       this.dependencies.repo.inputs.sending(
         actor.id,

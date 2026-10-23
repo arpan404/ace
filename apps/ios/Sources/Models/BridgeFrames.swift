@@ -51,3 +51,18 @@ struct BridgeFrames {
     private mutating func reset() { transferId = nil; nextIndex = 0; assembly = Data() }
 }
 private enum FrameError: Error { case budget, order }
+
+/// Decodes a runtime's frames on a queue of its own, so neither the main thread nor the script's
+/// thread waits on JSON. One frame is in flight at a time (the bridge waits for its acknowledgment),
+/// and the serial queue keeps fragment assembly in order.
+final class FrameDecoder: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "ace.client.frames", qos: .userInitiated)
+    private var frames = BridgeFrames()
+    /// Decodes `data`, then hands `done` the frame's complete patches, or nil when it could not be
+    /// read (the assembly resets).
+    func decode(_ data: Data, then done: @escaping @Sendable ([BridgePatch]?) -> Void) {
+        queue.async { [self] in
+            done(HostTrace.measure("host.decodeFrame", bytes: data.count) { try? frames.decode(data) })
+        }
+    }
+}

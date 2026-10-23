@@ -1,3 +1,11 @@
+import {
+  groupIssues,
+  issueQuery,
+  issueSortLabels,
+  type IssuesSearch,
+  type IssuesSort,
+  workKey,
+} from "@ace/ui-core";
 import { useState } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { PencilSimpleIcon, RecordIcon, UserIcon, UsersIcon } from "@phosphor-icons/react";
@@ -11,14 +19,7 @@ import { Screen } from "@/features/shell/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { FiltersMenu, type FilterSection } from "./filters-menu.tsx";
 import { IssueRow } from "./issue-row.tsx";
-import {
-  groupIssues,
-  issueQuery,
-  issueSortLabels,
-  type IssuesSearch,
-  type IssuesSort,
-} from "./issues-model.ts";
-import { useLinkedThreads, workKey } from "./linked-threads.ts";
+import { useLinkedThreads } from "./linked-threads.ts";
 import { RowsSkeleton } from "./list-skeletons.tsx";
 import { ListFrame, ToolbarRule } from "./list-frame.tsx";
 import { useGroupCounts, useIssuePages } from "./lists.ts";

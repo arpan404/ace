@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { Tone } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
-import { glyphTones, type GlyphState } from "./status-glyph-state.ts";
+import { glyphTones, type GlyphState } from "@ace/ui-core";
 
 /*
  * The Aperture status glyphs: one 16-unit grid (centre 8,8), a 1.5 stroke ring of radius 5.25,

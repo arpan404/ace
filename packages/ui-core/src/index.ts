@@ -1,4 +1,5 @@
 export { accountShortLabel } from "@ace/accounts/labels";
+export { accountBadge } from "./account-badge.ts";
 export { threadAttention, withoutPortableHandoff } from "@ace/projection";
 export * from "./notice-text.ts";
 /*
@@ -24,6 +25,12 @@ export * from "./action-errors.ts";
 export * from "./inbox-words.ts";
 export * from "./pull-request.ts";
 export * from "./pr-next-step.ts";
+export * from "./forge-lists.ts";
+export * from "./forge-marks.ts";
+export * from "./pr-readiness.ts";
+export * from "./pr-row-steps.ts";
+export * from "./pr-gates.ts";
+export * from "./pr-primary-action.ts";
 export * from "./worktree-base.ts";
 export * from "./composer-drafts.ts";
 export * from "./browser-annotation-prompt.ts";
@@ -66,12 +73,17 @@ export type { Brand } from "./brand-art/index.gen.ts";
 export type { BrandArt, BrandGradient, BrandPath } from "./brand-art-types.ts";
 export * from "./providers.ts";
 export * from "./provider-slots.ts";
+export * from "./subagent-row.ts";
+export * from "./row-room.ts";
 export * from "./provider-status.ts";
 export * from "./provider-readiness.ts";
 export * from "./provider-account-model.ts";
 export * from "./provider-services.ts";
 export * from "./questions.ts";
 export * from "./answered-questions.ts";
+export * from "./question-line.ts";
+export * from "./question-draft.ts";
+export * from "./composer-reply.ts";
 export * from "./queue.ts";
 export * from "./queued-input.ts";
 export * from "./snooze.ts";
@@ -102,6 +114,9 @@ export * from "./why.ts";
 export * from "./work-log.ts";
 export { isToolSearch, toolSearchRow, type ToolSearchRow } from "./tool-search.ts";
 export * from "./step-groups.ts";
+export * from "./thought-time.ts";
+export * from "./step-shown.ts";
+export * from "./failed-turn.ts";
 export * from "./explore-command.ts";
 export * from "./browser-address.ts";
 export * from "./browser-logs.ts";
@@ -162,6 +177,7 @@ export { serviceLabel } from "./provider-services.ts";
 export { freeModelMarker } from "./model-picker.ts";
 
 export { recoveryAttention, type RecoveryAttention } from "./recovery-attention.ts";
+export { agentGlyph, glyphTones, threadGlyph, type GlyphState } from "./status-glyph.ts";
 export {
   rowAttention,
   currentAttention,
@@ -217,3 +233,9 @@ export {
 export * from "./person-message.ts";
 export * from "./held-turn.ts";
 export { continueMessage } from "@ace/core";
+export * from "./bubble-segments.ts";
+export * from "./bubble-content.ts";
+export * from "./usage-warning.ts";
+export * from "./not-sent.ts";
+export * from "./notice-error.ts";
+export * from "./event-view.ts";

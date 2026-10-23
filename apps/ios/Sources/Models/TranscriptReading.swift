@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import QuartzCore
 
 private struct TranscriptReadingReply: Decodable {
     struct Block: Decodable { let id: String; let row: BlockRow }
@@ -34,6 +35,7 @@ private struct TranscriptReadingReply: Decodable {
         retryOperation = operation
         self.operation = operation
         let version = generation
+        let asked = CACurrentMediaTime()
         request = Task {
             defer { if generation == version { loading = false } }
             do {
@@ -42,6 +44,7 @@ private struct TranscriptReadingReply: Decodable {
                 guard reply.active else { thread = nil; revision += 1; return }
                 let next = ThreadModel(id: live.id)
                 next.epoch = live.epoch
+                next.disclosures = live.disclosures
                 next.metadata = live.metadata
                 next.interactions = live.interactions
                 for row in reply.items {
@@ -60,6 +63,7 @@ private struct TranscriptReadingReply: Decodable {
                 thread = next
                 if operation == "older" || operation == "newer" { paged = true }
                 revision += 1
+                ThreadOpenTrace.page(operation, items: reply.items.count, blocks: reply.blocks.count, seconds: CACurrentMediaTime() - asked)
             } catch {
                 if !Task.isCancelled, generation == version { problem = error.localizedDescription }
             }

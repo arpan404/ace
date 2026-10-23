@@ -19,32 +19,64 @@ struct ProjectsView: View {
     @State private var problem: String?
     @State private var query = ""
     @State private var adding = false
+    private static let firstPage: [String: Any] = ["type": "projects.request", "operation": ["op": "workspace.list", "limit": 100]]
+
+    /// Opens on the last projects this phone saw, read again behind them.
+    init(model: ClientModel) {
+        self.model = model
+        let kept = model.kept(Self.firstPage, as: ProjectListReply.self)?.result
+        _projects = State(initialValue: kept?.projects ?? [])
+        _next = State(initialValue: kept?.next)
+        _loaded = State(initialValue: kept != nil)
+    }
     var body: some View {
         List {
-            if model.connection != "ready" { InboxConnectionBanner(connection: model.connection, retry: model.retry) }
-            ForEach(projects.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.path.localizedCaseInsensitiveContains(query) }) { project in
-                NavigationLink { ProjectDetailView(model: model, project: project) } label: {
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                        Text(project.name).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
-                        Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1).truncationMode(.middle)
-                    }.padding(.vertical, AceTheme.Spacing.xs)
-                }.accessibilityIdentifier("projects.row.\(project.id)")
+            if model.connection != "ready" { InboxConnectionBanner(connection: model.connection, retry: model.retry).listRowBackground(Color.clear) }
+            Section {
+                ForEach(projects.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.path.localizedCaseInsensitiveContains(query) }) { project in
+                    NavigationLink { ProjectDetailView(model: model, project: project) } label: {
+                        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                            Text(project.name).aceFont(InsetStyle.label, relativeTo: .body)
+                            Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
+                        }.padding(.vertical, AceTheme.Spacing.xs)
+                    }.accessibilityIdentifier("projects.row.\(project.id)")
+                }
+                if next != nil { Button("Show more projects") { Task { await read(more: true) } }.disabled(loading) }
+                if problem != nil {
+                    ServiceProblem(message: problem)
+                    Button("Retry") { Task { await read() } }
+                }
             }
-            if next != nil { Button("Show more projects") { Task { await read(more: true) } }.disabled(loading) }
-            if loading { ProgressView().accessibilityLabel("Loading projects") }
-            ServiceProblem(message: problem)
-            if problem != nil { Button("Retry") { Task { await read() } } }
-            if loaded && !loading && projects.isEmpty && problem == nil { ContentUnavailableView("No projects", systemImage: "folder") }
-            if model.canOperate { Button("Add project", systemImage: "folder.badge.plus") { adding = true } }
+            .insetRowBackground()
+            Group {
+                if loading, !loaded { HStack { Spacer(); ProgressView().accessibilityLabel("Loading projects"); Spacer() } }
+                if loaded && !loading && projects.isEmpty && problem == nil { ContentUnavailableView("No projects", systemImage: "folder") }
+            }
+            .listRowBackground(Color.clear)
         }
+        .insetGroupedList()
         .searchable(text: $query, prompt: "Search projects")
         .navigationTitle("Projects").navigationBarTitleDisplayMode(.inline)
-        .task(id: model.connection) { if model.connection == "ready" { await read() } }.refreshable { await read() }
+        .toolbar {
+            if model.canOperate {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { adding = true } label: { Image(systemName: "plus") }.accessibilityLabel("Add project")
+                }
+            }
+        }
+        .task(id: [model.connection == "ready" ? 1 : 0, model.readGeneration(Self.firstPage)]) { if model.connection == "ready" { await read() } }
+        .refreshable { await read() }
         .sheet(isPresented: $adding) {
             NavigationStack {
                 AddProjectView(client: model) { _ in adding = false; Task { await read() } }
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { adding = false } } }
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button { adding = false } label: { Image(systemName: "xmark") }.accessibilityLabel("Close")
+                        }
+                    }
             }
+            .tint(AceTheme.Colours.foreground)
+            .presentationDetents([.large]).presentationDragIndicator(.visible)
         }
     }
     private func read(more: Bool = false) async {
@@ -54,7 +86,8 @@ struct ProjectsView: View {
         do {
             var operation: [String: Any] = ["op": "workspace.list", "limit": 100]
             if more, let next { operation["after"] = next }
-            let reply = try await model.service(["type": "projects.request", "operation": operation], as: ProjectListReply.self)
+            let request: [String: Any] = ["type": "projects.request", "operation": operation]
+            let reply = try await model.read(request, as: ProjectListReply.self)
             guard reply.result.kind == "projects" else {
                 throw ServiceFailure(message: reply.result.code == "forbidden" ? "This pairing doesn't include Projects access. Pair again with Projects enabled on your computer." : "Couldn't read projects: \(reply.result.code ?? "unavailable"). Retry when your machine is ready.")
             }
@@ -69,10 +102,18 @@ private struct ProjectDetailView: View {
     let project: NativeProject
     var body: some View {
         List {
-            Section { Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).textSelection(.enabled) }
-            NavigationLink { FilesScreen(model: model, scope: .project(project.id), subtitle: project.name, mention: nil) } label: { Label("Files", systemImage: "folder") }
-            NavigationLink { PastSessionsView(model: model, project: project) } label: { Label("Past CLI sessions", systemImage: "clock.arrow.circlepath") }
+            Section {
+                Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).textSelection(.enabled)
+            }
+            .insetRowBackground()
+            Section {
+                NavigationLink { FilesScreen(model: model, scope: .project(project.id), subtitle: project.name, mention: nil) } label: { InsetRow("Files", systemImage: "folder") }
+                NavigationLink { PastSessionsView(model: model, project: project) } label: { InsetRow("Past CLI sessions", systemImage: "clock.arrow.circlepath") }
+            }
+            .insetRowBackground()
         }
+        .insetGroupedList()
         .navigationTitle(project.name).navigationBarTitleDisplayMode(.inline)
     }
 }

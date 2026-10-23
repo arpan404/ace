@@ -1,3 +1,4 @@
+import { type ReviewOutcome, reviewOutcomeLabels } from "@ace/ui-core";
 import { useState } from "react";
 import { ArrowsDownUpIcon, FunnelIcon } from "@phosphor-icons/react";
 import type { ForgeComment, ForgePrStatus } from "@ace/protocol";
@@ -7,7 +8,7 @@ import { cn } from "@/lib/cn.ts";
 import { PrComment } from "./pr-comment.tsx";
 import { PrSection } from "./pr-section.tsx";
 import { PrThread } from "./pr-thread.tsx";
-import { conversation, reviewOutcomeLabels, type ReviewOutcome } from "./pr-summary-model.ts";
+import { conversation } from "./pr-summary-model.ts";
 
 const page = 10;
 const verdicts: Record<string, ReviewOutcome> = {
