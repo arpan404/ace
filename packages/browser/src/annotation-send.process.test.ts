@@ -19,20 +19,42 @@ async function sendButton(
   // The bar sits 16 px above the bottom and is 42 px tall: its middle row.
   const y = height - 37;
   const row = Math.round(y * scale);
-  let right = -1;
-  let left = -1;
-  for (let x = info.width - 1; x >= 0; x--) {
+  // The dark fixture's Send fill is #DEDEDE. Require a wide run followed
+  // by dark bar pixels to exclude the white page and antialiased bar edge.
+  const accent = 0xde;
+  const tolerance = 14;
+  const isSendFill = (r: number, g: number, b: number) =>
+    Math.abs(r - accent) <= tolerance &&
+    Math.abs(g - accent) <= tolerance &&
+    Math.abs(b - accent) <= tolerance;
+  const atPixel = (x: number) => {
     const at = (row * info.width + x) * info.channels;
-    const [r = 0, g = 0, b = 0] = [data[at], data[at + 1], data[at + 2]];
-    const accent = b > r + 60 && b > g + 30;
-    if (accent && right < 0) right = x;
-    if (!accent && right >= 0) {
-      left = x + 1;
-      break;
+    return [data[at] ?? 0, data[at + 1] ?? 0, data[at + 2] ?? 0] as const;
+  };
+  const minRun = Math.max(6, Math.round(10 * scale));
+  const edge = Math.max(3, Math.round(4 * scale));
+  const runs: Array<{ left: number; right: number }> = [];
+  let start = -1;
+  for (let x = 0; x < info.width; x++) {
+    const [r, g, b] = atPixel(x);
+    const fill = isSendFill(r, g, b);
+    if (fill && start < 0) start = x;
+    if (!fill && start >= 0) {
+      runs.push({ left: start, right: x - 1 });
+      start = -1;
     }
   }
-  if (right < 0) throw new Error("No Send button on the bar");
-  return { x: (left + right) / 2 / scale, y };
+  if (start >= 0) runs.push({ left: start, right: info.width - 1 });
+  for (let i = runs.length - 1; i >= 0; i--) {
+    const run = runs[i];
+    if (!run) continue;
+    if (run.right - run.left + 1 < minRun) continue;
+    const probe = Math.min(info.width - 1, run.right + edge);
+    const [pr, pg, pb] = atPixel(probe);
+    if (Math.max(pr, pg, pb) >= 200) continue;
+    return { x: (run.left + run.right) / 2 / scale, y };
+  }
+  throw new Error("No Send button on the bar");
 }
 
 test("pressing Send on the page ends annotate mode even when the client never stops it", async () => {
