@@ -6,7 +6,7 @@ import { afterEach } from "vitest";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
 import { ModelCatalog, openModelStorage } from "@ace/models";
 import { scriptedModelInstance, scriptedModelDiscovery } from "../testing/models.ts";
-import type { SessionContext } from "@ace/engine-api";
+import { InputRejected, type SessionContext } from "@ace/engine-api";
 import type { Fact } from "@ace/core";
 import {
   Capabilities,
@@ -37,6 +37,8 @@ export function setup(
   engineLimits?: Partial<import("../engine/limits.ts").EngineLimits>,
   providerEnabled?: import("./delegations.ts").DelegationDependencies["providerEnabled"],
   steer = false,
+  /** The scripted providers' steering, as Cursor's restarts the running turn. */
+  steeringMode?: "interrupt-restart",
 ) {
   const home = path ? join(path, "..") : mkdtempSync(join(tmpdir(), "ace-control-"));
   if (!path) homes.push(home);
@@ -67,9 +69,12 @@ export function setup(
   const stoppedTasks: string[] = [];
   /** How many of the next task stops the provider fails, as a dropped RPC would. */
   let stopTaskFailures = 0;
+  /** How the provider fails the next steers: refused unread, or lost with no answer. */
+  const steerFailures: ("rejected" | "lost")[] = [];
   const registry = new AdapterRegistry();
   const capabilities = Capabilities.parse({
     steer,
+    ...(steeringMode ? { steeringMode } : {}),
     interruptCascades: false,
     resume: true,
     fork: false,
@@ -143,6 +148,9 @@ export function setup(
             ...session,
             nativeSessionId,
             async send(input, delivery, commandId, origin) {
+              const failure = delivery === "steer" ? steerFailures.shift() : undefined;
+              if (failure === "rejected") throw new InputRejected("no active turn to steer");
+              if (failure === "lost") throw new Error("The provider connection dropped");
               if (commandId) {
                 const message = {
                   commandId,
@@ -281,6 +289,9 @@ export function setup(
   return {
     home,
     stoppedTasks,
+    failNextSteer(how: "rejected" | "lost") {
+      steerFailures.push(how);
+    },
     failNextTaskStops(count: number) {
       stopTaskFailures = count;
     },

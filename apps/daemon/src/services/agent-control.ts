@@ -74,6 +74,10 @@ export function startAgentControl(context: ServiceContext): void {
         services.machines
           ? services.machines.caller.cancel(child)
           : { ok: false, code: "not_found" },
+      message: async (child, message) =>
+        services.machines
+          ? services.machines.caller.message(child, message)
+          : { ok: false, code: "not_found" },
     },
     runRole: (role) => services.roles?.get(role),
     startConversation: createConversationStarts(context, delegations, delegations.conversations),

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ContentPart } from "@ace/protocol";
-import type { SessionContext } from "@ace/engine-api";
+import { InputRejected, type SessionContext } from "@ace/engine-api";
 import type { OpenCodeClient } from "@opencode/client";
 import type { Runtime } from "./runtime.ts";
 import type { Observe } from "./observation.ts";
@@ -73,7 +73,7 @@ export class SessionPrompts {
       } catch {
         if (!admitted && (this.rejected || !this.started)) {
           p.frame("note", "input.rejected", { id });
-          throw new Error("OpenCode rejected input admission");
+          throw new InputRejected("OpenCode rejected input admission");
         }
         // A committed prompt may have lost its receipt. Never resubmit it automatically.
         p.frame("note", "input.uncertain", { id });

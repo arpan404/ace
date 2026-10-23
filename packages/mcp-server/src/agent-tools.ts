@@ -163,15 +163,15 @@ const agentMessage = controlTool({
   riskClass: "agent-execution",
   capability: "agents",
   description:
-    "Send follow-up work to a child or a thread you started, or with full access to any of the person's threads; it keeps its permissions. steer (default) joins its running turn at the next tool boundary, queue waits for that turn to end, restart interrupts its tree and replaces queued input. arrival says which applied.",
+    "Send follow-up work to a child (on any machine) or a thread you started, or with full access to any of the person's threads; it keeps its permissions. steer joins its running turn at the next tool boundary (on Cursor it restarts that turn with the message), queue waits for the turn to end, restart interrupts its tree and replaces queued input. arrival says which applied.",
   input: z.strictObject({
     threadId: messagedThread,
     requestId: fields.requestId,
     text: MessageText.describe("The message, standing on its own."),
     delivery: z
       .enum(["queue", "steer", "restart"])
-      .default("steer")
-      .describe("steer (default), queue, or restart."),
+      .optional()
+      .describe("Default: steer for your children, queue for other threads."),
   }),
   output: controlResult(z.looseObject({ arrival: MessageArrival })),
   run: (input, control) => control.run({ op: "thread.message", ...input }),

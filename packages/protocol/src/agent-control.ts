@@ -174,6 +174,8 @@ export const DelegationRecord = z.object({
   /** The child model's native effort id the request resolved to; absent keeps the model default. */
   resolvedEffort: z.string().min(1).max(256).optional(),
   resultDelivery: z.enum(["parent", "owner"]).optional(),
+  /** What the parent was last told about a message to this child that didn't go in as sent. */
+  messageNotice: z.object({ text: z.string().max(400), at: Timestamp }).optional(),
 });
 export type DelegationRecord = z.infer<typeof DelegationRecord>;
 export const ControlThreadInput = z.strictObject({ threadId: ThreadId });
@@ -292,7 +294,7 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     threadId: ThreadId,
     requestId: key,
     text: MessageText,
-    delivery: z.enum(["queue", "steer"]).default("steer"),
+    delivery: z.enum(["queue", "steer"]).optional(),
   }),
   DelegateTaskOperation,
   z.strictObject({
@@ -312,7 +314,8 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     threadId: ThreadId,
     requestId: key,
     text: MessageText,
-    delivery: z.enum(["queue", "steer", "restart"]).default("steer"),
+    /** Omitted: steer for the caller's own descendants, queue for any other thread. */
+    delivery: z.enum(["queue", "steer", "restart"]).optional(),
   }),
   z.strictObject({ op: z.literal("wait"), ...WaitInput }),
   z.strictObject({
@@ -461,15 +464,6 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("preview.close"), threadId: ThreadId, previewId: key }),
 ]);
 export type AgentControlOperation = z.infer<typeof AgentControlOperation>;
-/**
- * How an agent's message reaches the thread it was sent to, read once ace accepted it:
- * `starting` begins its next turn now; `steering` joins the running turn (after a running tool
- * returns); `queued` runs when that turn ends; `held` waits for the thread's held queue to lift;
- * `delivered` is a retry of a message the provider already took.
- */
-export const MessageArrival = z.enum(["starting", "steering", "queued", "held", "delivered"]);
-export type MessageArrival = z.infer<typeof MessageArrival>;
-
 export const AgentControlResult = z.object({
   ok: z.boolean(),
   code: z

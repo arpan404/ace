@@ -3,6 +3,7 @@ import { isAgentProse } from "@ace/projection";
 import { z } from "zod";
 import {
   Command,
+  CommandId,
   ThreadId,
   type CommandResult,
   type Device,
@@ -27,6 +28,7 @@ import {
   settledStates,
   watchedState,
 } from "../agent-control/watch-view.ts";
+import { messageArrival } from "../agent-control/message-arrival.ts";
 import { TargetRefusal } from "./target-refusal.ts";
 
 export interface TargetThreadDeps {
@@ -174,6 +176,63 @@ export class TargetThreads {
       engine.internalHandler.handle(command, commandContext(this.deps.store)),
     );
     return { ok: result.ok };
+  }
+  /**
+   * The parent agent's follow-up for a thread it delegated here, as a local parent's: steer joins
+   * a running turn where the provider steers, queue waits for the turn to end, restart stops the
+   * thread first and puts this message ahead of anything queued. Keyed by requestId, so a retry
+   * sends it once. The answer says how it arrives; one that never will is refused with why.
+   */
+  message(device: Device, call: Extract<MachineCall, { op: "message" }>) {
+    const engine = this.deps.engine();
+    if (!engine) throw new TargetRefusal("unavailable", "Agents are starting on this machine.");
+    const key = createHash("sha256")
+      .update(JSON.stringify([device.id, call.threadId, call.requestId]))
+      .digest("hex")
+      .slice(0, 32);
+    const run = (id: string, payload: unknown): CommandResult => {
+      const command = Command.parse({ id, deviceId: device.id, payload });
+      return this.deps.store.recordCommand(command.id, command.deviceId, () =>
+        engine.internalHandler.handle(command, commandContext(this.deps.store)),
+      );
+    };
+    const restart = call.delivery === "restart";
+    if (restart) {
+      const stopped = run(`machine-restart:${key}`, {
+        type: "thread.interrupt",
+        threadId: call.threadId,
+        cascade: true,
+      });
+      if (!stopped.ok)
+        throw new TargetRefusal("unavailable", `This machine could not stop it: ${stopped.error}`);
+    }
+    const id = CommandId.parse(`machine-message:${key}`);
+    const sent = run(id, {
+      type: "thread.send",
+      threadId: call.threadId,
+      input: [{ type: "text", text: call.text }],
+      delivery: restart ? "queue" : call.delivery,
+      trigger: "parent_agent",
+    });
+    if (!sent.ok)
+      throw new TargetRefusal(
+        "unavailable",
+        `This machine did not take the message: ${sent.error}`,
+      );
+    const queue = engine.queue(call.threadId);
+    if (restart && queue.messages[0]?.id !== id) {
+      const moved = run(`machine-restart-first:${key}`, {
+        type: "queue.move",
+        threadId: call.threadId,
+        messageId: id,
+        after: null,
+        expectedRevision: queue.revision,
+      });
+      if (!moved.ok) throw new TargetRefusal("unavailable", "The restart message lost its place.");
+    }
+    const reading = messageArrival(engine.messageFacts(call.threadId, id), restart);
+    if (!reading.ok) throw new TargetRefusal("invalid", reading.hint);
+    return { arrival: reading.arrival };
   }
   /** The person's answer from another device goes through this machine's own consent owners. */
   respond(device: Device, call: Extract<MachineCall, { op: "respond" }>) {

@@ -34,6 +34,7 @@ import { DelegationAdmission } from "./admission.ts";
 import { type DelegationReservation, DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
 import { messageArrival } from "./message-arrival.ts";
+import { deliveryNotice, noticeText, type DeliveryNotice } from "./message-notices.ts";
 import { readAgentCatalog } from "./catalog.ts";
 import { recoverLocalUsage } from "./local-usage-recovery.ts";
 import { AcpIdentity as importAcpIdentitySchema } from "@ace/protocol";
@@ -252,28 +253,56 @@ export class DelegationService {
     } finally {
       this.requesting = undefined;
     }
+    // A new message supersedes what the parent was told about an earlier one.
+    const edge = result.ok ? this.journal.get(threadId) : undefined;
+    if (edge?.messageNotice) {
+      delete edge.messageNotice;
+      this.journal.save(edge);
+    }
     this.arm();
     return result;
   }
   private requesting: string | undefined;
-  /** How the message `requestId` sent to `threadId` reaches it, read once it was accepted. */
-  arrival(
-    caller: McpAttribution,
-    requestId: string,
-    threadId: ThreadId,
-    delivery: "queue" | "steer",
-  ): import("@ace/protocol").MessageArrival {
-    const id = CommandId.parse(controlCommandId(caller.threadId, requestId, "thread.message"));
-    const fate = this.deps.engine.inputFate(threadId, id).state;
-    if (fate === "delivered" || fate === "sending") return "delivered";
-    const queue = this.deps.engine.queue(threadId);
-    return messageArrival({
-      status: this.deps.store.getThread(threadId)?.status.state ?? "new",
-      held: queue.paused,
-      steers: this.deps.engine.supportsSteering(threadId),
-      delivery,
-      ahead: queue.messages.filter((message) => message.id !== id).length,
+  /**
+   * A parent's message to its child that didn't go in as sent (refused, kept back, uncertain or
+   * failed after the tool returned). The parent hears it the way it hears results, once per
+   * message and outcome, and agents_status shows it until the parent sends again.
+   */
+  private noticeParent(child: ThreadId, notice: DeliveryNotice) {
+    const edge = this.journal.get(child);
+    if (
+      !edge ||
+      !this.deps.engine.messageFacts(child, CommandId.parse(notice.commandId)).fromParent
+    )
+      return;
+    const text = noticeText(notice, edge.request.role, child);
+    const id = controlCommandId(edge.parentId, `${child}:${notice.commandId}`, notice.code);
+    if (this.commandReceipt(id)) return;
+    this.deps.store.atomic(() => {
+      edge.messageNotice = { text: text.slice(0, 400), at: this.deps.clock.now() };
+      this.journal.save(edge);
     });
+    try {
+      const delivery = this.deps.engine.supportsSteering(edge.parentId) ? "steer" : "queue";
+      const result = this.command(id, {
+        type: "thread.send",
+        threadId: edge.parentId,
+        input: [{ type: "text", text: `[ace-origin:delegation.message_notice:${id}]\n${text}` }],
+        delivery,
+        trigger: "subagent_result",
+        origin: { kind: "subagent_result", threadIds: [child] },
+      });
+      if (!result.ok) throw controlAdmissionError(result.error ?? "Notice not delivered");
+      if (delivery === "queue")
+        this.deps.engine.prioritizeSubagentResult(edge.parentId, result.commandId);
+    } catch (error) {
+      this.report(error);
+    }
+  }
+  /** How the message `requestId` sent to `threadId` reaches it, read once it was accepted. */
+  arrival(caller: McpAttribution, requestId: string, threadId: ThreadId, restart = false) {
+    const id = CommandId.parse(controlCommandId(caller.threadId, requestId, "thread.message"));
+    return messageArrival(this.deps.engine.messageFacts(threadId, id), restart);
   }
   async prepareModels(caller: McpAttribution, value: DelegationRequest) {
     const request = delegationRequest(value);
@@ -895,6 +924,8 @@ export class DelegationService {
     let statuses = false;
     for (const event of events) {
       statuses ||= event.payload.type === "thread.updated";
+      const notice = deliveryNotice(event);
+      if (notice) this.noticeParent(event.threadId, notice);
       if (
         event.payload.type !== "thread.updated" &&
         event.payload.type !== "usage.updated" &&

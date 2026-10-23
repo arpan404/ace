@@ -4,6 +4,7 @@ import {
   AgentControlOperation,
   DelegationRequest,
   type AgentControlResult,
+  type MachineMessage,
   type McpAttribution,
   type ThreadId,
 } from "@ace/protocol";
@@ -123,6 +124,8 @@ export interface MachinePort {
   owns(caller: McpAttribution, id: ThreadId): boolean;
   status(id: ThreadId): unknown;
   cancel(id: ThreadId): Promise<AgentControlResult>;
+  /** Follow-up work for a child there; the answer says how it arrives, as for a local child. */
+  message(id: ThreadId, message: MachineMessage): Promise<AgentControlResult>;
 }
 export function createAgentControlPort(
   store: Store,
@@ -151,6 +154,15 @@ export function createAgentControlPort(
         return operation.op === "agent.cancel"
           ? machines.cancel(operation.threadId)
           : { ok: true, data: machines.status(operation.threadId) };
+      if (
+        (operation.op === "thread.message" || operation.op === "agent.message") &&
+        machines?.owns(caller, operation.threadId)
+      )
+        return machines.message(operation.threadId, {
+          requestId: operation.requestId,
+          text: operation.text,
+          delivery: operation.delivery ?? "steer",
+        });
       if ("threadId" in operation) {
         const read = [
           "thread.read",
@@ -318,8 +330,13 @@ export function createAgentControlPort(
             !service.journal.isDescendant(operation.threadId, caller.threadId)
           )
             return { ok: false, code: "forbidden" };
+          // An agent's own children get it now where their provider steers; any other thread
+          // (one it started, or one of the person's) gets it once its turn ends.
+          const delivery =
+            operation.delivery ??
+            (service.journal.isDescendant(operation.threadId, caller.threadId) ? "steer" : "queue");
           const result =
-            operation.delivery === "restart"
+            delivery === "restart"
               ? service.restartMessage(
                   caller,
                   operation.requestId,
@@ -331,17 +348,19 @@ export function createAgentControlPort(
                   operation.requestId,
                   operation.threadId,
                   operation.text,
-                  operation.delivery,
+                  delivery,
                 );
           if (!result.ok) return { ok: false, code: "unavailable" };
           // Says whether the message went in now or waits, so the sender never assumes delivery.
-          const arrival = service.arrival(
+          const reading = service.arrival(
             caller,
             operation.requestId,
             operation.threadId,
-            operation.delivery === "restart" ? "queue" : operation.delivery,
+            delivery === "restart",
           );
-          return { ok: true, data: { arrival } };
+          return reading.ok
+            ? { ok: true, data: { arrival: reading.arrival } }
+            : { ok: false, code: "unavailable", hint: reading.hint };
         }
         case "wait":
           return service.monitor.wait(caller, operation, signal);

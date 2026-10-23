@@ -1,5 +1,6 @@
 import {
   MachineDelegateResult,
+  MachineMessageResult,
   MachineSessionResult,
   MachineStatusResult,
   MachineToolResult,
@@ -7,6 +8,7 @@ import {
   type DelegationRequest,
   type InteractionResolution,
   type MachineCallOrigin,
+  type MachineMessage,
   type MachinePendingRequest,
   type MachineThreadView,
   type McpAttribution,
@@ -122,6 +124,32 @@ export class MachineCaller {
       throw this.deps.directory.controlError(child.machine, error);
     }
     return { ok: true };
+  }
+  /**
+   * Follow-up work for a child there. The target keys the message by requestId, so a retry after
+   * a dropped connection never sends it twice. An offline machine or one that refuses is an
+   * error naming what to do, never a silent drop.
+   */
+  async message(id: ThreadId, message: MachineMessage): Promise<AgentControlResult> {
+    const child = this.deps.children.child(id);
+    if (!child) return { ok: false, code: "not_found" };
+    const origin = await this.origin(child.parentThreadId);
+    for (let attempt = 0; ; attempt++)
+      try {
+        const answer = MachineMessageResult.parse(
+          await this.deps.directory.call(
+            child.machine,
+            origin,
+            { op: "message", threadId: id, ...message },
+            { timeoutMs: 15_000 },
+          ),
+        );
+        return { ok: true, data: answer };
+      } catch (error) {
+        if (attempt === 0 && error instanceof MachineFailure && error.kind === "disconnected")
+          continue;
+        throw this.deps.directory.controlError(child.machine, error);
+      }
   }
   async status(
     machine: string,
