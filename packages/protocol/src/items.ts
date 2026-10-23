@@ -84,6 +84,8 @@ const ItemBase = z.object({
   executionSource: ExecutionSource.optional(),
   /** False while the provider is still streaming into this item. */
   complete: z.boolean(),
+  /** The source thread's, in a fork: ace's copy of its message, or a turn its provider brought. */
+  inherited: InheritedItem.optional(),
 });
 
 /** Agent-owned transcript entries always identify their owner. */
@@ -109,8 +111,6 @@ export const AgentItem = z.discriminatedUnion("type", [
     origin: MessageOrigin.optional(),
     notAnswered: z.literal("stopped").optional(),
     mergedContext: MergedForkContext.optional(),
-    /** A copy of the source thread's message, made when this thread was forked from it. */
-    inherited: InheritedItem.optional(),
     raw: z.array(RawPayload).default([]),
   }),
   ItemBase.extend({

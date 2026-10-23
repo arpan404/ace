@@ -10,7 +10,7 @@ import { blockItems, type Block } from "./transcript-blocks.ts";
 
 /** When a message was said: a fork's copy keeps its time in the source, not the copy's. */
 export function saidAt(item: Item): number {
-  return (item.type === "message" ? item.inherited?.at : undefined) ?? item.createdAt;
+  return item.inherited?.at ?? item.createdAt;
 }
 
 export interface ForkFacts {
@@ -23,7 +23,7 @@ export interface ForkFacts {
   item(id: string): Item | undefined;
 }
 
-const inherited = (item: Item | undefined) => item?.type === "message" && !!item.inherited;
+const inherited = (item: Item | undefined) => !!item?.inherited;
 
 /**
  * Where the fork's own work starts in `order`: the first message ace delivered that is not the
@@ -51,8 +51,19 @@ export function withForkMarker(blocks: readonly Block[], facts: ForkFacts): read
   const start = ownStart(facts);
   if (!start.shown) return blocks;
   const marker: Block = { kind: "forked", key: "forked", threadId: facts.sourceThreadId };
-  if (start.at < 0) return [...blocks, marker];
-  const own = new Set(facts.order.slice(start.at));
-  const at = blocks.findIndex((block) => blockItems(block).some((id) => own.has(id)));
+  const at = start.at < 0 ? -1 : blockFrom(blocks, facts.order, start.at);
   return at < 0 ? [...blocks, marker] : [...blocks.slice(0, at), marker, ...blocks.slice(at)];
+}
+
+/**
+ * The block showing `order[from]`, or, when that item has no block of its own (a message still
+ * waiting in the queue), the one showing the next item that has.
+ */
+function blockFrom(blocks: readonly Block[], order: readonly string[], from: number): number {
+  for (let index = from; index < order.length; index++) {
+    const id = order[index];
+    const at = blocks.findIndex((block) => id !== undefined && blockItems(block).includes(id));
+    if (at >= 0) return at;
+  }
+  return -1;
 }

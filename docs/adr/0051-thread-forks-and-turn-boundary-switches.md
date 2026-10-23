@@ -218,15 +218,16 @@ Decisions:
   The copy runs once, in the fork's transaction, so the fork is complete after a restart and pages
   like any thread. It is bounded: one query on the item index for the agent's messages, the
   newest 200 of them, each read as it stood at the boundary with at most 64 KiB of text. A cut text
-  ends by saying the rest is in the source, and when older messages stayed behind, one notice
+  never ends on half a character and says the rest is in the source, and when older messages stayed behind, one notice
   before the copies says so. Copies are not indexed for search: a message is found once, in the
   source. `apps/daemon/bench/fork-history.ts` (gated in `check:perf`) measures a fork of a
   5,000-item thread at about 130 ms.
 - **Providers that bring their turns.** An adapter whose native fork translates the source's
   turns into the new thread declares `forkTranscript` (Codex). Its native forks copy nothing.
-  The messages it translates while the fork's session opens are marked `inherited` (without an
-  `itemId`). A fork that leaves that path before it opens, by switching provider or account,
-  gets ace's copies then.
+  Everything it translates while the fork's session opens (messages, steps, reasoning) is marked
+  `inherited` (without an `itemId`); `inherited` is on every item type. A fork that leaves that
+  path before it opens, by switching provider or account, gets ace's copies then, in the
+  switch's own commit and before the handoff the next agent receives, which is built from them.
 - **Transcript marker.** Clients draw one centred divider, "Forked from <source title>", the
   title a link, before the fork's first message ace delivered (or after the history while there
   is none): `@ace/ui-core` `withForkMarker`. It shows as soon as the loaded page holds some

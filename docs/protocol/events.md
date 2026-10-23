@@ -470,10 +470,10 @@ Example:
     "type": "html",
     "visualization": {
       "document": {
-        "bytes": 7,
+        "bytes": 6,
         "mimeType": "example",
         "name": "example",
-        "sha256": "c9b251f3206b8557e7a46e3e59c71f04d21f0fcedabb91028ceaf2833f8416ba"
+        "sha256": "9b251f3206b8557e7a46e3e59c71f04d21f0fcedabb91028ceaf2833f8416ba6"
       },
       "title": "example"
     }
@@ -516,14 +516,20 @@ Example:
 ```json
 {
   "item": {
-    "artifactId": "example",
-    "bytes": 7,
-    "complete": true,
-    "createdAt": 7,
+    "bytes": 3,
+    "complete": false,
+    "createdAt": 4,
+    "executionSource": {
+      "nativeSessionId": "example",
+      "selection": {
+        "options": {},
+        "provider": "acp"
+      }
+    },
     "id": "example",
     "mimeType": "example",
     "path": "example",
-    "source": "browser",
+    "source": "device",
     "type": "artifact"
   },
   "type": "item.updated"
@@ -559,23 +565,32 @@ Example:
 {
   "interaction": {
     "agentId": "example",
-    "autoReviewed": true,
-    "blocking": true,
-    "createdAt": 7,
-    "expirationReason": "provider_disconnected",
+    "blocking": false,
+    "createdAt": 9,
     "id": "example",
-    "raw": [],
     "request": {
-      "kind": "plan_review",
-      "markdown": "example",
-      "planPath": "example"
+      "description": "example",
+      "kind": "approval",
+      "mcpServer": {
+        "name": "example",
+        "source": "example"
+      },
+      "options": [],
+      "permissionUpdates": [],
+      "target": {
+        "access": "write",
+        "command": "example",
+        "description": "example",
+        "origin": "ace",
+        "riskClass": "read-only",
+        "tool": "example"
+      },
+      "title": "example"
     },
     "resolution": {
-      "kind": "approval",
-      "message": "example",
-      "optionId": "example"
+      "action": "decline",
+      "kind": "elicitation"
     },
-    "resolvedBy": "example",
     "state": "cancelled",
     "threadId": "example"
   },
@@ -600,11 +615,9 @@ Example:
 
 ```json
 {
-  "autoReviewed": true,
-  "closedAt": 6,
-  "expirationReason": "provider_disconnected",
+  "closedAt": 0,
   "interactionId": "example",
-  "state": "cancelled",
+  "state": "resolved",
   "type": "interaction.closed"
 }
 ```
@@ -622,13 +635,16 @@ Example:
 {
   "task": {
     "agentId": "example",
-    "endedAt": 6,
+    "ambient": true,
     "id": "example",
-    "kind": "shell",
-    "startedAt": 3,
-    "status": "stopped",
+    "kind": "subagent",
+    "outputPath": "example",
+    "owner": "ace",
+    "startedAt": 5,
+    "status": "unknown",
     "stoppable": false,
-    "title": "example"
+    "title": "example",
+    "toolCallId": "example"
   },
   "type": "background_task.started"
 }
@@ -647,6 +663,7 @@ Example:
 
 ```json
 {
+  "endedAt": 1,
   "status": "unknown",
   "taskId": "example",
   "type": "background_task.updated"
@@ -669,15 +686,11 @@ Example:
 
 ```json
 {
-  "lastFailure": {
-    "code": "example",
-    "title": "example"
-  },
   "paused": false,
-  "pendingCount": 3,
-  "reason": "limit",
-  "resumeAt": 7,
-  "revision": 6,
+  "pendingCount": 7,
+  "reason": null,
+  "resumeAt": 5,
+  "revision": 3,
   "type": "queue.updated"
 }
 ```
@@ -696,18 +709,18 @@ Example:
   "card": {
     "blocker": null,
     "criteria": [],
-    "criteriaCount": 6,
+    "criteriaCount": 8,
     "endpoint": "example",
-    "id": "HHQ-ckwY",
+    "id": "l6jfk1xD",
     "next": "example",
     "outcome": "example",
-    "outcomeTruncated": true,
+    "outcomeTruncated": false,
     "pending": [],
     "pendingCount": 7,
-    "phase": "review",
+    "phase": "implement",
     "revision": "example",
     "steps": [],
-    "updatedAt": 1,
+    "updatedAt": 8,
     "version": 6
   },
   "type": "offshift.updated"
@@ -727,10 +740,10 @@ Example:
 {
   "meter": {
     "agentId": "example",
-    "epoch": 0,
-    "source": "catalog",
-    "usedTokens": 8,
-    "windowTokens": 5
+    "epoch": 4,
+    "source": "provider",
+    "usedTokens": null,
+    "windowTokens": 2
   },
   "type": "context_meter.updated"
 }
@@ -752,8 +765,9 @@ Example:
 ```json
 {
   "agentId": "example",
+  "sessionId": "example",
   "type": "context.sampled",
-  "usedTokens": 7
+  "usedTokens": 9
 }
 ```
 
@@ -786,16 +800,16 @@ Example:
 
 ```json
 {
-  "accountId": "example",
   "agentId": "example",
   "cacheWrite1hTokens": 1,
-  "cachedInputTokens": 1,
-  "contextSessionId": "example",
-  "contextWindow": 10,
+  "cacheWriteTokens": 7,
+  "contextWindow": 4,
+  "costUsd": 6,
   "counterKey": "example",
-  "inputTokens": 0,
-  "outputTokens": 7,
-  "type": "usage.updated"
+  "inputTokens": 5,
+  "outputTokens": 1,
+  "type": "usage.updated",
+  "usageScope": "agent"
 }
 ```
 

@@ -173,13 +173,14 @@ export class ThreadTransitions {
     let nativeSessionId = metadata.nativeSessionId;
     let migratedFork: z.infer<typeof NativeFork> | undefined;
     let plan: CrossProviderPlan | undefined;
-    // A native fork whose provider would bring the source's turns along, leaving before it
-    // opened: copy them now, so its transcript and the next provider's handoff both hold them.
+    // A native fork whose provider would bring the source's turns along, leaving that path before
+    // it opened: its copies are written in the switch's commit, before the handoff built from
+    // them, so its transcript and the next agent both hold the history.
     const lateHistory =
       !!previous.fork &&
       !!this.registry.get(current.provider, backend).capabilities.forkTranscript &&
       (crossProvider || crossAccount);
-    if (lateHistory && crossProvider) actor.apply(lateForkHistoryFacts(this.repo, actor.id));
+    let late = lateHistory && crossProvider;
     if (crossProvider)
       plan = planCrossProvider(this.repo, actor.id, {
         from: current,
@@ -203,9 +204,10 @@ export class ThreadTransitions {
       if (continuation.kind === "copied") {
         nativeSessionId = continuation.nativeSessionId;
         migratedFork = continuation.fork;
-      } else if (continuation.kind === "handoff") {
-        plan = continuation.plan;
-        if (lateHistory) actor.apply(lateForkHistoryFacts(this.repo, actor.id));
+      } else {
+        if (continuation.kind === "handoff") plan = continuation.plan;
+        // A waiting native fork has no session of its own to copy: it rebinds, or hands off.
+        late = lateHistory;
       }
     } else if (!crossProvider && actor.session?.configure) {
       try {
@@ -224,12 +226,22 @@ export class ThreadTransitions {
     } else {
       await this.sessions.close(actor, "idle");
     }
-    const portable = plan?.handoff;
-    const resumed = plan?.resume;
-    // The session does not continue in place: a waiting handoff is replaced, not kept.
-    const fresh = plan !== undefined;
     try {
       this.repo.store.atomic((db) => {
+        if (late) {
+          actor.apply(lateForkHistoryFacts(this.repo, actor.id));
+          plan = planCrossProvider(this.repo, actor.id, {
+            from: current,
+            to: selection,
+            resumable: capabilities.resume,
+            backend: crossProvider ? entry.adapter.backend : backend,
+            budget: switchHandoffBytes,
+          });
+        }
+        const portable = plan?.handoff;
+        const resumed = plan?.resume;
+        // The session does not continue in place: a waiting handoff is replaced, not kept.
+        const fresh = plan !== undefined;
         if (missingModel)
           this.repo.queue.set(actor.id, { reason: "model_unavailable" }, this.now());
         if (crossProvider) this.repo.resetAdmission(actor.id);

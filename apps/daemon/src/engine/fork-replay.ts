@@ -14,12 +14,13 @@ export function forkReplaySource(repo: EngineRepository, id: ThreadId): ThreadId
 }
 
 /**
- * A message the opening fork's provider translated from the source, marked as the source's like
- * ace's own copies. Only new items: a reconciled one keeps what it was.
+ * An item the opening fork's provider translated from the source (a message, a step, its
+ * reasoning), marked as the source's like ace's own copies. Only new items: one that already
+ * exists keeps what it was.
  */
 export function inheritedReplay(fact: Fact, source: ThreadId, state: ThreadState): Fact {
   if (fact.type !== "item.upsert" && fact.type !== "item.reconciled") return fact;
-  if (fact.draft.type !== "message" || fact.draft.inherited) return fact;
+  if (fact.draft.inherited) return fact;
   if (Object.hasOwn(state.items, fact.item)) return fact;
   return { ...fact, draft: { ...fact.draft, inherited: { threadId: source } } };
 }

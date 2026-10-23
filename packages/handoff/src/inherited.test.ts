@@ -122,3 +122,15 @@ test("when older messages stayed in the source, one note says so before the copi
     "user",
   ]);
 });
+
+test("a text cut inside a character drops the half it kept", () => {
+  const emoji = "\u{1F600}";
+  const cut = message("long", "assistant", [
+    {
+      type: "text",
+      text: `ok ${emoji}`.slice(0, -1),
+      source: { streamId: "s", bytes: 200, encoding: "utf-16le" },
+    },
+  ]);
+  expect(words(copy([cut]))).toEqual([["assistant", `ok ${trimmedText}`]]);
+});

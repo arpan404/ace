@@ -151,6 +151,35 @@ test("a native fork that leaves for another provider before it opens still shows
   ).toEqual(["source history", expect.stringContaining("answer: source history")]);
 });
 
+test("a native fork that moves to another account before it opens shows and hands over its history", async () => {
+  const h = setup({
+    native: true,
+    forkTranscript: true,
+    beforeFork: async () => {
+      throw new Error("Native fork unavailable");
+    },
+  });
+  const source = await h.create();
+  const fork = await h.fork(source);
+  expect(messages(h, fork).filter((message) => message.inherited)).toEqual([]);
+  const result = h.command({
+    type: "thread.switch",
+    threadId: fork,
+    selection: { provider: "codex", model: "model-a", instanceId: "account-b" },
+  });
+  expect(result.ok).toBe(true);
+  await h.engine.flush();
+  expect(
+    messages(h, fork)
+      .filter((message) => message.inherited)
+      .map((m) => m.text),
+  ).toEqual(["source history", expect.stringContaining("answer: source history")]);
+  // The next message reaches the new account with the conversation it continues.
+  await send(h, fork, "carry on");
+  const delivered = h.inputs.findLast((input) => input.text.includes("carry on"));
+  expect(delivered?.text).toContain("user: source history");
+});
+
 test("turns a provider's native fork brings along read as the source's history", async () => {
   const h = setup({
     native: true,
@@ -167,12 +196,32 @@ test("turns a provider's native fork brings along read as the source's history",
           parts: [{ type: "text", text: "old ask" }],
         },
       },
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: "replayed-step",
+        draft: {
+          type: "tool_call",
+          complete: true,
+          call: {
+            kind: "shell",
+            title: "ls",
+            status: "succeeded",
+            detail: { kind: "shell", command: "ls" },
+          },
+        },
+      },
     ],
   });
   const source = await h.create();
   const fork = await h.fork(source);
   const replayed = messages(h, fork).find((message) => message.text === "old ask");
   expect(replayed?.inherited).toEqual({ threadId: source });
+  // Its steps too: everything it brought along is the source's.
+  const step = h.store
+    .readItemPage(fork, Number.MAX_SAFE_INTEGER, 200)
+    .items.find((item) => item.type === "tool_call");
+  expect(step?.inherited).toEqual({ threadId: source });
   // The fork's own answer, after it opened, is its own.
   expect(messages(h, fork).at(-1)?.inherited).toBeUndefined();
 });

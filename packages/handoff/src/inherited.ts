@@ -43,7 +43,12 @@ function copiedParts(item: Extract<Item, { type: "message" }>): ContentPart[] {
     if (part.type !== "text") continue;
     // A message sent right after a handoff still carries ace's block in front of the words.
     let text = index === 0 ? (withoutHandoffEnvelope(part.text) ?? part.text) : part.text;
-    if (part.source && part.source.bytes > part.text.length * 2) text += trimmedText;
+    if (part.source && part.source.bytes > part.text.length * 2) {
+      // A cut between the halves of a surrogate pair would leave half a character.
+      const last = text.charCodeAt(text.length - 1);
+      if (last >= 0xd800 && last <= 0xdbff) text = text.slice(0, -1);
+      text += trimmedText;
+    }
     if (text.trim()) parts.push({ type: "text", text });
   }
   return parts;
