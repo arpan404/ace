@@ -2,7 +2,7 @@ import type { ClientCore } from "@ace/client";
 import { z } from "zod";
 import type { PatchSink, Preview } from "./agents.ts";
 import { ComposeSearch } from "./compose-search.ts";
-import { ChoiceAction, CreateAction, NewThread } from "./new-thread.ts";
+import { ChoiceAction, CreateAction, NewThread, type NewThreadMemory } from "./new-thread.ts";
 import { AttachmentTray, Picked, nativeChunks, type ChunkReader } from "./thread-attachments.ts";
 
 /*
@@ -50,16 +50,24 @@ export class ComposeActions {
     preview: Preview,
     now: () => number,
     chunks: ChunkReader = nativeChunks,
+    memory?: NewThreadMemory,
   ) {
     this.#owner = owner;
     this.#sink = sink;
     this.#chunks = chunks;
     this.search = new ComposeSearch(owner, sink, preview);
-    this.newThread = new NewThread(owner, sink, preview, now, {
-      tray: (workspaceId) =>
-        this.#tray?.workspaceId === workspaceId ? this.#tray.tray : undefined,
-      adopt: (draftId) => this.search.adopt(draftId),
-    });
+    this.newThread = new NewThread(
+      owner,
+      sink,
+      preview,
+      now,
+      {
+        tray: (workspaceId) =>
+          this.#tray?.workspaceId === workspaceId ? this.#tray.tray : undefined,
+        adopt: (draftId) => this.search.adopt(draftId),
+      },
+      memory,
+    );
   }
   compose(raw: unknown): boolean {
     const parsed = ComposeAction.safeParse(raw);

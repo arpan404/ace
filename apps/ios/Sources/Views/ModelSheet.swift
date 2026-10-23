@@ -16,6 +16,7 @@ struct ModelSheet<Content: View>: View {
         NavigationStack {
             List { content() }
                 .insetGroupedList()
+                .searchBarEdge()
                 .searchable(text: $query, prompt: "Find a model")
                 .navigationTitle("Model").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -27,6 +28,7 @@ struct ModelSheet<Content: View>: View {
                 }
         }
         .tint(AceTheme.Colours.foreground)
+        .toggleStyle(.systemSwitch)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
     }
     @ViewBuilder private var confirmButton: some View {
@@ -59,16 +61,19 @@ struct ModelChoiceRow: View {
     let chosen: Bool
     var busy = false
     let choose: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         Button(action: choose) {
             HStack(spacing: AceTheme.Spacing.md + AceTheme.Spacing.xxs) {
                 ProviderMark(provider: provider, size: 20).foregroundStyle(AceTheme.Colours.foreground)
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                    // One line per model keeps the list even; accessibility sizes wrap instead.
                     Text(label).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                        .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                     if let detail, !detail.isEmpty {
                         Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2)
+                            .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                     }
                 }
                 Spacer(minLength: AceTheme.Spacing.sm)

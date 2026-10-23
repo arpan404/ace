@@ -102,11 +102,11 @@ struct RemoteScreenView: View {
 
     private var menu: some View {
         Menu {
-            Button("Refresh", systemImage: "arrow.clockwise") { Task { await screen.refresh(model) } }
+            Button("Refresh", ace: .arrowClockwise) { Task { await screen.refresh(model) } }
             if model.canOperate, screen.status?.enabled == true {
-                Button("Turn off computer use…", systemImage: "nosign", role: .destructive) { turningOff = true }
+                Button("Turn off computer use…", ace: .prohibit, role: .destructive) { turningOff = true }
             }
-        } label: { Label("Computer use options", systemImage: "ellipsis") }
+        } label: { Label("Computer use options", ace: .dotsThree) }
     }
 }
 
@@ -115,7 +115,7 @@ private struct SessionRow: View {
     let session: ScreenSessionInfo
     var body: some View {
         HStack(spacing: AceTheme.Spacing.md) {
-            Image(systemName: "macwindow").font(.system(size: 21))
+            AceIcon(.appWindow, size: 21)
                 .foregroundStyle(AceTheme.Colours.foreground).frame(width: 28).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(session.app).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
@@ -125,7 +125,7 @@ private struct SessionRow: View {
                     .foregroundStyle(session.error.isEmpty ? AceTheme.Colours.mutedForeground : AceTheme.StatusText.failed).lineLimit(1)
             }
             Spacer(minLength: AceTheme.Spacing.sm)
-            Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
+            AceIcon(.caretRight, size: 14, relativeTo: .footnote)
                 .foregroundStyle(AceTheme.Colours.decoration).accessibilityHidden(true)
         }
         .frame(minHeight: 60)
@@ -153,7 +153,7 @@ private struct ScreenTargetPicker: View {
                 Section {
                     ForEach(screen.windows.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.bundleId.localizedCaseInsensitiveContains(query) }) { window in
                         Button { share(window.target) } label: {
-                            InsetRow(systemImage: "macwindow", title: window.title.isEmpty ? window.bundleId : window.title, subtitle: window.bundleId) { EmptyView() }
+                            InsetRow(icon: .appWindow, title: window.title.isEmpty ? window.bundleId : window.title, subtitle: window.bundleId) { EmptyView() }
                         }
                         .buttonStyle(.plain).insetRowBackground()
                     }
@@ -165,9 +165,9 @@ private struct ScreenTargetPicker: View {
             .searchable(text: $query, prompt: "Search app windows")
             .navigationTitle("Share an app window").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Close", systemImage: "xmark") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Close", ace: .x) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Share", systemImage: "checkmark") { share(.init(kind: "app", bundleId: bundleId, windowId: nil, displayId: nil, bundleIds: nil)) }
+                    Button("Share", ace: .check) { share(.init(kind: "app", bundleId: bundleId, windowId: nil, displayId: nil, bundleIds: nil)) }
                         .disabled(bundleId.isEmpty)
                 }
             }

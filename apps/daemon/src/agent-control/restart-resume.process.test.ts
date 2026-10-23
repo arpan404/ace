@@ -5,18 +5,22 @@ import { AgentControlOperation, Command, ThreadId, type McpAttribution } from "@
 import { createAgentControlPort } from "@ace/daemon";
 import { WorkspaceRuntime } from "../workspace-runtime.ts";
 import { organizeThread } from "../thread-organization.ts";
-import { start } from "../engine/test-support.ts";
+import { question, start } from "../engine/test-support.ts";
 import { createConversationStarts } from "./conversations.ts";
 import { setup } from "./test-support.ts";
 
 /*
  * After a daemon restart, the person carrying a parent on carries on the work the restart
  * interrupted under it, and only that: finished, stopped and settled work stays as it was.
+ * Work a restart cuts short mid-turn continues by itself (ADR 0098); these threads wait on the
+ * person when ace stops, so the restart holds them for the person.
  */
 
 type Harness = ReturnType<typeof setup>;
 const signal = () => new AbortController().signal;
-const continued = ["Continue where you left off."];
+/** The one restart continuation a held thread receives when it is carried on. */
+const continued = (inputs: string[] | undefined) =>
+  (inputs ?? []).map((text) => text.startsWith("ace restarted while you were working"));
 
 /** Crashes `h` mid-work and reopens its database as a fresh daemon. */
 async function crash(h: Harness, name: string) {
@@ -34,11 +38,16 @@ async function crash(h: Harness, name: string) {
   return recovered;
 }
 
-/** A parent mid-turn, as when it waits on its children. */
+/** A parent mid-turn that asks the person something, so a restart holds it for them. */
 async function busyParent(h: Harness) {
   const parent = await h.parent();
-  await h.emit(parent.threadId, start);
+  await h.emit(parent.threadId, start, question);
   return parent;
+}
+
+/** The thread's agent asks the person something, so a restart holds it rather than continuing. */
+async function asksPerson(h: Harness, thread: ThreadId) {
+  await h.emit(thread, question);
 }
 
 /** The person's Resume of a held thread. */
@@ -96,6 +105,7 @@ test("resuming a parent after a daemon crash resumes the delegated children the 
   const parent = await busyParent(h);
   const edge = h.delegate(parent, "held-child");
   await h.engine.flush();
+  await asksPerson(h, edge.childId);
   const recovered = await crash(h, "held-child");
   expect(recovered.engine.queue(parent.threadId)).toMatchObject({
     paused: true,
@@ -104,7 +114,7 @@ test("resuming a parent after a daemon crash resumes the delegated children the 
   expect(recovered.engine.queue(edge.childId)).toMatchObject({ paused: true, reason: "restart" });
   expect(resume(recovered, parent.threadId).ok).toBe(true);
   await recovered.engine.flush();
-  expect(recovered.inputs.get(edge.childId)).toEqual(continued);
+  expect(continued(recovered.inputs.get(edge.childId))).toEqual([true]);
   expect(recovered.engine.queue(edge.childId).paused).toBe(false);
   await recovered.complete(edge.childId, "finished after restart");
   const outcome = await recovered.service.wait(parent, edge.childId, signal());
@@ -115,11 +125,12 @@ test("resuming a parent after a daemon crash resumes the threads its agent start
   const h = setup();
   const parent = await busyParent(h);
   const thread = await startThread(h, parent, "started-thread");
+  await asksPerson(h, thread);
   const recovered = await crash(h, "started-thread");
   expect(recovered.engine.queue(thread)).toMatchObject({ paused: true, reason: "restart" });
   expect(resume(recovered, parent.threadId).ok).toBe(true);
   await recovered.engine.flush();
-  expect(recovered.inputs.get(thread)).toEqual(continued);
+  expect(continued(recovered.inputs.get(thread))).toEqual([true]);
 });
 
 test("resuming a parent after a daemon crash never restarts a child that had finished", async () => {
@@ -156,12 +167,14 @@ test("resuming a parent after a daemon crash never restarts a held child the per
   const kept = h.delegate(parent, "kept-child");
   const stopped = h.delegate(parent, "stopped-after");
   await h.engine.flush();
+  await asksPerson(h, kept.childId);
+  await asksPerson(h, stopped.childId);
   const recovered = await crash(h, "stopped-after");
   expect(stop(recovered, stopped.childId).ok).toBe(true);
   await recovered.engine.flush();
   expect(resume(recovered, parent.threadId).ok).toBe(true);
   await recovered.engine.flush();
-  expect(recovered.inputs.get(kept.childId)).toEqual(continued);
+  expect(continued(recovered.inputs.get(kept.childId))).toEqual([true]);
   expect(recovered.inputs.get(stopped.childId)).toBeUndefined();
   expect(recovered.store.getThread(stopped.childId)?.status.state).not.toBe("working");
 });
@@ -170,6 +183,7 @@ test("resuming a parent after a daemon crash never restarts a started thread the
   const h = setup();
   const parent = await busyParent(h);
   const thread = await startThread(h, parent, "settled-thread");
+  await asksPerson(h, thread);
   const recovered = await crash(h, "settled-thread");
   const settled = organizeThread(
     recovered.store,
@@ -192,6 +206,7 @@ test("a parent's wait on a child still held after a restart returns at once and 
   const parent = await busyParent(h);
   const edge = h.delegate(parent, "waited-child");
   await h.engine.flush();
+  await asksPerson(h, edge.childId);
   const recovered = await crash(h, "waited-child");
   const waiting = recovered.service.monitor.wait(
     parent,

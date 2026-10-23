@@ -1,5 +1,5 @@
 import type { ForgeLatestReview, ForgePrReviewers } from "@ace/protocol";
-import type { ReviewOutcome } from "./pr-summary-model.ts";
+import type { ReviewOutcome } from "@ace/ui-core";
 
 /** One reviewer as the Reviewers list shows them: a person or a team, and what they can be asked. */
 export interface ReviewerRow {

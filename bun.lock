@@ -165,6 +165,7 @@
         "@ace/client": "workspace:*",
         "@ace/design-tokens": "workspace:*",
         "@ace/html": "workspace:*",
+        "@ace/native-host": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/ui-core": "workspace:*",
@@ -174,6 +175,7 @@
         "@ace/browser": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
+        "@phosphor-icons/react": "^2.1.10",
         "@types/bun": "^1.3.10",
       },
     },
@@ -719,6 +721,12 @@
         "@ace/settings": "workspace:*",
       },
     },
+    "packages/native-host": {
+      "name": "@ace/native-host",
+      "dependencies": {
+        "zod": "^4.3.6",
+      },
+    },
     "packages/native-session": {
       "name": "@ace/native-session",
       "dependencies": {
@@ -1116,6 +1124,8 @@
     "@ace/mcp-server": ["@ace/mcp-server@workspace:packages/mcp-server"],
 
     "@ace/models": ["@ace/models@workspace:packages/models"],
+
+    "@ace/native-host": ["@ace/native-host@workspace:packages/native-host"],
 
     "@ace/native-session": ["@ace/native-session@workspace:packages/native-session"],
 

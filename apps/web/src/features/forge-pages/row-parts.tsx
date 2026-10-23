@@ -8,25 +8,16 @@ import {
 import type { IconGlyph } from "@/components/icon.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { formatAge } from "@ace/ui-core";
+import { formatAge, type LinkedThread } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
 import { PersonAvatar as PrAvatar } from "@/components/person-avatar.tsx";
-import type { LinkedThread } from "./linked-threads.ts";
 
 /** A two-line list row: the whole row opens the item's page. */
 export const rowClass = cn(
   "flex w-full min-w-0 gap-3 px-(--forge-gutter) py-2.5 text-left transition-colors duration-(--motion-fast)",
   "hover:bg-hover focus-ring-inset",
 );
-
-/** "feature/very-long-bran…name": a long name keeps its start and its end. */
-export function middleTruncate(text: string, max: number): string {
-  if (text.length <= max) return text;
-  const keep = max - 1;
-  const head = Math.ceil(keep / 2);
-  return `${text.slice(0, head)}…${text.slice(text.length - (keep - head))}`;
-}
 
 export function Age(props: { at: string | undefined }) {
   const now = useNow();

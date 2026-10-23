@@ -196,6 +196,16 @@ const taskStates: Record<BackgroundTask["status"], string> = {
 };
 export const taskState = (task: BackgroundTask) => taskStates[task.status];
 
+const taskLines: Record<BackgroundTask["status"], string> = {
+  completed: "Finished",
+  failed: "Failed",
+  stopped: "Stopped",
+  unknown: "Stopped",
+  running: "Running in background",
+};
+/** A background command's line in the transcript, before its command: "Running in background". */
+export const backgroundTaskLine = (status: BackgroundTask["status"]) => taskLines[status];
+
 /** A background shell's command comes from its tool call; the task title is a fallback. */
 export function backgroundCommand(
   task: Pick<BackgroundTask, "title">,

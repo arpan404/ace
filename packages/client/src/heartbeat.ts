@@ -18,13 +18,36 @@ export class Heartbeat {
   #intervalMs: number;
   #cancel: (() => void) | undefined;
   #awaiting = false;
+  #events: HeartbeatEvents | undefined;
   constructor(scheduler: Scheduler, intervalMs: number) {
     this.#scheduler = scheduler;
     this.#intervalMs = intervalMs;
   }
   start(events: HeartbeatEvents): void {
     this.stop();
+    this.#events = events;
     this.#beat(events);
+  }
+  /**
+   * Check now instead of at the next beat: ping at once and give the daemon `withinMs` to send
+   * anything. Silence ends the beat as a miss; an answer resumes the regular beat. A no-op
+   * unless a beat is running.
+   */
+  probe(withinMs: number): void {
+    const events = this.#events;
+    if (!events) return;
+    this.#cancel?.();
+    this.#cancel = undefined;
+    this.#awaiting = true;
+    if (!events.ping()) return;
+    this.#cancel = this.#scheduler.set(withinMs, () => {
+      this.#cancel = undefined;
+      if (this.#awaiting) {
+        events.missed();
+        return;
+      }
+      this.#beat(events);
+    });
   }
   /** A frame from the daemon arrived, the pong or any other. */
   heard(): void {
@@ -34,6 +57,7 @@ export class Heartbeat {
     this.#cancel?.();
     this.#cancel = undefined;
     this.#awaiting = false;
+    this.#events = undefined;
   }
   #beat(events: HeartbeatEvents): void {
     this.#cancel = this.#scheduler.set(this.#intervalMs, () => {

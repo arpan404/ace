@@ -100,11 +100,16 @@ test("a subagent group reads working while its child still runs after the parent
     () => rows("thread.block").find((row) => row.kind === "subagents"),
     "a subagent group",
   );
-  const agents = group.agents as { entries: { state: string; agentId: string }[]; status: string };
+  const agents = group.agents as {
+    entries: { state: string; agentId: string }[];
+    status: string;
+    counts: { text: string; token: string }[];
+  };
   expect(agents.entries).toHaveLength(1);
   expect(agents.entries[0]?.state).toBe("working");
   expect(agents.entries[0]?.agentId).not.toBe("");
   expect(agents.status).toBe("1 working");
+  expect(agents.counts).toEqual([{ text: "1 working", token: "working" }]);
 });
 
 /** The first agent of the transcript's subagent group, as Swift holds it. */
@@ -210,6 +215,32 @@ test("while the agent works a send queues by default and steers when the person 
   );
   await until(() => commands("thread.send").length === 2, "both sends on the wire");
   expect(commands("thread.send").map((payload) => payload.delivery)).toEqual(["queue", "steer"]);
+});
+
+test("while the main agent only waits on its subagents a message goes in now", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "wait", workspaceId: "ace", title: "Wait", provider: "codex" });
+  fake.apply("wait", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Review it."),
+    facts.tool("root", "spawn", {
+      kind: "agent.spawn",
+      title: "Review PID reuse",
+      detail: { kind: "agent.spawn", description: "Review PID reuse", childAgent: "reviewer" },
+    }),
+    facts.subagent("codex", "reviewer", "Reviewer", "spawn"),
+    facts.turn("reviewer", "spawn"),
+    facts.endTurn("root"),
+  ]);
+  const thread = open(connect(fake), "wait");
+  await until(
+    () => (latest("thread.controls")?.row as { delivery?: string })?.delivery === "steer",
+    "a send that goes in now",
+  );
+  thread.handle({ type: "send", text: "Also check the docs", opposite: false, requestId: "now-1" });
+  await until(() => commands("thread.send").length === 1, "the send on the wire");
+  expect(commands("thread.send")[0]?.delivery).toBe("steer");
 });
 
 test("Stop interrupts the whole tree of the running turn", async () => {
@@ -521,3 +552,34 @@ test("a fork's transcript shows its copied history and its own ask with no empty
   expect(blocks.map((row) => row.kind)).toEqual(["user", "message"]);
   expect(blocks.map((row) => row.index)).toEqual([0, 1]);
 });
+
+test("a thread stays shown when the daemon's snapshot replaces the one kept from the last launch", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "long", workspaceId: "ace", title: "Long", provider: "codex" });
+  fake.apply("long", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Summarise the log."),
+    facts.endTurn("root"),
+  ]);
+  const kept = new Map<string, unknown>();
+  const storage = {
+    get: async (key: string) => kept.get(key),
+    set: async (key: string, value: unknown) => void kept.set(key, value),
+  };
+  // An earlier launch keeps the thread's snapshot.
+  open(connect(fake, { readSnapshots: storage }), "long");
+  await until(() => latest("thread.ready"), "the transcript shown");
+  await until(() => kept.size > 0, "a kept snapshot");
+  await reset();
+  // This launch paints the kept snapshot first; the daemon's snapshot then clears every queued
+  // thread patch, ready included. The transcript must show again rather than load forever.
+  let release = () => {};
+  const network = new Promise<void>((resolve) => (release = resolve));
+  open(connect(fake, { readSnapshots: storage, held: network }), "long");
+  await until(() => latest("thread.ready"), "the kept transcript shown");
+  native.frames.length = 0;
+  release();
+  await until(() => latest("thread.reset"), "the daemon's snapshot");
+  await until(() => latest("thread.ready"), "the transcript shown after the daemon's snapshot");
+}, 20_000);

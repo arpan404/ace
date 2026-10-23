@@ -63,6 +63,20 @@ test("a throttled request Claude retries is a wait that never limits the thread"
   h.result();
   expect(h.state.status.state).toBe("done");
 });
+test("a thread reads working again once Claude's retried request starts streaming", () => {
+  const h = harness();
+  h.init();
+  h.system("api_retry", { error: "connection lost", error_status: null, attempt: 1 });
+  expect(h.state.status).toEqual({ state: "waiting", on: "network" });
+  h.send({ type: "stream_event", event: { type: "message_start", message: { id: "m1" } } });
+  expect(h.state.status.state).toBe("working");
+  h.system("api_retry", { error: "overloaded", error_status: 529, attempt: 1 });
+  expect(h.state.status).toEqual({ state: "waiting", on: "upstream" });
+  h.send({ type: "stream_event", event: { type: "message_start", message: { id: "m2" } } });
+  expect(h.state.status.state).toBe("working");
+  h.result();
+  expect(h.state.status.state).toBe("done");
+});
 test("a child keeps producing canonical progress while an elicitation waits beyond a minute", () => {
   const h = harness();
   h.init();

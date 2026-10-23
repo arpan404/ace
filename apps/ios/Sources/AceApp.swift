@@ -7,6 +7,10 @@ import QuartzCore
     @State private var spikeInbox = MachineInbox(now: { Date().timeIntervalSince1970 * 1000 })
     @State private var started = false
     @State private var production = ProductionApp.make()
+    /// Unsent thread words, kept across navigation and relaunch (`ThreadDrafts`).
+    @State private var drafts = (try? ProductionApp.storageDirectory()).map { directory in
+        ThreadDrafts(url: SpikeConfiguration.enabled ? SpikeConfiguration.threadDrafts(in: directory) : directory.appendingPathComponent("thread-drafts.json"))
+    }
     var body: some Scene {
         WindowGroup {
             Group {
@@ -17,25 +21,28 @@ import QuartzCore
                         .environment(notificationDelegate.coordinator)
                         .onChange(of: scenePhase) { _, phase in notificationDelegate.coordinator.scene(active: phase == .active) }
                 } else { storageUnavailable }
-            }.modifier(PhoneAppearance())
+            }
+            .environment(\.threadDrafts, drafts)
+            .modifier(PhoneAppearance())
+            .overlay(alignment: .topLeading) { PerfProbeView() }
         }
     }
     @ViewBuilder private var renderFixture: some View {
-        #if DEBUG
+        #if ACE_FIXTURE
         ChatRenderFixture()
         #else
         EmptyView()
         #endif
     }
     private var storageUnavailable: some View {
-        ContentUnavailableView("Storage unavailable", systemImage: "externaldrive.badge.exclamationmark",
-                               description: Text("ace couldn't open its storage on this phone."))
+        EmptyState(icon: nil, title: "Storage unavailable", line: "ace couldn't open its storage on this phone.", failed: true)
+            .frame(maxHeight: .infinity)
     }
     /// Debug `--spike` only: the loopback fixture with a fixed fake device credential.
     private var spike: some View {
         Group {
             if started { InboxView(inbox: spikeInbox) }
-            else { ContentUnavailableView("Connecting to the spike daemon", systemImage: "point.3.connected.trianglepath.dotted") }
+            else { EmptyState(icon: .graph, title: "Connecting to the spike daemon").frame(maxHeight: .infinity) }
         }
         .environment(notificationDelegate.coordinator)
         .onChange(of: scenePhase) { _, phase in notificationDelegate.coordinator.scene(active: phase == .active) }
@@ -47,12 +54,20 @@ import QuartzCore
                 let model = ClientModel(now: { Date().timeIntervalSince1970 * 1000 })
                 spikeInbox.attach(spike.target.hostId, name: spike.name, client: model)
                 await notificationDelegate.coordinator.attach(model, target: spike.target)
-                await model.connect(target: spike.target, directory: directory, itemLimit: 2200)
-                #if DEBUG
+                await model.connect(target: spike.target, directory: directory, itemLimit: SpikeConfiguration.itemLimit)
+                #if ACE_FIXTURE
                 if index == 0 {
                     let metrics = SpikeMetrics(model: model, now: { CACurrentMediaTime() }, output: directory.appendingPathComponent("spike-metrics.json"))
                     model.metrics = metrics
                     metrics.start()
+                    // `--spike-open ID`: open one thread once its row is listed, for long
+                    // measured runs and Instruments sessions that tap nothing.
+                    if let id = SpikeConfiguration.openOnLaunch {
+                        Task {
+                            for _ in 0..<300 where model.inbox[id] == nil { try? await Task.sleep(for: .milliseconds(100)) }
+                            model.deepLink = id
+                        }
+                    }
                 }
                 #endif
             }
@@ -66,15 +81,19 @@ import QuartzCore
     let directory: URL
     let lock: AppLock
     private var machines: MachinesModel?
+    /// Each remembered machine's runtime evaluates the client bundle from the first moment.
+    private let warmup = RuntimeWarmup()
     private let network = NetworkMonitor()
 
     private init(directory: URL) {
         self.directory = directory
         let paired = FileManager.default.fileExists(atPath: Self.machineDirectory(in: directory).path)
         lock = AppLock(enabled: paired, now: { Date() }, defaults: .standard)
+        warmup.prepare(MachinesModel.rememberedCount(in: .standard))
     }
     static func make() -> ProductionApp? {
         guard !SpikeConfiguration.enabled, let directory = try? storageDirectory() else { return nil }
+        LaunchTrace.mark("app.init")
         return ProductionApp(directory: directory)
     }
     nonisolated static func storageDirectory() throws -> URL {
@@ -85,18 +104,19 @@ import QuartzCore
 
     /// Every paired machine, each runtime bound to notifications before it connects and released
     /// when the machine is removed. Background launches build their own.
-    static func machines(directory: URL, notifications: NotificationCoordinator,
+    static func machines(directory: URL, notifications: NotificationCoordinator, warmup: RuntimeWarmup? = nil,
                          now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 }) -> MachinesModel {
         let machines = MachinesModel(access: BridgeMachineAccess(directoryURL: machineDirectory(in: directory)),
                                      storage: directory.appendingPathComponent("machines", isDirectory: true), now: now,
-                                     makeClient: { ClientModel(now: now) })
+                                     makeClient: { warmup.map { ClientModel(now: now, makeRuntime: $0.makeRuntime) } ?? ClientModel(now: now) })
+        machines.afterLoad = { warmup?.releaseUnused() }
         machines.beforeConnect = { [weak notifications] model, target in await notifications?.attach(model, target: target) }
         machines.afterRemove = { [weak notifications] model, _ in notifications?.detach(model) }
         return machines
     }
 
     func root(notifications: NotificationCoordinator) -> some View {
-        let machines = self.machines ?? Self.machines(directory: directory, notifications: notifications)
+        let machines = self.machines ?? Self.machines(directory: directory, notifications: notifications, warmup: warmup)
         if self.machines == nil {
             self.machines = machines
             network.start { change in

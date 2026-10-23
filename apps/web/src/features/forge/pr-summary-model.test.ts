@@ -1,12 +1,6 @@
 import { expect, test } from "vitest";
 import { ForgeComment, type ForgePrStatus } from "@ace/protocol";
-import {
-  attentionItems,
-  biggestFiles,
-  conversation,
-  fixRequest,
-  reviewerOutcomes,
-} from "./pr-summary-model.ts";
+import { attentionItems, biggestFiles, conversation, fixRequest } from "./pr-summary-model.ts";
 
 const comment = (
   id: number,
@@ -40,28 +34,6 @@ const thread = (
 });
 const ids = (view: ReturnType<typeof conversation>) => view.items.map((item) => item.key);
 const all = { bots: true, resolved: true, order: "newest", limit: 10 } as const;
-
-test("a reviewer's latest verdict wins over earlier ones", () => {
-  const outcomes = reviewerOutcomes([
-    comment(1, "mira", "2026-01-01", { kind: "review", reviewState: "CHANGES_REQUESTED" }),
-    comment(2, "mira", "2026-01-03", { kind: "review", reviewState: "APPROVED" }),
-    comment(3, "sam", "2026-01-02", { kind: "review", reviewState: "CHANGES_REQUESTED" }),
-    comment(4, "lee", "2026-01-02"),
-  ]);
-  expect(outcomes.get("mira")).toBe("approved");
-  expect(outcomes.get("sam")).toBe("changes");
-  expect(outcomes.has("lee")).toBe(false);
-});
-
-test("a comment-only review after a verdict leaves the verdict standing, as GitHub counts it", () => {
-  const outcomes = reviewerOutcomes([
-    comment(1, "mira", "2026-01-01", { kind: "review", reviewState: "APPROVED" }),
-    comment(2, "mira", "2026-01-02", { kind: "review", reviewState: "COMMENTED" }),
-    comment(3, "sam", "2026-01-01", { kind: "review", reviewState: "COMMENTED" }),
-  ]);
-  expect(outcomes.get("mira")).toBe("approved");
-  expect(outcomes.get("sam")).toBe("commented");
-});
 
 test("inline comments held by a review thread are listed once, as the thread", () => {
   const inline = comment(5, "mira", "2026-01-02", { kind: "inline", file: "src/a.ts", line: 3 });

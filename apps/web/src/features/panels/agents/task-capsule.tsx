@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { Tone } from "@ace/ui-core";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
-import type { GlyphState } from "@/components/status-glyph-state.ts";
+import type { GlyphState } from "@ace/ui-core";
 import { plainRow } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";

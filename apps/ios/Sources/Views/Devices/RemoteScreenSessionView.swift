@@ -25,7 +25,7 @@ struct RemoteScreenSessionView: View {
                 DeviceSurface(next: { screen.live.nextPicture() }, interactive: controlling, label: "\(session?.app ?? "Mac app") window",
                               identifier: "screen.surface", screenSize: { windowSize = $0 }) { from, to in gesture(from.point, to.point) }
                     .aspectRatio(windowSize ?? CGSize(width: 4, height: 3), contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: AceTheme.Radii.card, style: .continuous))
+                    .clipShape(AceShape.block)
                     .padding(AceTheme.Spacing.lg)
             } else {
                 Text(session?.error.isEmpty == false ? session?.error ?? "" : session?.status ?? "The app isn't live.")
@@ -62,7 +62,7 @@ struct RemoteScreenSessionView: View {
                     Button("Send", action: type).disabled(text.isEmpty)
                 }
                 .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                .aceGlass(in: Capsule())
+                .aceGlass(in: AceShape.capsule)
                 .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.xs)
             }
             if let problem = screen.problem {
@@ -108,24 +108,24 @@ struct RemoteScreenSessionView: View {
                 Button("Return") { key("Return") }
                 Button("Escape") { key("Escape") }
                 Button("Tab") { key("Tab") }
-            } label: { Label("Keys", systemImage: "command") }
+            } label: { Label("Keys", ace: .command) }
             .disabled(!controlling)
             Spacer()
-            Button("Type", systemImage: "keyboard") { typing.toggle() }.disabled(!controlling)
+            Button("Type", ace: .keyboard) { typing.toggle() }.disabled(!controlling)
             Menu {
                 Toggle("Drag instead of scroll", isOn: $drag).disabled(!controlling)
                 if model.canOperate, let state {
-                    Button(state.mode == "foreground" ? "Back to background" : "Bring to front", systemImage: "macwindow.on.rectangle") {
+                    Button(state.mode == "foreground" ? "Back to background" : "Bring to front", ace: .browsers) {
                         operate(["op": "mode", "mode": state.mode == "foreground" ? "background" : "foreground"])
                     }
                     Toggle("Allow typing in secure fields", isOn: Binding(get: { state.secureInputAllowed == true }, set: { operate(["op": "secure.input", "allowed": $0]) }))
-                    Button("Start recording", systemImage: "record.circle") { operate(["op": "record.start"]) }
-                    Button("Stop recording", systemImage: "stop.circle") { operate(["op": "record.stop"]) }
+                    Button("Start recording", ace: .record) { operate(["op": "record.start"]) }
+                    Button("Stop recording", ace: .stopCircle) { operate(["op": "record.stop"]) }
                     if session?.stoppable == true {
-                        Button("Stop sharing…", systemImage: "stop", role: .destructive) { stopping = true }
+                        Button("Stop sharing…", ace: .stop, role: .destructive) { stopping = true }
                     }
                 }
-            } label: { Label("App options", systemImage: "ellipsis") }
+            } label: { Label("App options", ace: .dotsThree) }
             .disabled(screen.busy || model.connection != "ready")
         }
     }

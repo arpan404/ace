@@ -19,3 +19,4 @@ export { checkoutOf } from "./checkout.ts";
 /** The archive browser: archived threads, most recently archived first (as the web lists them). */
 export { archivedOrder } from "./arrange.ts";
 export { mergeMethods, parseReviewers } from "./pull-request.ts";
+export * from "./live-pill.ts";

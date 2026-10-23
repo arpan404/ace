@@ -1,16 +1,12 @@
 import { afterEach, expect, test } from "vitest";
-import {
-  fixture,
-  cleanupRecovery,
-  replaceProvider,
-  crashCopy,
-  dispatch,
-} from "./recovery-test-support.ts";
+import { fixture, cleanupRecovery, replaceProvider, crashCopy } from "./recovery-test-support.ts";
 import { scriptFrames, start, end } from "./test-support.ts";
+import { restartContinuation } from "./restart-resume.ts";
 afterEach(cleanupRecovery);
 
-test("resuming after a restart sends one ace-originated Continue where you left off.", async () => {
+test("continuing after a restart sends one ace-originated restart continuation, its echo folded in", async () => {
   const frames = scriptFrames();
+  const continuation = restartContinuation([]);
   const h = await fixture([{ on: "send", frames: [frames.frame(start)] }], frames);
   const id = await h.create();
   const replacement = replaceProvider(h, frames, [
@@ -26,7 +22,7 @@ test("resuming after a restart sends one ace-originated Continue where you left 
             draft: {
               type: "message",
               role: "user",
-              parts: [{ type: "text", text: "Continue where you left off." }],
+              parts: [{ type: "text", text: continuation }],
               complete: true,
               synthetic: false,
             },
@@ -38,34 +34,21 @@ test("resuming after a restart sends one ace-originated Continue where you left 
   ]);
   const recovered = await crashCopy(h);
   await recovered.engine.flush();
-  expect(replacement.commands.filter((command) => command.type === "send")).toEqual([]);
-  dispatch(recovered.store, recovered.engine, {
-    type: "thread.resume",
-    threadId: id,
-    expectedRevision: recovered.engine.queue(id).revision,
-  });
-  await recovered.engine.flush();
   expect(replacement.commands.filter((command) => command.type === "send")).toEqual([
-    {
-      type: "send",
-      input: [{ type: "text", text: "Continue where you left off." }],
-      delivery: "queue",
-    },
+    { type: "send", input: [{ type: "text", text: continuation }], delivery: "queue" },
   ]);
   const items = Object.values(recovered.store.snapshotThread(id).items);
   expect(
     items.filter((item) => item.type === "message" && item.origin?.kind === "restart"),
   ).toEqual([
-    expect.objectContaining({
-      synthetic: true,
-      parts: [{ type: "text", text: "Continue where you left off." }],
-    }),
+    expect.objectContaining({ synthetic: true, parts: [{ type: "text", text: continuation }] }),
   ]);
+  // The provider's echo is the same input, not a second message.
   expect(
-    items.some(
+    items.filter(
       (item) =>
-        item.type === "notice" &&
-        /ace restarted|previous provider process stopped/i.test(item.text),
+        item.type === "message" &&
+        item.parts.some((part) => part.type === "text" && part.text === continuation),
     ),
-  ).toBe(false);
+  ).toHaveLength(1);
 });

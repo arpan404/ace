@@ -4,7 +4,7 @@ import { PatchPump } from "../bridge/patches.ts";
 import { itemRow, threadRow } from "../bridge/presentation.ts";
 import { Item, ThreadListEntry } from "@ace/protocol";
 import { itemDetail } from "../bridge/thread-rows.ts";
-import { workGroups } from "../bridge/work-groups.ts";
+import { workLog } from "../bridge/work-log.ts";
 import { installHistoryScenarios } from "./transcript-history.ts";
 
 installHistoryScenarios();
@@ -80,10 +80,10 @@ function queueWorkFlow() {
         startedAt: 0,
         failed: 0,
       },
-      groups: workGroups(
+      log: workLog(
         entries.map((item) => item.id),
         (id) => items.get(id),
-      ),
+      ).rows,
     },
   }));
 }

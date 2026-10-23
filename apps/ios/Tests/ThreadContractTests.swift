@@ -34,14 +34,16 @@ import Testing
         _ = try await until("the parent again") { model.thread?.screen.blocks.values.contains { $0.row.kind == "subagents" } == true ? true : nil }
         #expect(model.error == nil)
     }
-    @Test func whileTheAgentWorksTheComposerOffersQueueAndSteerAndBothAreAdmitted() async throws {
+    /// The main agent only waits on its subagents: a message goes straight in, and the modified
+    /// send queues it (`@ace/ui-core` waitingDelivery), from the first controls the phone shows.
+    @Test func whileTheMainAgentOnlyWaitsOnSubagentsAMessageGoesInNowOrQueuesAndBothAreAdmitted() async throws {
         let (model, root) = try await connected()
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
         model.open("ios-agents")
         let controls = try await until("composer controls") { model.thread?.screen.controls }
         #expect(controls.busy)
-        #expect(controls.delivery == "queue")
-        #expect(controls.alternate == "steer")
+        #expect(controls.delivery == "steer")
+        #expect(controls.alternate == "queue")
         #expect(await model.sendMessage("Queue: also run lint \(UUID().uuidString)", alternate: false))
         #expect(await model.sendMessage("Steer: skip the docs \(UUID().uuidString)", alternate: true))
         #expect(model.error == nil)
@@ -161,6 +163,30 @@ import Testing
         model.open("ios-agents-review")
         _ = try await until("the next thread") { model.thread?.screen.blockOrder.isEmpty == false ? true : nil }
         #expect(model.error == nil)
+    }
+    /// A goal sheet left over from a thread the person has since left can't change the thread open
+    /// now; on the thread it was opened for, a change resolves only once the daemon took it.
+    @Test func aGoalChangeIsForTheThreadItsSheetWasOpenedOnAndWaitsForTheDaemon() async throws {
+        let (model, root) = try await connected()
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        model.open("ios-goal-other")
+        _ = try await until("the other goal") { model.thread?.screen.goal?.title == "Pursuing goal" ? true : nil }
+        let sheetEpoch = try #require(model.thread?.epoch)
+        // A notification opens another thread with a goal while the first one's sheet is still up.
+        model.open("ios-goal")
+        _ = try await until("the goal") {
+            model.thread?.id == "ios-goal" && model.thread?.screen.goal?.title == "Pursuing goal" ? true : nil
+        }
+        let stale = await model.changeGoal("pause", epoch: sheetEpoch)
+        #expect(stale != nil, "a change from the left thread's sheet is refused")
+        #expect(model.error == nil, "and said on the sheet, not screen-wide")
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(model.thread?.screen.goal?.title == "Pursuing goal", "the open thread's goal is untouched")
+        let epoch = try #require(model.thread?.epoch)
+        #expect(await model.changeGoal("pause", epoch: epoch) == nil)
+        _ = try await until("the paused goal") { model.thread?.screen.goal?.title == "Goal paused" ? true : nil }
+        #expect(await model.changeGoal("resume", epoch: epoch) == nil)
+        _ = try await until("the goal pursued again") { model.thread?.screen.goal?.title == "Pursuing goal" ? true : nil }
     }
     private func connected() async throws -> (ClientModel, URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

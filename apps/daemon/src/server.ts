@@ -74,6 +74,7 @@ export async function startServer(options: ServerOptions): Promise<{
         perMinute: z.number().int().positive(),
       })
       .parse({ ...defaultTicketLimits, ...options.ticketLimits }),
+    options.store.pairingCodes,
   );
   let remoteOrigin: string | undefined;
   const pairing = () =>
@@ -82,7 +83,8 @@ export async function startServer(options: ServerOptions): Promise<{
       : dynamicRemote?.pairing();
   let dynamicRemote: ReturnType<typeof remoteRuntime> | undefined;
   let preview: DaemonPreview | undefined;
-  const maintenance = new MaintenanceGate(() => options.store.updateBlockers());
+  const maintenance =
+    options.maintenanceGate ?? new MaintenanceGate(() => options.store.updateBlockers());
   let ready = options.ready === undefined;
   void options.ready?.then(() => {
     ready = true;

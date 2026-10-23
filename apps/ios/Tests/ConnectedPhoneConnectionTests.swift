@@ -49,8 +49,8 @@ import Testing
         model.open("01a15b0e-7eef-705b-a011-fde54ae8afd1")
         for _ in 0..<200 where model.thread?.loaded != true { try await Task.sleep(for: .milliseconds(100)) }
         let thread = try #require(model.thread)
-        let groups = thread.screen.blocks.values.flatMap { $0.row.groups ?? [] }
-        let missing = groups.filter { $0.single && thread.items[$0.id] == nil }
+        let groups = thread.screen.blocks.values.flatMap { $0.row.log ?? [] }
+        let missing = groups.filter { $0.kind == "step" && thread.items[$0.id] == nil }
         #expect(thread.loaded, "Conversation never became ready: \(thread.items.count) items, \(thread.screen.blocks.count) blocks, \(missing.count) empty work rows, error \(model.error ?? "none")")
         #expect(thread.items.count <= 200, "Opening a conversation must not eagerly fetch its entire work log; older content has a separate history reader")
         #expect(!groups.isEmpty)

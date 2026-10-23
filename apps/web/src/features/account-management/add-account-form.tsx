@@ -1,5 +1,5 @@
 import { useToast } from "@/components/ui/toast.tsx";
-import { accountBadge } from "@/components/ui/account-badge.ts";
+import { accountBadge } from "@ace/ui-core";
 import { AccountBadgeChooser, accountBadgeProblem } from "@/components/ui/account-badge-field.tsx";
 import type { AccountBadgeColor, AccountBadgeIcon } from "@ace/protocol/accounts";
 import { useNavigate } from "@tanstack/react-router";

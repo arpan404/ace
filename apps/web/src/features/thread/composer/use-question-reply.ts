@@ -1,7 +1,7 @@
 import { useClient, useInteraction, useInteractions } from "@ace/client-react";
 import type { Interaction } from "@ace/protocol";
 import { requestIdentity } from "@ace/ui-core";
-import { composerReply } from "../interactions/composer-reply.ts";
+import { composerReply } from "@ace/ui-core";
 import { questionDrafts } from "../interactions/question-drafts.ts";
 import type { Draft } from "./draft.ts";
 

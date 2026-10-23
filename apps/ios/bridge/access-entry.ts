@@ -74,7 +74,7 @@ async function access(json: string): Promise<AccessResult> {
     {
       load: async () => (await call("directory.load")) || null,
       save: async (value) => {
-        await call("directory.save", value);
+        await call("directory.save", null, value);
       },
     },
     secrets,
@@ -89,6 +89,6 @@ export function aceAccess(json: string): void {
       ok: false,
       problem: { code: "unknown", message: "Couldn't complete the request. Try again." },
     }))
-    .then((result) => call("access.result", result))
+    .then((result) => call("access.result", null, JSON.stringify(result)))
     .catch(() => {});
 }

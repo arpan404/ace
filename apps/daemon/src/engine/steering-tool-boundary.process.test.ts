@@ -172,26 +172,15 @@ test("a steer interrupted by a daemon restart is delivered once", async () => {
     expect(send(h, id, "Use the cached build", "steer").ok).toBe(true);
     await h.engine.flush();
     expect(h.interrupts).toHaveLength(1);
+    const before = h.inputs.length;
+    // The continued turn runs to its end after the restart.
+    h.held.delete(id);
     await h.restart();
     await h.engine.flush();
-    const before = h.inputs.length;
-    // Nothing starts by itself after a restart; the steer is kept, never marked uncertain.
-    expect(h.engine.queue(id)).toMatchObject({ paused: true });
-    expect(h.engine.queue(id).messages).toMatchObject([
-      { input: [{ type: "text", text: "Use the cached build" }], state: "queued" },
-    ]);
-    h.held.delete(id);
-    expect(
-      h.command({
-        type: "queue.resume",
-        threadId: id,
-        expectedRevision: h.engine.queue(id).revision,
-      }).ok,
-    ).toBe(true);
-    await h.engine.flush();
-    expect(
-      h.inputs.slice(before).filter((input) => input.text === "Use the cached build"),
-    ).toHaveLength(1);
+    // The cut-short turn continues by itself, then the kept steer goes in once, never uncertain.
+    const after = h.inputs.slice(before).map((input) => input.text);
+    expect(after[0]).toMatch(/^ace restarted while you were working/);
+    expect(after.filter((text) => text === "Use the cached build")).toHaveLength(1);
     expect(h.engine.queue(id).messages).toEqual([]);
     await h.engine.flush();
     expect(h.inputs.filter((input) => input.text === "Use the cached build")).toHaveLength(1);

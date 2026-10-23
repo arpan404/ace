@@ -19,15 +19,8 @@ test("durable pending results survive service restart and are consumed exactly o
   expect(wakes(h.events, parent.threadId)).toHaveLength(1);
 });
 
-test("daemon crash holds a live delegation until explicit native recovery without replaying its input", async () => {
-  const h = setup();
-  const parent = await h.parent();
-  const edge = h.delegate(parent, "crash");
-  await h.engine.flush();
-  const nativeSessionId = [...h.nativeHistories.keys()].find((id) =>
-    id.startsWith("native-claude-"),
-  );
-  if (!nativeSessionId) throw new Error("Missing child native history");
+/** Snapshot the daemon database as a crash would leave it, and start a fresh daemon on it. */
+async function crash(h: ReturnType<typeof setup>, policy: Parameters<typeof setup>[0] = {}) {
   const snapshot = join(h.home, "crash.sqlite");
   let sourceDb: DatabaseSync | undefined;
   h.store.atomic((db) => {
@@ -36,34 +29,141 @@ test("daemon crash holds a live delegation until explicit native recovery withou
   if (!sourceDb) throw new Error("Missing snapshot source");
   await backup(sourceDb, snapshot);
   await h.close();
-  const recovered = setup({}, snapshot);
+  const recovered = setup(policy, snapshot);
   recovered.clock.advance(1050);
   await recovered.engine.flush();
-  expect(recovered.engine.queue(edge.childId)).toMatchObject({ paused: true, reason: "restart" });
-  expect(recovered.store.getThread(edge.childId)?.status).toEqual({
-    state: "waiting",
-    on: "queue",
-  });
+  return recovered;
+}
+const restartInput = (value: string) => value.startsWith("ace restarted while you were working");
+const statusesOf = (h: ReturnType<typeof setup>, thread: string) =>
+  h.events.flatMap((event) =>
+    event.threadId === thread && event.payload.type === "thread.updated" && event.payload.status
+      ? [event.payload.status.state]
+      : [],
+  );
+
+test("a delegated child a crash cut short continues by itself and its parent never sees it settle early", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  const edge = h.delegate(parent, "crash");
+  await h.engine.flush();
+  const nativeSessionId = [...h.nativeHistories.keys()].find((id) =>
+    id.startsWith("native-claude-"),
+  );
+  if (!nativeSessionId) throw new Error("Missing child native history");
+  const recovered = await crash(h);
+
+  // The child reopens its own session with one restart continuation, never its task again.
+  expect(recovered.contexts.get(edge.childId)?.resume).toEqual({ nativeSessionId });
+  expect(recovered.inputs.get(edge.childId)?.map(restartInput)).toEqual([true]);
+  expect(recovered.store.getThread(edge.childId)?.status.state).toBe("working");
   expect(recovered.store.getThread(parent.threadId)?.status.state).not.toBe("done");
-  expect(recovered.engine.queue(parent.threadId).paused).toBe(false);
-  expect(recovered.contexts.has(edge.childId)).toBe(false);
+  // While it works, the parent has no result: no wake, and a bounded wait times out.
   expect(wakes(recovered.events, parent.threadId)).toHaveLength(0);
-  expect(
-    recovered.service.command("recover-child", {
-      type: "thread.resume",
-      threadId: edge.childId,
-      expectedRevision: recovered.engine.queue(edge.childId).revision,
-    }).ok,
-  ).toBe(true);
-  await recovered.engine.flush();
-  expect(recovered.contexts.get(edge.childId)?.resume).toEqual({
-    nativeSessionId,
-  });
-  expect(recovered.inputs.get(edge.childId)).toEqual(["Continue where you left off."]);
+  const waited = recovered.service.waitBounded(
+    parent,
+    edge.childId,
+    new AbortController().signal,
+    50,
+  );
+  recovered.clock.advance(recovered.clock.now() + 50);
+  expect(await waited).toBeUndefined();
+  expect(statusesOf(recovered, edge.childId)).not.toContain("done");
+  expect(statusesOf(recovered, edge.childId)).not.toContain("failed");
+
   await recovered.complete(edge.childId, "recovered completion");
-  recovered.clock.advance(1100);
+  recovered.clock.advance(recovered.clock.now() + 1100);
   await recovered.engine.flush();
   const outcome = await recovered.service.wait(parent, edge.childId, new AbortController().signal);
-  expect(outcome.outcome).toBe("completed");
+  expect(outcome).toMatchObject({ outcome: "completed", result: "recovered completion" });
   expect(wakes(recovered.events, parent.threadId)).toHaveLength(1);
+});
+
+test("a child whose provider died gives its slot to the next queued child", async () => {
+  const h = setup({ maxConcurrent: 1 });
+  const parent = await h.parent();
+  const dead = h.delegate(parent, "dead");
+  await h.engine.flush();
+  const queued = h.delegate(parent, "queued");
+  await h.engine.flush();
+  expect(h.contexts.has(queued.childId)).toBe(false);
+
+  h.contexts.get(dead.childId)?.onExit({ deliberate: false, message: "provider died" });
+  await h.engine.flush();
+
+  expect(h.engine.queue(dead.childId)).toMatchObject({ paused: true, reason: "restart" });
+  expect(h.inputs.get(queued.childId)?.join("\n")).toContain("Implement safely");
+  expect(h.store.getThread(queued.childId)?.status.state).toBe("working");
+  // The dead child is held for someone, never reported finished to its parent.
+  expect(h.store.getThread(dead.childId)?.status.state).not.toBe("done");
+  expect(wakes(h.events, parent.threadId)).toHaveLength(0);
+});
+
+test("after a restart, a child ace won't continue frees its slot and the queued child starts", async () => {
+  const h = setup({ maxConcurrent: 1 });
+  const parent = await h.parent();
+  const held = h.delegate(parent, "held");
+  await h.engine.flush();
+  const queued = h.delegate(parent, "queued");
+  await h.engine.flush();
+  // The held child was waiting on the person when ace stopped, so it doesn't resume.
+  await h.emit(held.childId, {
+    type: "interaction.opened",
+    agent: "root",
+    interaction: "approval",
+    blocking: true,
+    request: {
+      kind: "approval",
+      title: "Run the migration?",
+      options: [{ id: "yes", label: "Yes", kind: "allow_once" }],
+    },
+  });
+  expect(h.contexts.has(queued.childId)).toBe(false);
+  const recovered = await crash(h, { maxConcurrent: 1 });
+
+  expect(recovered.engine.queue(held.childId)).toMatchObject({ paused: true, reason: "restart" });
+  expect(recovered.inputs.get(held.childId)).toBeUndefined();
+  expect(recovered.inputs.get(queued.childId)?.join("\n")).toContain("Implement safely");
+  expect(recovered.store.getThread(held.childId)?.status.state).not.toBe("done");
+  expect(recovered.store.getThread(parent.threadId)?.status.state).not.toBe("done");
+});
+
+test("a parent's wait on a child whose restart continuation is still opening reads it as working", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  const edge = h.delegate(parent, "resuming");
+  await h.engine.flush();
+  const snapshot = join(h.home, "resuming.sqlite");
+  let sourceDb: DatabaseSync | undefined;
+  h.store.atomic((db) => {
+    sourceDb = db;
+  });
+  if (!sourceDb) throw new Error("Missing snapshot source");
+  await backup(sourceDb, snapshot);
+  await h.close();
+  // The child's provider takes its time to open, so its continuation stays in flight.
+  const entered = Promise.withResolvers<void>();
+  const ready = Promise.withResolvers<void>();
+  const recovered = setup({}, snapshot, false, {
+    entered: () => entered.resolve(),
+    ready: ready.promise,
+  });
+  try {
+    await entered.promise;
+    expect(recovered.engine.queue(edge.childId)).toMatchObject({ paused: true, reason: "restart" });
+    const waiting = recovered.service.monitor.wait(
+      parent,
+      { threadIds: [edge.childId], mode: "all", timeoutSeconds: 1 },
+      new AbortController().signal,
+    );
+    recovered.clock.advance(recovered.clock.now() + 2000);
+    const result = await waiting;
+    // Nothing waits on the person: the child is about to continue.
+    expect(result).toMatchObject({ ok: true, data: { threads: [{ state: "working" }] } });
+    expect(JSON.stringify(result)).not.toContain("needs_you");
+  } finally {
+    ready.resolve();
+  }
+  await recovered.engine.flush();
+  expect(recovered.inputs.get(edge.childId)?.map(restartInput)).toEqual([true]);
 });
