@@ -78,6 +78,17 @@ export function createFileAt(parent: number, name: string): Descriptor {
     return nativeFailure(error);
   }
 }
+export function createPrivateDirectoryAt(parent: number, name: string): Descriptor {
+  if (process.platform !== "win32") {
+    mkdirAt(parent, name);
+    return openDirectoryAt(parent, name);
+  }
+  try {
+    return new Descriptor(windowsBinding().createPrivateDirectoryAt(parent, name));
+  } catch (error) {
+    return nativeFailure(error);
+  }
+}
 export function openMetadataAt(parent: number, name: string): Descriptor {
   try {
     const fd = onWindows()
@@ -201,6 +212,19 @@ export class Descriptor {
         throw new Error("Refusing private descriptor: expected a regular file owned by the owner");
       if (info.nlink === 0)
         throw Object.assign(new Error("Private file was removed during read"), { code: "ENOENT" });
+    } catch (error) {
+      nativeFailure(error);
+    }
+  }
+  checkPrivateDirectory(): void {
+    try {
+      if (process.platform === "win32") {
+        windowsBinding().checkPrivateDirectoryFd(this.fd);
+        return;
+      }
+      const info = this.statSync();
+      if (!info.isDirectory() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0)
+        throw new Error("Refusing directory: expected a private directory owned by this user");
     } catch (error) {
       nativeFailure(error);
     }

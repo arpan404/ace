@@ -9,6 +9,7 @@ import {
   openDirectoryAt,
   openFileAt,
   createFileAt,
+  createPrivateDirectoryAt,
   mkdirAt,
   descriptorNames,
   statAt,
@@ -73,6 +74,19 @@ export class PinnedDirectory {
   mkdir(name: string): PinnedDirectory {
     mkdirAt(this.fd, name);
     return this.child(name);
+  }
+  mkdirPrivate(name: string): PinnedDirectory {
+    const handle = createPrivateDirectoryAt(this.fd, name);
+    try {
+      handle.checkPrivateDirectory();
+      return new PinnedDirectory(handle);
+    } catch (error) {
+      closeSync(handle.fd);
+      throw error;
+    }
+  }
+  checkPrivate(): void {
+    this.handle.checkPrivateDirectory();
   }
   names(): string[] {
     return descriptorNames(this.fd);

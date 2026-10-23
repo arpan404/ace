@@ -35,6 +35,7 @@ export default defineConfig({
       "packages/workspace/src/windows-private.process.test.ts",
       "packages/workspace/src/windows-private-create.process.test.ts",
       "packages/workspace/src/windows-private-metadata.process.test.ts",
+      "packages/workspace/src/windows-private-directory.process.test.ts",
       "packages/workspace/src/windows-descriptor-stat.process.test.ts",
       "packages/workspace/src/windows-filesystem.process.test.ts",
       "packages/workspace/src/windows-workspace.process.test.ts",

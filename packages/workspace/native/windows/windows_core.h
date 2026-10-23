@@ -150,6 +150,13 @@ const char *wcore_open_private_metadata_at(int parent_fd, const char *name, int 
 // never reopens or deletes by name. No WRITE_OWNER, no admin bypass.
 const char *wcore_create_private_file_at(int parent_fd, const char *name, int *out_fd);
 
+// Exclusive protected directory creation with inheritable current-user-only
+// ACL. Existing names are EEXIST without repair or ownership changes.
+const char *wcore_create_private_directory_at(int parent_fd, const char *name, int *out_fd);
+// Observe a pinned directory's current-user owner and protected inheritable
+// owner-only DACL. The borrowed fd is never closed or changed.
+const char *wcore_check_private_directory_fd(int fd);
+
 // Shared private-security helpers (single owner: private_security.c).
 // wcore_current_user_sid loads a malloc'd copy of the current process
 // TokenUser SID; wcore_owner_only_acl builds a malloc'd ACL with exactly

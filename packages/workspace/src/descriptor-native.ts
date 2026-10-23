@@ -117,6 +117,11 @@ const WindowsBinding = z
       input: [z.number().int(), z.string(), z.string()],
       output: z.void(),
     }),
+    createPrivateDirectoryAt: z.function({
+      input: [z.number().int(), z.string()],
+      output: z.number().int().nonnegative(),
+    }),
+    checkPrivateDirectoryFd: z.function({ input: [z.number().int()], output: z.void() }),
     securePrivateFd: z.function({ input: [z.number().int()], output: z.void() }),
     checkPrivateFd: z.function({ input: [z.number().int()], output: z.void() }),
     checkPrivateAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),

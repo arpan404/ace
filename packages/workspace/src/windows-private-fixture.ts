@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 
 const runFile = promisify(execFile);
 
-function systemPowerShell(): string {
+export function systemPowerShell(): string {
   return join(
     process.env.SystemRoot ?? "C:\\Windows",
     "System32\\WindowsPowerShell\\v1.0\\powershell.exe",

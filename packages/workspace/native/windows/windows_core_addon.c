@@ -202,6 +202,11 @@ static napi_value do_open_private_metadata_at(napi_env env, napi_callback_info i
       wcore_open_private_metadata_at);
 }
 
+static napi_value do_create_private_directory_at(napi_env env, napi_callback_info info) {
+  return open_child_at(env, info, "createPrivateDirectoryAt",
+      wcore_create_private_directory_at);
+}
+
 static napi_value do_create_file_at(napi_env env, napi_callback_info info) {
   return open_child_at(env, info, "createFileAt", wcore_create_file_at);
 }
@@ -249,6 +254,21 @@ static napi_value do_secure_private_fd(napi_env env, napi_callback_info info) {
   if (code != NULL) return fail_for(env, "securePrivateFd", code, NULL);
   if (napi_get_undefined(env, &result) != napi_ok)
     return throw_binding_error(env, "securePrivateFd");
+  return result;
+}
+
+static napi_value do_check_private_directory_fd(napi_env env, napi_callback_info info) {
+  napi_value args[1];
+  napi_value result = NULL;
+  size_t count = 1;
+  int32_t fd = -1;
+  if (napi_get_cb_info(env, info, &count, args, NULL, NULL) != napi_ok ||
+      count != 1 || !read_fd(env, args[0], &fd))
+    return fail_for(env, "checkPrivateDirectoryFd", "EINVAL", NULL);
+  const char *code = wcore_check_private_directory_fd(fd);
+  if (code != NULL) return fail_for(env, "checkPrivateDirectoryFd", code, NULL);
+  if (napi_get_undefined(env, &result) != napi_ok)
+    return throw_binding_error(env, "checkPrivateDirectoryFd");
   return result;
 }
 
@@ -316,6 +336,8 @@ static napi_value init(napi_env env, napi_value exports) {
     {"openPrivateMetadataAt", NULL, do_open_private_metadata_at, NULL, NULL, NULL, napi_default, NULL},
     {"createFileAt", NULL, do_create_file_at, NULL, NULL, NULL, napi_default, NULL},
     {"createPrivateFileAt", NULL, do_create_private_file_at, NULL, NULL, NULL, napi_default, NULL},
+    {"createPrivateDirectoryAt", NULL, do_create_private_directory_at, NULL, NULL, NULL, napi_default, NULL},
+    {"checkPrivateDirectoryFd", NULL, do_check_private_directory_fd, NULL, NULL, NULL, napi_default, NULL},
     {"unlinkAt", NULL, do_unlink_at, NULL, NULL, NULL, napi_default, NULL},
     {"removeDirectoryAt", NULL, do_remove_directory_at, NULL, NULL, NULL, napi_default, NULL},
     {"renameAt", NULL, do_rename_at, NULL, NULL, NULL, napi_default, NULL},
