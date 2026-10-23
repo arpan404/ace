@@ -12,8 +12,8 @@ struct FullMessageView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
-                    if let text { MarkdownView(text: text) }
-                    else if problem == nil { ProgressView("Reading full message…") }
+                    if let text { MarkdownView(text: text).onAppear { DisclosureTrace.shared.shown(item.id) } }
+                    else if problem == nil { ProgressView("Reading full message…").onAppear { DisclosureTrace.shared.waiting(item.id) } }
                     ServiceProblem(message: problem)
                     if problem != nil { Button("Retry") { Task { await read() } } }
                 }.padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.lg).frame(maxWidth: .infinity, alignment: .leading)

@@ -18,6 +18,7 @@ import { answerScreenshot, browserControl, realVideo, seedBrowser } from "./spik
 import { featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
 import { seedFiles } from "./files-scenario.ts";
 import { seedWorkLogs } from "./worklog-scenario.ts";
+import { seedLongSteps } from "./long-steps-scenario.ts";
 import { seedMessages } from "./message-scenario.ts";
 import { seedReading } from "./reading-scenario.ts";
 import { seedGoal } from "./goal-scenario.ts";
@@ -164,6 +165,7 @@ seedNativeMedia(daemon);
 seedBrowser(daemon, details);
 seedFiles(daemon, details);
 seedWorkLogs(daemon);
+seedLongSteps(daemon);
 seedMessages(daemon, details);
 seedReading(daemon, details);
 requestScenarios(daemon, details);
