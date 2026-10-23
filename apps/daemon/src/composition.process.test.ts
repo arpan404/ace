@@ -176,7 +176,8 @@ it("daemon composition applies a fork's patch through git and supplies browser M
   });
   if (!fork.forkThreadId) throw new Error("Missing fork ID");
   const item = Object.values(daemon.store.snapshotThread(fork.forkThreadId).items).find(
-    (candidate) => candidate.type === "message" && candidate.role === "assistant",
+    (candidate) =>
+      candidate.type === "message" && candidate.role === "assistant" && !candidate.inherited,
   );
   if (!item) throw new Error("Missing fork answer");
   await command({
