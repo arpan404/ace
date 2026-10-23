@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, type TestContext } from "vitest";
@@ -113,6 +113,32 @@ win(
       expect(await readFile(join(root, name), "utf8")).toBe("decoy bytes");
     } finally {
       await handle.close();
+    }
+  },
+);
+
+win(
+  "private metadata repair restores owner writes on a readonly file",
+  async ({ onTestFinished }) => {
+    const root = await fixture(onTestFinished);
+    const name = ".ace-upload-readonly";
+    const path = join(root, name);
+    await writeFile(path, "readonly bytes");
+    await secureOwnerOnly(path, "read");
+    await chmod(path, 0o400);
+    const safe = await SafeRoot.create(root);
+    const { handle } = await safe.privateFileMetadata(name);
+    try {
+      handle.chmod(0o600);
+    } finally {
+      await handle.close();
+    }
+    await writeFile(path, "owner can write again");
+    const directory = PinnedDirectory.atBoundary(root);
+    try {
+      expect(directory.readPrivateText(name, 64)).toBe("owner can write again");
+    } finally {
+      directory.closeSync();
     }
   },
 );

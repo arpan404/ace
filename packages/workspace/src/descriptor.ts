@@ -1,4 +1,13 @@
-import { close, constants, fstat, read, write, fstatSync, type BigIntStats } from "node:fs";
+import {
+  close,
+  constants,
+  fstat,
+  read,
+  write,
+  fstatSync,
+  fchmodSync,
+  type BigIntStats,
+} from "node:fs";
 import { getSystemErrorName } from "node:util";
 import { z } from "zod";
 import {
@@ -206,11 +215,14 @@ export class Descriptor {
           );
         try {
           windowsBinding().checkPrivateFd(this.fd);
-          return;
         } catch (error) {
           if (!(error instanceof Error && "code" in error && error.code === "EACCES")) throw error;
+          windowsBinding().securePrivateFd(this.fd);
         }
-        windowsBinding().securePrivateFd(this.fd);
+        // A protected DACL and the readonly attribute are independent. Node's
+        // Windows fchmod clears readonly through the same file object, so an
+        // upload recovery must not report 0600 while owner writes remain blocked.
+        if ((this.statSync().mode & 0o200) === 0) fchmodSync(this.fd, mode);
         return;
       }
       posixBinding().chmodMetadata(this.fd, mode);
