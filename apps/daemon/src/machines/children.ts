@@ -74,7 +74,8 @@ export class MachineChildren implements RemoteChildren {
         id TEXT PRIMARY KEY, request_key TEXT NOT NULL UNIQUE, parent_thread TEXT NOT NULL,
         parent_agent TEXT NOT NULL, machine TEXT NOT NULL, role TEXT NOT NULL,
         provider TEXT NOT NULL, model TEXT, created_at INTEGER NOT NULL, view TEXT,
-        settled INTEGER NOT NULL DEFAULT 0, delivered INTEGER NOT NULL DEFAULT 0)`),
+        settled INTEGER NOT NULL DEFAULT 0, delivered INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE IF NOT EXISTS machine_child_notices (key TEXT PRIMARY KEY)`),
     );
     this.arm();
   }
@@ -228,7 +229,7 @@ export class MachineChildren implements RemoteChildren {
             ? { needs: view.needs.length, ask: clip(view.needs[0].prompt, 100) }
             : {}),
           ...(view.last ? { last: clip(view.last, 100) } : {}),
-          ...(this.saved(row)?.notice ? { notice: this.saved(row)?.notice } : {}),
+          ...(this.saved(row)?.notice ? { notice: this.saved(row)?.notice?.text } : {}),
           machine: clip(this.deps.label(row.machine), 64),
         },
       ];
@@ -244,8 +245,13 @@ export class MachineChildren implements RemoteChildren {
   reopen(id: ThreadId): void {
     const row = this.row(id);
     if (!row || row.settled !== 1) return;
+    // The result it settled with goes to the parent first, so reopening never drops it.
+    if (row.delivered === 0) this.deliver(row);
     this.deps.store.atomic((db) => {
-      db.prepare("UPDATE machine_children SET settled=0, delivered=0 WHERE id=?").run(id);
+      // Its last view showed it finished; until a poll reads it again it shows as working.
+      db.prepare("UPDATE machine_children SET settled=0, delivered=0, view=NULL WHERE id=?").run(
+        id,
+      );
       this.deps.engine()?.machineChild(
         {
           id,
@@ -331,16 +337,7 @@ export class MachineChildren implements RemoteChildren {
   }
   private update(row: Row, view: MachineThreadView) {
     this.unreachable.delete(row.id);
-    if (view.notice && view.notice !== this.saved(row)?.notice)
-      try {
-        this.deps.deliver(
-          row.parent_thread,
-          `notice:${row.id}:${digest(view.notice)}`,
-          `[ace: ${row.role} on ${this.deps.label(row.machine)}]\n${view.notice}`,
-        );
-      } catch (error) {
-        this.deps.log("Machine message notice not delivered", { id: row.id, error: String(error) });
-      }
+    if (view.notice) this.notify(row, view.notice);
     const settled = settledStates.has(view.state) && view.requests.length === 0;
     const text = JSON.stringify(view);
     const name = this.deps.label(row.machine);
@@ -379,6 +376,29 @@ export class MachineChildren implements RemoteChildren {
     });
     if (settled) this.deps.mirror.release(`child:${row.id}`);
     this.emit([row.id]);
+  }
+  /**
+   * Tells the parent about a message that didn't go in as sent there, once per message and
+   * outcome. Recorded only once delivered, so a parent not ready yet hears on a later poll.
+   */
+  private notify(row: Row, notice: NonNullable<MachineThreadView["notice"]>) {
+    const key = `notice:${row.id}:${notice.commandId}:${notice.code}`;
+    const seen = this.deps.store.atomic((db) =>
+      db.prepare("SELECT 1 FROM machine_child_notices WHERE key=?").get(key),
+    );
+    if (seen) return;
+    try {
+      this.deps.deliver(
+        row.parent_thread,
+        `notice:${digest(key)}`,
+        `[ace: ${row.role} on ${this.deps.label(row.machine)}]\n${notice.text}`,
+      );
+      this.deps.store.atomic((db) =>
+        db.prepare("INSERT OR IGNORE INTO machine_child_notices VALUES (?)").run(key),
+      );
+    } catch (error) {
+      this.deps.log("Machine message notice not delivered", { id: row.id, error: String(error) });
+    }
   }
   private deliver(row: Row) {
     if (this.deps.waiting(row.id)) return;

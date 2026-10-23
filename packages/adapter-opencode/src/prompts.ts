@@ -26,8 +26,6 @@ export class SessionPrompts {
   private started = false;
   /** The server answered 4xx: it turned the input down without storing it. */
   private refused = false;
-  /** The server answered 5xx: it may have stored the input before failing. */
-  private failed = false;
   constructor(ports: Ports) {
     this.ports = ports;
   }
@@ -38,7 +36,6 @@ export class SessionPrompts {
     if (dir === "send") this.started = true;
     if (dir !== "recv" || typeof data.status !== "number") return;
     if (data.status >= 400 && data.status < 500) this.refused = true;
-    if (data.status >= 500) this.failed = true;
   }
   async send(input: ContentPart[], delivery: "steer" | "queue", commandId?: string): Promise<void> {
     if (commandId !== undefined) z.string().min(1).max(512).parse(commandId);
@@ -46,7 +43,7 @@ export class SessionPrompts {
       release = await this.admission.acquire(p.signal);
     try {
       await p.barrier();
-      this.started = this.refused = this.failed = false;
+      this.started = this.refused = false;
       const id = messageId(p.runtime.wallTime(), ++this.sequence, p.runtime.entropy(16));
       let admitted = false;
       try {
@@ -80,12 +77,8 @@ export class SessionPrompts {
           p.frame("note", "input.rejected", { id });
           throw new InputRejected("OpenCode rejected input admission");
         }
-        // A server failure is no proof the prompt wasn't stored: never retried as unread.
-        if (!admitted && this.failed) {
-          p.frame("note", "input.rejected", { id });
-          throw new Error("OpenCode failed while admitting input");
-        }
-        // A committed prompt may have lost its receipt. Never resubmit it automatically.
+        // A committed prompt may have lost its receipt, and a 5xx may follow a stored prompt.
+        // Never resubmit it automatically: reconcile the inbox instead.
         p.frame("note", "input.uncertain", { id });
         p.uncertain();
         throw new Error(

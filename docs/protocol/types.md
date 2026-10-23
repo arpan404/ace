@@ -16139,7 +16139,7 @@ Example:
 | machine | no | string | {"maxLength":64} |
 | status | yes | [ThreadStatus.json](schema/ThreadStatus.json) |  |
 | requests | yes | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/MachinePendingRequest.json"}} |
-| notice | no | string | {"maxLength":400} |
+| notice | no | object | {"properties":{"text":{"type":"string","maxLength":400},"commandId":{"type":"string","minLength":1,"maxLength":128},"code":{"type":"string","minLength":1,"maxLength":64}},"required":["text","commandId","code"]} |
 
 Example:
 

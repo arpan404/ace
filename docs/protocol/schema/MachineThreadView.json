@@ -23,8 +23,28 @@
       "type": "array"
     },
     "notice": {
-      "maxLength": 400,
-      "type": "string"
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "commandId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 400,
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "commandId",
+        "code"
+      ],
+      "type": "object"
     },
     "requests": {
       "items": {

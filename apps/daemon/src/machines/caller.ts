@@ -134,6 +134,7 @@ export class MachineCaller {
     const child = this.deps.children.child(id);
     if (!child) return { ok: false, code: "not_found" };
     const origin = await this.origin(child.parentThreadId);
+    let lost: MachineFailure | undefined;
     for (let attempt = 0; ; attempt++)
       try {
         const answer = MachineMessageResult.parse(
@@ -148,9 +149,15 @@ export class MachineCaller {
         this.deps.children.reopen(id);
         return { ok: true, data: answer };
       } catch (error) {
-        if (attempt === 0 && error instanceof MachineFailure && error.kind === "disconnected")
-          continue;
-        throw this.deps.directory.controlError(child.machine, error);
+        const dropped = error instanceof MachineFailure && error.kind === "disconnected";
+        if (dropped) lost = error;
+        if (attempt === 0 && dropped) continue;
+        // Only a machine that never took the call or refused it outright proves nothing ran. A
+        // lost reply may follow a message the child is already working on: it stays watched,
+        // and if nothing changed there, the next poll settles it again under the same result.
+        if (lost || !(error instanceof MachineFailure)) this.deps.children.reopen(id);
+        // The parent hears the call was lost, not that the machine never had it.
+        throw this.deps.directory.controlError(child.machine, lost ?? error);
       }
   }
   async status(

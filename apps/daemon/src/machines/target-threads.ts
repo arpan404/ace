@@ -37,8 +37,6 @@ export interface TargetThreadDeps {
   store: Store;
   engine(): Engine | undefined;
   journal(): DelegationJournal | undefined;
-  /** Stops everything a thread delegated, as a local restart does first. */
-  stopChildren?(threadId: ThreadId, requestId: string, request: string): void;
   now(): number;
 }
 type Delegate = Extract<MachineCall, { op: "delegate" }>;
@@ -59,7 +57,8 @@ export class TargetThreads {
         thread_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, kind TEXT NOT NULL,
         origin_host TEXT NOT NULL, origin_thread TEXT NOT NULL, created_at INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS machine_thread_notices (
-        thread_id TEXT PRIMARY KEY, command_id TEXT NOT NULL, text TEXT NOT NULL)`),
+        thread_id TEXT PRIMARY KEY, command_id TEXT NOT NULL, code TEXT NOT NULL,
+        text TEXT NOT NULL)`),
     );
     this.unsubscribe = deps.store.subscribe((events) => {
       for (const event of events) this.observe(event);
@@ -80,23 +79,36 @@ export class TargetThreads {
     const title = this.deps.store.getThread(event.threadId)?.title ?? "the child";
     this.deps.store.atomic((db) =>
       db
-        .prepare("INSERT OR REPLACE INTO machine_thread_notices VALUES (?,?,?)")
-        .run(event.threadId, notice.commandId, noticeText(notice, title, event.threadId)),
+        .prepare("INSERT OR REPLACE INTO machine_thread_notices VALUES (?,?,?,?)")
+        .run(
+          event.threadId,
+          notice.commandId,
+          notice.code,
+          noticeText(notice, title, event.threadId),
+        ),
     );
   }
   /** The kept notice, until the message it is about has been delivered. */
-  private notice(threadId: ThreadId): string | undefined {
+  private notice(threadId: ThreadId) {
     const row = this.deps.store.atomic((db) =>
       db
-        .prepare("SELECT command_id,text FROM machine_thread_notices WHERE thread_id=?")
+        .prepare("SELECT command_id,code,text FROM machine_thread_notices WHERE thread_id=?")
         .get(threadId),
     );
     const engine = this.deps.engine();
     if (!row || !engine) return undefined;
-    const kept = z.object({ command_id: z.string(), text: z.string() }).parse(row);
-    return engine.inputFate(threadId, CommandId.parse(kept.command_id)).state === "delivered"
-      ? undefined
-      : kept.text.slice(0, 400);
+    const kept = z
+      .object({ command_id: z.string(), code: z.string(), text: z.string() })
+      .parse(row);
+    if (engine.inputFate(threadId, CommandId.parse(kept.command_id)).state === "delivered")
+      return undefined;
+    return { text: kept.text.slice(0, 400), commandId: kept.command_id, code: kept.code };
+  }
+  /** The parent's new message supersedes what it was told about an earlier one. */
+  private forgetNotice(threadId: ThreadId) {
+    this.deps.store.atomic((db) =>
+      db.prepare("DELETE FROM machine_thread_notices WHERE thread_id=?").run(threadId),
+    );
   }
   owner(threadId: string): z.infer<typeof Owner> | undefined {
     const row = this.deps.store.atomic((db) =>
@@ -241,8 +253,7 @@ export class TargetThreads {
     };
     const restart = call.delivery === "restart";
     if (restart) {
-      // As a local restart: its own children stop, then the thread, and its holds are dropped.
-      this.deps.stopChildren?.(call.threadId, call.requestId, `machine-restart:${key}`);
+      // A cascading stop: what this thread delegated here stops with it, as in a local restart.
       const stopped = run(`machine-restart:${key}`, {
         type: "thread.interrupt",
         threadId: call.threadId,
@@ -250,7 +261,6 @@ export class TargetThreads {
       });
       if (!stopped.ok)
         throw new TargetRefusal("unavailable", `This machine could not stop it: ${stopped.error}`);
-      engine.discardRecovery(call.threadId);
     }
     const id = CommandId.parse(`machine-message:${key}`);
     const sent = run(id, {
@@ -265,6 +275,7 @@ export class TargetThreads {
         "unavailable",
         `This machine did not take the message: ${sent.error}`,
       );
+    this.forgetNotice(call.threadId);
     const queue = engine.queue(call.threadId);
     if (restart && queue.messages[0]?.id !== id) {
       const moved = run(`machine-restart-first:${key}`, {

@@ -118,7 +118,14 @@ export const MachineThreadView = WatchedThread.extend({
   status: ThreadStatus,
   requests: z.array(MachinePendingRequest).max(8),
   /** A parent's message to it that failed or was kept back after it was accepted. */
-  notice: z.string().max(400).optional(),
+  notice: z
+    .object({
+      text: z.string().max(400),
+      /** The message it is about, and what happened to it: one notice each. */
+      commandId: z.string().min(1).max(128),
+      code: z.string().min(1).max(64),
+    })
+    .optional(),
 });
 export type MachineThreadView = z.infer<typeof MachineThreadView>;
 export const MachineStatusResult = z.object({ threads: z.array(MachineThreadView).max(16) });

@@ -145,19 +145,48 @@ it("a restart sent to another machine also stops what that child delegated there
   expect(delegations.journal.get(grandchild)?.phase).not.toBe("running");
 });
 
-it("a restart sent to another machine lifts the child's usage-limit hold there, as a local one does", async () => {
+it("a notice from the other machine clears once the parent sends its child a new message", async () => {
   const pair = await pairedMachines({ access: "operate" });
   const child = await remoteChild(pair);
-  const until = pair.target.h.clock.now() + 3_600_000;
-  await pair.emit(
-    child,
-    { type: "retry", agent: "root", on: "rate_limit", message: "Usage limit", until },
-    { type: "turn.ended", agent: "root", outcome: "failed" },
-  );
-  expect(pair.target.daemon.engine?.queue(child)).toMatchObject({ paused: true, reason: "limit" });
-  expect(await pair.source.call(message(child, "Start over from main", "restart"))).toMatchObject({
-    ok: true,
-    data: { arrival: "starting" },
+  await pair.source.call(message(child, "Use the new API", "queue"));
+  pair.target.h.failNextSend("rejected", "queue");
+  await pair.finish(child, "First pass done.");
+  const notice = async () =>
+    MonitorSnapshot.parse((await pair.source.call({ op: "agents.status" })).data).children[0]
+      ?.notice;
+  await vi.waitFor(async () => expect(await notice()).toContain("wasn't sent"));
+  await pair.source.call(message(child, "Never mind, use the old one", "queue"));
+  // Read once the other machine has been polled again, not from the reopened placeholder.
+  await vi.waitFor(async () => {
+    const [shown] = MonitorSnapshot.parse(
+      (await pair.source.call({ op: "agents.status" })).data,
+    ).children;
+    expect(shown?.state).toBe("failed");
+    expect(shown?.notice).toBeUndefined();
   });
-  await vi.waitFor(() => expect(received(pair, child).at(-1)).toBe("Start over from main"));
+});
+
+it("a message whose reply is lost keeps a finished child on another machine working here", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const child = await remoteChild(pair);
+  const parent = pair.source.caller.threadId;
+  await pair.finish(child, "First pass done.");
+  await vi.waitFor(() =>
+    expect((pair.source.h.inputs.get(parent) ?? []).join("\n")).toContain("First pass done."),
+  );
+  const store = pair.target.daemon.store;
+  const record = store.recordCommand.bind(store);
+  // The other machine takes the message, then goes away before it can answer.
+  vi.spyOn(store, "recordCommand").mockImplementation((id, device, run) => {
+    const result = record(id, device, run);
+    if (String(id).startsWith("machine-message:")) void pair.target.daemon.close();
+    return result;
+  });
+  await expect(pair.source.call(message(child, "Now the docs"))).rejects.toMatchObject({
+    code: "machine_disconnected",
+  });
+  expect(pair.target.daemon.store.getThread(child)?.status.state).not.toBe("done");
+  // Here the child is working again, so neither it nor its parent reads done.
+  const status = MonitorSnapshot.parse((await pair.source.call({ op: "agents.status" })).data);
+  expect(status.children).toEqual([expect.objectContaining({ id: child, state: "working" })]);
 });
