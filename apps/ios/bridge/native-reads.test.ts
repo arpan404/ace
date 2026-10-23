@@ -303,3 +303,19 @@ test("a family's stamp moves with its events and with the connection coming back
   connect("ready");
   expect(reads.stamp("forge")).not.toBe(updated);
 });
+
+test("an answer the bridge stops keeping leaves Swift's copy too, even one still waiting to be sent", () => {
+  const sink = new RecordingSink();
+  const reads = new NativeReads(fakeOwner().owner, sink, {
+    now: () => 0,
+    schedule: noSchedule,
+    limit: 2,
+  });
+  for (const name of ["first", "second", "third"]) {
+    const read = reads.key({ type: "usage.limits" }, name);
+    if (!read) throw new Error("expected a kept read");
+    reads.answered(read, { providers: [name] });
+  }
+  expect(sink.read("service:cache:first")).toEqual({ type: "service.evict", key: "first" });
+  expect(sink.read("service:cache:second")).toBeUndefined();
+});

@@ -18,6 +18,25 @@ import Testing
         #expect(model.kept(reordered, as: Prompts.self) == Prompts(result: .init(kind: "list")))
     }
 
+    @Test func anAnswerTheBridgeStopsKeepingIsNoLongerDrawn() throws {
+        let model = ClientModel(now: { 0 })
+        let key = try #require(ReadMirror.key(Self.list))
+        model.receive(try frame([["type": "service.cache", "key": key, "family": "prompts", "value": ["result": ["kind": "list"]]]]))
+        #expect(model.kept(Self.list, as: Prompts.self) != nil)
+        model.receive(try frame([["type": "service.evict", "key": key]]))
+        #expect(model.kept(Self.list, as: Prompts.self) == nil)
+        #expect(model.reads.values[key] == nil)
+    }
+
+    @Test func pastItsBudgetTheMirrorLetsTheOldestAnswersGoAndKeepsTheNewest() {
+        let mirror = ReadMirror(budget: 300)
+        let text = ServiceValue.string(String(repeating: "x", count: 200))
+        mirror.store(key: "old", family: "prompts", value: text)
+        mirror.store(key: "new", family: "prompts", value: text)
+        #expect(mirror.value("old", as: String.self) == nil)
+        #expect(mirror.value("new", as: String.self)?.count == 200)
+    }
+
     @Test func aScreenWhoseFirstReadFailedWhileAwayReadsAgainWhenTheMachineComesBack() throws {
         let model = ClientModel(now: { 0 })
         let before = model.readGeneration(Self.list)

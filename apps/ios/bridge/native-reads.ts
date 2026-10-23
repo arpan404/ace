@@ -30,6 +30,8 @@ export interface ReadsOptions {
   schedule(delay: number, run: () => void): () => void;
   /** This machine's storage on the phone; omitted keeps answers for this run only. */
   storage?: ReadStorage;
+  /** At most this many answers are kept (`ReadCache`). */
+  limit?: number;
 }
 /** A kept read's name in Swift's copy, sent with the request. */
 export interface ReadKey {
@@ -65,7 +67,10 @@ export class NativeReads implements NewThreadMemory {
   readonly #keptOrder = new Map<string, number>();
   constructor(owner: ReadsOwner, sink: PatchSink, options: ReadsOptions) {
     this.#sink = sink;
-    this.#cache = new ReadCache({ now: options.now });
+    this.#cache = new ReadCache({
+      now: options.now,
+      ...(options.limit === undefined ? {} : { limit: options.limit }),
+    });
     this.#keeper = options.storage
       ? new ReadKeeper(this.#cache, options.storage, options.schedule)
       : undefined;
@@ -125,7 +130,7 @@ export class NativeReads implements NewThreadMemory {
   answered(read: ReadTicket, value: unknown): boolean {
     if (!keepable(value) || this.#obsolete(read)) return false;
     this.#keptOrder.set(read.key, read.sequence);
-    this.#cache.put(read.key, read.family, value);
+    this.#evicted(this.#cache.put(read.key, read.family, value));
     this.#keeper?.changed();
     return true;
   }
@@ -140,7 +145,7 @@ export class NativeReads implements NewThreadMemory {
     return Patch.safeParse(this.#cache.latest(ownPrefix + key)).data;
   }
   keep(key: string, family: ReadFamily, patch: Record<string, unknown>): void {
-    this.#cache.put(ownPrefix + key, family, patch);
+    this.#evicted(this.#cache.put(ownPrefix + key, family, patch));
     this.#keeper?.changed();
   }
 
@@ -164,6 +169,15 @@ export class NativeReads implements NewThreadMemory {
         ...(this.#reconnects ? { [reconnectsKey]: this.#reconnects } : {}),
       },
     }));
+  }
+
+  /** Answers the cache pushed out leave Swift's copy too; one it is still sending is withdrawn. */
+  #evicted(keys: readonly string[]): void {
+    for (const key of keys) {
+      this.#keptOrder.delete(key);
+      if (key.startsWith(ownPrefix)) continue;
+      this.#sink.put(`service:cache:${key}`, () => ({ type: "service.evict", key }));
+    }
   }
 
   #send(read: KeptRead): void {
