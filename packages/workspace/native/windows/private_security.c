@@ -32,7 +32,6 @@
 #include <aclapi.h>
 #include <stddef.h>
 #include <stdlib.h>
-#include <stdio.h>
 #include "windows_core.h"
 
 // Load a malloc'd copy of the current process TokenUser SID. On success
@@ -211,8 +210,6 @@ static const char *security_verify_handle(HANDLE child, BYTE expected_flags) {
       OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &owner, NULL,
       &dacl, NULL, &descriptor);
   if (status != ERROR_SUCCESS) {
-    if (expected_flags == 3)
-      fprintf(stderr, "[DEBUG-private-dir] GetSecurityInfo status=%lu\n", (unsigned long)status);
     const char *code = wcore_dos_to_code(status);
     return code != NULL ? code : "EIO";
   }
@@ -227,16 +224,6 @@ static const char *security_verify_handle(HANDLE child, BYTE expected_flags) {
     verdict = security_assert_owner_dacl(dacl, control, owner, expected_flags);
     if (verdict == NULL)
       verdict = wcore_assert_current_owner(owner);
-  }
-  if (expected_flags == 3 && verdict != NULL) {
-    ACE_HEADER *first = NULL;
-    if (dacl != NULL && dacl->AceCount > 0) GetAce(dacl, 0, (void **)&first);
-    fprintf(stderr, "[DEBUG-private-dir] control=%u count=%u type=%u flags=%u mask=%lu owner=%s\n",
-        (unsigned int)control, dacl != NULL ? (unsigned int)dacl->AceCount : 0,
-        first != NULL ? (unsigned int)first->AceType : 255,
-        first != NULL ? (unsigned int)first->AceFlags : 255,
-        first != NULL ? (unsigned long)((ACCESS_ALLOWED_ACE *)(void *)first)->Mask : 0,
-        wcore_assert_current_owner(owner) == NULL ? "current" : "other");
   }
   LocalFree(descriptor);
   return verdict;
