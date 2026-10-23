@@ -79,7 +79,7 @@ const controls = (title: RegExp) =>
     .getAllByRole("button")
     .map((button) => button.getAttribute("aria-label"));
 
-test("hovering an active row shows only snooze, settle and more actions, not the status", async () => {
+test("hovering an active row swaps status for actions and keeps its linked pull request", async () => {
   await openHome();
   const title = "Bump Codex app-server to 0.48";
   await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
@@ -87,11 +87,19 @@ test("hovering an active row shows only snooze, settle and more actions, not the
   const row = new RegExp(`^${title}`);
   await waitFor(() => expect(card(row)).toBeTruthy());
   const resting = firstLine(row);
+  expect(
+    within(card(row)).getByRole("button", { name: "Open merged pull request #212" }),
+  ).toBeTruthy();
 
   await userEvent.hover(card(row));
   expect(firstLine(row)).not.toBe(resting);
   expect(resting?.startsWith(firstLine(row) ?? "?")).toBe(true);
-  expect(controls(row)).toEqual([`Snooze ${title}`, `Settle ${title}`, `Actions for ${title}`]);
+  expect(controls(row)).toEqual([
+    "Open merged pull request #212",
+    `Snooze ${title}`,
+    `Settle ${title}`,
+    `Actions for ${title}`,
+  ]);
 
   await userEvent.unhover(card(row));
   expect(firstLine(row)).toBe(resting);
