@@ -4,8 +4,7 @@
   "additionalProperties": false,
   "properties": {
     "delivery": {
-      "default": "steer",
-      "description": "steer (default), queue, or restart.",
+      "description": "Default: steer for your children, queue for other threads.",
       "enum": [
         "queue",
         "steer",

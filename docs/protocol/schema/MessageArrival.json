@@ -4,6 +4,7 @@
   "enum": [
     "starting",
     "steering",
+    "restarting",
     "queued",
     "held",
     "delivered"

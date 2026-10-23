@@ -19,6 +19,22 @@
       "minimum": 0,
       "type": "integer"
     },
+    "messageNotice": {
+      "properties": {
+        "at": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "text": {
+          "maxLength": 400,
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "at"
+      ],
+      "type": "object"
+    },
     "outcome": {
       "$ref": "https://ace.local/protocol/v1/DelegationOutcome.json"
     },

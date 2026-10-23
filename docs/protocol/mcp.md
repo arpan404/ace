@@ -266,7 +266,7 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | union | {"anyOf":[{"type":"object","properties":{"children":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"parent":{"type":"string","minLength":1},"role":{"type":"string","maxLength":40},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"step":{"type":"string","maxLength":60},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"ask":{"type":"string","maxLength":100},"last":{"type":"string","maxLength":100},"queued":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"machine":{"type":"string","maxLength":64}},"required":["id","role","state","elapsedSeconds"],"additionalProperties":false}},"counts":{"type":"object","properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","needs_you","done","failed","cancelled"],"additionalProperties":false}},"required":["children","counts"],"additionalProperties":false},{"type":"object","properties":{"threadId":{"type":"string"},"state":{"type":"string"},"outcome":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","enum":["completed","failed","cancelled"]},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"before":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["threadId","outcome","result","truncated","before"],"additionalProperties":false}},"required":["threadId","state"],"additionalProperties":{}}]} |
+| data | no | union | {"anyOf":[{"type":"object","properties":{"children":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"parent":{"type":"string","minLength":1},"role":{"type":"string","maxLength":40},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"step":{"type":"string","maxLength":60},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"ask":{"type":"string","maxLength":100},"last":{"type":"string","maxLength":100},"queued":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"notice":{"type":"string","maxLength":400},"machine":{"type":"string","maxLength":64}},"required":["id","role","state","elapsedSeconds"],"additionalProperties":false}},"counts":{"type":"object","properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","needs_you","done","failed","cancelled"],"additionalProperties":false}},"required":["children","counts"],"additionalProperties":false},{"type":"object","properties":{"threadId":{"type":"string"},"state":{"type":"string"},"outcome":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","enum":["completed","failed","cancelled"]},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"before":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["threadId","outcome","result","truncated","before"],"additionalProperties":false}},"required":["threadId","state"],"additionalProperties":{}}]} |
 
 Example:
 
@@ -279,7 +279,7 @@ Example:
 
 ## agent_message
 
-Send follow-up work to a child or a thread you started, or with full access to any of the person's threads; it keeps its permissions. steer (default) joins its running turn at the next tool boundary, queue waits for that turn to end, restart interrupts its tree and replaces queued input. arrival says which applied.
+Send follow-up work to a child (on any machine) or a thread you started, or with full access to any of the person's threads; it keeps its permissions. steer joins its running turn at the next tool boundary (on Cursor it restarts that turn with the message), queue waits for the turn to end, restart interrupts its tree and replaces queued input. arrival says which applied.
 
 Required capability: agents. Timeout: 630000 ms.
 
@@ -292,7 +292,7 @@ Required capability: agents. Timeout: 630000 ms.
 | threadId | yes | string | {"minLength":1,"description":"A child's or owned thread's id; with full access, any of the person's threads."} |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
 | text | yes | string | {"minLength":1,"maxLength":262144,"description":"The message, standing on its own."} |
-| delivery | no | ["queue","steer","restart"] | {"default":"steer","description":"steer (default), queue, or restart."} |
+| delivery | no | ["queue","steer","restart"] | {"description":"Default: steer for your children, queue for other threads."} |
 
 Example:
 
@@ -313,7 +313,7 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"arrival":{"type":"string","enum":["starting","steering","queued","held","delivered"]}},"required":["arrival"],"additionalProperties":{}} |
+| data | no | object | {"properties":{"arrival":{"type":"string","enum":["starting","steering","restarting","queued","held","delivered"]}},"required":["arrival"],"additionalProperties":{}} |
 
 Example:
 

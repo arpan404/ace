@@ -27,6 +27,10 @@
       "maximum": 9007199254740991,
       "type": "integer"
     },
+    "notice": {
+      "maxLength": 400,
+      "type": "string"
+    },
     "parent": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     },

@@ -50,6 +50,10 @@
                     "maximum": 9007199254740991,
                     "type": "integer"
                   },
+                  "notice": {
+                    "maxLength": 400,
+                    "type": "string"
+                  },
                   "parent": {
                     "minLength": 1,
                     "type": "string"
