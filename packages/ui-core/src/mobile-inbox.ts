@@ -3,7 +3,12 @@ import type { PendingSend } from "@ace/client";
 import { threadAttention } from "@ace/projection";
 import { isDraft, isRemoved } from "./arrange.ts";
 import { activityOf, isSettled, isSnoozed } from "./thread-state.ts";
-import { mobileStatus, syncingStatus, toneToken, type StatusDisplay } from "./mobile-status.ts";
+import {
+  mobileThreadStatus,
+  syncingStatus,
+  toneToken,
+  type StatusDisplay,
+} from "./mobile-status.ts";
 import { recoveryAttention } from "./recovery-attention.ts";
 
 /*
@@ -111,7 +116,7 @@ export function inboxStatus(thread: InboxThread, now: number): StatusDisplay {
   if (thread.unconfirmed && entry.status.state !== "needs_you") return syncingStatus;
   const recovery = recoveryAttention(entry, undefined);
   if (recovery) return { label: recovery.label, token: toneToken(recovery.tone) };
-  const status = mobileStatus(entry.status);
+  const status = mobileThreadStatus(entry);
   if (entry.status.state === "done" && snoozeEnded(entry, now))
     return { label: snoozeEndedLabel, token: status.token };
   if (entry.status.state === "needs_you") {

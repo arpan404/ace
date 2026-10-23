@@ -21,6 +21,7 @@ export const subagentTones: Record<SubagentState, string> = {
   working: "working",
   human: "needs-you",
   waiting: "waiting",
+  queued: "idle",
   unresponsive: "unresponsive",
   failed: "failed",
   cancelled: "idle",
