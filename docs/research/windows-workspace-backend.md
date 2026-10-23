@@ -242,3 +242,20 @@ API is under verification. It creates a protected current-user-owned directory
 atomically and observes existing directory security through a same-object handle.
 It provides no directory ACL setter that could propagate changes through an
 existing tree. Data-home integration remains a separate gate.
+
+## Cwd lease reparse gap
+
+`CreateFileW` sharing flags do not constrain attribute-only access. The
+`FSCTL_SET_REPARSE_POINT` access check accepts either `FILE_WRITE_DATA` or
+`FILE_WRITE_ATTRIBUTES`; it refuses directories whose entry list is nonempty.
+These are documented contracts, not native observations in this branch.
+Sources: [CreateFileW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew),
+[MS-FSA reparse operation](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fsa/4aeefef8-92c3-4abc-af7a-a610caf8a165).
+
+Inference: a read lease denying delete/write sharing may still allow an empty
+cwd to become a junction through an attribute-only handle. Such an in-place
+change may preserve its file ID. The existing rename and GUID-path tests do not
+establish protection against that operation. Pinning a checkout's existing `.git`
+entry could keep the directory nonempty, but `init` and `clone` legitimately start
+before that entry exists. A native empty-directory versus pinned-entry reparse
+probe remains required before choosing the confined Git launcher.
