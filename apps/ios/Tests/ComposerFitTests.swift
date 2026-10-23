@@ -8,7 +8,8 @@ import CoreGraphics
     @Test func aFocusedEmptyComposerOpensToItsWritingHeight() {
         let empty = fit.height(content: 47, focused: true)
         #expect(empty > fit.height(content: 47, focused: false))
-        #expect(empty == 23 * 3 + 24)
+        let threeLines: CGFloat = 23 * 3 + 24
+        #expect(empty == threeLines)
         #expect(ComposerFit.card(focused: true, wraps: false))
     }
 
@@ -23,8 +24,9 @@ import CoreGraphics
         #expect(fit.height(content: fourLines, focused: true) == fourLines)
         #expect(fit.height(content: fourLines, focused: false) == fourLines)
         let twentyLines: CGFloat = 23 * 20 + 24
-        #expect(fit.height(content: twentyLines, focused: true) == 23 * 5 + 24)
-        #expect(fit.height(content: twentyLines, focused: false) == 23 * 5 + 24)
+        let fiveLines: CGFloat = 23 * 5 + 24
+        #expect(fit.height(content: twentyLines, focused: true) == fiveLines)
+        #expect(fit.height(content: twentyLines, focused: false) == fiveLines)
     }
 
     @Test func wrappedTextStaysACardAfterFocusLeaves() {
@@ -33,6 +35,7 @@ import CoreGraphics
 
     @Test func accessibilityTypeOpensToFewerLines() {
         let large = ComposerFit(line: 60, inset: 24, minimum: 44, largeType: true)
-        #expect(large.height(content: 84, focused: true) == 60 * 2 + 24)
+        let twoLines: CGFloat = 60 * 2 + 24
+        #expect(large.height(content: 84, focused: true) == twoLines)
     }
 }

@@ -25,6 +25,8 @@ struct ComposerView<Top: View, Leading: View, Trailing: View>: View {
     @State private var feedback = 0
     @State private var wraps = false
     @State private var focused = false
+    /// The controls glide between the one-line row and the card's row below the text.
+    @Namespace private var controlsSpace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.threadDrafts) private var drafts
     @Environment(\.scenePhase) private var scenePhase
@@ -35,16 +37,16 @@ struct ComposerView<Top: View, Leading: View, Trailing: View>: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             top()
             HStack(spacing: AceTheme.Spacing.none) {
-                if !card { leading() }
+                if !card { leadingControl }
                 input
-                if !card { trailing(); action }
+                if !card { trailingControl; actionControl }
             }
             if card {
                 HStack(spacing: AceTheme.Spacing.none) {
-                    leading()
+                    leadingControl
                     Spacer(minLength: AceTheme.Spacing.sm)
-                    trailing()
-                    action
+                    trailingControl
+                    actionControl
                 }
             }
         }
@@ -59,6 +61,9 @@ struct ComposerView<Top: View, Leading: View, Trailing: View>: View {
         .onChange(of: scenePhase) { _, phase in if phase != .active { draft.flush() } }
         .onDisappear { draft.flush() }
     }
+    private var leadingControl: some View { leading().matchedGeometryEffect(id: "leading", in: controlsSpace) }
+    private var trailingControl: some View { trailing().matchedGeometryEffect(id: "trailing", in: controlsSpace) }
+    private var actionControl: some View { action.matchedGeometryEffect(id: "action", in: controlsSpace) }
     private var input: some View {
         NativeTextInput(text: $draft.text, inputBegan: inputBegan, submit: { if !disabled && !stops { submit(alternate: false) } },
                         wraps: wraps, onWrap: { wraps = $0 }, card: card, focused: focused,

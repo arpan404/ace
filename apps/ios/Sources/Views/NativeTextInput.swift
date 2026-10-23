@@ -63,15 +63,15 @@ struct NativeTextInput: UIViewRepresentable {
         init(parent: NativeTextInput) { self.parent = parent }
         /// The keyboard's last animation duration; the composer grows on the same curve.
         private var keyboardDuration = 0.35
-        private var keyboard: NSObjectProtocol?
+        private var observing = false
         func observeKeyboard() {
-            guard keyboard == nil else { return }
-            keyboard = NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] note in
-                let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double
-                MainActor.assumeIsolated { if let duration, duration > 0 { self?.keyboardDuration = duration } }
-            }
+            guard !observing else { return }
+            observing = true
+            NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillMove(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
         }
-        deinit { if let keyboard { NotificationCenter.default.removeObserver(keyboard) } }
+        @objc private func keyboardWillMove(_ note: Notification) {
+            if let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double, duration > 0 { keyboardDuration = duration }
+        }
         func textViewDidBeginEditing(_ textView: UITextView) { focus(true) }
         func textViewDidEndEditing(_ textView: UITextView) { focus(false) }
         /// The keyboard's frame change is posted after editing begins or ends; waiting a turn
