@@ -31,11 +31,11 @@ if (!thread.rootAgentId)
           fidelity: "full",
           cwd: process.cwd(),
           status: { state: "working", activity: "tool" },
-          createdAt: 1,
+          createdAt: thread.createdAt,
         }),
       },
     ],
-    1,
+    thread.createdAt,
   );
 process.stdout.write(`ace daemon: ${daemon.url}\nToken file: ${daemon.tokenPath}\n`);
 process.once("SIGTERM", () => {
