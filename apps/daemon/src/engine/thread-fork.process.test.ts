@@ -88,7 +88,8 @@ test("a merge becomes cited context in the source and reaches its next provider 
   const source = await h.create();
   const fork = await h.fork(source);
   const item = Object.values(h.store.snapshotThread(fork).items).find(
-    (candidate) => candidate.type === "message" && candidate.role === "assistant",
+    (candidate) =>
+      candidate.type === "message" && candidate.role === "assistant" && !candidate.inherited,
   );
   if (!item) throw new Error("No fork item");
   expect(
