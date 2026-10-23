@@ -22,6 +22,7 @@ import { seedMessages } from "./message-scenario.ts";
 import { seedReading } from "./reading-scenario.ts";
 import { seedGoal } from "./goal-scenario.ts";
 import { busyInbox } from "./busy-inbox-scenario.ts";
+import { seedSettled } from "./settled-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
 const port = z.coerce
@@ -159,6 +160,7 @@ const busyTimer =
   busy > 0
     ? busyInbox(daemon, details, busy, Number(process.env.ACE_IOS_SPIKE_INBOX_MS ?? 200))
     : undefined;
+seedSettled(daemon, details, Number(process.env.ACE_IOS_SPIKE_SETTLED ?? 0));
 seedProjects(daemon);
 seedNativeMedia(daemon);
 seedBrowser(daemon, details);
