@@ -1,4 +1,7 @@
 import SwiftUI
+import os
+enum A11yDbg { static let log = Logger(subsystem: "app.ace.ios", category: "a11ydbg") }
+enum A11yOld { static let on = ProcessInfo.processInfo.arguments.contains("--a11y-old") }
 
 /// Gesture intent is consumed once per page; layout changes and programmatic scrolls never page.
 private final class TranscriptScrollIntent {
@@ -67,10 +70,11 @@ struct ConversationFeed: View {
                     ForEach(TranscriptFeedRow.rows(shown)) { row in
                         TranscriptFeedRowView(row: row, thread: shown, links: links).id(row.id)
                             .onAppear { ThreadOpenTrace.shared.painted(thread.id) }
-                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("transcript.viewport")) } action: { frame in
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(A11yOld.on ? "transcript.viewport" : TranscriptReadingAnchor.space)) } action: { frame in
+                                if let was = anchor.frames[row.id] { if abs(was.height - frame.height) > 0.5 { A11yDbg.log.error("h \(row.id, privacy: .public) \(was.height) -> \(frame.height)") } } else { A11yDbg.log.error("in \(row.id, privacy: .public) \(row.block.row.kind, privacy: .public) \(frame.height) y=\(frame.minY)") }
                                 anchor.frames[row.id] = frame
                             }
-                            .onDisappear { anchor.frames[row.id] = nil }
+                            .onDisappear { A11yDbg.log.error("out \(row.id, privacy: .public)"); anchor.frames[row.id] = nil }
                     }
                 } else { ConversationSkeleton().padding(AceTheme.Spacing.xl) }
                 if reading.thread == nil || reading.joined {
@@ -88,6 +92,7 @@ struct ConversationFeed: View {
                 TranscriptTail(thread: thread, following: pinned) { if !keyboardMoving { toEnd(proxy) } }
             }
             .padding(.top, AceTheme.Spacing.sm)
+            .coordinateSpace(name: TranscriptReadingAnchor.space)
         }
         .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { feedBottom = $0 }
         .coordinateSpace(name: "transcript.viewport")
@@ -97,6 +102,7 @@ struct ConversationFeed: View {
         .accessibilityIdentifier("transcript")
         .accessibilityValue(ready ? (reading.paged ? "Reading history" : "Ready") : "Loading")
         .onScrollPhaseChange { _, phase in
+            A11yDbg.log.error("phase \(String(describing: phase), privacy: .public) y=\(intent.metrics.y) h=\(intent.metrics.height)")
             switch phase {
             case .tracking:
                 intent.begin()
@@ -121,6 +127,7 @@ struct ConversationFeed: View {
                 bottom: geometry.contentSize.height + insets.bottom - geometry.contentOffset.y - frame,
                 viewport: frame, topInset: insets.top, bottomInset: insets.bottom, height: geometry.contentSize.height)
         } action: { old, new in
+            if old.height != new.height || old.viewport != new.viewport { A11yDbg.log.error("content h \(old.height) -> \(new.height) y=\(new.y) vp=\(new.viewport) bar=\(barHeight) kb=\(keyboardLift) active=\(intent.active)") }
             intent.metrics = new
             keepEnd(old: old, new: new, proxy: proxy)
             if thread.loaded, new.bottom <= 1 { ThreadOpenTrace.shared.settled(thread.id) }
@@ -146,7 +153,7 @@ struct ConversationFeed: View {
         }
         .task {
             reading.willReplace = {
-                anchor.capture(viewport: intent.metrics.viewport, topInset: intent.metrics.topInset, bottomInset: intent.metrics.bottomInset)
+                anchor.capture(offset: A11yOld.on ? 0 : intent.metrics.y, viewport: intent.metrics.viewport, topInset: intent.metrics.topInset, bottomInset: intent.metrics.bottomInset)
             }
             if thread.loaded { toEnd(proxy); initialScroll = true }
         }
@@ -166,6 +173,7 @@ struct ConversationFeed: View {
             roomChanged(by: growth, motion: motion, proxy: proxy)
         }
         .onChange(of: barHeight) { old, new in
+            A11yDbg.log.error("bar \(old) -> \(new) following=\(following)")
             roomChanged(by: new - old, motion: reduceMotion ? nil : AceTheme.Motion.standardCurve, proxy: proxy)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { _ in
@@ -191,7 +199,8 @@ struct ConversationFeed: View {
         // starting in the same frame as the keyboard.
         withAnimation(motion) { toEnd(proxy) }
     }
-    private func toEnd(_ proxy: ScrollViewProxy) { proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
+    private func toEnd(_ proxy: ScrollViewProxy) {
+        A11yDbg.log.error("toEnd"); proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
     /// Following the end, the end stays in place as rows change height: older history filling in
     /// above, rows measured on the way down after a jump. The person's own scroll wins, and a
     /// change of room has its own animated scroll.
