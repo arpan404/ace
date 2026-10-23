@@ -6,8 +6,9 @@ name: Windows native foundation
 # Windows fixture set. See scripts/vitest-windows-native.config.ts for scope.
 #
 # Bun runs as x64 on both hosts; only native Node executes the fixtures.
-# Dependency staging skips root postinstall, whose production descriptor
-# backend remains POSIX-only. This is not the clean-install release gate.
+# Clean-install gate: real `bun install --frozen-lockfile` runs AFTER verified
+# Node headers/node.lib + MSVC locate, inside VsDevCmd, so the root postinstall
+# builds the Windows descriptor through the normal build.ts entry.
 
 on:
   pull_request:
@@ -102,20 +103,6 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ matrix.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
 
-      - name: Staging install (ignore-scripts; NOT the W06 clean-install gate)
-        run: |
-          $ErrorActionPreference = "Stop"
-          Write-Host "STAGING ONLY: dependency staging with --ignore-scripts so no postinstall runs yet."
-          Write-Host "This step is explicitly NOT the W06 clean `bun install` validation."
-          bun install --frozen-lockfile --ignore-scripts --os=win32 --cpu=${{ matrix.bun_cpu }}
-
-      - name: Save verified dependency downloads before native checks
-        if: steps.bun-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ steps.bun-cache.outputs.cache-primary-key }}
-
       - name: Fetch official Node headers + node.lib and verify SHASUMS256
         id: headers
         run: |
@@ -163,6 +150,29 @@ jobs:
           Write-Host "VS install: $Install"
           Write-Host "VsDevCmd: $DevCmd (arch=${{ matrix.msvc_arch }})"
           "vs-devcmd=$DevCmd" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Clean install (runs root postinstall via normal build.ts)
+        shell: cmd
+        env:
+          VS_DEVCMD: ${{ steps.msvc.outputs.vs-devcmd }}
+          MSVC_ARCH: ${{ matrix.msvc_arch }}
+          ACE_WINDOWS_HEADERS_DIR: ${{ steps.headers.outputs.headers-dir }}
+          ACE_WINDOWS_NODE_LIB: ${{ steps.headers.outputs.node-lib }}
+        run: |
+          @echo off
+          setlocal
+          call "%VS_DEVCMD%" -arch=%MSVC_ARCH% -host_arch=%MSVC_ARCH% || exit /b 1
+          where cl || exit /b 1
+          where node || exit /b 1
+          node -p "JSON.stringify({ arch: process.arch, version: process.version })" || exit /b 1
+          bun install --frozen-lockfile --os=win32 --cpu=${{ matrix.bun_cpu }} || exit /b 1
+
+      - name: Save verified dependency downloads before native checks
+        if: steps.bun-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ steps.bun-cache.outputs.cache-primary-key }}
 
       - name: Probe and build windows-core with native cl
         shell: cmd
