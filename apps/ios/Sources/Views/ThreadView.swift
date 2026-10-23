@@ -109,6 +109,7 @@ struct ThreadView: View {
             .sheet(isPresented: $showSearch) {
                 NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; openThread(id) }) }
             }
+            .modifier(MessageAttachmentRoutes(model: model, threadId: thread.id))
             .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle, showFiles: $showFiles,
                                        mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil))
             .sheet(isPresented: $showModels) {
