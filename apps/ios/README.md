@@ -182,8 +182,9 @@ thread the bridge no longer remembers resets as before. `Sources/Models/ThreadOp
 times each open (signposts and one `perf` log line: ready, first rows, settled, frames, bytes,
 main-thread and JavaScript time, hops across the bridge, footprint) and samples late frames.
 While an answer streams, the feed stays at its end through the scroll view's size-change anchor
-(no scroll write per delta) and the caret pulses in Core Animation, so a delta costs one SwiftUI
-update. To measure that cost, open the fixture's streaming thread once, then relaunch with
+(no scroll write per delta), and what moves on its own (the caret, the live pill's glyph, the shimmer
+on live text) moves in Core Animation, so a delta costs one SwiftUI update and nothing redraws the
+view graph between deltas. To measure that cost, open the fixture's streaming thread once, then relaunch with
 `--spike --spike-port <port> --spike-keep-state` (it reopens the thread) and sample the app: under
 a UI test, accessibility is on and adds about a tenth of the main thread's work.
 Request threads live in `scripts/request-scenarios.ts`; `POST /review/fresh {"scenario": …}` seeds a
