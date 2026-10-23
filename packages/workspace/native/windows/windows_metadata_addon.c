@@ -42,10 +42,47 @@ static napi_value do_identity_of(napi_env env, napi_callback_info info) {
   return result;
 }
 
-static napi_value do_stat_at(napi_env env, napi_callback_info info) {
-  napi_value args[2];
+static napi_value make_stat_result(napi_env env, const char *op,
+    const char *vol, const char *id, unsigned int mode,
+    unsigned long long size, double mtime_ms, unsigned int attrs) {
   napi_value result = NULL;
   napi_value value = NULL;
+  if (napi_create_object(env, &result) != napi_ok)
+    return throw_binding_error(env, op);
+  if (napi_create_string_utf8(env, vol, NAPI_AUTO_LENGTH, &value) != napi_ok)
+    return throw_binding_error(env, op);
+  if (napi_set_named_property(env, result, "vol", value) != napi_ok)
+    return throw_binding_error(env, op);
+  value = NULL;
+  if (napi_create_string_utf8(env, id, NAPI_AUTO_LENGTH, &value) != napi_ok)
+    return throw_binding_error(env, op);
+  if (napi_set_named_property(env, result, "id", value) != napi_ok)
+    return throw_binding_error(env, op);
+  value = NULL;
+  if (napi_create_int32(env, (int32_t)mode, &value) != napi_ok)
+    return throw_binding_error(env, op);
+  if (napi_set_named_property(env, result, "mode", value) != napi_ok)
+    return throw_binding_error(env, op);
+  value = NULL;
+  if (napi_create_double(env, (double)size, &value) != napi_ok)
+    return throw_binding_error(env, op);
+  if (napi_set_named_property(env, result, "size", value) != napi_ok)
+    return throw_binding_error(env, op);
+  value = NULL;
+  if (napi_create_double(env, mtime_ms, &value) != napi_ok)
+    return throw_binding_error(env, op);
+  if (napi_set_named_property(env, result, "mtimeMs", value) != napi_ok)
+    return throw_binding_error(env, op);
+  value = NULL;
+  if (napi_create_uint32(env, attrs, &value) != napi_ok)
+    return throw_binding_error(env, op);
+  if (napi_set_named_property(env, result, "attrs", value) != napi_ok)
+    return throw_binding_error(env, op);
+  return result;
+}
+
+static napi_value do_stat_at(napi_env env, napi_callback_info info) {
+  napi_value args[2];
   size_t count = 2;
   int32_t parent = -1;
   char name[1025];
@@ -60,38 +97,25 @@ static napi_value do_stat_at(napi_env env, napi_callback_info info) {
   const char *code =
       wcore_stat_at(parent, name, vol, id, &mode, &size, &mtime_ms, &attrs);
   if (code != NULL) return fail_for(env, "statAt", code, name);
-  if (napi_create_object(env, &result) != napi_ok)
-    return throw_binding_error(env, "statAt");
-  if (napi_create_string_utf8(env, vol, NAPI_AUTO_LENGTH, &value) != napi_ok)
-    return throw_binding_error(env, "statAt");
-  if (napi_set_named_property(env, result, "vol", value) != napi_ok)
-    return throw_binding_error(env, "statAt");
-  value = NULL;
-  if (napi_create_string_utf8(env, id, NAPI_AUTO_LENGTH, &value) != napi_ok)
-    return throw_binding_error(env, "statAt");
-  if (napi_set_named_property(env, result, "id", value) != napi_ok)
-    return throw_binding_error(env, "statAt");
-  value = NULL;
-  if (napi_create_int32(env, (int32_t)mode, &value) != napi_ok)
-    return throw_binding_error(env, "statAt");
-  if (napi_set_named_property(env, result, "mode", value) != napi_ok)
-    return throw_binding_error(env, "statAt");
-  value = NULL;
-  if (napi_create_double(env, (double)size, &value) != napi_ok)
-    return throw_binding_error(env, "statAt");
-  if (napi_set_named_property(env, result, "size", value) != napi_ok)
-    return throw_binding_error(env, "statAt");
-  value = NULL;
-  if (napi_create_double(env, mtime_ms, &value) != napi_ok)
-    return throw_binding_error(env, "statAt");
-  if (napi_set_named_property(env, result, "mtimeMs", value) != napi_ok)
-    return throw_binding_error(env, "statAt");
-  value = NULL;
-  if (napi_create_uint32(env, attrs, &value) != napi_ok)
-    return throw_binding_error(env, "statAt");
-  if (napi_set_named_property(env, result, "attrs", value) != napi_ok)
-    return throw_binding_error(env, "statAt");
-  return result;
+  return make_stat_result(env, "statAt", vol, id, mode, size, mtime_ms, attrs);
+}
+
+static napi_value do_stat_fd(napi_env env, napi_callback_info info) {
+  napi_value args[1];
+  size_t count = 1;
+  int32_t fd = -1;
+  if (napi_get_cb_info(env, info, &count, args, NULL, NULL) != napi_ok ||
+      count != 1 || !read_fd(env, args[0], &fd))
+    return fail_for(env, "statFd", "EINVAL", NULL);
+  char vol[17], id[33];
+  unsigned int mode = 0, attrs = 0;
+  unsigned long long size = 0;
+  double mtime_ms = 0;
+  const char *code =
+      wcore_stat_fd(fd, vol, id, &mode, &size, &mtime_ms, &attrs);
+  if (code != NULL) return fail_for(env, "statFd", code, NULL);
+  // Borrowed fd only: never close here; ownership stays with the JS side.
+  return make_stat_result(env, "statFd", vol, id, mode, size, mtime_ms, attrs);
 }
 
 struct names_collect_ctx {
@@ -145,6 +169,7 @@ napi_status wcore_define_metadata(napi_env env, napi_value exports) {
   napi_property_descriptor methods[] = {
     {"identityOf", NULL, do_identity_of, NULL, NULL, NULL, napi_default, NULL},
     {"statAt", NULL, do_stat_at, NULL, NULL, NULL, napi_default, NULL},
+    {"statFd", NULL, do_stat_fd, NULL, NULL, NULL, napi_default, NULL},
     {"names", NULL, do_names, NULL, NULL, NULL, napi_default, NULL},
   };
   return napi_define_properties(env, exports,

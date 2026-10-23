@@ -151,24 +151,32 @@ const posixDescriptorStats: DescriptorStatSource = {
   },
 };
 
-/** Build a Windows fd stat source from a native file-id lookup.
+/** Build a Windows fd stat source from a native metadata lookup.
  * Both observations run on the same caller-held fd: bigint display metadata
- * from fstat plus FILE_ID_INFO from identityOf. The path is never reopened,
+ * from fstat plus FILE_ID_INFO and reparse-aware mode from statFd. Node's
+ * fstat classifies an opened junction as a directory, so native mode owns
+ * the type predicates as well. The path is never reopened,
  * so a pathname rename cannot redirect the observation. The caller keeps the
  * fd alive through the async stat.
  */
-export function windowsDescriptorStats(identityOf: (fd: number) => unknown): DescriptorStatSource {
-  const nativeIdentity = Win32FileIdentitySchema.omit({ kind: true });
+export function windowsDescriptorStats(statFd: (fd: number) => unknown): DescriptorStatSource {
+  const nativeMetadata = Win32FileIdentitySchema.omit({ kind: true }).extend({
+    mode: z.number().int().min(0).max(0o177777),
+  });
   return {
     statSync(fd: number): IdentifiedStats {
       const info = fstatSync(fd, { bigint: true });
-      const fields = nativeIdentity.parse(identityOf(fd));
-      return identifiedStats(info, { kind: "win32", vol: fields.vol, id: fields.id });
+      const fields = nativeMetadata.parse(statFd(fd));
+      return identifiedStats(info, { kind: "win32", vol: fields.vol, id: fields.id }, fields.mode);
     },
     stat(fd: number): Promise<IdentifiedStats> {
       return fstatAsync(fd).then((info) => {
-        const fields = nativeIdentity.parse(identityOf(fd));
-        return identifiedStats(info, { kind: "win32", vol: fields.vol, id: fields.id });
+        const fields = nativeMetadata.parse(statFd(fd));
+        return identifiedStats(
+          info,
+          { kind: "win32", vol: fields.vol, id: fields.id },
+          fields.mode,
+        );
       });
     },
   };

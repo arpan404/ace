@@ -17,6 +17,7 @@ const Binding = z.object({
     output: z.number().int(),
   }),
   identityOf: z.function({ input: [z.number().int()], output: z.unknown() }),
+  statFd: z.function({ input: [z.number().int()], output: z.unknown() }),
 });
 const win = test.runIf(process.platform === "win32");
 
@@ -24,7 +25,7 @@ async function fixture(onTestFinished: TestContext["onTestFinished"]) {
   const root = await mkdtemp(join(tmpdir(), "ace-win-descriptor-stat-"));
   onTestFinished(() => rm(root, { recursive: true, force: true }));
   const core = Binding.parse(require("../dist/windows-core.node"));
-  return { root, core, stats: windowsDescriptorStats(core.identityOf) };
+  return { root, core, stats: windowsDescriptorStats(core.statFd) };
 }
 
 win(
@@ -125,7 +126,11 @@ win(
     const { root, core } = await fixture(onTestFinished);
     const parent = core.openRoot(root);
     try {
-      const stats = windowsDescriptorStats(() => ({ vol: "invalid", id: "0".repeat(32) }));
+      const stats = windowsDescriptorStats(() => ({
+        vol: "invalid",
+        id: "0".repeat(32),
+        mode: 0o100600,
+      }));
       const file = new Descriptor(core.createPrivateFileAt(parent, "invalid-id.txt"), stats);
       try {
         expect(() => file.statSync()).toThrow();

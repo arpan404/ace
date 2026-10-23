@@ -170,6 +170,14 @@ const char *wcore_stat_at(int parent_fd, const char *name, char vol_hex[17],
     char id_hex[33], unsigned int *mode, unsigned long long *size,
     double *mtime_ms, unsigned int *attrs);
 
+// Metadata of an already-open fd: same outputs as statAt, queried on the
+// SAME borrowed HANDLE (never reopened by name, never closed here). The
+// caller keeps the fd alive through this synchronous call. Any reparse
+// point reports S_IFLNK; callers deny.
+const char *wcore_stat_fd(int fd, char vol_hex[17],
+    char id_hex[33], unsigned int *mode, unsigned long long *size,
+    double *mtime_ms, unsigned int *attrs);
+
 // Directory enumeration: FileIdExtdDirectoryInfo on the borrowed
 // directory handle; skips "." / ".."; cap 1..10000 else EINVAL; more than
 // cap accepted entries is E2BIG. Calls sink once per accepted name

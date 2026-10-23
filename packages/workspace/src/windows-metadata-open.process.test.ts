@@ -17,11 +17,13 @@ const Binding = z.object({
     output: z.number().int().nonnegative(),
   }),
   identityOf: z.function({ input: [z.number().int()], output: nativeIdentity }),
+  statFd: z.function({ input: [z.number().int()], output: z.unknown() }),
   statAt: z.function({ input: [z.number().int(), z.string()], output: nativeIdentity }),
   checkPrivateFd: z.function({ input: [z.number().int()], output: z.void() }),
 });
 const RawBinding = z.object({
   openMetadataAt: z.function({ input: [z.unknown(), z.unknown()], output: z.unknown() }),
+  statFd: z.function({ input: [z.unknown()], output: z.unknown() }),
 });
 const win = test.runIf(process.platform === "win32");
 
@@ -30,7 +32,7 @@ async function fixture(onTestFinished: TestContext["onTestFinished"]) {
   onTestFinished(() => rm(root, { recursive: true, force: true }));
   const addon: unknown = require("../dist/windows-core.node");
   const core = Binding.parse(addon);
-  const stats = windowsDescriptorStats(core.identityOf);
+  const stats = windowsDescriptorStats(core.statFd);
   return {
     root,
     core,
@@ -82,12 +84,14 @@ win(
     await writeFile(join(root, "scope", "slot.txt"), "original");
     const parent = core.openRoot(join(root, "scope"));
     try {
+      // Windows refuses moving an ancestor with an open child. Move it while
+      // only the parent is pinned, then prove subsequent opens use that parent.
+      await rename(join(root, "scope"), join(root, "moved"));
+      await mkdir(join(root, "scope"));
+      await writeFile(join(root, "scope", "slot.txt"), "decoy");
       const held = open(parent, "slot.txt");
       try {
         const identity = held.statSync().identity;
-        await rename(join(root, "scope"), join(root, "moved"));
-        await mkdir(join(root, "scope"));
-        await writeFile(join(root, "scope", "slot.txt"), "decoy");
         const original = open(parent, "slot.txt");
         try {
           expect(sameFile((await original.stat()).identity, identity)).toBe(true);
@@ -130,6 +134,8 @@ win(
         const info = await link.stat();
         expect(info.identity).toEqual({ kind: "win32", ...core.statAt(parent, "junction") });
         expect(info.isSymbolicLink()).toBe(true);
+        expect(info.isDirectory()).toBe(false);
+        expect(info.isFile()).toBe(false);
         expect(sameFile(info.identity, { kind: "win32", ...core.identityOf(target) })).toBe(false);
         expect(() => core.checkPrivateFd(link.fd)).toThrowError(
           expect.objectContaining({ code: "ELOOP" }),
@@ -174,6 +180,7 @@ win(
         expect(() => raw.openMetadataAt(fd, "file.txt")).toThrowError(
           expect.objectContaining({ code: "EINVAL" }),
         );
+        expect(() => raw.statFd(fd)).toThrowError(expect.objectContaining({ code: "EINVAL" }));
       }
       expect(() => core.openMetadataAt(parent, "missing.txt")).toThrowError(
         expect.objectContaining({ code: "ENOENT" }),
@@ -193,5 +200,6 @@ win(
     expect(() => core.openMetadataAt(parent, "file.txt")).toThrowError(
       expect.objectContaining({ code: "EBADF" }),
     );
+    expect(() => raw.statFd(parent)).toThrowError(expect.objectContaining({ code: "EBADF" }));
   },
 );

@@ -57,6 +57,66 @@
 #define WCORE_DIR_CAP 10000
 #define WCORE_DIR_BATCH 65536
 
+static const char *stat_handle(HANDLE child, char vol_hex[17],
+    char id_hex[33], unsigned int *mode, unsigned long long *size,
+    double *mtime_ms, unsigned int *attrs) {
+  if (child == NULL || vol_hex == NULL || id_hex == NULL || mode == NULL ||
+      size == NULL || mtime_ms == NULL || attrs == NULL)
+    return "EINVAL";
+  FILE_ATTRIBUTE_TAG_INFO tag;
+  memset(&tag, 0, sizeof(tag));
+  if (!GetFileInformationByHandleEx(
+          child, FileAttributeTagInfo, &tag, sizeof(tag))) {
+    const char *code = wcore_dos_to_code(GetLastError());
+    return code != NULL ? code : "EIO";
+  }
+  FILE_ID_INFO fid;
+  memset(&fid, 0, sizeof(fid));
+  if (!GetFileInformationByHandleEx(child, FileIdInfo, &fid, sizeof(fid))) {
+    const char *code = wcore_dos_to_code(GetLastError());
+    return code != NULL ? code : "EIO";
+  }
+  FILE_BASIC_INFO basic;
+  memset(&basic, 0, sizeof(basic));
+  if (!GetFileInformationByHandleEx(child, FileBasicInfo, &basic, sizeof(basic))) {
+    const char *code = wcore_dos_to_code(GetLastError());
+    return code != NULL ? code : "EIO";
+  }
+  FILE_STANDARD_INFO stdinfo;
+  memset(&stdinfo, 0, sizeof(stdinfo));
+  if (!GetFileInformationByHandleEx(
+          child, FileStandardInfo, &stdinfo, sizeof(stdinfo))) {
+    const char *code = wcore_dos_to_code(GetLastError());
+    return code != NULL ? code : "EIO";
+  }
+  int is_reparse = (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+  int is_dir = (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+  int readonly = (tag.FileAttributes & FILE_ATTRIBUTE_READONLY) != 0;
+  if (is_reparse)
+    *mode = 0120000 | 0777;
+  else if (is_dir)
+    *mode = 0040000 | (readonly ? 0555 : 0777);
+  else
+    *mode = 0100000 | (readonly ? 0444 : 0666);
+  if (stdinfo.EndOfFile.QuadPart < 0) {
+    return "EIO";
+  }
+  *size = (unsigned long long)stdinfo.EndOfFile.QuadPart;
+  // Signed tick arithmetic: pre-1970 LastWriteTime stays negative.
+  // Integer ms plus sub-ms remainder keeps ms-set times exact in doubles.
+  {
+    LONGLONG delta =
+        basic.LastWriteTime.QuadPart - 116444736000000000LL;
+    LONGLONG ms = delta / 10000;
+    LONG rem = (LONG)(delta % 10000);
+    *mtime_ms = (double)ms + ((double)rem) / 10000.0;
+  }
+  *attrs = (unsigned int)tag.FileAttributes;
+  wcore_format_vol((ULONGLONG)fid.VolumeSerialNumber, vol_hex);
+  wcore_format_id(&fid.FileId, id_hex);
+  return NULL;
+}
+
 const char *wcore_stat_at(int parent_fd, const char *name, char vol_hex[17],
     char id_hex[33], unsigned int *mode, unsigned long long *size,
     double *mtime_ms, unsigned int *attrs) {
@@ -83,64 +143,23 @@ const char *wcore_stat_at(int parent_fd, const char *name, char vol_hex[17],
   const char *opened = wcore_nt_create_child(
       parent, wname, wlen, opts, FILE_READ_ATTRIBUTES | SYNCHRONIZE, &child);
   if (opened != NULL) return opened;
-  FILE_ATTRIBUTE_TAG_INFO tag;
-  memset(&tag, 0, sizeof(tag));
-  if (!GetFileInformationByHandleEx(
-          child, FileAttributeTagInfo, &tag, sizeof(tag))) {
-    const char *code = wcore_dos_to_code(GetLastError());
-    CloseHandle(child);
-    return code != NULL ? code : "EIO";
-  }
-  FILE_ID_INFO fid;
-  memset(&fid, 0, sizeof(fid));
-  if (!GetFileInformationByHandleEx(child, FileIdInfo, &fid, sizeof(fid))) {
-    const char *code = wcore_dos_to_code(GetLastError());
-    CloseHandle(child);
-    return code != NULL ? code : "EIO";
-  }
-  FILE_BASIC_INFO basic;
-  memset(&basic, 0, sizeof(basic));
-  if (!GetFileInformationByHandleEx(child, FileBasicInfo, &basic, sizeof(basic))) {
-    const char *code = wcore_dos_to_code(GetLastError());
-    CloseHandle(child);
-    return code != NULL ? code : "EIO";
-  }
-  FILE_STANDARD_INFO stdinfo;
-  memset(&stdinfo, 0, sizeof(stdinfo));
-  if (!GetFileInformationByHandleEx(
-          child, FileStandardInfo, &stdinfo, sizeof(stdinfo))) {
-    const char *code = wcore_dos_to_code(GetLastError());
-    CloseHandle(child);
-    return code != NULL ? code : "EIO";
-  }
-  int is_reparse = (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
-  int is_dir = (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-  int readonly = (tag.FileAttributes & FILE_ATTRIBUTE_READONLY) != 0;
-  if (is_reparse)
-    *mode = 0120000 | 0777;
-  else if (is_dir)
-    *mode = 0040000 | (readonly ? 0555 : 0777);
-  else
-    *mode = 0100000 | (readonly ? 0444 : 0666);
-  if (stdinfo.EndOfFile.QuadPart < 0) {
-    CloseHandle(child);
-    return "EIO";
-  }
-  *size = (unsigned long long)stdinfo.EndOfFile.QuadPart;
-  // Signed tick arithmetic: pre-1970 LastWriteTime stays negative.
-  // Integer ms plus sub-ms remainder keeps ms-set times exact in doubles.
-  {
-    LONGLONG delta =
-        basic.LastWriteTime.QuadPart - 116444736000000000LL;
-    LONGLONG ms = delta / 10000;
-    LONG rem = (LONG)(delta % 10000);
-    *mtime_ms = (double)ms + ((double)rem) / 10000.0;
-  }
-  *attrs = (unsigned int)tag.FileAttributes;
-  wcore_format_vol((ULONGLONG)fid.VolumeSerialNumber, vol_hex);
-  wcore_format_id(&fid.FileId, id_hex);
+  const char *code =
+      stat_handle(child, vol_hex, id_hex, mode, size, mtime_ms, attrs);
   CloseHandle(child);
-  return NULL;
+  return code;
+}
+
+const char *wcore_stat_fd(int fd, char vol_hex[17],
+    char id_hex[33], unsigned int *mode, unsigned long long *size,
+    double *mtime_ms, unsigned int *attrs) {
+  if (vol_hex == NULL || id_hex == NULL || mode == NULL ||
+      size == NULL || mtime_ms == NULL || attrs == NULL)
+    return "EINVAL";
+  HANDLE handle = NULL;
+  const char *borrowed = wcore_borrow_handle(fd, &handle);
+  if (borrowed != NULL) return borrowed;
+  // Borrowed only: never close here; ownership stays with the JS side.
+  return stat_handle(handle, vol_hex, id_hex, mode, size, mtime_ms, attrs);
 }
 
 const char *wcore_names_collect(int dir_fd, int cap, wcore_name_sink_fn sink,

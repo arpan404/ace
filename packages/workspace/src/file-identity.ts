@@ -32,12 +32,17 @@ export function posixStats(info: BigIntStats): IdentifiedStats {
   return identifiedStats(info, { kind: "posix", dev: String(info.dev), ino: String(info.ino) });
 }
 
-export function identifiedStats(info: BigIntStats, identity: FileIdentity): IdentifiedStats {
+export function identifiedStats(
+  info: BigIntStats,
+  identity: FileIdentity,
+  mode: number = Number(info.mode),
+): IdentifiedStats {
+  const kind = mode & 0o170000;
   const result = {
     identity,
     dev: Number(info.dev),
     ino: Number(info.ino),
-    mode: Number(info.mode),
+    mode,
     nlink: Number(info.nlink),
     uid: Number(info.uid),
     gid: Number(info.gid),
@@ -65,13 +70,13 @@ export function identifiedStats(info: BigIntStats, identity: FileIdentity): Iden
     get birthtimeInstant() {
       return info.birthtimeInstant;
     },
-    isFile: () => info.isFile(),
-    isDirectory: () => info.isDirectory(),
-    isBlockDevice: () => info.isBlockDevice(),
-    isCharacterDevice: () => info.isCharacterDevice(),
-    isSymbolicLink: () => info.isSymbolicLink(),
-    isFIFO: () => info.isFIFO(),
-    isSocket: () => info.isSocket(),
+    isFile: () => kind === 0o100000,
+    isDirectory: () => kind === 0o040000,
+    isBlockDevice: () => kind === 0o060000,
+    isCharacterDevice: () => kind === 0o020000,
+    isSymbolicLink: () => kind === 0o120000,
+    isFIFO: () => kind === 0o010000,
+    isSocket: () => kind === 0o140000,
   };
   // Match Node's lazy, nonenumerable Temporal getters. Reading them may throw
   // when Temporal is unavailable; ordinary stat reads and JSON must not do so.
