@@ -157,9 +157,18 @@ test("directory lease without FILE_SHARE_DELETE blocks Windows rename", async (c
   const parent = await scratch();
   const child = join(parent, "child-雪");
   await mkdir(child, { recursive: true });
-  // Lease proof: hold child handle without DELETE share; rename fails while held.
+  // Attributes-only handles do not establish this share denial. Request actual
+  // directory read access and hold the child without DELETE share.
   const leaseLib = kernel();
-  const handle: unknown = leaseLib.CreateFileW(child, 128, 3, null, 3, 33554432 + 2097152, null);
+  const handle: unknown = leaseLib.CreateFileW(
+    child,
+    0x80000000,
+    3,
+    null,
+    3,
+    33554432 + 2097152,
+    null,
+  );
   if (isInvalid(handle)) {
     leaseLib.unload();
     throw new Error("CreateFileW failed");
