@@ -1,9 +1,15 @@
-import { close, constants, fstat, read, write, fstatSync } from "node:fs";
+import { close, constants, fstat, read, write, fstatSync, type BigIntStats } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { getSystemErrorName } from "node:util";
 import { z } from "zod";
-import { posixStats, FileIdentitySchema, type IdentifiedStats } from "./file-identity.ts";
+import {
+  identifiedStats,
+  posixStats,
+  Win32FileIdentitySchema,
+  FileIdentitySchema,
+  type IdentifiedStats,
+} from "./file-identity.ts";
 import { DIRECTORY_CAP, WorkspaceError } from "./types.ts";
 
 const require = createRequire(import.meta.url);
@@ -118,11 +124,65 @@ export function descriptorNames(fd: number, limit = DIRECTORY_CAP): string[] {
     return nativeFailure(error);
   }
 }
-/** Own a descriptor acquired by openat. Node's callback API accepts it directly. */
+/** Fd metadata adapter. Implementations observe the caller-held fd directly. */
+export interface DescriptorStatSource {
+  statSync(fd: number): IdentifiedStats;
+  stat(fd: number): Promise<IdentifiedStats>;
+}
+
+function fstatAsync(fd: number): Promise<BigIntStats> {
+  return new Promise((resolve, reject) =>
+    fstat(fd, { bigint: true }, (error, info) => (error ? reject(error) : resolve(info))),
+  );
+}
+
+const posixDescriptorStats: DescriptorStatSource = {
+  statSync(fd: number): IdentifiedStats {
+    if (process.platform === "win32")
+      throw new Error("Windows descriptor metadata requires native file identity integration");
+    return posixStats(fstatSync(fd, { bigint: true }));
+  },
+  stat(fd: number): Promise<IdentifiedStats> {
+    if (process.platform === "win32")
+      return Promise.reject(
+        new Error("Windows descriptor metadata requires native file identity integration"),
+      );
+    return fstatAsync(fd).then((info) => posixStats(info));
+  },
+};
+
+/** Build a Windows fd stat source from a native file-id lookup.
+ * Both observations run on the same caller-held fd: bigint display metadata
+ * from fstat plus FILE_ID_INFO from identityOf. The path is never reopened,
+ * so a pathname rename cannot redirect the observation. The caller keeps the
+ * fd alive through the async stat.
+ */
+export function windowsDescriptorStats(identityOf: (fd: number) => unknown): DescriptorStatSource {
+  const nativeIdentity = Win32FileIdentitySchema.omit({ kind: true });
+  return {
+    statSync(fd: number): IdentifiedStats {
+      const info = fstatSync(fd, { bigint: true });
+      const fields = nativeIdentity.parse(identityOf(fd));
+      return identifiedStats(info, { kind: "win32", vol: fields.vol, id: fields.id });
+    },
+    stat(fd: number): Promise<IdentifiedStats> {
+      return fstatAsync(fd).then((info) => {
+        const fields = nativeIdentity.parse(identityOf(fd));
+        return identifiedStats(info, { kind: "win32", vol: fields.vol, id: fields.id });
+      });
+    },
+  };
+}
+
+/** Own a descriptor acquired by openat. Node's callback API accepts it directly.
+ * The descriptor owns normal fd lifetime; the stat source only observes it.
+ */
 export class Descriptor {
   readonly fd: number;
-  constructor(fd: number) {
+  private readonly statsSource: DescriptorStatSource;
+  constructor(fd: number, statsSource: DescriptorStatSource = posixDescriptorStats) {
     this.fd = fd;
+    this.statsSource = statsSource;
   }
   chmod(mode: number): void {
     try {
@@ -132,20 +192,10 @@ export class Descriptor {
     }
   }
   statSync(): IdentifiedStats {
-    if (process.platform === "win32")
-      throw new Error("Windows descriptor metadata requires native file identity integration");
-    return posixStats(fstatSync(this.fd, { bigint: true }));
+    return this.statsSource.statSync(this.fd);
   }
   stat(): Promise<IdentifiedStats> {
-    if (process.platform === "win32")
-      return Promise.reject(
-        new Error("Windows descriptor metadata requires native file identity integration"),
-      );
-    return new Promise((resolve, reject) =>
-      fstat(this.fd, { bigint: true }, (error, info) =>
-        error ? reject(error) : resolve(posixStats(info)),
-      ),
-    );
+    return this.statsSource.stat(this.fd);
   }
   read(
     buffer: Buffer,

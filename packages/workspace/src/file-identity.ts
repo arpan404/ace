@@ -2,13 +2,14 @@ import type { BigIntStats, Stats } from "node:fs";
 import { z } from "zod";
 
 const decimal = z.string().regex(/^(0|[1-9][0-9]*)$/);
+export const Win32FileIdentitySchema = z.object({
+  kind: z.literal("win32"),
+  vol: z.string().regex(/^[0-9a-f]{16}$/),
+  id: z.string().regex(/^[0-9a-f]{32}$/),
+});
 export const FileIdentitySchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("posix"), dev: decimal, ino: decimal }),
-  z.object({
-    kind: z.literal("win32"),
-    vol: z.string().regex(/^[0-9a-f]{16}$/),
-    id: z.string().regex(/^[0-9a-f]{32}$/),
-  }),
+  Win32FileIdentitySchema,
 ]);
 export type FileIdentity = z.infer<typeof FileIdentitySchema>;
 export type IdentifiedStats = Stats & { identity: FileIdentity };
