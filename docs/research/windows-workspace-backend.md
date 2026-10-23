@@ -1,6 +1,6 @@
 # Windows workspace backend — safe design (research)
 
-Status: independent native addon implements pinned reads, identity, metadata, enumeration and exclusive creation. Native x64 and ARM64 verification passed for those operations in run 39874497061. Handle-relative deletion passed native x64 and ARM64 verification in run 39876189647. Handle-relative rename and replacement passed native x64 and ARM64 verification in run 39878029237. Production descriptor integration and ACL enforcement remain unfinished.
+Status: independent native addon implements pinned reads, identity, metadata, enumeration and exclusive creation. Native x64 and ARM64 verification passed for those operations in run 39874497061. Handle-relative deletion passed native x64 and ARM64 verification in run 39876189647. Handle-relative rename and replacement passed native x64 and ARM64 verification in run 39878029237. Owner-only ACL check/set operations are implemented with native confirmation pending. Production descriptor integration remains unfinished.
 
 ## 1. Consumers pin numeric fds; HANDLE-only is rejected
 
@@ -39,9 +39,30 @@ libuv on Windows fills [`uv_stat_t`](https://docs.libuv.org/en/v1.x/fs.html#data
 
 Minimal safe changes, no consumer rewrite beyond types: Windows identity is `(VolumeSerialNumber u64, FileId u128)` surfacing only as hex strings `{vol: string, id: string}` (+ `size`, `mtimeMs`, `attrs`), never `{dev, ino: number}`. TS `same()`/`version()` gain a Windows comparator over `(vol, id)`; `PinnedDirectory.identity`, `SafeRoot.identity`, and `filesystem.ts` fingerprints use the native string identity on win32. `Descriptor.stat()` stays `fstat`-backed for data reads but is never an identity source on win32. `readBytes` unlinked-during-read maps to re-`statAt` after open; name-missing-or-different-id means `ENOENT`/`PATH_CHANGED` retry.
 
-## 6. Pipe: numeric fds for child stdio
+## 6. Search input: POSIX fd batches and Windows stdin
 
-`pipe` keeps returning `{read, write}` numbers because §1 consumers pass them to [child stdio](https://nodejs.org/api/child_process.html#optionsstdio), `new Socket({fd})`, and `fstatSync(fd).isFIFO()`. The fds must be Node-owned fds (§2), with backing handles usable by Node child stdio and sockets. Do not assume addon CRT `_pipe` fds share Node's table. Exact backing and explicit stdio duplication remain unresolved (U4).
+POSIX search retains its numeric `{read, write}` pipes and `/dev/fd/N` arguments.
+Windows search sends each file's already-confined byte stream to ripgrep stdin
+with `-- -`, then maps ripgrep's `<stdin>` JSON path to the logical workspace
+path. No workspace pathname or temporary data file is passed to ripgrep.
+`command()` streams an `AsyncIterable<Buffer>` with pipeline backpressure,
+propagates producer errors and reaps the child on cancellation or limits.
+The search owner still closes the pinned source in its existing `finally` block.
+The injected runtime platform selects this transport; Windows drains one file
+at a time so it does not hold a batch of 64 descriptors for sequential spawns.
+
+This chooses confinement and straightforward cleanup over spawn efficiency.
+On macOS ARM64, the bounded benchmark measured medians of 13 ms for 64 tiny
+files via fd batching and 219 ms via stdin per file; four 256 KiB files measured
+5 ms versus 14 ms. These host observations are not Windows performance evidence.
+Run `node packages/workspace/bench/ripgrep-input.ts` to reproduce; native CI runs
+its Windows lane as an observation. Named-pipe batching remains a possible
+optimization requiring its own ACL, cancellation and performance evidence.
+Windows workspace search no longer depends on a native numeric-pipe export.
+
+Primary interfaces: [Node child stdio](https://nodejs.org/api/child_process.html#optionsstdio),
+[stream pipeline](https://nodejs.org/api/stream.html#streampipelinesource-transforms-destination-options),
+and [ripgrep guide](https://github.com/BurntSushi/ripgrep/blob/master/GUIDE.md).
 
 ## 7. Real ACL private-file invariants
 
@@ -72,7 +93,7 @@ void unlinkAt(int parentFd, const char* name);
 void removeDirectoryAt(int parentFd, const char* name);
 Stat statAt(int parentFd, const char* name);          // {vol,id,size,mtimeMs,attrs} strings
 Names names(int dirFd, int cap);                      // at most 10000, no . / ..
-Pipe pipe(void);                                      // {read, write} inheritable CRT fds (U4)
+// Windows search uses standard child stdin; POSIX alone exports pipe().
 Ident identityOf(int fd);                             // FileIdInfo over borrowed HANDLE
 void checkPrivateAt(int parentFd, const char* name);  // §7, fails closed
 void securePrivateAt(int parentFd, const char* name); // §7, fails closed
@@ -85,7 +106,7 @@ No public native `close`: ordinary fd lifetime stays with TS `Descriptor` via No
 - U1: `node.lib` on win-x64 and win-arm64 exports `uv_open_osfhandle` / `uv_get_osfhandle` for addon linkage; the link check is the first gate.
 - U2: `NtCreateFile` handles (including directory handles and zero-access metadata handles) are accepted by `uv_open_osfhandle`, and the resulting fd works with Node `read` / `write` / `fstat` / `close`.
 - U3: the `uv_get_osfhandle(fd)` borrowed `HANDLE` is valid for `NtCreateFile(RootDirectory=...)`, `SetFileInformationByHandle`, `GetFileInformationByHandleEx`, and `GetSecurityInfo` while the fd is open.
-- U4: pipe backing and inheritability flag such that the child sees the fd in stdio and `fstatSync(fd).isFIFO()` holds.
+- U4: Windows search uses stdin and needs no numeric pipe bridge. Extra fd-based inputs remain POSIX-only; audit any new callers before exposing them on Windows.
 - U5: ReFS behavior of the 64-bit index; until measured, §5 assumes it is unsafe and uses only 128-bit string identity.
 - U6: AV/indexer retry bounds, OneDrive-placeholder denial fallout, `MAX_PATH` vs long-path opt-in per builder, power-loss durability limits.
 

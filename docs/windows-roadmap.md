@@ -47,8 +47,9 @@ native CI build and process tests; ARM64 emulation is not x64 native evidence.
 
 ## Review and commit loop
 
-Implementation proceeds directly in this worktree. Existing bounded worker
-results have been integrated; new delegation is paused at the owner's request.
+Implementation proceeds in this worktree. The owner has resumed delegation for
+small bounded tasks, with parent review and separate commits and pushes for each
+behavior.
 Each behavior gets a separate commit and immediate push after its source review
 and applicable static checks. Verify author and committer as
 `Luseefor <sapanakosansar18@gmail.com>` before every commit. Record native
@@ -230,3 +231,29 @@ module stays below its 400-line source budget. This is not daemon activation.
 6. Complete service, installer, updater, browser, computer-use and provider
    workflows, then run installed-app and UI parity acceptance from the canonical
    plan. The bounded foundation suite does not satisfy those workflow gates.
+
+## Private files and Windows search input
+
+Small delegated tasks implement protected owner-only DACL checks and setting,
+streamed process stdin, and Windows ripgrep routing. The parent reviewed the
+results and committed each behavior separately:
+
+| Commit      | Slice                                                  | Evidence                                                                                                        |
+| ----------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `2de5073a5` | Current-token owner SID and exact protected DACL check | Native compilation passed; initial fixtures hit a PowerShell module-loading failure.                            |
+| `f034a422b` | Direct .NET fixture ACL setup                          | Avoids host PowerShell module state; native rerun pending.                                                      |
+| `5f34c1e3f` | Backpressured stdin and child cleanup                  | Five real-process tests pass locally, including cancellation, early exit and producer failures.                 |
+| `63a8049e8` | Owner-only DACL setting                                | Uses the same opened object for setting and postcheck; native confirmation pending.                             |
+| `0b3859ad5` | Confined Windows ripgrep stdin transport               | Four real-ripgrep transport tests plus 15 existing search/pipe tests pass locally; native confirmation pending. |
+
+The source probe and incremental typecheck pass. Windows search now uses
+per-file stdin instead of `/dev/fd`, with a bounded benchmark recording its
+spawn overhead. Production descriptor/identity/build integration, pinned Git,
+daemon activation and the remaining release workflows are still required.
+
+Fixture follow-up `a37bc0a4f` sets the expected TokenUser owner explicitly before
+setter tests; default creation can choose an admin group as owner. The setter
+continues to refuse taking ownership. UI token fixes in `add98a010` clear all
+three existing `check:ui` failures. Live browser inspection verified the pairing
+sheet opens and keyboard focus reaches its first control without console errors.
+The full repository gate is now running past that former blocker.
