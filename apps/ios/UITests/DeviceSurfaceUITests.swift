@@ -44,6 +44,13 @@ import XCTest
             after = try await rightSwipes()
         }
         XCTAssertEqual(after, before + 2, "Both swipes should reach the device")
+
+        // Off the surface, the bar above it still swipes back.
+        let bar = app.navigationBars.firstMatch
+        bar.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: bar.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)),
+                   withVelocity: .fast, thenHoldForDuration: 0)
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "A swipe off the device's screen should still go back")
     }
 
     /// Rightward swipes the fixture's devices have received from a person.
