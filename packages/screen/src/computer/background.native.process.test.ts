@@ -40,7 +40,9 @@ it.skipIf(!integration)(
       env: {},
       name: "computer-background-fixture",
     });
-    onTestFinished(() => app.stop({ graceMs: 0 }));
+    onTestFinished(async () => {
+      await app.stop({ graceMs: 0 });
+    });
     const replies: z.infer<typeof fixtureReply>[] = [];
     const waiting = new Set<() => void>();
     app.stdout.on("line", (line: string) => {

@@ -15,7 +15,6 @@ struct CUCursorAnchor {
     private var panel: NSPanel?
     private var anchor: CUCursorAnchor?
     private var tracking: Timer?
-    private let cursor = NSCursor.arrow
 
     /// Keep the last pointer visible between batches, without a per-click fade-out.
     func show(at point: CGPoint, window: CUWindow?) {
@@ -48,9 +47,9 @@ struct CUCursorAnchor {
             return
         }
         // Cursor hotspots are top-left based; panel origins are bottom-left based.
-        let size = CGSize(width: 56, height: max(38, cursor.image.size.height + 8))
-        let origin = CGPoint(x: point.x - cursor.hotSpot.x,
-                             y: primary.frame.height - point.y - size.height + cursor.hotSpot.y)
+        let size = CUAceCursorView.size
+        let origin = CGPoint(x: point.x - CUAceCursorView.hotSpot.x,
+                             y: primary.frame.height - point.y - size.height + CUAceCursorView.hotSpot.y)
         let destination = CGRect(origin: origin, size: size)
         let panel = self.panel ?? makePanel(destination)
         self.panel = panel
@@ -88,23 +87,27 @@ struct CUCursorAnchor {
         panel.hasShadow = false
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
-        let content = NSView(frame: CGRect(origin: .zero, size: frame.size))
-        let image = NSImageView(frame: CGRect(x: 0, y: frame.height - cursor.image.size.height, width: cursor.image.size.width, height: cursor.image.size.height))
-        image.image = cursor.image
-        image.imageScaling = .scaleNone
-        content.addSubview(image)
-        let label = NSTextField(labelWithString: "ace")
-        label.font = .systemFont(ofSize: 10, weight: .semibold)
-        label.textColor = .white
-        label.backgroundColor = .controlAccentColor
-        label.drawsBackground = true
-        label.alignment = .center
-        label.wantsLayer = true
-        label.layer?.cornerRadius = 3
-        label.layer?.masksToBounds = true
-        label.frame = CGRect(x: 17, y: 2, width: 26, height: 15)
-        content.addSubview(label)
-        panel.contentView = content
+        panel.contentView = CUAceCursorView(frame: CGRect(origin: .zero, size: frame.size))
         return panel
+    }
+}
+
+/// The same Pebble pointer as ace's computer-use icon and in-page agent cursor.
+private final class CUAceCursorView: NSView {
+    private static let scale: CGFloat = 1.25
+    static let size = CGSize(width: CUAgentCursorGlyph.box * scale, height: CUAgentCursorGlyph.box * scale)
+    static let hotSpot = CGPoint(x: CUAgentCursorGlyph.tip.x * scale, y: CUAgentCursorGlyph.tip.y * scale)
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = CUAgentCursorGlyph.path()
+        let transform = AffineTransform(scale: Self.scale)
+        path.transform(using: transform)
+        NSColor.controlAccentColor.setFill()
+        path.fill()
+        NSColor.alternateSelectedControlTextColor.setStroke()
+        path.lineWidth = CUAgentCursorGlyph.outline * Self.scale
+        path.lineJoinStyle = .round
+        path.stroke()
     }
 }

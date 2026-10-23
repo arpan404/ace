@@ -42,7 +42,8 @@ final class ComputerCursorTests: XCTestCase {
         XCTAssertEqual(pointer.frame.minX - initial.x, 80, accuracy: 1)
         XCTAssertEqual(pointer.frame.minY - initial.y, 30, accuracy: 1)
         if let path = ProcessInfo.processInfo.environment["ACE_CURSOR_PREVIEW"], let view = pointer.contentView,
-           let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+           let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(view.bounds.width * 3), pixelsHigh: Int(view.bounds.height * 3), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) {
+            bitmap.size = view.bounds.size
             view.cacheDisplay(in: view.bounds, to: bitmap)
             try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
         }
