@@ -98,7 +98,8 @@ import XCTest
         app.buttons["thread.menu"].tap()
         app.buttons["thread.browser"].tap()
         XCTAssertTrue(app.buttons["browser.menu"].waitForExistence(timeout: 15))
-        app.navigationBars.buttons.firstMatch.tap()
+        // iOS 26 names the Back button; iOS 18 labels it with the thread's title.
+        app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'BackButton' OR label BEGINSWITH 'Check the checkout flow'")).firstMatch.tap()
         XCTAssertTrue(app.buttons["browser.menu"].waitForNonExistence(timeout: 10))
         XCTAssertTrue(title("Check the checkout flow", in: app).waitForExistence(timeout: 10), "the thread stays open under the page")
     }

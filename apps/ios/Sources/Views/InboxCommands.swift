@@ -16,7 +16,28 @@ extension FocusedValues {
 }
 
 extension View {
-    func inboxCommands(_ commands: InboxCommands) -> some View { focusedSceneValue(\.inboxCommands, commands) }
+    /// Publishes the window's commands to the menu bar (iPadOS 26). Before iPadOS 26 the menu
+    /// never reaches them: the same keys sit on invisible buttons in the window's own content,
+    /// which the ⌘-hold overlay lists too.
+    func inboxCommands(_ commands: InboxCommands) -> some View {
+        focusedSceneValue(\.inboxCommands, commands)
+            .background { if #unavailable(iOS 26) { InboxCommandKeys(commands: commands) } }
+    }
+}
+
+private struct InboxCommandKeys: View {
+    let commands: InboxCommands
+    var body: some View {
+        ZStack {
+            if let newThread = commands.newThread { Button("New Thread", action: newThread).keyboardShortcut("n", modifiers: .command) }
+            Button("Search Threads", action: commands.search).keyboardShortcut("f", modifiers: .command)
+            Button("Next Thread", action: commands.next).keyboardShortcut("]", modifiers: .command)
+            Button("Previous Thread", action: commands.previous).keyboardShortcut("[", modifiers: .command)
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
 }
 
 /// The Threads menu: in the iPad menu bar and the overlay held ⌘ shows. Send (⌘↩) belongs to the
