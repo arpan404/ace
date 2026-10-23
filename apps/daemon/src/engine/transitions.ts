@@ -181,7 +181,8 @@ export class ThreadTransitions {
       !!this.registry.get(current.provider, backend).capabilities.forkTranscript &&
       (crossProvider || crossAccount);
     let late = lateHistory && crossProvider;
-    if (crossProvider)
+    // A late fork's plan is built in the commit, once its copies are written.
+    if (crossProvider && !late)
       plan = planCrossProvider(this.repo, actor.id, {
         from: current,
         to: selection,

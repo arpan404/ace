@@ -199,6 +199,12 @@ test("turns a provider's native fork brings along read as the source's history",
       {
         type: "item.upsert",
         agent: "root",
+        item: "opening-notice",
+        draft: { type: "notice", level: "warning", complete: true, text: "Fork opened slowly" },
+      },
+      {
+        type: "item.upsert",
+        agent: "root",
         item: "replayed-step",
         draft: {
           type: "tool_call",
@@ -222,6 +228,12 @@ test("turns a provider's native fork brings along read as the source's history",
     .readItemPage(fork, Number.MAX_SAFE_INTEGER, 200)
     .items.find((item) => item.type === "tool_call");
   expect(step?.inherited).toEqual({ threadId: source });
+  // What the provider says about the fork as it opens is the fork's own.
+  const notice = h.store
+    .readItemPage(fork, Number.MAX_SAFE_INTEGER, 200)
+    .items.find((item) => item.type === "notice" && item.text === "Fork opened slowly");
+  expect(notice).toBeDefined();
+  expect(notice?.inherited).toBeUndefined();
   // The fork's own answer, after it opened, is its own.
   expect(messages(h, fork).at(-1)?.inherited).toBeUndefined();
 });
