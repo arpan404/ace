@@ -4,13 +4,21 @@ import SwiftUI
 private final class TranscriptScrollIntent {
     var active = false
     var consumed = false
+    /// The room under the rows when the content height was last seen: a change of room scrolls
+    /// itself, with the keyboard's or the composer's motion.
+    var room: CGFloat = 0
     var direction = 0
-    var metrics = Metrics(y: 0, top: 0, bottom: 0, viewport: 0, topInset: 0, bottomInset: 0)
-    struct Metrics: Equatable { let y: CGFloat; let top: CGFloat; let bottom: CGFloat; let viewport: CGFloat; let topInset: CGFloat; let bottomInset: CGFloat }
+    var metrics = Metrics(y: 0, top: 0, bottom: 0, viewport: 0, topInset: 0, bottomInset: 0, height: 0)
+    struct Metrics: Equatable { let y: CGFloat; let top: CGFloat; let bottom: CGFloat; let viewport: CGFloat; let topInset: CGFloat; let bottomInset: CGFloat; let height: CGFloat }
     func begin() { active = true; consumed = false; direction = 0 }
 }
 
 /// One lazy reading column. Edge scrolling avoids List's stale collection-index scroll targets.
+///
+/// Every scroll the feed makes is a one-shot `ScrollViewProxy` call. A `ScrollPosition` binding
+/// keeps its last target (an edge, an offset or a row) standing until the person scrolls; with an
+/// accessibility client attached (VoiceOver, Voice Control, UI automation), a drag against that
+/// standing target re-places the lazy rows on every update and pins the main thread.
 struct ConversationFeed: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let model: ClientModel
@@ -24,7 +32,6 @@ struct ConversationFeed: View {
     /// Bumped by each Scroll to end the person taps.
     var jumps = 0
     @State private var reading = TranscriptReading()
-    @State private var position = ScrollPosition(idType: String.self)
     @State private var following = true
     @State private var initialScroll = false
     @State private var intent = TranscriptScrollIntent()
@@ -40,6 +47,10 @@ struct ConversationFeed: View {
     private var pinned: Bool { following && reading.thread == nil }
 
     var body: some View {
+        ScrollViewReader { proxy in feed(proxy) }
+    }
+
+    private func feed(_ proxy: ScrollViewProxy) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 if reading.loading, reading.operation == "older" || reading.operation == "newer" {
@@ -68,20 +79,18 @@ struct ConversationFeed: View {
                             .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
                     }
                 }
-                // Room for the composer, its strip and the keyboard. The feed itself never changes
-                // size as they move: resizing a long lazy transcript re-estimates its height and
-                // throws the scroll offset, so only this row grows and shrinks.
-                Color.clear.frame(height: barHeight + keyboardLift).accessibilityHidden(true)
-                TranscriptTail(thread: thread, following: pinned) { if !keyboardMoving { position.scrollTo(edge: .bottom) } }
+                // Room for the composer, its strip and the keyboard, and under the last row so it
+                // clears the strip tucked above the composer. The feed itself never changes size as
+                // they move: resizing a long lazy transcript re-estimates its height and throws the
+                // scroll offset, so only this row grows and shrinks.
+                Color.clear.frame(height: barHeight + keyboardLift + AceTheme.Spacing.xxl).accessibilityHidden(true)
+                // The end of the feed: scrolling to it puts the room above at the bottom.
+                TranscriptTail(thread: thread, following: pinned) { if !keyboardMoving { toEnd(proxy) } }
             }
-            .scrollTargetLayout()
             .padding(.top, AceTheme.Spacing.sm)
-            // Room under the last row so it clears the composer strip tucked above the composer.
-            .padding(.bottom, AceTheme.Spacing.xxl)
         }
         .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { feedBottom = $0 }
         .coordinateSpace(name: "transcript.viewport")
-        .scrollPosition($position, anchor: .top)
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         .background(AceTheme.Colours.background)
         .scrollDismissesKeyboard(.interactively)
@@ -110,35 +119,36 @@ struct ConversationFeed: View {
             return TranscriptScrollIntent.Metrics(y: geometry.contentOffset.y,
                 top: geometry.contentOffset.y + insets.top,
                 bottom: geometry.contentSize.height + insets.bottom - geometry.contentOffset.y - frame,
-                viewport: frame, topInset: insets.top, bottomInset: insets.bottom)
+                viewport: frame, topInset: insets.top, bottomInset: insets.bottom, height: geometry.contentSize.height)
         } action: { old, new in
             intent.metrics = new
+            keepEnd(old: old, new: new, proxy: proxy)
             if thread.loaded, new.bottom <= 1 { ThreadOpenTrace.shared.settled(thread.id) }
             if intent.active {
                 // Scrolling up only stops following: the live list stays in place until the
                 // person nears its top, where the older page opens the reading window.
                 if new.y < old.y - 1 { intent.direction = -1; following = false }
                 else if new.y > old.y + 1 { intent.direction = 1 }
-                pageIfNeeded()
+                pageIfNeeded(proxy)
             }
         }
         .onChange(of: acceptedSend) { _, _ in
             reading.live(model: model, thread: thread)
             following = true
-            position.scrollTo(edge: .bottom)
+            toEnd(proxy)
         }
-        .onChange(of: reading.loading) { _, loading in if !loading { pageIfNeeded() } }
+        .onChange(of: reading.loading) { _, loading in if !loading { pageIfNeeded(proxy) } }
         .onChange(of: reading.revision) { _, _ in
-            if reading.thread != nil, reading.paged { anchor.restore(in: &position) }
+            if reading.thread != nil, reading.paged { anchor.restore(with: proxy) }
         }
         .onChange(of: thread.loaded) { _, loaded in
-            if loaded, !initialScroll { position.scrollTo(edge: .bottom); initialScroll = true }
+            if loaded, !initialScroll { toEnd(proxy); initialScroll = true }
         }
         .task {
             reading.willReplace = {
                 anchor.capture(viewport: intent.metrics.viewport, topInset: intent.metrics.topInset, bottomInset: intent.metrics.bottomInset)
             }
-            if thread.loaded { position.scrollTo(edge: .bottom); initialScroll = true }
+            if thread.loaded { toEnd(proxy); initialScroll = true }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
             guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
@@ -153,38 +163,46 @@ struct ConversationFeed: View {
             var instant = Transaction()
             instant.disablesAnimations = true
             withTransaction(instant) { keyboardLift = lift }
-            roomChanged(by: growth, motion: motion)
+            roomChanged(by: growth, motion: motion, proxy: proxy)
         }
         .onChange(of: barHeight) { old, new in
-            roomChanged(by: new - old, motion: reduceMotion ? nil : AceTheme.Motion.standardCurve)
+            roomChanged(by: new - old, motion: reduceMotion ? nil : AceTheme.Motion.standardCurve, proxy: proxy)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { _ in
             keyboardMoving = false
             // Text that streamed in while the keyboard moved.
-            if pinned { position.scrollTo(edge: .bottom) }
+            if pinned { toEnd(proxy) }
         }
         .onDisappear { reading.cancel() }
         .onChange(of: !following || reading.thread != nil, initial: true) { _, away in if behind != away { behind = away } }
         .onChange(of: jumps) { _, _ in
             reading.live(model: model, thread: thread)
             following = true
-            position.scrollTo(edge: .bottom)
+            toEnd(proxy)
         }
         .modifier(TranscriptTopEdge())
     }
     /// The room at the end changed (the keyboard, the composer or its strip). Following the end,
     /// the last row moves with it, in the same motion; reading elsewhere, the rows stay put and
     /// are covered, unless the smaller room would park the view past the end.
-    private func roomChanged(by growth: CGFloat, motion: Animation?) {
-        let metrics = intent.metrics
-        guard growth != 0, pinned || metrics.bottom + growth < 0 else { return }
-        // The new end, from where the view is now: known before the room is laid out, so the
-        // scroll starts in the same frame as the keyboard. Scroll positions count from the top
-        // of the content, below the top inset.
-        let end = max(0, metrics.top + metrics.bottom + growth)
-        withAnimation(motion) { position.scrollTo(y: end) }
+    private func roomChanged(by growth: CGFloat, motion: Animation?, proxy: ScrollViewProxy) {
+        guard growth != 0, pinned || intent.metrics.bottom + growth < 0 else { return }
+        // The room has its new height in this same update, so the end is where the scroll lands,
+        // starting in the same frame as the keyboard.
+        withAnimation(motion) { toEnd(proxy) }
     }
-    private func pageIfNeeded() {
+    private func toEnd(_ proxy: ScrollViewProxy) { proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
+    /// Following the end, the end stays in place as rows change height: older history filling in
+    /// above, rows measured on the way down after a jump. The person's own scroll wins, and a
+    /// change of room has its own animated scroll.
+    private func keepEnd(old: TranscriptScrollIntent.Metrics, new: TranscriptScrollIntent.Metrics, proxy: ScrollViewProxy) {
+        let room = barHeight + keyboardLift
+        defer { intent.room = room }
+        guard pinned, !intent.active, !keyboardMoving, room == intent.room,
+              new.height != old.height, new.bottom > 1 else { return }
+        toEnd(proxy)
+    }
+    private func pageIfNeeded(_ proxy: ScrollViewProxy) {
         guard intent.active, !intent.consumed, thread.loaded, !reading.loading, reading.problem == nil else { return }
         let ahead = max(AceTheme.Dimensions.touchTarget, intent.metrics.viewport * 1.5)
         if intent.direction < 0, intent.metrics.top < ahead, reading.thread == nil ? thread.screen.hasOlder : reading.hasOlder {
@@ -193,7 +211,7 @@ struct ConversationFeed: View {
         } else if intent.direction > 0, intent.metrics.bottom < ahead, reading.thread != nil {
             intent.consumed = true
             if reading.joined, intent.metrics.bottom <= AceTheme.Spacing.xxl {
-                reading.live(model: model, thread: thread); following = true; position.scrollTo(edge: .bottom)
+                reading.live(model: model, thread: thread); following = true; toEnd(proxy)
             } else if reading.hasNewer { reading.read("newer", model: model, live: thread) }
             else { intent.consumed = false }
         }

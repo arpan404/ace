@@ -19,6 +19,7 @@ import { featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts"
 import { seedFiles } from "./files-scenario.ts";
 import { seedWorkLogs } from "./worklog-scenario.ts";
 import { seedMessages } from "./message-scenario.ts";
+import { seedReading } from "./reading-scenario.ts";
 import { seedGoal } from "./goal-scenario.ts";
 import { busyInbox } from "./busy-inbox-scenario.ts";
 
@@ -164,6 +165,7 @@ seedBrowser(daemon, details);
 seedFiles(daemon, details);
 seedWorkLogs(daemon);
 seedMessages(daemon, details);
+seedReading(daemon, details);
 requestScenarios(daemon, details);
 spikeDevices(daemon, details);
 let fresh = 0;
