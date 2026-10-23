@@ -164,6 +164,8 @@ const char *wcore_create_private_file_at(int parent_fd, const char *name, int *o
 // return is a static POSIX code string. Fail closed, no admin bypass.
 const char *wcore_current_user_sid(PSID *out);
 const char *wcore_assert_current_owner(PSID owner);
+const char *wcore_init_private_descriptor(
+    PSID user, PACL acl, SECURITY_DESCRIPTOR *out);
 const char *wcore_owner_only_acl(PSID user, PACL *out);
 const char *wcore_owner_directory_acl(PSID user, PACL *out);
 const char *wcore_verify_private_file_security(HANDLE child);

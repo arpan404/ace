@@ -94,6 +94,21 @@ const char *wcore_current_user_sid(PSID *out) {
   return NULL;
 }
 
+// Initialize an absolute protected security descriptor from caller-owned SID
+// and ACL allocations. The kernel captures it during exclusive creation.
+const char *wcore_init_private_descriptor(
+    PSID user, PACL acl, SECURITY_DESCRIPTOR *out) {
+  if (out == NULL) return "EINVAL";
+  if (!InitializeSecurityDescriptor(out, SECURITY_DESCRIPTOR_REVISION) ||
+      !SetSecurityDescriptorOwner(out, user, FALSE) ||
+      !SetSecurityDescriptorDacl(out, TRUE, acl, FALSE) ||
+      !SetSecurityDescriptorControl(out, SE_DACL_PROTECTED, SE_DACL_PROTECTED)) {
+    const char *mapped = wcore_dos_to_code(GetLastError());
+    return mapped != NULL ? mapped : "EIO";
+  }
+  return NULL;
+}
+
 // Build a malloc'd owner ACL with one FILE_ALL_ACCESS allow carrying
 // `flags`. On success stores the ACL in *out and the caller frees it with
 // free(). On failure stores NULL in *out and returns a static POSIX code

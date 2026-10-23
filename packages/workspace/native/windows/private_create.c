@@ -74,27 +74,7 @@ const char *wcore_create_private_file_at(int parent_fd, const char *name, int *o
   const char *verdict = wcore_current_user_sid(&user);
   if (verdict == NULL) verdict = wcore_owner_only_acl(user, &acl);
   SECURITY_DESCRIPTOR sd;
-  if (verdict == NULL && !InitializeSecurityDescriptor(&sd, SECURITY_DESCRIPTOR_REVISION)) {
-    const char *mapped = wcore_dos_to_code(GetLastError());
-    verdict = mapped != NULL ? mapped : "EIO";
-  }
-  // Owner is created, never taken: FALSE marks it explicitly set, and
-  // WRITE_OWNER is never requested anywhere on this path.
-  if (verdict == NULL && !SetSecurityDescriptorOwner(&sd, user, FALSE)) {
-    const char *mapped = wcore_dos_to_code(GetLastError());
-    verdict = mapped != NULL ? mapped : "EIO";
-  }
-  if (verdict == NULL && !SetSecurityDescriptorDacl(&sd, TRUE, acl, FALSE)) {
-    const char *mapped = wcore_dos_to_code(GetLastError());
-    verdict = mapped != NULL ? mapped : "EIO";
-  }
-  // Protect the DACL from inheritance: interest and set masks both carry
-  // SE_DACL_PROTECTED so only that bit is changed.
-  if (verdict == NULL &&
-      !SetSecurityDescriptorControl(&sd, SE_DACL_PROTECTED, SE_DACL_PROTECTED)) {
-    const char *mapped = wcore_dos_to_code(GetLastError());
-    verdict = mapped != NULL ? mapped : "EIO";
-  }
+  if (verdict == NULL) verdict = wcore_init_private_descriptor(user, acl, &sd);
   if (verdict == NULL) {
     // Exclusive regular-file creation with the private descriptor captured
     // at creation time. FILE_CREATE fails closed on any existing name
