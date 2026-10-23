@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "delivery": {
+      "enum": [
+        "queue",
+        "steer",
+        "restart"
+      ],
+      "type": "string"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "text": {
+      "$ref": "https://ace.local/protocol/v1/MessageText.json"
+    }
+  },
+  "required": [
+    "requestId",
+    "text",
+    "delivery"
+  ],
+  "type": "object"
+}

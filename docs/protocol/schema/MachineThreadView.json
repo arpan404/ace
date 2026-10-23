@@ -22,6 +22,30 @@
       "maxItems": 8,
       "type": "array"
     },
+    "notice": {
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "commandId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 400,
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "commandId",
+        "code"
+      ],
+      "type": "object"
+    },
     "requests": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/MachinePendingRequest.json"

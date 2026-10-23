@@ -37,7 +37,7 @@ import { IntentDelivery } from "./intent-delivery.ts";
 import { ThreadTransitions, type TransitionIO } from "./transitions.ts";
 import { Sessions } from "./sessions.ts";
 import { timeOrderedIds } from "../time-ordered-id.ts";
-import { deriveThreadStatus, readyForChildResults, type IdSource } from "@ace/core";
+import { type IdSource } from "@ace/core";
 import { SteerLane } from "./steer-lane.ts";
 import { rootRun } from "./steer-yield.ts";
 import type { CommandHandler } from "../commands.ts";
@@ -48,6 +48,12 @@ import { engineLimits, type EngineLimits } from "./limits.ts";
 import { IntentWorkers } from "./workers.ts";
 import { engineHandler } from "./handler.ts";
 import { inputFate, type InputFate } from "./input-fate.ts";
+import {
+  readMessageFacts,
+  readyForInput,
+  threadCapabilities,
+  type MessageFacts,
+} from "./message-facts.ts";
 import { AdapterRegistry } from "./registry.ts";
 import { EngineRepository, type IntentHeader } from "./repository.ts";
 import { SettledTrees } from "./settled-trees.ts";
@@ -500,31 +506,13 @@ export class Engine {
   capabilities(provider: ProviderKind, backend?: import("@ace/engine-api").ProviderBackend) {
     return structuredClone(this.registry.get(provider, backend).capabilities);
   }
-  /**
-   * Whether this thread's provider can steer mid-turn. Delegated child results
-   * use it to decide steer (inject now) versus queue (wait for the turn end).
-   * Providers differ: codex/claude/cursor/opencode/pi steer, acp never does,
-   * and old CLIs without support report steer false.
-   */
+  /** Whether this thread's provider can steer mid-turn (acp and old CLIs can't). */
   supportsSteering(id: ThreadId): boolean {
-    const thread = this.repo.store.getThread(id);
-    if (!thread) return false;
-    const provider = thread.provider;
-    if (!this.registry.has(provider)) return false;
-    const effective =
-      thread.effectiveCapabilities ??
-      thread.capabilities ??
-      this.registry.get(provider).capabilities;
-    if (!effective.steer) return false;
-    // Backend-specific capability (e.g. cursor-sdk vs acp) wins when present.
-    try {
-      return (
-        this.repo.store.getThread(id)?.effectiveCapabilities ??
-        this.registry.get(provider, this.repo.backend(id)).capabilities
-      ).steer;
-    } catch {
-      return effective.steer;
-    }
+    return threadCapabilities(this.repo, this.registry, id)?.steer ?? false;
+  }
+  /** What decides when accepted message `commandId` reaches thread `id`'s model. */
+  messageFacts(id: ThreadId, commandId: import("@ace/protocol").CommandId): MessageFacts {
+    return readMessageFacts(this.repo, this.registry, id, commandId, this.inputFate(id, commandId));
   }
   /**
    * Daemon-owned child results run before the person's queued messages. A
@@ -1260,19 +1248,7 @@ export class Engine {
       this.repo.mark(intent, "queued");
       this.syncQueue(actor);
       const state = this.repo.requireState(actor.id);
-      const status = deriveThreadStatus({ ...state, queueCount: state.queueSources.provider });
-      const ready =
-        intent.trigger === "subagent_result"
-          ? readyForChildResults(state)
-          : ["new", "done", "failed"].includes(status.state) ||
-            this.repo.quiescent(state) ||
-            // A plain message only needs the provider between turns. One that changes the
-            // model or options may reopen the session, which would end its background
-            // commands, so it still waits for the whole tree.
-            (intent.kind === "thread.send" &&
-              (intent.trigger === undefined || intent.trigger === "user") &&
-              !this.repo.pending.hasSelection(intent.id) &&
-              this.repo.acceptsPersonInput(state));
+      const ready = readyForInput(this.repo, state, intent);
       if (!this.repo.pending.awaiting(actor.id) && ready) {
         await this.delivery.run(actor, intent);
         this.wake(actor.id);

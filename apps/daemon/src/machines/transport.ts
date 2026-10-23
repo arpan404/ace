@@ -78,6 +78,10 @@ export const machineRequest: MachineTransport = (profile, body, options) => {
         connected = true;
       });
     });
+    // Fully written to an open connection: the machine may have the call even if no answer comes.
+    request.on("finish", () => {
+      if (request.socket && !request.socket.connecting) connected = true;
+    });
     request.on("error", () => finish(lost()));
     request.on("response", (response) => {
       connected = true;

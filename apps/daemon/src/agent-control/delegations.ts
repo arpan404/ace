@@ -33,6 +33,8 @@ import { AgentMonitor } from "./monitor.ts";
 import { DelegationAdmission } from "./admission.ts";
 import { type DelegationReservation, DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
+import { messageArrival } from "./message-arrival.ts";
+import { deliveryNotice, noticeText, type DeliveryNotice } from "./message-notices.ts";
 import { readAgentCatalog } from "./catalog.ts";
 import { recoverLocalUsage } from "./local-usage-recovery.ts";
 import { AcpIdentity as importAcpIdentitySchema } from "@ace/protocol";
@@ -252,10 +254,70 @@ export class DelegationService {
     } finally {
       this.requesting = undefined;
     }
+    // A new message supersedes what the parent was told about an earlier one.
+    const edge = result.ok ? this.journal.get(threadId) : undefined;
+    if (edge?.messageNotice) {
+      delete edge.messageNotice;
+      this.journal.save(edge);
+    }
     this.arm();
     return result;
   }
   private requesting: string | undefined;
+  /** A kept-back message the child has now taken is no longer news for the parent. */
+  private clearDeliveredNotice(child: ThreadId) {
+    const edge = this.journal.get(child);
+    const commandId = edge?.messageNotice?.commandId;
+    if (!edge || !commandId) return;
+    if (this.deps.engine.inputFate(child, CommandId.parse(commandId)).state !== "delivered") return;
+    delete edge.messageNotice;
+    this.deps.store.atomic(() => this.journal.save(edge));
+  }
+  /**
+   * A parent's message to its child that didn't go in as sent (refused, kept back, uncertain or
+   * failed after the tool returned). The parent hears it the way it hears results, once per
+   * message and outcome, and agents_status shows it until the parent sends again.
+   */
+  private noticeParent(child: ThreadId, notice: DeliveryNotice) {
+    const edge = this.journal.get(child);
+    if (
+      !edge ||
+      !this.deps.engine.messageFacts(child, CommandId.parse(notice.commandId)).fromParent
+    )
+      return;
+    const text = noticeText(notice, edge.request.role, child);
+    const id = controlCommandId(edge.parentId, `${child}:${notice.commandId}`, notice.code);
+    if (this.commandReceipt(id)) return;
+    this.deps.store.atomic(() => {
+      edge.messageNotice = {
+        text: text.slice(0, 400),
+        at: this.deps.clock.now(),
+        commandId: notice.commandId,
+      };
+      this.journal.save(edge);
+    });
+    try {
+      const delivery = this.deps.engine.supportsSteering(edge.parentId) ? "steer" : "queue";
+      const result = this.command(id, {
+        type: "thread.send",
+        threadId: edge.parentId,
+        input: [{ type: "text", text: `[ace-origin:delegation.message_notice:${id}]\n${text}` }],
+        delivery,
+        trigger: "subagent_result",
+        origin: { kind: "subagent_result", threadIds: [child] },
+      });
+      if (!result.ok) throw controlAdmissionError(result.error ?? "Notice not delivered");
+      if (delivery === "queue")
+        this.deps.engine.prioritizeSubagentResult(edge.parentId, result.commandId);
+    } catch (error) {
+      this.report(error);
+    }
+  }
+  /** How the message `requestId` sent to `threadId` reaches it, read once it was accepted. */
+  arrival(caller: McpAttribution, requestId: string, threadId: ThreadId, restart = false) {
+    const id = CommandId.parse(controlCommandId(caller.threadId, requestId, "thread.message"));
+    return messageArrival(this.deps.engine.messageFacts(threadId, id), restart);
+  }
   async prepareModels(caller: McpAttribution, value: DelegationRequest) {
     const request = delegationRequest(value);
     this.admission.validate(caller, request);
@@ -380,6 +442,24 @@ export class DelegationService {
       return undefined;
     }
   }
+  /**
+   * A restart's first step: everything `threadId` delegated stops, here and on other machines,
+   * so the new message is all that runs next.
+   */
+  stopChildren(threadId: ThreadId, requestId: string, request: string) {
+    this.cancelPreparations(threadId);
+    for (const child of this.journal
+      .liveDescendants(threadId)
+      .filter((edge) => edge.parentId === threadId)) {
+      this.cancelDescendants(child.childId, request);
+      const cancelled = this.command(
+        controlCommandId(child.childId, requestId, "restart.child_interrupt"),
+        { type: "thread.interrupt", threadId: child.childId, cascade: true },
+      );
+      if (!cancelled.ok) throw controlAdmissionError(cancelled.error ?? "Child interrupt failed");
+    }
+    this.onRemoteCancel?.(threadId);
+  }
   restartMessage(caller: McpAttribution, requestId: string, threadId: ThreadId, text: string) {
     if (
       !this.authorize(caller, threadId, true) ||
@@ -389,18 +469,7 @@ export class DelegationService {
       throw new Error("Forbidden restart");
     const id = controlCommandId(caller.threadId, requestId, "thread.restart_message");
     return this.deps.store.recordCommand(CommandId.parse(id), DeviceId.parse("ace-agent"), () => {
-      this.cancelPreparations(threadId);
-      for (const child of this.journal
-        .liveDescendants(threadId)
-        .filter((edge) => edge.parentId === threadId)) {
-        this.cancelDescendants(child.childId, id);
-        const cancelled = this.command(
-          controlCommandId(child.childId, requestId, "restart.child_interrupt"),
-          { type: "thread.interrupt", threadId: child.childId, cascade: true },
-        );
-        if (!cancelled.ok) throw controlAdmissionError(cancelled.error ?? "Child interrupt failed");
-      }
-      this.onRemoteCancel?.(threadId);
+      this.stopChildren(threadId, requestId, id);
       this.suspending.add(threadId);
       try {
         const stopped = this.command(
@@ -885,6 +954,9 @@ export class DelegationService {
     let statuses = false;
     for (const event of events) {
       statuses ||= event.payload.type === "thread.updated";
+      const notice = deliveryNotice(event);
+      if (notice) this.noticeParent(event.threadId, notice);
+      if (event.payload.type === "run.started") this.clearDeliveredNotice(event.threadId);
       if (
         event.payload.type !== "thread.updated" &&
         event.payload.type !== "usage.updated" &&

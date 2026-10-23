@@ -1733,7 +1733,7 @@ Example:
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
 | text | yes | [MessageText.json](schema/MessageText.json) |  |
-| delivery | no | ["queue","steer"] | {"default":"queue"} |
+| delivery | no | ["queue","steer"] |  |
 
 Example:
 
@@ -1848,7 +1848,7 @@ Example:
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
 | text | yes | [MessageText.json](schema/MessageText.json) |  |
-| delivery | no | ["queue","steer","restart"] | {"default":"queue"} |
+| delivery | no | ["queue","steer","restart"] |  |
 
 Example:
 
@@ -10266,6 +10266,7 @@ Example:
 | resolvedModel | no | string | {"minLength":1,"maxLength":256} |
 | resolvedEffort | no | string | {"minLength":1,"maxLength":256} |
 | resultDelivery | no | ["parent","owner"] |  |
+| messageNotice | no | object | {"properties":{"text":{"type":"string","maxLength":400},"at":{"$ref":"https://ace.local/protocol/v1/Timestamp.json"},"commandId":{"type":"string","maxLength":128}},"required":["text","at"]} |
 
 Example:
 
@@ -15832,6 +15833,28 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| op | yes | `"message"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| text | yes | [MessageText.json](schema/MessageText.json) |  |
+| delivery | yes | ["queue","steer","restart"] |  |
+
+Example:
+
+```json
+{
+  "delivery": "restart",
+  "op": "message",
+  "requestId": "3S",
+  "text": "example",
+  "threadId": "example"
+}
+```
+
+### Variant 6
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
 | op | yes | `"respond"` |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | interactionId | yes | [InteractionId.json](schema/InteractionId.json) |  |
@@ -15844,14 +15867,14 @@ Example:
   "interactionId": "example",
   "op": "respond",
   "resolution": {
-    "kind": "approval",
-    "optionId": "example"
+    "kind": "browser_help",
+    "outcome": "skipped"
   },
   "threadId": "example"
 }
 ```
 
-### Variant 6
+### Variant 7
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15865,7 +15888,7 @@ Example:
 }
 ```
 
-### Variant 7
+### Variant 8
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -15879,7 +15902,7 @@ Example:
 {
   "args": {},
   "op": "browser",
-  "tool": "browser_lryxodlwfmhzgwlosqrb_rxjjrqxlvzbxdfdunlzft_mrlwu"
+  "tool": "browser_fdlznacehkqivvjnrmmyfyqchsogotziiy"
 }
 ```
 
@@ -16003,6 +16026,42 @@ Example:
 
 ```json
 "desktop"
+```
+
+## MachineMessage
+
+[JSON Schema](schema/MachineMessage.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| text | yes | [MessageText.json](schema/MessageText.json) |  |
+| delivery | yes | ["queue","steer","restart"] |  |
+
+Example:
+
+```json
+{
+  "delivery": "queue",
+  "requestId": "hj-kYR2745T",
+  "text": "example"
+}
+```
+
+## MachineMessageResult
+
+[JSON Schema](schema/MachineMessageResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| arrival | yes | [MessageArrival.json](schema/MessageArrival.json) |  |
+
+Example:
+
+```json
+{
+  "arrival": "delivered"
+}
 ```
 
 ## MachineName
@@ -16205,12 +16264,18 @@ Example:
 | machine | no | string | {"maxLength":64} |
 | status | yes | [ThreadStatus.json](schema/ThreadStatus.json) |  |
 | requests | yes | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/MachinePendingRequest.json"}} |
+| notice | no | object | {"properties":{"text":{"type":"string","maxLength":400},"commandId":{"type":"string","minLength":1,"maxLength":128},"code":{"type":"string","minLength":1,"maxLength":64}},"required":["text","commandId","code"]} |
 
 Example:
 
 ```json
 {
   "elapsedSeconds": 2,
+  "notice": {
+    "code": "example",
+    "commandId": "example",
+    "text": "example"
+  },
   "requests": [],
   "state": "working",
   "status": {
@@ -16818,6 +16883,18 @@ Example:
 }
 ```
 
+## MessageArrival
+
+[JSON Schema](schema/MessageArrival.json), input validation.
+
+Type: ["starting","steering","restarting","queued","held","delivered"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"delivered"
+```
+
 ## MessageContext
 
 [JSON Schema](schema/MessageContext.json), input validation.
@@ -17016,6 +17093,8 @@ Example:
 | needs | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | ask | no | string | {"maxLength":100} |
 | last | no | string | {"maxLength":100} |
+| queued | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| notice | no | string | {"maxLength":400} |
 | machine | no | string | {"maxLength":64} |
 
 Example:

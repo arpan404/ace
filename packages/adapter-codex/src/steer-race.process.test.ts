@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { sessionHarness } from "./session.test-helper.ts";
+import { InputRejected } from "@ace/engine-api";
 import { obj } from "./native.ts";
 
 test("a steer rejected because its turn ended delivers the same input in a new turn", async () => {
@@ -72,6 +73,23 @@ test("an unrelated steer refusal is never retried as a new turn", async () => {
       "turn/start",
       "turn/steer",
     ]);
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("a steer Codex refuses for a turn it already left is reported as unread, never started again", async () => {
+  const h = await sessionHarness(false, "steer-stale-turn");
+  try {
+    await h.session.send([{ type: "text", text: "steer-stale-turn" }], "queue");
+    await h.wait((frame) => obj(frame.data)["method"] === "turn/started");
+    await expect(
+      h.session.send([{ type: "text", text: "correction" }], "steer", "stale-input"),
+    ).rejects.toBeInstanceOf(InputRejected);
+    const starts = h.frames.filter(
+      (frame) => frame.dir === "send" && obj(frame.data)["method"] === "turn/start",
+    );
+    expect(starts).toHaveLength(1);
   } finally {
     await h.dispose();
   }

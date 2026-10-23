@@ -42,6 +42,7 @@ export function startMachines(context: ServiceContext): void {
     journal: () => services.agentControl?.delegations.journal,
     now,
   });
+  resources.own(() => threads.close());
   const browser = new TargetBrowser({
     store,
     engine,
@@ -113,11 +114,13 @@ export function startMachines(context: ServiceContext): void {
     },
     mirror,
     label: (machine) => directory.label(machine),
-    deliver: (parentThreadId, id, text) => {
+    deliver: (parentThreadId, key, text) => {
       const parent = store.getThread(parentThreadId);
+      if (!parent || parent.deletedAt !== undefined) return;
+      // Not ready yet is a failure the poll retries, never a delivery.
       const delegations = services.agentControl?.delegations;
-      if (!parent || parent.deletedAt !== undefined || !delegations) return;
-      const result = delegations.command(`machine-result:${id}`, {
+      if (!delegations) throw new Error("Agent control is not ready");
+      const result = delegations.command(`machine-result:${key}`, {
         type: "thread.send",
         threadId: parentThreadId,
         input: [{ type: "text", text }],

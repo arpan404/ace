@@ -1,6 +1,7 @@
 import { failedActionTitle, failureReason, retainedFailure } from "./failure-copy.ts";
 import { ModelSelectionError } from "./models.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
+import { InputRejected } from "@ace/engine-api";
 import { GitError } from "@ace/git";
 import type { ProviderErrorDetails } from "@ace/protocol";
 import type { CommandId } from "@ace/protocol";
@@ -48,6 +49,8 @@ export class IntentDelivery {
     const repo = this.dependencies.repo;
     // Leaving the queue and joining the transcript are one step: the message's place in the
     // thread is where the engine delivers it, and a steer belongs to the run it steers into.
+    // Whether this send goes into a running turn as a steer, decided once at the claim.
+    let steered = false;
     const intent = repo.store.atomic(() => {
       const claimed = repo.claim(candidate);
       if (!claimed || !send) return claimed;
@@ -57,6 +60,7 @@ export class IntentDelivery {
       const active = state.agents[state.rootKey ?? ""]?.activeRun;
       const outstanding = repo.pending.awaiting(actor.id);
       const steer = this.dependencies.isSteer(claimed);
+      steered = steer && active !== undefined;
       repo.beginSend(
         claimed,
         steer ? (active ? undefined : (outstanding?.ackTarget ?? claimed.id)) : claimed.id,
@@ -123,6 +127,13 @@ export class IntentDelivery {
         this.dependencies.repo.pending.defer(intent);
         this.dependencies.repo.beginSend(intent, undefined);
         this.dependencies.repo.queue.reconcileUncertainty(actor.id, this.dependencies.clock.now());
+      } else if (editableSend && !acknowledged && error instanceof InputRejected) {
+        // Refused unread, so sending it again is safe. A parent agent's message goes back in the
+        // queue for the next turn by itself; anything else waits for the person, as unsent input.
+        const message = error.message || "The provider refused the message";
+        // Only a steer that lost its turn: a refused queued send would be refused again at once.
+        if (intent.trigger === "parent_agent" && steered) this.requeue(intent, message);
+        else this.retainInput(intent, message, false);
       } else {
         // RPC failure cannot undo native consumption, nor prove nonconsumption.
         if (send && acknowledged) this.dependencies.transitions.delivered(actor.id);
@@ -269,6 +280,17 @@ export class IntentDelivery {
       this.reportFailure(intent, message, code, details);
     });
   }
+  private requeue(intent: Intent, message: string): void {
+    const repo = this.dependencies.repo;
+    repo.store.atomic(() => {
+      repo.queue.clearUncertain(intent.id);
+      repo.pending.requeue(intent, message);
+      repo.beginSend(intent, undefined);
+      // Its message no longer belongs to the turn it failed to join; the next run binds it.
+      repo.admitInput(intent.command, intent.threadId, undefined, this.dependencies.clock.now());
+      this.reportFailure(intent, message, "input_requeued");
+    });
+  }
   private retainInput(
     intent: IntentHeader,
     message: string,
@@ -334,30 +356,34 @@ export class IntentDelivery {
       item: `intent:${intent.id}`,
       draft: {
         type: "notice",
-        level: code === "input_queued" ? "info" : "error",
+        level: code === "input_queued" || code === "input_requeued" ? "info" : "error",
         text:
           code === "input_queued"
             ? "Message kept in queue"
-            : code === "delivery_uncertain"
-              ? "This message may have run"
-              : code.startsWith("interaction_")
-                ? message
-                : ["thread.send", "thread.create"].includes(intent.kind)
-                  ? "Message not sent"
-                  : failureReason(message) || failedActionTitle(intent.kind),
+            : code === "input_requeued"
+              ? "Message kept for the next turn"
+              : code === "delivery_uncertain"
+                ? "This message may have run"
+                : code.startsWith("interaction_")
+                  ? message
+                  : ["thread.send", "thread.create"].includes(intent.kind)
+                    ? "Message not sent"
+                    : failureReason(message) || failedActionTitle(intent.kind),
         commandId: intent.commandId,
         ...(intent.resolutionId ? { interactionId: intent.resolutionId } : {}),
         code,
         title:
           code === "input_queued"
             ? "Message kept in queue"
-            : code === "delivery_uncertain"
-              ? "This message may have run"
-              : code.startsWith("interaction_")
-                ? "This question is no longer active"
-                : intent.kind === "thread.send" || intent.kind === "thread.create"
-                  ? "Not sent"
-                  : failedActionTitle(intent.kind),
+            : code === "input_requeued"
+              ? "Message kept for the next turn"
+              : code === "delivery_uncertain"
+                ? "This message may have run"
+                : code.startsWith("interaction_")
+                  ? "This question is no longer active"
+                  : intent.kind === "thread.send" || intent.kind === "thread.create"
+                    ? "Not sent"
+                    : failedActionTitle(intent.kind),
         detail: message.slice(0, 4096),
         complete: true,
         raw: [

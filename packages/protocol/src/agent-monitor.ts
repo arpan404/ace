@@ -73,6 +73,10 @@ export const MonitoredChild = z.object({
   needs: z.number().int().positive().optional(),
   ask: z.string().max(100).optional(),
   last: z.string().max(100).optional(),
+  /** Messages waiting in its queue, a parent's included: they have not reached it yet. */
+  queued: z.number().int().positive().optional(),
+  /** A message to it that failed or was kept back after it was accepted, and what ace did. */
+  notice: z.string().max(400).optional(),
   machine: z.string().max(64).optional(),
 });
 export type MonitoredChild = z.infer<typeof MonitoredChild>;

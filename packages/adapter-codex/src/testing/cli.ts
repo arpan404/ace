@@ -818,6 +818,9 @@ for await (const line of createInterface({ input: process.stdin })) {
             : "no active turn to steer",
       },
     });
+  } else if (method === "turn/steer" && process.env["ACE_FAKE_RESUME"] === "steer-stale-turn") {
+    // Codex moved on to a turn the client has not heard about yet, and took none of the input.
+    write({ id, error: { message: "expected active turn id turn but found unseen" } });
   } else if (method === "turn/steer" && process.env["ACE_FAKE_RESUME"] === "steer-refused") {
     write({ id, error: { message: "provider refused input" } });
   } else if (method === "turn/steer" && process.env["ACE_FAKE_RESUME"] === "steer-race") {

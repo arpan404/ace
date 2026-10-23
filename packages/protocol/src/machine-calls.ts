@@ -5,6 +5,7 @@ import { ProviderKind } from "./provider.ts";
 import { ThreadStatus } from "./thread-status.ts";
 import { WatchedThread } from "./agent-monitor.ts";
 import { MessageText } from "./message-limits.ts";
+import { MessageArrival } from "./message-arrival.ts";
 
 /**
  * Agent calls between paired machines (ADR 0078). The calling daemon forwards over the target's
@@ -64,6 +65,13 @@ const requestKey = z
   .min(1)
   .max(128)
   .regex(/^[a-zA-Z0-9_.-]+$/);
+const MachineMessageFields = {
+  requestId: requestKey,
+  text: MessageText,
+  delivery: z.enum(["queue", "steer", "restart"]),
+};
+export const MachineMessage = z.strictObject(MachineMessageFields);
+export type MachineMessage = z.infer<typeof MachineMessage>;
 export const MachineCall = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("describe") }),
   z.strictObject({
@@ -78,6 +86,8 @@ export const MachineCall = z.discriminatedUnion("op", [
   }),
   z.strictObject({ op: z.literal("status"), threadIds: z.array(ThreadId).min(1).max(16) }),
   z.strictObject({ op: z.literal("cancel"), threadId: ThreadId }),
+  /** Follow-up work from the parent agent for a child it delegated here. */
+  z.strictObject({ op: z.literal("message"), threadId: ThreadId, ...MachineMessageFields }),
   /** The person's answer, forwarded from the device they are looking at. Never an agent's. */
   z.strictObject({
     op: z.literal("respond"),
@@ -107,11 +117,21 @@ export type MachinePendingRequest = z.infer<typeof MachinePendingRequest>;
 export const MachineThreadView = WatchedThread.extend({
   status: ThreadStatus,
   requests: z.array(MachinePendingRequest).max(8),
+  /** A parent's message to it that failed or was kept back after it was accepted. */
+  notice: z
+    .object({
+      text: z.string().max(400),
+      /** The message it is about, and what happened to it: one notice each. */
+      commandId: z.string().min(1).max(128),
+      code: z.string().min(1).max(64),
+    })
+    .optional(),
 });
 export type MachineThreadView = z.infer<typeof MachineThreadView>;
 export const MachineStatusResult = z.object({ threads: z.array(MachineThreadView).max(16) });
 export const MachineDelegateResult = z.object({ threadId: ThreadId, title: z.string().max(256) });
 export const MachineSessionResult = z.object({ threadId: ThreadId });
+export const MachineMessageResult = z.object({ arrival: MessageArrival });
 /** A browser tool's MCP result, as the target's own registry produced it. */
 export const MachineToolResult = z.object({
   isError: z.boolean().optional(),
