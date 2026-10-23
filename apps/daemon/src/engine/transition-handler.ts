@@ -9,6 +9,7 @@ import {
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import { createEngineThread } from "./create-thread.ts";
+import { forkHistoryFacts } from "./fork-history.ts";
 import { boundary, handoff, validateCitations } from "./transition-history.ts";
 import { recordSwitch, resolveSwitch, switchAgent } from "./switch-admission.ts";
 
@@ -137,6 +138,12 @@ export function acceptTransition(
           ...(native ? { fork: native } : {}),
           ...(portable ? { handoff: portable } : {}),
         });
+        // The fork's transcript opens on the conversation it continues, unless the provider's
+        // own fork already brings those turns along.
+        if (!(native && capabilities.forkTranscript)) {
+          const inherited = forkHistoryFacts(repo, thread.id, point);
+          if (inherited.length) repo.apply(id, inherited, now);
+        }
         repo.transitions.history.grant(id, thread.id, point.throughSeq);
         repo.transitions.guard(id, command.id);
         if (native?.point.type === "end") repo.transitions.guard(thread.id, command.id);

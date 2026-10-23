@@ -5,7 +5,12 @@ import { StepMeasurement } from "./interaction-measurement.ts";
 import { ProviderErrorDetails } from "./provider-error-details.ts";
 import { ThreadStatus } from "./thread-status.ts";
 import { DelegationOutcome } from "./agent-control.ts";
-import { MergedForkContext, ExecutionSource, HandoffModel } from "./thread-transitions.ts";
+import {
+  MergedForkContext,
+  ExecutionSource,
+  HandoffModel,
+  InheritedItem,
+} from "./thread-transitions.ts";
 import { Attachment } from "./context.ts";
 import { z } from "zod";
 import { AgentId, CommandId, InteractionId, ItemId, RunId, ThreadId, Timestamp } from "./ids.ts";
@@ -104,6 +109,8 @@ export const AgentItem = z.discriminatedUnion("type", [
     origin: MessageOrigin.optional(),
     notAnswered: z.literal("stopped").optional(),
     mergedContext: MergedForkContext.optional(),
+    /** A copy of the source thread's message, made when this thread was forked from it. */
+    inherited: InheritedItem.optional(),
     raw: z.array(RawPayload).default([]),
   }),
   ItemBase.extend({

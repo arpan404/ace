@@ -65,6 +65,11 @@ export const Capabilities = z.object({
     .array(z.enum(["turn", "item", "end"]))
     .max(2)
     .optional(),
+  /**
+   * A native fork carries the source's turns into the new thread's transcript itself. Without
+   * it, ace copies the source's asks and answers into the fork.
+   */
+  forkTranscript: z.boolean().optional(),
   /** Subagent transcripts are visible live. */
   subagentTranscripts: z.boolean(),
   /** Background tasks can be listed and stopped individually. */

@@ -64,6 +64,12 @@ export const HandoffModel = z.object({
   model: z.string().min(1).max(256).optional(),
 });
 export type HandoffModel = z.infer<typeof HandoffModel>;
+/**
+ * Where a fork's copy of an earlier message came from: the item in the thread it was forked
+ * from, as it read at the fork point.
+ */
+export const InheritedItem = z.object({ threadId: ThreadId, itemId: ItemId });
+export type InheritedItem = z.infer<typeof InheritedItem>;
 export const MergedForkContext = z.object({
   sourceThreadId: ThreadId,
   summary: MessageText,

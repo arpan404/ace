@@ -21,6 +21,8 @@ import type { TransitionIO } from "./transitions.ts";
 export function transitionHarness(
   options: {
     native?: boolean;
+    /** A native fork brings the source's turns along itself, as Codex's does. */
+    forkTranscript?: boolean;
     cursorBackend?: import("@ace/engine-api").ProviderBackend;
     forkPoints?: ("turn" | "item" | "end")[];
     outcome?: "completed" | "failed" | "interrupted";
@@ -116,6 +118,7 @@ export function transitionHarness(
           resume: true,
           fork: options.native ?? false,
           forkPoints: options.forkPoints ?? ["turn", "item"],
+          ...(options.forkTranscript ? { forkTranscript: true } : {}),
           sessionOptions: true,
           subagentTranscripts: true,
           backgroundTaskControl: true,
