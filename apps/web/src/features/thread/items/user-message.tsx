@@ -4,7 +4,7 @@ import { userBubble } from "./user-bubble.ts";
 import type { PendingSend } from "@ace/client";
 import { useItem, usePendingSends } from "@ace/client-react";
 import type { ContentPart } from "@ace/protocol";
-import { bubbleContent, formatClock, messageOrigin } from "@ace/ui-core";
+import { bubbleContent, formatClock, messageOrigin, saidAt } from "@ace/ui-core";
 import { AnnotationsCard } from "@/features/annotations/index.ts";
 import { ArrowBendDownRightIcon, CheckIcon, ClockIcon, CopyIcon } from "@phosphor-icons/react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
@@ -124,10 +124,10 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
         )}
         <div className={cn(messageActions("bubble"), "shrink-0")}>
           <time
-            dateTime={new Date(message.createdAt).toISOString()}
+            dateTime={new Date(saidAt(message)).toISOString()}
             className="pr-1 text-xs text-subtle-foreground"
           >
-            {formatClock(message.createdAt)}
+            {formatClock(saidAt(message))}
           </time>
           {readable && (
             <IconButton

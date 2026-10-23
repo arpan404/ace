@@ -15,6 +15,11 @@ import {
 export const NativeFork = z.object({
   nativeSessionId: NativeSessionId,
   point: z.object({ type: z.enum(["turn", "item", "end"]), nativeId: z.string().min(1).max(256) }),
+  /**
+   * A fork of another thread (not an account move of this one's own session): the turns the
+   * provider brings along while it opens are the source's, shown as inherited.
+   */
+  inherited: z.literal(true).optional(),
 });
 const Metadata = z.object({
   selection: ExecutionSelection.optional(),

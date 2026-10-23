@@ -2844,13 +2844,78 @@ Example:
 
 ```json
 {
-  "seq": 9,
+  "seq": 6,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "kind": "threads",
-    "seq": 9,
-    "threads": {}
+    "agentChildren": {},
+    "agents": {},
+    "backgroundTasks": {},
+    "interactions": {},
+    "itemOrder": [],
+    "items": {},
+    "kind": "thread",
+    "offshift": {
+      "blocker": null,
+      "criteria": [],
+      "criteriaCount": 10,
+      "endpoint": "example",
+      "id": "aox33zyG",
+      "next": "example",
+      "outcome": "example",
+      "outcomeTruncated": false,
+      "pending": [],
+      "pendingCount": 1,
+      "phase": "plan",
+      "revision": "example",
+      "updatedAt": 6,
+      "version": 5
+    },
+    "runs": {},
+    "seq": 6,
+    "thread": {
+      "acpSupport": {
+        "capabilities": {
+          "imageInput": false,
+          "planMode": false,
+          "resume": false
+        },
+        "coverage": "legacy",
+        "mcp": "unavailable",
+        "modeSelection": false,
+        "modelSelection": false,
+        "raw": {
+          "json": "example",
+          "truncated": true
+        },
+        "subagentSessions": false,
+        "visibility": "limited"
+      },
+      "activitySeq": 0,
+      "autoSettleAt": 9,
+      "createdAt": 5,
+      "delegatedBy": "example",
+      "id": "example",
+      "prSettled": 8,
+      "provider": "pi",
+      "queue": {
+        "paused": true,
+        "pendingCount": 4,
+        "reason": "model_unavailable",
+        "resumeAt": 5,
+        "revision": 0
+      },
+      "settledReason": "manual",
+      "status": {
+        "state": "limited",
+        "until": 2
+      },
+      "title": "example",
+      "unread": false,
+      "updatedAt": 5,
+      "workspaceId": "example"
+    },
+    "usage": {}
   }
 }
 ```

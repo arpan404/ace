@@ -24,6 +24,13 @@ const thread = (app: ReturnType<typeof harness>, id: string) => {
   return view?.kind === "thread" ? view.thread : undefined;
 };
 
+/** The draft's "Forked from <source>" divider. */
+function forkedFrom(): HTMLElement {
+  const marker = screen.getByText("Forked from").closest<HTMLElement>('[role="note"]');
+  if (!marker) throw new Error("No Forked from divider");
+  return marker;
+}
+
 const forks = (app: ReturnType<typeof harness>) =>
   Object.values(
     (() => {
@@ -39,12 +46,13 @@ test("forking from an answer opens the fork ready for a message, and the message
   if (!forkHere) throw new Error("No finished answer to fork");
   await userEvent.click(forkHere);
 
-  // No dialog: the fork is its own thread, with its parent before the title.
+  // No dialog: the fork is its own thread in its project, and says where it was forked from.
   await screen.findByRole("heading", { level: 1, name: "Document the router (fork)" });
   expect(screen.queryByRole("dialog")).toBeNull();
-  expect(
-    within(screen.getByRole("banner")).getByRole("link", { name: "Document the router" }),
-  ).toBeTruthy();
+  const banner = within(screen.getByRole("banner"));
+  expect(banner.getByText("docs-site")).toBeTruthy();
+  expect(banner.queryByRole("link", { name: "Document the router" })).toBeNull();
+  expect(within(forkedFrom()).getByRole("link", { name: "Document the router" })).toBeTruthy();
   // Nothing exists until the first message is sent.
   expect(forks(app)).toEqual([]);
   await userEvent.type(
@@ -118,9 +126,7 @@ const forkDrafts = () => screen.queryByRole("list", { name: "Fork drafts" });
 test("a fork left before its first message stays a draft in Unsent and reopens with its message", async () => {
   const { app } = await openRouter();
   await userEvent.type(await openForkFromPalette(), "Half a thought");
-  await userEvent.click(
-    within(screen.getByRole("banner")).getByRole("link", { name: "Document the router" }),
-  );
+  await userEvent.click(within(forkedFrom()).getByRole("link", { name: "Document the router" }));
   await screen.findByRole("heading", { level: 1, name: "Document the router" });
   // Nothing exists on the daemon: the fork is only a draft on this device.
   expect(forks(app)).toEqual([]);

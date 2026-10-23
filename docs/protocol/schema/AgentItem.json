@@ -19,6 +19,9 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },
+        "inherited": {
+          "$ref": "https://ace.local/protocol/v1/InheritedItem.json"
+        },
         "nativeId": {
           "maxLength": 256,
           "type": "string"
@@ -70,6 +73,9 @@
         },
         "image": {
           "$ref": "https://ace.local/protocol/v1/SharedImage.json"
+        },
+        "inherited": {
+          "$ref": "https://ace.local/protocol/v1/InheritedItem.json"
         },
         "nativeId": {
           "maxLength": 256,
@@ -123,6 +129,9 @@
         },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "inherited": {
+          "$ref": "https://ace.local/protocol/v1/InheritedItem.json"
         },
         "mergedContext": {
           "$ref": "https://ace.local/protocol/v1/MergedForkContext.json"
@@ -210,6 +219,9 @@
         },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "inherited": {
+          "$ref": "https://ace.local/protocol/v1/InheritedItem.json"
         },
         "machine": {
           "properties": {
@@ -337,6 +349,9 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },
+        "inherited": {
+          "$ref": "https://ace.local/protocol/v1/InheritedItem.json"
+        },
         "nativeId": {
           "maxLength": 256,
           "type": "string"
@@ -397,6 +412,9 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },
+        "inherited": {
+          "$ref": "https://ace.local/protocol/v1/InheritedItem.json"
+        },
         "nativeId": {
           "maxLength": 256,
           "type": "string"
@@ -456,6 +474,9 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },
+        "inherited": {
+          "$ref": "https://ace.local/protocol/v1/InheritedItem.json"
+        },
         "measurement": {
           "$ref": "https://ace.local/protocol/v1/StepMeasurement.json"
         },
@@ -512,6 +533,9 @@
         },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "inherited": {
+          "$ref": "https://ace.local/protocol/v1/InheritedItem.json"
         },
         "interactionId": {
           "$ref": "https://ace.local/protocol/v1/InteractionId.json"
@@ -585,6 +609,9 @@
         },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "inherited": {
+          "$ref": "https://ace.local/protocol/v1/InheritedItem.json"
         },
         "nativeId": {
           "maxLength": 256,

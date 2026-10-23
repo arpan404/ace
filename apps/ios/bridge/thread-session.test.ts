@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { facts } from "@ace/fake-daemon";
-import { ThreadId } from "@ace/protocol";
+import { AgentId, ItemId, RunId, ThreadId } from "@ace/protocol";
 import {
   commands,
   connect,
@@ -507,6 +507,50 @@ test("a simulator step opens its device and a computer-use step opens computer u
   }, "both steps");
   const opens = steps.map((row) => (row.step as { opens: string } | null)?.opens);
   expect(opens).toEqual([`device:${simId}`, "computer"]);
+});
+
+/** A fork's copy of its source's message. */
+const copy = (key: string, role: "user" | "assistant", text: string) => ({
+  type: "item.upsert" as const,
+  agent: "root",
+  item: key,
+  draft: {
+    type: "message" as const,
+    role,
+    complete: true,
+    parts: [{ type: "text" as const, text }],
+    inherited: { threadId: ThreadId.parse("turn"), itemId: ItemId.parse(`source-${key}`) },
+  },
+});
+
+test("a fork's transcript shows its copied history and its own ask with no empty row between", async () => {
+  const fake = fixture();
+  fake.createThread({
+    id: "fork",
+    workspaceId: "ace",
+    title: "Turn (fork)",
+    provider: "codex",
+    lineage: {
+      parentThreadId: ThreadId.parse("turn"),
+      parentAgentId: AgentId.parse("turn.root"),
+      point: { type: "turn", runId: RunId.parse("turn.run.1") },
+      mode: "portable",
+      lossy: true,
+    },
+  });
+  fake.apply("fork", [
+    facts.rootAgent("codex"),
+    copy("ask", "user", "Fix the flaky test."),
+    copy("answer", "assistant", "The test now pins the clock."),
+  ]);
+  open(connect(fake), "fork");
+  await until(
+    () => rows("thread.block").filter((row) => row.kind === "message").length > 0 || undefined,
+    "the copied answer",
+  );
+  const blocks = rows("thread.block").toSorted((a, b) => Number(a.index) - Number(b.index));
+  expect(blocks.map((row) => row.kind)).toEqual(["user", "message"]);
+  expect(blocks.map((row) => row.index)).toEqual([0, 1]);
 });
 
 test("a thread stays shown when the daemon's snapshot replaces the one kept from the last launch", async () => {

@@ -1,4 +1,5 @@
 import { startedConversation, startedConversationIds } from "@ace/fake-daemon";
+import { AgentId, RunId, ThreadId } from "@ace/protocol";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -51,4 +52,37 @@ test("an agent-started thread is in the thread list, opens with a usable compose
   await waitFor(async () =>
     expect((await threads()).getByRole("link", { name: /^Separate Codex chat/ })).toBeTruthy(),
   );
+});
+
+/** The same conversation, made by the agent's `thread_fork`: a fork of the source thread. */
+function forkedConversation() {
+  const [source, started] = JSON.parse(
+    JSON.stringify(startedConversation()).replaceAll("thread_start", "thread_fork"),
+  ) as ReturnType<typeof startedConversation>;
+  if (!source || !started) throw new Error("No scenario");
+  started.thread = {
+    ...started.thread,
+    lineage: {
+      parentThreadId: ThreadId.parse(startedConversationIds.source),
+      parentAgentId: AgentId.parse(`${startedConversationIds.source}.root`),
+      point: { type: "turn", runId: RunId.parse("run-1") },
+      mode: "portable",
+      lossy: true,
+    },
+  };
+  return [source, started];
+}
+
+test("a fork an agent made reads as one quiet line linking to it, not as an agent of this thread", async () => {
+  const app = harness();
+  for (const scenario of forkedConversation()) app.play(scenario).runUntilBlocked();
+  await app.open(`/t/${startedConversationIds.source}`);
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const link = await within(feed).findByRole("link", { name: "Separate Codex chat" });
+  expect(link.closest('[role="note"]')?.textContent).toBe("Forked to Separate Codex chat");
+  expect(within(feed).queryByRole("region", { name: /Separate Codex chat/ })).toBeNull();
+  await userEvent.click(link);
+  expect(
+    await within(await screen.findByRole("feed", { name: "Transcript" })).findByText(welcome),
+  ).toBeTruthy();
 });

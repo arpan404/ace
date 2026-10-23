@@ -5,7 +5,12 @@ import { StepMeasurement } from "./interaction-measurement.ts";
 import { ProviderErrorDetails } from "./provider-error-details.ts";
 import { ThreadStatus } from "./thread-status.ts";
 import { DelegationOutcome } from "./agent-control.ts";
-import { MergedForkContext, ExecutionSource, HandoffModel } from "./thread-transitions.ts";
+import {
+  MergedForkContext,
+  ExecutionSource,
+  HandoffModel,
+  InheritedItem,
+} from "./thread-transitions.ts";
 import { Attachment } from "./context.ts";
 import { z } from "zod";
 import { AgentId, CommandId, InteractionId, ItemId, RunId, ThreadId, Timestamp } from "./ids.ts";
@@ -79,6 +84,8 @@ const ItemBase = z.object({
   executionSource: ExecutionSource.optional(),
   /** False while the provider is still streaming into this item. */
   complete: z.boolean(),
+  /** The source thread's, in a fork: ace's copy of its message, or a turn its provider brought. */
+  inherited: InheritedItem.optional(),
 });
 
 /** Agent-owned transcript entries always identify their owner. */

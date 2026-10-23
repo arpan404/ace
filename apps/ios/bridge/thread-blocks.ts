@@ -387,11 +387,14 @@ export function followBlocks(
     const built = read(store);
     watch = new Set(built.watch);
     const next = new Map<string, Block>();
+    // The native transcript has no "Forked from" divider yet; it leaves the block out rather
+    // than drawing an empty row.
+    const shown = built.value.filter((block) => block.kind !== "forked");
     const offset = anchoredOffset(
       positions,
-      built.value.map((block) => block.key),
+      shown.map((block) => block.key),
     );
-    built.value.forEach((block, at) => {
+    shown.forEach((block, at) => {
       const index = at - offset;
       next.set(block.key, block);
       const old = blocks.get(block.key);

@@ -85,57 +85,44 @@ Example:
 {
   "thread": {
     "acpAgentId": "example",
-    "archivedAt": 3,
+    "archivedAt": 1,
     "backend": "cursor-sdk",
     "capabilities": {
-      "backgroundTaskControl": false,
-      "backgroundVisibility": "full",
+      "backgroundTaskControl": true,
+      "backgroundVisibility": "partial",
       "fork": true,
       "forkMode": "context-handoff",
-      "imageInput": true,
+      "forkTranscript": false,
+      "imageInput": false,
       "interruptCascades": true,
       "launchOptions": [],
-      "planMode": false,
+      "planMode": true,
       "resume": true,
       "rewindFiles": false,
       "steer": false,
-      "subagentTranscripts": true,
-      "tokenUsage": true
-    },
-    "createdAt": 7,
-    "delegatedBy": "example",
-    "deletedAt": 5,
-    "effectiveCapabilities": {
-      "approvals": "none",
-      "backgroundTaskControl": true,
-      "backgroundVisibility": "full",
-      "childControls": "read-only",
-      "childFidelity": "summary",
-      "fork": false,
-      "forkPoints": [],
-      "imageInput": true,
-      "interruptCascades": false,
-      "planMode": false,
-      "resume": false,
-      "rewindFiles": true,
-      "sessionOptions": false,
-      "steer": true,
-      "steerTiming": "after_tool",
-      "steeringMode": "interrupt-restart",
       "subagentTranscripts": false,
       "tokenUsage": false
     },
+    "createdAt": 1,
+    "deletedAt": 5,
     "hasSentMessage": true,
     "id": "example",
+    "instanceId": "example",
     "live": {
       "step": "tests",
       "watching": [],
       "workingSince": 9
     },
+    "permission": {
+      "effective": "read-only",
+      "override": null,
+      "pending": false
+    },
     "pinOrder": 4,
     "pinned": true,
     "provider": "codex",
     "readAt": 4,
+    "rootAgentId": "example",
     "run": {
       "pendingCount": 4,
       "phase": "review",
@@ -146,10 +133,10 @@ Example:
     "settledReason": "manual",
     "snoozedUntil": 2,
     "status": {
-      "state": "limited"
+      "state": "done"
     },
     "title": "example",
-    "updatedAt": 0,
+    "updatedAt": 4,
     "workspaceId": "example"
   },
   "type": "thread.created"
@@ -421,13 +408,19 @@ Example:
 {
   "item": {
     "agentId": "example",
-    "code": "example",
     "complete": false,
     "createdAt": 6,
+    "diagnostic": false,
     "id": "example",
+    "interactionId": "example",
     "level": "error",
+    "raw": [],
+    "source": {
+      "bytes": 3,
+      "encoding": "utf-16le",
+      "streamId": "example"
+    },
     "text": "example",
-    "title": "example",
     "type": "notice"
   },
   "type": "item.created"
@@ -473,27 +466,20 @@ Example:
     "childThreadId": "example",
     "complete": false,
     "createdAt": 5,
-    "generation": 5,
+    "generation": 0,
     "id": "example",
     "model": "example",
     "origin": "ace",
-    "outcome": {
-      "before": 7,
-      "outcome": "failed",
-      "result": "example",
-      "threadId": "example",
-      "truncated": false
-    },
-    "phase": "running",
-    "provider": "acp",
+    "phase": "settled",
+    "provider": "claude",
     "role": "example",
     "runId": "example",
     "status": {
-      "state": "done"
+      "state": "new"
     },
     "title": "example",
     "type": "delegation.started",
-    "updatedAt": 9
+    "updatedAt": 5
   },
   "type": "item.updated"
 }
