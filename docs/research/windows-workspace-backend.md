@@ -1,6 +1,6 @@
 # Windows workspace backend — safe design (research)
 
-Status: the production Windows binding, private file consumers and normal install pass MSVC compilation and 29 files / 179 tests on both architectures in [run 40006284111](https://github.com/arpan404/ace/actions/runs/40006284111), pinned to `97945b24b`. The public daemon API clean-start/restart baseline also passes. Private directory creation and data-home ACL enforcement remain in progress; confined Git startup and complete installed-app acceptance remain required.
+Status: the selected Windows backend, real install, private data-home/identity handling and public daemon clean-start/restart pass MSVC compilation and 32 files / 190 tests on both architectures in [run 40011792770](https://github.com/arpan404/ace/actions/runs/40011792770), pinned to `4e9e6aa04`. Confined Git startup, remaining absolute-path writers, crash recovery and installed-app acceptance remain required.
 
 ## 1. Consumers pin numeric fds; HANDLE-only is rejected
 
@@ -259,3 +259,26 @@ establish protection against that operation. Pinning a checkout's existing `.git
 entry could keep the directory nonempty, but `init` and `clone` legitimately start
 before that entry exists. A native empty-directory versus pinned-entry reparse
 probe remains required before choosing the confined Git launcher.
+
+## Private home and identity milestone
+
+[Run 40011792770](https://github.com/arpan404/ace/actions/runs/40011792770),
+pinned to `4e9e6aa04`, passes all 32 files / 190 tests on native x64 and ARM64.
+Four private-directory, three data-home and four daemon-private-file cases execute,
+and the public daemon clean-start/restart case remains green with these consumers.
+
+Creation installs the TokenUser owner and protected inheritable owner-only DACL
+inside exclusive `NtCreateFile`. Existing unsafe directories are refused without
+repair. The first directory run exposed `EACCES` after adoption, although the
+fresh handle's ACL check passed. The checker now acquires its security-query
+handle through `OpenFileById` using the original held object as the volume hint,
+and verifies the complete volume/file ID again before accepting security.
+No pathname reopen or numeric identity conversion is involved. The original fd
+remains borrowed; only the new security handle closes.
+
+`secureDataDir` applies the same private creation/observation to subdirectories.
+Windows daemon tokens and host IDs use exclusive private creation, data flush and
+bounded private reads. Existing inherited and hardlinked identity files are
+refused without repair. Temporary diagnostics were removed in `0e6dc0433`.
+Absolute-path database/marker writers and complete crash recovery remain separate
+work; this milestone does not establish complete Windows app readiness.

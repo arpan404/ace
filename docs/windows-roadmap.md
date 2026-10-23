@@ -461,3 +461,22 @@ production still uses its POSIX helper and is not Windows-ready.
 
 Global and full source typechecking pass. The fresh full repository gate has
 reached process tests and is still running; no complete pass is claimed.
+
+## Protected data-home milestone
+
+[Run 40011792770](https://github.com/arpan404/ace/actions/runs/40011792770),
+pinned to `4e9e6aa04`, passes **32 files / 190 tests on both native architectures**.
+This adds atomic protected private-directory creation, private home creation/reuse,
+refusal of existing unsafe homes, private daemon identity-file persistence and
+inherited/hardlink refusal. The clean daemon restart case stays green after these
+changes. The adopted-directory security check now uses a volume/file-ID open
+and validates the complete identity, replacing the failing reopen path.
+
+The browser ownership fixture's epoch timestamp caused an inactivity settle
+during Chromium startup. `526faeb1f` uses the thread creation clock; isolated
+SIGTERM and SIGKILL privacy/restart flows both pass with assertions unchanged.
+The current full repository run has reported browser streaming/conformance and
+video-sharpness failures and remains running. It is not a clean repository pass.
+W12 remains open for remaining absolute-path writers, recovery/adoption and
+installed-app workflows. Confined Git also needs the empty-cwd reparse test
+described in the filesystem research; rename sharing alone is insufficient proof.
