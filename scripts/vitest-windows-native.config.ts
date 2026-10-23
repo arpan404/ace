@@ -41,6 +41,7 @@ export default defineConfig({
       "packages/workspace/src/windows-workspace.process.test.ts",
       "apps/daemon/src/builtin-skill-private.windows.process.test.ts",
       "apps/daemon/src/windows-startup.process.test.ts",
+      "apps/daemon/src/windows-local-files.process.test.ts",
       "packages/service/src/windows-home.process.test.ts",
       "packages/git/src/windows-guid-cwd.process.test.ts",
       "packages/plugins/src/windows-ownership.process.test.ts",
