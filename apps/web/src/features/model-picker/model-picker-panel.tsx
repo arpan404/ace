@@ -3,6 +3,7 @@ import type { ProviderKind } from "@ace/protocol";
 import {
   pickerGroups,
   pickerSection,
+  pickerEntries,
   pickerList,
   providerNames,
   providersWithProblems,
@@ -23,7 +24,6 @@ import {
 import { VirtualPickerRows, type PickerItem } from "./virtual-picker-rows.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { PickerRail } from "./picker-rail.tsx";
-import { pickerEntries } from "./picker-entries.ts";
 import { useNow } from "@/lib/time.ts";
 import { formatResetCountdown } from "@/features/accounts/index.ts";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
