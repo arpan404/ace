@@ -41,6 +41,7 @@ export default defineConfig({
       "packages/workspace/src/command-stdin.process.test.ts",
       "packages/workspace/src/rg-stdin.process.test.ts",
       "packages/provider-kit/src/windows-job.process.test.ts",
+      "packages/provider-kit/src/windows-sqlite.process.test.ts",
       "packages/provider-kit/src/windows-process-identity.process.test.ts",
       "packages/terminal/src/win32.process.test.ts",
       "packages/workspace/src/path-policy.test.ts",
