@@ -530,7 +530,7 @@ test("new commits visibly invalidate durable hosted drafts and disable all revie
     screen.getByText(/New commits moved the lines of outdated comments\. Remove them to submit\./),
   ).toBeTruthy();
   for (const verdict of ["Comment", "Approve", "Request changes"]) {
-    await userEvent.click(screen.getByRole("radio", { name: verdict, exact: true }));
+    await userEvent.click(screen.getByRole("radio", { name: verdict }));
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Submit review" }).disabled).toBe(
       true,
     );
