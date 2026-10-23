@@ -366,9 +366,9 @@ enum PerfBudget {
     static let typingMs = 1_800.0                 // [830, XCUITest's own typing pace]
     static let sheetFillMs = 350.0                // [Agents 140, Changes 128]
     static let modelSheetTapMs = 3_000.0          // [1,940, mostly XCUITest waiting]
-    static let pageMainMs = 1_000.0               // [measuring]
-    static let readingLostMsPerPage = 1_000.0     // [measuring]
-    static let readingGrowthMiB = 1_000.0         // [measuring]
+    static let pageMainMs = 25.0                  // [4.6; 58 when each page replaced the whole window]
+    static let readingLostMsPerPage = 600.0       // [252; 362 before]
+    static let readingGrowthMiB = 50.0            // [24; 60 before]
 }
 
 extension XCUIElement {
