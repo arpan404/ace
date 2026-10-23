@@ -115,6 +115,13 @@ that a data descriptor grants permission to change the DACL. See Microsoft's
 [file security and access rights](https://learn.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights)
 and [GetSecurityInfo access requirement](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-getsecurityinfo).
 
+`42c4f2ad6` adds `windowsDescriptorStats(identityOf)` for explicit use with
+`Descriptor`. It validates native identity strings and combines them with Node
+bigint stat metadata from the same held fd, preserving numeric display fields
+and JSON serialization. Async parse failures reject the observation. Callers
+keep the fd open through the operation. Four new native fixtures are pending;
+24 host regressions pass. Default bindings and path-stat guards remain POSIX-only.
+
 ## 8. Error mapping
 
 `ERROR_FILE_NOT_FOUND(2)` / `ERROR_PATH_NOT_FOUND(3)` to `ENOENT`; `ERROR_FILE_EXISTS(80)` / `ERROR_ALREADY_EXISTS(183)` to `EEXIST` (exclusive `CONFLICT`); `ERROR_ACCESS_DENIED(5)` / `ERROR_SHARING_VIOLATION(32)` to `EACCES`; `ERROR_DIRECTORY(267)` to `ENOTDIR`; reparse escape to `ELOOP`; `ERROR_INVALID_NAME(123)` / bad component to `EINVAL`; cap to `E2BIG`; identity mismatch to `ESTALE`; cross-volume to `EXDEV` (no copy fallback). Codes: [system error codes](https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes). AV/indexer `SHARING_VIOLATION` gets bounded retries, never infinite; cloud / AppExecLink / WSL placeholders denied by default; same-volume rename durability is NTFS journaling recovery, not a documented old-or-new-bytes proof; `MOVEFILE_WRITE_THROUGH`-equivalent flush covers only the staged data handle. The existing win32 `MoveFileExW` worker branch stays for absolute-path exclusive moves only: [MoveFileExW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw).

@@ -348,6 +348,13 @@ to `3f2e415b4`, passes native MSVC compilation and 19 files / 150 tests on each
 of x64 and ARM64, including all four new private-creation cases. Production
 reader/writer integration and Windows identity mapping remain required.
 
+`42c4f2ad6` adds an explicit Windows stat source to `Descriptor`, combining
+numeric display metadata with parsed native volume/file-ID strings from the
+same caller-held fd. The default POSIX binding and Windows production gate stay
+unchanged. All 24 host regressions pass; four new Windows fixtures cover native
+identity/JSON, pathname replacement, directory metadata and malformed-ID refusal.
+Native execution of this descriptor-stat slice is pending.
+
 The two-worker full gate finished with 2,764 files passed, 38 failed and 26
 skipped; 17,005 tests passed and 59 failed, plus one unhandled error. It exited 1
 after 7,650 seconds. Some failures used old tests before repairs committed during
