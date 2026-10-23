@@ -73,14 +73,19 @@ export class WorkspaceForgeReviews {
     const reads = [
       backend.reviews.host(pr.number, signal),
       backend.reviews.viewedNow(pr.number, signal),
-      backend.reviews.reactions(pr.number, signal),
+      backend.reviews.decorations(pr.number, signal),
     ] as const;
     await Promise.allSettled(reads);
     const host = await reads[0];
-    // Reactions are decoration: a failed read hides them and never fails the review state.
-    let reactions: ForgeReviewState["reactions"] = null;
+    // Reactions and hidden comments are decoration: a failed read hides them and never fails
+    // the review state.
+    let decorations: Pick<ForgeReviewState, "reactions" | "hidden" | "hideable"> = {
+      reactions: null,
+      hidden: null,
+      hideable: null,
+    };
     try {
-      reactions = await reads[2];
+      decorations = await reads[2];
     } catch (error) {
       if (signal.aborted) throw error;
     }
@@ -124,7 +129,7 @@ export class WorkspaceForgeReviews {
         .filter((t) => (t.isResolved ? t.viewerCanUnresolve : t.viewerCanResolve))
         .map((t) => t.id),
       operations,
-      reactions,
+      ...decorations,
     };
   }
   #assertAvailable(pr: ForgePrRef, action: ForgeReviewAction) {
@@ -140,9 +145,22 @@ export class WorkspaceForgeReviews {
     if (
       unresolved.some((row) => {
         if (row.action === encoded) return true;
-        if (action.kind !== "submit") return false;
-        const prior = ForgeReviewAction.parse(JSON.parse(z.string().parse(row.action)));
-        return prior.kind === "submit" && prior.draftIds.some((id) => action.draftIds.includes(id));
+        if (action.kind === "submit") {
+          const prior = ForgeReviewAction.parse(JSON.parse(z.string().parse(row.action)));
+          return (
+            prior.kind === "submit" && prior.draftIds.some((id) => action.draftIds.includes(id))
+          );
+        }
+        if (action.kind === "comment.hide" || action.kind === "comment.unhide") {
+          // Hiding and showing one comment race each other until the earlier outcome is known.
+          const prior = ForgeReviewAction.parse(JSON.parse(z.string().parse(row.action)));
+          return (
+            (prior.kind === "comment.hide" || prior.kind === "comment.unhide") &&
+            prior.source === action.source &&
+            prior.commentId === action.commentId
+          );
+        }
+        return false;
       })
     )
       throw new Error("action_outcome_uncertain");

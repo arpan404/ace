@@ -123,3 +123,9 @@ test("needs attention lists failing checks, then open review threads, and nothin
     "Address mira's review comment on src/a.ts:3 in PR #31:\n\n> Which port?\n> More",
   );
 });
+
+test("an outdated conversation in needs attention names its file without a dangling colon", () => {
+  const outdated = { ...thread("old", false, [comment(9, "mira", "2026-01-05")]), line: null };
+  const [item] = attentionItems({ checks: [], reviewThreads: [outdated] });
+  expect(item?.detail).toBe("src/a.ts");
+});

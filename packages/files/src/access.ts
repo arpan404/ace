@@ -14,6 +14,7 @@ const reads = new Set<FileOperation["op"]>([
   "artifact.output",
   "artifact.raw",
   "artifact.support",
+  "forge.media.download",
 ]);
 
 /** Service and both transports enforce the same capability for each operation. */

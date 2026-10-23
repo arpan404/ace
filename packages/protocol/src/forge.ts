@@ -1,5 +1,5 @@
 import { SourceControlContext } from "./source-control-draft.ts";
-import { ForgeMergeState } from "./forge-merge-state.ts";
+import { ForgeMergeCommit, ForgeMergeState } from "./forge-merge-state.ts";
 import { ForgeStackExpected } from "./forge-stacks.ts";
 import { z } from "zod";
 
@@ -74,6 +74,12 @@ export const ForgeReviewThread = z.object({
   outdated: z.boolean(),
   file: text,
   line: z.number().int().nullable(),
+  /** Which side of the diff `line` (and `startLine`) count on; absent from older reads. */
+  side: z.enum(["LEFT", "RIGHT"]).optional(),
+  /** The first line of a multi-line thread; null or absent for a single line. */
+  startLine: z.number().int().nullable().optional(),
+  /** The side `startLine` counts on, when the thread starts on the other side from `side`. */
+  startSide: z.enum(["LEFT", "RIGHT"]).optional(),
   comments: z.array(ForgeComment).max(2_000),
 });
 export const ForgePrStatus = z.object({
@@ -142,6 +148,8 @@ export const ForgeCommand = z.discriminatedUnion("type", [
     headSha: z.string().regex(/^[a-fA-F0-9]{40,64}$/),
     action: z.enum(["enable", "disable", "dequeue"]),
     method: z.enum(["merge", "squash", "rebase"]),
+    /** The commit auto-merge writes; only with `enable` and a merge or squash. */
+    commit: ForgeMergeCommit.optional(),
   }),
   z.object({
     type: z.literal("forge.pr.stack.change"),
@@ -194,6 +202,8 @@ export const ForgeCommand = z.discriminatedUnion("type", [
     link: ForgeThreadLink,
     headSha: z.string(),
     method: z.enum(["merge", "squash", "rebase"]),
+    /** The merge or squash commit's title and message; GitHub's own when absent. */
+    commit: ForgeMergeCommit.optional(),
   }),
   z.object({
     type: z.literal("forge.pr.auto-merge"),

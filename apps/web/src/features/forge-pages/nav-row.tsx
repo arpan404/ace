@@ -1,8 +1,9 @@
-import { GitPullRequestIcon } from "@phosphor-icons/react";
+import { GitPullRequestIcon, TrayIcon } from "@phosphor-icons/react";
 import { prStepsForYou, workKey, rowStep, prQuery } from "@ace/ui-core";
 import { NavRow } from "@/components/nav-row.tsx";
 import { useVerifyRuns } from "@/lib/verify.ts";
 import { useLinkedThreads } from "./linked-threads.ts";
+import { useInboxPages } from "./inbox-data.ts";
 import { usePrPages } from "./lists.ts";
 import { useProjectChoice } from "./project-choice.ts";
 
@@ -35,4 +36,16 @@ export function PullRequestsNavRow(props: { active: boolean }) {
       open={counts && counts.open + counts.draft}
     />
   );
+}
+
+/**
+ * The sidebar's "Inbox" row with a quiet count of unread GitHub notifications. It reads the
+ * inbox's first page, the same read the page polls, so the count keeps up while the app is open
+ * at no extra cost; it never lights the needs-you dot or notifies the OS.
+ */
+export function InboxNavRow(props: { active: boolean }) {
+  const choice = useProjectChoice(undefined);
+  const list = useInboxPages(choice.project, {}, 1);
+  const unread = list.rows.filter((row) => row.unread).length;
+  return <NavRow to="/inbox" icon={TrayIcon} label="Inbox" active={props.active} open={unread} />;
 }

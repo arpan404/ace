@@ -21,20 +21,24 @@ export function WorkHeading(props: {
   return (
     <>
       {(props.back || props.actions) && (
-        <div className="mb-2 flex min-h-8 items-center gap-2">
+        // Too narrow for both, the actions move under back as one line of their own, still at
+        // the right edge; more than fits there wraps within it, never past the page.
+        <div className="mb-2 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1">
           {props.back && (
             <button
               type="button"
               aria-label={`Back to ${props.back.label.toLowerCase()}`}
               onClick={props.back.onBack}
-              className="-ml-1 inline-flex h-6 items-center gap-1 rounded-sm px-1 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit hover:text-foreground"
+              className="-ml-1 inline-flex h-6 shrink-0 items-center gap-1 rounded-sm px-1 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit hover:text-foreground"
             >
               <ArrowLeftIcon aria-hidden size={14} />
               {props.back.label}
             </button>
           )}
           {props.actions && (
-            <div className="-mr-1 ml-auto flex shrink-0 items-center gap-1">{props.actions}</div>
+            <div className="-mr-1 ml-auto flex max-w-full min-w-0 flex-wrap items-center justify-end gap-1">
+              {props.actions}
+            </div>
           )}
         </div>
       )}

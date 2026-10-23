@@ -204,6 +204,22 @@ export function PullRequestsPage(props: {
       kind="pulls"
       address={listAddress}
       ready={list.rows.length > 0}
+      actions={
+        project ? (
+          <Button
+            size="sm"
+            onClick={() =>
+              void navigate({
+                to: "/pulls/$project/new",
+                params: { project },
+                search: { back: listAddress },
+              })
+            }
+          >
+            New pull request
+          </Button>
+        ) : null
+      }
       strip={
         project && (
           <MergeStrip

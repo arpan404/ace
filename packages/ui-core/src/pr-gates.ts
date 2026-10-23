@@ -152,7 +152,9 @@ export function reviewerOutcomes(comments: readonly ForgeComment[]): Map<string,
     const outcome = outcomes[comment.reviewState.toUpperCase()];
     if (!outcome) continue;
     const seen = latest.get(comment.author);
-    if (!seen || time(comment) >= seen.at)
+    const verdict = outcome !== "commented";
+    const seenVerdict = seen !== undefined && seen.outcome !== "commented";
+    if (!seen || (verdict === seenVerdict ? time(comment) >= seen.at : verdict))
       latest.set(comment.author, { at: time(comment), outcome });
   }
   return new Map([...latest].map(([author, value]) => [author, value.outcome]));

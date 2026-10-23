@@ -13,6 +13,7 @@ import {
   ThreadId,
   ForgeCommand,
   ForgeIssueCommands,
+  ForgeInboxCommands,
   WorkspaceCommands,
   WorkspaceActionResult,
 } from "@ace/protocol";
@@ -58,6 +59,7 @@ export async function startWorkspaceActions({
         ),
     },
     ...(services.sourceControl ? { sourceControl: services.sourceControl } : {}),
+    ...(services.threadFiles ? { forgeMediaGrants: services.threadFiles.forgeMedia.grants } : {}),
     writingCli:
       options.workspaceActions?.writingCli ??
       createWritingCli({
@@ -162,6 +164,7 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
         ...WorkspaceCommands.map((schema) => schema.shape.type.value),
         ...ForgeCommand.options.map((schema) => schema.shape.type.value),
         ...ForgeIssueCommands.map((schema) => schema.shape.type.value),
+        ...ForgeInboxCommands.map((schema) => schema.shape.type.value),
       ],
       scope: (command) => (command.payload.type === "forge.pr.status" ? "read" : "operate"),
       async accept(command) {
@@ -172,10 +175,12 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
           (p.type !== "forge.hosted.lifecycle" &&
             p.type !== "forge.issue.write" &&
             p.type !== "forge.issue.reconcile" &&
+            p.type !== "forge.inbox.write" &&
             p.type !== "forge.hosted.review" &&
             p.type !== "forge.hosted.checks" &&
             p.type !== "forge.hosted.merge" &&
             p.type !== "forge.hosted.merge-state" &&
+            p.type !== "forge.hosted.pr.create" &&
             (!id || !canReadThread(ThreadId.parse(id))))
         ) {
           send({
@@ -268,10 +273,12 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
             (p.type === "forge.hosted.lifecycle" ||
               p.type === "forge.issue.write" ||
               p.type === "forge.issue.reconcile" ||
+              p.type === "forge.inbox.write" ||
               p.type === "forge.hosted.review" ||
               p.type === "forge.hosted.checks" ||
               p.type === "forge.hosted.merge" ||
               p.type === "forge.hosted.merge-state" ||
+              p.type === "forge.hosted.pr.create" ||
               (id !== undefined && canReadThread(ThreadId.parse(id)))),
         );
         if (connected()) send({ type: "commandResult", ...result });

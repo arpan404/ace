@@ -13,7 +13,7 @@ import { useMachinePool } from "@/lib/machine-pool.ts";
 import { machineProblem, machineStatus } from "@/lib/machine-status.ts";
 import { primaryMachineId, type Machine } from "@/lib/machines.ts";
 import { useNow } from "@/lib/time.ts";
-import { ConfirmDialog, type Confirming } from "./confirm-dialog.tsx";
+import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { fleetProblem, revokeDevice } from "./data/fleet.ts";
 import { linkDeviceIds, reach, type Reach } from "./data/fleet-links.ts";
 import { useFleet, type Fleet } from "./data/use-fleet.ts";

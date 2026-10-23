@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ForgePrRef } from "./forge.ts";
 import { WorkspaceId } from "./ids.ts";
+import { ForgeMergeCommit } from "./forge-merge-state.ts";
 
 /**
  * Merge a pull request of a project's repository, whether or not a thread is linked to it (the
@@ -13,6 +14,8 @@ export const ForgeHostedMergeCommand = z.object({
   pr: ForgePrRef,
   headSha: z.string().regex(/^[a-fA-F0-9]{40,64}$/),
   method: z.enum(["merge", "squash", "rebase"]),
+  /** The merge or squash commit's title and message; GitHub's own when absent. */
+  commit: ForgeMergeCommit.optional(),
 });
 export type ForgeHostedMergeCommand = z.infer<typeof ForgeHostedMergeCommand>;
 
@@ -28,5 +31,7 @@ export const ForgeHostedMergeStateCommand = z.object({
   headSha: z.string().regex(/^[a-fA-F0-9]{40,64}$/),
   action: z.enum(["enable", "disable"]),
   method: z.enum(["merge", "squash", "rebase"]),
+  /** The commit auto-merge writes; only with `enable` and a merge or squash. */
+  commit: ForgeMergeCommit.optional(),
 });
 export type ForgeHostedMergeStateCommand = z.infer<typeof ForgeHostedMergeStateCommand>;

@@ -1,7 +1,9 @@
+import { fakeEmojiImages, resolveFakeMedia } from "./catalog/forge-media.ts";
 import { FakeSourceControlDrafts } from "./source-control-drafts.ts";
 import { FakeProjects } from "./projects.ts";
 import {
   ForgeBrowserResult,
+  ForgeIssueSearch,
   type ForgeBrowserOperation,
   gitStatusLimit,
   ServerMessage,
@@ -21,12 +23,38 @@ import { FakePrCatalog } from "./pr-catalog-wire.ts";
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
 import { fakeOpenWork } from "./open-work-wire.ts";
 import { emptyIssueList, FakeIssueWire } from "./issue-wire.ts";
-import { catalogIssueList } from "./forge-list-wire.ts";
+import { FakeInboxWire } from "./inbox-wire.ts";
+import { catalogIssueList, matchingIssues } from "./forge-list-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import { FakeGitStates } from "./git-states.ts";
 import { FakeConflicts } from "./conflict-wire.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 const emptyDiff = { files: 0, additions: 0, deletions: 0 };
+
+/** What tests and scenarios may steer of the fake workspace (`FakeDaemon.workspace`). */
+export type FakeWorkspaceControls = Pick<
+  FakeWorkspaceWire,
+  | "gitStatus"
+  | "setGitStatus"
+  | "setGitDiff"
+  | "setEditors"
+  | "setForgeRead"
+  | "holdForgeRead"
+  | "failForgeRead"
+  | "forgeReadCount"
+  | "seedPullRequests"
+  | "mergePullRequest"
+  | "submitPullRequestReview"
+  | "pushPullRequest"
+  | "setDraftGenerator"
+  | "setIssueOutcome"
+  | "inbox"
+  | "checkReruns"
+  | "git"
+  | "conflicts"
+  | "failMoves"
+  | "setDetails"
+>;
 
 export class FakeWorkspaceWire {
   readonly drafts = new FakeSourceControlDrafts();
@@ -63,29 +91,82 @@ export class FakeWorkspaceWire {
     this.issues = new FakeIssueWire(this.forgeReads, () => context.now());
   }
   private forgeReads = new Map<string, ForgeBrowserResult>();
+  /** GitHub notifications (`forge.inbox.list`, `forge.inbox.write`); empty until seeded. */
+  readonly inbox = new FakeInboxWire();
   private issues: FakeIssueWire;
   setIssueOutcome(
     outcome: "succeeded" | "uncertain" | "unsent" | "busy" | "unauthorized" | "invalid" | "unknown",
   ): void {
     this.issues.setOutcome(outcome);
   }
-  private pullRequests = new FakePrCatalog();
+  private pullRequests = new FakePrCatalog(() => this.context.now());
   /** Whole pull requests the fake app's PR panel can open (`pullRequestDetails`). */
   seedPullRequests(fixtures: readonly PullRequestFixture[]): void {
     this.pullRequests.seed(fixtures);
+  }
+  /** Push to a catalog PR's branch: a new head with every new-side line moved down by ten. */
+  pushPullRequest(number: number): boolean {
+    return this.pullRequests.push(number);
+  }
+  /** Another person reviews catalog PR `number` on GitHub (`FakePrCatalog.submitReview`). */
+  submitPullRequestReview(
+    number: number,
+    review: Parameters<FakePrCatalog["submitReview"]>[1],
+  ): void {
+    this.pullRequests.submitReview(number, review);
   }
   /** Mark a catalog PR merged, as a Verify merge run does on GitHub. */
   mergePullRequest(number: number): void {
     this.pullRequests.mergeNumber(number);
   }
+  /**
+   * A seeded read asked for with the repository named, as a link from a PR page asks: the
+   * catalog seeds `acme/ace`'s reads without it.
+   */
+  private withoutRepository(op: WorkspaceActionRequest["operation"]) {
+    if (!("repository" in op) || !op.repository || op.repository.name !== "ace") return undefined;
+    const { repository: _repository, ...rest } = op;
+    return this.forgeReads.get(JSON.stringify(rest));
+  }
+  /** An issue's title, as the seeded issue reads have it. */
+  private issueTitle(number: number): string | undefined {
+    for (const read of this.forgeReads.values())
+      if (read.resource === "issueDetail" && read.value.ref.number === number)
+        return read.value.title;
+    return undefined;
+  }
   private seededRead(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
     return (
       this.issues.read(op) ??
       this.forgeReads.get(JSON.stringify(op)) ??
+      this.withoutRepository(op) ??
       (op.op === "forge.issue.list" ? catalogIssueList(op, this.forgeReads) : undefined) ??
       this.pullRequests.groupCounts(op, this.forgeReads) ??
       emptyIssueList(op)
     );
+  }
+  /**
+   * A test scripted this PR's review state or detail with `setForgeRead`: its review commands
+   * stay unanswered here (`unsupported_by_fake_daemon`) so the test decides their outcome.
+   */
+  private scriptedReview(payload: CommandPayload): boolean {
+    if (payload.type !== "forge.hosted.review") return false;
+    const repository = JSON.stringify(payload.pr.repository);
+    for (const key of this.forgeReads.keys()) {
+      const op: unknown = JSON.parse(key);
+      if (
+        typeof op === "object" &&
+        op !== null &&
+        "op" in op &&
+        (op.op === "forge.pr.review-state" || op.op === "forge.pr.detail") &&
+        "number" in op &&
+        op.number === payload.pr.number &&
+        "repository" in op &&
+        JSON.stringify(op.repository) === repository
+      )
+        return true;
+    }
+    return false;
   }
   setForgeRead(operation: ForgeBrowserOperation, result: ForgeBrowserResult): void {
     this.forgeReads.set(JSON.stringify(operation), ForgeBrowserResult.parse(result));
@@ -102,6 +183,18 @@ export class FakeWorkspaceWire {
     return () => {
       if (this.held.get(key) === gate.promise) this.held.delete(key);
       gate.resolve();
+    };
+  }
+  private failing = new Map<string, string>();
+  /**
+   * Refuse `operation` with `code`, as GitHub refusing it would (`forge_rate_limit`), until the
+   * returned undo runs.
+   */
+  failForgeRead(operation: ForgeBrowserOperation, code: string): () => void {
+    const key = JSON.stringify(operation);
+    this.failing.set(key, code);
+    return () => {
+      this.failing.delete(key);
     };
   }
   private forgeReadCounts = new Map<string, number>();
@@ -161,6 +254,13 @@ export class FakeWorkspaceWire {
     }
     const held = this.held.size ? this.held.get(JSON.stringify(op)) : undefined;
     if (held) await held;
+    const failure = this.failing.size ? this.failing.get(JSON.stringify(op)) : undefined;
+    if (failure)
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: { kind: "error", code: failure },
+      });
     if (op.op === "git.draft.cancel") {
       this.drafts.cancel(op.generationId);
       return ServerMessage.parse({
@@ -224,10 +324,19 @@ export class FakeWorkspaceWire {
         },
       });
     }
-    const catalogued =
-      op.op.startsWith("forge.pr.") && !this.forgeReads.has(JSON.stringify(op))
-        ? this.pullRequests.read(op)
-        : undefined;
+    const catalogued = this.forgeReads.has(JSON.stringify(op))
+      ? undefined
+      : (this.pullRequests.peopleRead(op, (state) =>
+          "workspaceId" in op
+            ? (matchingIssues(op, ForgeIssueSearch.parse({ state }), this.forgeReads) ?? [])
+            : [],
+        ) ??
+        (op.op.startsWith("forge.pr.") ||
+        op.op === "forge.repo.pr-options" ||
+        op.op === "forge.repo.milestones" ||
+        op.op === "forge.compare"
+          ? this.pullRequests.read(op, this.context.now())
+          : undefined));
     if (catalogued)
       return ServerMessage.parse({
         type: "workspace.result",
@@ -244,11 +353,32 @@ export class FakeWorkspaceWire {
           : { kind: "error", code: "forge_not_found" },
       });
     }
+    if (op.op === "forge.emoji.images" && !this.forgeReads.has(JSON.stringify(op)))
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: { kind: "forge", data: { resource: "emojiImages", images: fakeEmojiImages } },
+      });
+    if (op.op === "forge.media.resolve" && !this.forgeReads.has(JSON.stringify(op)))
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: { kind: "forge", data: { resource: "media", items: resolveFakeMedia(op.items) } },
+      });
     if (op.op === "forge.open-work")
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
         result: { kind: "forge", data: fakeOpenWork(op, (list) => this.seededRead(list)) },
+      });
+    const inbox = this.inbox.read(op);
+    if (inbox) await this.inbox.gate();
+    if (inbox)
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result:
+          "error" in inbox ? { kind: "error", code: inbox.error } : { kind: "forge", data: inbox },
       });
     if (op.op.startsWith("forge.")) {
       const data = this.seededRead(op);
@@ -315,7 +445,19 @@ export class FakeWorkspaceWire {
       this.checkReruns.push(payload.action);
       return { ok: true };
     }
-    const merged = this.pullRequests.merge(payload) ?? this.pullRequests.mergeState(payload);
+    const merged =
+      this.pullRequests.merge(payload) ??
+      this.pullRequests.mergeState(payload) ??
+      this.pullRequests.lifecycle(
+        payload,
+        (number) => this.issueTitle(number),
+        this.context.now(),
+      ) ??
+      this.pullRequests.create(payload, this.context.now()) ??
+      // A scripted review answer wins; otherwise the catalog's review actions, then guarded edits.
+      (this.scriptedReview(payload)
+        ? undefined
+        : (this.pullRequests.review(payload, commandId) ?? this.pullRequests.edit(payload)));
     if (merged) return merged;
     const project = this.projects.command(payload);
     if (project) return project;
@@ -323,6 +465,8 @@ export class FakeWorkspaceWire {
     if (forge) return forge;
     const issue = this.issues.command(payload, commandId);
     if (issue) return issue;
+    const inboxWrite = this.inbox.command(payload, commandId);
+    if (inboxWrite) return inboxWrite;
     if (!("threadId" in payload) || !payload.threadId) return undefined;
     const thread = this.context.thread(payload.threadId)?.thread;
     if (

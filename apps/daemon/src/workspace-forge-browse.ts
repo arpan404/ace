@@ -1,4 +1,5 @@
-import { repositoryKey, prUrl } from "@ace/forge";
+import { ForgeError, repositoryKey, prUrl } from "@ace/forge";
+import type { ForgeMediaService } from "./forge-media/media-service.ts";
 import { ThreadId, type ForgePrStatus } from "@ace/protocol";
 import type { IssueActions } from "./issue-actions.ts";
 import type { WorkspaceForgeActions } from "./workspace-forge-actions.ts";
@@ -7,6 +8,7 @@ import type { WorkspaceForgeLifecycle } from "./workspace-forge-lifecycle.ts";
 import type { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
 import type { WorkspaceForgeStacks } from "./workspace-forge-stacks.ts";
 import type { WorkspaceIssueLinks } from "./workspace-issue-links.ts";
+import type { WorkspaceNewPr } from "./workspace-pr-new.ts";
 
 /** Hosted PR and issue reads, and publishing what they show to every linked thread. */
 export class WorkspaceForgeBrowse {
@@ -18,6 +20,8 @@ export class WorkspaceForgeBrowse {
     lifecycle: WorkspaceForgeLifecycle;
     reviews: WorkspaceForgeReviews;
     stacks: WorkspaceForgeStacks;
+    newPr: WorkspaceNewPr;
+    media?: (() => ForgeMediaService) | undefined;
   };
   constructor(ctx: WorkspaceForgeContext, parts: WorkspaceForgeBrowse["parts"]) {
     this.ctx = ctx;
@@ -28,6 +32,22 @@ export class WorkspaceForgeBrowse {
     operation: import("@ace/protocol").ForgeBrowserOperation,
     signal: AbortSignal,
   ): Promise<import("@ace/protocol").ForgeBrowserResult> {
+    if (operation.op === "forge.inbox.list") return this.inbox(cwd, operation, signal);
+    // A new pull request reads where it would open, which may be a fork's parent.
+    if (operation.op === "forge.pr.new-context")
+      return { resource: "newPrContext", value: await this.parts.newPr.context(cwd, signal) };
+    if (
+      (operation.op === "forge.repo.pr-options" || operation.op === "forge.compare") &&
+      operation.repository === undefined
+    ) {
+      if (operation.op === "forge.compare")
+        return {
+          resource: "compare",
+          value: await this.parts.newPr.compare(cwd, operation, signal),
+        };
+      const target = await this.parts.newPr.targetBackend(cwd);
+      return { resource: "repoPrOptions", value: await target.prOptions(signal) };
+    }
     const repository = operation.repository ?? (await this.ctx.backends.repository(cwd));
     signal.throwIfAborted();
     const backend = await this.ctx.backends.backend(cwd, repository);
@@ -41,6 +61,30 @@ export class WorkspaceForgeBrowse {
       );
       if (this.ctx.owner.current(ref, revision)) this.publishLifecycle(value.snapshot);
       return { resource: "prLifecycle", value };
+    }
+    if (operation.op === "forge.repo.pr-options")
+      return { resource: "repoPrOptions", value: await backend.prOptions(signal) };
+    if (operation.op === "forge.repo.milestones")
+      return { resource: "repoMilestones", value: await backend.milestones(signal) };
+    if (operation.op === "forge.compare") {
+      // Named by repository, a comparison is of two of its own branches: a fork's go through
+      // the project's create target above, as a create would.
+      const head = operation.head;
+      if (
+        head.owner.toLowerCase() !== repository.owner.toLowerCase() ||
+        head.name.toLowerCase() !== repository.name.toLowerCase()
+      )
+        throw new Error("repository_mismatch");
+      return {
+        resource: "compare",
+        value: await backend.compare(
+          operation.base,
+          head,
+          operation.page,
+          signal,
+          operation.headSha,
+        ),
+      };
     }
     if (operation.op === "forge.issue.list")
       return { resource: "issueList", value: await backend.listIssues(operation.query, signal) };
@@ -113,8 +157,41 @@ export class WorkspaceForgeBrowse {
         resource: "prCheck",
         value: await backend.checks.run(operation.checkRunId, operation.jobId, signal),
       };
+    if (operation.op === "forge.media.resolve") {
+      const media = this.parts.media?.();
+      if (!media) throw new ForgeError("unsupported");
+      return {
+        resource: "media",
+        items: await media.resolve(
+          {
+            host: repository.host,
+            repository: `${repository.host}/${repository.owner}/${repository.name}`,
+            workspaceId: operation.workspaceId,
+          },
+          (items, abort) => backend.renderMedia(items, abort),
+          operation.items,
+          async (abort) => {
+            await backend.repositoryMetadata(abort);
+          },
+        ),
+      };
+    }
+    if (operation.op === "forge.emoji.images")
+      return { resource: "emojiImages", images: await backend.emojiImages(signal) };
     if (operation.op === "forge.file.content")
       return { resource: "fileContent", value: await backend.fileContent(operation, signal) };
+    if (operation.op === "forge.people")
+      return { resource: "people", people: await backend.people(operation.query, signal) };
+    if (operation.op === "forge.references")
+      return {
+        resource: "references",
+        references: await backend.references(operation.query, signal),
+      };
+    if (operation.op === "forge.pr.reviewers")
+      return {
+        resource: "prReviewers",
+        value: await backend.prReviewers(operation.number, signal),
+      };
     const ref = { repository, number: operation.number };
     const revision = this.ctx.owner.capture(ref);
     const { value, writeState } = await this.parts.actions.readDetail(
@@ -146,6 +223,27 @@ export class WorkspaceForgeBrowse {
         })),
         relatedThreadsTruncated: threads.length > 100,
       },
+    };
+  }
+  /**
+   * The account's notifications on the project's host (or the one asked for), with the project's
+   * own repository so its rows open without naming it.
+   */
+  private async inbox(
+    cwd: string,
+    operation: Extract<import("@ace/protocol").ForgeBrowserOperation, { op: "forge.inbox.list" }>,
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol").ForgeBrowserResult> {
+    const own = await this.ctx.backends.repository(cwd).catch((error: unknown) => {
+      // Without a GitHub remote the project still reads a host it was told.
+      if (operation.host) return undefined;
+      throw error;
+    });
+    const host = operation.host ?? own?.host ?? "";
+    const value = await (await this.ctx.backends.inbox(cwd, host)).list(operation.query, signal);
+    return {
+      resource: "inboxList",
+      value: own?.host === value.host ? { ...value, projectRepository: own } : value,
     };
   }
   publishStatus(status: ForgePrStatus): void {

@@ -15,7 +15,7 @@ const threadId = ThreadId.parse("create-thread");
 const origin = { forge: "github", host: "github.com", owner: "octo", name: "ace" } as const;
 const upstream = { forge: "github", host: "github.com", owner: "acme", name: "ace" } as const;
 const lookup = (repo: string, head: string, base: string) =>
-  `repos/${repo}/pulls?${new URLSearchParams({ state: "open", head, base, per_page: "2" })}`;
+  `repos/${repo}/pulls?${new URLSearchParams({ state: "open", head, base, per_page: "10" })}`;
 const metadata = (defaultBranch: string, parent?: { owner: string; defaultBranch: string }) => ({
   body: {
     name: "ace",

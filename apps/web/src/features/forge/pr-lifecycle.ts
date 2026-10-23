@@ -23,6 +23,12 @@ export const lifecycleLabels: Record<ForgeLifecycleAction["kind"], string> = {
   "update.merge": "Update branch",
   "update.rebase": "Update with rebase",
   revert: "Revert changes",
+  lock: "Lock conversation",
+  unlock: "Unlock conversation",
+  "branch.delete": "Delete branch",
+  "branch.restore": "Restore branch",
+  "issue.link": "Link the issue",
+  "issue.unlink": "Unlink the issue",
 };
 
 type Operation = z.infer<typeof ForgeHostedLifecycleCommand>["operation"];
@@ -136,6 +142,14 @@ export function usePrLifecycle(props: {
       version
         ? execute({ kind: "apply", expectedVersion: version, action }, lifecycleLabels[action.kind])
         : Promise.resolve(false),
+    /** Apply `action` against the PR as GitHub has it now, read again first. */
+    async applyLatest(action: ForgeLifecycleAction): Promise<boolean> {
+      const fresh = await query.refetch();
+      const version = fresh.data?.snapshot.version;
+      return version
+        ? execute({ kind: "apply", expectedVersion: version, action }, lifecycleLabels[action.kind])
+        : false;
+    },
     reconcile: (operationId: string) =>
       execute({ kind: "reconcile", operationId }, "Check the result"),
   };

@@ -33,6 +33,32 @@
     },
     "resolved": {
       "type": "boolean"
+    },
+    "side": {
+      "enum": [
+        "LEFT",
+        "RIGHT"
+      ],
+      "type": "string"
+    },
+    "startLine": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "startSide": {
+      "enum": [
+        "LEFT",
+        "RIGHT"
+      ],
+      "type": "string"
     }
   },
   "required": [

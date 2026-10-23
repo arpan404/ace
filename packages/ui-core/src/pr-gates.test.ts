@@ -174,3 +174,13 @@ test("a reviewer's latest verdict wins over earlier ones", () => {
   expect(outcomes.get("sam")).toBe("changes");
   expect(outcomes.has("lee")).toBe(false);
 });
+
+test("a comment-only review after a verdict leaves the verdict standing, as GitHub counts it", () => {
+  const outcomes = reviewerOutcomes([
+    review(1, "mira", "2026-01-01", "APPROVED"),
+    review(2, "mira", "2026-01-02", "COMMENTED"),
+    review(3, "sam", "2026-01-01", "COMMENTED"),
+  ]);
+  expect(outcomes.get("mira")).toBe("approved");
+  expect(outcomes.get("sam")).toBe("commented");
+});

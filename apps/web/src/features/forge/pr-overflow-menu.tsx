@@ -14,6 +14,10 @@ import {
   GitMergeIcon,
   GitPullRequestIcon,
   HashIcon,
+  RecordIcon,
+  LockIcon,
+  LockOpenIcon,
+  TrashIcon,
   LinkBreakIcon,
   LinkIcon,
   PencilSimpleIcon,
@@ -71,6 +75,9 @@ export function PrOverflowMenu(props: {
   onEdit(): void;
   onRevert(): void;
   onRequestReview(): void;
+  onLock(): void;
+  onLinkIssue(): void;
+  onDeleteBranch(): void;
 }) {
   const { actions } = props;
   const { context, lifecycle, mergeState, writes, worktree } = actions;
@@ -242,6 +249,36 @@ export function PrOverflowMenu(props: {
               Edit details…
             </MenuItem>
           )}
+          {lifecycle.can("issue.link") && (
+            <MenuItem
+              icon={icon(RecordIcon)}
+              disabled={lifecycleReason !== undefined}
+              reason={lifecycleReason}
+              onClick={props.onLinkIssue}
+            >
+              Link an issue…
+            </MenuItem>
+          )}
+          {lifecycle.can("lock") && (
+            <MenuItem
+              icon={icon(LockIcon)}
+              disabled={lifecycleReason !== undefined}
+              reason={lifecycleReason}
+              onClick={props.onLock}
+            >
+              {`${lifecycleLabels.lock}…`}
+            </MenuItem>
+          )}
+          {lifecycle.can("unlock") && (
+            <MenuItem
+              icon={icon(LockOpenIcon)}
+              disabled={lifecycleReason !== undefined}
+              reason={lifecycleReason}
+              onClick={() => void lifecycle.apply({ kind: "unlock" })}
+            >
+              {lifecycleLabels.unlock}
+            </MenuItem>
+          )}
           {props.extensions?.overflow?.(context)}
         </MenuGroup>
         {open && (
@@ -255,7 +292,7 @@ export function PrOverflowMenu(props: {
                   icon={icon(GitMergeIcon)}
                   disabled={actions.mergeBlocked !== undefined}
                   reason={actions.mergeBlocked}
-                  onClick={() => void writes.merge(actions.method)}
+                  onClick={() => void actions.merge()}
                 >
                   Merge now
                 </MenuItem>
@@ -275,7 +312,7 @@ export function PrOverflowMenu(props: {
                     icon={icon(TimerIcon)}
                     disabled={actions.autoMergeBlocked !== undefined}
                     reason={actions.autoMergeBlocked}
-                    onClick={() => void mergeState.run("enable", actions.method)}
+                    onClick={() => void actions.enableAutoMerge()}
                   >
                     Enable auto-merge
                   </MenuItem>
@@ -348,7 +385,11 @@ export function PrOverflowMenu(props: {
             </MenuItem>
           ))}
         </MenuGroup>
-        {(lifecycle.can("close") || lifecycle.can("reopen") || lifecycle.can("revert")) && (
+        {(lifecycle.can("close") ||
+          lifecycle.can("reopen") ||
+          lifecycle.can("revert") ||
+          lifecycle.can("branch.delete") ||
+          lifecycle.can("branch.restore")) && (
           <>
             <MenuSeparator />
             <MenuGroup>
@@ -378,6 +419,27 @@ export function PrOverflowMenu(props: {
                   onClick={props.onRevert}
                 >
                   {`${lifecycleLabels.revert}…`}
+                </MenuItem>
+              )}
+              {lifecycle.can("branch.restore") && (
+                <MenuItem
+                  icon={icon(GitBranchIcon)}
+                  disabled={lifecycleReason !== undefined}
+                  reason={lifecycleReason}
+                  onClick={() => void lifecycle.apply({ kind: "branch.restore" })}
+                >
+                  {lifecycleLabels["branch.restore"]}
+                </MenuItem>
+              )}
+              {lifecycle.can("branch.delete") && (
+                <MenuItem
+                  danger
+                  icon={icon(TrashIcon)}
+                  disabled={lifecycleReason !== undefined}
+                  reason={lifecycleReason}
+                  onClick={props.onDeleteBranch}
+                >
+                  {`${lifecycleLabels["branch.delete"]}…`}
                 </MenuItem>
               )}
             </MenuGroup>

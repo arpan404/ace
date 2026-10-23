@@ -42,16 +42,17 @@ function SearchBox(props: { label: string; value: string; onValue(value: string)
 }
 
 /**
- * A list page's frame: the Pull requests / Issues switch in large type with search, a toolbar of
+ * A list page's frame: the Inbox / Pull requests / Issues switch in large type with search, a toolbar of
  * word choices and menus, and the rows, in one scroller. Every band shares one gutter
  * (`--forge-gutter`), so titles, filters and rows start on the same edge. The switch scrolls
  * away with the rows and the toolbar stays pinned; nothing changes size while scrolling, so the
  * rows never jump.
  */
 export function ListFrame(props: {
-  kind: "pulls" | "issues";
-  search: string;
-  onSearch(text: string): void;
+  kind: "inbox" | "pulls" | "issues";
+  /** The list's search; the inbox has none, since GitHub can't search notifications. */
+  search?: string;
+  onSearch?(text: string): void;
   /** The toolbar's left: word choices (state, involvement). */
   controls: ReactNode;
   /** The toolbar's right: menus (project, sort, filters). */
@@ -69,6 +70,11 @@ export function ListFrame(props: {
   const { ref, onScroll } = useListScroll(props.kind, props.address, props.ready);
   const header = useSteadyHeader(ref);
   const label = props.kind === "pulls" ? "Search pull requests" : "Search issues";
+  const filtersLabel = {
+    inbox: "Inbox filters",
+    pulls: "Pull request filters",
+    issues: "Issue filters",
+  };
   return (
     <div
       ref={ref}
@@ -79,10 +85,15 @@ export function ListFrame(props: {
         <Tabs
           value={props.kind}
           onValueChange={(value) =>
-            void navigate({ to: value === "issues" ? "/issues" : "/pulls" })
+            void navigate({
+              to: value === "issues" ? "/issues" : value === "inbox" ? "/inbox" : "/pulls",
+            })
           }
         >
-          <TabsList aria-label="Pull requests and issues" className="-ml-2.5 gap-1">
+          <TabsList aria-label="Inbox, pull requests and issues" className="-ml-2.5 gap-1">
+            <TabsTab value="inbox" className={titleTab}>
+              Inbox
+            </TabsTab>
             <TabsTab value="pulls" className={titleTab}>
               Pull requests
             </TabsTab>
@@ -92,7 +103,9 @@ export function ListFrame(props: {
           </TabsList>
         </Tabs>
         <span className="flex-1" />
-        <SearchBox label={label} value={props.search} onValue={props.onSearch} />
+        {props.onSearch && (
+          <SearchBox label={label} value={props.search ?? ""} onValue={props.onSearch} />
+        )}
         {props.actions}
       </div>
       <header
@@ -101,7 +114,7 @@ export function ListFrame(props: {
       >
         <div
           role="toolbar"
-          aria-label={props.kind === "pulls" ? "Pull request filters" : "Issue filters"}
+          aria-label={filtersLabel[props.kind]}
           className="-mx-2 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1 py-2"
         >
           {props.controls}

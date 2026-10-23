@@ -5,7 +5,6 @@ import {
   prPrimaryAction,
   mergeBlockers,
   prGates,
-  reviewerOutcomes,
 } from "@ace/ui-core";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
@@ -15,6 +14,7 @@ import { usePrLinkWrites } from "./pr-link-writes.ts";
 import { usePrWorktree } from "./pr-worktree.ts";
 import { useMergeMethod } from "./pr-merge-method.ts";
 import { useStackMemberships } from "./pr-stack-groups.tsx";
+import { useFollowPrReviewers, useReviewOutcomes } from "./pr-reviewers-query.ts";
 import { usePrLocalCheck } from "./pr-local-check.ts";
 
 const newCommandId = () => crypto.randomUUID();
@@ -30,6 +30,8 @@ export function usePrActions(props: {
   hostThreadId?: string | undefined;
   /** Opens the panel's own conflict view; GitHub's conflict page when there is none. */
   openConflicts?: (() => void) | undefined;
+  /** Opens the commit title and message before a merge or squash, now or on auto-merge. */
+  editCommit?: ((when: "now" | "auto") => void) | undefined;
 }) {
   const { context } = props;
   const openWeb = useOpenWebAddress();
@@ -67,6 +69,10 @@ export function usePrActions(props: {
   const membership = useStackMemberships(workspaceId, status.ref.repository, [status.ref.number]);
   const stack = membership.isError ? undefined : (membership.data?.[0]?.stack ?? undefined);
   const local = usePrLocalCheck(workspaceId, status);
+  // The PR view is mounted whichever tab shows: here the reviewers follow the PR, so the gates
+  // and the merge button never read a verdict older than the PR itself.
+  useFollowPrReviewers(workspaceId, detail);
+  const outcomes = useReviewOutcomes(workspaceId, detail);
   // The same gates the header shows decide whether a merge is blocked.
   const blockers = mergeBlockers(
     prGates({
@@ -74,7 +80,7 @@ export function usePrActions(props: {
       reviewDecision: detail.reviewDecision,
       mergeState: mergeState.state,
       baseBranch: detail.baseBranch,
-      outcomes: reviewerOutcomes(status.comments),
+      outcomes,
       local: local.result,
     }),
   );
@@ -120,6 +126,16 @@ export function usePrActions(props: {
     else if (props.openConflicts) props.openConflicts();
     else void openWeb(`${status.url}/conflicts`).catch(() => {});
   };
+  /** Merge now: a merge or squash first shows its commit to edit; a rebase writes none. */
+  const merge = () => {
+    if (method !== "rebase" && props.editCommit) return props.editCommit("now");
+    return writes.merge(method);
+  };
+  /** Turn auto-merge on, with its commit to edit first for a merge or squash. */
+  const enableAutoMerge = () => {
+    if (method !== "rebase" && props.editCommit) return props.editCommit("auto");
+    return mergeState.run("enable", method);
+  };
   return {
     context,
     threadId,
@@ -157,10 +173,14 @@ export function usePrActions(props: {
                     context.disabled
                   ? "Wait for GitHub to refresh"
                   : undefined,
+    merge,
+    enableAutoMerge,
+    /** A merge or auto-merge from here first shows its commit to edit and confirm. */
+    editsCommit: method !== "rebase" && props.editCommit !== undefined,
     async runPrimary() {
-      if (primary.kind === "merge") return writes.merge(method);
+      if (primary.kind === "merge") return merge();
       if (primary.kind === "auto-merge" || primary.kind === "auto-merge-ready")
-        return mergeState.run("enable", method);
+        return enableAutoMerge();
       if (primary.kind === "link" && host) return writes.link(host);
       if (primary.kind === "ready") return void (await lifecycle.apply({ kind: "ready" }));
       if (primary.kind === "resolve") resolveConflicts();
