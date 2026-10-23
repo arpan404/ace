@@ -1,3 +1,4 @@
+// oxlint-disable-next-line import/no-unassigned-import -- Install the test host before the bridge reads it.
 import "./test-host.ts";
 import { afterEach, expect, test } from "vitest";
 import { NativeServices } from "./native-services.ts";

@@ -1,3 +1,4 @@
+// oxlint-disable-next-line import/no-unassigned-import -- Install the test host before the bridge reads it.
 import "./test-host.ts";
 import { seedForgeBrowse } from "@ace/fake-daemon";
 import { WorkspaceId, type CommandPayload, type ThreadListEntry } from "@ace/protocol";
