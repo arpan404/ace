@@ -94,11 +94,20 @@ that supplies their bytes and metadata. They are not wired to the Windows ACL
 checker yet. A successful name-based check alone does not prove a separately
 opened descriptor is private.
 
-Private creation remains unfinished. The current `createFileAt` uses the inherited
-security descriptor and is not a private-file creation operation. A future private
-create must install the protected owner-only security descriptor at exclusive
-creation, then verify the returned handle before writing bytes. Creating a public
-file and tightening its DACL later permits another process to open it first.
+`32cdaa2e5` adds `createPrivateFileAt`, with the shared SID/ACL builders from
+`9593219a5`. It installs a protected owner-only security descriptor in
+`OBJECT_ATTRIBUTES.SecurityDescriptor` during exclusive `NtCreateFile`, then
+checks the returned data descriptor before returning it. The owner is the current
+TokenUser SID, with exactly one zero-flag owner allow ACE. Four new fixtures cover
+public inheritance, collisions without ACL repair, replaced ancestors and invalid
+names/descriptors. Source checks pass and the fixtures skip on macOS; native x64
+and ARM64 compilation/execution remain pending.
+
+Generic `createFileAt` still uses inherited security. Production private writers
+must select the private operation, then use that verified descriptor. Creating a
+public file and tightening its DACL later permits another process to open it first.
+See [NtCreateFile](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntcreatefile)
+and [protected descriptor control](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-setsecuritydescriptorcontrol).
 Existing generic read/write access also omits `WRITE_DAC`; a setter cannot assume
 that a data descriptor grants permission to change the DACL. See Microsoft's
 [file security and access rights](https://learn.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights)
@@ -132,6 +141,7 @@ Ident identityOf(int fd);                             // FileIdInfo over borrowe
 void checkPrivateAt(int parentFd, const char* name);  // §7, fails closed
 void checkPrivateFd(int fd);                         // same opened object, borrowed
 void securePrivateAt(int parentFd, const char* name); // §7, fails closed
+int createPrivateFileAt(int parentFd, const char* name); // creation-time owner/DACL
 ```
 
 No public native `close`: ordinary fd lifetime stays with TS `Descriptor` via Node `close`. Native temporary/error cleanup uses Node's `uv_fs_close`. No native read/write: Node fs operates on the bridged fds directly.

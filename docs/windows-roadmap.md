@@ -336,12 +336,25 @@ checks pass; all ten private-file tests skip on this Mac.
 [Run 39913429652](https://github.com/arpan404/ace/actions/runs/39913429652)
 verifies the change with MSVC compilation and 18 files / 146 tests on each of
 native Windows x64 and ARM64.
-Private-file creation with an owner-only security descriptor at creation remains
-required, as do production reader/writer integration and Windows identity mapping.
+`9593219a5` shares the existing TokenUser SID and owner-only ACL builders.
+`32cdaa2e5` adds `createPrivateFileAt`: the protected owner-only descriptor is
+passed to exclusive `NtCreateFile`, then the returned data descriptor is checked
+before it is returned. Existing names are refused without changing their ACLs.
+The shared handle-to-fd bridge keeps allocation and cleanup in Node's libuv.
+Four new fixtures cover public parent inheritance, collisions, pinned ancestor
+replacement and invalid names/descriptors. They skip on macOS; native x64 and
+ARM64 compilation and execution are pending. Production reader/writer
+integration and Windows identity mapping remain required.
 
-The full local run passed 815 unit files and four client-react files before web
-tests hit timeouts. The first two New thread failures pass unchanged with one
-worker in 7.7 and 5.3 seconds. The earlier run was stopped after ten reported web
-failures, including contamination from timed-out input. A complete `bun run check`
-is now running with `ACE_TEST_WORKERS=2`, keeping the existing test deadlines.
-No full-gate pass is claimed yet.
+The two-worker full gate finished with 2,764 files passed, 38 failed and 26
+skipped; 17,005 tests passed and 59 failed, plus one unhandled error. It exited 1
+after 7,650 seconds. Some failures used old tests before repairs committed during
+the scan. Reviewed fixture repairs are saved individually; process and browser
+failures remain under diagnosis. A clean full-gate pass is still required.
+
+`af468b240` fixes a real history-paging deadlock when the loaded transcript fits
+its viewport. Three paging cases, 15 scroll-state cases and the existing
+transcript regression pass, with web typechecking and live browser verification.
+`5cbf5cc63` removes repeated full tree expansion inside each retention protection
+check, preserving fresh live checks. All 14 retention tests pass on this branch;
+the 300-thread case still takes 186 seconds in isolation and needs further work.
