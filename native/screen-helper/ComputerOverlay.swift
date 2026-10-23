@@ -103,9 +103,9 @@ private final class CUAceCursorView: NSView {
         let path = CUAgentCursorGlyph.path()
         let transform = AffineTransform(scale: Self.scale)
         path.transform(using: transform)
-        NSColor.controlAccentColor.setFill()
+        NSColor.labelColor.setFill()
         path.fill()
-        NSColor.alternateSelectedControlTextColor.setStroke()
+        NSColor.textBackgroundColor.setStroke()
         path.lineWidth = CUAgentCursorGlyph.outline * Self.scale
         path.lineJoinStyle = .round
         path.stroke()
