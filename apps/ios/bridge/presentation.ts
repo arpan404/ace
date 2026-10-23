@@ -98,17 +98,21 @@ export function itemRow(item: Item, index?: number, sourceTruncated = false) {
         ? "Delegated results available"
         : (settledMessageText(input.text) ?? "Delegated results available");
   else if (line) text = line.text;
+  // iOS draws published media inline: an image's row names it by its alt text, captioned below.
+  else if (item.type === "image") text = item.image.alt || item.image.caption || "Image";
   else if (item.type === "compaction") text = "Context compacted";
-  else if (
-    item.type !== "message" &&
-    item.type !== "html" &&
-    item.type !== "image" &&
-    item.type !== "notice"
-  )
+  else if (item.type !== "message" && item.type !== "html" && item.type !== "notice")
     text = item.type;
   return {
-    /** The shared secondary line, such as the visualization fallback. */
-    detail: preview(content.detail, 512),
+    /** The shared secondary line; an image's caption; none for a visualization drawn inline. */
+    detail: preview(
+      item.type === "image"
+        ? (item.image.caption ?? "")
+        : item.type === "html"
+          ? ""
+          : content.detail,
+      512,
+    ),
     quiet: content.quiet,
     id: item.id,
     index: index ?? null,

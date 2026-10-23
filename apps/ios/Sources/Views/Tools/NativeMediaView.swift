@@ -15,7 +15,7 @@ struct NativeMediaView: View {
     @State private var problem: String?
     var body: some View {
         Group {
-            if let document { SandboxedCanvas(document: document) }
+            if let document { SandboxedCanvas(document: document).padding(.horizontal, AceTheme.Spacing.xl) }
             else if let picture { ScrollView([.horizontal, .vertical]) { Image(uiImage: picture).resizable().scaledToFit().accessibilityLabel(item.text) } }
             else if let problem { ContentUnavailableView("Couldn't open media", systemImage: "doc", description: Text(problem)) }
             else { ProgressView("Loading…") }
