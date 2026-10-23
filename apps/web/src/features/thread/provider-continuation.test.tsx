@@ -55,12 +55,23 @@ test("picking Codex on a Cursor thread sends the next message once to a new Code
   await userEvent.keyboard("hi");
   await userEvent.keyboard("{Enter}");
 
-  await waitFor(() =>
-    expect(within(screen.getByRole("feed", { name: "Transcript" })).queryByText("yo")).toBeNull(),
-  );
+  // The fork carries the conversation it continues: its transcript opens on the source's
+  // history (once), then a Forked from divider, then its own first message.
+  const feed = within(screen.getByRole("feed", { name: "Transcript" }));
+  expect(await feed.findByText("hi")).toBeTruthy();
+  await waitFor(() => expect(feed.queryByText("yo")).not.toBeNull());
+  expect(feed.getAllByText("yo")).toHaveLength(1);
+  expect(feed.getByText("Hey! What are we building?")).toBeTruthy();
+  const notes = await feed.findAllByRole("note");
+  const marker = notes.find((note) => note.textContent?.startsWith("Forked from"));
+  expect(marker).toBeTruthy();
+  const own = feed.getByText("hi");
+  const ask = feed.getByText("yo");
+  if (!marker) throw new Error("No Forked from divider");
   expect(
-    await within(screen.getByRole("feed", { name: "Transcript" })).findByText("hi"),
-  ).toBeTruthy();
+    Boolean(ask.compareDocumentPosition(marker) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+      Boolean(marker.compareDocumentPosition(own) & Node.DOCUMENT_POSITION_FOLLOWING),
+  ).toBe(true);
   const continued = threads(app).filter(
     (entry) => entry.lineage?.parentThreadId === "cursor-greeting",
   );
@@ -120,8 +131,15 @@ test("files attached to the message go with it to the new thread, once", async (
   await userEvent.click(await screen.findByRole("combobox", { name: "Message" }));
   await userEvent.keyboard("look at these{Enter}");
 
-  await waitFor(() => expect(within(transcript()).queryByText("yo")).toBeNull());
+  // The fork carries the conversation it continues, so the source's history stays visible
+  // above the Forked from divider with the new message and its files below it.
   expect(await within(transcript()).findByRole("img", { name: "replay.png" })).toBeTruthy();
+  await waitFor(() => expect(within(transcript()).queryByText("yo")).not.toBeNull());
+  const continuedFeed = within(transcript());
+  expect(continuedFeed.getAllByText("yo")).toHaveLength(1);
+  expect(continuedFeed.getByText("look at these")).toBeTruthy();
+  const continuedNotes = await continuedFeed.findAllByRole("note");
+  expect(continuedNotes.some((note) => note.textContent?.startsWith("Forked from"))).toBe(true);
   const continued = threads(app).filter(
     (entry) => entry.lineage?.parentThreadId === "cursor-greeting",
   );
@@ -130,8 +148,24 @@ test("files attached to the message go with it to the new thread, once", async (
   const sent = Object.values(view?.kind === "thread" ? view.items : {}).filter(
     (item) => item.type === "message" && item.role === "user",
   );
-  expect(sent).toHaveLength(1);
-  expect(sent[0]).toMatchObject({
+  // The fork carries the source's history plus its own first message, each once: the new
+  // message goes with its files a single time, not the inherited history.
+  expect(sent).toHaveLength(2);
+  const texts = sent.flatMap((item) =>
+    item.type === "message"
+      ? item.parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
+      : [],
+  );
+  expect(texts.filter((text) => text === "yo")).toHaveLength(1);
+  expect(texts.filter((text) => text === "look at these")).toHaveLength(1);
+  expect(
+    sent.filter((item) => item.type === "message" && item.inherited !== undefined),
+  ).toHaveLength(1);
+  const withFiles = sent.filter(
+    (item) => item.type === "message" && (item.attachments?.length ?? 0) > 0,
+  );
+  expect(withFiles).toHaveLength(1);
+  expect(withFiles[0]).toMatchObject({
     attachments: [
       expect.objectContaining({ name: "replay.png" }),
       expect.objectContaining({ name: "notes.txt" }),
