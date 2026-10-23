@@ -8,6 +8,20 @@ bun run --filter @ace/marketing dev     # local preview
 SITE_URL=https://your.domain bun run --filter @ace/marketing build   # output in dist/
 ```
 
+## Deploy
+
+Cloudflare Pages builds and deploys both public sites from `main`; there is no deploy script.
+
+| Pages project   | Domains                  | Build command (repo root)                                                                                   | Output                |
+| --------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------- | --------------------- |
+| `ace-marketing` | acehq.dev, www.acehq.dev | `bun install --frozen-lockfile && bun run --cwd apps/marketing build`                                       | `apps/marketing/dist` |
+| `ace-web`       | app.acehq.dev            | `bun install --frozen-lockfile && bun run --cwd apps/web build && find apps/web/dist -name '*.map' -delete` | `apps/web/dist`       |
+
+Both set `BUN_VERSION`, `NODE_VERSION=24` and `SKIP_DEPENDENCY_INSTALL=1`; `ace-marketing` also sets
+`SITE_URL=https://acehq.dev`. Each builds only when its app, `packages/` or the lockfile changes.
+The web app has no `404.html`, so Pages answers every unknown path with `index.html` and the app's
+router handles it.
+
 ## Build settings
 
 | Variable       | What it does                                                                                                           |

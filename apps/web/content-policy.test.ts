@@ -32,6 +32,8 @@ test("the hosted page runs only its own scripts: its inline boot scripts by hash
   expect(policy.get("img-src")).not.toContain("https:");
   // A page can't set frame-ancestors; the host sends it.
   expect(policy.has("frame-ancestors")).toBe(false);
-  const host = JSON.parse(readFileSync(join(import.meta.dirname, "vercel.json"), "utf8"));
-  expect(JSON.stringify(host.headers)).toContain("frame-ancestors 'none'");
+  // Cloudflare Pages sends the headers in `public/_headers` with every page it serves.
+  const host = readFileSync(join(import.meta.dirname, "public", "_headers"), "utf8");
+  expect(host).toContain("Content-Security-Policy: frame-ancestors 'none'");
+  expect(host).toContain("X-Content-Type-Options: nosniff");
 });
