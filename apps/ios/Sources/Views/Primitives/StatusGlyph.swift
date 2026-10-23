@@ -33,7 +33,6 @@ struct StatusGlyph: View {
     var live = false
     @ScaledMetric private var size: CGFloat
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var phase = false
 
     init(_ state: GlyphState, tone: AceTone, size: CGFloat = 12, live: Bool = false) {
         self.state = state
@@ -47,38 +46,27 @@ struct StatusGlyph: View {
     var body: some View {
         let unit = size / 16
         let stroke = StrokeStyle(lineWidth: 1.5 * unit, lineCap: .round, lineJoin: .round)
-        ZStack { drawing(stroke) }
-            .frame(width: size, height: size)
-            .foregroundStyle(tone.mark)
-            .accessibilityHidden(true)
-            .onAppear { if moving { withAnimation(motion) { phase = true } } }
-            .onChange(of: moving) { _, now in
-                if now { withAnimation(motion) { phase = true } } else { phase = false }
-            }
-    }
-
-    private var motion: Animation {
-        state == .subagents ? .easeInOut(duration: 0.9).repeatForever(autoreverses: false)
-            : .easeInOut(duration: state == .background ? 1.6 : 0.9).repeatForever(autoreverses: state == .working)
+        Group {
+            // A moving glyph moves in Core Animation (`GlyphMotion`): a SwiftUI repeating
+            // animation would update the view graph every frame for as long as work runs.
+            if moving { GlyphMotion(state: state, colour: UIColor(tone.mark)) } else { ZStack { drawing(stroke) }.foregroundStyle(tone.mark) }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 
     @ViewBuilder private func drawing(_ stroke: StrokeStyle) -> some View {
         switch state {
         case .working:
-            GlyphPath.arc(from: 300, to: 420).stroke(style: stroke).rotationEffect(.degrees(moving && phase ? 28 : 0))
-            GlyphPath.arc(from: 120, to: 240).stroke(style: stroke).rotationEffect(.degrees(moving && phase ? -28 : 0))
+            GlyphPath.arc(from: 300, to: 420).stroke(style: stroke)
+            GlyphPath.arc(from: 120, to: 240).stroke(style: stroke)
         case .background:
             GlyphPath.arc(from: 130, to: 410).stroke(style: stroke)
             GlyphPath.dot(1.6).fill()
-                .offset(x: moving && phase ? size * 0.4 : 0)
-                .opacity(moving && phase ? 0 : 1)
         case .subagents:
-            ZStack {
-                GlyphPath.arc(from: 20, to: 100).stroke(style: stroke)
-                GlyphPath.arc(from: 140, to: 220).stroke(style: stroke)
-                GlyphPath.arc(from: 260, to: 340).stroke(style: stroke)
-            }
-            .rotationEffect(.degrees(moving && phase ? 120 : 0))
+            GlyphPath.arc(from: 20, to: 100).stroke(style: stroke)
+            GlyphPath.arc(from: 140, to: 220).stroke(style: stroke)
+            GlyphPath.arc(from: 260, to: 340).stroke(style: stroke)
         case .needsYou:
             GlyphPath.needsYou.fill(style: FillStyle(eoFill: true))
         case .done:
@@ -104,7 +92,7 @@ struct StatusGlyph: View {
 }
 
 /// The glyph parts on the 16-unit grid, scaled into whatever frame draws them.
-private struct GlyphPath: Shape {
+struct GlyphPath: Shape {
     enum Part: Sendable {
         /// The ring from one compass bearing to another, clockwise (0 is 12 o'clock).
         case arc(Double, Double)

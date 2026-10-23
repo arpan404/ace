@@ -284,32 +284,6 @@ struct WorkBlockView: View {
     }
 }
 
-/// A light sweep across live text. Off with Reduce Motion, where the text simply stays put.
-private struct Shimmer: ViewModifier {
-    let active: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    func body(content: Content) -> some View {
-        if active && !reduceMotion {
-            content.overlay {
-                TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
-                    let period = AceTheme.Motion.statusPulse
-                    let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
-                    GeometryReader { geometry in
-                        LinearGradient(colors: [.clear, AceTheme.Colours.foreground, .clear], startPoint: .leading, endPoint: .trailing)
-                            .frame(width: geometry.size.width * 0.5)
-                            .offset(x: (phase * 1.5 - 0.5) * geometry.size.width)
-                    }
-                }
-                .mask(content)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            }
-        } else {
-            content
-        }
-    }
-}
-
 extension View {
     func shimmer(_ active: Bool) -> some View { modifier(Shimmer(active: active)) }
     /// What the agent says between steps stands apart from the step rows around it.
