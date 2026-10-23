@@ -79,7 +79,8 @@ const char *wcore_create_private_directory_at(int parent_fd, const char *name, i
     // bridge maps directory/reparse type refusals to EEXIST); nothing is
     // opened, truncated, or retagged on collision.
     verdict = wcore_nt_create_new_child_sd(parent, wname, wlen, WCORE_OPTS_DIR,
-        GENERIC_READ | READ_CONTROL | SYNCHRONIZE, &sd, &child);
+        FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE,
+        &sd, &child);
   }
   // The kernel captured the descriptor at creation; the SID/ACL copies are
   // no longer needed on either path.
