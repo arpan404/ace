@@ -75,6 +75,32 @@ export function agentEmulation(
 }
 
 /**
+ * A phone sized a tab from elsewhere (`ace.touchDevice`): the page lays out as that phone
+ * (its CSS size, mobile, the screen's own scale) and the view takes the phone's shape, so its
+ * captured picture is the phone's page and nothing else. Shown in a panel (`panel`, window
+ * DIPs), the view is the phone drawn as large as fits, centred at the panel's top; unshown, it
+ * is the phone's size. `zoom` is the app's zoom, as for `agentEmulation`.
+ */
+export function touchDeviceLayout(
+  device: { width: number; height: number },
+  panel: Rect | undefined,
+  zoom: number,
+): { emulation: ReturnType<typeof agentEmulation>; bounds: Rect } {
+  const box = panel ?? { x: 0, y: 0, width: Infinity, height: Infinity };
+  const emulation = agentEmulation(
+    { width: device.width, height: device.height, deviceScaleFactor: 0, mobile: true },
+    box,
+    zoom,
+  );
+  const width = Math.max(1, Math.round(emulation.width * emulation.scale));
+  const height = Math.max(1, Math.round(emulation.height * emulation.scale));
+  const bounds = panel
+    ? { x: panel.x + Math.floor((panel.width - width) / 2), y: panel.y, width, height }
+    : { x: 0, y: 0, width, height };
+  return { emulation, bounds };
+}
+
+/**
  * A renderer's box (CSS pixels of its page) in its window's DIPs. Edges are rounded, not
  * sizes, so two boxes that touch in CSS still touch on screen.
  */

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { agentEmulation, deviceEmulation, PlacementBook, toWindowBounds } from "./placement.ts";
+import {
+  agentEmulation,
+  deviceEmulation,
+  PlacementBook,
+  toWindowBounds,
+  touchDeviceLayout,
+} from "./placement.ts";
 
 const panel = { x: 920, y: 120, width: 520, height: 780 };
 const other = { x: 400, y: 80, width: 600, height: 500 };
@@ -217,5 +223,42 @@ describe("an agent's size on a zoomed page", () => {
 
   it("keeps the agent's mobile choice", () => {
     expect(agentEmulation({ width: 390, height: 844, mobile: true }, shown, 1).mobile).toBe(true);
+  });
+});
+
+describe("a phone sizes a tab the desktop also shows", () => {
+  const phone = { width: 390, height: 844 };
+
+  it("lays the page out as a mobile page at the phone's CSS size, at the screen's scale", () => {
+    const { emulation } = touchDeviceLayout(phone, panel, 1);
+    expect(laidOut(emulation, 1)).toEqual(phone);
+    expect(emulation).toMatchObject({ mobile: true, deviceScaleFactor: 0 });
+  });
+
+  it("shrinks the view to the phone's shape inside the panel, so its picture is only the page", () => {
+    const { emulation, bounds } = touchDeviceLayout(phone, panel, 1);
+    expect(bounds.height).toBe(Math.round(844 * emulation.scale));
+    expect(bounds.width / bounds.height).toBeCloseTo(390 / 844, 2);
+    expect(bounds.y).toBe(panel.y);
+    expect(bounds.x).toBeGreaterThanOrEqual(panel.x);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(panel.x + panel.width);
+  });
+
+  it("draws a phone that fits the panel at full size, centred", () => {
+    const wide = { x: 0, y: 50, width: 1000, height: 900 };
+    const { emulation, bounds } = touchDeviceLayout(phone, wide, 1);
+    expect(emulation.scale).toBe(1);
+    expect(bounds).toEqual({ x: 305, y: 50, width: 390, height: 844 });
+  });
+
+  it("keeps the phone's CSS size under the app's zoom", () => {
+    const { emulation } = touchDeviceLayout(phone, panel, 1.25);
+    expect(laidOut(emulation, 1.25)).toEqual(phone);
+  });
+
+  it("an unshown view takes the phone's size and draws it unscaled", () => {
+    const { emulation, bounds } = touchDeviceLayout(phone, undefined, 1);
+    expect(emulation.scale).toBe(1);
+    expect(bounds).toEqual({ x: 0, y: 0, width: 390, height: 844 });
   });
 });
