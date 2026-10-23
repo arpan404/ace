@@ -204,8 +204,29 @@ replacement and `renameExclusiveAt` without replacement. Both validate each
 name and use the opened source plus the pinned parent for the destination.
 Reparse sources are moved themselves. Native fixtures cover flushed publication,
 identity preservation, collisions, invalid names, missing sources and ancestor
-replacement. Native execution is pending; production descriptor integration and
-private-file ACLs remain blockers.
+replacement. Native x64 and ARM64 each pass 15 files and 127 tests on `9488f1304`, including
+these three rename fixtures. [Run 39878029237](https://github.com/arpan404/ace/actions/runs/39878029237).
+Production descriptor integration and private-file ACLs remain blockers.
 
 Metadata Node-API callbacks now live in a separate binding module so the entry
 module stays below its 400-line source budget. This is not daemon activation.
+
+## Next production integration gates
+
+1. Rename is now verified on native x64 and ARM64. The initial x64 run rejected
+   all three Win32 rename calls while the existing 124 tests passed. Commit
+   `9488f1304` changes the call to native `NtSetInformationFile`, keeping the
+   same record and pinned handles. Both architectures pass all 127 tests.
+2. Enforce private-file ownership and DACLs before storing private data.
+   `chmod(0600)` and numeric uid comparisons do not provide that contract on
+   Windows. Add creation/security fixtures against actual Windows tokens.
+3. Integrate the Windows backend into `descriptor.ts`, identity comparison and
+   `build.ts`, then pass clean installs without `--ignore-scripts` on both
+   architectures. The current `build.ts` still explicitly rejects Windows.
+4. Replace `/dev/fd` ripgrep input and `fchdir` Git execution with confined
+   Windows transports. Do not substitute pathname joins for pinned access.
+5. Complete process recovery and daemon startup/reconnect/shutdown before
+   enabling the Windows desktop managed target.
+6. Complete service, installer, updater, browser, computer-use and provider
+   workflows, then run installed-app and UI parity acceptance from the canonical
+   plan. The bounded foundation suite does not satisfy those workflow gates.

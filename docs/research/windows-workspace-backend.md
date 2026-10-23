@@ -1,6 +1,6 @@
 # Windows workspace backend — safe design (research)
 
-Status: independent native addon implements pinned reads, identity, metadata, enumeration and exclusive creation. Native x64 and ARM64 verification passed for those operations in run 39874497061. Handle-relative deletion passed native x64 and ARM64 verification in run 39876189647. Production descriptor integration, rename and ACL enforcement remain unfinished.
+Status: independent native addon implements pinned reads, identity, metadata, enumeration and exclusive creation. Native x64 and ARM64 verification passed for those operations in run 39874497061. Handle-relative deletion passed native x64 and ARM64 verification in run 39876189647. Handle-relative rename and replacement passed native x64 and ARM64 verification in run 39878029237. Production descriptor integration and ACL enforcement remain unfinished.
 
 ## 1. Consumers pin numeric fds; HANDLE-only is rejected
 
@@ -29,7 +29,7 @@ Each op borrows the parent `HANDLE` via `uv_get_osfhandle(parentFd)`; the fd mus
 - `statAt`: `FileIdInfo` + `FileBasicInfo` + `FileStandardInfo` + `FileAttributeTagInfo` on a metadata-access `OPEN_REPARSE_POINT` handle. Synthesize `S_IFREG`/`S_IFDIR`/`S_IFLNK`; any reparse point reports `symlink`, callers deny. ([GetFileInformationByHandleEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandleex), [FILE_ID_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info), [FILE_ATTRIBUTE_TAG_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_attribute_tag_info).)
 - `names`: `FileIdExtdDirectoryRestartInfo` followed by `FileIdExtdDirectoryInfo` batches on the pinned directory handle until `ERROR_NO_MORE_FILES`; skip `.`/`..`; invalid cap is `EINVAL`, accepted entries beyond cap are `E2BIG`. ([FILE_ID_EXTD_DIR_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_extd_dir_info).)
 - `mkdirAt`: `NtCreateFile(RootDirectory=parent, FILE_CREATE, FILE_DIRECTORY_FILE)`.
-- `renameAt` (same-parent only): `SetFileInformationByHandle` + `FILE_RENAME_INFO{ReplaceIfExists, RootDirectory=parent, FileName=one component}`; `FALSE` is exclusive (keeps `rename-worker.ts` semantics), `TRUE` is replacing publish. ([SetFileInformationByHandle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfileinformationbyhandle), [FILE_RENAME_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info).)
+- Same-parent rename uses `NtSetInformationFile(FileRenameInformation=10)` with the rename record's `RootDirectory=parent` and one validated component. `renameExclusiveAt` sets `ReplaceIfExists=FALSE`; `renameAt` uses `TRUE` for replacing publication. The first x64 fixtures rejected the equivalent `SetFileInformationByHandle` call; the native-call correction passed the same fixtures on x64 and ARM64 in run 39878029237. No absolute-path fallback is allowed. ([NtSetInformationFile](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntsetinformationfile), [FILE_RENAME_INFORMATION](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-_file_rename_information).)
 - `unlinkAt` / `removeDirectoryAt`: open child `OPEN_REPARSE_POINT` with `DELETE`, then `FileDispositionInfo{DeleteFile=TRUE}`; deletes the link itself, never follows; junction removal keeps the target. ([FILE_DISPOSITION_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_disposition_info).)
 - Staging fence: `FlushFileBuffers` on the data handle before publish; directory flush is best-effort, not part of the guarantee. ([FlushFileBuffers](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers).)
 
@@ -66,7 +66,8 @@ int openRoot(const char* volumePath);                 // walk -> uv_open_osfhand
 int openAt(int parentFd, const char* name, int kind); // RootDirectory open -> fd
 int openMetadataAt(int parentFd, const char* name);   // zero-access, link-itself -> fd
 void mkdirAt(int parentFd, const char* name);
-void renameAt(int parentFd, const char* from, const char* to, int replace);
+void renameAt(int parentFd, const char* from, const char* to);
+void renameExclusiveAt(int parentFd, const char* from, const char* to);
 void unlinkAt(int parentFd, const char* name);
 void removeDirectoryAt(int parentFd, const char* name);
 Stat statAt(int parentFd, const char* name);          // {vol,id,size,mtimeMs,attrs} strings
