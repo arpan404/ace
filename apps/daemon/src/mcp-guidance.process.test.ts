@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
-import { ProviderKind, WaitStatus, WatchedState } from "@ace/protocol";
+import { MessageArrival, ProviderKind, WaitStatus, WatchedState } from "@ace/protocol";
 import {
   PublicToolCode,
   ToolRegistry,
@@ -137,11 +137,13 @@ it("the agents and threads guides quote only served tools, their fields and valu
     ...fields,
     ...WaitStatus.options,
     ...WatchedState.options,
+    ...MessageArrival.options,
     ...PublicToolCode.options,
     ...guideTopics,
     // Result fields the guides tell the agent to page with; results are advertised as envelopes.
     "itemsBefore",
     "nextOffset",
+    "arrival",
   ]);
   const guides = await builtinGuides();
   for (const topic of ["ace-agents", "ace-threads"]) {
