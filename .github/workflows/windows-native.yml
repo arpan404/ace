@@ -196,6 +196,9 @@ jobs:
           node -p "JSON.stringify({ nativeNodeArch: process.arch, platform: process.platform, version: process.version })"
           node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-native.config.ts
 
+      - name: Observe bounded stdin search performance
+        run: node packages/workspace/bench/ripgrep-input.ts
+
       - name: Native evidence summary
         if: always()
         run: |

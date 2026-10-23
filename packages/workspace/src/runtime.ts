@@ -17,6 +17,7 @@ export interface WorkspaceClock {
 }
 export interface WorkspaceRuntime {
   environment: NodeJS.ProcessEnv;
+  platform: NodeJS.Platform;
   filesystem: WorkspaceFileSystem;
   spawn: (binary: string, args: string[], options: SpawnOptions) => ChildProcess;
   worker: (url: URL) => Worker;
@@ -31,6 +32,7 @@ export interface WorkspaceRuntime {
 export function workspaceRuntime(): WorkspaceRuntime {
   return {
     environment: { ...process.env },
+    platform: process.platform,
     filesystem,
     spawn,
     watch,
