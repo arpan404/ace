@@ -61,6 +61,26 @@ async function secureOwnerOnly(target: string, extra = "none"): Promise<void> {
   );
 }
 
+// Owner precondition only: points the file owner at the current TokenUser
+// while leaving the existing DACL (inherited or broad) untouched, so the
+// setter-behavior fixtures start from a known owner without pre-securing.
+const SET_OWNER_PS = [
+  "$ErrorActionPreference='Stop'",
+  "$p=$env:ACE_PRIVATE_TARGET",
+  "$a=[System.IO.File]::GetAccessControl($p)",
+  "$m=[System.Security.Principal.WindowsIdentity]::GetCurrent().User",
+  "$a.SetOwner($m)",
+  "[System.IO.File]::SetAccessControl($p,$a)",
+].join(";");
+
+async function ensureOwner(target: string): Promise<void> {
+  await runFile(
+    systemPowerShell(),
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", SET_OWNER_PS],
+    { env: { ...process.env, ACE_PRIVATE_TARGET: target } },
+  );
+}
+
 function expectCode(fn: () => unknown, code: string): void {
   try {
     fn();
@@ -175,6 +195,7 @@ win(
     onTestFinished(() => rm(root, { recursive: true, force: true }));
     await writeFile(join(root, "hérité-日本語.txt"), "inherited bytes");
     await writeFile(join(root, "élargi-✓.txt"), "broadened bytes");
+    await ensureOwner(join(root, "hérité-日本語.txt"));
     await secureOwnerOnly(join(root, "élargi-✓.txt"), "read");
     const parent = core.openRoot(root);
     try {
@@ -231,6 +252,7 @@ win("a replaced ancestor cannot redirect the secure operation", async ({ onTestF
   const scope = join(base, "scope");
   await mkdir(scope);
   await writeFile(join(scope, "slot-✓.txt"), "pinned bytes");
+  await ensureOwner(join(scope, "slot-✓.txt"));
   const parent = core.openRoot(scope);
   try {
     expectCode(() => core.checkPrivateAt(parent, "slot-✓.txt"), "EACCES");
