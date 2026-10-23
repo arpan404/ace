@@ -246,3 +246,20 @@ such a consented architecture. Ace currently has no corresponding installation, 
 authorization or protected-desktop lifecycle. Those require a separate design review; this
 investigation changed no authorization policy. [Apple API boundaries](../research/macos-authorization-plugin-locked-use.md)
 and the unresolved unlock/relock controls are recorded separately.
+
+### Uninstalled authorization component
+
+`native/locked-use` now builds a signed authorization bundle and separate policy, IPC and
+native cover/input libraries. It is not imported by the daemon, screen helper or desktop
+app, and does not install a right, service or enable switch. The policy enforces one-use
+attempts, fresh display/input/guardian facts, bounded work and authorization intervals,
+manual takeover and confirmed-lock teardown. The plug-in has bounded asynchronous engine
+callbacks and an authorization-only, signature-pinned XPC query.
+
+The engine's `AuthorizationSessionId` is an opaque authorization transaction, not the
+GUI `SecuritySessionId`. The eventual authority must bind both explicitly to approved work;
+no current production verifier supplies that binding. The prototype also lacks a verified
+OS unlock/relock driver, independent relock guardian, trusted turn bridge and authorized
+installation/removal flow. Native covers are presentation components, not proof of a secure
+lock screen. Existing locked-mode refusal therefore remains in place. See the component
+[README](../../native/locked-use/README.md) for readiness gates and test boundaries.
