@@ -3,9 +3,10 @@ import type { Fact } from "@ace/core";
 
 /*
  * A finished thread whose turns each did a lot of work, for timing how fast a settled "Worked
- * for" log, a step's detail, a thought and a long answer open: six turns of 80 steps (reads,
- * edits with diffs, commands with output, thoughts between them) and a long answer each. No
- * provider process runs. Each turn has its own native id, so each reads as its own turn.
+ * for" log, a step's detail, a thought and a thought read in full open: six turns of 80 steps
+ * (reads, edits with diffs, commands with output, thoughts between them, the first longer than a
+ * row carries) and a short answer each. Each turn has its own native id, so each reads as its own
+ * turn. No provider process runs.
  */
 
 const minute = 60_000;
@@ -45,7 +46,7 @@ function step(turn: number, n: number): Fact[] {
           draft: {
             type: "reasoning",
             complete: true,
-            text: `Step ${n + 1} needs the lease before replay.\n\n${"The cursor must survive a restart, so it is written with the lease and read back on resume. ".repeat(20)}`,
+            text: `Step ${n + 1} needs the lease before replay.\n\n${"The cursor must survive a restart, so it is written with the lease and read back on resume. ".repeat(n === 0 ? 100 : 20)}`,
           },
         },
       ];
