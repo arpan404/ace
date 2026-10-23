@@ -349,6 +349,37 @@ test("the picker keeps its order when a model is picked and leaves out CLIs not 
   );
 });
 
+test("the picker has Favorites and one tab per account, and a star is saved where the web keeps it", async () => {
+  const daemon = fixture();
+  const compose = await connect(daemon);
+  const agents = await readyAgents(compose);
+  type Tab = { id: string; provider: string | null; models: { key: string; account: string }[] };
+  const tabs = agents.tabs as Tab[];
+  expect(tabs[0]?.id).toBe("favorites");
+  expect(tabs[0]?.models).toEqual([]);
+  const codex = tabs.filter((tab) => tab.provider === "codex");
+  expect(codex.length).toBeGreaterThan(0);
+  for (const tab of codex) expect(new Set(tab.models.map((model) => model.account)).size).toBe(1);
+  const starred = codex[0]?.models[0];
+  compose.compose({ kind: "favorite", key: starred?.key });
+  const saved = await until(() => {
+    const patch = latest("compose.agents");
+    return (patch?.favorites as string[] | undefined)?.includes(starred?.key ?? "") && patch;
+  });
+  expect((saved.tabs as Tab[])[0]?.models.map((model) => model.key)).toEqual([starred?.key]);
+  const rows = (await client?.request({
+    type: "settings.get",
+    key: "providers.configuration",
+    scope: {},
+  })) as {
+    entries: { value: { provider: string; instance?: string; favourites?: string[] }[] }[];
+  };
+  const own = rows.entries[0]?.value.find((row) => row.provider === "codex" && !row.instance);
+  expect(own?.favourites?.length).toBe(1);
+  compose.compose({ kind: "favorite", key: starred?.key });
+  await until(() => (latest("compose.agents")?.favorites as string[] | undefined)?.length === 0);
+});
+
 test("access the provider can't express is never loosened: Send waits with the reason", async () => {
   const compose = await connect(fixture());
   const agents = await readyAgents(compose);

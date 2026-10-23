@@ -1,6 +1,7 @@
 import {
   newThreadModelList,
   newThreadPickerAgents,
+  newThreadTabs,
   selectNewThreadAgent,
   type NewThreadAgents,
   type NewThreadChoice,
@@ -14,12 +15,38 @@ import type { Preview } from "./agents.ts";
  * frame.
  */
 
-export function agentsPatch(agents: NewThreadAgents, choice: NewThreadChoice, preview: Preview) {
+/** The starred models (picker keys) and why the last star didn't save. */
+export interface Stars {
+  keys: string[];
+  problem: string | null;
+}
+
+export function agentsPatch(
+  agents: NewThreadAgents,
+  choice: NewThreadChoice,
+  preview: Preview,
+  stars: Stars,
+) {
   const start = selectNewThreadAgent(agents, {});
   const current = selectNewThreadAgent(agents, choice);
+  const inUse = current.ok
+    ? { provider: current.provider, key: current.model.key, account: current.model.account }
+    : undefined;
   return {
     type: "compose.agents",
     state: "ready",
+    tabs: newThreadTabs(agents, { favorites: stars.keys, current: inUse })
+      .slice(0, 64)
+      .map((tab) => ({
+        id: tab.id,
+        provider: tab.provider ?? null,
+        name: preview(tab.name, 128),
+        reason: tab.reason ? preview(tab.reason, 256) : null,
+        models: tab.models.slice(0, 400),
+        lead: tab.lead,
+      })),
+    favorites: stars.keys.slice(0, 512),
+    starProblem: stars.problem,
     providers: newThreadPickerAgents(agents.providers, choice.provider).map((row) => {
       const inUse =
         current.ok && current.provider === row.provider

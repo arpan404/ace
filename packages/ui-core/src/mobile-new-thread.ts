@@ -11,6 +11,12 @@ import {
   type AccountOption,
   type ModelOption,
 } from "./models.ts";
+import {
+  pickerModel,
+  pickerProviders,
+  type PickerModel,
+  type PickerProvider,
+} from "./model-picker.ts";
 import { providerAccountModel } from "./provider-account-model.ts";
 import { catalogSignal } from "./provider-readiness.ts";
 import { providerAccountState } from "./provider-status.ts";
@@ -60,6 +66,13 @@ export interface NewThreadAgents {
   providers: NewThreadProviderRow[];
   models: readonly ModelOption[];
   accounts: readonly AccountOption[];
+  /** The same models, providers and accounts as the web's picker sees them (`newThreadTabs`). */
+  picker: {
+    models: PickerModel[];
+    providers: PickerProvider[];
+    accounts: AccountView[];
+    now: number;
+  };
 }
 
 const reasons: Partial<Record<string, string>> = {
@@ -144,7 +157,21 @@ export function newThreadAgents(input: {
       })),
     };
   });
-  return { providers, models: options.models, accounts: options.accounts };
+  const listed = options.models.map((option) => pickerModel(option, option.label, option.account));
+  return {
+    providers,
+    models: options.models,
+    accounts: options.accounts,
+    picker: {
+      models: listed,
+      providers: pickerProviders(
+        listed,
+        joined.map((entry) => ({ provider: entry.row.provider, state: entry.state })),
+      ),
+      accounts: reconciled,
+      now: input.now,
+    },
+  };
 }
 
 /** What the person picked; any part may be missing or no longer offered. */

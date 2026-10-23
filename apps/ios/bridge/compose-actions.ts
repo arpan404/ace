@@ -17,6 +17,7 @@ const ComposeAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("close") }),
   z.object({ kind: z.literal("projects") }),
   z.object({ kind: z.literal("agents") }),
+  z.object({ kind: z.literal("favorite"), key: z.string().min(3).max(600) }),
   z.object({ kind: z.literal("branches"), workspaceId: id }),
   z.object({ kind: z.literal("mentions"), workspaceId: id, query: z.string().max(128) }),
   z.object({ kind: z.literal("folders"), query: z.string().max(256) }),
@@ -95,6 +96,9 @@ export class ComposeActions {
         break;
       case "agents":
         void this.newThread.agents();
+        break;
+      case "favorite":
+        void this.newThread.favorite(action.key);
         break;
       case "branches":
         void this.newThread.branches(action.workspaceId);
