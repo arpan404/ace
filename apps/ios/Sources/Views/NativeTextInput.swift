@@ -14,6 +14,7 @@ struct NativeTextInput: UIViewRepresentable {
     /// Takes the keyboard as soon as it shows (New thread's first message).
     var focusOnAppear = false
     @AppStorage("ace.keyboard.returnSends") private var returnSends = false
+    @Environment(\.escape) private var escape
     func makeUIView(context: Context) -> ComposerTextView {
         let view = ComposerTextView()
         view.delegate = context.coordinator
@@ -37,6 +38,7 @@ struct NativeTextInput: UIViewRepresentable {
         context.coordinator.parent = self
         if view.text != text { view.text = text; context.coordinator.measure(view) }
         view.inputBegan = inputBegan
+        view.escape = escape
         view.font = AceTheme.uiFont(AceTheme.Typography.body, relativeTo: .body, traits: view.traitCollection)
         view.textColor = UIColor(AceTheme.Colours.foreground)
         view.typingAttributes = AceTheme.inputAttributes(traits: view.traitCollection)
@@ -91,6 +93,14 @@ struct NativeTextInput: UIViewRepresentable {
 @MainActor final class ComposerTextView: UITextView {
     var inputBegan: () -> Void = {}
     var resized: ((CGFloat, CGFloat) -> Void)?
+    /// Esc from a hardware keyboard; without one, Esc drops the keyboard.
+    var escape: (() -> Void)?
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        guard markedTextRange == nil, presses.contains(where: { $0.key?.keyCode == .keyboardEscape && $0.key?.modifierFlags.isEmpty == true }) else {
+            return super.pressesBegan(presses, with: event)
+        }
+        if let escape { escape() } else { resignFirstResponder() }
+    }
     private var width: CGFloat = 0
     override func layoutSubviews() {
         super.layoutSubviews()

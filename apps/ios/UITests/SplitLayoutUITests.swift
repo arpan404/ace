@@ -27,6 +27,37 @@ import XCTest
         XCTAssertFalse(app.buttons["thread.ios-form"].isSelected)
     }
 
+    func testAHardwareKeyboardMovesBetweenThreadsAndOpensAndClosesSheets() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
+        let app = launch()
+        open("thread.ios-form", in: app)
+        XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
+        // The simulator drops the first key it sends while it attaches its keyboard.
+        app.typeKey(XCUIKeyboardKey.shift, modifierFlags: [])
+        // ⌘] and ⌘[ walk the list in its own order, even while a field has the keyboard.
+        app.typeKey("]", modifierFlags: .command)
+        XCTAssertTrue(title("Plan the kill-all filters", in: app).waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["thread.ios-plan"].isSelected)
+        app.typeKey("[", modifierFlags: .command)
+        XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
+        // ⌘N opens New thread, its message field taking the keyboard. The cancel shortcut
+        // closes a sheet from there too; it is Esc on a keyboard, and ⌘. here because the
+        // simulator does not deliver a bare Esc to the app.
+        app.typeKey("n", modifierFlags: .command)
+        let close = app.buttons["newThread.close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 10))
+        app.typeKey(".", modifierFlags: .command)
+        XCTAssertTrue(close.waitForNonExistence(timeout: 10))
+        app.buttons["inbox.settings"].tap()
+        let settings = app.buttons["settings.close"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 10))
+        app.typeKey(".", modifierFlags: .command)
+        XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
+        // ⌘F searches the list.
+        app.typeKey("f", modifierFlags: .command)
+        XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout: 10))
+    }
+
     func testTurningALargePhoneKeepsTheOpenThreadAndItsDraftAsTheListJoinsIt() throws {
         XCUIDevice.shared.orientation = .portrait
         let app = launch()

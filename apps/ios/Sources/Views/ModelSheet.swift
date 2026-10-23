@@ -19,9 +19,10 @@ struct ModelSheet<Content: View>: View {
                 .searchBarEdge()
                 .searchable(text: $query, prompt: "Find a model")
                 .navigationTitle("Model").navigationBarTitleDisplayMode(.inline)
+                .escapeCloses { cancel(); dismiss() }
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button { cancel(); dismiss() } label: { Image(systemName: "xmark") }.keyboardShortcut(.cancelAction)
+                        Button { cancel(); dismiss() } label: { Image(systemName: "xmark") }
                             .accessibilityLabel("Close").accessibilityIdentifier("modelSheet.close")
                     }
                     ToolbarItem(placement: .confirmationAction) { confirmButton }

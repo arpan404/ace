@@ -34,10 +34,10 @@ struct ThreadCommands: Commands {
                 .disabled(inbox == nil)
             Divider()
             Button("Next Thread") { inbox?.next() }
-                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+                .keyboardShortcut("]", modifiers: .command)
                 .disabled(inbox == nil)
             Button("Previous Thread") { inbox?.previous() }
-                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
+                .keyboardShortcut("[", modifiers: .command)
                 .disabled(inbox == nil)
         }
     }

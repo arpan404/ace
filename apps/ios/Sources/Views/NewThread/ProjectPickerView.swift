@@ -18,6 +18,7 @@ struct ProjectPickerSheet: View {
             .navigationDestination(isPresented: $adding) {
                 AddProjectView(client: client) { id in choose(id); dismiss() }
             }
+            .escapeCloses { dismiss() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button { dismiss() } label: { Image(systemName: "xmark") }

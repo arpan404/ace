@@ -66,6 +66,7 @@ struct ConversationHistoryView: View {
             }
             .listStyle(.plain).scrollContentBackground(.hidden).background(AceTheme.Colours.background)
             .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
+            .escapeCloses { dismiss() }
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .readWhenConnected(model) { await read() }
             .task(id: targetId) { await Task.yield(); if let targetId, !Task.isCancelled { proxy.scrollTo(targetId, anchor: .center) } }
