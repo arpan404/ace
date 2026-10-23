@@ -69,17 +69,16 @@ win(
     await writeFile(join(root, "public.txt"), "public control");
     const directory = PinnedDirectory.atBoundary(root);
     try {
-      const owner = directory.stat().uid;
       expect(directory.readText("public.txt", 64)).toBe("public control");
-      expect(() => directory.readText("public.txt", 64, owner)).toThrow();
+      expect(() => directory.readPrivateText("public.txt", 64)).toThrow();
       await directory.writeExclusive("exclusive.txt", "exclusive secret");
-      expect(directory.readText("exclusive.txt", 64, owner)).toBe("exclusive secret");
+      expect(directory.readPrivateText("exclusive.txt", 64)).toBe("exclusive secret");
       directory.publish("marker.json", "published secret");
-      expect(directory.readText("marker.json", 64, owner)).toBe("published secret");
+      expect(directory.readPrivateText("marker.json", 64)).toBe("published secret");
       expect(() => directory.publish("marker.json", "must not replace")).toThrow();
-      expect(directory.readText("marker.json", 64, owner)).toBe("published secret");
+      expect(directory.readPrivateText("marker.json", 64)).toBe("published secret");
       directory.replace("marker.json", "replacement secret");
-      expect(directory.readText("marker.json", 64, owner)).toBe("replacement secret");
+      expect(directory.readPrivateText("marker.json", 64)).toBe("replacement secret");
       expect(directory.names().some((name) => name.endsWith(".pending"))).toBe(false);
       expect(await readFile(join(root, "public.txt"), "utf8")).toBe("public control");
     } finally {
@@ -106,8 +105,8 @@ win(
       await expect(verify()).rejects.toMatchObject({ code: "PATH_CHANGED" });
       const directory = PinnedDirectory.atBoundary(root);
       try {
-        expect(directory.readText("held.txt", 64, 0)).toBe("original bytes");
-        expect(() => directory.readText(name, 64, 0)).toThrow();
+        expect(directory.readPrivateText("held.txt", 64)).toBe("original bytes");
+        expect(() => directory.readPrivateText(name, 64)).toThrow();
       } finally {
         directory.closeSync();
       }

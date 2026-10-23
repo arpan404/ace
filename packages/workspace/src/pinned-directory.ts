@@ -112,6 +112,12 @@ export class PinnedDirectory {
   readText(name: string, limit: number, owner?: number): string {
     return this.readBytes(name, limit, owner).toString("utf8");
   }
+  /** Current-user private text. Windows proves TokenUser ownership and DACL
+   * through the opened handle; POSIX uses the current uid.
+   */
+  readPrivateText(name: string, limit: number): string {
+    return this.readText(name, limit, process.getuid?.() ?? 0);
+  }
   /** Bounded regular-file bytes through the pinned directory, without following symlinks. */
   readBytes(name: string, limit: number, owner?: number): Buffer {
     const file = openFileAt(this.fd, name);
