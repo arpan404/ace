@@ -7,8 +7,7 @@ import {
   descriptorNames,
   type Descriptor,
 } from "./descriptor.ts";
-import { type Stats } from "node:fs";
-import { type FileHandle } from "node:fs/promises";
+import { sameFile, type IdentifiedStats } from "./file-identity.ts";
 import { workspaceRuntime, type WorkspaceFileSystem, type WorkspaceRuntime } from "./runtime.ts";
 import { passesWindowsRelativePathPolicy } from "./path-policy.ts";
 import { isAbsolute, join, relative, sep, win32, dirname, basename } from "node:path";
@@ -33,15 +32,15 @@ export function validRelativePath(
   }
   return true;
 }
-function same(a: Stats, b: Stats): boolean {
-  return a.dev === b.dev && a.ino === b.ino;
+function same(a: IdentifiedStats, b: IdentifiedStats): boolean {
+  return sameFile(a.identity, b.identity);
 }
 export class SafeRoot {
   readonly root: string;
   readonly runtime: WorkspaceRuntime;
-  private readonly identity: Stats;
+  private readonly identity: IdentifiedStats;
   private readonly fs: WorkspaceFileSystem;
-  private constructor(root: string, identity: Stats, runtime: WorkspaceRuntime) {
+  private constructor(root: string, identity: IdentifiedStats, runtime: WorkspaceRuntime) {
     this.runtime = runtime;
     this.fs = runtime.filesystem;
     this.root = root;
@@ -55,7 +54,7 @@ export class SafeRoot {
       const fs = runtime.filesystem;
       const canonical = await fs.realpath(root);
       const descriptor = openRoot(canonical);
-      let identity: Stats;
+      let identity: IdentifiedStats;
       try {
         identity = await descriptor.stat();
       } finally {
@@ -111,7 +110,7 @@ export class SafeRoot {
       throw failure(error);
     }
   }
-  async verify(input: string, resolved: string, expected: Stats): Promise<void> {
+  async verify(input: string, resolved: string, expected: IdentifiedStats): Promise<void> {
     if ((await this.resolve(input)) !== resolved || !same(await this.fs.stat(resolved), expected)) {
       throw new WorkspaceError("PATH_CHANGED", "Path changed during the operation");
     }
@@ -119,9 +118,9 @@ export class SafeRoot {
   private async anchored(
     resolved: string,
     openLeaf: (parent: number, name: string) => Descriptor,
-  ): Promise<FileHandle | Descriptor> {
+  ): Promise<Descriptor> {
     this.contains(resolved);
-    let current: FileHandle | Descriptor = openRoot(this.root);
+    let current: Descriptor = openRoot(this.root);
     try {
       if (!same(await current.stat(), this.identity))
         throw new WorkspaceError("PATH_CHANGED", "Workspace root was replaced");
@@ -142,8 +141,8 @@ export class SafeRoot {
   }
   async file(
     input: string,
-  ): Promise<{ handle: FileHandle | Descriptor; info: Stats; resolved: string }> {
-    let handle: FileHandle | Descriptor | undefined;
+  ): Promise<{ handle: Descriptor; info: IdentifiedStats; resolved: string }> {
+    let handle: Descriptor | undefined;
     try {
       const resolved = await this.resolve(input);
       if (transferTemporary(relative(this.root, resolved).split(sep).join("/")))
@@ -239,7 +238,7 @@ export class SafeRoot {
       } finally {
         await parent.close();
       }
-      if (proof.dev !== expected.dev || proof.ino !== expected.ino)
+      if (!sameFile(proof.identity, expected.identity))
         throw new WorkspaceError("PATH_CHANGED", "Entry was replaced");
       const info = expected;
       info.size = proof.size;
@@ -261,7 +260,7 @@ export class SafeRoot {
     }
   }
   async entries(input: string) {
-    let handle: FileHandle | Descriptor | undefined;
+    let handle: Descriptor | undefined;
     try {
       const resolved = await this.resolve(input);
       const expected = await this.fs.lstat(resolved);

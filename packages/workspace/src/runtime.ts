@@ -1,15 +1,31 @@
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
-import { watch, type Stats, type FSWatcher } from "node:fs";
+import { watch, type FSWatcher } from "node:fs";
 import { lstat, open, realpath, stat, type FileHandle } from "node:fs/promises";
+import { posixStats, type IdentifiedStats } from "./file-identity.ts";
 import { Worker } from "node:worker_threads";
 
 export interface WorkspaceFileSystem {
   realpath(path: string): Promise<string>;
-  stat(path: string): Promise<Stats>;
-  lstat(path: string): Promise<Stats>;
+  stat(path: string): Promise<IdentifiedStats>;
+  lstat(path: string): Promise<IdentifiedStats>;
   open(path: string, flags: number): Promise<FileHandle>;
 }
-export const filesystem: WorkspaceFileSystem = { realpath, stat, lstat, open };
+function requirePosixIdentity(): void {
+  if (process.platform === "win32")
+    throw new Error("Windows path metadata requires native file identity integration");
+}
+export const filesystem: WorkspaceFileSystem = {
+  realpath,
+  async stat(path) {
+    requirePosixIdentity();
+    return posixStats(await stat(path, { bigint: true }));
+  },
+  async lstat(path) {
+    requirePosixIdentity();
+    return posixStats(await lstat(path, { bigint: true }));
+  },
+  open,
+};
 export type CancelTimer = () => void;
 export interface WorkspaceClock {
   after(callback: () => void | Promise<void>, milliseconds: number): CancelTimer;

@@ -1,8 +1,9 @@
-import { close, constants, fstat, read, write, type Stats } from "node:fs";
+import { close, constants, fstat, read, write, fstatSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { getSystemErrorName } from "node:util";
 import { z } from "zod";
+import { posixStats, FileIdentitySchema, type IdentifiedStats } from "./file-identity.ts";
 import { DIRECTORY_CAP, WorkspaceError } from "./types.ts";
 
 const require = createRequire(import.meta.url);
@@ -36,6 +37,7 @@ const Binding = z.object({
     output: z.object({
       dev: z.number(),
       ino: z.number(),
+      identity: FileIdentitySchema,
       mode: z.number().int(),
       size: z.number(),
       mtime: z.number(),
@@ -129,9 +131,20 @@ export class Descriptor {
       nativeFailure(error);
     }
   }
-  stat(): Promise<Stats> {
+  statSync(): IdentifiedStats {
+    if (process.platform === "win32")
+      throw new Error("Windows descriptor metadata requires native file identity integration");
+    return posixStats(fstatSync(this.fd, { bigint: true }));
+  }
+  stat(): Promise<IdentifiedStats> {
+    if (process.platform === "win32")
+      return Promise.reject(
+        new Error("Windows descriptor metadata requires native file identity integration"),
+      );
     return new Promise((resolve, reject) =>
-      fstat(this.fd, (error, info) => (error ? reject(error) : resolve(info))),
+      fstat(this.fd, { bigint: true }, (error, info) =>
+        error ? reject(error) : resolve(posixStats(info)),
+      ),
     );
   }
   read(

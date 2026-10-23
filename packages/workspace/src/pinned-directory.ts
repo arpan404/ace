@@ -1,14 +1,6 @@
 import { dirname, basename, join } from "node:path";
-import {
-  closeSync,
-  fstatSync,
-  readSync,
-  writeSync,
-  fsyncSync,
-  lstatSync,
-  realpathSync,
-  type Stats,
-} from "node:fs";
+import { closeSync, readSync, writeSync, fsyncSync, lstatSync, realpathSync } from "node:fs";
+import { sameFile, type FileIdentity, type IdentifiedStats } from "./file-identity.ts";
 import {
   renameAt,
   removeDirectoryAt,
@@ -26,10 +18,10 @@ import {
 /** Own a directory inode, with descendant operations relative to its descriptor. */
 export class PinnedDirectory {
   private handle: Descriptor;
-  private identity: Stats;
+  private identity: FileIdentity;
   private constructor(handle: Descriptor) {
     this.handle = handle;
-    this.identity = fstatSync(handle.fd);
+    this.identity = handle.statSync().identity;
   }
   static open(canonical: string): PinnedDirectory {
     const handle = openRoot(canonical);
@@ -58,14 +50,13 @@ export class PinnedDirectory {
   get fd(): number {
     return this.handle.fd;
   }
-  stat(): Stats {
-    return fstatSync(this.fd);
+  stat(): IdentifiedStats {
+    return this.handle.statSync();
   }
   matches(canonical: string): boolean {
     const current = openRoot(canonical);
     try {
-      const info = fstatSync(current.fd);
-      return info.dev === this.identity.dev && info.ino === this.identity.ino;
+      return sameFile(current.statSync().identity, this.identity);
     } finally {
       closeSync(current.fd);
     }
@@ -96,10 +87,10 @@ export class PinnedDirectory {
     }
   }
   /** Regular-file identity through a no-follow descriptor, including change timestamps. */
-  fileMetadata(name: string): Stats {
+  fileMetadata(name: string): IdentifiedStats {
     const file = openFileAt(this.fd, name);
     try {
-      const info = fstatSync(file.fd);
+      const info = file.statSync();
       if (!info.isFile()) throw new Error("Expected a regular file");
       return info;
     } finally {
@@ -125,7 +116,7 @@ export class PinnedDirectory {
   readBytes(name: string, limit: number, owner?: number): Buffer {
     const file = openFileAt(this.fd, name);
     try {
-      const info = fstatSync(file.fd);
+      const info = file.statSync();
       if (
         !info.isFile() ||
         info.size > limit ||
