@@ -144,6 +144,8 @@ export class MachineCaller {
             { timeoutMs: 15_000 },
           ),
         );
+        // A settled child given more work is working again until its next result.
+        this.deps.children.reopen(id);
         return { ok: true, data: answer };
       } catch (error) {
         if (attempt === 0 && error instanceof MachineFailure && error.kind === "disconnected")

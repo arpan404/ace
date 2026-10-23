@@ -24,6 +24,10 @@
         "at": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },
+        "commandId": {
+          "maxLength": 128,
+          "type": "string"
+        },
         "text": {
           "maxLength": 400,
           "type": "string"

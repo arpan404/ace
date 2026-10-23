@@ -441,6 +441,24 @@ export class DelegationService {
       return undefined;
     }
   }
+  /**
+   * A restart's first step: everything `threadId` delegated stops, here and on other machines,
+   * so the new message is all that runs next.
+   */
+  stopChildren(threadId: ThreadId, requestId: string, request: string) {
+    this.cancelPreparations(threadId);
+    for (const child of this.journal
+      .liveDescendants(threadId)
+      .filter((edge) => edge.parentId === threadId)) {
+      this.cancelDescendants(child.childId, request);
+      const cancelled = this.command(
+        controlCommandId(child.childId, requestId, "restart.child_interrupt"),
+        { type: "thread.interrupt", threadId: child.childId, cascade: true },
+      );
+      if (!cancelled.ok) throw controlAdmissionError(cancelled.error ?? "Child interrupt failed");
+    }
+    this.onRemoteCancel?.(threadId);
+  }
   restartMessage(caller: McpAttribution, requestId: string, threadId: ThreadId, text: string) {
     if (
       !this.authorize(caller, threadId, true) ||
@@ -450,18 +468,7 @@ export class DelegationService {
       throw new Error("Forbidden restart");
     const id = controlCommandId(caller.threadId, requestId, "thread.restart_message");
     return this.deps.store.recordCommand(CommandId.parse(id), DeviceId.parse("ace-agent"), () => {
-      this.cancelPreparations(threadId);
-      for (const child of this.journal
-        .liveDescendants(threadId)
-        .filter((edge) => edge.parentId === threadId)) {
-        this.cancelDescendants(child.childId, id);
-        const cancelled = this.command(
-          controlCommandId(child.childId, requestId, "restart.child_interrupt"),
-          { type: "thread.interrupt", threadId: child.childId, cascade: true },
-        );
-        if (!cancelled.ok) throw controlAdmissionError(cancelled.error ?? "Child interrupt failed");
-      }
-      this.onRemoteCancel?.(threadId);
+      this.stopChildren(threadId, requestId, id);
       this.suspending.add(threadId);
       try {
         const stopped = this.command(

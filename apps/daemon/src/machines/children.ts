@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   AgentId,
@@ -44,13 +45,14 @@ export interface ChildrenDeps {
   ): Promise<MachineThreadView[]>;
   mirror: RequestMirror;
   label(machine: string): string;
-  /** Hands a settled result to the parent as a new turn. */
-  deliver(parentThreadId: ThreadId, id: ThreadId, text: string): void;
+  /** Hands a settled result or a message notice to the parent; `key` names it once. */
+  deliver(parentThreadId: ThreadId, key: string, text: string): void;
   /** A live wait reads this child, so its result is not woken separately. */
   waiting(id: ThreadId): boolean;
   isDescendant(child: ThreadId, ancestor: ThreadId): boolean;
   log(message: string, fields: Record<string, unknown>): void;
 }
+const digest = (text: string) => createHash("sha256").update(text).digest("hex").slice(0, 24);
 const outcomeOf = (state: WatchedThread["state"]): DelegationOutcome["outcome"] =>
   state === "done" ? "completed" : state === "cancelled" ? "cancelled" : "failed";
 
@@ -176,6 +178,7 @@ export class MachineChildren implements RemoteChildren {
     const {
       status: _status,
       requests: _requests,
+      notice: _notice,
       ...view
     } = saved ?? {
       threadId: id,
@@ -225,10 +228,43 @@ export class MachineChildren implements RemoteChildren {
             ? { needs: view.needs.length, ask: clip(view.needs[0].prompt, 100) }
             : {}),
           ...(view.last ? { last: clip(view.last, 100) } : {}),
+          ...(this.saved(row)?.notice ? { notice: this.saved(row)?.notice } : {}),
           machine: clip(this.deps.label(row.machine), 64),
         },
       ];
     });
+  }
+  private saved(row: Row): MachineThreadView | undefined {
+    return row.view ? MachineThreadView.parse(JSON.parse(row.view)) : undefined;
+  }
+  /**
+   * The parent sent a settled child more work: it is working again, so the parent's tree reads
+   * working until its next result arrives, and the poll watches it again.
+   */
+  reopen(id: ThreadId): void {
+    const row = this.row(id);
+    if (!row || row.settled !== 1) return;
+    this.deps.store.atomic((db) => {
+      db.prepare("UPDATE machine_children SET settled=0, delivered=0 WHERE id=?").run(id);
+      this.deps.engine()?.machineChild(
+        {
+          id,
+          parentId: row.parent_thread,
+          parentAgentId: row.parent_agent,
+          machine: row.machine,
+          name: this.deps.label(row.machine),
+          provider: row.provider,
+          model: row.model ?? undefined,
+          role: row.role,
+          title: this.saved(row)?.title || row.role,
+          status: { state: "working", agents: 1 },
+          outcome: null,
+        },
+        "start",
+      );
+    });
+    this.emit([id]);
+    this.arm();
   }
   delivered(id: ThreadId): void {
     this.deps.store.atomic((db) =>
@@ -295,6 +331,16 @@ export class MachineChildren implements RemoteChildren {
   }
   private update(row: Row, view: MachineThreadView) {
     this.unreachable.delete(row.id);
+    if (view.notice && view.notice !== this.saved(row)?.notice)
+      try {
+        this.deps.deliver(
+          row.parent_thread,
+          `notice:${row.id}:${digest(view.notice)}`,
+          `[ace: ${row.role} on ${this.deps.label(row.machine)}]\n${view.notice}`,
+        );
+      } catch (error) {
+        this.deps.log("Machine message notice not delivered", { id: row.id, error: String(error) });
+      }
     const settled = settledStates.has(view.state) && view.requests.length === 0;
     const text = JSON.stringify(view);
     const name = this.deps.label(row.machine);
@@ -340,9 +386,10 @@ export class MachineChildren implements RemoteChildren {
     if (!read?.outcome) return;
     const name = this.deps.label(row.machine);
     try {
+      // Keyed by this settle, so a child messaged again delivers its next result too.
       this.deps.deliver(
         row.parent_thread,
-        row.id,
+        `${row.id}:${digest(row.view ?? "")}`,
         `[ace: ${row.role} on ${name} ${read.outcome.outcome}]\n${read.outcome.result || "No text result returned."}${read.outcome.truncated ? "\n[Result truncated.]" : ""}`,
       );
       this.delivered(row.id);

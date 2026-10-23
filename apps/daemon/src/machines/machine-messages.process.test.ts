@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
-import { ThreadId, type AgentControlOperation } from "@ace/protocol";
+import { MonitorSnapshot, ThreadId, type AgentControlOperation } from "@ace/protocol";
 import { pairedMachines } from "./machine-test-support.ts";
 
 const Delegated = z.object({ threadId: ThreadId });
@@ -81,4 +81,83 @@ it("a message to a child on a machine that went offline fails clearly instead of
   await expect(pair.source.call(message(child, "Keep going"))).rejects.toMatchObject({
     code: "machine_offline",
   });
+});
+
+it("a message that fails on the other machine reaches the parent here and shows in agents_status", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const child = await remoteChild(pair);
+  await pair.source.call(message(child, "Use the new API", "queue"));
+  pair.target.h.failNextSend("rejected", "queue");
+  await pair.finish(child, "First pass done.");
+  const parent = pair.source.caller.threadId;
+  await vi.waitFor(() =>
+    expect((pair.source.h.inputs.get(parent) ?? []).join("\n")).toContain("wasn't sent"),
+  );
+  const status = MonitorSnapshot.parse((await pair.source.call({ op: "agents.status" })).data);
+  expect(status.children).toEqual([
+    expect.objectContaining({ id: child, notice: expect.stringContaining("wasn't sent") }),
+  ]);
+});
+
+it("a finished child on another machine messaged again reports its next result too", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const child = await remoteChild(pair);
+  const parent = pair.source.caller.threadId;
+  const results = () => (pair.source.h.inputs.get(parent) ?? []).join("\n");
+  await pair.finish(child, "First pass done.");
+  await vi.waitFor(() => expect(results()).toContain("First pass done."));
+  expect(await pair.source.call(message(child, "Now the docs"))).toMatchObject({
+    ok: true,
+    data: { arrival: "starting" },
+  });
+  // Until it answers, the parent's tree reads working, never done.
+  expect(pair.source.daemon.store.getThread(parent)?.status.state).not.toBe("done");
+  await vi.waitFor(() => expect(received(pair, child)).toContain("Now the docs"));
+  await pair.finish(child, "Docs updated.");
+  await vi.waitFor(() => expect(results()).toContain("Docs updated."));
+});
+
+it("a restart sent to another machine also stops what that child delegated there", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const child = await remoteChild(pair);
+  const agentId = pair.target.daemon.store.getThread(child)?.rootAgentId;
+  if (!agentId) throw new Error("No root agent");
+  const delegations = pair.target.controls.delegations;
+  const grandchild = delegations.delegate(
+    { sessionId: "remote-child", threadId: child, agentId },
+    {
+      requestId: "helper",
+      task: "Check the logs",
+      role: "Check-logs",
+      provider: "claude",
+      model: "chosen-model",
+      effort: "high",
+      wait: false,
+      estimatedLoad: 0,
+    },
+  ).childId;
+  await pair.target.daemon.engine?.flush();
+  expect(pair.target.daemon.store.getThread(grandchild)?.status.state).toBe("working");
+  await pair.source.call(message(child, "Start over from main", "restart"));
+  await vi.waitFor(() =>
+    expect(pair.target.daemon.store.getThread(grandchild)?.status.state).not.toBe("working"),
+  );
+  expect(delegations.journal.get(grandchild)?.phase).not.toBe("running");
+});
+
+it("a restart sent to another machine lifts the child's usage-limit hold there, as a local one does", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const child = await remoteChild(pair);
+  const until = pair.target.h.clock.now() + 3_600_000;
+  await pair.emit(
+    child,
+    { type: "retry", agent: "root", on: "rate_limit", message: "Usage limit", until },
+    { type: "turn.ended", agent: "root", outcome: "failed" },
+  );
+  expect(pair.target.daemon.engine?.queue(child)).toMatchObject({ paused: true, reason: "limit" });
+  expect(await pair.source.call(message(child, "Start over from main", "restart"))).toMatchObject({
+    ok: true,
+    data: { arrival: "starting" },
+  });
+  await vi.waitFor(() => expect(received(pair, child).at(-1)).toBe("Start over from main"));
 });

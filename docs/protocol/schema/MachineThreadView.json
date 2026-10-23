@@ -22,6 +22,10 @@
       "maxItems": 8,
       "type": "array"
     },
+    "notice": {
+      "maxLength": 400,
+      "type": "string"
+    },
     "requests": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/MachinePendingRequest.json"

@@ -40,8 +40,11 @@ export function startMachines(context: ServiceContext): void {
     store,
     engine,
     journal: () => services.agentControl?.delegations.journal,
+    stopChildren: (threadId, requestId, request) =>
+      services.agentControl?.delegations.stopChildren(threadId, requestId, request),
     now,
   });
+  resources.own(() => threads.close());
   const browser = new TargetBrowser({
     store,
     engine,
@@ -113,11 +116,11 @@ export function startMachines(context: ServiceContext): void {
     },
     mirror,
     label: (machine) => directory.label(machine),
-    deliver: (parentThreadId, id, text) => {
+    deliver: (parentThreadId, key, text) => {
       const parent = store.getThread(parentThreadId);
       const delegations = services.agentControl?.delegations;
       if (!parent || parent.deletedAt !== undefined || !delegations) return;
-      const result = delegations.command(`machine-result:${id}`, {
+      const result = delegations.command(`machine-result:${key}`, {
         type: "thread.send",
         threadId: parentThreadId,
         input: [{ type: "text", text }],
