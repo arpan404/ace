@@ -147,7 +147,7 @@ test("an issue's page shows its conversation, and a comment posted joins it", as
   const box = within(page).getByRole("textbox", { name: "Comment" });
   await userEvent.type(box, "Fixed in #231.");
   await userEvent.click(within(page).getByRole("button", { name: "Comment" }));
-  expect(await within(page).findByText("Fixed in #231.")).toBeTruthy();
+  expect((await within(page).findByText(/^Fixed in/)).textContent).toBe("Fixed in #231.");
   await waitFor(() => expect((box as HTMLTextAreaElement).value).toBe(""));
 });
 
@@ -156,13 +156,13 @@ test("issues are grouped as assigned to you, opened by you, and the rest", async
   await app.open("/issues?project=ace");
   await waitFor(async () =>
     expect(await groups("Issues")).toEqual({
-      "Assigned to you": ["240"],
+      "Assigned to you": ["246", "240"],
       "Created by you": ["235"],
       Others: ["238"],
     }),
   );
   await waitFor(async () =>
-    expect(await headings("Issues")).toEqual(["Assigned to you1", "Created by you1", "Others1"]),
+    expect(await headings("Issues")).toEqual(["Assigned to you2", "Created by you1", "Others1"]),
   );
 });
 
@@ -175,7 +175,7 @@ test("an issue closed on its page has left the open list when going back", async
   await userEvent.click(await within(page).findByRole("button", { name: "Close issue" }));
   expect(await within(page).findByRole("button", { name: "Reopen issue" })).toBeTruthy();
   await userEvent.click(within(page).getByRole("button", { name: "Back to issues" }));
-  await waitFor(async () => expect(await numbers("Issues")).toEqual(["235", "238"]));
+  await waitFor(async () => expect(await numbers("Issues")).toEqual(["246", "235", "238"]));
 });
 
 test("creating an issue from the New issue page opens it, and Back returns to the list", async () => {
@@ -191,12 +191,12 @@ test("creating an issue from the New issue page opens it, and Back returns to th
     "- after closing a dialog{Enter}in the sidebar",
   );
   await userEvent.click(within(form).getByRole("button", { name: /Create issue/ }));
-  const page = await screen.findByRole("article", { name: "Issue #241" });
+  const page = await screen.findByRole("article", { name: "Issue #247" });
   expect(await within(page).findByRole("heading", { name: /Keyboard focus lost/ })).toBeTruthy();
   // Enter carried the list on, so the description reads as two items.
   expect((await within(page).findByText("in the sidebar")).closest("li")).not.toBeNull();
   await userEvent.click(within(page).getByRole("button", { name: "Back to issues" }));
-  await waitFor(async () => expect(await numbers("Issues")).toContain("241"));
+  await waitFor(async () => expect(await numbers("Issues")).toContain("247"));
 });
 
 test("a draft survives leaving the New issue page and coming back, and is gone once created", async () => {
@@ -216,7 +216,7 @@ test("a draft survives leaving the New issue page and coming back, and is gone o
     within(form).getByRole<HTMLTextAreaElement>("textbox", { name: "Description" }).value,
   ).toBe("More later");
   await userEvent.click(within(form).getByRole("button", { name: /Create issue/ }));
-  const page = await screen.findByRole("article", { name: "Issue #241" });
+  const page = await screen.findByRole("article", { name: "Issue #247" });
   await userEvent.click(within(page).getByRole("button", { name: "Back to issues" }));
   await userEvent.click(await screen.findByRole("button", { name: "New issue" }));
   form = await screen.findByRole("article", { name: "New issue" });
