@@ -1,6 +1,16 @@
 import { closeSync } from "node:fs";
 import { execFile } from "node:child_process";
-import { link, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  link,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +22,7 @@ const require = createRequire(import.meta.url);
 const Binding = z.object({
   openRoot: z.function({ input: [z.string()], output: z.number().int() }),
   checkPrivateAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
+  securePrivateAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
 });
 const win = test.runIf(process.platform === "win32");
 const runFile = promisify(execFile);
@@ -153,5 +164,96 @@ win("rejects bad lexical names with EINVAL", async ({ onTestFinished }) => {
     expectCode(() => core.checkPrivateAt(parent, "missing-✓.txt"), "ENOENT");
   } finally {
     closeSync(parent);
+  }
+});
+
+win(
+  "secure heals inherited and broadened files without touching contents",
+  async ({ onTestFinished }) => {
+    const core = Binding.parse(require("../dist/windows-core.node"));
+    const root = await mkdtemp(join(tmpdir(), "ace-wprivate-secure-"));
+    onTestFinished(() => rm(root, { recursive: true, force: true }));
+    await writeFile(join(root, "hérité-日本語.txt"), "inherited bytes");
+    await writeFile(join(root, "élargi-✓.txt"), "broadened bytes");
+    await secureOwnerOnly(join(root, "élargi-✓.txt"), "read");
+    const parent = core.openRoot(root);
+    try {
+      for (const [name, bytes] of [
+        ["hérité-日本語.txt", "inherited bytes"],
+        ["élargi-✓.txt", "broadened bytes"],
+      ] as const) {
+        expectCode(() => core.checkPrivateAt(parent, name), "EACCES");
+        expect(core.securePrivateAt(parent, name)).toBeUndefined();
+        expect(core.checkPrivateAt(parent, name)).toBeUndefined();
+        expect(await readFile(join(root, name), "utf8")).toBe(bytes);
+      }
+    } finally {
+      closeSync(parent);
+    }
+  },
+);
+
+win(
+  "setter refuses hard links and junctions without changing outside bytes",
+  async ({ onTestFinished }) => {
+    const core = Binding.parse(require("../dist/windows-core.node"));
+    const base = await mkdtemp(join(tmpdir(), "ace-wprivate-setterlinks-"));
+    onTestFinished(() => rm(base, { recursive: true, force: true }));
+    const root = join(base, "root");
+    const outside = join(base, "outside");
+    await mkdir(root);
+    await mkdir(outside);
+    await writeFile(join(root, "origine-日本語-✓.txt"), "linked bytes");
+    await link(join(root, "origine-日本語-✓.txt"), join(root, "alias-✓.txt"));
+    await writeFile(join(outside, "keep-✓.txt"), "outside bytes");
+    try {
+      await symlink(outside, join(root, "lien-✓"), "junction");
+    } catch {
+      throw new Error("Windows host cannot create junctions; reparse refusal untestable here");
+    }
+    const parent = core.openRoot(root);
+    try {
+      expectCode(() => core.securePrivateAt(parent, "origine-日本語-✓.txt"), "EACCES");
+      expectCode(() => core.securePrivateAt(parent, "alias-✓.txt"), "EACCES");
+      expectCode(() => core.securePrivateAt(parent, "lien-✓"), "ELOOP");
+      expect(await readFile(join(root, "origine-日本語-✓.txt"), "utf8")).toBe("linked bytes");
+      expect(await readFile(join(outside, "keep-✓.txt"), "utf8")).toBe("outside bytes");
+    } finally {
+      closeSync(parent);
+    }
+  },
+);
+
+win("a replaced ancestor cannot redirect the secure operation", async ({ onTestFinished }) => {
+  const core = Binding.parse(require("../dist/windows-core.node"));
+  const base = await mkdtemp(join(tmpdir(), "ace-wprivate-ancestor-"));
+  onTestFinished(() => rm(base, { recursive: true, force: true }));
+  const scope = join(base, "scope");
+  await mkdir(scope);
+  await writeFile(join(scope, "slot-✓.txt"), "pinned bytes");
+  const parent = core.openRoot(scope);
+  try {
+    expectCode(() => core.checkPrivateAt(parent, "slot-✓.txt"), "EACCES");
+    await rename(scope, join(base, "scope-moved"));
+    await mkdir(scope);
+    await writeFile(join(scope, "slot-✓.txt"), "decoy bytes");
+    expect(core.securePrivateAt(parent, "slot-✓.txt")).toBeUndefined();
+    expect(core.checkPrivateAt(parent, "slot-✓.txt")).toBeUndefined();
+  } finally {
+    closeSync(parent);
+  }
+  const moved = core.openRoot(join(base, "scope-moved"));
+  try {
+    expect(core.checkPrivateAt(moved, "slot-✓.txt")).toBeUndefined();
+    expect(await readFile(join(base, "scope-moved", "slot-✓.txt"), "utf8")).toBe("pinned bytes");
+  } finally {
+    closeSync(moved);
+  }
+  const fresh = core.openRoot(scope);
+  try {
+    expectCode(() => core.checkPrivateAt(fresh, "slot-✓.txt"), "EACCES");
+    expect(await readFile(join(scope, "slot-✓.txt"), "utf8")).toBe("decoy bytes");
+  } finally {
+    closeSync(fresh);
   }
 });

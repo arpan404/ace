@@ -217,6 +217,10 @@ static napi_value do_mkdir_at(napi_env env, napi_callback_info info) {
   return mutate_child_at(env, info, "mkdirAt", wcore_mkdir_at);
 }
 
+static napi_value do_secure_private_at(napi_env env, napi_callback_info info) {
+  return mutate_child_at(env, info, "securePrivateAt", wcore_secure_private_at);
+}
+
 static napi_value do_check_private_at(napi_env env, napi_callback_info info) {
   return mutate_child_at(env, info, "checkPrivateAt", wcore_check_private_at);
 }
@@ -267,6 +271,7 @@ static napi_value init(napi_env env, napi_value exports) {
     {"removeDirectoryAt", NULL, do_remove_directory_at, NULL, NULL, NULL, napi_default, NULL},
     {"renameAt", NULL, do_rename_at, NULL, NULL, NULL, napi_default, NULL},
     {"renameExclusiveAt", NULL, do_rename_exclusive_at, NULL, NULL, NULL, napi_default, NULL},
+    {"securePrivateAt", NULL, do_secure_private_at, NULL, NULL, NULL, napi_default, NULL},
     {"checkPrivateAt", NULL, do_check_private_at, NULL, NULL, NULL, napi_default, NULL},
     {"mkdirAt", NULL, do_mkdir_at, NULL, NULL, NULL, napi_default, NULL},
   };

@@ -1,8 +1,8 @@
 // Bounded Windows workspace handle core (W04 first cut) — shared declarations.
 //
 // Scope: pinned opens, exclusive file/directory creation, metadata, enumeration,
-// lossless FileIdInfo identity, plus the private-file ACL check. No secure-set
-// or pipe yet. HANDLEs never cross NAPI;
+// lossless FileIdInfo identity, plus the private-file ACL check and the
+// owner-only private-file secure. No pipe yet. HANDLEs never cross NAPI;
 // every returned handle is converted with uv_open_osfhandle before NAPI
 // carries it, so NAPI carries only CRT fds. Each call borrows parent HANDLEs
 // via uv_get_osfhandle and stores nothing.
@@ -91,13 +91,22 @@ const char *wcore_mkdir_at(int parent_fd, const char *name);
 const char *wcore_unlink_at(int parent_fd, const char *name);
 const char *wcore_remove_directory_at(int parent_fd, const char *name);
 
-// Private-file check (check-only; no setter): fail closed unless the named
-// child is a regular file with a single link, owned by the current process
-// user, guarded by a protected owner-only DACL carrying exactly one
-// zero-flag ACCESS_ALLOWED_ACE with a FILE_ALL_ACCESS mask for that owner.
-// Reparse points are ELOOP, directories EISDIR, hardlinks and any
-// DACL/owner mismatch EACCES. No admin bypass.
+// Private-file check: fail closed unless the named child is a regular file
+// with a single link, owned by the current process user, guarded by a
+// protected owner-only DACL carrying exactly one zero-flag
+// ACCESS_ALLOWED_ACE with a FILE_ALL_ACCESS mask for that owner. Reparse
+// points are ELOOP, directories EISDIR, hardlinks and any DACL/owner
+// mismatch EACCES. No admin bypass.
 const char *wcore_check_private_at(int parent_fd, const char *name);
+
+// Private-file secure (no ownership change, no admin bypass): fail closed
+// unless the named child is a regular file with a single link, already
+// owned by the current process user. Installs the exact owner-only
+// protected DACL (one zero-flag ACCESS_ALLOWED_ACE with a FILE_ALL_ACCESS
+// mask for the owner), then re-reads the SAME handle through the shared
+// check logic before reporting success. Reparse points are ELOOP,
+// directories EISDIR, hardlinks and any owner mismatch EACCES.
+const char *wcore_secure_private_at(int parent_fd, const char *name);
 
 // Same-parent rename of the source object itself. Destination is one validated
 // component relative to the pinned parent. rename replaces, exclusive refuses

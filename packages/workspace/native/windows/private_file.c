@@ -1,4 +1,4 @@
-// Private-file ACL check for the Windows handle core (check-only; no setter).
+// Private-file ACL check and owner-only secure for the Windows handle core.
 //
 // checkPrivateAt fails closed unless the named child is a regular file with
 // exactly one hard link, owned by the current process user, guarded by a
@@ -7,6 +7,12 @@
 // ELOOP, directories are EISDIR, hardlinks and every DACL/owner mismatch
 // are EACCES. There is no uid-0/admin bypass on Windows: ownership is
 // owner-SID equality against the current process TokenUser only.
+//
+// securePrivateAt opens the same validated child with WRITE_DAC (never
+// WRITE_OWNER: current-user ownership is a precondition, never taken),
+// requires the same regular single-link shape, installs the exact
+// owner-only protected DACL, then re-reads the SAME handle through the
+// shared check logic before reporting success.
 //
 // Primary sources (fresh, no other-project code):
 // - NtCreateFile RootDirectory relative resolution + OPEN_REPARSE_POINT:
@@ -34,12 +40,23 @@
 //   (https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex).
 // - Error codes: Microsoft Learn "System Error Codes"
 //   (https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes).
+// - DACL install: Microsoft Learn "SetSecurityInfo function"
+//   (https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setsecurityinfo)
+//   (DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION; the
+//   owner is untouched: no OWNER_SECURITY_INFORMATION, NULL owner/group).
+// - ACL build: Microsoft Learn "InitializeAcl function"
+//   (https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-initializeacl)
+//   and "AddAccessAllowedAceEx function"
+//   (https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-addaccessallowedaceex)
+//   (one zero-flag ACCESS_ALLOWED_ACE, FILE_ALL_ACCESS, owner SID).
+// - SID copy: Microsoft Learn "CopySid function"
+//   (https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-copysid).
 //
 // Helpers are file-static but factored by responsibility (open, type/link,
-// DACL shape, token-owner equality) so a future secure-set operation in this
-// module can reuse them. No secure/set API is declared or implemented here.
-// No addon CRT fd calls: the subject HANDLE is closed with CloseHandle, the
-// security descriptor with LocalFree, token state with free/CloseHandle.
+// DACL shape, current-user SID load/equality, shared security verdict) so
+// check and secure reuse the same owner/ACL logic. No addon CRT fd calls:
+// the subject HANDLE is closed with CloseHandle, security descriptors with
+// LocalFree, SID/ACL buffers with free, token state with CloseHandle.
 
 #ifdef _WIN32
 // Win10 baseline (matches nt_bridge.c) so FILE_STANDARD_INFO and the
@@ -54,13 +71,13 @@
 #include <string.h>
 #include "windows_core.h"
 
-// Open one validated component for inspection without any DIRECTORY or
-// NON_DIRECTORY type constraint, so reparse points and directories can be
-// identified explicitly instead of surfacing as NT type-status refusals.
-// OPEN_REPARSE_POINT keeps the open on the link itself; READ_CONTROL allows
-// GetSecurityInfo to read the owner and DACL.
+// Open one validated component without any DIRECTORY or NON_DIRECTORY type
+// constraint, so reparse points and directories can be identified explicitly
+// instead of surfacing as NT type-status refusals. OPEN_REPARSE_POINT keeps
+// the open on the link itself. The caller picks `access`: the checker reads
+// owner/DACL with READ_CONTROL, the setter additionally needs WRITE_DAC.
 static const char *private_open_subject(
-    HANDLE parent, const char *name, HANDLE *out) {
+    HANDLE parent, const char *name, ACCESS_MASK access, HANDLE *out) {
   if (name == NULL || out == NULL) return "EINVAL";
   size_t len = strlen(name);
   const char *valid = wcore_validate_component(name, len);
@@ -71,7 +88,7 @@ static const char *private_open_subject(
   if (conv != NULL) return conv;
   return wcore_nt_create_child(parent, wname, wlen,
       WCORE_FILE_SYNCHRONOUS_IO_NONALERT | WCORE_FILE_OPEN_REPARSE_POINT,
-      READ_CONTROL | FILE_READ_ATTRIBUTES | SYNCHRONIZE, out);
+      access, out);
 }
 
 // Reject links, directories and hardlinks before any security read.
@@ -128,10 +145,12 @@ static const char *private_assert_owner_only_dacl(
   return NULL;
 }
 
-// Require the file owner SID to equal the current process TokenUser SID.
-// No well-known-admin or privilege bypass: equality only.
-static const char *private_assert_owner_is_current_user(PSID owner) {
-  if (owner == NULL || !IsValidSid(owner)) return "EACCES";
+// Load a malloc'd copy of the current process TokenUser SID; the caller
+// frees it. No well-known-admin or privilege bypass: the copy is only ever
+// compared with EqualSid or installed as the single owner ACE.
+static const char *private_load_current_user_sid(PSID *out) {
+  if (out == NULL) return "EINVAL";
+  *out = NULL;
   HANDLE token = NULL;
   if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
     const char *code = wcore_dos_to_code(GetLastError());
@@ -141,46 +160,65 @@ static const char *private_assert_owner_is_current_user(PSID owner) {
   // Size probe: the expected failure is ERROR_INSUFFICIENT_BUFFER with
   // the required byte count in `needed`.
   GetTokenInformation(token, TokenUser, NULL, 0, &needed);
-  if (needed == 0) {
-    CloseHandle(token);
-    return "EIO";
-  }
-  BYTE *buffer = (BYTE *)malloc(needed);
-  if (buffer == NULL) {
-    CloseHandle(token);
-    return "ENOMEM";
-  }
   const char *code = NULL;
-  DWORD got = 0;
-  if (!GetTokenInformation(token, TokenUser, buffer, needed, &got)) {
-    const char *mapped = wcore_dos_to_code(GetLastError());
-    code = mapped != NULL ? mapped : "EIO";
+  BYTE *buffer = NULL;
+  PSID copy = NULL;
+  if (needed == 0) {
+    code = "EIO";
   } else {
-    TOKEN_USER *user = (TOKEN_USER *)(void *)buffer;
-    if (user->User.Sid == NULL || !IsValidSid(user->User.Sid) ||
-        !EqualSid(owner, user->User.Sid))
-      code = "EACCES";
+    buffer = (BYTE *)malloc(needed);
+    if (buffer == NULL) {
+      code = "ENOMEM";
+    } else {
+      DWORD got = 0;
+      if (!GetTokenInformation(token, TokenUser, buffer, needed, &got)) {
+        const char *mapped = wcore_dos_to_code(GetLastError());
+        code = mapped != NULL ? mapped : "EIO";
+      } else {
+        TOKEN_USER *user = (TOKEN_USER *)(void *)buffer;
+        if (user->User.Sid == NULL || !IsValidSid(user->User.Sid)) {
+          code = "EACCES";
+        } else {
+          DWORD sid_len = GetLengthSid(user->User.Sid);
+          copy = (PSID)malloc(sid_len);
+          if (copy == NULL) {
+            code = "ENOMEM";
+          } else if (!CopySid(sid_len, copy, user->User.Sid)) {
+            const char *mapped = wcore_dos_to_code(GetLastError());
+            code = mapped != NULL ? mapped : "EIO";
+            free(copy);
+            copy = NULL;
+          }
+        }
+      }
+      free(buffer);
+    }
   }
-  free(buffer);
   CloseHandle(token);
-  return code;
+  if (code != NULL) {
+    if (copy != NULL) free(copy);
+    return code;
+  }
+  *out = copy;
+  return NULL;
 }
 
-const char *wcore_check_private_at(int parent_fd, const char *name) {
-  if (name == NULL) return "EINVAL";
-  HANDLE parent = NULL;
-  const char *borrowed = wcore_borrow_handle(parent_fd, &parent);
-  if (borrowed != NULL) return borrowed;
-  const char *parent_type = wcore_assert_dir_noreparse(parent);
-  if (parent_type != NULL) return parent_type;
-  HANDLE child = NULL;
-  const char *opened = private_open_subject(parent, name, &child);
-  if (opened != NULL) return opened;
-  const char *shape = private_assert_regular_single_link(child);
-  if (shape != NULL) {
-    CloseHandle(child);
-    return shape;
-  }
+// Require the file owner SID to equal the current process TokenUser SID.
+// No well-known-admin or privilege bypass: equality only.
+static const char *private_assert_owner_is_current_user(PSID owner) {
+  if (owner == NULL || !IsValidSid(owner)) return "EACCES";
+  PSID user = NULL;
+  const char *loaded = private_load_current_user_sid(&user);
+  if (loaded != NULL) return loaded;
+  const char *verdict = EqualSid(owner, user) ? NULL : "EACCES";
+  free(user);
+  return verdict;
+}
+
+// Shared verdict on an open child HANDLE: read owner/DACL, then apply the
+// owner-only protected-DACL shape and TokenUser ownership checks. The
+// descriptor is LocalFree'd here; the caller still owns the HANDLE.
+static const char *private_verify_security(HANDLE child) {
   PSID owner = NULL;
   PACL dacl = NULL;
   PSECURITY_DESCRIPTOR descriptor = NULL;
@@ -189,7 +227,6 @@ const char *wcore_check_private_at(int parent_fd, const char *name) {
       &dacl, NULL, &descriptor);
   if (status != ERROR_SUCCESS) {
     const char *code = wcore_dos_to_code(status);
-    CloseHandle(child);
     return code != NULL ? code : "EIO";
   }
   // owner/dacl point inside descriptor: only descriptor is freed.
@@ -205,6 +242,100 @@ const char *wcore_check_private_at(int parent_fd, const char *name) {
       verdict = private_assert_owner_is_current_user(owner);
   }
   LocalFree(descriptor);
+  return verdict;
+}
+
+const char *wcore_check_private_at(int parent_fd, const char *name) {
+  if (name == NULL) return "EINVAL";
+  HANDLE parent = NULL;
+  const char *borrowed = wcore_borrow_handle(parent_fd, &parent);
+  if (borrowed != NULL) return borrowed;
+  const char *parent_type = wcore_assert_dir_noreparse(parent);
+  if (parent_type != NULL) return parent_type;
+  HANDLE child = NULL;
+  const char *opened = private_open_subject(parent, name,
+      READ_CONTROL | FILE_READ_ATTRIBUTES | SYNCHRONIZE, &child);
+  if (opened != NULL) return opened;
+  const char *shape = private_assert_regular_single_link(child);
+  if (shape != NULL) {
+    CloseHandle(child);
+    return shape;
+  }
+  const char *verdict = private_verify_security(child);
+  // A CloseHandle failure is only reported when the verdict was success.
+  if (!CloseHandle(child) && verdict == NULL) {
+    const char *mapped = wcore_dos_to_code(GetLastError());
+    verdict = mapped != NULL ? mapped : "EIO";
+  }
+  return verdict;
+}
+
+const char *wcore_secure_private_at(int parent_fd, const char *name) {
+  if (name == NULL) return "EINVAL";
+  HANDLE parent = NULL;
+  const char *borrowed = wcore_borrow_handle(parent_fd, &parent);
+  if (borrowed != NULL) return borrowed;
+  const char *parent_type = wcore_assert_dir_noreparse(parent);
+  if (parent_type != NULL) return parent_type;
+  HANDLE child = NULL;
+  // WRITE_DAC authorizes the DACL replacement below. WRITE_OWNER is never
+  // requested: current-user ownership is a precondition, never taken, and
+  // there is no admin bypass.
+  const char *opened = private_open_subject(parent, name,
+      READ_CONTROL | WRITE_DAC | FILE_READ_ATTRIBUTES | SYNCHRONIZE, &child);
+  if (opened != NULL) return opened;
+  const char *verdict = private_assert_regular_single_link(child);
+  PSID user = NULL;
+  PACL acl = NULL;
+  if (verdict == NULL) verdict = private_load_current_user_sid(&user);
+  if (verdict == NULL) {
+    PSID owner = NULL;
+    PSECURITY_DESCRIPTOR descriptor = NULL;
+    DWORD status = GetSecurityInfo(child, SE_FILE_OBJECT,
+        OWNER_SECURITY_INFORMATION, &owner, NULL, NULL, NULL, &descriptor);
+    if (status != ERROR_SUCCESS) {
+      const char *code = wcore_dos_to_code(status);
+      verdict = code != NULL ? code : "EIO";
+    } else {
+      if (owner == NULL || !IsValidSid(owner) || !EqualSid(owner, user)) verdict = "EACCES";
+      LocalFree(descriptor);
+    }
+  }
+  if (verdict == NULL) {
+    // Exact owner-only DACL: one zero-flag ACCESS_ALLOWED_ACE with a
+    // FILE_ALL_ACCESS mask for the owner SID. SID sizes are bounded
+    // (SECURITY_MAX_SID_SIZE), so the ACL length cannot overflow.
+    DWORD acl_len = (DWORD)(sizeof(ACL) +
+        offsetof(ACCESS_ALLOWED_ACE, SidStart) + GetLengthSid(user));
+    acl = (PACL)malloc(acl_len);
+    if (acl == NULL) {
+      verdict = "ENOMEM";
+    } else if (!InitializeAcl(acl, acl_len, ACL_REVISION)) {
+      const char *mapped = wcore_dos_to_code(GetLastError());
+      verdict = mapped != NULL ? mapped : "EIO";
+    } else if (!AddAccessAllowedAceEx(
+        acl, ACL_REVISION, 0, FILE_ALL_ACCESS, user)) {
+      const char *mapped = wcore_dos_to_code(GetLastError());
+      verdict = mapped != NULL ? mapped : "EIO";
+    } else {
+      // DACL-only replacement, protected from inheritance. The owner is
+      // left untouched: NULL owner/group and no OWNER_SECURITY_INFORMATION.
+      DWORD set_status = SetSecurityInfo(child, SE_FILE_OBJECT,
+          DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+          NULL, NULL, acl, NULL);
+      if (set_status != ERROR_SUCCESS) {
+        const char *mapped = wcore_dos_to_code(set_status);
+        verdict = mapped != NULL ? mapped : "EIO";
+      } else {
+        // Re-read the SAME handle through the shared checker logic: only
+        // an observed owner-only protected DACL is success.
+        verdict = private_assert_regular_single_link(child);
+        if (verdict == NULL) verdict = private_verify_security(child);
+      }
+    }
+  }
+  if (user != NULL) free(user);
+  if (acl != NULL) free(acl);
   // A CloseHandle failure is only reported when the verdict was success.
   if (!CloseHandle(child) && verdict == NULL) {
     const char *mapped = wcore_dos_to_code(GetLastError());
