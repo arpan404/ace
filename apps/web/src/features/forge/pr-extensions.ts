@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
-import type { ForgePrDetail, ForgePrRow, ForgeFile, ForgePrFiles } from "@ace/protocol";
-import type { LineRange, LineTarget } from "@/features/panels/index.ts";
+import type { ForgePrDetail, ForgePrRow, ForgePrFiles } from "@ace/protocol";
 
 /** Adapters supply only capabilities confirmed by their own fresh daemon resource. */
 export interface PrWorkspaceContext {
@@ -20,23 +19,7 @@ export interface PrWorkspaceExtensions {
   labels?(context: PrWorkspaceContext): ReactNode;
   editDescription?(context: PrWorkspaceContext): void;
   summary?(context: PrWorkspaceContext): ReactNode;
-  comment?(body: string, context: PrWorkspaceContext): Promise<void>;
-  review?(body: string, context: PrWorkspaceContext): Promise<void>;
-  closeWithComment?(body: string, context: PrWorkspaceContext): Promise<void>;
   resolveInWorktree?(context: PrWorkspaceContext): void;
-  viewed?(
-    file: ForgeFile,
-    context: PrDiffContext,
-  ):
-    | {
-        checked: boolean;
-        disabled: boolean;
-        change(checked: boolean): Promise<void>;
-      }
-    | undefined;
-  viewedCount?(context: PrDiffContext): number;
-  onLineComment?(path: string, range: LineRange, context: PrDiffContext): void;
-  annotation?(path: string, target: LineTarget, context: PrDiffContext): ReactNode;
   /** #520 resolves bare references; known PR URLs already navigate inside ace. */
   reference?(number: number, context: PrWorkspaceContext): void;
 }

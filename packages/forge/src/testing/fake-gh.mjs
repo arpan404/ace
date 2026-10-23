@@ -116,7 +116,10 @@ if (response.wait) {
       process.stdout.write(`${key}: ${value}\r\n`);
     process.stdout.write("\r\n");
   }
-  process.stdout.write(response.raw ?? JSON.stringify(response.body ?? null));
+  // A rendering fixture names the request's nonce as NONCE: it is random per request.
+  const nonce = /ACEMEDIA([0-9a-z]+)N0X/.exec(body?.text ?? "")?.[1];
+  const raw = response.raw && nonce ? response.raw.replaceAll("NONCE", nonce) : response.raw;
+  process.stdout.write(raw ?? JSON.stringify(response.body ?? null));
 }
 if (response.stderr) process.stderr.write(response.stderr);
 process.exitCode = response.code ?? (response.offline || (response.status ?? 200) >= 400 ? 1 : 0);

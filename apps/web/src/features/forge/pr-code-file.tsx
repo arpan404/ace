@@ -6,7 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { DeferredFileDiffBlock, type FileView } from "@/features/panels/index.ts";
-import type { PrDiffContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
+import type { PrDiffContext } from "./pr-extensions.ts";
 import { PrFileReview } from "./pr-file-review.tsx";
 import { hostedFileStatus } from "./pr-code-model.ts";
 import type { DiffMode } from "./pr-code-toolbar.tsx";
@@ -34,8 +34,8 @@ export interface HostedFileRead {
 
 /**
  * One changed file of the pull request: the shared diff block, whose sticky header carries the
- * Viewed mark (and "Changed" when GitHub dismissed it after a push), with comments drafted on
- * GitHub's review or handed to the adapter. Where GitHub withheld the patch, both sides are read
+ * Viewed mark (and "Changed" when GitHub dismissed it after a push), with its review
+ * conversations under their lines and new comments started on any line. Where GitHub withheld the patch, both sides are read
  * and diffed here; images, binaries and rendered documents show in place of the lines.
  */
 export function PrCodeFile(props: {
@@ -43,7 +43,6 @@ export function PrCodeFile(props: {
   file: ForgeFile;
   diff: FileDiff | undefined;
   context: PrDiffContext;
-  extensions: PrWorkspaceExtensions | undefined;
   view: FileView;
   onView(next: FileView): void;
   mode: DiffMode;
@@ -51,7 +50,7 @@ export function PrCodeFile(props: {
   mark: PrViewedMark | undefined;
   read: HostedFileRead;
 }) {
-  const { file, diff, context, extensions, read } = props;
+  const { file, diff, context, read } = props;
   if (!diff)
     return (
       <div id={props.id} className="flex h-8 items-center px-3.5 text-xs text-subtle-foreground">
@@ -65,8 +64,8 @@ export function PrCodeFile(props: {
   // GitHub counts the lines of every file it lists; files past its list are counted here.
   const counted = file.additions + file.deletions > 0;
   return (
-    <PrFileReview file={file} context={context}>
-      {(native) => (
+    <PrFileReview file={file} diff={diff} context={context} mode={props.mode}>
+      {(comments) => (
         <FileDiffBlock
           id={props.id}
           file={{
@@ -79,15 +78,11 @@ export function PrCodeFile(props: {
           onView={props.onView}
           mode={props.mode}
           wrap={props.wrap}
-          highlighted={() => false}
-          renderAnnotation={(target) => extensions?.annotation?.(file.path, target, context)}
-          onComment={
-            extensions?.onLineComment
-              ? context.disabled
-                ? undefined
-                : (range) => extensions.onLineComment?.(file.path, range, context)
-              : native.onComment
-          }
+          highlighted={comments.highlighted}
+          renderAnnotation={comments.renderAnnotation}
+          onComment={comments.onComment}
+          onExtend={comments.onExtend}
+          selection={comments.selection}
           viewed={props.mark?.checked}
           body={body}
           actions={

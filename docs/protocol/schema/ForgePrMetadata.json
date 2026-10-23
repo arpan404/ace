@@ -29,6 +29,18 @@
       "maxItems": 100,
       "type": "array"
     },
+    "milestone": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "title": {
       "maxLength": 256,
       "minLength": 1,

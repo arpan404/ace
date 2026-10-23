@@ -1,13 +1,20 @@
 import type { FileOperation, ThreadId, WorkspaceId } from "@ace/protocol";
 
-/** One scope: a thread's checkout (or a file one of its messages links to), a registered project's own folder (read-only), or support. */
+/** One scope: a thread's checkout (or a file one of its messages links to), a registered project's own folder or forge media (read-only), or support. */
 export type FileDownloadInput = {
   threadId?: ThreadId;
   workspaceId?: WorkspaceId;
   scope?: "support";
 } & Extract<
   FileOperation,
-  { op: "download" | "link.download" | "artifact.download" | "archive.download" }
+  {
+    op:
+      | "download"
+      | "link.download"
+      | "artifact.download"
+      | "archive.download"
+      | "forge.media.download";
+  }
 >;
 export interface FileUploadInput {
   threadId: ThreadId;

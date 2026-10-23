@@ -2,6 +2,7 @@ import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { WorkspaceIssueLinks } from "./workspace-issue-links.ts";
 import { actionErrorCode } from "./action-errors.ts";
 import { IssueActions } from "./issue-actions.ts";
+import { runInboxWrite } from "./inbox-actions.ts";
 import type { Command } from "@ace/protocol";
 import { ForgeResourceOwner } from "./forge-resource-owner.ts";
 import { WorkspaceForgeLifecycle } from "./workspace-forge-lifecycle.ts";
@@ -29,6 +30,7 @@ import { ForgeBackends } from "./forge-backends.ts";
 import { WorkspaceForgeBrowse } from "./workspace-forge-browse.ts";
 import { WorkspacePrAssociations } from "./workspace-pr-associations.ts";
 import { WorkspacePrCreation } from "./workspace-pr-creation.ts";
+import { WorkspaceNewPr } from "./workspace-pr-new.ts";
 import type { WorkspaceForgeContext, WorkspaceForgeGit } from "./workspace-forge-context.ts";
 
 /** The daemon's forge surface: routes commands and reads to the parts that own them. */
@@ -49,6 +51,7 @@ export class WorkspaceForge {
   private browser: WorkspaceForgeBrowse;
   private associations: WorkspacePrAssociations;
   private creation: WorkspacePrCreation;
+  private newPr: WorkspaceNewPr;
   private lifetime = new AbortController();
   private stopPreferences: (() => void) | undefined;
   private sourceControl: import("./source-control.ts").SourceControl | undefined;
@@ -58,6 +61,7 @@ export class WorkspaceForge {
     now: () => number,
     runner: (cwd: string) => CommandRunner,
     sourceControl?: import("./source-control.ts").SourceControl,
+    media?: () => import("./forge-media/media-service.ts").ForgeMediaService,
   ) {
     const owner = this.owner;
     this.store = store;
@@ -79,7 +83,10 @@ export class WorkspaceForge {
       replyReceipts: new ForgeReplyReceipts(store),
       signal: this.lifetime.signal,
     });
-    this.stopPreferences = sourceControl?.listen(() => this.backends.clear());
+    this.stopPreferences = sourceControl?.listen(() => {
+      this.backends.clear();
+      this.newPr.clear();
+    });
     const context: WorkspaceForgeContext = {
       store,
       owner,
@@ -91,13 +98,16 @@ export class WorkspaceForge {
       projection: this.projection,
       links: this.links,
     };
+    this.newPr = new WorkspaceNewPr(context);
     this.browser = new WorkspaceForgeBrowse(context, {
+      newPr: this.newPr,
       actions: this.actions,
       issueActions: this.issueActions,
       issueLinks: this.issueLinks,
       lifecycle: this.lifecycle,
       reviews: this.reviews,
       stacks: this.stacks,
+      media,
     });
     this.associations = new WorkspacePrAssociations(context);
     this.creation = new WorkspacePrCreation(context);
@@ -325,6 +335,19 @@ export class WorkspaceForge {
     );
     return { ok: true };
   }
+  /** Marks GitHub notifications read or done, or unsubscribes, as the person asked. */
+  inboxCommand(
+    command: Command & { payload: import("@ace/protocol").ForgeInboxCommand },
+    cwd: string,
+    allowed: () => boolean,
+  ) {
+    return runInboxWrite(
+      command,
+      () => this.backends.inbox(cwd, command.payload.host),
+      allowed,
+      this.lifetime.signal,
+    );
+  }
   async hostedChecks(
     command: Command & { payload: import("@ace/protocol").ForgeHostedChecksCommand },
     cwd: string,
@@ -360,6 +383,17 @@ export class WorkspaceForge {
     return this.actions.execute(p, backend, this.lifetime.signal, allowed, (status) =>
       this.browser.publishStatus(status),
     );
+  }
+
+  /** A pull request from any branch, opened from the project's Pull requests page. */
+  async hostedPrCreate(
+    command: Command & { payload: import("@ace/protocol").ForgeHostedPrCreateCommand },
+    cwd: string,
+    allowed: () => boolean,
+  ): Promise<Omit<CommandResult, "commandId">> {
+    this.lifetime.signal.throwIfAborted();
+    if (!allowed()) return commandNotDispatched(command, "forbidden");
+    return this.newPr.create(command.payload, cwd, allowed);
   }
 
   async hostedLifecycle(

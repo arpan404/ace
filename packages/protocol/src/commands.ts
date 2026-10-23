@@ -1,6 +1,7 @@
 import { GoalChange } from "./goal.ts";
 import { ForgePrWorktree } from "./forge-worktree.ts";
 import { ForgeIssueCommands, ForgeIssueRef } from "./forge-issues.ts";
+import { ForgeInboxCommands } from "./forge-inbox.ts";
 import { ProjectCommands } from "./projects.ts";
 import { ThreadMarkReadCommand } from "./thread-mark-read.ts";
 import { AccessMode } from "./permissions.ts";
@@ -65,6 +66,7 @@ export const CommandPayload = z.discriminatedUnion("type", [
   ...ProjectCommands,
   ...ForgeCommand.options,
   ...ForgeIssueCommands,
+  ...ForgeInboxCommands,
   ...ReviewCommands,
   OrchestrationCreateCommand,
   OrchestrationCancelCommand,

@@ -74,13 +74,13 @@ export class WorkspacePrCreation {
         throw new Error("git_head_moved");
     };
     await verifyHead();
-    const found = await backend.findPr(value.branch, value.base, this.ctx.signal, target.headOwner);
+    const found = await backend.findPr(value.branch, value.base, this.ctx.signal, target.head);
     await verifyHead();
     if (!allowed()) throw new Error("forbidden");
     const publish = async () => {
       this.ctx.signal.throwIfAborted();
       if (!allowed()) throw new Error("forbidden");
-      return backend.createPr(id, value, this.ctx.signal, target.headOwner);
+      return backend.createPr(id, value, this.ctx.signal, target.head);
     };
     let pr = found;
     if (!pr) {
