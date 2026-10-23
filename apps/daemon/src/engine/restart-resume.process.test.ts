@@ -229,45 +229,109 @@ test("a provider that can't resume its session waits for the person's next messa
   ]);
 });
 
-test("a turn that keeps dying across restarts stops continuing by itself after three tries", async () => {
-  const frames = scriptFrames();
-  const h = await fixture([{ on: "send", frames: [frames.frame(start)] }], frames);
-  const id = await h.create();
-  // Every resumed turn starts and is cut short by the next crash.
-  const replacement = replaceProvider(h, frames, [{ on: "send", frames: [frames.frame(start)] }]);
-  let current: { store: Store; engine: Engine; close?: () => Promise<void> } = await crashCopy(h);
-  const copies: (() => Promise<void>)[] = [];
-  for (let attempt = 2; attempt <= 4; attempt++) {
+test.each(["thread.resume", "queue.resume"] as const)(
+  "a turn that keeps dying across restarts stops continuing by itself after three tries, until %s",
+  async (resumeWith) => {
+    const frames = scriptFrames();
+    const h = await fixture([{ on: "send", frames: [frames.frame(start)] }], frames);
+    const id = await h.create();
+    // Every resumed turn starts and is cut short by the next crash.
+    const replacement = replaceProvider(h, frames, [{ on: "send", frames: [frames.frame(start)] }]);
+    let current: { store: Store; engine: Engine; close?: () => Promise<void> } = await crashCopy(h);
+    const copies: (() => Promise<void>)[] = [];
+    for (let attempt = 2; attempt <= 4; attempt++) {
+      await current.engine.flush();
+      const next = await crashAgain(h, current.store, `crash-${attempt}`);
+      copies.push(next.close);
+      current = next;
+    }
     await current.engine.flush();
-    const next = await crashAgain(h, current.store, `crash-${attempt}`);
-    copies.push(next.close);
-    current = next;
-  }
-  await current.engine.flush();
-  try {
-    expect(inputs(replacement).map(restartInput)).toEqual([true, true, true]);
-    expect(current.engine.queue(id)).toMatchObject({ paused: true, reason: "restart" });
-    expect(restartNotices(current.store, id).at(-1)).toBe(
-      "Interrupted by a restart 3 times in a row, so ace stopped continuing it by itself. Continue when ready.",
-    );
+    try {
+      expect(inputs(replacement).map(restartInput)).toEqual([true, true, true]);
+      expect(current.engine.queue(id)).toMatchObject({ paused: true, reason: "restart" });
+      expect(restartNotices(current.store, id).at(-1)).toBe(
+        "Interrupted by a restart 3 times in a row, so ace stopped continuing it by itself. Continue when ready.",
+      );
 
-    // The person's Continue carries on, and starts a fresh count.
-    expect(
-      dispatch(current.store, current.engine, {
-        type: "thread.resume",
-        threadId: id,
-        expectedRevision: current.engine.queue(id).revision,
-      }).ok,
-    ).toBe(true);
-    await current.engine.flush();
-    expect(inputs(replacement)).toHaveLength(4);
-    const after = await crashAgain(h, current.store, "crash-after-continue");
-    copies.push(after.close);
-    await after.engine.flush();
-    expect(inputs(replacement)).toHaveLength(5);
+      // The person's Continue (either form) carries on, and starts a fresh count.
+      expect(
+        dispatch(current.store, current.engine, {
+          type: resumeWith,
+          threadId: id,
+          expectedRevision: current.engine.queue(id).revision,
+        }).ok,
+      ).toBe(true);
+      await current.engine.flush();
+      expect(inputs(replacement)).toHaveLength(4);
+      const after = await crashAgain(h, current.store, "crash-after-continue");
+      copies.push(after.close);
+      await after.engine.flush();
+      expect(inputs(replacement)).toHaveLength(5);
+    } finally {
+      for (const close of copies.toReversed()) await close();
+    }
+  },
+);
+
+test("a turn waiting on the person's answer doesn't resume after a graceful restart", async () => {
+  const { h, id, replacement } = await interruptedThread([], [start, question]);
+  // Shutdown closes the provider, which expires the request before startup can see it.
+  const engine = await restart(h);
+  await engine.flush();
+  expect(sends(replacement)).toEqual([]);
+  expect(engine.queue(id)).toMatchObject({ paused: true, reason: "restart" });
+  expect(restartNotices(h.store, id)).toEqual([
+    'Interrupted by a restart while waiting for your answer to "Continue?". Continue and the agent asks again.',
+  ]);
+});
+
+test("a turn waiting on the person stays held after a crash between startup's passes", async () => {
+  const { h, id, replacement } = await interruptedThread([], [start, question]);
+  // The first start dies after recording the provider's exit and before deciding: the write
+  // that holds the queue fails, so that thread's decision never commits.
+  h.store.atomic((db) =>
+    db.exec(`CREATE TRIGGER crash_before_decision BEFORE UPDATE ON engine_queue
+      WHEN NEW.paused=1 AND OLD.paused=0 BEGIN SELECT RAISE(ABORT, 'crashed'); END`),
+  );
+  const first = await crashCopy(h);
+  await first.engine.flush();
+  expect(Object.values(first.store.snapshotThread(id).interactions)).toEqual([
+    expect.objectContaining({ state: "expired" }),
+  ]);
+  first.store.atomic((db) => db.exec("DROP TRIGGER crash_before_decision"));
+  const second = await crashAgain(h, first.store, "after-first-start");
+  try {
+    await second.engine.flush();
+    expect(sends(replacement)).toEqual([]);
+    expect(second.engine.queue(id)).toMatchObject({ paused: true, reason: "restart" });
+    expect(restartNotices(second.store, id)).toEqual([
+      'Interrupted by a restart while waiting for your answer to "Continue?". Continue and the agent asks again.',
+    ]);
   } finally {
-    for (const close of copies.toReversed()) await close();
+    await second.close();
   }
+});
+
+test("a turn that finishes while ace shuts its provider down isn't continued after the restart", async () => {
+  const frames = scriptFrames();
+  // The turn is running at shutdown; the provider reports it complete while closing.
+  const h = await fixture(
+    [
+      { on: "send", frames: [frames.frame(start)] },
+      { on: "close", frames: [frames.frame(end)] },
+    ],
+    frames,
+  );
+  const id = await h.create();
+  const replacement = replaceProvider(h, frames, [
+    { on: "send", frames: [frames.frame(start, end)] },
+  ]);
+  const engine = await restart(h);
+  await engine.flush();
+  expect(sends(replacement)).toEqual([]);
+  expect(restartNotices(h.store, id)).toEqual([]);
+  expect(engine.queue(id)).toMatchObject({ paused: false, messages: [] });
+  expect(h.store.getThread(id)?.status.state).toBe("done");
 });
 
 test("a provider that dies mid-turn while ace keeps running holds its queue until Resume", async () => {

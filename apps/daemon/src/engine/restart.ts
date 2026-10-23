@@ -6,12 +6,7 @@ import type { ThreadId } from "@ace/protocol";
 import { lostWork } from "./lost-work.ts";
 import { settleSessionBoundTasks, threadsWithOpenTasks } from "./session-bound-tasks.ts";
 import { skippableAtStartup } from "./startup-skip.ts";
-import {
-  requestLine,
-  restartDecision,
-  restartNoticeText,
-  type RestartFacts,
-} from "./restart-resume.ts";
+import { restartDecision, restartNoticeText, type RestartFacts } from "./restart-resume.ts";
 /** Startup is a cold pass over stored thread headers and outstanding sends. */
 export function recoverEngine(
   repo: EngineRepository,
@@ -26,7 +21,7 @@ export function recoverEngine(
   canContinue: (id: ThreadId) => boolean = () => false,
 ): void {
   /** Threads whose work this restart cut short, decided once sends' uncertainty is known. */
-  const interruptedWork = new Map<ThreadId, Omit<RestartFacts, "uncertain">>();
+  const interruptedWork = new Map<ThreadId, Omit<RestartFacts, "uncertain" | "waitingOnPerson">>();
   repo.store.atomic(() => {
     repo.transitions.pruneGuards();
     repo.clearIncompleteBlobs();
@@ -35,11 +30,8 @@ export function recoverEngine(
     isolated(state.threadId, skip, () =>
       repo.store.atomic(() => {
         if (repo.cleaning(state.threadId)) return;
-        // Read before anything below holds the queue or the provider's exit expires requests.
+        // Read before anything below holds the queue.
         const heldBefore = repo.queue.get(state.threadId).paused;
-        const openRequest = Object.keys(state.indexes.pendingInteractions)
-          .map((key) => state.interactions[key])
-          .find((interaction) => interaction?.state === "pending");
         const legacyLimits = Object.entries(state.agents).flatMap(([agent, record]) =>
           record.retry?.on === "rate_limit" && !record.limited
             ? [{ type: "retry" as const, agent, ...record.retry }]
@@ -140,7 +132,6 @@ export function recoverEngine(
             heldBefore,
             settled: false,
             archived: thread?.archivedAt !== undefined,
-            waitingOnPerson: openRequest ? requestLine(openRequest.request) : undefined,
             canContinue: canContinue(state.threadId),
             streak: recovery.streaks.get(state.threadId),
           });
@@ -261,6 +252,9 @@ export function recoverEngine(
     isolated(state.threadId, skip, () =>
       repo.store.atomic(() => {
         if (repo.cleaning(state.threadId)) return;
+        // Each capture informs this one decision; taking it in the same transaction means a
+        // crash before here leaves it for the next start.
+        const capture = recovery.captures.take(state.threadId);
         const queue = repo.queue.get(state.threadId);
         const pending = Boolean(
           repo.pending.message(state.threadId) || repo.pending.recovery(state.threadId),
@@ -289,8 +283,10 @@ export function recoverEngine(
         // stays held for the person with a notice saying why. Queued messages follow it in order.
         const work = interruptedWork.get(state.threadId);
         if (work) {
+          const waitingOnPerson = capture?.waitingOn;
           const decision = restartDecision({
             ...work,
+            waitingOnPerson,
             uncertain: uncertain || repo.queue.get(state.threadId).reason === "not_sent",
           });
           repo.apply(
@@ -300,9 +296,7 @@ export function recoverEngine(
                 state.rootKey,
                 clock.now(),
                 "restart",
-                decision.kind === "none"
-                  ? undefined
-                  : restartNoticeText(decision, work.waitingOnPerson),
+                decision.kind === "none" ? undefined : restartNoticeText(decision, waitingOnPerson),
               ),
             ],
             clock.now(),
