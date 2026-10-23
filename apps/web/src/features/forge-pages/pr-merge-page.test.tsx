@@ -22,7 +22,8 @@ test("a pull request no thread is linked to merges from the page and leaves the 
   const panel = await screen.findByRole("article", { name: "Pull request #224" });
   const merge = await within(panel).findByRole("button", { name: "Squash and merge" });
   await userEvent.click(merge);
-  await userEvent.click(await within(panel).findByRole("button", { name: "Confirm merge?" }));
+  const commit = within(await screen.findByRole("dialog", { name: "Squash and merge into main" }));
+  await userEvent.click(commit.getByRole("button", { name: "Confirm squash and merge" }));
   // Merged: the state shows once, as the badge under the title, and the merge button is gone.
   expect(await within(panel).findByText("Merged")).toBeTruthy();
   expect(within(panel).queryByRole("button", { name: /merge/i })).toBeNull();
@@ -55,8 +56,12 @@ test("an unlinked pull request waiting on checks and review turns auto-merge on,
   await userEvent.click(
     await within(panel).findByRole("button", { name: "Enable auto-merge · squash" }),
   );
-  await userEvent.click(await within(panel).findByRole("button", { name: "Confirm auto-merge?" }));
-  expect(await within(panel).findByText("Auto-merge on · squash · by you")).toBeTruthy();
+  const dialog = within(
+    await screen.findByRole("dialog", { name: "Squash and merge into main automatically" }),
+  );
+  await userEvent.click(dialog.getByRole("button", { name: "Enable auto-merge" }));
+  expect(await within(panel).findByText(/^Auto-merge on/)).toBeTruthy();
+  expect(within(panel).getByText(/^Auto-merge on/).textContent).toContain("· squash · by you");
   await userEvent.click(within(panel).getByRole("button", { name: "Disable" }));
   expect(
     await within(panel).findByRole("button", { name: "Enable auto-merge · squash" }),
