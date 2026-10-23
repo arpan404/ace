@@ -20,6 +20,7 @@
 #include <windows.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include "windows_core.h"
 
@@ -96,6 +97,7 @@ const char *wcore_create_private_directory_at(int parent_fd, const char *name, i
   const char *shape = wcore_assert_dir_noreparse(child);
   if (shape == NULL) shape = wcore_verify_private_directory_security(child);
   if (shape != NULL) {
+    fprintf(stderr, "[DEBUG-private-dir] initial security verdict=%s\n", shape);
     CloseHandle(child);
     return shape;
   }
@@ -107,6 +109,7 @@ const char *wcore_create_private_directory_at(int parent_fd, const char *name, i
   // (never reopened, never deleted here).
   const char *checked = wcore_check_private_directory_fd(fd);
   if (checked != NULL) {
+    fprintf(stderr, "[DEBUG-private-dir] adopted security verdict=%s\n", checked);
     (void)wcore_close_fd(fd);
     return checked;
   }
