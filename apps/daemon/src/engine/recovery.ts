@@ -37,6 +37,11 @@ export interface RecoveryPorts {
   contextWindow?: ContextWindowLookup;
   /** Reports a deadline pass that failed and will be retried. */
   onError?(error: unknown): void;
+  /**
+   * Whether new work may start (the daemon's maintenance gate, ADR 0041). Turns ace starts by
+   * itself wait while it is closed; the engine reschedules them when it reopens.
+   */
+  admits?(): boolean;
 }
 /** A deadline pass that could not commit (the store is busy, say) runs again after this. */
 const deadlineRetryMs = 1_000;
@@ -465,6 +470,16 @@ export class Recovery {
     await Promise.all(this.pendingPolicy.values());
   }
   automatic(id: ThreadId, action?: "migrate_now"): CommandResult | undefined {
+    // Maintenance holds turns ace would start by itself: keep a due deadline for when it reopens.
+    if (this.ports.admits?.() === false) {
+      this.repo.queue.set(
+        id,
+        { resumeAt: this.clock.now(), timerAction: action ? "migrate" : "resume" },
+        this.clock.now(),
+      );
+      this.sync(id);
+      return undefined;
+    }
     const revision = this.repo.queue.get(id).revision;
     const p: CommandPayload = action
       ? { type: "thread.limit", threadId: id, expectedRevision: revision, action }
@@ -495,7 +510,8 @@ export class Recovery {
   schedule(): void {
     this.cancel?.();
     this.cancel = undefined;
-    if (this.closed) return;
+    // No deadline runs while maintenance holds new work; reopening schedules again.
+    if (this.closed || this.ports.admits?.() === false) return;
     const at = this.repo.queue.nextDeadline();
     if (at === undefined) return;
     this.cancel = this.clock.setTimer(() => this.fire(), Math.max(0, at - this.clock.now()));

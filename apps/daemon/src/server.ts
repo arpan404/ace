@@ -82,7 +82,8 @@ export async function startServer(options: ServerOptions): Promise<{
       : dynamicRemote?.pairing();
   let dynamicRemote: ReturnType<typeof remoteRuntime> | undefined;
   let preview: DaemonPreview | undefined;
-  const maintenance = new MaintenanceGate(() => options.store.updateBlockers());
+  const maintenance =
+    options.maintenanceGate ?? new MaintenanceGate(() => options.store.updateBlockers());
   let ready = options.ready === undefined;
   void options.ready?.then(() => {
     ready = true;

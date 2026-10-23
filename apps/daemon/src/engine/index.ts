@@ -1081,6 +1081,11 @@ export class Engine {
   queue(id: ThreadId): QueueSnapshot {
     return this.repo.queue.snapshot(id);
   }
+  /** The maintenance gate reopened: turns ace deferred while it was closed can start now. */
+  admissionReopened(): void {
+    if (this.closing) return;
+    this.recovery.schedule();
+  }
   heldInterrupted(id: ThreadId): boolean {
     return heldInterrupted(this.repo, id, Boolean(this.actors.get(id)?.session));
   }
