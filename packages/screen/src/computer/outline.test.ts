@@ -158,9 +158,26 @@ describe("header and footer", () => {
   it("keep a locked session on accessibility without suggesting foreground recovery", () => {
     const locked = state([window], { screenLocked: true });
     expect(stateHeader(locked)).toContain(
-      "The Mac is locked. Use accessibility actions and element ids",
+      "The Mac is locked. Only controls currently exposed through accessibility can work",
     );
-    expect(stateHeader(locked)).toContain("screenshots and activate are unavailable");
+    expect(stateHeader(locked)).toContain("Screenshots, activate and posted input are unavailable");
     expect(stateFooter(locked, false)).not.toContain("Activating");
+  });
+});
+
+describe("unavailable desktop controls", () => {
+  it("does not tell the model to open replacement windows when locking hides them", () => {
+    const header = stateHeader(state([], { screenLocked: true, window: undefined, windows: [] }));
+    expect(header).toContain("Use another tool if controls are missing");
+    expect(header).not.toContain("Open one");
+    expect(header).not.toContain("No open windows");
+  });
+
+  it("asks for a fresh observation when the GUI session returns", () => {
+    const header = stateHeader(
+      state([], { sessionState: "unavailable", window: undefined, windows: [] }),
+    );
+    expect(header).toContain("Stop computer actions until it returns, then observe again");
+    expect(header).not.toContain("Open one");
   });
 });

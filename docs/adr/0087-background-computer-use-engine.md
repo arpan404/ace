@@ -199,3 +199,39 @@ change on that element. `screen_act` advertises one flat step object with a gram
 and validates calls against the strict per-step union. The live view encodes H.264 High,
 re-sends a still picture once as a refined keyframe, captures at no more than native pixel
 density and crops windows without their shadow. Numbers: [computer-use-performance.md](../computer-use-performance.md).
+
+## Amendment 2026-10-23: locked sessions and idle sleep
+
+A real lock test on macOS 26.2 returned an empty TextEdit `AXWindows` array and
+`invalidUIElement` for a text control that worked before locking. Neither a cached
+reference nor a fresh helper could reach that document. Removing a blanket lock guard
+therefore does not establish general support for GUI work behind the macOS lock screen.
+
+Computer-use calls now hold a system idle-sleep assertion through the gaps between
+successful calls, for at most five minutes without another call. Failure, cancellation,
+helper shutdown and expiry release it. An additional OS assertion timeout bounds a stuck
+helper. Display idle-sleep protection remains limited to an unlocked action batch; a
+locked display may dim while background work continues. Explicit sleep, a closed lid and
+low-battery sleep retain the OS's behavior. These use the documented IOKit
+[power assertions](https://developer.apple.com/documentation/iokit/1557078-iopmassertioncreatewithdescripti).
+The desktop app also has its existing user-controlled prevent-sleep setting for active
+agent turns; the helper protection covers computer use when that app is absent.
+
+Controls still exposed through accessibility may be used while locked. Posted keyboard
+and pointer fallback is refused because delivery cannot be confirmed. Missing locked
+windows report `screen_locked`, not a closed document or a stale-id retry instruction.
+An unavailable GUI session reports `session_unavailable`. Observations distinguish an
+active, locked and unavailable session, and lock transitions discard screenshot geometry
+and remembered agent focus. After unlocking, callers must observe fresh controls.
+
+Lock detection retains the existing best-effort `CGSSessionScreenIsLocked` dictionary
+flag, which Apple does not document as a public `CGSession` key. A missing session or
+missing public console/login facts is treated as unavailable. This is not a guarantee of
+Apple-supported lock detection across macOS versions. No lock bypass, automatic unlock,
+security-setting change or replacement authentication screen is introduced. The existing
+off-Space engine also retains its previously documented private window/focus dependencies.
+
+Ace's browser already moves locked-screen pages to its own Chromium backend. That and
+non-GUI tools can continue when native app controls are unavailable. Universal native GUI
+operation behind the real lock and a persistent status surface on the secure lock screen
+remain unimplemented; this change must not be described as providing either.

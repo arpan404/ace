@@ -29,7 +29,7 @@ import ApplicationServices
     private var menuBar: (titles: [String], at: UInt64)?
     private var madeKey: CGWindowID?
     var innerActive = false
-    private var lastLocked: Bool?
+    private var lastSessionStatus: CUSessionStatus?
     var agentFocus: AXUIElement?
     private var agentFocusWindow: CGWindowID?
     var actionTarget: AXUIElement?
@@ -111,12 +111,14 @@ import ApplicationServices
 
     /// Called at the start of every request on this app.
     func beginRequest() {
-        let locked = cuScreenLocked()
-        if lastLocked != locked {
+        let status = cuSessionStatus()
+        if lastSessionStatus != status {
             shot = nil
             lastStamp = nil
+            agentFocus = nil
+            madeKey = nil
         }
-        lastLocked = locked
+        lastSessionStatus = status
         if agentFocusWindow != window?.number { agentFocus = nil }
         lastUsed = cuNow()
         madeKey = nil
@@ -156,6 +158,7 @@ import ApplicationServices
     /// app forward: a dialog, sheet or panel over the chosen window, else the chosen window.
     /// A frontmost app already routes keys itself, so it is left alone.
     func makeKey() {
+        guard cuSessionStatus() == .active else { return }
         guard let current = window, let chosen = current.number else { return }
         let route = cuKeyRoute(CUKeyRouteFacts(appFrontmost: app.isActive, hasWindowNumber: true, onScreen: current.onScreen,
                                                otherSpace: current.otherSpace, minimized: current.minimized))
@@ -183,6 +186,7 @@ import ApplicationServices
     /// Keep the chosen window while it exists; otherwise the focused, main, or a visible window.
     /// A window number is the stable `index` shown in observations.
     func chooseWindow(_ selector: Any?, deadline: UInt64 = cuNow() + 1_500_000_000) throws -> [CUWindow] {
+        guard cuSessionStatus() != .unavailable else { throw cuSessionUnavailableError }
         let number = (selector as? NSNumber)?.intValue
         let title = (selector as? String).flatMap { $0.isEmpty ? nil : $0 }
         var listed = windows.list(remote: .none, deadline: deadline)
@@ -194,6 +198,7 @@ import ApplicationServices
         }
         notResponding = listed.notResponding
         let all = listed.windows
+        if all.isEmpty, cuSessionStatus() == .locked, selector != nil { throw cuLockedControlsError }
         let numbers = all.map { String($0.index) }.joined(separator: ", ")
         if let number {
             guard let match = all.first(where: { $0.index == number }) else {

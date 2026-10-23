@@ -80,6 +80,7 @@ import ApplicationServices
         }
         var role: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, "AXRole" as CFString, &role) == .invalidUIElement {
+            if cuSessionStatus() == .locked { throw cuLockedControlsError }
             throw CUError("stale_element", "Element \(id) went away (the UI changed). Observe again and use a current id.")
         }
         return element
@@ -104,10 +105,16 @@ import ApplicationServices
 
     func focusedElement() -> AXUIElement? {
         if session.preserveHumanFocus { return session.agentInputFocus }
+        if cuSessionStatus() == .locked, let target = session.agentInputFocus { return target }
         return cuElementAttribute(session.element, "AXFocusedUIElement")
     }
 
     func textTarget() -> CUTextTarget? { focusedElement().flatMap(CUTextTarget.init) }
+
+    func postedInputCheckpoint() throws {
+        try checkpoint()
+        try cuRequirePostedInput(cuSessionStatus())
+    }
 
     func requireAppResponder() throws {
         if session.preserveHumanFocus {
@@ -162,6 +169,10 @@ import ApplicationServices
     // MARK: Simple actions
 
     func focus(_ element: AXUIElement) throws -> String {
+        if cuSessionStatus() == .locked {
+            session.rememberFocus(element)
+            return "selected \(label(element)) for accessibility input while locked"
+        }
         if session.preserveHumanFocus {
             session.rememberFocus(element)
             return "selected \(label(element)) for agent input, preserving the person's window focus"

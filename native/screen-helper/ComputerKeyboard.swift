@@ -19,6 +19,7 @@ extension CUActor {
     /// Keys go to the app's key window; with no window they would silently go nowhere.
     func requireKeyboardTarget() throws {
         guard session.window != nil || focusedElement() != nil else {
+            if cuSessionStatus() == .locked { throw cuLockedControlsError }
             throw CUError("no_window", "\(session.name) has no open window to receive keys. Open one first, e.g. menu [\"File\", \"New\"].")
         }
     }
@@ -94,7 +95,7 @@ extension CUActor {
         func breathe(_ ms: UInt64) async throws {
             try? await Task.sleep(nanoseconds: ms * 1_000_000)
             let now = DispatchTime.now().uptimeNanoseconds
-            if now - lastCheck >= 40_000_000 { lastCheck = now; try checkpoint() }
+            if now - lastCheck >= 40_000_000 { lastCheck = now; try postedInputCheckpoint() }
         }
         // With an input method selected, a key code would start a composition; Unicode alone may not.
         let composing = CUKeyboard.inputMethodActive
@@ -104,7 +105,7 @@ extension CUActor {
                 try await breathe(1)
             }
         }
-        try checkpoint()
+        try postedInputCheckpoint()
         for step in cuTypingPlan(text, chunk: chunked ? 20 : 1) {
             switch step {
             case .key(let code, let typed):
@@ -178,12 +179,13 @@ extension CUActor {
             }
             return "pressed \(name) (\(title))\(count > 1 ? " ×\(count)" : "")\(note)"
         }
+        try postedInputCheckpoint()
         let target = chord.typesText ? focused.flatMap(CUTextTarget.init) : nil
         let before = target?.state
         if hold > 0 { try await holdKey(chord, ms: hold) }
         else {
             for index in 0..<count {
-                try checkpoint()
+                try postedInputCheckpoint()
                 poster.chord(chord)
                 if index < count - 1 { try? await Task.sleep(nanoseconds: 8_000_000) }
             }
@@ -197,11 +199,13 @@ extension CUActor {
 
     /// Holds a key down, repeating like a keyboard after a short delay; always releases it.
     private func holdKey(_ chord: CUChord, ms: Int) async throws {
+        try postedInputCheckpoint()
         poster.keyEvent(chord.code, down: true, flags: chord.flags, text: chord.text)
         do {
             try await pause(ms: min(ms, 400))
             var held = min(ms, 400)
             while held < ms {
+                try postedInputCheckpoint()
                 if !chord.isShortcut { poster.keyEvent(chord.code, down: true, flags: chord.flags, text: chord.text, autorepeat: true) }
                 let slice = min(50, ms - held)
                 try await pause(ms: slice)
@@ -233,7 +237,7 @@ extension CUActor {
             }
         }
         try requireAppResponder()
-        try checkpoint()
+        try postedInputCheckpoint()
         let before = target?.state
         await cuPaste(content, poster: poster, application: session.element)
         session.settler.markChanged()

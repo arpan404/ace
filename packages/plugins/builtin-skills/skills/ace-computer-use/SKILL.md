@@ -60,7 +60,7 @@ In a shared window or tab, target fields by id with `set_value`, `type` or `past
 
 Keep the person's focus where it is. `activate` brings the app forward and interrupts their work; use it only when the person explicitly wants foreground control. If background alternatives fail, report the unsupported action.
 
-While the Mac is locked, use accessibility actions and element ids. Text insertion uses accessibility where available. Screenshots and `activate` are unavailable until the person unlocks; the helper never unlocks the Mac.
+While the Mac is locked, only controls still exposed through accessibility can work. If `screen_locked` reports missing controls, stop retrying those ids and use browser or non-GUI tools where available. Do not open replacement windows. Screenshots, posted input and `activate` are unavailable; the helper never unlocks the Mac. After unlock, observe again before acting. `session_unavailable` means the GUI session cannot be used; wait for it to return and observe again.
 
 ### Limits
 

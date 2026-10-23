@@ -168,7 +168,7 @@ extension CUActor {
         var pressed: CUMouseEvent?
         do {
             for event in events {
-                try checkpoint()
+                try postedInputCheckpoint()
                 poster.mouse(event, window: window, target: target, flags: flags)
                 if event.kind == .down { pressed = event } else if event.kind == .up { pressed = nil }
                 else if event.kind == .drag, let down = pressed { pressed = CUMouseEvent(kind: .down, button: down.button, point: event.point, clickState: down.clickState, delayMs: 0) }
@@ -200,6 +200,7 @@ extension CUActor {
         session.makeKey()
         if session.window?.onScreen == true, !cuScreenLocked() { indicate(point) }
         let over = named ?? hitElement(at: point)
+        try postedInputCheckpoint()
         poster.mouse(CUMouseEvent(kind: .move, button: .left, point: point, clickState: 0, delayMs: 0), window: session.window?.number, target: pointerTarget(for: over))
         session.settler.markChanged()
         // Tracking areas and tooltips follow the real pointer, which stays with the person.

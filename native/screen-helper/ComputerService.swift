@@ -27,13 +27,17 @@ import ApplicationServices
             do {
                 if self.cancellations.isCancelled(id) { throw CUError("cancelled", cuCancelledMessage) }
                 CUOutput.shared.reply(id, result: try await self.handle(request, id: id))
-            } catch { CUOutput.shared.reply(id, error: error) }
+            } catch {
+                self.awake.release()
+                CUOutput.shared.reply(id, error: error)
+            }
         }
     }
 
     /// Puts back what the helper changed (a clipboard mid-paste, Chromium accessibility) and exits.
     func shutdown(_ code: Int32) -> Never {
         overlay.hide()
+        awake.release()
         CUClipboard.restorePending()
         for session in sessions.values { session.close() }
         exit(code)
@@ -49,8 +53,13 @@ import ApplicationServices
             let bundleId = resolved.running?.bundleIdentifier ?? resolved.installed?.bundleId ?? ""
             let name = resolved.running?.localizedName ?? resolved.installed?.name ?? bundleId
             return ["bundleId": bundleId, "name": name, "running": resolved.running != nil]
-        case "state": return try await state(request, id: id)
-        case "act": return try await act(request, id: id)
+        case "state", "act":
+            try awake.hold()
+            var keepAwake = false
+            defer { if keepAwake { awake.linger() } else { awake.release() } }
+            let result = try await (request.string("op") == "state" ? state(request, id: id) : act(request, id: id))
+            keepAwake = result["error"] == nil && !cancellations.isCancelled(id)
+            return result
         default: throw CUError("bad_request", "Unknown op.")
         }
     }
@@ -124,8 +133,9 @@ import ApplicationServices
             }
             checkedAction = revision
             let facts = MainActor.assumeIsolated {
-                CUGuardFacts(locked: cuScreenLocked(), appFrontmost: session.app.isActive, secondsSinceHumanInput: cuSecondsSinceHumanInput(), stopRequested: stopRequested,
-                             conflictsWithHuman: session.conflictsWithHuman)
+                let status = cuSessionStatus()
+                return CUGuardFacts(locked: status == .locked, appFrontmost: session.app.isActive, secondsSinceHumanInput: cuSecondsSinceHumanInput(), stopRequested: stopRequested,
+                             conflictsWithHuman: session.conflictsWithHuman, sessionAvailable: status != .unavailable)
             }
             do {
                 try cuGuard(facts, app: session.name)
@@ -185,8 +195,7 @@ import ApplicationServices
         actor.checkpoint = check.check
         var done: [String] = []
         var failure: CUObject?
-        awake.hold()
-        defer { awake.release() }
+        if !cuScreenLocked() { try awake.keepDisplayAwake() }
         let actions = request.objects("actions")
         for (index, action) in actions.enumerated() {
             do {

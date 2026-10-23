@@ -123,15 +123,19 @@ export function stateHeader(state: ComputerState): string {
   ];
   if (state.screenLocked)
     lines.push(
-      "The Mac is locked. Use accessibility actions and element ids; screenshots and activate are unavailable.",
+      "The Mac is locked. Only controls currently exposed through accessibility can work. Screenshots, activate and posted input are unavailable. Use another tool if controls are missing; observe again after unlocking.",
     );
-  if (!window) {
+  if (state.sessionState === "unavailable")
+    lines.push(
+      "The Mac’s GUI session is unavailable. Stop computer actions until it returns, then observe again.",
+    );
+  if (!window && !state.screenLocked && state.sessionState !== "unavailable") {
     lines.push(
       windows.length
         ? "No window selected."
         : `No open windows. Open one through the menu bar, e.g. menu ["File", "New"].`,
     );
-  } else {
+  } else if (window) {
     lines.push(
       `Window: "${window.title}" ${window.width}×${window.height}, ${where(window.onScreen)}`,
     );

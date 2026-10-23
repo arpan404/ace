@@ -49,7 +49,8 @@ extension CUAppSession {
             },
             "nodes": tree.nodes.map { $0.json(origin: .zero) },
             "truncated": tree.truncated,
-            "screenLocked": cuScreenLocked(),
+            "screenLocked": cuSessionStatus() == .locked,
+            "sessionState": cuSessionStatus().rawValue,
         ]
         if notResponding || tree.notResponding {
             result["notResponding"] = true
