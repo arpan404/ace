@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { useClient, useConnectionState } from "@ace/client-react";
-import { ThreadId, WorkspaceId, type CommandPayload, type ForgePrDetail } from "@ace/protocol";
+import {
+  ThreadId,
+  WorkspaceId,
+  type CommandPayload,
+  type ForgeMergeCommit,
+  type ForgePrDetail,
+} from "@ace/protocol";
 import { actionErrorText, type MergeMethod } from "@ace/ui-core";
 import { runCommand } from "@/lib/daemon-command.ts";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -64,7 +70,9 @@ export function usePrLinkWrites(props: {
   return {
     pending,
     fenced,
-    merge(method: MergeMethod) {
+    /** Merge at the head on screen; `commit` is the merge or squash commit as edited. */
+    merge(method: MergeMethod, commit?: ForgeMergeCommit) {
+      const message = commit && method !== "rebase" ? { commit } : {};
       if (!props.threadId)
         return run({
           type: "forge.hosted.merge",
@@ -72,12 +80,14 @@ export function usePrLinkWrites(props: {
           pr: ref,
           method,
           headSha: props.detail.status.headSha,
+          ...message,
         });
       return run({
         type: "forge.pr.merge",
         link: link(props.threadId),
         method,
         headSha: props.detail.status.headSha,
+        ...message,
       });
     },
     link: (threadId: string) => run({ type: "forge.pr.link", link: link(threadId) }),

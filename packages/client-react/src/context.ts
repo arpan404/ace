@@ -29,3 +29,7 @@ export function useClient(): ClientApi {
   if (!client) throw new Error("useClient needs a <ClientProvider>");
   return client;
 }
+/** The client when a `<ClientProvider>` is above, for views that also draw without one. */
+export function useOptionalClient(): ClientApi | undefined {
+  return useContext(ClientContext) ?? undefined;
+}

@@ -5,6 +5,15 @@ const id = z.string().min(1).max(256);
 const body = z.string().max(60_000);
 const hostedBody = z.string().max(65_536);
 const sha = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
+const reviewerLogin = z
+  .string()
+  .regex(/^[\w-]+$/)
+  .max(39);
+/** A team as review requests name it: its slug within the repository's organization. */
+const teamSlug = z
+  .string()
+  .regex(/^[\w.-]+$/)
+  .max(100);
 export const ForgeReviewAnchor = z.object({
   commit: sha,
   path: z.string().min(1).max(4096),
@@ -48,6 +57,16 @@ export const ForgeReactionSummary = z.object({
     .max(8),
 });
 export type ForgeReactionSummary = z.infer<typeof ForgeReactionSummary>;
+/** Why a comment is hidden, as GitHub's minimize classifiers name them. */
+export const ForgeHiddenReason = z.enum(["off-topic", "outdated", "resolved", "duplicate", "spam"]);
+export type ForgeHiddenReason = z.infer<typeof ForgeHiddenReason>;
+/** A hidden (minimized) comment; `reason` is GitHub's, lower-cased, kept as text when unknown. */
+export const ForgeHiddenComment = z.object({
+  source: z.enum(["issue", "inline"]),
+  commentId: z.number().int().positive(),
+  reason: z.string().max(100),
+});
+export type ForgeHiddenComment = z.infer<typeof ForgeHiddenComment>;
 export const ForgeReviewAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("reconcile"), operationId: id }),
   z.object({ kind: z.literal("draft.save"), draft: ForgeReviewDraft }),
@@ -60,6 +79,13 @@ export const ForgeReviewAction = z.discriminatedUnion("kind", [
     draftIds: z.array(id).max(100),
   }),
   z.object({ kind: z.literal("conversation"), body: body.min(1) }),
+  /** One inline comment posted at once, on its own; pending drafts are never sent with it. */
+  z.object({
+    kind: z.literal("line.comment"),
+    headSha: sha,
+    anchor: ForgeReviewAnchor,
+    body: body.min(1),
+  }),
   z.object({ kind: z.literal("reply"), commentId: z.number().int().positive(), body: body.min(1) }),
   z.object({
     kind: z.literal("comment.edit"),
@@ -73,6 +99,17 @@ export const ForgeReviewAction = z.discriminatedUnion("kind", [
     commentId: z.number().int().positive(),
     source: z.enum(["issue", "inline"]),
     expectedBody: hostedBody,
+  }),
+  z.object({
+    kind: z.literal("comment.hide"),
+    commentId: z.number().int().positive(),
+    source: z.enum(["issue", "inline"]),
+    reason: ForgeHiddenReason,
+  }),
+  z.object({
+    kind: z.literal("comment.unhide"),
+    commentId: z.number().int().positive(),
+    source: z.enum(["issue", "inline"]),
   }),
   z.object({ kind: z.literal("thread.resolve"), threadId: id }),
   z.object({ kind: z.literal("thread.unresolve"), threadId: id }),
@@ -88,17 +125,35 @@ export const ForgeReviewAction = z.discriminatedUnion("kind", [
     subject: ForgeReactionSubject,
     content: ForgeReactionContent,
   }),
+  /** Ask people and teams to review; asking someone who already reviewed asks them again. */
+  z
+    .object({
+      kind: z.literal("reviewers.request"),
+      reviewers: z.array(reviewerLogin).max(100),
+      teams: z.array(teamSlug).max(100).optional(),
+    })
+    .refine((a) => a.reviewers.length + (a.teams?.length ?? 0) > 0)
+    .meta({
+      "x-ace-constraint": "Names at least one reviewer or team.",
+      examples: [{ kind: "reviewers.request", reviewers: ["octocat"] }],
+    }),
+  /** Withdraw review requests from people and teams who haven't answered yet. */
+  z
+    .object({
+      kind: z.literal("reviewers.remove"),
+      reviewers: z.array(reviewerLogin).max(100),
+      teams: z.array(teamSlug).max(100).optional(),
+    })
+    .refine((a) => a.reviewers.length + (a.teams?.length ?? 0) > 0)
+    .meta({
+      "x-ace-constraint": "Names at least one reviewer or team.",
+      examples: [{ kind: "reviewers.remove", reviewers: ["octocat"] }],
+    }),
+  /** Dismiss an approving or changes-requested review, saying why. */
   z.object({
-    kind: z.literal("reviewers.request"),
-    reviewers: z
-      .array(
-        z
-          .string()
-          .regex(/^[\w-]+$/)
-          .max(39),
-      )
-      .min(1)
-      .max(100),
+    kind: z.literal("review.dismiss"),
+    reviewId: z.number().int().positive(),
+    message: z.string().max(4096).regex(/\S/),
   }),
   /** One commit on the head branch applying each inline comment's suggestion, only at `headSha`. */
   z.object({
@@ -129,5 +184,15 @@ export const ForgeReviewState = z.object({
   operations: z.array(z.object({ id, state: z.enum(["accepted", "uncertain"]) })).max(100),
   /** Subjects with reactions only; null when GitHub's reactions couldn't be read. */
   reactions: z.array(ForgeReactionSummary).max(4_001).nullable().optional(),
+  /** Hidden comments only; null when GitHub's hidden state couldn't be read. */
+  hidden: z.array(ForgeHiddenComment).max(4_000).nullable().optional(),
+  /** Comments the viewer may hide or unhide (GitHub's viewerCanMinimize); null when unread. */
+  hideable: z
+    .array(
+      z.object({ source: z.enum(["issue", "inline"]), commentId: z.number().int().positive() }),
+    )
+    .max(4_000)
+    .nullable()
+    .optional(),
 });
 export type ForgeReviewState = z.infer<typeof ForgeReviewState>;

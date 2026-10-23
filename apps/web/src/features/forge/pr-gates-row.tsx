@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn.ts";
 import type { PrActions } from "./pr-actions.ts";
 import { usePrActivityEvents } from "./pr-activity-events.ts";
 import { prGates, type Gate, type GateKey } from "./pr-gates.ts";
-import { reviewerOutcomes } from "./pr-summary-model.ts";
+import { useReviewOutcomes } from "./pr-reviewers-query.ts";
 
 /** How a finished PR ended, from its activity: who and when, and what became of the branch. */
 function useEnding(actions: PrActions) {
@@ -76,14 +76,15 @@ function Cell(props: { gate: Gate; loading: boolean; onSelect(key: GateKey): voi
  */
 export function PrGatesRow(props: { actions: PrActions; onSelect(key: GateKey): void }) {
   const { actions } = props;
-  const { detail } = actions.context;
+  const { detail, workspaceId } = actions.context;
+  const outcomes = useReviewOutcomes(workspaceId, detail);
   const { ended, branchDeleted } = useEnding(actions);
   const gates = prGates({
     status: detail.status,
     reviewDecision: detail.reviewDecision,
     mergeState: actions.mergeState.state,
     baseBranch: detail.baseBranch,
-    outcomes: reviewerOutcomes(detail.status.comments),
+    outcomes,
     ended,
     branchDeleted,
     local: actions.local.result,
@@ -117,7 +118,8 @@ export function PrGatesRow(props: { actions: PrActions; onSelect(key: GateKey): 
  */
 export function PrGatesLine(props: { actions: PrActions; onSelect(key: GateKey): void }) {
   const { actions } = props;
-  const { detail } = actions.context;
+  const { detail, workspaceId } = actions.context;
+  const outcomes = useReviewOutcomes(workspaceId, detail);
   const open = detail.status.state === "open" || detail.status.state === "draft";
   if (!open) return null;
   const gates = prGates({
@@ -125,7 +127,7 @@ export function PrGatesLine(props: { actions: PrActions; onSelect(key: GateKey):
     reviewDecision: detail.reviewDecision,
     mergeState: actions.mergeState.state,
     baseBranch: detail.baseBranch,
-    outcomes: reviewerOutcomes(detail.status.comments),
+    outcomes,
     ended: undefined,
     branchDeleted: undefined,
     local: actions.local.result,

@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { useClient } from "@ace/client-react";
-import { WorkspaceId, type CommandPayload, type ForgePrDetail } from "@ace/protocol";
+import {
+  WorkspaceId,
+  type CommandPayload,
+  type ForgeMergeCommit,
+  type ForgePrDetail,
+} from "@ace/protocol";
 import { actionErrorText, autoMergeBlocker, noAutoMerge, type MergeMethod } from "@ace/ui-core";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
@@ -75,8 +80,10 @@ export function usePrMergeState(props: {
           : uncertain || state.writeState !== undefined
             ? "Refresh GitHub to confirm the previous change first"
             : undefined;
-  const run = async (action: MergeStateAction, method: MergeMethod) => {
+  const run = async (action: MergeStateAction, method: MergeMethod, commit?: ForgeMergeCommit) => {
     if (blocked || !state) return;
+    // Only an enabled merge or squash writes a commit of its own.
+    const message = commit && action === "enable" && method !== "rebase" ? { commit } : {};
     const payload: CommandPayload | undefined = props.threadId
       ? {
           type: "forge.pr.merge-state.change",
@@ -84,6 +91,7 @@ export function usePrMergeState(props: {
           headSha: state.headSha,
           action,
           method,
+          ...message,
         }
       : action === "dequeue"
         ? undefined
@@ -94,6 +102,7 @@ export function usePrMergeState(props: {
             headSha: state.headSha,
             action,
             method,
+            ...message,
           };
     if (!payload) return;
     setPending(true);

@@ -1,7 +1,7 @@
 import { apiKeyServiceLabel } from "@ace/ui-core";
 import { useClient } from "@ace/client-react";
 import type { ApiKeyUpstream, ProviderKind } from "@ace/protocol";
-import { NativeAccountProvider } from "@ace/protocol/accounts";
+import { ManagedAccountProvider as ManagedAccountProviderSchema } from "@ace/protocol/accounts";
 import { useQueryClient } from "@tanstack/react-query";
 import type { z } from "zod";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
@@ -14,11 +14,14 @@ import { refreshProviders } from "@/lib/provider-readiness.ts";
  * Every change reads accounts and providers again.
  */
 
-type NativeAccountProvider = z.infer<typeof NativeAccountProvider>;
+type ManagedAccountProvider = z.infer<typeof ManagedAccountProviderSchema>;
 
-/** Providers ace can keep more than one account of. */
-export function canAddAccounts(provider: ProviderKind): provider is NativeAccountProvider {
-  return NativeAccountProvider.safeParse(provider).success;
+/**
+ * Providers ace can keep more than one account of: the native CLIs, and Antigravity, whose added
+ * accounts each sign in inside their own home.
+ */
+export function canAddAccounts(provider: ProviderKind): provider is ManagedAccountProvider {
+  return ManagedAccountProviderSchema.safeParse(provider).success;
 }
 
 export function useAccountActions() {
@@ -46,10 +49,10 @@ export function useAccountActions() {
         badgeIcon?: import("@ace/protocol/accounts").AccountBadgeIcon | null | undefined;
       },
     ) => settle(client.request({ type: "accounts.rename", instanceId, label, ...badge })),
-    setDefault: (provider: NativeAccountProvider, instanceId: string) =>
+    setDefault: (provider: ManagedAccountProvider, instanceId: string) =>
       settle(client.request({ type: "accounts.setDefault", provider, instanceId })),
     /** Forget the account; its sign-in folder stays on disk. */
-    remove: async (provider: NativeAccountProvider, instanceId: string) => {
+    remove: async (provider: ManagedAccountProvider, instanceId: string) => {
       const reply = await settle(
         client.request({
           type: "provider.accounts.remove",

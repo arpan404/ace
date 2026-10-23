@@ -85,3 +85,21 @@ The owner explicitly forbids tests, probes, benchmarks, mutation execution and f
 ### Owner decision still required
 
 The implementation brief explicitly requires owner architecture acceptance before treating this ADR as accepted. This review pass finalizes the proposal and supplies the accounts integration and bilateral negotiation previously missing. It retains the bounded peer because the SDK ownership gates remain unsolved. PR #64 is the concrete architecture review endpoint. No owner acceptance has been recorded, so this ADR and the ADR 0036 amendment remain Proposed; completing the code changes does not fabricate that approval.
+
+## Amendment: Antigravity accounts in managed homes (2026-10-22)
+
+The "Local authentication and accounts" section allows extra accounts for an agent once its home and credential store are verified. Antigravity is the first verified profile.
+
+**Evidence.** Antigravity's ACP server documents `GEMINI_HOME` as the root of its consumer token, business token and `settings.json` (`<home>/antigravity-acp/acp_token.json`). It reads and writes the token through one store. On macOS that store is the login keychain under a fixed account name (`gemini` / `antigravity-acp`) for every home, unless `AGY_ACP_FORCE_FILE_STORAGE` is set, in which case it uses only the token file under the home. Off macOS it always uses the file. The `agy` CLI keeps a separate keychain login and is not involved.
+
+**Decision.**
+
+- A managed Antigravity account is an `acp` account of ace's Antigravity installation (`official:antigravity-acp`, `antigravity-cli`). It has `managed: true`, `homeStrategy: "managed"` and the one stored selector `GEMINI_HOME`, its private home under `<dataDir>/account-homes/<id>`. Its process environment adds `AGY_ACP_FORCE_FILE_STORAGE=true`, so its login never reads or replaces the keychain login. ace only chooses the folder. The agent alone reads and writes credentials there, as with Cursor's file store in ADR 0018.
+- The CLI's own login stays a `default_cli` account with the person's environment and is never removed.
+- Profiles live in `@ace/accounts` (`acpManagedHome`). An agent without one cannot have an added account. A stored selector that differs from the profile's is refused.
+- Sign-in runs Antigravity's ACP `authenticate` inside the account's home, after validating that home. A thread on an added account opens through `AccountService.openSession`, like a native account. The home is validated first. The session is counted, so a sign-in change stops it before the credential changes. Removal waits for it. New sessions are fenced while the account is pending or changing. A thread whose account is gone is refused, never moved onto another login.
+- An account of ace's Antigravity installation serves the provider `antigravity` (`accountProvider`, shared by the daemon, clients and fake daemon), so account selection, switches and the model picker match it to Antigravity threads and models. Another installation of the same agent stays an ACP agent of its own.
+- Each ACP agent has its own default account (`provider:acp:<agent>`), the CLI login until the person chooses another.
+- An added account's model catalog is registered only once it is signed in, validates its home before each discovery, and carries no sign-in method. A lapsed login is reported rather than starting a browser sign-in. The declared `agy /usage` source reads the CLI's default login and is not applied to added accounts.
+
+Other agents stay single-account until their own home and credential store are verified the same way.

@@ -2,6 +2,9 @@
   "$id": "https://ace.local/protocol/v1/ForgeHostedMergeCommand.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "commit": {
+      "$ref": "https://ace.local/protocol/v1/ForgeMergeCommit.json"
+    },
     "headSha": {
       "pattern": "^[a-fA-F0-9]{40,64}$",
       "type": "string"

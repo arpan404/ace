@@ -7,6 +7,9 @@
       "minLength": 1,
       "type": "string"
     },
+    "antigravitySignIn": {
+      "$ref": "https://ace.local/protocol/v1/AntigravitySignInMethod.json"
+    },
     "apiKey": {
       "$ref": "https://ace.local/protocol/v1/ApiKeySupport.json"
     },
@@ -41,8 +44,7 @@
       "type": "string"
     },
     "homeStrategy": {
-      "const": "default_cli",
-      "type": "string"
+      "$ref": "https://ace.local/protocol/v1/AcpHomeStrategy.json"
     },
     "id": {
       "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"

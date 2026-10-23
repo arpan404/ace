@@ -14,3 +14,11 @@ export type {
   PrDiffContext,
   PrListExtensions,
 } from "./pr-extensions.ts";
+export { useRepoPrOptions } from "./pr-repo-options.ts";
+export { PrCompareFiles } from "./pr-compare-files.tsx";
+export { readFailureText } from "./query-state.tsx";
+export { ForgeCompletions, issueParticipants } from "./forge-completions.tsx";
+/** People's PR and issue text drawn as GitHub draws it (ADR 0096), and the page scope it reads. */
+export { ForgeProse } from "./rich/forge-prose.tsx";
+export { ForgeContentScope } from "./rich/scope.ts";
+export { useTaskSave } from "./rich/use-task-save.ts";

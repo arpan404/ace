@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeMergeCommit.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "message": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "pattern": "\\S",
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "message"
+  ],
+  "type": "object"
+}

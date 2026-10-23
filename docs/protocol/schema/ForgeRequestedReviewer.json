@@ -1,0 +1,51 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeRequestedReviewer.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "avatarUrl": {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        "kind": {
+          "const": "user",
+          "type": "string"
+        },
+        "login": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "login"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "team",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "slug": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "slug",
+        "name"
+      ],
+      "type": "object"
+    }
+  ]
+}

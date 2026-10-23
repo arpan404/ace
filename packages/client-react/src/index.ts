@@ -1,4 +1,4 @@
-export { ClientProvider, useClient, useNotifyBatch } from "./context.ts";
+export { ClientProvider, useClient, useNotifyBatch, useOptionalClient } from "./context.ts";
 export { frameBatch, immediate } from "./batch.ts";
 export type { NotifyBatch } from "./batch.ts";
 export { useSelection, arrayEqual, shallowEqual } from "./selection.ts";
