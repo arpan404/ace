@@ -70,7 +70,7 @@ extension View {
 
 /// An image or visualization the agent published, drawn in the reply at the column's width like
 /// the web: an image fitted with its caption beneath, a page at its own content height. Tapping
-/// the image, or Full screen above a page, opens it whole.
+/// the image, or the full-screen icon above a page, opens it whole.
 struct PublishedMediaRow: View {
     let row: TranscriptRow
     let open: () -> Void
@@ -128,12 +128,14 @@ struct PublishedMediaRow: View {
 
     private var page: some View {
         VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
-            Button("Full screen", action: open)
-                .buttonStyle(.plain)
-                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-                .frame(minHeight: AceTheme.Spacing.xxl + AceTheme.Spacing.xs)
-                .accessibilityLabel("Open \(row.text) full screen")
+            Button(action: open) {
+                AceIcon(.cornersOut, size: 16, relativeTo: .footnote)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open \(row.text) full screen")
             if case .page(let document) = media {
                 InlineCanvas(document: document, title: row.text)
             } else {

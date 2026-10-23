@@ -52,6 +52,7 @@ extension AceIcon {
         case command = "command"
         case compass = "compass"
         case copy = "copy"
+        case cornersOut = "corners-out"
         case cpu = "cpu"
         case crosshair = "crosshair"
         case cursor = "cursor"
