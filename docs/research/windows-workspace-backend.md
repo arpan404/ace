@@ -1,6 +1,6 @@
 # Windows workspace backend — safe design (research)
 
-Status: independent native addon implements pinned reads, identity, metadata, enumeration and exclusive creation. Native x64 and ARM64 verification passed for those operations in run 39874497061. Handle-relative deletion passed native x64 and ARM64 verification in run 39876189647. Handle-relative rename and replacement passed native x64 and ARM64 verification in run 39878029237. Owner-only ACL check/set and stdin search passed native x64 and ARM64 verification in run 39880850603. The lossless POSIX identity prerequisite is implemented in `ef16a3188`. Windows descriptor integration remains unfinished. `76253a305` adds checks on an already-open private-file descriptor; native x64 and ARM64 each pass 18 files / 146 tests in run 39913429652.
+Status: the independent addon implements pinned filesystem operations, lossless identity, metadata, owner-only ACL checks/setting and atomic private creation. `42c4f2ad6` adds an explicit Windows descriptor-stat source. Native x64 and ARM64 each pass MSVC compilation and 20 files / 154 tests in [run 39989547686](https://github.com/arpan404/ace/actions/runs/39989547686). Production backend selection, path-stat mapping, ACL consumers and clean installation remain unfinished.
 
 ## 1. Consumers pin numeric fds; HANDLE-only is rejected
 
@@ -119,8 +119,10 @@ and [GetSecurityInfo access requirement](https://learn.microsoft.com/en-us/windo
 `Descriptor`. It validates native identity strings and combines them with Node
 bigint stat metadata from the same held fd, preserving numeric display fields
 and JSON serialization. Async parse failures reject the observation. Callers
-keep the fd open through the operation. Four new native fixtures are pending;
-24 host regressions pass. Default bindings and path-stat guards remain POSIX-only.
+keep the fd open through the operation. All four new fixtures pass on native x64 and ARM64 in
+[run 39989547686](https://github.com/arpan404/ace/actions/runs/39989547686), alongside
+MSVC compilation and 20 files / 154 tests on each architecture. The 24 host
+regressions also pass. Default bindings and path-stat guards remain POSIX-only.
 
 ## 8. Error mapping
 

@@ -353,7 +353,9 @@ numeric display metadata with parsed native volume/file-ID strings from the
 same caller-held fd. The default POSIX binding and Windows production gate stay
 unchanged. All 24 host regressions pass; four new Windows fixtures cover native
 identity/JSON, pathname replacement, directory metadata and malformed-ID refusal.
-Native execution of this descriptor-stat slice is pending.
+[Run 39989547686](https://github.com/arpan404/ace/actions/runs/39989547686), pinned
+to `d37988808`, passes MSVC compilation and 20 files / 154 tests on both native
+x64 and ARM64. All four descriptor-stat fixtures execute and pass.
 
 The two-worker full gate finished with 2,764 files passed, 38 failed and 26
 skipped; 17,005 tests passed and 59 failed, plus one unhandled error. It exited 1
