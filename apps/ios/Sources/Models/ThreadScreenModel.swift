@@ -38,6 +38,8 @@ import Observation
     var openGroups: Set<String> = []
     /// Effort and speed for the next message.
     var tune: TuneRow?
+    /// The thread's access and the modes it can change to (`thread.access`).
+    var access: ThreadAccessRow?
     /// Files on the next message and their uploads.
     var attachments: [AttachmentFile] = []
     /// The native subagent lane open in its sheet.
@@ -55,6 +57,7 @@ import Observation
         goal = nil
         steps = [:]
         tune = nil
+        access = nil
         attachments = []
         hasOlder = false
         loadingOlder = false

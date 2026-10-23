@@ -150,7 +150,7 @@ export class ThreadAccessFollower {
         pending: !!summary?.next,
         custom: summary?.custom ?? null,
         stricter: summary?.stricter ?? null,
-        choices: choices.map((choice) => ({ ...choice })),
+        choices,
       };
     });
   }
