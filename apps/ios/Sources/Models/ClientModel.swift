@@ -23,6 +23,18 @@ import QuartzCore
     @ObservationIgnored var positions: [String: Int] = [:]
     init(id: String) { self.id = id }
     var approvals: [ApprovalRow] { interactions.values.filter { $0.state == "pending" }.sorted { $0.id < $1.id } }
+    /// Rebuilds the order from every position.
+    func reorder() {
+        order = positions.keys.filter { items[$0] != nil }.sorted { (positions[$0] ?? 0) < (positions[$1] ?? 0) }
+    }
+    /// Places new items, each already positioned. Items that all land after the last one shown,
+    /// as streaming adds them, join the end without sorting the rest; anything else reorders.
+    func place(_ added: [String]) {
+        let landed = added.compactMap { id in positions[id].map { (id, $0) } }.sorted { $0.1 < $1.1 }
+        let last = order.last.flatMap { positions[$0] } ?? Int.min
+        if let first = landed.first, first.1 <= last { reorder(); return }
+        order.append(contentsOf: landed.map(\.0))
+    }
 }
 
 @MainActor @Observable final class ClientModel {
@@ -72,6 +84,8 @@ import QuartzCore
     @ObservationIgnored private var shutdown: Task<Void, Never>?
     @ObservationIgnored private var frames = BridgeFrames()
     @ObservationIgnored let admissions = CommandAdmissions()
+    /// Goal changes waiting on the daemon's receipt, apart from the screen-wide error.
+    @ObservationIgnored let receipts = CommandReceipts()
     @ObservationIgnored let services = NativeServiceCalls()
     @ObservationIgnored var approvalRequests: [String: String] = [:]
     @ObservationIgnored let now: () -> Double
@@ -168,6 +182,7 @@ import QuartzCore
     }
     private func apply(_ patches: [BridgePatch]) {
         var reorder = false
+        var added: [String] = []
         var activityChanged = false
         for patch in patches {
             patchCount += 1
@@ -215,6 +230,11 @@ import QuartzCore
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
             case .notification(let patch): notificationSink?(patch)
+            case .receipt(let id, let ok, let message) where receipts.tracks(id):
+                // A goal change answers on its own sheet, never as the screen-wide error.
+                receipts.resolve(id, refused: ok ? nil : (message.isEmpty ? "Your computer refused that change." : message))
+            case .admission(let id, let ok, let message) where receipts.tracks(id):
+                if !ok { receipts.resolve(id, refused: message.isEmpty ? CommandReceipts.unsent : message) }
             case .receipt(let id, let ok, let message):
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
                     if ok { approvalSubmissions[interactionId]?.phase = .waiting }
@@ -246,7 +266,12 @@ import QuartzCore
                 guard let thread, thread.id == id, thread.epoch == epoch else { continue }
                 if let row {
                     if let item = thread.items[itemId] { item.row = row; streamedUpdates += 1 }
-                    else { thread.items[itemId] = ItemModel(row); reorder = true }
+                    else {
+                        thread.items[itemId] = ItemModel(row)
+                        if let index = row.index { thread.positions[itemId] = index }
+                        added.append(itemId)
+                        break
+                    }
                     if let index = row.index, thread.positions[itemId] != index { thread.positions[itemId] = index; reorder = true }
                 } else { thread.items.removeValue(forKey: itemId); thread.positions.removeValue(forKey: itemId); reorder = true }
             case .metadata(let id, let epoch, let row): if thread?.id == id, thread?.epoch == epoch { thread?.metadata = row }
@@ -262,8 +287,10 @@ import QuartzCore
                 if let thread, let scope = patch.screenScope, scope.thread == thread.id, scope.epoch == thread.epoch {
                     thread.screen.apply(patch)
                 }
-            case .agents(let id, let epoch, let sheet): if thread?.id == id, thread?.epoch == epoch { sheets.agents = sheet }
-            case .changesSummary(let id, let epoch, let summary): if thread?.id == id, thread?.epoch == epoch { sheets.changes = summary }
+            case .agents(let id, let epoch, let sheet):
+                if thread?.id == id, thread?.epoch == epoch { sheets.agents = sheet; ThreadOpenTrace.shared.sheetFilled("agents") }
+            case .changesSummary(let id, let epoch, let summary):
+                if thread?.id == id, thread?.epoch == epoch { sheets.changes = summary; ThreadOpenTrace.shared.sheetFilled("changes") }
             case .changesFile(let id, let epoch, let path, let diff):
                 if thread?.id == id, thread?.epoch == epoch { sheets.file = .init(path: path, diff: diff) }
             case .gitResult(let id, let ok, let message): sheets.outcomes[id] = GitOutcome(ok: ok, message: message)
@@ -278,11 +305,9 @@ import QuartzCore
             }
         }
         thread?.screen.commit()
-        if activityChanged, let hostId { liveActivity.update(rows: inbox.dictionary, hostId: hostId, online: connection == "ready") }
-        if reorder, let thread {
-            thread.order = thread.positions.keys.filter { thread.items[$0] != nil }.sorted {
-                (thread.positions[$0] ?? 0) < (thread.positions[$1] ?? 0)
-            }
+        if activityChanged, let hostId { liveActivity.update(row: { self.inbox[$0] }, hostId: hostId, online: connection == "ready") }
+        if let thread {
+            if reorder { thread.reorder() } else if !added.isEmpty { thread.place(added) }
         }
     }
     /// A new list keeps the rows it names until each fresh copy lands, so the inbox never blanks
@@ -323,7 +348,10 @@ import QuartzCore
     /// The runtime the live browser's acknowledgements go to, straight from its decoding queue.
     var browserSession: (any ClientSession)? { runtime }
     /// A sheet action for the open thread (`bridge/sheets.ts`).
-    @discardableResult func sheet(_ value: [String: Any]) -> Bool { action(["type": "sheet", "action": value]) }
+    @discardableResult func sheet(_ value: [String: Any]) -> Bool {
+        if value["open"] as? Bool == true, let kind = value["kind"] as? String { ThreadOpenTrace.shared.sheetAsked(kind) }
+        return action(["type": "sheet", "action": value])
+    }
     /// Durable stop through the SDK's outbox: true once admitted on this device. `agentId` nil
     /// stops the whole tree; otherwise that agent and everything under it.
     func interrupt(agentId: String?) async -> Bool {
@@ -418,9 +446,10 @@ import QuartzCore
         // The next runtime restarts the bridge fence at zero: explicit reset so counter
         // rows from a replaced runtime can never stay Syncing forever against an old max.
         activityGeneration = 0
-        if let hostId { liveActivity.update(rows: inbox.dictionary, hostId: hostId, online: false) }
+        if let hostId { liveActivity.update(row: { self.inbox[$0] }, hostId: hostId, online: false) }
         services.cancel()
         admissions.cancel()
+        receipts.cancel()
         approvalSubmissions = [:]; approvalRequests = [:]
         browser.close(streams: runtime?.browserStreams)
         guard let runtime else { return shutdown }

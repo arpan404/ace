@@ -25,6 +25,7 @@ export class QueueFollower {
   readonly #threadId: ThreadId;
   readonly #signal: AbortSignal;
   readonly #put: Put;
+  readonly #counted: (count: number) => void;
   #page: QueuePage | undefined;
   #reading: number | undefined;
 
@@ -34,12 +35,14 @@ export class QueueFollower {
     threadId: ThreadId,
     signal: AbortSignal,
     put: Put,
+    counted: (count: number) => void = () => {},
   ) {
     this.#client = client;
     this.#store = store;
     this.#threadId = threadId;
     this.#signal = signal;
     this.#put = put;
+    this.#counted = counted;
   }
 
   /** The reader changed: read again when the queue's revision moved, else reword the line. */
@@ -125,6 +128,7 @@ export class QueueFollower {
   }
 
   #emit(): void {
+    this.#counted(this.#page?.messages.length ?? 0);
     this.#put("queue", () => {
       const page = this.#page;
       const thread = this.#store.thread;

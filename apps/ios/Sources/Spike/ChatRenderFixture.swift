@@ -1,4 +1,4 @@
-#if DEBUG
+#if ACE_FIXTURE
 import SwiftUI
 
 /// Local frame source for physical-phone rendering tests. Never starts a provider or network connection.

@@ -3,8 +3,10 @@ import QuartzCore
 
 /// Display-link gaps while a thread is on screen, logged every five seconds that had motion:
 /// frames, late frames (more than one and a half intervals), time lost to them and the worst gap.
-/// Measurement only; on the simulator these are callback gaps, not GPU presentation.
+/// Measurement only; on the simulator these are callback gaps, not GPU presentation. Runs with
+/// `-ace-frame-trace` or the performance probe, never otherwise.
 @MainActor final class FrameSampler: NSObject {
+    nonisolated static let enabled = PerfProbe.enabled || ProcessInfo.processInfo.arguments.contains("-ace-frame-trace")
     private var link: CADisplayLink?
     private var last: CFTimeInterval?
     private var started = CACurrentMediaTime()
@@ -38,6 +40,9 @@ import QuartzCore
     private func report(at now: CFTimeInterval) {
         if late > 0 || frames > 0 {
             let seconds = now - started
+            PerfProbe.record(["frames.late": "\(late)", "frames.hitchMsPerS": String(format: "%.1f", lost * 1000 / max(seconds, 0.001)),
+                              "frames.worstMs": String(format: "%.0f", worst * 1000)])
+            PerfProbe.add("frames.windows", 1)
             ThreadOpenTrace.log.notice("""
                 frames window=\(String(format: "%.1f", seconds), privacy: .public)s frames=\(self.frames) late=\(self.late) \
                 lostMs=\(String(format: "%.0f", self.lost * 1000), privacy: .public) \

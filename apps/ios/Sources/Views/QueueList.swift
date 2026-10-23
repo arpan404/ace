@@ -1,15 +1,13 @@
 import SwiftUI
 
-/// Follow-ups waiting in the daemon's queue, above the composer. Each can get new words, go now as
-/// a steer (where the provider steers), move up or down, or be removed; the daemon's next queue
-/// revision moves it.
-struct QueueStrip<Indicators: View>: View {
+/// Follow-ups waiting in the daemon's queue, in the sheet the pill's "2 queued" opens. Each can get
+/// new words, go now as a steer (where the provider steers), move up or down, or be removed; the
+/// daemon's next queue revision moves it.
+struct QueueList: View {
     let queue: QueueRow
     let canAct: Bool
     let canSteer: Bool
     let edit: (QueueRow.Message, [String: Any]) async -> Bool
-    /// The strip's other items, at the end of its first line.
-    @ViewBuilder var indicators: () -> Indicators
     @State private var editing: QueueRow.Message?
     @State private var words = ""
     @State private var busy: String?
@@ -19,7 +17,6 @@ struct QueueStrip<Indicators: View>: View {
                 Text(queue.label).foregroundStyle(AceTheme.Colours.foreground)
                 if !queue.when.isEmpty { Text("· \(queue.when)").foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1) }
                 Spacer(minLength: AceTheme.Spacing.none)
-                indicators()
             }
             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
             .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)

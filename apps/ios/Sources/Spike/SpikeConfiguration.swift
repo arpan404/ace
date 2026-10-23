@@ -3,18 +3,29 @@ import Foundation
 /// Explicit debug launch arguments only. A release never silently connects to a sample machine.
 enum SpikeConfiguration {
     static var renderFixtureEnabled: Bool {
-        #if DEBUG
+        #if ACE_FIXTURE
         ProcessInfo.processInfo.arguments.contains("--chat-render-fixture")
         #else
         false
         #endif
     }
     static var enabled: Bool {
-        #if DEBUG
+        #if ACE_FIXTURE
         ProcessInfo.processInfo.arguments.contains("--spike")
         #else
         false
         #endif
+    }
+    /// The fixture's benchmark window (2,200 items), or the paired app's 200 with `--spike-items 200`.
+    static var itemLimit: Int {
+        let arguments = ProcessInfo.processInfo.arguments
+        return arguments.firstIndex(of: "--spike-items").flatMap { arguments.indices.contains($0 + 1) ? Int(arguments[$0 + 1]) : nil }
+            .map { min(max($0, 50), 2200) } ?? 2200
+    }
+    /// The thread `--spike-open ID` asks to open at launch.
+    static var openOnLaunch: String? {
+        let arguments = ProcessInfo.processInfo.arguments
+        return arguments.firstIndex(of: "--spike-open").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
     }
     static func target() -> ConnectionTarget? {
         // `--spike-port N` lets parallel fixtures share one Mac; loopback only.
