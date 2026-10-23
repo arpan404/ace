@@ -32,21 +32,20 @@ Example:
 
 ```json
 {
-  "access": "auto-review",
-  "concurrency": 1,
+  "concurrency": 8,
   "effort": "example",
-  "enabled": true,
+  "enabled": false,
   "id": "example",
-  "jitterMs": 0,
+  "jitterMs": 8,
   "missedRun": "skip",
   "prompt": "example",
-  "provider": "codex",
+  "provider": "cursor",
   "title": "example",
   "trigger": {
     "kind": "manual"
   },
   "workspace": "example",
-  "worktree": false
+  "worktree": true
 }
 ```
 
@@ -81,7 +80,7 @@ Example:
 
 ```json
 {
-  "before": 4,
+  "before": 6,
   "runs": []
 }
 ```
@@ -99,7 +98,7 @@ Example:
 
 ```json
 {
-  "at": 8,
+  "at": 1,
   "message": "example"
 }
 ```
@@ -122,24 +121,20 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 2,
-    "effort": "example",
+    "access": "full-access",
+    "concurrency": 10,
     "enabled": false,
     "id": "example",
-    "jitterMs": 4,
-    "missedRun": "skip",
+    "jitterMs": 3,
+    "missedRun": "run_once",
     "prompt": "example",
-    "provider": "acp",
+    "provider": "codex",
     "title": "example",
     "trigger": {
-      "event": "review_comment",
-      "kind": "github",
-      "label": "example",
-      "pollIntervalMs": 60006,
-      "repository": "Tz/cba2Uz3nbs7"
+      "kind": "manual"
     },
     "workspace": "example",
-    "worktree": true
+    "worktree": false
   },
   "requestId": "example",
   "type": "automation.put"
@@ -201,7 +196,6 @@ Example:
 
 ```json
 {
-  "includeThreads": false,
   "requestId": "example",
   "type": "automation.list"
 }
@@ -222,7 +216,8 @@ Example:
 
 ```json
 {
-  "limit": 1,
+  "automationId": "example",
+  "limit": 10,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -243,10 +238,9 @@ Example:
 
 ```json
 {
-  "enabled": false,
+  "enabled": true,
   "id": "example",
   "requestId": "example",
-  "source": "person",
   "type": "automation.setEnabled"
 }
 ```
@@ -290,26 +284,13 @@ Example:
 
 ```json
 {
-  "error": "example",
+  "automations": [],
   "inbox": {
-    "before": 7,
+    "before": null,
     "runs": []
   },
-  "ok": true,
+  "ok": false,
   "requestId": "example",
-  "run": {
-    "automationId": "example",
-    "eventKey": "example",
-    "finishedAt": 3,
-    "id": "example",
-    "result": "example",
-    "startedAt": 6,
-    "status": "running",
-    "threadId": "example",
-    "title": "example",
-    "trigger": "file"
-  },
-  "threadAutomations": [],
   "type": "automation.result"
 }
 ```
@@ -323,7 +304,7 @@ Type: integer. See JSON Schema for constraints.
 Example:
 
 ```json
-2
+5
 ```
 
 ## AutomationRun
@@ -349,14 +330,11 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 1,
   "id": "example",
-  "result": "example",
-  "startedAt": 9,
+  "startedAt": 5,
   "status": "running",
-  "threadId": "example",
   "title": "example",
-  "trigger": "schedule"
+  "trigger": "file"
 }
 ```
 
@@ -391,7 +369,7 @@ Type: ["person","thread"]. See JSON Schema for constraints.
 Example:
 
 ```json
-"person"
+"thread"
 ```
 
 ## AutomationTrigger
@@ -448,10 +426,11 @@ Example:
 
 ```json
 {
-  "event": "ci_failed",
+  "event": "pr_changed",
   "kind": "github",
-  "pollIntervalMs": 60007,
-  "repository": "o8/0obCfsH"
+  "label": "example",
+  "pollIntervalMs": 60005,
+  "repository": "XDq/r"
 }
 ```
 
@@ -486,7 +465,7 @@ Example:
 
 ```json
 {
-  "at": 7,
+  "at": 4,
   "message": "example"
 }
 ```
