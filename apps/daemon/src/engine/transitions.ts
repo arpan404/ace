@@ -9,6 +9,7 @@ import type { NativeFork } from "./transition-state.ts";
 import type { z } from "zod";
 import type { Sessions } from "./sessions.ts";
 import { validateCitations } from "./transition-history.ts";
+import { lateForkHistoryFacts } from "./fork-history.ts";
 import { abandonReturn, planCrossProvider, type CrossProviderPlan } from "./provider-return.ts";
 import { routeAccountChange } from "./account-route.ts";
 import { admitTransitionMetadata } from "./transition-state.ts";
@@ -172,7 +173,16 @@ export class ThreadTransitions {
     let nativeSessionId = metadata.nativeSessionId;
     let migratedFork: z.infer<typeof NativeFork> | undefined;
     let plan: CrossProviderPlan | undefined;
-    if (crossProvider)
+    // A native fork whose provider would bring the source's turns along, leaving that path before
+    // it opened: its copies are written in the switch's commit, before the handoff built from
+    // them, so its transcript and the next agent both hold the history.
+    const lateHistory =
+      !!previous.fork &&
+      !!this.registry.get(current.provider, backend).capabilities.forkTranscript &&
+      (crossProvider || crossAccount);
+    let late = lateHistory && crossProvider;
+    // A late fork's plan is built in the commit, once its copies are written.
+    if (crossProvider && !late)
       plan = planCrossProvider(this.repo, actor.id, {
         from: current,
         to: selection,
@@ -195,7 +205,11 @@ export class ThreadTransitions {
       if (continuation.kind === "copied") {
         nativeSessionId = continuation.nativeSessionId;
         migratedFork = continuation.fork;
-      } else if (continuation.kind === "handoff") plan = continuation.plan;
+      } else {
+        if (continuation.kind === "handoff") plan = continuation.plan;
+        // A waiting native fork has no session of its own to copy: it rebinds, or hands off.
+        late = lateHistory;
+      }
     } else if (!crossProvider && actor.session?.configure) {
       try {
         await actor.session.configure(selection);
@@ -213,12 +227,22 @@ export class ThreadTransitions {
     } else {
       await this.sessions.close(actor, "idle");
     }
-    const portable = plan?.handoff;
-    const resumed = plan?.resume;
-    // The session does not continue in place: a waiting handoff is replaced, not kept.
-    const fresh = plan !== undefined;
     try {
       this.repo.store.atomic((db) => {
+        if (late) {
+          actor.apply(lateForkHistoryFacts(this.repo, actor.id));
+          plan = planCrossProvider(this.repo, actor.id, {
+            from: current,
+            to: selection,
+            resumable: capabilities.resume,
+            backend: crossProvider ? entry.adapter.backend : backend,
+            budget: switchHandoffBytes,
+          });
+        }
+        const portable = plan?.handoff;
+        const resumed = plan?.resume;
+        // The session does not continue in place: a waiting handoff is replaced, not kept.
+        const fresh = plan !== undefined;
         if (missingModel)
           this.repo.queue.set(actor.id, { reason: "model_unavailable" }, this.now());
         if (crossProvider) this.repo.resetAdmission(actor.id);

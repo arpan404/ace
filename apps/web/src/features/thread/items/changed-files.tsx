@@ -1,7 +1,7 @@
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import type { ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
-import { fileChanges, rootRunOf, type Turn } from "@ace/ui-core";
+import { changedFileChips, fileChanges, fileChipName, rootRunOf, type Turn } from "@ace/ui-core";
 import { useCallback } from "react";
 import type { Item } from "@ace/protocol";
 import { useFileStats } from "@/lib/diffs/use-file-diffs.ts";
@@ -31,8 +31,6 @@ function Stat(props: { added: number | undefined; removed: number | undefined })
   );
 }
 
-/** Chips shown before the rest fold into "+N more". */
-const shown = 4;
 const chip =
   "inline-flex h-7 max-w-full min-w-0 items-center gap-2 rounded-md bg-fill px-2 font-mono text-xs text-foreground transition-colors duration-(--motion-fast) hover:bg-fill-strong focus-ring";
 
@@ -55,11 +53,10 @@ export function ChangedFiles(props: { threadId: string; itemIds: readonly string
   const scope = turn ? { scope: turn } : {};
   const open = (path?: string) =>
     workspace.open({ kind: "changes", data: path ? { ...scope, path } : scope });
-  const label = `Changed ${files.length} ${files.length === 1 ? "file" : "files"}`;
-  const rest = files.length - shown;
+  const { chips, more, label } = changedFileChips(files);
   return (
     <div role="group" aria-label={label} className="flex flex-wrap items-center gap-1.5">
-      {files.slice(0, rest === 1 ? files.length : shown).map((file) => (
+      {chips.map((file) => (
         <button
           key={file.path}
           type="button"
@@ -68,17 +65,17 @@ export function ChangedFiles(props: { threadId: string; itemIds: readonly string
           onClick={() => open(file.path)}
           className={chip}
         >
-          <span className="min-w-0 truncate">{file.path.split("/").at(-1) ?? file.path}</span>
+          <span className="min-w-0 truncate">{fileChipName(file.path)}</span>
           <Stat added={file.stat?.added} removed={file.stat?.removed} />
         </button>
       ))}
-      {rest > 1 && (
+      {more > 0 && (
         <button
           type="button"
           onClick={() => open()}
           className="h-7 px-1 font-mono text-xs text-subtle-foreground transition-colors duration-(--motion-fast) hover:text-foreground focus-ring"
         >
-          +{rest} more
+          +{more} more
         </button>
       )}
     </div>

@@ -101,6 +101,43 @@
     {
       "additionalProperties": false,
       "properties": {
+        "delivery": {
+          "enum": [
+            "queue",
+            "steer",
+            "restart"
+          ],
+          "type": "string"
+        },
+        "op": {
+          "const": "message",
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "text": {
+          "$ref": "https://ace.local/protocol/v1/MessageText.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "op",
+        "threadId",
+        "requestId",
+        "text",
+        "delivery"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
         "interactionId": {
           "$ref": "https://ace.local/protocol/v1/InteractionId.json"
         },

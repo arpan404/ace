@@ -60,7 +60,7 @@ struct BrowserScreen: View {
         .toolbar {
             if model.canOperate, browser.page?.focus != nil, !editingAddress {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Keyboard", systemImage: "keyboard") { keyboardRequest += 1 }
+                    Button("Keyboard", ace: .keyboard) { keyboardRequest += 1 }
                         .accessibilityIdentifier("browser.keyboard")
                 }
             }
@@ -106,7 +106,7 @@ struct BrowserScreen: View {
                         Text(tooltip.text)
                             .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                             .padding(AceTheme.Spacing.xs)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: AceTheme.Radii.button))
+                            .background(.regularMaterial, in: AceShape.capsule)
                             .fixedSize()
                             .position(x: min(max(box.minX, 80), proxy.size.width - 80), y: box.minY + 24)
                             .allowsHitTesting(false)
@@ -191,14 +191,14 @@ private struct AgentCursor: View {
     let name: String
     let at: CGPoint
     var body: some View {
-        Image(systemName: "cursorarrow")
-            .font(.system(size: 22, weight: .semibold))
+        AceIcon(.cursor, size: 22, relativeTo: .title3)
             .foregroundStyle(AceTheme.Colours.foreground)
             .shadow(color: AceTheme.Colours.background, radius: 1)
             .offset(x: 7, y: 9)
             .position(at)
             .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: at)
             .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(name) is pointing here")
     }
 }

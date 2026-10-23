@@ -1,16 +1,16 @@
 import { retrySend, type ChangeTap, type ClientCore, type ThreadSource } from "@ace/client";
 import { FollowUpBehavior, InteractionId, ThreadId, type CommandPayload } from "@ace/protocol";
-import { isBusy, messageHasContent, modelLabel } from "@ace/ui-core";
+import { composerReply, isBusy, messageHasContent, modelLabel } from "@ace/ui-core";
 import { runsOn } from "@ace/ui-core/thread-execution";
 import { z } from "zod";
-import { host } from "./host.ts";
+import { host, scheduler } from "./host.ts";
 import { dispatchCommand } from "./commands.ts";
 import type { PatchPump } from "./patch-pump.ts";
 import { preview } from "./presentation.ts";
-import { ThreadAction } from "./thread-actions.ts";
+import { questionDraft, ThreadAction, type QuestionReply } from "./thread-actions.ts";
 import { AttachmentTray, nativeChunks, type ChunkReader } from "./thread-attachments.ts";
-import { followActivity } from "./thread-activity.ts";
 import { followBlocks } from "./thread-blocks.ts";
+import { goalPayload, PillFollower } from "./thread-pill.ts";
 import { QueueFollower } from "./thread-queue.ts";
 import { requestResolution } from "./thread-requests.ts";
 import { StepsFollower } from "./thread-steps.ts";
@@ -39,12 +39,21 @@ export class ThreadSession {
   readonly #stop: () => void;
   readonly #queue: QueueFollower;
   readonly #blocks: ReturnType<typeof followBlocks>;
-  readonly #activity: ChangeTap;
+  readonly #pill: PillFollower;
   readonly #steps: StepsFollower;
   readonly #tune: TuneFollower;
   readonly #tray: AttachmentTray;
   #lane: { agentId: string; tap: ChangeTap } | undefined;
   #setting: FollowUpBehavior | undefined;
+  /**
+   * Whether the thread's follow-up setting has been read (or given up on). Until then the composer
+   * gets no controls and a send waits, so neither offers nor sends a delivery the setting changes.
+   */
+  #settingKnown = false;
+  #known: () => void = () => {};
+  readonly #whenKnown = new Promise<void>((resolve) => {
+    this.#known = resolve;
+  });
   #loading = false;
   #models: { state: string; models: Record<string, unknown>[] } = { state: "idle", models: [] };
 
@@ -55,7 +64,6 @@ export class ThreadSession {
     epoch: number,
     pump: PatchPump,
     chunks: ChunkReader = nativeChunks,
-    initialItemLimit = 200,
   ) {
     this.#client = client;
     this.#store = store;
@@ -65,8 +73,10 @@ export class ThreadSession {
     const put: Put = (key, read) => this.#put(key, read);
     const signal = this.#abort.signal;
     this.#blocks = followBlocks(store, put);
-    this.#activity = followActivity(store, put);
-    this.#queue = new QueueFollower(client, store, this.#threadId, signal, put);
+    this.#pill = new PillFollower(store, put);
+    this.#queue = new QueueFollower(client, store, this.#threadId, signal, put, (count) =>
+      this.#pill.queued(count),
+    );
     this.#steps = new StepsFollower(client, store, this.#threadId, put);
     this.#tune = new TuneFollower(client, store, signal, put, () => host.now());
     this.#tray = new AttachmentTray(
@@ -78,29 +88,41 @@ export class ThreadSession {
     );
     this.#stop = store.observe((keys) => {
       this.#blocks.tap(keys);
-      this.#activity(keys);
+      this.#pill.tap(keys);
       this.#lane?.tap(keys);
       this.#steps.changed(keys);
       if (keys === "all") void this.#readSetting();
-      if (keys === "all" || keys.has("thread") || keys.has("interactions") || keys.has("cursor"))
+      if (
+        keys === "all" ||
+        keys.has("thread") ||
+        keys.has("interactions") ||
+        keys.has("cursor") ||
+        // A subagent starting or ending moves how a message goes (in now while the root only waits).
+        keys.has("agents") ||
+        [...keys].some((key) => key.startsWith("agent:"))
+      )
         this.#controls();
       if (keys === "all" || keys.has("thread")) this.#tune.update();
       if (keys === "all" || keys.has("order") || keys.has("history")) this.#history();
       if (keys === "all" || keys.has("queue") || keys.has("thread") || keys.has("agents"))
         this.#queue.update();
-      if (keys === "all" && initialItemLimit <= 200) this.#ready();
+      if (keys === "all") this.#ready();
     });
     this.#blocks.tap("all");
-    this.#activity("all");
+    this.#pill.tap("all");
     this.#controls();
     this.#history();
     this.#queue.update();
     this.#tune.update();
-    if (initialItemLimit <= 200) this.#ready();
+    this.#ready();
     void this.#readSetting();
+    // Offline, the read waits for the connection; the composer must not wait with it.
+    const cancel = scheduler.set(1000, () => this.#knowSetting());
+    this.#abort.signal.addEventListener("abort", cancel, { once: true });
   }
 
-  // Queued after the snapshot's items AND blocks. Native can reveal one coherent transcript.
+  // Queued after the snapshot's items AND blocks, so native reveals one coherent transcript: the
+  // latest window, never waiting for older history (`thread-history.ts`).
   #ready(): void {
     if (this.#store.thread)
       this.#put("ready", () => ({ type: "thread.ready", count: this.#store.order.length }));
@@ -127,7 +149,8 @@ export class ThreadSession {
     const action = parsed.data;
     switch (action.type) {
       case "send":
-        this.#send(action.text, action.opposite, action.requestId);
+        if (!this.#reply(action.text, action.reply, action.requestId))
+          this.#send(action.text, action.opposite, action.requestId);
         break;
       case "stop":
         this.#dispatch(stopPayload(this.#store, this.#threadId), action.requestId);
@@ -185,6 +208,13 @@ export class ThreadSession {
           this.#queue.edit(action.messageId, action.change),
           action.requestId,
           "That queued message has changed. Check the queue and try again.",
+        );
+        break;
+      case "goal":
+        this.#dispatch(
+          goalPayload(this.#threadId, this.#store.thread?.goal, this.#pill.editable, action.change),
+          action.requestId,
+          "That goal has changed. Check it and try again.",
         );
         break;
       case "steps.open":
@@ -245,8 +275,27 @@ export class ThreadSession {
       refused,
     );
   }
+  /**
+   * Words sent while the agent waits on its question answer it, when they can (the shared
+   * `composerReply`): the picks on its card stay. Otherwise they go as a message.
+   */
+  #reply(text: string, reply: QuestionReply | undefined, id: string): boolean {
+    if (!reply) return false;
+    const resolution = composerReply(
+      this.#store.interaction(reply.interactionId),
+      questionDraft(reply),
+      text,
+    );
+    if (!resolution) return false;
+    this.#resolve(reply.interactionId, resolution, id, "That answer doesn't fit the question.");
+    return true;
+  }
   /** A message as the composer showed it: its delivery, the picked effort and speed, its files. */
   #send(text: string, opposite: boolean, id: string): void {
+    if (!this.#settingKnown) {
+      void this.#whenKnown.then(() => this.#send(text, opposite, id));
+      return;
+    }
     if (!messageHasContent(text, this.#tray.size)) {
       this.#admission(id, false, "Write a message or attach a file.");
       return;
@@ -290,10 +339,11 @@ export class ThreadSession {
     lane.tap("all");
   }
   #controls(): void {
-    this.#put("controls", () => ({
-      type: "thread.controls",
-      row: controlsRow(this.#store, this.#setting),
-    }));
+    this.#put("controls", () =>
+      this.#settingKnown
+        ? { type: "thread.controls", row: controlsRow(this.#store, this.#setting) }
+        : undefined,
+    );
   }
   #history(): void {
     this.#put("history", () => ({
@@ -317,10 +367,16 @@ export class ThreadSession {
       );
       const value = FollowUpBehavior.safeParse(entry?.value);
       this.#setting = value.success ? value.data : undefined;
-      this.#controls();
     } catch {
-      // Offline or refused: follow-ups queue until the daemon says otherwise.
+      // Offline or refused: the shared default applies until the daemon says otherwise.
     }
+    this.#knowSetting();
+  }
+  #knowSetting(): void {
+    if (this.#abort.signal.aborted) return;
+    this.#settingKnown = true;
+    this.#known();
+    this.#controls();
   }
   async #loadOlder(): Promise<void> {
     if (this.#loading || this.#store.itemsBefore == null) return;

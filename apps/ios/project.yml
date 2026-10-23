@@ -1,4 +1,10 @@
 name: Ace
+configs:
+  Debug: debug
+  Release: release
+  # Release optimisation with the loopback fixture compiled in, for performance runs only.
+  # Never archived: `scripts/archive.ts` builds Release, which has no fixture.
+  Perf: release
 options:
   bundleIdPrefix: app.ace
   deploymentTarget:
@@ -18,6 +24,12 @@ settings:
     TARGETED_DEVICE_FAMILY: "1,2"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+  configs:
+    Debug:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG ACE_FIXTURE
+    Perf:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: ACE_FIXTURE
+      ENABLE_TESTABILITY: YES
 targets:
   Ace:
     type: application
@@ -107,3 +119,18 @@ schemes:
     test:
       targets: [AceTests, AceUITests]
       gatherCoverageData: false
+  # Performance budgets: the measured tests, built with Release optimisation (see README).
+  AcePerf:
+    build:
+      targets:
+        Ace: all
+        AceTests: [test]
+        AceUITests: [test]
+    run:
+      config: Perf
+    test:
+      config: Perf
+      targets: [AceTests, AceUITests]
+      gatherCoverageData: false
+    profile:
+      config: Perf

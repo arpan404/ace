@@ -20,7 +20,13 @@ export async function readNativeMedia(
   request: z.infer<typeof NativeMediaRequest>,
   signal: AbortSignal,
 ) {
-  const item = await readNativeItem(owner, request.threadId, request.itemId, signal);
+  // Another thread's item, or one the daemon refuses, is simply not this thread's media.
+  const item = await readNativeItem(owner, request.threadId, request.itemId, signal).catch(
+    (error: unknown) => {
+      if (signal.aborted) throw error;
+      return undefined;
+    },
+  );
   if (!item || (item.type !== "html" && item.type !== "image"))
     throw new Error("Media unavailable");
   const attachment = item.type === "html" ? item.visualization.document : item.image.attachment;

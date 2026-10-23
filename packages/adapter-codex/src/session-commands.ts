@@ -1,7 +1,7 @@
 import { CodexInteractionUnavailable } from "./interaction-lifecycle.ts";
 import { z } from "zod";
 import { readBackgroundTerminals } from "./background-terminals.ts";
-import type { ProviderSession, SessionContext } from "@ace/engine-api";
+import { InputRejected, type ProviderSession, type SessionContext } from "@ace/engine-api";
 import type { ContentPart, InteractionId, Question, PermissionMode } from "@ace/protocol";
 import type { ServerRequest } from "@ace/provider-kit/jsonrpc";
 import type { TurnStartParams } from "./generated/v2/TurnStartParams.ts";
@@ -118,7 +118,9 @@ export function createSessionCommands(
           await steerTurn(replacement);
           return;
         }
-        if (/^expected active turn id /i.test(message) && replacement === turn) throw error;
+        // The turn it named is gone and no other took its place: the steer was refused unread.
+        if (/^expected active turn id /i.test(message) && replacement === turn)
+          throw new InputRejected(message, { cause: error });
         await startTurn(threadId, {
           input: input(parts),
           ...(clientUserMessageId ? { clientUserMessageId } : {}),

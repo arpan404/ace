@@ -96,6 +96,9 @@ export function createMachineTarget(deps: MachineTargetDeps) {
       case "cancel":
         owned(call.threadId);
         return deps.threads.cancel(device, call.threadId);
+      case "message":
+        owned(call.threadId);
+        return deps.threads.message(device, call);
       case "respond":
         owned(call.threadId);
         return deps.threads.respond(device, call);

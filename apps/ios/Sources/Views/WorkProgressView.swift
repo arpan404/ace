@@ -1,112 +1,201 @@
 import SwiftUI
 
-/// Work reads in order: groups of tools as one sentence ("Read 4 files and searched 2 times ›"),
-/// single steps as their own quiet row, and the agent's own prose between them. Streaming text
-/// observes its item alone; it never copies or rebuilds the transcript.
-struct WorkProgressView: View {
-    let groups: [BlockRow.WorkGroup]
+/// Where a work log's rows read their steps: the live thread's items (each observed alone, so
+/// streaming re-renders its own row), else the steps a finished turn's log read from the daemon;
+/// and what the log as a whole decided about them (`bridge/work-log.ts`).
+@MainActor struct LogSource {
     let thread: ThreadModel
+    var fetched: [String: TranscriptRow] = [:]
+    var ace: [String: StepLine] = [:]
+    var background: [String: BlockRow.Background] = [:]
+    var retried: Set<String> = []
+    var thoughts: [String: BlockRow.Thought] = [:]
     var openMedia: ((TranscriptRow) -> Void)? = nil
     var openMessage: ((TranscriptRow) -> Void)? = nil
+
+    init(thread: ThreadModel, block: BlockRow, openMedia: ((TranscriptRow) -> Void)? = nil, openMessage: ((TranscriptRow) -> Void)? = nil) {
+        self.init(thread: thread, ace: block.aceSteps, background: block.background, retried: block.retried, thoughts: block.thoughts, openMedia: openMedia, openMessage: openMessage)
+    }
+    init(thread: ThreadModel, fetched: [String: TranscriptRow] = [:], ace: [BlockRow.AceStep]?, background: [BlockRow.Background]?,
+         retried: [String]?, thoughts: [BlockRow.Thought]?, openMedia: ((TranscriptRow) -> Void)? = nil, openMessage: ((TranscriptRow) -> Void)? = nil) {
+        self.thread = thread
+        self.fetched = fetched
+        self.ace = Dictionary((ace ?? []).map { ($0.id, $0.step) }, uniquingKeysWith: { $1 })
+        self.background = Dictionary((background ?? []).map { ($0.itemId, $0) }, uniquingKeysWith: { $1 })
+        self.retried = Set(retried ?? [])
+        self.thoughts = Dictionary((thoughts ?? []).map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+        self.openMedia = openMedia
+        self.openMessage = openMessage
+    }
+}
+
+/// A work log as one quiet flow (the web's `GroupedSteps`): consecutive steps as one sentence
+/// row with a muted icon ("Edited 2 files and ran 1 command"), opening in place to their steps on
+/// a rail; a lone step as its own row; what the agent said between steps as prose. While the turn
+/// works its last group shows its step in flight as its title.
+struct WorkLogRows: View {
+    let rows: [BlockRow.LogRow]
+    let source: LogSource
+    /// The turn still works: its last group keeps the step in flight in view.
+    var live = false
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            ForEach(groups) { group in
-                WorkProgressGroup(group: group, thread: thread, openMedia: openMedia, openMessage: openMessage)
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            ForEach(rows) { row in
+                LogRowView(row: row, source: source, live: live && row.id == rows.last?.id)
             }
         }
     }
 }
 
-struct WorkProgressGroup: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let group: BlockRow.WorkGroup
-    let thread: ThreadModel
-    let openMedia: ((TranscriptRow) -> Void)?
-    let openMessage: ((TranscriptRow) -> Void)?
-    @State private var expanded = false
+private struct LogRowView: View {
+    let row: BlockRow.LogRow
+    let source: LogSource
+    let live: Bool
     var body: some View {
-        if group.single {
-            if let item = thread.items[group.id] {
-                ItemRowView(item: item, openMedia: openMedia, openMessage: openMessage, workEnded: !group.running)
-            }
-        } else {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { expanded.toggle() } } label: {
-                    HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
-                        Group {
-                            if group.running, let active = thread.items[group.active] {
-                                RunningStepLine(item: active, fallback: group.label)
-                            } else {
-                                Text(group.label).lineLimit(2).multilineTextAlignment(.leading)
-                            }
-                        }
-                        .shimmer(group.running)
-                        Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                            .rotationEffect(.degrees(expanded ? 90 : 0))
-                            .foregroundStyle(AceTheme.Colours.subtleForeground)
-                        Spacer(minLength: AceTheme.Spacing.none)
-                    }
-                    .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain).accessibilityValue(expanded ? "Expanded" : "Collapsed")
-                .accessibilityIdentifier("work.group.\(group.id)")
-                if expanded {
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                        ForEach(group.items, id: \.self) { id in
-                            if let item = thread.items[id] { ItemRowView(item: item, openMedia: openMedia, openMessage: openMessage) }
-                        }
-                    }
-                }
-            }
+        switch row.kind {
+        case "group": LogGroupView(row: row, source: source, live: live)
+        case "thought": LogStep(id: row.id, source: source)
+        case "background": BackgroundStep(row: row, source: source)
+        default: LogStep(id: row.id, source: source)
         }
     }
 }
 
-private struct RunningStepLine: View {
+/// One step of a log by id: the live item when the thread holds it, else the daemon's copy.
+struct LogStep: View {
+    let id: String
+    let source: LogSource
+    var body: some View {
+        if let item = source.thread.items[id] {
+            LiveLogStep(item: item, source: source)
+        } else if let row = source.fetched[id] {
+            LogStepContent(row: row, source: source)
+        }
+    }
+}
+
+private struct LiveLogStep: View {
     @Bindable var item: ItemModel
-    let fallback: String
+    let source: LogSource
+    var body: some View { LogStepContent(row: item.row, source: source) }
+}
+
+private struct LogStepContent: View {
+    let row: TranscriptRow
+    let source: LogSource
     var body: some View {
-        if item.row.type == "reasoning" {
-            Text("Thinking…")
-        } else if let step = item.row.step {
-            Text([step.verb, step.target].filter { !$0.isEmpty }.joined(separator: " ")).lineLimit(1).truncationMode(.middle)
-        } else {
-            Text(fallback.isEmpty ? "Working" : fallback).lineLimit(1)
+        switch row.type {
+        case "message":
+            MarkdownView(text: row.text).stepNarration(true)
+        case "reasoning":
+            ReasoningRow(row: row, thought: source.thoughts[row.id], thread: source.thread, openMessage: source.openMessage)
+        case "html", "image":
+            if let openMedia = source.openMedia {
+                QuietLink(icon: row.type == "html" ? .chartBarHorizontal : .image, title: row.text) { openMedia(row) }
+                    .accessibilityIdentifier("media.\(row.id)")
+            } else { VisualizationRow(row: row) }
+        default:
+            if let step = source.ace[row.id] ?? row.step {
+                StepRow(step: step, id: row.id, thread: source.thread, retried: source.retried.contains(row.id))
+            } else {
+                Text(row.text).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+            }
         }
     }
 }
 
-/// The agent's reasoning, folded to one quiet row; it shimmers while the agent still thinks.
-struct ThoughtRow: View {
+/// Consecutive steps as one row: its icon and sentence ("Ran 3 commands · 1 failed"), or while
+/// the turn works the step in flight ("Running `bun run slow` · 2 steps"). It opens in place to
+/// its steps on a rail, and stays open while it holds a step the reader opened.
+private struct LogGroupView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let row: TranscriptRow
-    var openMessage: ((TranscriptRow) -> Void)? = nil
-    var workEnded = false
-    @State private var expanded = false
+    let row: BlockRow.LogRow
+    let source: LogSource
+    let live: Bool
+    private var key: String { "group:\(row.id)" }
+    private var disclosures: Disclosures { source.thread.disclosures }
+    private var open: Bool {
+        disclosures.chosen(key) ?? (row.items ?? []).contains { disclosures.isOpen("step:\($0)") }
+    }
     var body: some View {
-        let settled = row.complete || row.step?.settled == true || workEnded
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { expanded.toggle() } } label: {
-                QuietRow(icon: "brain") {
-                    Text(settled ? "Thought" : "Thinking…").shimmer(!settled)
-                    if !row.text.isEmpty {
-                        Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                            .rotationEffect(.degrees(expanded ? 90 : 0))
-                            .foregroundStyle(AceTheme.Colours.subtleForeground)
+        let running = row.running == true
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            Button {
+                withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { disclosures.set(key, open: !open) }
+            } label: {
+                if live && running, let active = row.active, let item = source.thread.items[active] {
+                    LiveGroupTitle(item: item, step: source.ace[active], count: row.count ?? "", open: open)
+                } else {
+                    LogRowBox(open: open) {
+                        AceIcon(Self.icon(row.icon ?? ""), size: 16, relativeTo: .subheadline)
+                    } title: {
+                        (Text(row.sentence ?? "") + failedText).shimmer(running && live)
                     }
-                    Spacer(minLength: AceTheme.Spacing.none)
                 }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain).disabled(row.text.isEmpty)
-            .accessibilityIdentifier("thought.\(row.id)").accessibilityValue(expanded ? "Expanded" : "Collapsed")
-            if expanded, !row.text.isEmpty {
-                MarkdownView(text: row.text).foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .padding(.leading, AceTheme.Spacing.xxl + AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
-                if row.truncated, let openMessage { Button("Read full thought") { openMessage(row) } }
+            .buttonStyle(.plain)
+            .accessibilityLabel(row.summary ?? row.sentence ?? "")
+            .accessibilityValue(open ? "Expanded" : "Collapsed")
+            .accessibilityIdentifier("work.group.\(row.id)")
+            if open {
+                StepRail { ForEach(row.items ?? [], id: \.self) { LogStep(id: $0, source: source) } }
             }
+        }
+        .railMark(running ? .running : (row.failed ?? 0) > 0 ? .failed : .done)
+    }
+    private var failedText: Text {
+        guard let failed = row.failed, failed > 0 else { return Text("") }
+        return Text(" · \(failed) failed").foregroundStyle(AceTheme.StatusText.failed)
+    }
+    static func icon(_ icon: String) -> AceIcon.Name {
+        switch icon {
+        case "explore", "search": .magnifyingGlass
+        case "mixed": .hammer
+        case "edit": .notePencil
+        case "command", "background": .terminal
+        case "computer": .monitor
+        case "browser": .compass
+        case "fetch", "websearch": .globe
+        case "read": .fileText
+        case "list": .folderSimple
+        case "plan": .listChecks
+        case "spawn", "agent": .robot
+        case "question": .chatTeardropText
+        case "think": .brain
+        default: .plug
+        }
+    }
+}
+
+/// A running group's title: its step in flight and how many steps it holds, or the approval it
+/// waits on.
+private struct LiveGroupTitle: View {
+    @Bindable var item: ItemModel
+    /// ace's own wording of the step, when the log has one.
+    let step: StepLine?
+    let count: String
+    let open: Bool
+    var body: some View {
+        if let step = step ?? item.row.step {
+            LogRowBox(open: open) {
+                StepGlyph(step: step, failed: false)
+            } title: {
+                if step.awaiting == true {
+                    Text("Waiting for your approval")
+                } else {
+                    HStack(spacing: AceTheme.Spacing.none) {
+                        Text([step.verb, step.target].filter { !$0.isEmpty }.joined(separator: " "))
+                            .truncationMode(.middle).shimmer(!step.settled)
+                        if !count.isEmpty {
+                            Text(" · \(count)").foregroundStyle(AceTheme.Colours.subtleForeground).layoutPriority(1)
+                        }
+                    }
+                }
+            }
+        } else if item.row.type == "reasoning" {
+            LogRowBox(open: open) { AceIcon(.brain, size: 16, relativeTo: .subheadline) } title: { Text("Thinking…").shimmer(true) }
+        } else {
+            LogRowBox(open: open) { AceIcon(.hammer, size: 16, relativeTo: .subheadline) } title: { Text("Working").shimmer(true) }
         }
     }
 }

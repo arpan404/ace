@@ -1,3 +1,11 @@
+import {
+  groupIssues,
+  issueQuery,
+  issueSortLabels,
+  type IssuesSearch,
+  type IssuesSort,
+  workKey,
+} from "@ace/ui-core";
 import { useState } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { PencilSimpleIcon, RecordIcon, UserIcon, UsersIcon } from "@phosphor-icons/react";
@@ -5,24 +13,16 @@ import type { ForgeIssueRow } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
-import { WordChoice } from "@/components/ui/word-choice.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { FiltersMenu, type FilterSection } from "./filters-menu.tsx";
 import { IssueRow } from "./issue-row.tsx";
-import {
-  groupIssues,
-  issueQuery,
-  issueSortLabels,
-  type IssuesSearch,
-  type IssuesSort,
-} from "./issues-model.ts";
-import { useLinkedThreads, workKey } from "./linked-threads.ts";
+import { useLinkedThreads } from "./linked-threads.ts";
 import { RowsSkeleton } from "./list-skeletons.tsx";
-import { ListFrame, ToolbarRule } from "./list-frame.tsx";
+import { ListFrame } from "./list-frame.tsx";
 import { useGroupCounts, useIssuePages } from "./lists.ts";
-import { useProjectChoice } from "./project-choice.ts";
+import { projectSection, useProjectChoice, type ProjectChoice } from "./project-choice.ts";
 import { GroupHeader } from "./row-parts.tsx";
 
 const groupIcons = {
@@ -33,6 +33,48 @@ const groupIcons = {
 } as const;
 const unique = (values: readonly string[]) =>
   [...new Set(values)].toSorted((a, b) => a.localeCompare(b));
+
+/**
+ * Who the list concerns, its order and its project, first in the Filters menu: who counts as a
+ * filter that is on; sort and project are the view's settings.
+ */
+function viewSections(
+  search: IssuesSearch,
+  onSearch: (patch: Partial<IssuesSearch>) => void,
+  choice: ProjectChoice,
+): FilterSection[] {
+  const sorts = Object.keys(issueSortLabels) as IssuesSort[];
+  return [
+    {
+      kind: "one",
+      id: "who",
+      label: "Involvement",
+      value: search.who && search.who !== "all" ? search.who : "",
+      choices: [
+        { value: "", label: "Everyone" },
+        { value: "assigned", label: "Assigned" },
+        { value: "created", label: "Created" },
+      ],
+      onChange: (value) =>
+        onSearch({ who: value === "assigned" || value === "created" ? value : undefined }),
+    },
+    {
+      kind: "one",
+      id: "sort",
+      label: "Sort",
+      setting: true,
+      value: search.sort && search.sort !== "updated" ? search.sort : "",
+      choices: sorts.map((value) => ({
+        value: value === "updated" ? "" : value,
+        label: issueSortLabels[value],
+      })),
+      onChange: (value) => onSearch({ sort: sorts.find((key) => key === value) }),
+    },
+    ...projectSection(choice, (project) =>
+      onSearch({ project, labels: undefined, author: undefined }),
+    ),
+  ];
+}
 
 function filterSections(
   search: IssuesSearch,
@@ -113,9 +155,9 @@ export function IssuesPage(props: {
           </Button>
         ) : null
       }
-      controls={
+      menus={
         <>
-          <WordChoice
+          <FilterMenu
             label="State"
             value={search.state ?? "open"}
             options={[
@@ -124,44 +166,12 @@ export function IssuesPage(props: {
             ]}
             onValueChange={(state) => onSearch({ state: state === "open" ? undefined : state })}
           />
-          <ToolbarRule />
-          <WordChoice
-            label="Involvement"
-            value={search.who ?? "all"}
-            options={[
-              { value: "all", label: "Everyone" },
-              { value: "assigned", label: "Assigned" },
-              { value: "created", label: "Created" },
-            ]}
-            onValueChange={(who) => onSearch({ who: who === "all" ? undefined : who })}
-          />
-        </>
-      }
-      menus={
-        <>
-          {project && choice.projects.length > 1 && (
-            <FilterMenu
-              label="Project"
-              value={project}
-              options={choice.projects.map((id) => ({ value: id, label: choice.name(id) }))}
-              onValueChange={(next) => {
-                choice.remember(next);
-                onSearch({ project: next, labels: undefined, author: undefined });
-              }}
-            />
-          )}
-          <FilterMenu
-            label="Sort"
-            value={search.sort ?? "updated"}
-            options={(Object.keys(issueSortLabels) as IssuesSort[]).map((value) => ({
-              value,
-              label: issueSortLabels[value],
-            }))}
-            onValueChange={(next) => onSearch({ sort: next === "updated" ? undefined : next })}
-          />
           <FiltersMenu
-            sections={filterSections(search, list.rows, onSearch)}
-            onClear={() => onSearch({ author: undefined, labels: undefined })}
+            sections={[
+              ...viewSections(search, onSearch, choice),
+              ...filterSections(search, list.rows, onSearch),
+            ]}
+            onClear={() => onSearch({ who: undefined, author: undefined, labels: undefined })}
           />
         </>
       }

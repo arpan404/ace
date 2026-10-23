@@ -163,7 +163,16 @@ names; see ADR 0010, "bare tool names".)
   `thread_start` creates an ordinary conversation with a required workspace
   strategy, selection, permission mode and initial text. It has durable caller
   ownership and request deduplication, but no child attachment or result wakeup.
-  `agent_message` adds restart delivery to queue and steer;
+  `agent_message` steers by default for the caller's own descendants: where the
+  provider steers, the message joins the running turn at the next tool boundary.
+  Cursor's steer interrupts the running turn and restarts it with the message
+  (`steeringMode: interrupt-restart`); that is intended and reported as
+  `restarting`. Where the provider can't steer, it runs when the turn ends. Any
+  other thread defaults to queue. The result's `arrival` is read from the
+  engine's own send rule, and a retry of a message that failed, was removed or
+  was replaced is refused. A parent message that fails after the tool returned
+  is reported to the parent as a notice and shown in `agents_status`; one the
+  provider refused unread is kept for the next turn;
   `thread_control` actions `interrupt` and `configure` operate on owned threads.
 
 Schemas remain in `@ace/protocol`. Pages are bounded by encoded bytes as well

@@ -37,7 +37,7 @@ test("the inbox lists unread notifications with why each arrived, and the sideba
   expect(first.textContent).toContain("Review requested");
   expect((await row("Rewrite the install page")).textContent).toContain("Mentioned");
   expect((await row("CI workflow run failed")).textContent).toContain("CI activity");
-  expect(await screen.findByRole("link", { name: "Inbox, 7 unread" })).toBeTruthy();
+  expect(await screen.findByRole("link", { name: /7 unread$/ })).toBeTruthy();
 });
 
 test("opening a pull request from the inbox shows ace's page and marks the notification read", async () => {
@@ -55,7 +55,7 @@ test("opening a pull request from the inbox shows ace's page and marks the notif
       (write) => write.type === "forge.inbox.write" && write.input,
     ),
   ).toContainEqual({ action: "read", id: "9001" });
-  expect(await screen.findByRole("link", { name: "Inbox, 6 unread" })).toBeTruthy();
+  expect(await screen.findByRole("link", { name: /6 unread$/ })).toBeTruthy();
 });
 
 test("Mark done clears a notification, and Unsubscribe stops one and clears it", async () => {
@@ -85,7 +85,7 @@ test("Mark all read in one repository leaves the others unread", async () => {
   await app.open("/inbox?project=ace&repo=github.com/acme/docs-site");
   await waitFor(async () => expect(await rows()).toHaveLength(1));
   await user.click(screen.getByRole("button", { name: "Mark all read" }));
-  expect(await screen.findByRole("link", { name: "Inbox, 6 unread" })).toBeTruthy();
+  expect(await screen.findByRole("link", { name: /6 unread$/ })).toBeTruthy();
 });
 
 test("with a reason chosen, only those notifications show, read ones included in All", async () => {
@@ -115,8 +115,8 @@ const writesOf = (app: ReturnType<typeof withInbox>) =>
   );
 const unreadCount = async () =>
   Number(
-    /Inbox, (\d+) unread/.exec(
-      (await screen.findByRole("link", { name: /^Inbox/ })).getAttribute("aria-label") ?? "",
+    /(\d+) unread/.exec(
+      (await screen.findByRole("link", { name: /^GitHub/ })).getAttribute("aria-label") ?? "",
     )?.[1] ?? 0,
   );
 

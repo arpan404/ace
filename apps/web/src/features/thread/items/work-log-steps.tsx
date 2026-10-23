@@ -1,6 +1,6 @@
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import type { Item, ToolSurface } from "@ace/protocol";
-import { isMeasurementCall, opensAgentPage, type StepText } from "@ace/ui-core";
+import { isMeasurementCall, opensAgentPage, stepOpens, type StepText } from "@ace/ui-core";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
 import { Suspense, useId } from "react";
 import { cn } from "@/lib/cn.ts";
@@ -99,7 +99,7 @@ function StepLine(props: {
   const open = toggled ?? false;
   const panel = useId();
   if (!data || data.awaiting) return null;
-  const expandable = hasStepDetail(data.item);
+  const expandable = stepOpens(data.item);
   return (
     <li className="relative">
       <RailMark state={!data.step.settled ? "running" : data.step.failed ? "failed" : "done"} />
@@ -254,15 +254,4 @@ export function ToolStep(props: React.ComponentProps<typeof ToolStepContent>) {
       <ToolStepContent {...props} />
     </LocalBoundary>
   );
-}
-
-function hasStepDetail(item: Item): boolean {
-  if (item.type !== "tool_call") return item.type === "reasoning" || item.type === "notice";
-  const detail = item.call.detail;
-  if (item.call.error) return true;
-  if (detail.kind === "shell") return !!detail.output;
-  if (detail.kind === "search") return false;
-  if (detail.kind === "web.search" || detail.kind === "web.fetch" || detail.kind === "file.read")
-    return false;
-  return true;
 }

@@ -353,6 +353,9 @@ export async function startEngine(context: ServiceContext): Promise<void> {
         log.log("warn", `Stopping settled thread ${thread} failed`, logError(error))),
   });
   resources.own(() => engine.close());
+  // Turns deferred while maintenance held new work start when it reopens.
+  const stopReopen = context.maintenance?.onReopen(() => engine.admissionReopened());
+  if (stopReopen) resources.own(() => stopReopen());
   // DB recovery orders startup; each projection's kernel process lease separately gates deletion.
   await recoverSkillRoots(engine.ready(), (error) =>
     log.log("warn", "Abandoned skill projection cleanup failed", logError(error)),

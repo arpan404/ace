@@ -1,110 +1,182 @@
 import SwiftUI
 
-/// Subagents launched together, rolled up into one row of their own: overlapping provider marks,
-/// "3 subagents", the bridge's status line ("2 working · 1 done") and, while any branch is still
-/// live, a timer from their launch. Tapping it lists each agent by the state of its whole branch
-/// (a finished agent with a working child reads Working); each opens its own transcript.
+/// A launch's subagents in the transcript, as the web draws them. One subagent is just its row.
+/// Several fold into one quiet row led by their providers' marks (each provider once): "3
+/// subagents", each status count in its tone, how long they have run, a chevron; it opens to
+/// their rows under a hairline. The counts carry the state, so the group never reads done while
+/// any branch works or waits. Every word, state and time is the bridge's.
 struct SubagentGroupView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let agents: BlockRow.Agents
-    /// The block's items: the launches, whose times start the timer.
-    let items: [String]
     let thread: ThreadModel
+    /// The block this group is, so its open state outlives the row's view.
+    let blockId: String
     let open: (BlockRow.Agents.Entry) -> Void
-    var openAll: (() -> Void)? = nil
-    @State private var expanded = false
-    private var live: Bool { agents.entries.contains { ["working", "waiting", "needsYou", "unresponsive"].contains($0.token) } }
-    /// The most pressing branch colours the status dot.
-    private var token: String {
-        for key in ["needsYou", "failed", "unresponsive", "working", "waiting"] where agents.entries.contains(where: { $0.token == key }) { return key }
-        return agents.entries.first?.token ?? "done"
+    private var expanded: Bool { thread.screen.openGroups.contains(blockId) }
+    private func toggle() {
+        if expanded { thread.screen.openGroups.remove(blockId) } else { thread.screen.openGroups.insert(blockId) }
     }
-    private var launched: Double? { items.compactMap { thread.items[$0]?.row.createdAt }.min() }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { expanded.toggle() } } label: { rollup }
-                .buttonStyle(.plain)
-                .accessibilityValue(expanded ? "Expanded" : "Collapsed")
-                .accessibilityIdentifier("subagents.rollup")
-            if expanded {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                    ForEach(agents.entries) { entry in entryRow(entry) }
-                    if let openAll {
-                        Button(action: openAll) {
-                            Text("All agents").aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                                .foregroundStyle(AceTheme.Colours.mutedForeground)
-                                .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget, alignment: .leading)
-                                .contentShape(Rectangle())
-                        }.buttonStyle(.plain).accessibilityIdentifier("subagents.all")
+        if agents.entries.count == 1, let only = agents.entries.first {
+            AgentRow(entry: only, open: open)
+        } else {
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { toggle() } } label: { head }
+                    .buttonStyle(TranscriptRowButtonStyle())
+                    .accessibilityElement(children: .combine)
+                    .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+                    .accessibilityIdentifier("subagents.rollup")
+                if expanded {
+                    VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                        ForEach(agents.entries) { entry in AgentRow(entry: entry, open: open) }
                     }
+                    .padding(.leading, AceTheme.Spacing.lg)
+                    .overlay(alignment: .leading) {
+                        Rectangle().fill(AceTheme.Colours.separator).frame(width: AceTheme.Dimensions.border)
+                            .padding(.leading, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
+                    }
+                    .padding(.top, AceTheme.Spacing.xs)
+                    .transition(.opacity)
                 }
-                .padding(.horizontal, AceTheme.Spacing.md + AceTheme.Spacing.xxs)
-                .overlay(alignment: .top) { Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border) }
             }
         }
-        .background(AceTheme.Colours.secondaryBackground, in: RoundedRectangle(cornerRadius: AceTheme.Radii.group))
     }
 
-    private var rollup: some View {
+    private var head: some View {
         HStack(spacing: AceTheme.Spacing.md) {
-            HStack(spacing: -AceTheme.Spacing.sm) {
-                ForEach(agents.entries.prefix(3)) { entry in
-                    ProviderMark(provider: entry.provider)
-                        .frame(width: AceTheme.Spacing.xxxl - AceTheme.Spacing.xxs, height: AceTheme.Spacing.xxxl - AceTheme.Spacing.xxs)
-                        .background(AceTheme.Colours.fill, in: Circle())
-                        .overlay(Circle().stroke(AceTheme.Colours.secondaryBackground, lineWidth: AceTheme.Spacing.xxs))
-                }
-            }
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(agents.entries.count == 1 ? "1 subagent" : "\(agents.entries.count) subagents")
-                    .aceFont(AceTheme.Typography.body, relativeTo: .body).fontWeight(.semibold)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
-                    Circle().fill(StateStyle.marker(token)).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
-                    Text(agents.status).lineLimit(1)
-                }
-                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
-            Spacer(minLength: AceTheme.Spacing.sm)
-            if live, let launched {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    let seconds = max(1, Int(context.date.timeIntervalSince1970 - launched / 1000))
-                    Text(Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .narrow)))
-                        .monospacedDigit()
-                }
-                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
-            Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
+            if let lead = agents.lead { ProvidersLead(lead: lead) }
+            (Text(agents.title).fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
+             + Text(verbatim: "  ") + counts)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            AgentElapsed(since: agents.since, settled: agents.elapsed)
+            AceIcon(.caretRight, size: 12, relativeTo: .caption)
                 .rotationEffect(.degrees(expanded ? 90 : 0))
                 .foregroundStyle(AceTheme.Colours.subtleForeground)
         }
-        .padding(.horizontal, AceTheme.Spacing.md + AceTheme.Spacing.xxs).padding(.vertical, AceTheme.Spacing.md)
-        .contentShape(Rectangle())
+        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
     }
+    /// "2 working · 1 done", each count in its own tone, after "Last seen: " while stale.
+    private var counts: Text {
+        let parts = agents.counts ?? [BlockRow.Agents.Count(text: agents.status, token: "")]
+        let first = agents.stale ? Text("Last seen: ").foregroundStyle(AceTheme.Colours.mutedForeground) : Text(verbatim: "")
+        return parts.enumerated().reduce(first) { line, part in
+            let separator = part.offset > 0 ? Text(" · ").foregroundStyle(AceTheme.Colours.subtleForeground) : Text(verbatim: "")
+            return line + separator + Text(part.element.text).foregroundStyle(StateStyle.text(part.element.token))
+        }
+        .font(.footnote)
+    }
+}
 
-    private func entryRow(_ entry: BlockRow.Agents.Entry) -> some View {
+/// A group's lead: its providers' marks, plain, each tucked a little under the one before; past
+/// three providers, two marks and "+N". Named for assistive tech.
+struct ProvidersLead: View {
+    let lead: BlockRow.Agents.Lead
+    @ScaledMetric(relativeTo: .caption) private var tuck: CGFloat = 3
+    var body: some View {
+        HStack(spacing: -tuck) {
+            ForEach(Array(lead.providers.enumerated()), id: \.offset) { _, provider in
+                ProviderMark(provider: provider, size: 18)
+                    .padding(AceTheme.Dimensions.border)
+                    .background(AceTheme.Colours.background, in: Circle())
+            }
+            if lead.more > 0 {
+                Text(verbatim: "+\(lead.more)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).fontWeight(.medium)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).monospacedDigit()
+                    .padding(.leading, AceTheme.Spacing.xs + tuck)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(lead.label)
+    }
+}
+
+/// How long an agent (or a group) has run: ticking while it runs and its facts are fresh, else
+/// the settled time the bridge sends; nothing when it sends neither.
+struct AgentElapsed: View {
+    let since: Double?
+    let settled: String
+    var body: some View {
+        Group {
+            if let since {
+                TimelineView(.periodic(from: .now, by: 1)) { context in Text(Elapsed.words(since: since, now: context.date)) }
+            } else if !settled.isEmpty {
+                Text(settled)
+            }
+        }
+        .monospacedDigit()
+        .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+        .foregroundStyle(AceTheme.Colours.subtleForeground)
+        .accessibilityLabel("Elapsed time")
+    }
+}
+
+/// One agent as the web's agent row: its provider's mark, its name and model, its status word in
+/// its tone and how long it ran; under them what it does now (shimmering), found, failed with or
+/// waits on. The whole row opens it; one that needs the person also offers Review.
+struct AgentRow: View {
+    let entry: BlockRow.Agents.Entry
+    let open: (BlockRow.Agents.Entry) -> Void
+    var body: some View {
         Button { open(entry) } label: {
-            HStack(spacing: AceTheme.Spacing.sm) {
-                ProviderMark(provider: entry.provider)
-                Text(entry.title).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-                Spacer(minLength: AceTheme.Spacing.sm)
-                if let symbol = StatusSymbol.name(entry.token) {
-                    Image(systemName: symbol).font(.footnote.weight(.semibold)).foregroundStyle(StateStyle.marker(entry.token))
-                }
-                Text(entry.label).foregroundStyle(StateStyle.text(entry.token))
-                if !entry.threadId.isEmpty || !entry.agentId.isEmpty {
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
+            HStack(alignment: .top, spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {
+                ProviderMark(provider: entry.provider, size: 18).padding(.top, AceTheme.Dimensions.border)
+                VStack(alignment: .leading, spacing: AceTheme.Dimensions.border) {
+                    HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
+                        Text(entry.title).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1).layoutPriority(1)
+                        if !entry.machine.isEmpty { quiet("on \(entry.machine)") }
+                        if !entry.meta.isEmpty { quiet(entry.meta) }
+                        Spacer(minLength: AceTheme.Spacing.xs)
+                        HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
+                            Text(entry.label).foregroundStyle(StateStyle.text(entry.token))
+                            AgentElapsed(since: entry.since, settled: entry.elapsed)
+                        }
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                        .lineLimit(1).fixedSize().layoutPriority(2)
+                    }
+                    if !entry.detail.isEmpty {
+                        HStack(spacing: AceTheme.Spacing.sm) {
+                            Text(entry.detail).lineLimit(1)
+                                .foregroundStyle(entry.detailKind == "failed" ? StateStyle.text("failed") : AceTheme.Colours.mutedForeground)
+                                .shimmer(entry.detailKind == "live")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            if entry.detailKind == "human", opens {
+                                Text("Review").fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
+                                    .padding(.horizontal, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.xxs)
+                                    .background(AceTheme.Colours.fill, in: AceShape.capsule)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    }
                 }
             }
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
+            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+            .padding(.vertical, AceTheme.Spacing.xs + AceTheme.Dimensions.border)
         }
-        .buttonStyle(.plain)
-        .disabled(entry.threadId.isEmpty && entry.agentId.isEmpty)
+        .buttonStyle(TranscriptRowButtonStyle())
         .accessibilityElement(children: .combine)
+        .accessibilityHint(entry.detailKind == "human" ? "Review what it needs" : "")
         .accessibilityIdentifier("subagent.\(entry.title)")
+    }
+    /// It opens its delegated thread or its own lane; one not seen yet opens the agent tree.
+    private var opens: Bool { !entry.threadId.isEmpty || !entry.agentId.isEmpty }
+    private func quiet(_ text: String) -> some View {
+        Text(text).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+            .foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1)
+    }
+}
+
+/// A transcript row you can press: no box at rest, the soft `--active` fill, concentric with its
+/// container, while pressed, a full-width touch target.
+struct TranscriptRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm, alignment: .leading)
+            .padding(.horizontal, AceTheme.Spacing.sm)
+            .aceConcentricBackground(configuration.isPressed ? AceTheme.Colours.fill : .clear, minimum: AceShape.rowRadius)
+            .padding(.horizontal, -AceTheme.Spacing.sm)
+            .contentShape(Rectangle())
     }
 }

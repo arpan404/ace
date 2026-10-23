@@ -38,7 +38,7 @@ A failed or cancelled child is not done. `agents_status` gives a compact snapsho
 
 ## Steer children
 
-- `agent_message` sends follow-up work to a child or a thread you started. `delivery` is `queue` (after its current turn), `steer` (now) or `restart` (interrupt and replace queued input).
+- `agent_message` sends follow-up work to a child, here or on another machine, or a thread you started. `delivery` is `steer` (default for your children: joins its running turn at the next tool boundary; on Cursor it restarts that turn with the message), `queue` (after its current turn; default for other threads) or `restart` (interrupt and replace queued input). The result's `arrival` says what happened: `starting`, `steering`, `restarting`, `queued` (runs when its turn ends), `held` (waits for a limit, a request to the person or a paused queue) or `delivered`. If a message later fails to reach a child, ace tells you in a notice, and `agents_status` shows it.
 - `agent_cancel` stops a child and its descendants. Confirm with `agents_status` or `wait`.
 - `question_answer` answers a question a child asked (it shows under `needs_you`). Permission approvals stay with the person.
 - `ask`, when offered, asks the person a question and waits for the answer. Delegated children get it.

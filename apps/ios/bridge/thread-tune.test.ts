@@ -12,7 +12,7 @@ afterEach(reset);
 
 const model = "simulated-ultra-reasoning-extended-context-demonstration-model";
 type Tune = {
-  efforts: { id: string; label: string }[];
+  efforts: { id: string; label: string; short: string }[];
   effort: string;
   effortReason: string;
   speeds: { speed: string; label: string }[];
@@ -46,6 +46,8 @@ test("a picked effort and speed go out with the next message only, then the pick
     "ultra",
   ]);
   expect(offered.effort).toBe("medium");
+  // The composer chip names the level in brief.
+  expect(offered.efforts.find((effort) => effort.id === "medium")?.short).toBe("Med");
   expect(offered.speeds.map((speed) => speed.speed)).toEqual(["standard", "fast", "ultrafast"]);
   thread.handle({ type: "effort", effort: "high", requestId: "e1" });
   thread.handle({ type: "speed", speed: "fast", requestId: "s1" });

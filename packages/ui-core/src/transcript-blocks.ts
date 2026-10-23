@@ -78,6 +78,8 @@ export type Block =
    * it was started, updated in place and never folded; not a step of the work log.
    */
   | { kind: "started"; key: string; itemId: string }
+  /** Where a fork's copy of the conversation it continues ends: "Forked from <source>". */
+  | { kind: "forked"; key: string; threadId: string }
   /**
    * A request the agent asked the person, where it was asked. A question stands in for the tool
    * call it was asked from (its `ask_user` step, `itemId`) only while it waits on the person;
@@ -1081,7 +1083,7 @@ export function blockItems(block: Block): readonly string[] {
     const shown = block.itemId ?? block.anchorId;
     return shown === undefined ? [] : [shown];
   }
-  if (block.kind === "end") return [];
+  if (block.kind === "end" || block.kind === "forked") return [];
   return [block.itemId];
 }
 

@@ -7,6 +7,7 @@ import { cssWithoutLegacyPolyfills } from "./css-polyfills.ts";
 import { katexWoff2 } from "./katex-woff2.ts";
 import { phosphorWeights } from "./icon-weights.ts";
 import { initialChunk, initialPreloads } from "./initial-preloads.ts";
+import { mermaidChunk } from "./mermaid-chunk.ts";
 import { initialBundle } from "./initial-bundle.ts";
 import { reactPlugins } from "./react-plugins.ts";
 import {
@@ -61,7 +62,10 @@ export default defineConfig(({ mode }) => ({
     rolldownOptions: {
       output: {
         codeSplitting: {
-          groups: [initialChunk(fileURLToPath(new URL("./src/main.tsx", import.meta.url)))],
+          groups: [
+            initialChunk(fileURLToPath(new URL("./src/main.tsx", import.meta.url))),
+            mermaidChunk(),
+          ],
         },
       },
     },

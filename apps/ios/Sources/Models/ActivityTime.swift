@@ -14,4 +14,14 @@ enum ActivityTime {
         style.locale = locale
         return Duration.seconds(whole).formatted(style)
     }
+    /// A row's age at rest: "now" under a minute, then "9m", "2h", "3d"; a week or more is the
+    /// short date.
+    static func age(since start: Date, now: Date, locale: Locale = .current) -> String {
+        if now.timeIntervalSince(start) >= 7 * 86_400 {
+            var style = Date.FormatStyle.dateTime.month(.abbreviated).day()
+            style.locale = locale
+            return start.formatted(style)
+        }
+        return elapsed(since: start, now: now, locale: locale) ?? "now"
+    }
 }

@@ -10,7 +10,7 @@ import {
 } from "@ace/ui-core";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
-import { threadGlyph } from "@/components/status-glyph-state.ts";
+import { threadGlyph } from "@ace/ui-core";
 import { hairlineGrid } from "@/components/ui/rules.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { useNow } from "@/lib/time.ts";

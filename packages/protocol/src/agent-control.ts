@@ -174,6 +174,10 @@ export const DelegationRecord = z.object({
   /** The child model's native effort id the request resolved to; absent keeps the model default. */
   resolvedEffort: z.string().min(1).max(256).optional(),
   resultDelivery: z.enum(["parent", "owner"]).optional(),
+  /** What the parent was last told about a message to this child that didn't go in as sent. */
+  messageNotice: z
+    .object({ text: z.string().max(400), at: Timestamp, commandId: z.string().max(128).optional() })
+    .optional(),
 });
 export type DelegationRecord = z.infer<typeof DelegationRecord>;
 export const ControlThreadInput = z.strictObject({ threadId: ThreadId });
@@ -292,7 +296,7 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     threadId: ThreadId,
     requestId: key,
     text: MessageText,
-    delivery: z.enum(["queue", "steer"]).default("queue"),
+    delivery: z.enum(["queue", "steer"]).optional(),
   }),
   DelegateTaskOperation,
   z.strictObject({
@@ -312,7 +316,8 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     threadId: ThreadId,
     requestId: key,
     text: MessageText,
-    delivery: z.enum(["queue", "steer", "restart"]).default("queue"),
+    /** Omitted: steer for the caller's own descendants, queue for any other thread. */
+    delivery: z.enum(["queue", "steer", "restart"]).optional(),
   }),
   z.strictObject({ op: z.literal("wait"), ...WaitInput }),
   z.strictObject({

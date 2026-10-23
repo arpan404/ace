@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/InheritedItem.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "at": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "itemId": {
+      "$ref": "https://ace.local/protocol/v1/ItemId.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "threadId"
+  ],
+  "type": "object"
+}

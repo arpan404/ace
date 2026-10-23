@@ -3,12 +3,13 @@ import XCTest
 /// Needs a fresh install (so the permission prompt shows) and a fresh spike fixture.
 @MainActor final class NotificationUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
+    private var port: String { ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841" }
 
     func testPermissionAfterFirstThreadThenLiveAlertDeepLinkAndCatchUp() async throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--spike"]
+        app.launchArguments = ["--spike", "--spike-port", port]
         app.launch()
-        XCTAssertTrue(app.buttons["thread.ios-approval"].waitForExistence(timeout: 25))
+        app.revealRow("thread.ios-approval")
         // Asked once the first thread arrives, not at launch.
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let permission = springboard.alerts.buttons["Allow"]
@@ -34,7 +35,7 @@ import XCTest
         attach("catch-up", XCUIScreen.main)
     }
     private func post(_ path: String, _ body: [String: Bool]) async throws {
-        var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:9841/\(path)")))
+        var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/\(path)")))
         request.httpMethod = "POST"
         request.httpBody = try JSONEncoder().encode(body)
         _ = try await URLSession.shared.data(for: request)
@@ -44,7 +45,7 @@ import XCTest
         springboard.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
     }
     private func notify(_ body: [String: String]) async throws {
-        var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:9841/review/notify")))
+        var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/review/notify")))
         request.httpMethod = "POST"
         request.httpBody = try JSONEncoder().encode(body)
         let (_, response) = try await URLSession.shared.data(for: request)

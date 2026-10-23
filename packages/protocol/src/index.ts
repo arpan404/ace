@@ -84,6 +84,7 @@ export {
 
 export * from "./run-client.ts";
 export * from "./agent-control.ts";
+export * from "./message-arrival.ts";
 export * from "./message-limits.ts";
 export * from "./agent-monitor.ts";
 export * from "./machine-calls.ts";

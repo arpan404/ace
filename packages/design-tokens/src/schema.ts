@@ -116,6 +116,12 @@ export const DesignTokensSchema = z
         composer: size,
         sheet: size,
         pill: size,
+        // DESIGN.md's one radius scale (tags 4, small controls 6, rows 8, cards 12, composer 18).
+        xs: size,
+        sm: size,
+        md: size,
+        lg: size,
+        xl: size,
       })
       .readonly(),
     dimensions: z

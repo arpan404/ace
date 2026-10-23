@@ -8,6 +8,7 @@ import {
 import {
   currentModelChoice,
   effortLabel,
+  effortShortLabel,
   followUpTurnOptions,
   modelChoices,
   optionEffort,
@@ -195,9 +196,12 @@ export class TuneFollower {
       const picked = optionEffort(options);
       return {
         type: "thread.tune",
-        efforts: effort.efforts
-          .slice(0, 16)
-          .map((id) => ({ id, label: preview(effortLabel(id), 64) })),
+        efforts: effort.efforts.slice(0, 16).map((id) => ({
+          id,
+          label: preview(effortLabel(id), 64),
+          /** The composer chip's name for it: "Med". */
+          short: preview(effortShortLabel(id), 32),
+        })),
         effort: effort.current ?? "",
         effortDefault: !effort.reported,
         effortReason: preview(effort.reason ?? "", 256),

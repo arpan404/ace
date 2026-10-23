@@ -1,16 +1,24 @@
 import type { ChangeTap, ThreadSource } from "@ace/client";
 import { threadRow, itemRow } from "./presentation.ts";
 import { interactionRow } from "./interaction-rows.ts";
-import { itemDetail } from "./thread-rows.ts";
+import { itemDetail, stepContext } from "./thread-rows.ts";
+import { thoughtOf } from "./thread-messages.ts";
 
 import { PatchPump } from "./patch-pump.ts";
+import type { NativeLedger } from "./native-ledger.ts";
+import { anchoredOffset } from "./anchored-positions.ts";
 export { PatchPump } from "./patch-pump.ts";
 
+/**
+ * `ledger`: what native holds of this thread (bound to the pump for `epoch`). With it, a whole
+ * thread pass (opening, a fresh snapshot) diffs against native's copy instead of resetting it.
+ */
 export function followThread(
   store: ThreadSource,
   threadId: string,
   epoch: number,
   pump: PatchPump,
+  ledger?: NativeLedger,
 ) {
   const prefix = "thread:";
   const positions = new Map<string, number>();
@@ -28,7 +36,11 @@ export function followThread(
         type: "thread.item",
         id,
         row: item
-          ? { ...itemRow(item, positions.get(id), store.truncated(id)), ...itemDetail(item) }
+          ? {
+              ...itemRow(item, positions.get(id), store.truncated(id)),
+              ...itemDetail(item, stepContext(store, item)),
+              thought: thoughtOf(store, item),
+            }
           : null,
       };
     });
@@ -39,24 +51,37 @@ export function followThread(
       return { type: "thread.interaction", id, row: value ? interactionRow(value, store) : null };
     });
   const change: ChangeTap = (keys) => {
+    // Native's kept copy stays on screen until the store has the thread to diff it against.
+    if (keys === "all" && ledger?.held && !store.thread) return;
     if (keys === "all") {
-      pump.clear(prefix);
       positions.clear();
-      put("reset", () => ({ type: "thread.reset" }));
+      if (!ledger?.begin()) {
+        pump.clear(prefix);
+        put("reset", () => ({ type: "thread.reset" }));
+      }
       // Stable snapshot order, in bounded chunks. Streaming changes touch only their row.
       store.order.forEach((id, index) => row(id, index));
       for (const id of store.interactionIds()) interaction(id);
     } else {
       if (keys.has("order")) {
+        // A thought ends where what follows it begins: its header reads that item.
+        const thought = (index: number) => {
+          const id = store.order[index - 1];
+          if (id !== undefined && store.item(id)?.type === "reasoning") row(id);
+        };
         const retained = new Set(store.order);
+        const offset = anchoredOffset(positions, store.order);
         for (const id of positions.keys())
           if (!retained.has(id)) {
             positions.delete(id);
             row(id);
           }
-        store.order.forEach((id, index) => {
-          if (!positions.has(id)) row(id, index);
-          else if (positions.get(id) !== index) {
+        store.order.forEach((id, at) => {
+          const index = at - offset;
+          if (!positions.has(id)) {
+            row(id, index);
+            thought(at);
+          } else if (positions.get(id) !== index) {
             positions.set(id, index);
             put(`position:${id}`, () => ({
               type: "thread.position",
@@ -68,7 +93,17 @@ export function followThread(
       }
       for (const key of keys) {
         if (key.startsWith("item:")) row(key.slice(5));
-        if (key.startsWith("interaction:")) interaction(key.slice(12));
+        // A turn's end times its last thought.
+        if (key.startsWith("run:")) {
+          const last = store.order.at(-1);
+          if (last !== undefined && store.item(last)?.type === "reasoning") row(last);
+        }
+        if (key.startsWith("interaction:")) {
+          interaction(key.slice(12));
+          // The approval reads on its step ("Approved by you"): the step's row changes too.
+          const call = store.interaction(key.slice(12))?.toolCallId;
+          if (call && store.item(call)) row(call);
+        }
       }
     }
     if (keys !== "all" && keys.has("error") && store.error)

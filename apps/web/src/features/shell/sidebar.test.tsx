@@ -159,8 +159,8 @@ test("the sidebar shows a plain ace label and profile connection actions", async
   await userEvent.click(within(account).getByRole("menuitem", { name: "Usage" }));
   await title("Usage");
   expect(list("Threads")).toBeTruthy();
-  // Pull requests is its own row over the profile, not in the menu.
-  await userEvent.click(await screen.findByRole("link", { name: /^Pull requests/ }));
+  // GitHub is its own button beside Settings, not in the menu; it opens Pull requests first.
+  await userEvent.click(await screen.findByRole("link", { name: /^GitHub/ }));
   await title("Pull requests");
 });
 

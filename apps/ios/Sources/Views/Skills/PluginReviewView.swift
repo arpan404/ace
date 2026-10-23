@@ -10,15 +10,19 @@ struct PluginInstallView: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Git repository", text: $repository).textInputAutocapitalization(.never).autocorrectionDisabled()
-                TextField("Branch or commit", text: $ref).textInputAutocapitalization(.never).autocorrectionDisabled()
-                TextField("Plugin name", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled()
-                Button("Review installation") {
-                    review = PluginReviewRequest(operation: ["type": "plugins.prepare", "repository": repository, "ref": ref, "name": name])
-                }.disabled(repository.isEmpty || ref.isEmpty || name.isEmpty || !model.canOperate)
-                Text("Review what the plugin runs before installing it on your machine.")
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                Group {
+                    TextField("Git repository", text: $repository).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TextField("Branch or commit", text: $ref).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TextField("Plugin name", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    Button("Review installation") {
+                        review = PluginReviewRequest(operation: ["type": "plugins.prepare", "repository": repository, "ref": ref, "name": name])
+                    }.disabled(repository.isEmpty || ref.isEmpty || name.isEmpty || !model.canOperate)
+                    Text("Review what the plugin runs before installing it on your machine.")
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                }
+                .insetRowBackground()
             }
+            .insetGroupedList()
             .navigationTitle("Install plugin").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
             .sheet(item: $review) { PluginReviewView(model: model, request: $0, installed: { dismiss() }) }
@@ -40,28 +44,32 @@ struct PluginReviewView: View {
     var body: some View {
         NavigationStack {
             List {
-                if let review {
-                    Section("Plugin") {
-                        LabeledContent("Name", value: review.name)
-                        LabeledContent("Version", value: review.version)
-                        LabeledContent("Commit", value: review.commit).textSelection(.enabled)
-                        LabeledContent("Content hash", value: review.hash).textSelection(.enabled)
+                Group {
+                    if let review {
+                        Section {
+                            LabeledContent("Name", value: review.name)
+                            LabeledContent("Version", value: review.version)
+                            LabeledContent("Commit", value: review.commit).textSelection(.enabled)
+                            LabeledContent("Content hash", value: review.hash).textSelection(.enabled)
+                        } header: { InsetHeader("Plugin") }
+                        Section {
+                            ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                                Text(pluginReviewText(entry)).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote).textSelection(.enabled)
+                            }
+                            if complete && entries.isEmpty { Text("No hooks or MCP servers declared.") }
+                        } header: { InsetHeader("What it runs") }
+                        Section {
+                            Button("Accept and install") { accept() }.disabled(!complete || busy || !model.canOperate)
+                                .accessibilityIdentifier("plugins.accept")
+                        } footer: { Text("Only accept code and endpoints you trust. Installation uses the exact commit and hash shown above.") }
                     }
-                    Section("What it runs") {
-                        ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
-                            Text(pluginReviewText(entry)).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote).textSelection(.enabled)
-                        }
-                        if complete && entries.isEmpty { Text("No hooks or MCP servers declared.") }
-                    }
-                    Section {
-                        Button("Accept and install") { accept() }.disabled(!complete || busy || !model.canOperate)
-                            .accessibilityIdentifier("plugins.accept")
-                    } footer: { Text("Only accept code and endpoints you trust. Installation uses the exact commit and hash shown above.") }
+                    if busy || (review == nil && problem == nil) { ProgressView("Reading review…") }
+                    ServiceProblem(message: problem)
+                    if problem != nil { Text("Close and retry from Skills. Pending reviews remain available there.") }
                 }
-                if busy || (review == nil && problem == nil) { ProgressView("Reading review…") }
-                ServiceProblem(message: problem)
-                if problem != nil { Text("Close and retry from Skills. Pending reviews remain available there.") }
+                .insetRowBackground()
             }
+            .insetGroupedList()
             .navigationTitle("Review plugin").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(busy) } }
         }

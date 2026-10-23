@@ -31,9 +31,10 @@ and binds its run (ADR 0065, 2026-10-17 amendment).
 The commit before provider I/O is the claim boundary. Exactly-once external
 delivery cannot be promised across a crash. Unacknowledged claimed messages
 become uncertain and stay visible; they are never replayed automatically.
-Unclaimed messages keep their order and wait for explicit resume after restart. ace
-never continues interrupted work by itself (the former `threads.continueAfterRestart`
-setting is gone); the person's Resume, or their next message, carries on. A persisted continuation counts
+Unclaimed messages keep their order. Work a daemon restart cut short continues by itself
+once, under the rules of [ADR 0098](0098-resume-after-restart.md); everything else held after
+a restart waits for the person's Resume or next message (the former
+`threads.continueAfterRestart` setting is gone). A persisted continuation counts
 as queued engine work even when no user messages remain; its thread waits on
 queue until resumed. Paginated reads use revision-checked command-ID cursors.
 New admissions are bounded; older stored input shapes remain readable.
@@ -286,10 +287,20 @@ child counts the same), now also resumes each of its running delegated children 
 `restart` reason, and each thread its agents opened with `thread_start` that the restart held.
 Each resume goes through the same path, so grandchildren follow.
 A child the person stopped keeps its stop, and a child with uncertain delivery stays held for
-review. ace still never continues interrupted work by itself: only the person's action on the
-tree carries it on.
+review. Beyond the work [ADR 0098](0098-resume-after-restart.md) continues by itself, only the
+person's action on the tree carries held work on.
 
 Work that stays held no longer blocks a parent either. A watched thread whose queue is held for
 the person (the sidebar's attention rule: a restart, uncertain delivery, unsent message, Stop or
 pause with messages waiting) reads as `needs_you`, so the parent's `wait` returns at once, and
-the thread's step says what the person must do to release it.
+the thread's step says what the person must do to release it. A thread whose resume is already
+in flight (ace's own restart continuation, or a Resume the person just sent) is not held for
+the person and reads as working.
+
+## Amendment 2026-10-22: a restart continues the work it cut short
+
+[ADR 0098](0098-resume-after-restart.md) replaces "nothing starts by itself after a restart" for
+one case: a thread whose provider work was live when ace stopped continues by itself with one
+restart continuation, ahead of its queued messages. Turns waiting on the person, stopped or held
+threads, uncertain input, providers that can't resume and turns interrupted three restarts in a
+row still wait for the person. A provider that dies while ace keeps running still holds.

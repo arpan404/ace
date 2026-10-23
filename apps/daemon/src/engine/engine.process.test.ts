@@ -126,7 +126,11 @@ test("a snapshot write failure rolls back the events and client publication toge
   const recoveryStore = new Store(h.path);
   const recovery = new Engine(recoveryStore, { registry: h.registry, clock: h.clock });
   await recovery.flush();
-  expect(recoveryStore.getThread(id)?.status).toEqual({ state: "waiting", on: "queue" });
+  // The rolled-back turn end never happened: the turn reads as cut short and continues.
+  expect(
+    Object.values(recoveryStore.snapshotThread(id).runs).some((run) => run.trigger === "restart"),
+  ).toBe(true);
+  expect(recoveryStore.getThread(id)?.status.state).toBe("working");
   await recovery.close();
   recoveryStore.close();
   stop();

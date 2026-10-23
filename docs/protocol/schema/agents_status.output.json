@@ -50,9 +50,18 @@
                     "maximum": 9007199254740991,
                     "type": "integer"
                   },
+                  "notice": {
+                    "maxLength": 400,
+                    "type": "string"
+                  },
                   "parent": {
                     "minLength": 1,
                     "type": "string"
+                  },
+                  "queued": {
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                    "type": "integer"
                   },
                   "role": {
                     "maxLength": 40,

@@ -58,10 +58,12 @@ export function remoteRuntime(
     return next;
   };
   const retire = async () => {
+    // Links name the address and key being replaced. Starting or stopping the daemon replaces
+    // nothing, so links issued before a restart stay valid until they expire.
+    if (!closed && (connection || listener || relay)) auth.clearPending();
     connection = undefined;
     directTransport = "local";
     disconnect();
-    auth.clearPending();
     trusted?.stop();
     trusted = undefined;
     await relay?.close();

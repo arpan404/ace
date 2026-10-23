@@ -1,10 +1,11 @@
 import SwiftUI
 
-/// One glass capsule: + · the message · the model · send. When the message wraps it grows into a
-/// card with the controls on a row below. While the agent works an empty composer's button stops
-/// the whole tree; a typed message goes the way the bridge says (steer or queue), and a long press
-/// offers the other delivery where the provider can steer. The model opens the model list.
-struct ComposerView<Leading: View, Trailing: View>: View {
+/// The thread's composer on the dock's glass at `rounded-xl`: + · the message · the model chip ·
+/// round Send. When the message wraps, the input takes its own rows and the controls sit on a row
+/// below. While the agent works an empty composer's round button stops the whole tree; a typed
+/// message goes the way the bridge says (steer or queue), and a long press offers the other
+/// delivery where the provider can steer. Files on the next message sit above the input.
+struct ComposerView<Top: View, Leading: View, Trailing: View>: View {
     let controls: ControlsRow?
     let stopping: Bool
     let placeholder: String
@@ -15,23 +16,29 @@ struct ComposerView<Leading: View, Trailing: View>: View {
     var mention: ComposerMention? = nil
     /// Files on the next message: with any, the message can go without words.
     var files = 0
+    /// Where this composer's unsent words are kept (`ThreadDrafts.key`); nil keeps them only on screen.
+    var draftKey: String? = nil
+    @ViewBuilder var top: () -> Top
     @ViewBuilder var leading: () -> Leading
     @ViewBuilder var trailing: () -> Trailing
     @State private var draft = ComposerDraft()
     @State private var feedback = 0
     @State private var wraps = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.threadDrafts) private var drafts
+    @Environment(\.scenePhase) private var scenePhase
     private var empty: Bool { files == 0 && draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var stops: Bool { empty && controls?.busy == true && controls?.canStop == true }
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            HStack(spacing: AceTheme.Spacing.xxs) {
+            top()
+            HStack(spacing: AceTheme.Spacing.none) {
                 if !wraps { leading() }
                 input
                 if !wraps { trailing(); action }
             }
             if wraps {
-                HStack(spacing: AceTheme.Spacing.xxs) {
+                HStack(spacing: AceTheme.Spacing.none) {
                     leading()
                     Spacer(minLength: AceTheme.Spacing.sm)
                     trailing()
@@ -39,15 +46,16 @@ struct ComposerView<Leading: View, Trailing: View>: View {
                 }
             }
         }
-        .padding(.leading, wraps ? AceTheme.Spacing.xs : AceTheme.Spacing.xxs)
-        .padding(.trailing, AceTheme.Spacing.xxs)
-        .padding(.vertical, wraps ? AceTheme.Spacing.xs : AceTheme.Spacing.xxs)
-        .frame(minHeight: AceTheme.Dimensions.touchTarget + AceTheme.Spacing.sm)
-        .aceGlass(in: RoundedRectangle(cornerRadius: wraps ? AceTheme.Radii.composer : (AceTheme.Dimensions.touchTarget + AceTheme.Spacing.sm) / 2, style: .continuous))
+        .padding(.horizontal, AceTheme.Spacing.xs)
+        .padding(.vertical, AceTheme.Spacing.xxs)
+        .frame(minHeight: AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xs)
+        .modifier(ComposerFrame())
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: wraps)
         .sensoryFeedback(.impact(weight: .light), trigger: feedback)
         .onChange(of: mention) { _, picked in if let picked { draft.text = Mention.insert(picked.path, into: draft.text) } }
-        .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.sm)
+        .onChange(of: draftKey, initial: true) { _, key in draft.follow(key, in: drafts) }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { draft.flush() } }
+        .onDisappear { draft.flush() }
     }
     private var input: some View {
         NativeTextInput(text: $draft.text, inputBegan: inputBegan, submit: { if !disabled && !stops { submit(alternate: false) } },
@@ -71,7 +79,7 @@ struct ComposerView<Leading: View, Trailing: View>: View {
         }
         .contextMenu {
             if !empty, let alternate = controls?.alternate {
-                Button(alternate == "steer" ? "Steer now" : "Queue for after this turn", systemImage: alternate == "steer" ? "arrow.turn.down.right" : "text.line.last.and.arrowtriangle.forward") { submit(alternate: true) }
+                Button(alternate == "steer" ? "Steer now" : "Queue for after this turn", ace: alternate == "steer" ? .arrowElbowDownRight : .queue) { submit(alternate: true) }
             }
         }
         .accessibilityIdentifier("composer.send")

@@ -1,5 +1,50 @@
 {
   "$id": "https://ace.local/protocol/v1/agent_message.output.json",
-  "$ref": "https://ace.local/protocol/v1/agent_cancel.output.json",
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "enum": [
+        "unsupported",
+        "forbidden",
+        "not_found",
+        "limit",
+        "not_ready",
+        "invalid",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "data": {
+      "additionalProperties": {},
+      "properties": {
+        "arrival": {
+          "enum": [
+            "starting",
+            "steering",
+            "restarting",
+            "queued",
+            "held",
+            "delivered"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "arrival"
+      ],
+      "type": "object"
+    },
+    "hint": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "type": "object"
 }

@@ -90,40 +90,58 @@ async function openMerge() {
   return screen.findByRole("dialog", { name: "Bring back to parent" });
 }
 
-test("a fork runs on the model picked before its first message and links back to its parent", async () => {
+const transcript = () => within(screen.getByRole("feed", { name: "Transcript" }));
+/** The transcript's "Forked from <source>" divider. */
+async function forkMarker() {
+  const notes = await transcript().findAllByRole("note");
+  const marker = notes.find((note) => note.textContent?.startsWith("Forked from"));
+  if (!marker) throw new Error("No Forked from divider");
+  return marker;
+}
+
+test("a fork runs on the model picked before its first message, and the source keeps its own state", async () => {
   const { app, child } = await fork();
   expect(child.provider).toBe("codex");
   expect(child.execution?.model).toBe("gpt-5-codex");
   expect(child.execution?.instanceId).toBe("codex-personal");
   expect(await screen.findByRole("button", { name: /^Model: GPT-5 Codex/ })).toBeTruthy();
-  const parent = await banner().findByRole("link", { name: "Document the router" });
-  await userEvent.click(parent);
-  await screen.findByRole("heading", { level: 1, name: "Document the router" });
-  expect(banner().queryByRole("link", { name: "Document the router (fork)" })).toBeNull();
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-router") });
   expect(view?.kind === "thread" && view.thread.status.state).toBe("done");
 });
 
-test("a thread's header names its project before the title, and a fork's names its parent, a link to it", async () => {
+test("a fork's transcript shows the conversation it continues, then where it was forked from, then its own", async () => {
   await fork();
-  const parent = await banner().findByRole("link", { name: "Document the router" });
-  const forkTitle = banner().getByRole("heading", { level: 1, name: "Document the router (fork)" });
-  expect(precedes(parent, forkTitle)).toBe(true);
-  expect(banner().queryByText("docs-site")).toBeNull();
+  const feed = transcript();
+  const ask = await feed.findByText("Question 1: what does route 1 render?");
+  const answer = feed.getByText("Answer 2: route 2 renders its own panel.");
+  const marker = await forkMarker();
+  const source = within(marker).getByRole("link", { name: "Document the router" });
+  expect(marker.textContent).toContain("Forked from");
+  const own = feed.getByText("Try the simpler approach");
+  expect(precedes(ask, answer) && precedes(answer, marker) && precedes(marker, own)).toBe(true);
+  // Each copied message shows once.
+  expect(feed.getAllByText("Question 2: what does route 2 render?")).toHaveLength(1);
+  await userEvent.click(source);
+  await screen.findByRole("heading", { level: 1, name: "Document the router" });
+});
 
-  await userEvent.click(parent);
-  const title = await banner().findByRole("heading", { level: 1, name: "Document the router" });
-  const project = await banner().findByText("docs-site");
-  expect(precedes(project, title)).toBe(true);
+test("a fork's header names its project like any thread, never the thread it came from", async () => {
+  await fork();
+  const forkTitle = await banner().findByRole("heading", {
+    level: 1,
+    name: "Document the router (fork)",
+  });
+  const project = banner().getByText("docs-site");
+  expect(precedes(project, forkTitle)).toBe(true);
   expect(banner().queryByRole("link", { name: "Document the router" })).toBeNull();
 });
 
-test("a fork's details card shows its parent under Agents and opens it; the parent has none", async () => {
+test("a fork is no one's agent: neither it nor its source lists the other under Agents", async () => {
   await fork();
-  const card = await openWorkCard();
-  const lineage = within(card).getByRole("region", { name: "Agents" });
+  expect(within(await openWorkCard()).queryByRole("region", { name: "Agents" })).toBeNull();
+  await userEvent.keyboard("{Escape}");
   await userEvent.click(
-    within(lineage).getByRole("button", { name: /^Open parent Document the router\b/ }),
+    within(await forkMarker()).getByRole("link", { name: "Document the router" }),
   );
   await screen.findByRole("heading", { level: 1, name: "Document the router" });
   expect(within(await openWorkCard()).queryByRole("region", { name: "Agents" })).toBeNull();
