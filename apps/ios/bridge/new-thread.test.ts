@@ -326,23 +326,27 @@ test("a first message of only files starts the thread; one with nothing is refus
   });
 });
 
-test("the picker leads with the model in use and keeps the rest of a long list behind More", async () => {
+test("the picker keeps its order when a model is picked and leaves out CLIs not installed", async () => {
   const compose = await connect(fixture());
   const agents = await readyAgents(compose);
   type Row = { provider: string; models: { key: string; account: string }[]; lead: number };
-  const codex = (agents.providers as Row[]).find((row) => row.provider === "codex");
+  const rows = agents.providers as Row[];
+  expect(rows.some((row) => row.provider === "antigravity")).toBe(false);
+  const codex = rows.find((row) => row.provider === "codex");
   expect(codex && codex.lead).toBeGreaterThan(0);
   expect(codex && codex.lead).toBeLessThanOrEqual(codex?.models.length ?? 0);
   const last = codex?.models.at(-1);
   expect(codex?.models[0]?.key).not.toBe(last?.key);
   compose.compose({ kind: "choice", provider: "codex", model: last?.key, account: last?.account });
-  const reordered = await until(() => {
+  const afterPick = await until(() => {
     const row = (latest("compose.agents")?.providers as Row[] | undefined)?.find(
       (entry) => entry.provider === "codex",
     );
-    return row?.models[0]?.key === last?.key && row;
+    return row?.lead === row?.models.length && row;
   });
-  expect(reordered.models).toHaveLength(codex?.models.length ?? 0);
+  expect(afterPick.models.map((model) => model.key)).toEqual(
+    codex?.models.map((model) => model.key),
+  );
 });
 
 test("access the provider can't express is never loosened: Send waits with the reason", async () => {

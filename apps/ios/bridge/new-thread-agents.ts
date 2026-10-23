@@ -1,5 +1,6 @@
 import {
   newThreadModelList,
+  newThreadPickerAgents,
   selectNewThreadAgent,
   type NewThreadAgents,
   type NewThreadChoice,
@@ -7,9 +8,10 @@ import {
 import type { Preview } from "./agents.ts";
 
 /*
- * New thread's `compose.agents` patch: every coding agent with its readiness and reason, and its
- * models in the picker's order (`newThreadModelList`): the one the draft has chosen, else each
- * account's default, first, with `lead` rows before "More models". Bounded for the bridge frame.
+ * New thread's `compose.agents` patch: every coding agent on the computer with its readiness and
+ * reason (`newThreadPickerAgents`), and its models in the picker's order (`newThreadModelList`):
+ * each account's default first, with `lead` rows before "More models". Bounded for the bridge
+ * frame.
  */
 
 export function agentsPatch(agents: NewThreadAgents, choice: NewThreadChoice, preview: Preview) {
@@ -18,7 +20,7 @@ export function agentsPatch(agents: NewThreadAgents, choice: NewThreadChoice, pr
   return {
     type: "compose.agents",
     state: "ready",
-    providers: agents.providers.map((row) => {
+    providers: newThreadPickerAgents(agents.providers, choice.provider).map((row) => {
       const inUse =
         current.ok && current.provider === row.provider
           ? { key: current.model.key, account: current.model.account }

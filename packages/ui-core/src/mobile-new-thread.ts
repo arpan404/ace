@@ -46,6 +46,8 @@ export interface NewThreadProviderRow {
   name: string;
   /** A thread can start on it now. */
   ready: boolean;
+  /** Its CLI is on the computer, ready or not. */
+  installed: boolean;
   status: StatusDisplay;
   /** Why it can't be picked, in words; absent when it can. */
   reason: string | undefined;
@@ -116,6 +118,7 @@ export function newThreadAgents(input: {
       provider: row.provider,
       name: providerDisplayName(row.provider),
       ready,
+      installed: state !== "not_installed",
       status: {
         label: ready ? "Ready" : label,
         token: ready ? "done" : (tokens[state] ?? "neutral"),
@@ -199,29 +202,41 @@ export function selectNewThreadAgent(
 export const leadingModels = 4;
 
 /**
- * One agent's models as the picker lists them: the one in use (else the account's default)
- * first, then the other current models in the catalog's order, then legacy ones. `lead` rows
- * show at once and the rest wait behind "More models"; a list barely longer than that shows
- * whole. The model in use always shows, even when it is legacy.
+ * One agent's models as the picker lists them: the account's default first, then the other
+ * current models in the catalog's order, then legacy ones. The order never depends on the pick,
+ * so choosing a model doesn't move the rows. `lead` rows show at once and the rest wait behind
+ * "More models"; a list barely longer than that shows whole, and the lead always reaches the
+ * model in use, even when it is legacy.
  */
 export function newThreadModelList(
   models: readonly NewThreadModelRow[],
   current: { key: string; account?: string | undefined } | undefined,
 ): { models: NewThreadModelRow[]; lead: number } {
-  const isCurrent = (row: NewThreadModelRow) =>
-    !!current && row.key === current.key && (!current.account || row.account === current.account);
-  const picked = models.find(isCurrent);
-  const rest = models.filter((row) => row !== picked);
-  const defaults = rest.filter((row) => row.isDefault && !row.legacy);
-  const others = rest.filter((row) => !row.isDefault && !row.legacy);
-  const legacy = rest.filter((row) => row.legacy);
-  const ordered = [...(picked ? [picked] : []), ...defaults, ...others, ...legacy];
-  const nonLegacy = ordered.length - legacy.length + (picked?.legacy ? 1 : 0);
+  const defaults = models.filter((row) => row.isDefault && !row.legacy);
+  const others = models.filter((row) => !row.isDefault && !row.legacy);
+  const legacy = models.filter((row) => row.legacy);
+  const ordered = [...defaults, ...others, ...legacy];
+  const inUse = ordered.findIndex(
+    (row) =>
+      !!current && row.key === current.key && (!current.account || row.account === current.account),
+  );
+  const nonLegacy = ordered.length - legacy.length;
   const lead =
     ordered.length <= leadingModels + 1
       ? ordered.length
-      : Math.max(1, Math.min(leadingModels, nonLegacy));
+      : Math.max(1, Math.min(leadingModels, nonLegacy), inUse + 1);
   return { models: ordered, lead };
+}
+
+/**
+ * The agents the model picker offers: a CLI that isn't on the computer is left out, unless the
+ * draft already names it; a signed-out or limited one stays so the picker can say why.
+ */
+export function newThreadPickerAgents(
+  providers: readonly NewThreadProviderRow[],
+  keep: string | undefined,
+): NewThreadProviderRow[] {
+  return providers.filter((row) => row.installed || row.provider === keep);
 }
 
 export interface NewThreadProject {

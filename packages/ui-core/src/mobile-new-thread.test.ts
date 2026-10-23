@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import {
   newThreadAgents,
   newThreadModelList,
+  newThreadPickerAgents,
   newThreadProjects,
   selectNewThreadAgent,
   type NewThreadModelRow,
@@ -70,6 +71,19 @@ test("a signed-out or missing CLI is listed but can't start a thread, and says w
     ["antigravity", false, "Not installed on this computer"],
   ]);
   expect(rows[0]?.models.map((entry) => entry.label)).toEqual(["Opus", "Sonnet"]);
+});
+
+test("the picker leaves out a CLI that isn't on the computer unless the draft names it", () => {
+  const rows = agents().providers;
+  expect(newThreadPickerAgents(rows, undefined).map((entry) => entry.provider)).toEqual([
+    "claude",
+    "codex",
+  ]);
+  expect(newThreadPickerAgents(rows, "antigravity").map((entry) => entry.provider)).toEqual([
+    "claude",
+    "codex",
+    "antigravity",
+  ]);
 });
 
 test("choosing an unready agent is refused with its reason instead of starting elsewhere", () => {
@@ -173,7 +187,9 @@ test("an agent's long model list leads with the default and keeps the rest behin
   expect(list.lead).toBe(4);
 });
 
-test("the model in use comes first and shows even when it is legacy", () => {
+const order = (list: { models: NewThreadModelRow[] }) => list.models.map((entry) => entry.label);
+
+test("picking a model never reorders the list, and the lead reaches the model in use", () => {
   const models = [
     listed("A"),
     listed("B"),
@@ -182,11 +198,12 @@ test("the model in use comes first and shows even when it is legacy", () => {
     listed("D"),
     listed("Old", { legacy: true }),
   ];
-  const list = newThreadModelList(models, { key: "Old", account: "work" });
-  expect(list.models.slice(0, 2).map((entry) => entry.label)).toEqual(["Old", "Default"]);
-  expect(list.lead).toBeGreaterThanOrEqual(1);
-  const other = newThreadModelList(models, { key: "Old", account: "personal" });
-  expect(other.models[0]?.label).toBe("Default");
+  const none = newThreadModelList(models, undefined);
+  const inUse = newThreadModelList(models, { key: "Old", account: "work" });
+  expect(order(inUse)).toEqual(order(none));
+  expect(order(inUse).slice(0, inUse.lead)).toContain("Old");
+  const elsewhere = newThreadModelList(models, { key: "Old", account: "personal" });
+  expect(order(elsewhere).slice(0, elsewhere.lead)).not.toContain("Old");
 });
 
 test("a list barely longer than the lead shows whole", () => {
