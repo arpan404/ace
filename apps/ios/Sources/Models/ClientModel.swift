@@ -148,11 +148,12 @@ import QuartzCore
     /// Applies one decoded frame; nil is a frame that could not be read.
     func accept(_ patches: [BridgePatch]?, bytes: Int) -> Bool {
         let began = CACurrentMediaTime()
-        let patchesBefore = patchCount
+        let patchesBefore = patchCount, updatesBefore = streamedUpdates
         let signpost = ThreadOpenTrace.signposter.beginInterval("bridge.frame")
         defer {
             ThreadOpenTrace.signposter.endInterval("bridge.frame", signpost)
-            ThreadOpenTrace.shared.frame(bytes: bytes, patches: patchCount - patchesBefore, seconds: CACurrentMediaTime() - began)
+            ThreadOpenTrace.shared.frame(bytes: bytes, patches: patchCount - patchesBefore, rowUpdates: streamedUpdates - updatesBefore,
+                                         inboxRows: inbox.count, seconds: CACurrentMediaTime() - began)
         }
         largestFrame = max(largestFrame, bytes)
         if patchCount == 0 { LaunchTrace.mark("bridge.firstFrame") }

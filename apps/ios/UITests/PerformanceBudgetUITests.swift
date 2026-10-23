@@ -31,13 +31,17 @@ import XCTest
     func testBusyInboxSendsOnlyTheRowsThatChange() throws {
         let busyPort = try XCTUnwrap(ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_BUSY_PORT"],
                                      "Set TEST_RUNNER_ACE_IOS_SPIKE_BUSY_PORT to a fixture started with ACE_IOS_SPIKE_INBOX=300")
+        let seeded = try XCTUnwrap(try fixtureHealth(port: busyPort)["busy"] as? Int, "fixture /health has no busy count")
+        XCTAssertGreaterThanOrEqual(seeded, Workload.busyThreads, "Start the busy fixture with ACE_IOS_SPIKE_INBOX=\(Workload.busyThreads)")
         let app = fixtureApp(port: busyPort)
         app.launch()
         let busy = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.ios-busy-")).firstMatch
-        try XCTSkipUnless(busy.waitForExistence(timeout: 30), "Start the fixture with ACE_IOS_SPIKE_INBOX=300")
+        XCTAssertTrue(busy.waitForExistence(timeout: 30), "no busy rows listed")
         // Two full five-second bridge windows while one row changes every 200 ms.
         XCTAssertTrue(app.waitForCount("bridge.windows", timeout: 15))
         XCTAssertTrue(app.waitForCount("bridge.windows", timeout: 15))
+        // The app holds every busy row, so the window measured the whole population.
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(app.probeValue("inbox.rows")), Double(Workload.busyThreads), "inbox rows held")
         let patches = try XCTUnwrap(app.probeValue("bridge.patches"))
         let bytes = try XCTUnwrap(app.probeValue("bridge.bytes"))
         let main = try XCTUnwrap(app.probeValue("bridge.mainMs"))
@@ -59,9 +63,11 @@ import XCTest
     }
 
     func testOpeningTheLongLiveThreadColdThenWarm() throws {
-        let app = fixtureApp()
+        let app = try longThreadApp()
         app.launch()
         XCTAssertTrue(app.openThread("ios-stream"))
+        XCTAssertEqual(app.probe["open.thread"], "ios-stream")
+        XCTAssertEqual(app.probe["open.warm"], "false")
         let cold = try XCTUnwrap(app.probeValue("open.readyMs"))
         let coldPaint = try XCTUnwrap(app.probeValue("open.paintMs"))
         report("cold open ready (ms)", [cold])
@@ -69,26 +75,44 @@ import XCTest
         XCTAssertLessThan(cold, PerfBudget.coldOpenReadyMs)
         XCTAssertLessThan(coldPaint, PerfBudget.coldOpenPaintMs)
         app.goBack()
-        var warm: [Double] = []
+        var warm: [Double] = [], failures: [String] = [], attempts = 0
         let options = XCTMeasureOptions()
         options.iterationCount = 5
         measure(metrics: [XCTOSSignpostMetric(subsystem: "app.ace.ios", category: "PointsOfInterest", name: "thread.open"),
                           XCTCPUMetric(application: app), XCTMemoryMetric(application: app)], options: options) {
-            if app.openThread("ios-stream"), let ready = app.probeValue("open.readyMs") { warm.append(ready) }
+            attempts += 1
+            // Every open must finish, as a warm open of this thread, with a ready time.
+            let opened = app.openThread("ios-stream")
+            let probe = app.probe
+            if opened, probe["open.thread"] == "ios-stream", probe["open.warm"] == "true",
+               let ready = probe["open.readyMs"].flatMap(Double.init) {
+                warm.append(ready)
+            } else {
+                failures.append("open \(attempts): opened=\(opened) thread=\(probe["open.thread"] ?? "-") warm=\(probe["open.warm"] ?? "-") ready=\(probe["open.readyMs"] ?? "-")")
+            }
             app.goBack()
         }
         report("warm open ready (ms)", warm)
-        XCTAssertFalse(warm.isEmpty)
+        XCTAssertEqual(failures, [], "every warm open finishes with a timing")
+        XCTAssertEqual(warm.count, attempts)
         XCTAssertLessThan(median(warm), PerfBudget.warmOpenReadyMs)
     }
 
     func testStreamingIntoAnOpenLongThreadStaysCheap() throws {
-        let app = fixtureApp()
+        let app = try longThreadApp()
         app.launch()
         XCTAssertTrue(app.openThread("ios-stream"))
+        let sent = try streamedDeltas()
         // Two windows of streaming at 20 deltas a second with nothing else moving.
         XCTAssertTrue(app.waitForCount("bridge.windows", timeout: 15))
         XCTAssertTrue(app.waitForCount("bridge.windows", timeout: 15))
+        // The window measured the stream: the fixture kept sending and the app applied it.
+        XCTAssertGreaterThan(try streamedDeltas(), sent, "the fixture stopped streaming")
+        let updates = app.probeValue("bridge.rowUpdates") ?? 0
+        report("streaming per 5 s: row updates applied", [updates])
+        XCTExpectFailure(Workload.longStreamFreezes) {
+            XCTAssertGreaterThanOrEqual(updates, Workload.streamingRowUpdatesPer5s, "streamed row updates applied")
+        }
         let main = try XCTUnwrap(app.probeValue("bridge.mainMs"))
         let script = try XCTUnwrap(app.probeValue("bridge.scriptMs"))
         let bytes = try XCTUnwrap(app.probeValue("bridge.bytes"))
@@ -107,32 +131,47 @@ import XCTest
         // A minute of streaming with the thread left open; each bridge window records the footprint.
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 60))
         XCTAssertTrue(app.waitForCount("bridge.windows", timeout: 15))
+        let later = app.probeValue("bridge.rowUpdates") ?? 0
+        XCTExpectFailure(Workload.longStreamFreezes) {
+            XCTAssertGreaterThanOrEqual(later, Workload.streamingRowUpdatesPer5s, "still streaming after a minute")
+        }
         let after = try XCTUnwrap(app.probeValue("footprintMiB"))
         report("footprint growth over a minute of streaming (MiB)", [after - before])
         XCTAssertLessThan(after - before, PerfBudget.streamingGrowthMiBPerMinute)
     }
 
     func testScrollingTheLongTranscriptKeepsFramesOnTime() throws {
-        let app = fixtureApp()
+        let app = try longThreadApp()
         app.launch()
         XCTAssertTrue(app.openThread("ios-stream"))
+        let windowsBefore = app.probe["frames.windows"]
         let list = app.scrollViews.firstMatch
         let options = XCTMeasureOptions()
         options.iterationCount = 5
+        // Late-frame time lost during each run of swipes alone: the sampler's running total,
+        // read just before and just after them, over the time the swipes took.
+        var lostMs: [Double] = [], spentS: [Double] = []
         measure(metrics: [XCTOSSignpostMetric.scrollDecelerationMetric, XCTCPUMetric(application: app)], options: options) {
+            let lostBefore = app.probeValue("frames.lostMsTotal") ?? 0
+            let began = Date()
             list.swipeDown(velocity: .fast)
             list.swipeDown(velocity: .fast)
             list.swipeUp(velocity: .fast)
             list.swipeUp(velocity: .fast)
+            spentS.append(Date().timeIntervalSince(began))
+            lostMs.append((app.probeValue("frames.lostMsTotal") ?? 0) - lostBefore)
         }
-        _ = app.waitForCount("frames.windows", timeout: 10)
-        let hitches = try XCTUnwrap(app.probeValue("frames.hitchMsPerS"))
+        // The sampler ran while the thread was on screen (it reports every five seconds).
+        XCTAssertTrue(app.waitForCount("frames.windows", from: windowsBefore, timeout: 10), "frame sampler never reported")
+        report("transcript scroll lost frame time per run (ms)", lostMs)
+        report("transcript scroll run length (s)", spentS)
+        let hitches = lostMs.reduce(0, +) / max(spentS.reduce(0, +), 0.001)
         report("transcript scroll hitch time (ms per s)", [hitches])
         XCTAssertLessThan(hitches, PerfBudget.scrollHitchMsPerS)
     }
 
     func testTypingWithTheLongThreadBehindIt() throws {
-        let app = fixtureApp()
+        let app = try longThreadApp()
         app.launch()
         XCTAssertTrue(app.openThread("ios-stream"))
         let field = app.textViews["composer.input"]
@@ -192,6 +231,26 @@ import XCTest
         app.launchArguments = ["--spike", "--spike-port", port, "--spike-items", "200", "--perf-probe"]
         return app
     }
+    /// The app on the long-thread fixture, refusing one started without its seeded history.
+    private func longThreadApp() throws -> XCUIApplication {
+        let seeded = try XCTUnwrap(try fixtureHealth()["streamed"] as? Int, "fixture /health has no streamed count")
+        XCTAssertGreaterThanOrEqual(seeded, Workload.longThreadDeltas,
+                                    "Start the fixture with ACE_IOS_SPIKE_STREAMED=\(Workload.longThreadDeltas)")
+        return fixtureApp()
+    }
+    /// Deltas the long-thread fixture has streamed so far, the seed included.
+    private func streamedDeltas() throws -> Int {
+        try XCTUnwrap(try fixtureHealth()["deltas"] as? Int, "fixture /health has no deltas count")
+    }
+    private func fixtureHealth(port: String = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841") throws -> [String: Any] {
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/health"))
+        let done = expectation(description: "fixture health")
+        let body = HealthBody()
+        URLSession.shared.dataTask(with: url) { data, _, _ in body.set(data); done.fulfill() }.resume()
+        wait(for: [done], timeout: 10)
+        let data = try XCTUnwrap(body.data, "fixture on port \(port) did not answer /health")
+        return try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
     private func timed(_ body: () -> Void) -> Double {
         let began = Date()
         body()
@@ -209,6 +268,28 @@ import XCTest
         attachment.lifetime = .keepAlways
         add(attachment)
     }
+}
+
+/// The fixture's `/health` reply, handed from URLSession's queue to the test.
+private final class HealthBody: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: Data?
+    var data: Data? { lock.withLock { stored } }
+    func set(_ data: Data?) { lock.withLock { stored = data } }
+}
+
+/// The workload the budgets assume; a fixture without it fails the test rather than passing cheaply.
+enum Workload {
+    static let longThreadDeltas = 650_000         // ACE_IOS_SPIKE_STREAMED
+    static let busyThreads = 300                  // ACE_IOS_SPIKE_INBOX
+    static let streamingRowUpdatesPer5s = 50.0    // the fixture streams 100 deltas (20 a second)
+    /// Known bug, 2026-10-22: with ACE_IOS_SPIKE_STREAMED of 1,000 or more, the open thread's
+    /// streaming row stops updating after the open (only `thread.cursor` patches arrive; the screen
+    /// stays on the step it opened at), while an unseeded or 1-delta seed streams. The bridge alone
+    /// (`thread-harness.ts`) streams it, so the loss is between the patch pump and native. Strict:
+    /// once fixed, these expectations fail until the wrapper goes. Until then the streaming budgets
+    /// measure cursor traffic, not text.
+    static let longStreamFreezes = "a long seeded stream stops updating on screen (see Workload)"
 }
 
 /// The budgets, on the iOS 26 simulator with the `Perf` configuration. Each sits about 1.5 to 5

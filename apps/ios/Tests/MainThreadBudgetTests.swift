@@ -42,20 +42,29 @@ import QuartzCore
         XCTAssertLessThan(cost, Budget.newItemMicros)
     }
 
-    /// One row changing among 500 inbox rows, with its sections.
+    /// One row changing among 500 inbox rows, moving between its sections.
     func testOneInboxRowChangingAmongFiveHundred() throws {
         let model = ClientModel(now: { 0 })
         let ids = (0..<500).map { "thread-\($0)" }
+        var labels = Dictionary(uniqueKeysWithValues: ids.map { ($0, "Done") })
         model.receive(try frame([["type": "inbox.reset", "ids": ids]]))
         for chunk in stride(from: 0, to: ids.count, by: 25) {
             model.receive(try frame(ids[chunk..<min(chunk + 25, ids.count)].map { ["type": "inbox.row", "id": $0, "row": inboxRow($0, label: "Done")] }))
         }
+        model.receive(try frame([sections(ids, labels: labels)]))
+        // Each frame flips one row between Working and Done, and so between the two sections.
         let cost = try perFrame(runs: 300) { index in
             let id = ids[(index * 7) % ids.count]
-            return try frame([["type": "inbox.row", "id": id, "row": inboxRow(id, label: index.isMultiple(of: 2) ? "Working" : "Done")],
-                              sections(ids)])
+            labels[id] = labels[id] == "Working" ? "Done" : "Working"
+            return try frame([["type": "inbox.row", "id": id, "row": inboxRow(id, label: labels[id] ?? "Done")],
+                              sections(ids, labels: labels)])
         } apply: { XCTAssertTrue(model.receive($0)) }
         XCTAssertEqual(model.inbox.count, 500)
+        XCTAssertEqual(labels.values.filter { $0 == "Working" }.count, 300)
+        for id in ids { XCTAssertEqual(model.inbox[id]?.status.label, labels[id], id) }
+        XCTAssertEqual(model.inboxLayout.sections.map(\.key), ["working", "done"])
+        XCTAssertEqual(model.inboxLayout.sections.first?.ids, ids.filter { labels[$0] == "Working" })
+        XCTAssertEqual(model.inboxLayout.sections.last?.ids, ids.filter { labels[$0] == "Done" })
         report("one inbox row among 500, with sections", cost)
         XCTAssertLessThan(cost, Budget.inboxRowMicros)
     }
@@ -67,7 +76,15 @@ import QuartzCore
         let data = try frame(rows)
         XCTAssertLessThanOrEqual(data.count, 32_768)
         var frames = BridgeFrames()
-        let cost = try perFrame(runs: 200) { _ in data } apply: { XCTAssertEqual(try? frames.decode($0).count, 32) }
+        var decoded: [BridgePatch] = []
+        let cost = try perFrame(runs: 200) { _ in data } apply: { decoded = (try? frames.decode($0)) ?? [] }
+        // The last decode, read back outside the timed region: every row, in order, whole.
+        XCTAssertEqual(decoded.count, 32)
+        for (index, patch) in decoded.enumerated() {
+            guard case .item(let thread, let epoch, let id, let row) = patch else { return XCTFail("patch \(index) is not an item") }
+            XCTAssertEqual([thread, "\(epoch)", id, row?.id], ["t", "1", "item-\(index)", "item-\(index)"])
+            XCTAssertEqual(row?.text, String(repeating: "Words in a reply. ", count: 40))
+        }
         report("decode a full 32-patch frame (\(data.count) bytes)", cost)
         XCTAssertLessThan(cost, Budget.decodeFullFrameMicros)
     }
@@ -119,8 +136,11 @@ import QuartzCore
          "machine": "", "provider": "codex", "model": "", "agents": 1, "updatedAt": 1, "canSteer": false,
          "status": ["label": label, "token": label == "Working" ? "working" : "done"], "confirmed": true, "generation": 0]
     }
-    private func sections(_ ids: [String]) -> [String: Any] {
-        ["type": "inbox.sections", "sections": [["key": "now", "label": "Now", "ids": ids, "ranks": ids.map { "r-\($0)" }, "order": 0]],
-         "more": false, "snooze": []]
+    /// Working rows first, then Done, as the shared grouping would send them.
+    private func sections(_ ids: [String], labels: [String: String]) -> [String: Any] {
+        let working = ids.filter { labels[$0] == "Working" }, done = ids.filter { labels[$0] != "Working" }
+        return ["type": "inbox.sections", "more": false, "snooze": [],
+                "sections": [["key": "working", "label": "Working", "ids": working, "ranks": working.map { "r-\($0)" }, "order": 0],
+                             ["key": "done", "label": "Done", "ids": done, "ranks": done.map { "r-\($0)" }, "order": 1]]]
     }
 }

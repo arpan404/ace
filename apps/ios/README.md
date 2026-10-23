@@ -73,8 +73,9 @@ Budgets fail tests when the app gets slower. Two suites hold them:
 - `AceTests/MainThreadBudgetTests`, in-process, in Debug or Perf: one streaming text edit
   to a 2,000-item thread (budget 100 µs, measured 11 µs in Debug), one new item at its end
   (150 µs, measured 12; 5,780 when every new item re-sorted the thread), one inbox row
-  changing among 500 rows with its sections (1,000 µs, measured 174), and decoding a full
-  32-patch frame (1,500 µs, measured 211).
+  changing among 500 rows and moving between its sections (1,000 µs, measured 174), and
+  decoding a full 32-patch frame (1,500 µs, measured 211). Outside the timed part each checks
+  the result: the text streamed, every row's status and section, every decoded row.
 - `AceUITests/PerformanceBudgetUITests`, the app against the fixture, built with the
   `AcePerf` scheme. Its `Perf` configuration is Release optimisation with the loopback
   fixture compiled in (`ACE_FIXTURE`); archives build Release, which has none. Each test
@@ -82,6 +83,9 @@ Budgets fail tests when the app gets slower. Two suites hold them:
   deceleration, the `thread.open` signpost) and fails when the app's own numbers pass a
   budget in `PerfBudget`. The app publishes those numbers with `--perf-probe`
   (`Sources/Spike/PerfProbe.swift`, fixture builds only) as one hidden accessibility value.
+  Before measuring, the tests check their workload: the fixture's `/health` must report the
+  seed below (`streamed`, `busy`), the app must hold every busy row, and streaming must reach
+  the app's rows while it is measured.
 
 Run the UI budgets with two fixtures, the second for the busy inbox:
 
@@ -106,7 +110,7 @@ Medians on the iOS 26 simulator (Perf, 2026-10-22), with the budget in brackets:
 | Reopen it (kept copy): ready | 280 ms | 500 ms |
 | Streaming 20 deltas a second into it, per 5 s | 5.4 ms main thread, 95 ms script, 7.4 KB | 30 ms, 250 ms, 40 KB |
 | Footprint over a minute of streaming | flat (−1 MiB) | +8 MiB |
-| Scrolling its transcript: late-frame time | 13.6 ms per s | 60 ms per s |
+| Scrolling its transcript: late-frame time during the swipes only | 17.8 ms per s | 60 ms per s |
 | Agents and Changes sheets, asked to rows applied | 140, 128 ms | 350 ms |
 | Model sheet, tap to shown (mostly XCUITest waiting) | 1,940 ms | 3,000 ms |
 | Typing 33 characters with the long thread behind (XCUITest's own pace) | 830 ms | 1,800 ms |
@@ -114,6 +118,11 @@ Medians on the iOS 26 simulator (Perf, 2026-10-22), with the budget in brackets:
 Budgets sit 1.5 to 5 times above the medians so a busy Mac doesn't fail them and a real
 regression does. Lower one when the app gets faster; never raise one without a measured reason.
 The simulator's display-link callbacks are not GPU frames: real-device frame rate is still owed.
+
+Known bug: with 1,000 or more seeded deltas the open thread's streaming row stops updating on
+screen after the open; only cursor patches arrive. The streaming test expects that failure
+(`Workload.longStreamFreezes`) and fails once it is fixed, so the expectation gets removed; until
+then the streaming numbers above measure cursor traffic, not text.
 
 For long runs and Instruments sessions, fixture builds take `--spike-open ID` (open a thread
 once its row is listed) and `--spike-items 200` (the paired app's 200-item window). Launch with

@@ -43,8 +43,10 @@ import Darwin
         interval = Self.signposter.beginInterval("thread.open", id: Self.signposter.makeSignpostID(), "\(id, privacy: .public)")
     }
     /// One bridge frame applied on the main thread.
-    func frame(bytes count: Int, patches added: Int, seconds: Double) {
-        window.frames += 1; window.patches += added; window.bytes += count; window.mainMs += seconds * 1000
+    /// `rowUpdates`: the open thread's existing rows it changed, as streaming does; `inboxRows`:
+    /// the inbox rows held after it.
+    func frame(bytes count: Int, patches added: Int, rowUpdates: Int, inboxRows: Int, seconds: Double) {
+        window.frames += 1; window.patches += added; window.rowUpdates += rowUpdates; window.bytes += count; window.mainMs += seconds * 1000
         let now = CACurrentMediaTime()
         if now - window.started >= 5 {
             let script = Self.scriptBusy.withLock { $0 }
@@ -54,7 +56,8 @@ import Darwin
                 scriptMs=\(String(format: "%.1f", (script - self.window.script) * 1000), privacy: .public)
                 """)
             PerfProbe.record(["bridge.windowS": String(format: "%.1f", now - window.started), "bridge.frames": "\(window.frames)",
-                              "bridge.patches": "\(window.patches)", "bridge.bytes": "\(window.bytes)",
+                              "bridge.patches": "\(window.patches)", "bridge.rowUpdates": "\(window.rowUpdates)", "bridge.bytes": "\(window.bytes)",
+                              "inbox.rows": "\(inboxRows)",
                               "bridge.mainMs": String(format: "%.1f", window.mainMs),
                               "bridge.scriptMs": String(format: "%.1f", (script - window.script) * 1000),
                               "footprintMiB": Self.footprint()])
@@ -68,7 +71,7 @@ import Darwin
         lastApplied = CACurrentMediaTime()
         frames += 1; patches += added; bytes += count; mainMs += seconds * 1000
     }
-    private struct Window { var started = CACurrentMediaTime(); var script = 0.0; var frames = 0, patches = 0, bytes = 0; var mainMs = 0.0 }
+    private struct Window { var started = CACurrentMediaTime(); var script = 0.0; var frames = 0, patches = 0, rowUpdates = 0, bytes = 0; var mainMs = 0.0 }
     private var window = Window()
     func ready(_ id: String) {
         guard thread == id, ready == nil else { return }
