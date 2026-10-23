@@ -66,10 +66,11 @@
 // - SID copy: Microsoft Learn "CopySid function"
 //   (https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-copysid).
 //
-// Local helpers stay file-static by responsibility (open, type/link, DACL
-// shape, owner equality, shared security verdict) so check and secure reuse
-// the same logic. Current-user SID load and owner-only ACL build are shared
-// (private_security.c, via windows_core.h). No addon CRT fd calls:
+// Local helpers stay file-static by responsibility (open, type/link,
+// owner equality for the healable metadata path) so check and secure reuse
+// the same logic. The strict owner-only protected-DACL + TokenUser verdict
+// and the owner-only ACL build are shared (private_security.c, via
+// windows_core.h). No addon CRT fd calls:
 // the subject HANDLE is closed with CloseHandle, security descriptors with
 // LocalFree, SID/ACL buffers with free, token state with CloseHandle.
 
@@ -130,79 +131,6 @@ static const char *private_assert_regular_single_link(HANDLE child) {
   return NULL;
 }
 
-// Require a protected DACL carrying exactly one zero-flag
-// ACCESS_ALLOWED_ACE with a FILE_ALL_ACCESS mask for the owner SID.
-// Any inherited/other-user ACE shape is EACCES; only Win32 API failures
-// map through wcore_dos_to_code.
-static const char *private_assert_owner_only_dacl(
-    PACL dacl, SECURITY_DESCRIPTOR_CONTROL control, PSID owner) {
-  if (dacl == NULL || owner == NULL || !IsValidSid(owner)) return "EACCES";
-  if (!(control & SE_DACL_PRESENT)) return "EACCES";
-  if (!(control & SE_DACL_PROTECTED)) return "EACCES";
-  if (!IsValidAcl(dacl)) return "EACCES";
-  if (dacl->AceCount != 1) return "EACCES";
-  ACE_HEADER *header = NULL;
-  if (!GetAce(dacl, 0, (void **)&header)) {
-    const char *code = wcore_dos_to_code(GetLastError());
-    return code != NULL ? code : "EIO";
-  }
-  if (header == NULL) return "EIO";
-  if (header->AceType != ACCESS_ALLOWED_ACE_TYPE) return "EACCES";
-  if (header->AceFlags != 0) return "EACCES";
-  size_t sid_offset = offsetof(ACCESS_ALLOWED_ACE, SidStart);
-  if (header->AceSize < sid_offset + GetSidLengthRequired(0)) return "EACCES";
-  ACCESS_ALLOWED_ACE *allow = (ACCESS_ALLOWED_ACE *)(void *)header;
-  if (allow->Mask != FILE_ALL_ACCESS) return "EACCES";
-  PSID ace_sid = (PSID)&allow->SidStart;
-  if (GetSidLengthRequired(*GetSidSubAuthorityCount(ace_sid)) >
-      header->AceSize - sid_offset || !IsValidSid(ace_sid)) return "EACCES";
-  if (!EqualSid(ace_sid, owner)) return "EACCES";
-  return NULL;
-}
-
-// Require the file owner SID to equal the current process TokenUser SID.
-// No well-known-admin or privilege bypass: equality only. The SID load is
-// shared with the ACL builder in private_security.c.
-static const char *private_assert_owner_is_current_user(PSID owner) {
-  if (owner == NULL || !IsValidSid(owner)) return "EACCES";
-  PSID user = NULL;
-  const char *loaded = wcore_current_user_sid(&user);
-  if (loaded != NULL) return loaded;
-  const char *verdict = EqualSid(owner, user) ? NULL : "EACCES";
-  free(user);
-  return verdict;
-}
-
-// Shared verdict on an open child HANDLE: read owner/DACL, then apply the
-// owner-only protected-DACL shape and TokenUser ownership checks. The
-// descriptor is LocalFree'd here; the caller still owns the HANDLE.
-static const char *private_verify_security(HANDLE child) {
-  PSID owner = NULL;
-  PACL dacl = NULL;
-  PSECURITY_DESCRIPTOR descriptor = NULL;
-  DWORD status = GetSecurityInfo(child, SE_FILE_OBJECT,
-      OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &owner, NULL,
-      &dacl, NULL, &descriptor);
-  if (status != ERROR_SUCCESS) {
-    const char *code = wcore_dos_to_code(status);
-    return code != NULL ? code : "EIO";
-  }
-  // owner/dacl point inside descriptor: only descriptor is freed.
-  const char *verdict = NULL;
-  SECURITY_DESCRIPTOR_CONTROL control = 0;
-  DWORD revision = 0;
-  if (!GetSecurityDescriptorControl(descriptor, &control, &revision)) {
-    const char *mapped = wcore_dos_to_code(GetLastError());
-    verdict = mapped != NULL ? mapped : "EIO";
-  } else {
-    verdict = private_assert_owner_only_dacl(dacl, control, owner);
-    if (verdict == NULL)
-      verdict = private_assert_owner_is_current_user(owner);
-  }
-  LocalFree(descriptor);
-  return verdict;
-}
-
 const char *wcore_check_private_at(int parent_fd, const char *name) {
   if (name == NULL) return "EINVAL";
   HANDLE parent = NULL;
@@ -219,7 +147,7 @@ const char *wcore_check_private_at(int parent_fd, const char *name) {
     CloseHandle(child);
     return shape;
   }
-  const char *verdict = private_verify_security(child);
+  const char *verdict = wcore_verify_private_file_security(child);
   // A CloseHandle failure is only reported when the verdict was success.
   if (!CloseHandle(child) && verdict == NULL) {
     const char *mapped = wcore_dos_to_code(GetLastError());
@@ -238,7 +166,7 @@ const char *wcore_check_private_fd(int fd) {
   if (borrowed != NULL) return borrowed;
   const char *shape = private_assert_regular_single_link(handle);
   if (shape != NULL) return shape;
-  return private_verify_security(handle);
+  return wcore_verify_private_file_security(handle);
 }
 
 // Same-object owner-only hardening applied to an already-open child
@@ -282,7 +210,7 @@ static const char *private_secure_handle(HANDLE child) {
         // Re-read the SAME handle through the shared checker logic: only
         // an observed owner-only protected DACL is success.
         verdict = private_assert_regular_single_link(child);
-        if (verdict == NULL) verdict = private_verify_security(child);
+        if (verdict == NULL) verdict = wcore_verify_private_file_security(child);
       }
     }
   }
@@ -354,7 +282,7 @@ const char *wcore_open_private_metadata_at(int parent_fd, const char *name, int 
       // Ownership helper reuses the shared TokenUser equality check; the
       // DACL is deliberately unchecked here so a broad DACL stays healable
       // by securePrivateFd.
-      verdict = private_assert_owner_is_current_user(owner);
+      verdict = wcore_assert_current_owner(owner);
       LocalFree(descriptor);
     }
   }

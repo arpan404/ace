@@ -153,12 +153,21 @@ const char *wcore_create_private_file_at(int parent_fd, const char *name, int *o
 // Shared private-security helpers (single owner: private_security.c).
 // wcore_current_user_sid loads a malloc'd copy of the current process
 // TokenUser SID; wcore_owner_only_acl builds a malloc'd ACL with exactly
-// one zero-flag ACCESS_ALLOWED_ACE carrying FILE_ALL_ACCESS for `user`.
-// On success the caller frees *out with free(); on failure *out is NULL
-// and the return is a static POSIX code string. Fail closed, no admin
-// bypass.
+// one zero-flag ACCESS_ALLOWED_ACE carrying FILE_ALL_ACCESS for `user`;
+// wcore_owner_directory_acl builds the same single-ACE ACL with
+// OBJECT_INHERIT_ACE|CONTAINER_INHERIT_ACE for directories.
+// wcore_verify_private_file_security checks an open file HANDLE for the
+// protected zero-flag owner-only shape; the directory variant expects the
+// inherit flags. Shape checks stay with the callers; these cover only the
+// TokenUser ownership + protected-DACL + single-ACE verdict. On success
+// the caller frees *out with free(); on failure *out is NULL and the
+// return is a static POSIX code string. Fail closed, no admin bypass.
 const char *wcore_current_user_sid(PSID *out);
+const char *wcore_assert_current_owner(PSID owner);
 const char *wcore_owner_only_acl(PSID user, PACL *out);
+const char *wcore_owner_directory_acl(PSID user, PACL *out);
+const char *wcore_verify_private_file_security(HANDLE child);
+const char *wcore_verify_private_directory_security(HANDLE child);
 
 // Same-parent rename of the source object itself. Destination is one validated
 // component relative to the pinned parent. rename replaces, exclusive refuses
