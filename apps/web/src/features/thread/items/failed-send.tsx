@@ -37,12 +37,13 @@ import {
 import { useThreadSources } from "../sources/index.ts";
 import { ClearStaleLock } from "./clear-stale-lock.tsx";
 import { dismissWorktreeStart } from "../worktree/use-worktree-creation.ts";
+import { useDiscardSend } from "./use-discard-send.ts";
 
 type CreatePayload = Extract<SendPayload, { type: "thread.create" }>;
 
 /**
- * "Not sent · the reason", with Retry (sends it again) and Edit (back into the composer), and
- * Clear stale lock when Git's cleanup fence (`fenced`) stopped it. Without the message's
+ * "Not sent · the reason", with Retry (sends it again), Edit (back into the composer), Discard
+ * (drops it, with Undo), and Clear stale lock when Git's cleanup fence (`fenced`) stopped it. Without the message's
  * `payload` (its item isn't loaded) only the line shows.
  */
 export function FailedSend(props: {
@@ -53,6 +54,7 @@ export function FailedSend(props: {
   fenced?: boolean | undefined;
 }) {
   const actions = useSendActions(props.threadId);
+  const discard = useDiscardSend();
   const { payload, commandId } = props;
   return (
     <div role="alert" className="flex flex-wrap items-center justify-end gap-x-1 gap-y-0.5">
@@ -77,6 +79,14 @@ export function FailedSend(props: {
           >
             <Icon icon={PencilSimpleIcon} size={12} />
             Edit
+          </Button>
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={actions.retrying(commandId)}
+            onClick={() => discard(commandId, payload)}
+          >
+            Discard
           </Button>
         </span>
       )}

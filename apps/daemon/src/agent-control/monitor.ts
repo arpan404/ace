@@ -22,6 +22,8 @@ import { threadOutcome } from "./results.ts";
 import {
   agentStep,
   clip,
+  heldFor,
+  holdStep,
   elapsedSeconds,
   lastLine,
   requestPrompt,
@@ -38,6 +40,8 @@ export interface MonitorDependencies {
   authorize(caller: McpAttribution, target: ThreadId, write: boolean): boolean;
   /** Hands a result read inside the tool call to the parent, so no wake repeats it. */
   delivered(caller: McpAttribution, outcome: DelegationOutcome): void;
+  /** A resume of the thread is in flight, so its paused queue is about to move. */
+  resuming?(id: ThreadId): boolean;
 }
 /** Children that run on other paired machines (ADR 0078), observed by their own poller. */
 export interface RemoteChildren {
@@ -151,7 +155,7 @@ export class AgentMonitor {
       const state = this.state(thread.id);
       counts[state]++;
       const needs = state === "needs_you" ? this.needs(thread) : [];
-      const step = state === "working" ? this.step(thread) : undefined;
+      const step = state === "working" || state === "needs_you" ? this.step(thread) : undefined;
       const last = state === "working" ? this.lastOutput(thread, 100) : undefined;
       children.push({
         id: thread.id,
@@ -221,6 +225,7 @@ export class AgentMonitor {
       record,
       pending,
       !!root && ["idle", "blocked", "interrupted"].includes(root.status.state),
+      this.deps.resuming?.(id) ?? false,
     );
   }
   /** Reads every watched thread, then hands settled results to the parent exactly once. */
@@ -287,6 +292,12 @@ export class AgentMonitor {
     };
   }
   private step(thread: Thread): string | undefined {
+    const held = heldFor(
+      thread,
+      this.deps.journal.get(thread.id),
+      this.deps.resuming?.(thread.id) ?? false,
+    );
+    if (held) return holdStep(held);
     const root = thread.rootAgentId && this.deps.store.getMcpAgent(thread.id, thread.rootAgentId);
     return root ? agentStep(root.status) : undefined;
   }

@@ -119,6 +119,8 @@ export function useCreateRecovery(options: {
   onError(message: string): void;
   onRecovered(payload: SubmittedDraft & { workspaceId: string }): void;
   canNavigate?: (() => boolean) | undefined;
+  /** False when the composer is empty: a refusal then has no message left to edit. */
+  holdsMessage?: (() => boolean) | undefined;
 }): void {
   const { client, storage, key, hostId } = options;
   const ready = useConnectionState() === "ready";
@@ -131,6 +133,7 @@ export function useCreateRecovery(options: {
       attempt.draftKey === undefined || attempt.draftKey === options.draftKey,
   );
   const navigationAllowed = useEffectEvent(() => options.canNavigate?.() ?? true);
+  const holdsMessage = useEffectEvent(() => options.holdsMessage?.() ?? true);
   useEffect(() => {
     const changed = (event: StorageEvent) => {
       if (event.key === key) setRevision((value) => value + 1);
@@ -149,7 +152,7 @@ export function useCreateRecovery(options: {
       const receipt = await settleCreateAttempt(client, storage, key, attempt, controller.signal);
       if (!active || !receipt) return;
       if (!receipt.ok) {
-        if (ownDraft(attempt)) report(receipt.detail ?? refusedStart);
+        if (ownDraft(attempt) && holdsMessage()) report(receipt.detail ?? refusedStart);
         return;
       }
       recovered(attempt.payload);

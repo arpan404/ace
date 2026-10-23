@@ -101,6 +101,8 @@ export function handleQueue(
       });
       dependencies.repo.queue.remove(entry.id);
       dependencies.repo.removeInput(p.threadId, entry.command.id, dependencies.clock.now());
+      if (!continuation)
+        dependencies.repo.inputs.replace(p.threadId, entry.command.id, replacement.id);
       if (continuation) dependencies.repo.pending.finishContinuation(p.threadId);
       // The durable continuation remains available to Resume. Creating a runnable
       // recovery intent here would bypass a later manual or Stop hold.

@@ -436,6 +436,7 @@ function PreparationPage(props: {
   const {
     create,
     error,
+    dismissError,
     claims: claimed,
   } = useCreateThread(
     (payload) => {
@@ -466,6 +467,7 @@ function PreparationPage(props: {
       !preparationSaveFailed(storage, draftKey),
     draftKey,
     props.recoverStart,
+    () => !!latestContent.current?.text.trim() || !!latestContent.current?.attachments.length,
   );
   const settlePreparation = useEffectEvent(() => {
     const saved = preparation(storage, props.host, draftKey);
@@ -765,6 +767,8 @@ function PreparationPage(props: {
                 }
                 contentSaveRefused.current = false;
                 if (!content.text.trim() && !content.attachments.length) {
+                  // A discarded message takes the last start's problem with it.
+                  if (!submitting.current) dismissError();
                   if (!submitting.current && preparation(storage, props.host, draftKey))
                     remember({ title: "New preparation" });
                   return;

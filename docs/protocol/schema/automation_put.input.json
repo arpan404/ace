@@ -3,10 +3,6 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
-    "access": {
-      "$ref": "https://ace.local/protocol/v1/AccessMode.json",
-      "description": "The child's access mode; default yours."
-    },
     "enabled": {
       "default": true,
       "description": "false saves it paused.",
@@ -27,25 +23,15 @@
       ],
       "type": "string"
     },
-    "model": {
-      "description": "A model id from `models`.",
-      "maxLength": 256,
-      "minLength": 1,
-      "type": "string"
-    },
     "prompt": {
-      "description": "The child's whole task, standing on its own.",
+      "description": "The message you receive each run: the whole task, readable without this conversation's context.",
       "maxLength": 262144,
       "minLength": 1,
       "type": "string"
     },
-    "provider": {
-      "$ref": "https://ace.local/protocol/v1/ProviderKind.json",
-      "description": "Default: yours."
-    },
     "schedule": {
-      "$ref": "https://ace.local/protocol/v1/AutomationSchedule.json",
-      "description": "Run on this schedule. kind rrule or cron; startAt in epoch ms, a whole minute. Omit for manual runs only."
+      "$ref": "https://ace.local/protocol/v1/AgentAutomationSchedule.json",
+      "description": "Run on this schedule: kind rrule (FREQ=DAILY;BYHOUR=9;BYMINUTE=0) or cron (0 9 * * 1-5). timezone defaults to this machine's, startAt (epoch ms, a whole minute) to now. Omit for runs by hand only."
     },
     "title": {
       "description": "What it does, for the person's list.",

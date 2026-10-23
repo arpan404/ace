@@ -8,6 +8,21 @@ import {
 } from "@ace/protocol";
 import type { FakeCreationFailure } from "./git-states.ts";
 
+/**
+ * Refusals the daemon's admission gives before any Git work, from the start's own settings: a
+ * worktree start refused for one of these never shows creation progress.
+ */
+const admissionRefusals = new Set([
+  "launch_options_unsupported",
+  "permission_mode_unsupported",
+  "provider_unavailable",
+  "acp_identity_required",
+  "conflicting_account_selection",
+  "message_too_large",
+]);
+export const refusedAtAdmission = (code: string | undefined) =>
+  code !== undefined && admissionRefusals.has(code);
+
 type Progress = WorktreeCreationProgress;
 type Send = (message: ServerMessage) => void;
 type Draft = {

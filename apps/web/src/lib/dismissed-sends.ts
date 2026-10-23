@@ -3,7 +3,8 @@ import * as z from "zod/mini";
 import { Observable } from "./observable.ts";
 
 /*
- * Failed sends the person has acted on (Retry sent a new one, Edit took it back). The outbox
+ * Failed sends the person has acted on (Retry sent a new one, Edit took it back, Discard
+ * dropped it). The outbox
  * keeps failed intents for a while, also across reloads, so the choice is kept on this device.
  */
 const dismissedKey = "ace.sends.dismissed";
@@ -27,6 +28,15 @@ export function dismissSend(storage: KeyValueStorage | undefined, commandId: str
   dismissedLoaded = new Set(kept);
   dismissedSends.set(dismissedLoaded);
   writeJson(storage, dismissedKey, kept);
+}
+
+/** Undo of a Discard: the failed send shows again. */
+export function restoreSend(storage: KeyValueStorage | undefined, commandId: string): void {
+  const next = new Set(loadDismissed(storage));
+  if (!next.delete(commandId)) return;
+  dismissedLoaded = next;
+  dismissedSends.set(next);
+  writeJson(storage, dismissedKey, [...next]);
 }
 
 /** Test seam. */

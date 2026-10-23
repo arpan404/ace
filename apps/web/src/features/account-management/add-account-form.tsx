@@ -9,7 +9,13 @@ import { useId, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
-import { useInlineSignIn } from "@/features/sign-in/index.ts";
+import {
+  AntigravityMethodFields,
+  antigravitySignIn,
+  googleSignIn,
+  useInlineSignIn,
+  type AntigravityMethodDraft,
+} from "@/features/sign-in/index.ts";
 import { canAddAccounts, useApiKeySupport, useAccountActions } from "./actions.ts";
 
 /**
@@ -55,12 +61,15 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
   const provider = props.provider;
   const support = useApiKeySupport(provider);
   const [method, setMethod] = useState<"login" | "api_key">("login");
+  const [agentMethod, setAgentMethod] = useState<AntigravityMethodDraft>(googleSignIn);
   if (!canAddAccounts(provider)) return null;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const name = label.trim();
     if (accountBadgeProblem(badge)) return setError(accountBadgeProblem(badge));
     if (!name) return setError("Give the account a name, like Work.");
+    const chosen = provider === "antigravity" ? antigravitySignIn(agentMethod) : undefined;
+    if (chosen && "problem" in chosen) return setError(chosen.problem);
     setError(undefined);
     try {
       keyLogin.start({
@@ -68,6 +77,7 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
         newAccount: name,
         shortLabel: accountBadge(label, badge),
         method: provider === "opencode" ? "login" : method,
+        ...(chosen ? { signIn: chosen.signIn } : {}),
       });
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Couldn't add the account.");
@@ -111,7 +121,10 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
           icon={icon}
           onIconChange={setIcon}
         />
-        {provider !== "opencode" && support.data?.supported && (
+        {provider === "antigravity" && (
+          <AntigravityMethodFields value={agentMethod} onChange={setAgentMethod} />
+        )}
+        {provider !== "opencode" && provider !== "antigravity" && support.data?.supported && (
           <div className="flex flex-wrap items-center gap-2">
             <Select<"login" | "api_key">
               label="Sign-in method"

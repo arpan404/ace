@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { loadOrCreateHostKeys } from "@ace/secure-channel/node";
 import { SettingsValues } from "@ace/protocol";
 import { SettingsError } from "@ace/settings";
-import { remoteListener, urlHost } from "./network.ts";
+import { remoteListener, systemNetwork, urlHost } from "./network.ts";
+import { trustedCertificate, type TrustedCertificate } from "./tailscale-certificate.ts";
 import { bindListener, closeListener } from "./listener.ts";
 import { startRelayTransport } from "./services/transports.ts";
 import type { ServerOptions } from "./server-options.ts";
@@ -29,7 +30,8 @@ export function remoteRuntime(
   let retryMs = 1000;
   let error: string | undefined;
   let listener: Server | undefined;
-  let connection: { origin: string; fingerprint: string } | undefined;
+  let trusted: TrustedCertificate | undefined;
+  let connection: { origin: string; fingerprint: string; port: number } | undefined;
   let relay: Awaited<ReturnType<typeof startRelayTransport>>;
   let preferences: Preferences = {
     "remote.enabled": false,
@@ -62,6 +64,8 @@ export function remoteRuntime(
     connection = undefined;
     directTransport = "local";
     disconnect();
+    trusted?.stop();
+    trusted = undefined;
     await relay?.close();
     relay = undefined;
     options.relay = undefined;
@@ -109,7 +113,31 @@ export function remoteRuntime(
     }
     try {
       if (remote && !keepDirect) {
-        listener = createServer({ ...remote.identity, minVersion: "TLSv1.2" }, http);
+        const name = remote.tailnetName;
+        trusted = name
+          ? trustedCertificate({
+              name,
+              fetch: (host) => (options.network ?? systemNetwork).certificate(host),
+              now: options.now ?? options.runtime?.now ?? systemDeliveryRuntime.now,
+              delay,
+              log: (failure) => options.log?.(failure),
+            })
+          : undefined;
+        const certificates = trusted;
+        // Browsers asking for the ts.net name get Tailscale's trusted certificate; every other
+        // client (and every client until it arrives) gets ace's own, pinned certificate.
+        listener = createServer(
+          {
+            ...remote.identity,
+            minVersion: "TLSv1.2",
+            ...(certificates
+              ? {
+                  SNICallback: (servername, done) => done(null, certificates.select(servername)),
+                }
+              : {}),
+          },
+          http,
+        );
         listener.requestTimeout = 0;
         listener.headersTimeout = 10_000;
         attach(listener);
@@ -118,6 +146,7 @@ export function remoteRuntime(
         connection = {
           origin: `https://${urlHost(remote.advertisedHost)}:${port}`,
           fingerprint: remote.identity.fingerprint,
+          port,
         };
       }
       directSignature = listen;
@@ -152,7 +181,14 @@ export function remoteRuntime(
     retryMs = Math.min(retryMs * 2, 30000);
   };
   return {
-    pairing: () => connection,
+    // A link names the ts.net host only while browsers would trust it there; otherwise the
+    // 100.x (or LAN) address, which works wherever the pinned certificate does.
+    pairing: () => {
+      if (!connection) return undefined;
+      const { origin, fingerprint, port } = connection;
+      const name = trusted?.active() ? trusted.name : undefined;
+      return { origin: name ? `https://${name}:${port}` : origin, fingerprint };
+    },
     status: () => ({
       ...(error ? { error } : {}),
       enabled: connection !== undefined || relay !== undefined,

@@ -322,6 +322,14 @@ describe("supervised processes", () => {
     expect(JSON.parse(String(line))).toEqual(["override", process.env["PATH"]]);
     await proc.exited;
   });
+  it("a read-only probe EOFs stdin so a child waiting on stdin exits", async () => {
+    const output = await probeOutput(
+      process.execPath,
+      ["-e", "process.stdin.once('end', () => console.log('stdin-eof')); process.stdin.resume();"],
+      { timeoutMs: 10_000 },
+    );
+    expect(output).toMatchObject({ code: 0, stdout: "stdin-eof" });
+  });
   it("advancing the probe deadline stops a hanging child", async () => {
     let deadline = noop;
     const result = probeOutput(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {

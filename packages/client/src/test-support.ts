@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, realpath, writeFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startDaemon, createDevThread, type CommandHandler } from "@ace/daemon";
+import { startDaemon, createDevThread, AdapterRegistry, type CommandHandler } from "@ace/daemon";
 import {
   AgentId,
   ItemId,
@@ -143,7 +143,10 @@ export async function setup(
       logLevel: "silent",
     },
     handler: handler,
-    ...(engine ? { engine } : {}),
+    // Client transport fixtures do not discover the machine's installed provider CLIs.
+    // Tests exercising provider behaviour supply their own engine at this boundary.
+    engine: engine ?? { registry: new AdapterRegistry() },
+    modelInstances: [],
     ...(history ? { history } : {}),
     ...(devices ? { devices } : {}),
     ...(projects ? { projects } : {}),

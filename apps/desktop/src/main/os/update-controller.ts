@@ -257,36 +257,59 @@ export class UpdateController {
 }
 
 export interface UpdateSchedule {
+  /** The first background check after launch, for a launch that opens no window. */
   firstMs: number;
   everyMs: number;
   /** Each wait grows by a random part of up to this share of itself (0.5: up to half). */
   spread: number;
+  /** Opening the app checks at once unless a check started this recently. */
+  openGapMs: number;
 }
 
 /**
- * Shortly after launch, then every half hour, each wait stretched by up to half again so
- * installs started together don't all ask the feed at the same moment.
+ * Shortly after launch, then about every minute, so a new release shows within a minute or
+ * two. Each wait is stretched by a random part of up to half again (60–90 s), so installs
+ * started together don't all ask the feed at the same moment. Opening the app's window checks
+ * at once.
  */
 export const updateSchedule: UpdateSchedule = {
   firstMs: 15_000,
-  everyMs: 30 * 60_000,
+  everyMs: 60_000,
   spread: 0.5,
+  openGapMs: 30_000,
 };
 
-/** Background checks on `schedule`, `random` giving each wait's offset; returns their cancel. */
+export interface CheckSchedule {
+  /** The app was opened: check now (unless one just started) and wait a full period after. */
+  opened(): void;
+  cancel(): void;
+}
+
+/** Background checks on `schedule`, `random` giving each wait's offset, `now` the clock. */
 export function scheduleChecks(
   controller: UpdateController,
   timers: { set(delayMs: number, callback: () => void): () => void },
   random: () => number,
+  now: () => number,
   schedule: UpdateSchedule = updateSchedule,
-): () => void {
+): CheckSchedule {
   const wait = (baseMs: number) => {
     const share = Math.max(0, Math.min(1, random()));
     return Math.round(baseMs * (1 + schedule.spread * share));
   };
-  let cancel = timers.set(wait(schedule.firstMs), function tick() {
+  let lastCheck: number | undefined;
+  const tick = () => {
+    lastCheck = now();
     void controller.check("background");
     cancel = timers.set(wait(schedule.everyMs), tick);
-  });
-  return () => cancel();
+  };
+  let cancel = timers.set(wait(schedule.firstMs), tick);
+  return {
+    opened() {
+      if (lastCheck !== undefined && now() - lastCheck < schedule.openGapMs) return;
+      cancel();
+      tick();
+    },
+    cancel: () => cancel(),
+  };
 }

@@ -47,6 +47,8 @@ export {
 export { useWorktreeCreation } from "./worktree/use-worktree-creation.ts";
 export { WorktreeCreationCard } from "./worktree/creation-card.tsx";
 export { ClearStaleLock } from "./items/clear-stale-lock.tsx";
+/** Drop a message that wasn't sent, with Undo; the sidebar's Unsent rows offer it too. */
+export { useDiscardSend } from "./items/use-discard-send.ts";
 /** The existing composer content owner, reused by visible unsent preparations. */
 export {
   ComposerDraftSchema,

@@ -54,9 +54,16 @@ async function run(context: SocketContext, operation: FleetOperation): Promise<F
   switch (operation.op) {
     case "pairing": {
       const { op: _op, ...request } = operation;
+      // Read the setting first: the address must be current when the code is issued, since
+      // remote access can change or turn off while the setting read waits.
+      const app = await access.pairingApp?.();
       // The creator grants only scopes it holds; the host credential holds every one.
-      const issued = issuePairing(auth, access.pairing(), request, (scope) =>
-        context.authorize(scope),
+      const issued = issuePairing(
+        auth,
+        access.pairing(),
+        request,
+        (scope) => context.authorize(scope),
+        app,
       );
       return { kind: "pairing", ...issued };
     }

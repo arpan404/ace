@@ -4,7 +4,7 @@ import type { FakeHistory } from "./history-wire.ts";
 import { MachineIcon } from "@ace/protocol";
 import { markUncertainInput, restoreInput, repeatInput } from "./queue-fixtures.ts";
 import { authTerminalOutput } from "./auth-terminal-output.ts";
-import { FakeWorktreeCreations } from "./worktree-creation.ts";
+import { FakeWorktreeCreations, refusedAtAdmission } from "./worktree-creation.ts";
 import { prepareFakeDelete, reconcileFakeTerminals, withExitFacts } from "./thread-lifecycle.ts";
 import { queueWakesSnooze, threadMoveError, threadMoveEvents } from "@ace/projection";
 import { automaticTarget } from "@ace/accounts/availability";
@@ -1007,7 +1007,8 @@ export class FakeDaemon implements Host {
       if (scopes && !scopes.includes("operate"))
         return Promise.resolve({ commandId: command.id, ok: false, error: "forbidden" });
       const receipt = this.receipts.get(command.id);
-      if (receipt) return Promise.resolve(this.command(command));
+      if (receipt || refusedAtAdmission(this.refusals.get(p.type)))
+        return Promise.resolve(this.command(command));
       return this.worktreeCreations.start(command, send);
     }
     if (!this.canManageProjects(command.deviceId))

@@ -438,9 +438,16 @@ export function followBlocks(
         else if (key.startsWith("run:") || key.startsWith("agent:")) regroup = true;
         if (live(key)) for (const block of following) touched.add(block);
         if (key.startsWith("item:")) {
-          for (const block of counted.get(key.slice(5)) ?? []) touched.add(block);
-          const block = single.get(key.slice(5));
+          const id = key.slice(5);
+          for (const block of counted.get(id) ?? []) touched.add(block);
+          const block = single.get(id);
           if (block) touched.add(block);
+          // A launch updates in place to its child's status, outcome and result: its group
+          // redraws, since no receipt row says it for the group (`buildBlocks`).
+          for (const shownId of following) {
+            const shown = blocks.get(shownId);
+            if (shown?.kind === "subagents" && shown.itemIds.includes(id)) touched.add(shownId);
+          }
         }
         if (key === "order") for (const block of ordered) touched.add(block);
         if (key.startsWith("interaction:"))

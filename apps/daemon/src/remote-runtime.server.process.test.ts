@@ -23,10 +23,23 @@ async function runtime(
     transport?: "tailscale" | "relay";
     relayUrl?: string;
     runtime?: import("./server-options.ts").ServerOptions["runtime"];
+    /** Reads of `remote.hostedPairingLink` wait for this; `onHold` runs as each one starts. */
+    holdPairingLinkSetting?: { until: Promise<void>; onHold(): void };
   } = {},
 ) {
   const home = await mkdtemp(join(tmpdir(), "ace-remote-runtime-"));
   const settings = new SettingsService({ dataDir: home });
+  const hold = overrides.holdPairingLinkSetting;
+  if (hold) {
+    const read = settings.get.bind(settings);
+    settings.get = (async (...args: Parameters<typeof read>) => {
+      if (args[0] === "remote.hostedPairingLink") {
+        hold.onHold();
+        await hold.until;
+      }
+      return read(...args);
+    }) as typeof settings.get;
+  }
   const workspace = join(home, "repository");
   await mkdir(workspace);
   let ids = 0;
@@ -71,6 +84,9 @@ async function runtime(
         if (!networkAvailable) throw new Error("No Tailscale");
         if (!overrides.transport) throw new Error("No Tailscale");
         return JSON.stringify({ BackendState: "Running", TailscaleIPs: ["127.0.0.1"] });
+      },
+      certificate: async () => {
+        throw new Error("HTTPS certificates are off for this tailnet");
       },
     },
   });
@@ -492,5 +508,34 @@ test("a rejected relay edit restores the saved relay and preserves direct pairin
     await f.close();
     await rejected.close();
     await saved.close();
+  }
+});
+
+test("a pairing link is not issued for remote access that turned off while the link was being made", async () => {
+  const release = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<void>();
+  const f = await runtime({
+    enabled: true,
+    holdPairingLinkSetting: { until: release.promise, onHold: () => held.resolve() },
+  });
+  try {
+    const requestId = "pairing-during-change";
+    f.client.send({
+      type: "fleet.request",
+      requestId,
+      operation: { op: "pairing", scopes: ["read"] },
+    });
+    await held.promise;
+    expect(await f.set("remote.enabled", false)).toMatchObject({ ok: true });
+    release.resolve();
+    for (;;) {
+      const message = await f.client.next();
+      if (!("requestId" in message) || message.requestId !== requestId) continue;
+      expect(message).toMatchObject({ type: "error", code: "unavailable" });
+      break;
+    }
+    expect(await f.local("/v1/status")).toMatchObject({ remote: null });
+  } finally {
+    await f.close();
   }
 });

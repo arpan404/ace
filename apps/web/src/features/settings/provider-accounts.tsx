@@ -1,7 +1,14 @@
 import { AccountBadge } from "@/components/ui/provider-account-icon.tsx";
 import { AccountLabelEditor } from "./account-label-editor.tsx";
 import { ApiKeyUpstream, type ProviderKind } from "@ace/protocol";
-import { accountStatus, headlineWindows, type AccountView } from "@ace/ui-core";
+import {
+  accountStatus,
+  antigravitySignInLabel,
+  headlineWindows,
+  isAddedAgentAccount,
+  providerAccountViews,
+  type AccountView,
+} from "@ace/ui-core";
 import { DotsThreeIcon } from "@phosphor-icons/react";
 import { useRef, useState } from "react";
 import { CompactWindow, formatResets } from "@/features/accounts/index.ts";
@@ -45,19 +52,22 @@ import {
  * default, Edit label and Remove; Add account names one and starts its sign-in straight away.
  */
 
+/**
+ * Agents reached over ACP sign in through their own ACP sign-in. Antigravity can have accounts
+ * added; any other agent keeps its one CLI login, which ace signs in and out.
+ */
+const agentProvider = (provider: ProviderKind) => provider === "acp" || provider === "antigravity";
+
 export function ProviderAccounts(props: {
   provider: ProviderKind;
   name: string;
   acpAgentId?: string | undefined;
 }) {
   const accounts = useAccountViews();
-  const own = (accounts.data ?? []).filter(
-    (account) =>
-      account.provider === props.provider &&
-      (props.provider !== "acp" || account.acpAgentId === props.acpAgentId),
-  );
-  const manageable = canAddAccounts(props.provider);
-  if (!own.length && !manageable && !accounts.isPending && !accounts.isError) return null;
+  const own = providerAccountViews(accounts.data ?? [], props.provider, props.acpAgentId);
+  const addable = canAddAccounts(props.provider);
+  const manageable = addable || agentProvider(props.provider);
+  if (!own.length && !addable && !accounts.isPending && !accounts.isError) return null;
   return (
     <SettingSection
       label="Accounts"
@@ -72,7 +82,7 @@ export function ProviderAccounts(props: {
         </SettingNote>
       )}
       {accounts.isPending ? <ListSkeleton label="accounts" shape="row" rows={3} /> : null}
-      {!accounts.isPending && !accounts.isError && !own.length && (
+      {!accounts.isPending && !accounts.isError && !own.length && addable && (
         <SettingNote>No accounts yet. Add an account below.</SettingNote>
       )}
       <SettingList aria-label={`${props.name} accounts`}>
@@ -85,12 +95,17 @@ export function ProviderAccounts(props: {
             manageable={manageable}
           />
         ))}
-        {manageable && (
+        {addable && (
           <li>
             <AddAccountRow provider={props.provider} />
           </li>
         )}
       </SettingList>
+      {!addable && own.length > 0 && (
+        <SettingNote>
+          {props.name} keeps one sign-in on this computer. Sign in again to switch accounts.
+        </SettingNote>
+      )}
     </SettingSection>
   );
 }
@@ -119,6 +134,16 @@ function AccountItem(props: {
   const provider = props.provider;
   const support = useApiKeySupport(provider);
   const native = canAddAccounts(provider) ? provider : undefined;
+  // Antigravity's CLI login and the CLIs' own logins go unnamed; any other account is named.
+  // The dialog names the agent, not "ACP agent".
+  const cliLogin =
+    account.implicit || (provider === "antigravity" && !isAddedAgentAccount(account));
+  const target = {
+    ...(agentProvider(provider) ? { name: props.name } : {}),
+    ...(cliLogin ? {} : { instance: account.id }),
+  };
+  // Accounts ace added can be removed; a CLI's or agent's own login can't.
+  const removable = native !== undefined && !account.implicit && account.acpHome !== "default_cli";
   const needsSignIn =
     state.text === "Signed out" ||
     state.text === "Not signed in yet" ||
@@ -148,6 +173,11 @@ function AccountItem(props: {
             <AccountKeyMark method={account.authMethod} />
             {account.isDefault && (
               <span className="shrink-0 text-xs text-muted-foreground">Default</span>
+            )}
+            {account.antigravitySignIn && (
+              <span className="shrink-0 text-xs text-subtle-foreground">
+                {antigravitySignInLabel(account.antigravitySignIn)}
+              </span>
             )}
           </span>
           {account.implicit && account.cliHome && (
@@ -186,13 +216,7 @@ function AccountItem(props: {
             )}
           </span>
           {signIn && props.manageable && needsSignIn ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() =>
-                signIn({ provider, ...(account.implicit ? {} : { instance: account.id }) })
-              }
-            >
+            <Button size="sm" variant="secondary" onClick={() => signIn({ provider, ...target })}>
               {state.text === "Signed out" || state.text === "Not signed in yet"
                 ? "Sign in"
                 : "Reconnect"}
@@ -216,13 +240,7 @@ function AccountItem(props: {
                 {needsSignIn && !account.isDefault && native && (
                   <MenuItem onClick={makeDefault}>Make default</MenuItem>
                 )}
-                <MenuItem
-                  onClick={() =>
-                    signIn({ provider, ...(account.implicit ? {} : { instance: account.id }) })
-                  }
-                >
-                  Sign in again
-                </MenuItem>
+                <MenuItem onClick={() => signIn({ provider, ...target })}>Sign in again</MenuItem>
                 {support.data?.supported &&
                   (provider === "opencode" ? (
                     (support.data.upstreams ?? []).flatMap((upstream) => {
@@ -258,20 +276,12 @@ function AccountItem(props: {
                       Use API key
                     </MenuItem>
                   ))}
-                <MenuItem
-                  onClick={() =>
-                    signIn({
-                      provider,
-                      action: "logout",
-                      ...(account.implicit ? {} : { instance: account.id }),
-                    })
-                  }
-                >
+                <MenuItem onClick={() => signIn({ provider, action: "logout", ...target })}>
                   Sign out
                 </MenuItem>
                 <MenuItem onClick={() => setRenaming(true)}>Rename</MenuItem>
                 <MenuItem onClick={() => setRenaming(true)}>Change badge</MenuItem>
-                {!account.implicit && (
+                {removable && (
                   <>
                     <MenuSeparator />
                     <MenuItem className="text-destructive" onClick={() => setRemoving(true)}>
@@ -329,7 +339,7 @@ function RemoveAccount(props: {
           <DialogTitle>Remove {props.label}?</DialogTitle>
           <DialogDescription>
             {props.apiKey ? "ace never stored your API key. " : ""}
-            {["codex", "claude", "cursor"].includes(props.provider)
+            {["codex", "claude", "cursor", "antigravity"].includes(props.provider)
               ? `This removes the account from ace and ${props.apiKey ? "the CLI's stored key" : "its stored sign-in"}. Sign in again to add it back.`
               : `This removes the account from ace. ${props.apiKey ? "The key stays in the CLI's credential store" : "Its sign-in stays with the CLI"}; remove it through the CLI if needed.`}
           </DialogDescription>

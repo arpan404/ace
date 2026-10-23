@@ -97,6 +97,12 @@ export class TerminalManager {
   }
 
   /** Persist first if desired. Late replay is available until explicit release. */
+  /** Ends the terminal's processes and keeps its output readable until `release`. */
+  async stop(terminal: Terminal): Promise<void> {
+    if (!this.#terminals.has(terminal)) return;
+    await terminal.close(this.#graceMs);
+  }
+
   async release(terminal: Terminal): Promise<void> {
     if (!this.#terminals.has(terminal)) return;
     await terminal.close(this.#graceMs);

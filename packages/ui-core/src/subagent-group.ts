@@ -1,4 +1,4 @@
-import type { ThreadReader } from "@ace/client";
+import type { SidebarReader, ThreadReader } from "@ace/client";
 import type { Agent, Item, ProviderKind } from "@ace/protocol";
 import { agentName } from "./agents.ts";
 import { resultLead } from "./system-events.ts";
@@ -267,4 +267,19 @@ export function readSubagentResults(
       ...[...threadIds].flatMap((id) => [`launch:${id}`, `childThread:${id}`]),
     ],
   };
+}
+
+/**
+ * A delegated child's state as the thread list has it, which can hear first that a finished
+ * child took new work or asks the person. Only from a list the daemon keeps current: not one
+ * restored or kept unfollowed (unconfirmed), still waiting for its snapshot (syncing), or holding
+ * old rows after its subscription failed (error). Nothing for a child that never started.
+ */
+export function listedSubagentState(
+  list: Pick<SidebarReader, "unconfirmed" | "syncing" | "error" | "thread">,
+  threadId: string,
+): SubagentState | undefined {
+  if (list.unconfirmed || list.syncing || list.error) return undefined;
+  const status = list.thread(threadId)?.status;
+  return status && status.state !== "new" ? delegatedState(status) : undefined;
 }

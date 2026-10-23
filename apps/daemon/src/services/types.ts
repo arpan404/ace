@@ -1,3 +1,4 @@
+import type { MaintenanceGate } from "@ace/service";
 import type { CursorHostSlots } from "@ace/adapter-cursor";
 import type { DevicesService } from "@ace/devices";
 import type { ComputerClient, ScreenManager } from "@ace/screen";
@@ -41,6 +42,8 @@ export interface Services {
   previewClient?: import("../preview-client.ts").PreviewClient;
   previewSuggestions?: import("../preview-suggestions/tracker.ts").SuggestionTracker;
   automations?: import("@ace/automations").AutomationService;
+  /** Automations agents made from threads, for the person's own controls. */
+  threadAutomations?: import("../agent-control/thread-automations.ts").ThreadAutomations;
   activityReads?: import("../activity-reads.ts").ActivityReads;
   /** Local checks and verified batch merges of pull requests (ADR 0094). */
   verify?: import("../verify/verify-service.ts").Verify;
@@ -133,5 +136,10 @@ export interface ServiceContext {
   log: ReturnType<typeof createLogger>;
   resources: Resources;
   services: Partial<Services>;
+  /**
+   * The daemon's maintenance gate, created before any service so engine recovery honours it
+   * from the start; the server shares the same gate.
+   */
+  maintenance?: MaintenanceGate;
   onListen: ((server: Awaited<ReturnType<typeof startServer>>) => void | Promise<void>)[];
 }

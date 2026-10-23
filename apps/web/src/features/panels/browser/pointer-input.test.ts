@@ -6,6 +6,7 @@ import {
   mouseMove,
   type PointerAt,
   type TouchEffect,
+  wheelScroll,
 } from "./pointer-input.ts";
 
 /** A point on screen; the page is drawn at half size, so page pixels are twice the screen's. */
@@ -78,26 +79,23 @@ describe("touch gestures", () => {
     expect(inputs(end)).toEqual([{ kind: "touch", event: "touchEnd", points: [] }]);
   });
 
-  it("a one-finger drag pans the view by the finger's movement and is no tap", () => {
+  it("a one-finger drag sends every move to the page in page pixels and is no tap", () => {
     const gestures = new TouchGestures();
     gestures.down(1, at(100, 100), 0);
-    // Within the slop it is still a press: nothing pans.
-    expect(kinds(gestures.move(1, at(104, 103)))).toEqual(["input"]);
-    const moved = gestures.move(1, at(100, 60));
-    expect(moved).toContainEqual({
-      type: "pan",
-      screen: { x: 0, y: -40 },
-      page: { x: 0, y: -80 },
-    });
-    expect(inputs(moved)).toEqual([
-      { kind: "touch", event: "touchMove", points: [{ x: 200, y: 120, id: 0 }] },
+    expect(inputs(gestures.move(1, at(104, 103)))).toEqual([
+      { kind: "touch", event: "touchMove", points: [{ x: 208, y: 206, id: 0 }] },
     ]);
-    const next = gestures.move(1, at(100, 50));
-    expect(next).toContainEqual({ type: "pan", screen: { x: 0, y: -10 }, page: { x: 0, y: -20 } });
+    expect(gestures.move(1, at(100, 60))).toEqual([
+      {
+        type: "input",
+        input: { kind: "touch", event: "touchMove", points: [{ x: 200, y: 120, id: 0 }] },
+      },
+    ]);
+    // Quick enough for a tap, but it moved past the slop: the page's drag, not a tap.
     expect(kinds(gestures.up(1, at(100, 50), 200))).not.toContain("tap");
   });
 
-  it("a pinch sends both fingers on every move and never pans or taps", () => {
+  it("a pinch sends both fingers on every move and never taps", () => {
     const gestures = new TouchGestures();
     gestures.down(1, at(100, 100), 0);
     const second = gestures.down(2, at(200, 200), 10);
@@ -177,5 +175,37 @@ describe("touch gestures", () => {
     for (let finger = 0; finger < 10; finger++) gestures.down(finger, at(finger, finger), 0);
     expect(gestures.down(10, at(50, 50), 0)).toEqual([]);
     expect(gestures.active).toBe(10);
+  });
+});
+
+describe("wheel scroll", () => {
+  const page = { width: 800, height: 600 };
+
+  it("passes a trackpad's pixel steps through unrounded, so small steps still scroll", () => {
+    expect(wheelScroll({ deltaX: 0.4, deltaY: -2.75, deltaMode: 0 }, 1, page)).toEqual({
+      deltaX: 0.4,
+      deltaY: -2.75,
+    });
+  });
+
+  it("scales pixel steps to the page's pixels when the page is drawn smaller", () => {
+    expect(wheelScroll({ deltaX: 0, deltaY: 50, deltaMode: 0 }, 2, page)).toEqual({
+      deltaX: 0,
+      deltaY: 100,
+    });
+  });
+
+  it("turns a mouse wheel's line and page steps into pixels", () => {
+    expect(wheelScroll({ deltaX: 0, deltaY: 3, deltaMode: 1 }, 2, page).deltaY).toBeGreaterThan(60);
+    expect(wheelScroll({ deltaX: 1, deltaY: -1, deltaMode: 2 }, 2, page)).toEqual({
+      deltaX: 800,
+      deltaY: -600,
+    });
+  });
+
+  it("never sends a delta the daemon would refuse", () => {
+    const huge = wheelScroll({ deltaX: Number.NaN, deltaY: 1e9, deltaMode: 0 }, 1, page);
+    expect(huge.deltaX).toBe(0);
+    expect(huge.deltaY).toBeLessThanOrEqual(100_000);
   });
 });

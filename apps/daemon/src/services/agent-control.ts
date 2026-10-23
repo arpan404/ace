@@ -15,7 +15,7 @@ export function startAgentControl(context: ServiceContext): void {
   const { services, store, options, now, id, log, resources, onListen } = context;
   const engine = services.engine;
   if (!engine || !services.models) return;
-  let maintenance: { admit(): boolean } | undefined;
+  let maintenance: { admit(): boolean } | undefined = context.maintenance;
   onListen.push((server) => {
     maintenance = server.maintenance;
   });
@@ -53,6 +53,7 @@ export function startAgentControl(context: ServiceContext): void {
   resources.own(() => delegations.close());
   resources.onShutdown(() => delegations.close());
   const owners = createAgentOwners(context, delegations);
+  services.threadAutomations = owners.threadAutomations;
   const port = createAgentControlPort(store, delegations, {
     ...options.agentControl?.extensions,
     delegateWorkspace: createWorkspaceDelegations(context, delegations),

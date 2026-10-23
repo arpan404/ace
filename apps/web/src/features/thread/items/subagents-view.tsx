@@ -1,16 +1,27 @@
 import type { AgentFacts } from "@/lib/agent-facts.ts";
+import type { SidebarKey, SidebarReader } from "@ace/client";
+import { useSidebar } from "@ace/client-react";
 import {
+  rollupSubagent,
+  subagentGroupCounts,
   subagentGroupStatus,
+  subagentGroupTitle,
   subagentSpan,
-  subagentStatusCounts,
+  subagentTerminal,
   type SubagentGroupStatus,
+  type SubagentState,
 } from "@ace/ui-core";
 import { CaretRightIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { useAgentFacts } from "@/lib/use-agent-facts.ts";
-import { useCallback, useId, useState } from "react";
+import { useCallback, useId, useMemo, useState } from "react";
 import { useThreadLiveState } from "../lib/live-state.ts";
-import { readSubagentGroup, subagentEntriesEqual } from "../lib/subagent-group.ts";
+import {
+  listedSubagentState,
+  readSubagentGroup,
+  subagentEntriesEqual,
+  type SubagentEntry,
+} from "../lib/subagent-group.ts";
 import { ProvidersLead } from "./agent-lead.tsx";
 import { subagentTones } from "./agent-row.tsx";
 import { SubagentElapsed, SubagentRow } from "./subagent-row.tsx";
@@ -33,26 +44,65 @@ export const groupStyles = {
   list: "mt-1 ml-[9px] flex flex-col border-l border-border pl-4",
 } as const;
 
+type Listed = readonly (SubagentState | undefined)[];
+const sameListed = (a: Listed, b: Listed) =>
+  a.length === b.length && a.every((state, at) => state === b[at]);
+
 /**
- * A launch's subagents in the transcript. One subagent is just its row. Several fold into one
- * row led by their providers' marks: "3 subagents", each status count in its tone, how long they
- * have run, opening to their rows under a hairline. The counts carry the state: the group reads
- * as its worst child (needs you, failed, working, done), so it never reads done while any child
- * works or waits.
+ * Each delegated child's state as the thread list has it (`listedSubagentState`): after a
+ * reconnect it can be newer than the parent's copy on the child's launch row.
+ */
+function useListedStates(entries: readonly SubagentEntry[]): Listed | undefined {
+  const ids = entries.map((entry) => entry.childThreadId ?? "").join("\n");
+  const keys = useMemo<SidebarKey[]>(
+    () => [
+      "unconfirmed",
+      "sync",
+      "error",
+      ...ids.split("\n").flatMap((id) => (id ? [`thread:${id}` as const] : [])),
+    ],
+    [ids],
+  );
+  const read = useCallback(
+    (reader: SidebarReader): Listed =>
+      ids.split("\n").map((id) => (id ? listedSubagentState(reader, id) : undefined)),
+    [ids],
+  );
+  return useSidebar(keys, read, sameListed);
+}
+
+/** An entry at the worse of its own state and the list's: never ended while either says it runs. */
+function rolledUp(entry: SubagentEntry, listed: SubagentState | undefined): SubagentEntry {
+  const state = listed ? rollupSubagent(entry.state, listed) : entry.state;
+  if (state === entry.state) return entry;
+  return { ...entry, state, endedAt: subagentTerminal(state) ? entry.endedAt : undefined };
+}
+
+/**
+ * A launch's subagents in the transcript. One still at work is just its row, its live activity in
+ * view. Several, or any number once all have ended, fold into one row led by their providers'
+ * marks: "3 subagents" with each status count in its tone while they run, "3 subagents ran" with
+ * only what didn't finish once they all have, how long they ran, opening to their rows under a
+ * hairline. The counts carry the state: the group reads as its worst child (needs you, failed,
+ * working, done), so it never reads done while any child works or waits.
  */
 export function Subagents(props: { threadId: string; itemIds: readonly string[] }) {
   const read = useCallback(
     (facts: AgentFacts) => readSubagentGroup(facts.reader, props.itemIds, facts),
     [props.itemIds],
   );
-  const entries = useAgentFacts(props.threadId, read, subagentEntriesEqual) ?? [];
+  const own = useAgentFacts(props.threadId, read, subagentEntriesEqual) ?? [];
+  const listed = useListedStates(own);
+  const entries = own.map((entry, at) => rolledUp(entry, listed?.[at]));
   const [open, setOpen] = useState(false);
   const body = useId();
   const live = useThreadLiveState(props.threadId);
   if (!entries.length) return null;
-  const title = `${entries.length} ${entries.length === 1 ? "subagent" : "subagents"}`;
+  const states = entries.map((entry) => entry.state);
+  const running = states.some((state) => !subagentTerminal(state));
+  const title = subagentGroupTitle(states);
   const [only] = entries;
-  if (entries.length === 1 && only)
+  if (running && entries.length === 1 && only)
     return (
       <section aria-label={title}>
         <ul aria-label="Subagents">
@@ -60,8 +110,7 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
         </ul>
       </section>
     );
-  const states = entries.map((entry) => entry.state);
-  const { running, startedAt, endedAt } = subagentSpan(entries);
+  const { startedAt, endedAt } = subagentSpan(entries);
   const status = subagentGroupStatus(states);
   return (
     <section aria-label={title} data-group-status={status}>
@@ -87,7 +136,7 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
             className={groupStyles.counts}
           >
             {!live.fresh && running && "Last seen: "}
-            {subagentStatusCounts(states).map((part, index) => (
+            {subagentGroupCounts(states).map((part, index) => (
               <span key={part.state}>
                 {index > 0 && <span className={groupStyles.separator}> · </span>}
                 <span data-tone={subagentTones[part.state]} className="text-(--tone-text)">

@@ -11,7 +11,7 @@ import {
   ProviderLoginFailure,
   type ProviderLoginDriver,
 } from "@ace/accounts";
-import type { ProviderKind } from "@ace/protocol";
+import type { AntigravitySignIn, ProviderKind } from "@ace/protocol";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { discoverProvider, discoverPiStatus } from "@ace/provider-kit/discovery";
 import { probeOutput, spawnRawSupervised } from "@ace/provider-kit/process";
@@ -22,6 +22,7 @@ import { cursorLoginDriver } from "../provider-login-cursor.ts";
 
 import { cursorHosts } from "./cursor-hosts.ts";
 import { registerCursorSdkCatalog } from "./cursor-activation.ts";
+import { backgroundFailure } from "./background.ts";
 import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 
 import type { ServiceContext } from "./types.ts";
@@ -43,6 +44,7 @@ export async function prepareProviderLogin(
     instance?: string;
     method?: "login" | "api_key";
     upstream?: "openai" | "anthropic" | "openrouter" | "opencode";
+    signIn?: AntigravitySignIn;
   },
   action: "login" | "logout",
   signal: AbortSignal,
@@ -56,7 +58,11 @@ export async function prepareProviderLogin(
   if (target.provider === "acp" || target.provider === "antigravity")
     return prepareAgentLogin(
       context,
-      { provider: target.provider, ...(target.instance ? { instance: target.instance } : {}) },
+      {
+        provider: target.provider,
+        ...(target.instance ? { instance: target.instance } : {}),
+        ...(target.signIn ? { signIn: target.signIn } : {}),
+      },
       action,
       signal,
       owner,
@@ -170,8 +176,14 @@ export async function prepareProviderLogin(
           instanceId,
           registry.get(instanceId)?.instance.loginRevision ?? id(),
         );
-        await services.providerStatuses?.refresh();
-        services.providerStatuses?.publish();
+        changeSignal.throwIfAborted();
+        // Account and model truth are committed; global status refresh is best-effort and
+        // must not gate the login result.
+        const statuses = services.providerStatuses;
+        if (statuses) {
+          statuses.refresh().catch(backgroundFailure(context, "Provider status refresh failed"));
+          statuses.publish();
+        }
       },
     };
   }

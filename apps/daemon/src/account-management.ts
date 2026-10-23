@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import {
   AccountManagementRequest,
   type AccountsResponse,
+  type ManagedAccountProvider,
   type ProviderInstance,
 } from "@ace/protocol/accounts";
 import type { OpenTerminalOptions, TerminalEvent } from "@ace/terminal";
@@ -19,6 +20,8 @@ import {
   type TerminalManagerOptions,
 } from "@ace/terminal";
 import {
+  accountProvider,
+  antigravityIdentity,
   assertManagedHome,
   instanceEnv,
   loginArgs,
@@ -230,7 +233,7 @@ export class AccountManagement {
     });
   }
   async addPending(
-    provider: ProviderInstance["provider"],
+    provider: ManagedAccountProvider,
     label: string,
     shortLabel?: string,
   ): Promise<string> {
@@ -265,25 +268,28 @@ export class AccountManagement {
     await deleteManagedHome(this.options.dataDir, instance);
     this.options.registry.unregister(id);
   }
-  summaries(provider: ProviderInstance["provider"]) {
+  /** A provider page's accounts. Antigravity's are its CLI login and the accounts added to it. */
+  summaries(provider: ManagedAccountProvider | ProviderInstance["provider"]) {
     return this.options.registry
       .summaries(this.options.now())
-      .filter((account) => account.provider === provider);
+      .filter((account) => accountProvider(account) === provider);
   }
   providerOf(instanceId: string) {
     return this.options.registry.get(instanceId)?.instance.provider;
   }
-  apiKeySupport(provider: ProviderInstance["provider"]) {
-    return inspectAccountSupport(provider, this.options);
+  apiKeySupport(provider: ManagedAccountProvider | ProviderInstance["provider"]) {
+    return inspectAccountSupport(provider === "antigravity" ? "acp" : provider, this.options);
   }
   private account(id: string): ProviderInstance {
     const instance = this.options.registry.get(id)?.instance;
     if (!instance) throw new Error("Unknown account");
     return instance;
   }
+  /** Accounts ace added can be removed; the CLIs' own logins and agents' default homes can't. */
   private editable(id: string): ProviderInstance {
     const instance = this.account(id);
-    if (instance.implicit || instance.provider === "acp") throw new Error("Account is immutable");
+    if (instance.implicit || (instance.provider === "acp" && !instance.managed))
+      throw new Error("Account is immutable");
     return instance;
   }
   async handle(owner: string, input: unknown): Promise<AccountsResponse> {
@@ -314,6 +320,12 @@ export class AccountManagement {
       }
       return changed(id);
     }
+    if (request.type === "accounts.setDefault" && request.provider === "antigravity") {
+      if (!this.summaries("antigravity").some((row) => row.id === request.instanceId))
+        throw new Error("Provider mismatch");
+      registry.selectAcp(antigravityIdentity.acpAgentId, request.instanceId);
+      return changed(request.instanceId);
+    }
     if (request.type === "accounts.setDefault") {
       const instanceId =
         (request.provider === "cursor"
@@ -325,8 +337,8 @@ export class AccountManagement {
       return changed(instanceId);
     }
     if (request.type === "accounts.rename") {
+      // A label and badge are ace's own words for the account, ACP agents' included.
       const instance = this.account(request.instanceId);
-      if (instance.provider === "acp") throw new Error("Account is immutable");
       registry.rename(instance.id, request.label, request);
       return changed(instance.id);
     }
@@ -339,7 +351,8 @@ export class AccountManagement {
       ? await accounts.reserveAuthChange(instance.id)
       : accounts.reserveAccountChange(instance.id);
     if (signingInOrOut) {
-      if (!instance.managed) {
+      // An agent signs in through its own ACP sign-in (provider.login), never a CLI terminal.
+      if (!instance.managed || instance.provider === "acp") {
         release();
         throw new Error("Login requires a daemon-managed home");
       }

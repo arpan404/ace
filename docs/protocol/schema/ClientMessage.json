@@ -74,6 +74,9 @@
           "minLength": 1,
           "type": "string"
         },
+        "signIn": {
+          "$ref": "https://ace.local/protocol/v1/AntigravitySignIn.json"
+        },
         "type": {
           "const": "provider.login.start",
           "type": "string"
@@ -428,6 +431,16 @@
         "automation": {
           "$ref": "https://ace.local/protocol/v1/Automation.json"
         },
+        "expectedRevision": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/AutomationRevision.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "requestId": {
           "maxLength": 256,
           "minLength": 1,
@@ -447,6 +460,16 @@
     },
     {
       "properties": {
+        "expectedRevision": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/AutomationRevision.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "id": {
           "maxLength": 256,
           "minLength": 1,
@@ -456,6 +479,9 @@
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
+        },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/AutomationSource.json"
         },
         "type": {
           "const": "automation.remove",
@@ -476,10 +502,16 @@
           "minLength": 1,
           "type": "string"
         },
+        "message": {
+          "$ref": "https://ace.local/protocol/v1/MessageText.json"
+        },
         "requestId": {
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
+        },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/AutomationSource.json"
         },
         "type": {
           "const": "automation.run",
@@ -499,6 +531,9 @@
     },
     {
       "properties": {
+        "includeThreads": {
+          "type": "boolean"
+        },
         "requestId": {
           "maxLength": 256,
           "minLength": 1,
@@ -537,6 +572,9 @@
           "minLength": 1,
           "type": "string"
         },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/AutomationSource.json"
+        },
         "type": {
           "const": "automation.inbox",
           "type": "string"
@@ -546,6 +584,67 @@
         "type",
         "requestId",
         "limit"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "expectedRevision": {
+          "$ref": "https://ace.local/protocol/v1/AutomationRevision.json"
+        },
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/AutomationSource.json"
+        },
+        "type": {
+          "const": "automation.setEnabled",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "id",
+        "enabled"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "expectedRevision": {
+          "$ref": "https://ace.local/protocol/v1/AutomationRevision.json"
+        },
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "automation.retry",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "id"
       ],
       "type": "object"
     },
@@ -816,7 +915,7 @@
           "type": "string"
         },
         "provider": {
-          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+          "$ref": "https://ace.local/protocol/v1/ManagedAccountProvider.json"
         },
         "requestId": {
           "maxLength": 128,
@@ -923,7 +1022,7 @@
           "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
         },
         "provider": {
-          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+          "$ref": "https://ace.local/protocol/v1/ManagedAccountProvider.json"
         },
         "requestId": {
           "maxLength": 128,
@@ -1103,7 +1202,7 @@
       "additionalProperties": false,
       "properties": {
         "provider": {
-          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+          "$ref": "https://ace.local/protocol/v1/ManagedAccountProvider.json"
         },
         "requestId": {
           "maxLength": 128,
@@ -1135,7 +1234,7 @@
           "$ref": "https://ace.local/protocol/v1/AccountLoginMethod.json"
         },
         "provider": {
-          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+          "$ref": "https://ace.local/protocol/v1/ManagedAccountProvider.json"
         },
         "requestId": {
           "maxLength": 128,
@@ -1144,6 +1243,9 @@
         },
         "shortLabel": {
           "$ref": "https://ace.local/protocol/v1/AccountBadgeInput.json"
+        },
+        "signIn": {
+          "$ref": "https://ace.local/protocol/v1/AntigravitySignIn.json"
         },
         "type": {
           "const": "provider.accounts.add",
@@ -1197,7 +1299,7 @@
           "type": "string"
         },
         "provider": {
-          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+          "$ref": "https://ace.local/protocol/v1/ManagedAccountProvider.json"
         },
         "requestId": {
           "maxLength": 128,
@@ -1228,7 +1330,7 @@
           "$ref": "https://ace.local/protocol/v1/AccountId.json"
         },
         "provider": {
-          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+          "$ref": "https://ace.local/protocol/v1/ManagedAccountProvider.json"
         },
         "requestId": {
           "maxLength": 128,
@@ -1263,7 +1365,7 @@
           "$ref": "https://ace.local/protocol/v1/AccountId.json"
         },
         "provider": {
-          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+          "$ref": "https://ace.local/protocol/v1/ManagedAccountProvider.json"
         },
         "requestId": {
           "maxLength": 128,
@@ -1295,12 +1397,15 @@
           "default": "login"
         },
         "provider": {
-          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+          "$ref": "https://ace.local/protocol/v1/ManagedAccountProvider.json"
         },
         "requestId": {
           "maxLength": 128,
           "minLength": 1,
           "type": "string"
+        },
+        "signIn": {
+          "$ref": "https://ace.local/protocol/v1/AntigravitySignIn.json"
         },
         "type": {
           "const": "provider.accounts.reauth",

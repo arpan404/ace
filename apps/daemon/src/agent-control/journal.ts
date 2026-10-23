@@ -6,6 +6,7 @@ import type { StatementSync } from "node:sqlite";
 import { z } from "zod";
 import { DelegationRecord, ThreadId, type DelegationOutcome, type Event } from "@ace/protocol";
 import type { Store } from "../store.ts";
+import { DelegationOrigins, type OriginOwner } from "./delegation-origins.ts";
 import { hasStoppedAncestor } from "./ancestor-stop.ts";
 
 export const DelegationReservation = z.object({
@@ -23,9 +24,12 @@ export class DelegationJournal {
   private store: Store;
   private capacity: number;
   private statements = new Map<string, StatementSync>();
+  /** The parent turn each delegation generation came from. */
+  readonly origins: DelegationOrigins;
   constructor(store: Store, capacity = 10000) {
     this.capacity = z.number().int().min(1).max(10000).parse(capacity);
     this.store = store;
+    this.origins = new DelegationOrigins(store);
     store.atomic((db) =>
       db.exec(`
       CREATE TABLE IF NOT EXISTS delegation_trees (
@@ -79,6 +83,17 @@ export class DelegationJournal {
       );
     `),
     );
+    // Owners of delegations made before they were kept, once (`DelegationOrigins.backfill`).
+    if (!this.origins.backfilled())
+      this.origins.backfill([
+        ...this.sql("SELECT record FROM delegated_threads")
+          .all()
+          .map((row) => {
+            const edge = this.decode(row.record);
+            return edgeOwnerFacts(edge, edge.phase !== "settled");
+          }),
+        ...this.reservations().map((reservation) => edgeOwnerFacts(reservation.record, true)),
+      ]);
   }
   private sql(query: string) {
     let statement = this.statements.get(query);
@@ -178,6 +193,13 @@ export class DelegationJournal {
     ).get(parent, request);
     return row ? this.decodeReservation(row.reservation) : undefined;
   }
+  /** The reservation still preparing `child`, if it is one. */
+  reservationOf(child: ThreadId) {
+    const row = this.sql("SELECT reservation FROM delegation_reservations WHERE child_id=?").get(
+      child,
+    );
+    return row ? this.decodeReservation(row.reservation) : undefined;
+  }
   /** In-flight preparations only; each is released or committed when its owner finishes. */
   reservations() {
     return this.sql("SELECT reservation FROM delegation_reservations ORDER BY child_id")
@@ -187,6 +209,10 @@ export class DelegationJournal {
   reserve(reservation: DelegationReservation) {
     this.assertCapacity();
     const r = reservation.record;
+    this.origins.note(r.childId, r.generation, r.parentId, {
+      kind: "parent-turn",
+      agentId: r.parentAgentId,
+    });
     this.sql("INSERT INTO delegation_reservations VALUES (?,?,?,?,?)").run(
       r.childId,
       r.parentId,
@@ -209,6 +235,10 @@ export class DelegationJournal {
     if (!reservation || reservation.record.childId !== record.childId)
       throw new Error("Missing reservation");
     this.sql("DELETE FROM delegation_reservations WHERE child_id=?").run(record.childId);
+    this.origins.note(record.childId, record.generation, record.parentId, {
+      kind: "parent-turn",
+      agentId: record.parentAgentId,
+    });
     this.sql(
       "INSERT INTO delegated_threads(child_id,parent_id,root_id,request_id,record,phase) VALUES (?,?,?,?,?,?)",
     ).run(
@@ -249,6 +279,14 @@ export class DelegationJournal {
       .map((row) => this.decode(row.record));
   }
   /** Direct children, settled ones included. */
+  /** Unsettled direct children only, read through the parent/phase index. */
+  liveChildren(parent: ThreadId) {
+    return this.sql(
+      "SELECT record FROM delegated_threads WHERE parent_id=? AND phase<>'settled' ORDER BY child_id",
+    )
+      .all(parent)
+      .map((row) => this.decode(row.record));
+  }
   children(parent: ThreadId) {
     return this.sql("SELECT record FROM delegated_threads WHERE parent_id=? ORDER BY child_id")
       .all(parent)
@@ -302,20 +340,41 @@ export class DelegationJournal {
       this.ancestorStopped(thread)
     );
   }
-  reopen(record: DelegationRecord, now: number) {
+  /**
+   * New input reopens a settled child: `byAgent` is the parent's agent that sent it, if one did
+   * (the root when the sender is unknown); without one, someone else reopened it.
+   */
+  reopen(
+    record: DelegationRecord,
+    now: number,
+    byAgent: { agentId?: string | undefined } | undefined,
+  ) {
     this.sql("DELETE FROM delegation_subtree_stops WHERE thread_id=?").run(record.childId);
     this.sql("DELETE FROM delegation_member_stops WHERE thread_id=?").run(record.childId);
     this.sql("UPDATE delegated_threads SET wake_suppressed=0 WHERE child_id=?").run(record.childId);
-    this.revive(record);
+    this.revive(
+      record,
+      byAgent ? { kind: "parent-turn", agentId: byAgent.agentId } : { kind: "independent" },
+    );
     this.rearm(record.childId, now);
   }
-  /** Native work must be counted even when Stop still owns its cancellation. */
-  revive(record: DelegationRecord) {
+  /**
+   * Native work must be counted even when Stop still owns its cancellation. The new generation
+   * belongs to `owner`; a native revival carries on the generation before it.
+   */
+  revive(record: DelegationRecord, owner?: OriginOwner) {
     if (record.phase !== "settled") return;
+    const previous = record.generation;
     record.phase = "running";
     record.generation++;
     delete record.outcome;
     this.save(record);
+    this.origins.note(
+      record.childId,
+      record.generation,
+      record.parentId,
+      owner ?? { kind: "same-as", generation: previous },
+    );
     this.sql("UPDATE delegation_trees SET active=active+1 WHERE root_id=?").run(record.rootId);
     this.sql("UPDATE delegated_threads SET result_pending=0 WHERE child_id=?").run(record.childId);
     this.sql(
@@ -497,4 +556,16 @@ export class DelegationJournal {
       "UPDATE delegation_trees SET tokens=MIN(9007199254740991,tokens+?),cost=MIN(1.7976931348623157e308,cost+?) WHERE root_id=?",
     ).run(tokens, delta.cost, root);
   }
+}
+
+/** What owner backfill needs of a delegation. */
+function edgeOwnerFacts(edge: DelegationRecord, live: boolean) {
+  return {
+    childId: edge.childId,
+    parentId: edge.parentId,
+    parentAgentId: edge.parentAgentId,
+    generation: edge.generation,
+    createdAt: edge.createdAt,
+    live,
+  };
 }

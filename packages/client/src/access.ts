@@ -14,6 +14,7 @@ import { accessHttp, type AccessHttp, type AccessOptions } from "./access-http.t
 export type { AccessOptions } from "./access-http.ts";
 
 export { accessTicket } from "./access-ticket.ts";
+export { pairingLinkUrl, parsePairingLink, type PairingLink } from "./pairing-link.ts";
 
 /** HTTP access operations never enter the command outbox or place credentials in URLs. */
 export class AccessClient {

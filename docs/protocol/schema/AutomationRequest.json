@@ -7,6 +7,16 @@
         "automation": {
           "$ref": "https://ace.local/protocol/v1/Automation.json"
         },
+        "expectedRevision": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/AutomationRevision.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "requestId": {
           "maxLength": 256,
           "minLength": 1,
@@ -26,6 +36,16 @@
     },
     {
       "properties": {
+        "expectedRevision": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/AutomationRevision.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "id": {
           "maxLength": 256,
           "minLength": 1,
@@ -35,6 +55,9 @@
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
+        },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/AutomationSource.json"
         },
         "type": {
           "const": "automation.remove",
@@ -55,10 +78,16 @@
           "minLength": 1,
           "type": "string"
         },
+        "message": {
+          "$ref": "https://ace.local/protocol/v1/MessageText.json"
+        },
         "requestId": {
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
+        },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/AutomationSource.json"
         },
         "type": {
           "const": "automation.run",
@@ -78,6 +107,9 @@
     },
     {
       "properties": {
+        "includeThreads": {
+          "type": "boolean"
+        },
         "requestId": {
           "maxLength": 256,
           "minLength": 1,
@@ -116,6 +148,9 @@
           "minLength": 1,
           "type": "string"
         },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/AutomationSource.json"
+        },
         "type": {
           "const": "automation.inbox",
           "type": "string"
@@ -125,6 +160,67 @@
         "type",
         "requestId",
         "limit"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "expectedRevision": {
+          "$ref": "https://ace.local/protocol/v1/AutomationRevision.json"
+        },
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/AutomationSource.json"
+        },
+        "type": {
+          "const": "automation.setEnabled",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "id",
+        "enabled"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "expectedRevision": {
+          "$ref": "https://ace.local/protocol/v1/AutomationRevision.json"
+        },
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "automation.retry",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "id"
       ],
       "type": "object"
     }

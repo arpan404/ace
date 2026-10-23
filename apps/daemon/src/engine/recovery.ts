@@ -1,6 +1,8 @@
 import { restatesSelection } from "./input-delivery.ts";
 import { handleQueue } from "./queue-commands.ts";
-import { lostWork } from "./lost-work.ts";
+import { lostWorkLines } from "./lost-work.ts";
+import { RestartStreaks, restartContinuation } from "./restart-resume.ts";
+import { RestartCaptures, openRequestLine } from "./restart-captures.ts";
 import { wakeFor } from "./snooze-wake.ts";
 import { z } from "zod";
 import {
@@ -35,6 +37,11 @@ export interface RecoveryPorts {
   contextWindow?: ContextWindowLookup;
   /** Reports a deadline pass that failed and will be retried. */
   onError?(error: unknown): void;
+  /**
+   * Whether new work may start (the daemon's maintenance gate, ADR 0041). Turns ace starts by
+   * itself wait while it is closed; the engine reschedules them when it reopens.
+   */
+  admits?(): boolean;
 }
 /** A deadline pass that could not commit (the store is busy, say) runs again after this. */
 const deadlineRetryMs = 1_000;
@@ -48,6 +55,10 @@ export class Recovery {
   private cancel: (() => void) | undefined;
   private closed = false;
   private pendingPolicy = new Map<ThreadId, Promise<void>>();
+  /** Automatic restart continuations in a row, for the loop guard. */
+  readonly streaks: RestartStreaks;
+  /** What each restart continuation's capture saw, for startup's decision. */
+  readonly captures: RestartCaptures;
   constructor(
     repo: EngineRepository,
     clock: EngineClock,
@@ -60,6 +71,8 @@ export class Recovery {
     this.ports = ports;
     this.defaults = defaults;
     this.wake = wake;
+    this.streaks = new RestartStreaks(repo.store);
+    this.captures = new RestartCaptures(repo.store);
   }
   async prepare(id?: ThreadId): Promise<void> {
     const value = RecoveryPreferences.parse((await this.ports.preferences?.(id)) ?? this.defaults);
@@ -81,7 +94,7 @@ export class Recovery {
       : this.defaults;
   }
   handle(command: Command): CommandResult | undefined {
-    return handleQueue(command, {
+    const result = handleQueue(command, {
       repo: this.repo,
       clock: this.clock,
       ports: this.ports,
@@ -89,9 +102,20 @@ export class Recovery {
       schedule: () => this.schedule(),
       wake: this.wake,
     });
+    // The person's own accepted Resume (either form) starts a fresh run for the loop guard.
+    const p = command.payload;
+    if (
+      result?.ok &&
+      command.deviceId !== "engine" &&
+      (p.type === "thread.resume" || p.type === "queue.resume")
+    )
+      this.streaks.clear(p.threadId);
+    return result;
   }
   admit(command: Command, id: ThreadId): Command | undefined {
     if (!isSend(command.payload)) return command;
+    // New input is new direction: the loop guard counts restarts of one piece of work only.
+    this.streaks.clear(id);
     if (
       !this.repo.inputCapacity(id, maxMessages) ||
       Buffer.byteLength(JSON.stringify(command)) > maxMessageBytes
@@ -220,23 +244,67 @@ export class Recovery {
     });
     this.schedule();
   }
+  /** Records a plain continuation for interrupted live work (a provider exit, a host pause). */
   capture(id: ThreadId): void {
-    if (this.repo.pending.uncertainContinuation(id)) return;
+    this.repo.store.atomic(() => {
+      this.captureWith(id, () => continueMessage);
+      // A plain continuation is no restart capture; startup must not read an older one.
+      this.captures.clear(id);
+    });
+  }
+  /**
+   * Records the continuation for work a daemon shutdown or crash cut short: it tells the agent ace
+   * restarted and names the background work that died. Cursor SDK work stays uncertain until
+   * checkpoint reconciliation, so it keeps the plain continuation.
+   */
+  captureRestart(id: ThreadId): void {
+    this.repo.store.atomic(() => {
+      const captured = this.captureWith(id, (lost) =>
+        this.repo.backend(id) === "cursor-sdk" ? continueMessage : restartContinuation(lost),
+      );
+      // Saved with the continuation: stopping the provider next expires its open requests.
+      if (captured)
+        this.captures.record(id, { waitingOn: openRequestLine(this.repo.requireState(id)) });
+    });
+  }
+  /** True when live work was found and a continuation recorded. */
+  private captureWith(id: ThreadId, text: (lost: string[]) => string): boolean {
+    if (this.repo.pending.uncertainContinuation(id)) return false;
     // A Stop is final: the stopped turn never carries on, so a restart has nothing to resume.
-    if (stoppedHold(this.repo.queue.get(id))) return;
-    const text = lostWork(
+    if (stoppedHold(this.repo.queue.get(id))) return false;
+    const lost = lostWorkLines(
       this.repo.requireState(id),
       this.repo.pending.recoveryAcknowledgement(id) ? 1 : 0,
-      this.repo.backend(id),
       this.clock.now(),
     );
-    if (!text) return;
-    this.repo.queue.set(
-      id,
-      { continuation: continueMessage, trigger: "restart" },
-      this.clock.now(),
-    );
+    if (!lost) return false;
+    this.repo.queue.set(id, { continuation: text(lost), trigger: "restart" }, this.clock.now());
     this.sync(id);
+    return true;
+  }
+  /**
+   * A shutdown captured live work, but the provider finished it while closing: the turn ended
+   * and nothing else is live. The capture is stale, so the restart has nothing to continue.
+   * Startup's queue sync settles the thread's counts.
+   */
+  private dropStaleCapture(state: ThreadState, at: number): void {
+    const id = state.threadId;
+    if (!this.captures.has(id)) return;
+    const queue = this.repo.queue.get(id);
+    if (queue.trigger !== "restart" || queue.paused) return;
+    const ack = this.repo.pending.recoveryAcknowledgement(id) ? 1 : 0;
+    if (lostWorkLines(state, ack, at)) return;
+    this.repo.queue.set(id, { continuation: null, trigger: null }, at);
+    this.captures.clear(id);
+  }
+  /**
+   * Startup found this thread's turn cut short by the restart and safe to continue: send its
+   * restart continuation now, through the same resume path as the person's Continue, ahead of
+   * any queued messages. Counts toward the loop guard.
+   */
+  resumeAfterRestart(id: ThreadId): void {
+    this.streaks.increment(id);
+    this.automatic(id);
   }
   /**
    * A provider that died with work in flight leaves its turn interrupted. The turn is held for
@@ -261,6 +329,19 @@ export class Recovery {
     this.sync(id);
   }
   observe(state: ThreadState, facts: Fact[], _events: EventPayload[], at: number): void {
+    // A root turn that completes ends any run of restarts the loop guard was counting.
+    if (
+      facts.some(
+        (fact) =>
+          fact.type === "turn.ended" &&
+          fact.outcome === "completed" &&
+          !fact.historical &&
+          fact.agent === state.rootKey,
+      )
+    ) {
+      this.streaks.clear(state.threadId);
+      this.dropStaleCapture(state, at);
+    }
     if (
       !facts.some(
         (fact) =>
@@ -389,6 +470,16 @@ export class Recovery {
     await Promise.all(this.pendingPolicy.values());
   }
   automatic(id: ThreadId, action?: "migrate_now"): CommandResult | undefined {
+    // Maintenance holds turns ace would start by itself: keep a due deadline for when it reopens.
+    if (this.ports.admits?.() === false) {
+      this.repo.queue.set(
+        id,
+        { resumeAt: this.clock.now(), timerAction: action ? "migrate" : "resume" },
+        this.clock.now(),
+      );
+      this.sync(id);
+      return undefined;
+    }
     const revision = this.repo.queue.get(id).revision;
     const p: CommandPayload = action
       ? { type: "thread.limit", threadId: id, expectedRevision: revision, action }
@@ -419,7 +510,8 @@ export class Recovery {
   schedule(): void {
     this.cancel?.();
     this.cancel = undefined;
-    if (this.closed) return;
+    // No deadline runs while maintenance holds new work; reopening schedules again.
+    if (this.closed || this.ports.admits?.() === false) return;
     const at = this.repo.queue.nextDeadline();
     if (at === undefined) return;
     this.cancel = this.clock.setTimer(() => this.fire(), Math.max(0, at - this.clock.now()));

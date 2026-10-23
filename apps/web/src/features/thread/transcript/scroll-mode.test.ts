@@ -2,7 +2,9 @@ import { expect, test } from "vitest";
 import {
   compensation,
   correction,
+  handOver,
   heldKey,
+  heldSuccessor,
   joinedAtTop,
   transition,
   type ScrollEvent,
@@ -114,6 +116,36 @@ test("loading older turns keeps the reader's first visible row in place", () => 
   );
   expect(joinedAtTop(["step-12", "step-13"], ["step-12", "step-13", "step-14"])).toBe(false);
   expect(compensation(mode, { index: 3, grewAtTop: true })?.({ index: 3 })).toBe(true);
+});
+
+test("a held row dropped as older history loads hands the reader's place to the row after it", () => {
+  const { mode } = run(following, wheel(true));
+  // The reader's first row in view was a delegate's result, 24px under the view's top. The older
+  // page brought its launch row, which carries that result, so the result row left; the rows
+  // after it now sit 900px lower, under the older page.
+  const before = ["work:turn-9", "results-9", "message:answer-9", "files:turn-9"];
+  const now = new Map([
+    ["work:turn-9", { index: 40, top: 900 - 380 }],
+    ["message:answer-9", { index: 41, top: 24 + 900 }],
+    ["files:turn-9", { index: 42, top: 24 + 900 + 120 }],
+  ]);
+  const next = heldSuccessor(before, 1, (key) => now.get(key));
+  expect(next).toEqual({ index: 41, top: 924 });
+  // The answer that followed it takes its place where the reader saw the result.
+  const held = { key: "results-9", itemId: "results-9", top: 24 };
+  expect(correction(mode, held, next, 0)).toEqual({ kind: "shift", by: 900 });
+  // With nothing shown after it, there is no place to keep.
+  expect(heldSuccessor(["work:turn-9", "results-9"], 1, (key) => now.get(key))).toBeUndefined();
+  // A jump to the gone row holds the row that took its place from then on, not the gone one.
+  const jumped = run(following, { ...jump, key: "results-9", itemId: "results-9" }).mode;
+  const after = handOver(jumped, { key: "message:answer-9", itemId: "answer-9" });
+  expect(heldKey(after, { key: "work:turn-9", itemId: "step-1" })).toEqual({
+    key: "message:answer-9",
+    itemId: "answer-9",
+  });
+  // A free reader's mode names no row; it holds whatever is first in view.
+  const free = run(following, wheel(true)).mode;
+  expect(handOver(free, { key: "message:answer-9", itemId: "answer-9" })).toEqual(free);
 });
 
 test("older rows that already moved the view as they measured are not counted again", () => {

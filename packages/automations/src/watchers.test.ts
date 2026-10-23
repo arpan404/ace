@@ -1,23 +1,32 @@
 import { expect, it } from "vitest";
 import { harness, definition } from "./service-test-support.ts";
 import type { AutomationEvent } from "@ace/protocol";
-it("rolls back a failed workspace subscription and lets an identical retry watch files", async () => {
+it("persists a failed workspace subscription with health and heals on retry", async () => {
   const h = harness();
   let fail = true;
   h.deps.workspace = {
-    subscribe(path, _paths, receive) {
+    subscribe(path, _paths, receive, hooks) {
       if (fail) throw new Error("watcher unavailable");
       h.watches.set(path, receive);
+      hooks?.onReady?.();
       return () => {
         h.watches.delete(path);
       };
     },
   };
   const auto = definition({ trigger: { kind: "file", paths: ["src/**"] } });
-  expect(() => h.service.put(auto)).toThrow("watcher unavailable");
-  expect(h.service.list()).toEqual([]);
+  // One stale workspace no longer blocks the save: the definition persists
+  // with durable health instead of leaving no definition behind.
+  h.service.put(auto);
+  expect(h.service.list()).toEqual([auto]);
+  expect(
+    h.service.handle({ type: "automation.list", requestId: "unhealthy" }).schedules,
+  ).toMatchObject([{ id: "triage", triggerError: { message: "watcher unavailable" } }]);
   fail = false;
   h.service.put(auto);
+  expect(
+    h.service.handle({ type: "automation.list", requestId: "healed" }).schedules?.[0]?.triggerError,
+  ).toBeUndefined();
   await h.watches.get("/project")?.({ key: "changed", variables: { subject: "src/main.ts" } });
   expect(h.inputs[0]?.prompt).toBe("Triage src/main.ts");
   await h.finish();

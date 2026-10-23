@@ -8,7 +8,7 @@ import {
   presetToSchedule,
   scheduleToPreset,
   upcomingRuns,
-} from "./schedule.ts";
+} from "@/features/automation-schedule/index.ts";
 import {
   AutomationForm,
   automationFromForm,
@@ -34,27 +34,27 @@ const cron = (expression: string): AutomationSchedule => ({
 
 test("RRULEs read as people say them", () => {
   expect(describeSchedule(rrule("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,TH;BYHOUR=8;BYMINUTE=30"))).toBe(
-    "Every 2 weeks on Mondays and Thursdays at 08:30",
+    "Every 2 weeks on Mondays and Thursdays at 8:30 AM",
   );
   expect(describeSchedule(rrule("FREQ=MINUTELY;INTERVAL=15"))).toBe("Every 15 minutes");
   expect(describeSchedule(rrule("FREQ=HOURLY"))).toBe("Every hour");
   expect(describeSchedule(rrule("RRULE:FREQ=MONTHLY;BYHOUR=9;BYMINUTE=0"))).toBe(
-    "Every month at 09:00",
+    "Every month at 9:00 AM",
   );
 });
 
 test("a rule without BYHOUR fires at its start time in its own zone", () => {
-  expect(describeSchedule(rrule("FREQ=DAILY", "Asia/Kolkata"))).toBe("Every day at 20:15");
-  expect(describeSchedule(rrule("FREQ=DAILY", "America/Chicago"))).toBe("Every day at 09:45");
+  expect(describeSchedule(rrule("FREQ=DAILY", "Asia/Kolkata"))).toBe("Every day at 8:15 PM");
+  expect(describeSchedule(rrule("FREQ=DAILY", "America/Chicago"))).toBe("Every day at 9:45 AM");
 });
 
 test("common cron shapes read as words and unusual ones stay as written", () => {
   expect(describeSchedule(cron("*/10 * * * *"))).toBe("Every 10 minutes");
   expect(describeSchedule(cron("0 */4 * * *"))).toBe("Every 4 hours");
-  expect(describeSchedule(cron("0 16 * * 5"))).toBe("Fridays at 16:00");
-  expect(describeSchedule(cron("15 9 * * 0,6"))).toBe("Saturdays and Sundays at 09:15");
-  expect(describeSchedule(cron("0 9 1 * *"))).toBe("Day 1 of every month at 09:00");
-  expect(describeSchedule(cron("30 8 1 3 *"))).toBe("1 March every year at 08:30");
+  expect(describeSchedule(cron("0 16 * * 5"))).toBe("Fridays at 4:00 PM");
+  expect(describeSchedule(cron("15 9 * * 0,6"))).toBe("Saturdays and Sundays at 9:15 AM");
+  expect(describeSchedule(cron("0 9 1 * *"))).toBe("Day 1 of every month at 9:00 AM");
+  expect(describeSchedule(cron("30 8 1 3 *"))).toBe("1 March every year at 8:30 AM");
   expect(describeSchedule(cron("0 9 1-7 * 1"))).toBe("Cron 0 9 1-7 * 1");
 });
 
@@ -201,4 +201,55 @@ test("inactive schedule fields cannot prevent switching to manual or custom", ()
   expect(AutomationForm.safeParse({ ...stale, cadence: "hourly", timezone: "UTC" }).success).toBe(
     false,
   );
+});
+
+test("every few minutes reads as people say it and survives a round trip through its RRULE", () => {
+  const schedule = presetToSchedule({ kind: "minutes", every: 5 }, "UTC", startAt);
+  expect(schedule.expression).toBe("FREQ=MINUTELY;INTERVAL=5");
+  expect(describeSchedule(schedule)).toBe("Every 5 minutes");
+  expect(scheduleToPreset(schedule)).toEqual({ kind: "minutes", every: 5 });
+  const runs = upcomingRuns(schedule, startAt + 60_000);
+  expect(runs).toHaveLength(3);
+  expect((runs[1] ?? 0) - (runs[0] ?? 0)).toBe(5 * 60_000);
+});
+
+test("a one-off run happens once, at that date and time in its own zone, and reads back", () => {
+  const preset = { kind: "once", date: "2026-10-24", time: "09:30" } as const;
+  const schedule = presetToSchedule(preset, "America/New_York", startAt);
+  // 9:30 AM on Oct 24 in New York (EDT, UTC-4).
+  expect(schedule.startAt).toBe(Date.UTC(2026, 9, 24, 13, 30));
+  expect(scheduleToPreset(schedule)).toEqual(preset);
+  expect(describeSchedule(schedule)).toBe("Once on Oct 24 at 9:30 AM");
+  expect(upcomingRuns(schedule, startAt)).toEqual([schedule.startAt]);
+  expect(upcomingRuns(schedule, schedule.startAt + 60_000)).toEqual([]);
+});
+
+test("a later start begins on the schedule's first run from then, never at the start itself", () => {
+  const now = Date.UTC(2026, 9, 21, 19, 0);
+  const form = { ...blankForm("ws", "America/New_York"), time: "09:00" };
+  const runs = (patch: Partial<typeof form>) =>
+    upcomingRuns(scheduleFromForm({ ...form, ...patch }, now), now, 2);
+  // New York is UTC-4 in October: 10:30 AM on Oct 25 is 14:30 UTC.
+  expect(runs({ cadence: "daily", startsAt: "2026-10-25T10:30" })).toEqual([
+    Date.UTC(2026, 9, 26, 13, 0),
+    Date.UTC(2026, 9, 27, 13, 0),
+  ]);
+  expect(runs({ cadence: "daily", startsAt: "2026-10-25T09:00" })[0]).toBe(
+    Date.UTC(2026, 9, 25, 13, 0),
+  );
+  expect(runs({ cadence: "hourly", every: 6, startsAt: "2026-10-25T10:30" })).toEqual([
+    Date.UTC(2026, 9, 25, 15, 0),
+    Date.UTC(2026, 9, 25, 21, 0),
+  ]);
+  expect(runs({ cadence: "minutes", minutes: 15, startsAt: "2026-10-25T10:07" })).toEqual([
+    Date.UTC(2026, 9, 25, 14, 7),
+    Date.UTC(2026, 9, 25, 14, 22),
+  ]);
+});
+
+test("a start that has already passed means now, so nothing reads as missed", () => {
+  const now = Date.UTC(2026, 9, 21, 19, 0);
+  const form = { ...blankForm("ws", "America/New_York"), cadence: "daily" as const };
+  expect(scheduleFromForm({ ...form, startsAt: "2026-10-21T09:00" }, now).startAt).toBe(now);
+  expect(scheduleFromForm({ ...form, startsAt: "" }, now).startAt).toBe(now);
 });

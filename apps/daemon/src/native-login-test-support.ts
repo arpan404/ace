@@ -28,6 +28,10 @@ export async function nativeLoginHarness(
   const account = await f.add(provider);
   const instance = f.registry.get(account.id)?.instance;
   if (!instance) throw new Error("Missing managed account");
+  // Where the fixture CLI keeps its login: the account's own selector, as real CLIs do.
+  const credentialHome = instance.env.CODEX_HOME ?? instance.env.XDG_DATA_HOME;
+  if (!credentialHome) throw new Error("Missing account selector");
+  await mkdir(credentialHome, { recursive: true });
   f.registry.selectProvider(provider, instance.id);
   f.registry.ingest(instance.id, {
     provider,
@@ -44,7 +48,8 @@ export async function nativeLoginHarness(
 const fs = require('node:fs');
 const readline = require('node:readline');
 const args = process.argv.slice(2);
-const home = process.env.HOME;
+const home = process.env.CODEX_HOME || process.env.XDG_DATA_HOME;
+fs.mkdirSync(home, { recursive: true });
 const signedIn = () => fs.existsSync(home + '/cli-credential');
 if (args[0] === '--version') console.log(${JSON.stringify(provider === "codex" ? "codex-cli 0.159.1" : "2.0.30")});
 else if (args.includes('--help')) console.log('login logout --with-api-key --device-auth --standalone');
@@ -122,6 +127,7 @@ else console.log(${JSON.stringify(provider === "codex" ? "Not logged in" : "[]")
   return {
     f,
     instance,
+    credentialHome,
     executable,
     replacement,
     settings,

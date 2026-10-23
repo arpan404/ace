@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
 import { AccountInstanceId } from "./accounts.ts";
 import { ProviderStatus } from "./provider-status.ts";
+import { AntigravitySignIn } from "./antigravity-sign-in.ts";
 
 const id = z.string().min(1).max(128);
 const target = { provider: ProviderKind, instance: AccountInstanceId.optional() };
@@ -33,12 +34,31 @@ export const ProviderSignInCode = z
     writeOnly: true,
     description: "One-time sign-in code handed only to the CLI's own prompt. Never log or persist.",
   });
+/**
+ * The whole address a browser was sent back to after an agent's Google sign-in
+ * (`http://127.0.0.1:<port>/?code=…`), pasted when that page couldn't load on this device. The
+ * daemon hands it only to the waiting agent's own listener on its computer. It carries a one-time
+ * code, so it is never logged, stored or echoed.
+ */
+export const ProviderSignInReturnUrl = z
+  .string()
+  .min(18)
+  .max(8192)
+  .regex(/^http:\/\/(?:127\.0\.0\.1|localhost):\d{1,5}\/[^\s#]*\?[^\s#]+$/)
+  .meta({
+    secret: true,
+    "x-ace-secret": true,
+    writeOnly: true,
+    description:
+      "One-time sign-in return address handed only to the agent's loopback listener. Never log or persist.",
+  });
 /** Continuation input. API keys use their own message type. */
 export const ProviderLoginInput = z.union([
   z.strictObject({ confirm: z.literal(true) }),
   z.strictObject({ value: z.literal("enter") }),
   z.strictObject({ choice: z.string().regex(/^[a-z0-9_-]{1,64}$/) }),
   z.strictObject({ code: ProviderSignInCode }),
+  z.strictObject({ returnUrl: ProviderSignInReturnUrl }),
 ]);
 export type ProviderLoginInput = z.infer<typeof ProviderLoginInput>;
 export const ProviderLoginRequest = z.discriminatedUnion("type", [
@@ -48,6 +68,8 @@ export const ProviderLoginRequest = z.discriminatedUnion("type", [
     ...target,
     method: z.enum(["login", "api_key"]).optional(),
     upstream: z.enum(["openai", "anthropic", "openrouter", "opencode"]).optional(),
+    /** Antigravity only: how to sign in. Other providers refuse it. */
+    signIn: AntigravitySignIn.optional(),
   }),
   z.strictObject({
     type: z.literal("provider.login.apiKey"),
@@ -102,6 +124,11 @@ export const ProviderLoginProgress = z.strictObject({
   message: z.string().max(256).optional(),
   /** The CLI takes the code its sign-in page shows, pasted back as `{ code }`. */
   codeEntry: z.literal(true).optional(),
+  /**
+   * The agent waits for its browser sign-in to return to its own computer; a device that couldn't
+   * load that return page pastes its address back as `{ returnUrl }`.
+   */
+  returnUrlEntry: z.literal(true).optional(),
   hint: z.string().max(1024).optional(),
   manual: z
     .strictObject({

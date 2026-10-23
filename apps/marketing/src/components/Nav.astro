@@ -1,0 +1,123 @@
+---
+import { links } from "../site.ts";
+import AceMark from "./AceMark.astro";
+import DownloadButton from "./DownloadButton.astro";
+import Icon from "./Icon.astro";
+---
+
+<header class="nav">
+  <div class="page nav-inner">
+    <a class="brand" href="/" aria-label="ace home">
+      <AceMark size={24} />
+      <span>ace</span>
+    </a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#agents">Agents</a>
+      <a href="#machine">Computer use</a>
+      <a href="#fleet">Fleet</a>
+      <a href="#mcp">MCP</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="nav-actions">
+      <a class="icon-link" href={links.source} aria-label="ace on GitHub">
+        <Icon name="github-logo" size={20} />
+      </a>
+      <DownloadButton small />
+    </div>
+  </div>
+</header>
+
+<style>
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: color-mix(in srgb, var(--background) 82%, transparent);
+    backdrop-filter: blur(16px) saturate(160%);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    border-bottom: 1px solid transparent;
+    animation: nav-edge linear both;
+    animation-timeline: scroll();
+    animation-range: 0 80px;
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .nav {
+      background: var(--background);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+  }
+
+  /* The header draws its hairline once the page has scrolled, as the app's header does. */
+  @keyframes nav-edge {
+    to {
+      border-bottom-color: var(--border);
+    }
+  }
+
+  .nav-inner {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    height: 64px;
+  }
+
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    text-decoration: none;
+  }
+
+  .nav-links {
+    display: none;
+    gap: 4px;
+  }
+
+  .nav-links a {
+    padding: 6px 10px;
+    border-radius: 6px;
+    color: var(--muted);
+    font-size: 14px;
+    text-decoration: none;
+    transition: color var(--motion-fast) var(--ease-out);
+  }
+
+  .nav-links a:hover {
+    color: var(--foreground);
+  }
+
+  .nav-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  .icon-link {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    color: var(--muted);
+    transition:
+      color var(--motion-fast) var(--ease-out),
+      background-color var(--motion-fast) var(--ease-out);
+  }
+
+  .icon-link:hover {
+    color: var(--foreground);
+    background: var(--active);
+  }
+
+  @media (min-width: 768px) {
+    .nav-links {
+      display: flex;
+    }
+  }
+</style>

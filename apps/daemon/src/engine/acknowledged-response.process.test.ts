@@ -77,11 +77,17 @@ for (const kind of ["thread.create", "thread.send"] as const) {
       };
       assertConsumed(h.store);
       expect(h.engine.queue(id).messages).toEqual([]);
-      expect(sends(adapter)).toHaveLength(kind === "thread.send" ? 2 : 1);
+      const before = sends(adapter).length;
+      expect(before).toBe(kind === "thread.send" ? 2 : 1);
       const reopened = await crashCopy(h);
+      await reopened.engine.flush();
       assertConsumed(reopened.store);
       expect(reopened.engine.queue(id).messages).toEqual([]);
-      expect(sends(adapter)).toHaveLength(kind === "thread.send" ? 2 : 1);
+      // The consumed input is never sent again. A turn still running when ace stopped continues
+      // with one restart continuation instead.
+      const after = sends(adapter).slice(before);
+      expect(JSON.stringify(after)).not.toContain("do this once");
+      expect(after).toHaveLength(proof === "turn" ? 1 : 0);
     },
   );
 }

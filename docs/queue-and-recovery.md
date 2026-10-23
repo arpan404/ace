@@ -51,17 +51,23 @@ index preventing removal while queued or unacknowledged. Preparation pins the
 provider's input until the owning root run ends or the process stops. Reorders
 change at most 256 newly admitted rows; stream deltas never scan message history.
 
-ace never starts a turn by itself. After an update, crash, reboot or a provider
-process that dies with work in flight, the interrupted turn becomes a persisted
-continuation held with reason `restart`. It counts as pending engine work even with
-no queued messages: the thread remains `waiting` on `queue` until the person acts.
-The transcript gets one quiet `restart_interrupted` notice ("Interrupted by a
-restart"; a provider that died on its own writes `agent_stopped`), and background
-work that died is shown as stopped, never as finished. Only two things carry on:
+After an update, crash, reboot or a provider process that dies with work in flight,
+the interrupted turn becomes a persisted continuation, trigger `restart`, describing known
+dead shells, monitors and subagents. Background work that died is shown as stopped, never
+as finished.
 
-- `thread.resume` (the Resume action) sends one native continuation, trigger
-  `restart`, describing known dead shells, monitors and subagents. The held queue
-  then drains in order.
+A daemon restart continues that work by itself once ([ADR 0098](adr/0098-resume-after-restart.md)):
+startup sends the continuation through `thread.resume` and the queue then drains in order.
+The notice reads "Interrupted by a restart. Continuing." It holds instead, with reason
+`restart` and a notice saying why, when the turn was waiting on the person, a delivery was
+uncertain, the provider can't reopen its session, or three restarts in a row interrupted it.
+Threads held before the restart, settled threads and Cursor SDK work are left as they were.
+A provider that dies while ace keeps running holds its turn ("The agent stopped
+unexpectedly"). A held continuation counts as pending engine work even with no queued
+messages: the thread remains `waiting` on `queue` until someone acts. Two things carry on:
+
+- `thread.resume` (the Resume action) sends the one continuation. The held queue then
+  drains in order.
 - `thread.send` releases the restart hold and drops the continuation, so ace sends
   no synthetic "continue". Messages already queued go first, in order, and the new
   message goes last.

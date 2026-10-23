@@ -1,3 +1,4 @@
+import type { MaintenanceGate } from "@ace/service";
 import type { DevicesService } from "@ace/devices";
 import type { ScreenManager } from "@ace/screen";
 import type { CursorAuthService } from "@ace/accounts";
@@ -49,6 +50,8 @@ export interface ServerOptions {
   /** Detected dev servers per thread (`preview.request` list with suggestions). */
   previewSuggestions?: import("./preview-suggestions/tracker.ts").SuggestionTracker;
   automations?: Pick<import("@ace/automations").AutomationService, "handle">;
+  /** Automations agents made from threads (`source: "thread"`, `includeThreads`). */
+  threadAutomations?: import("./agent-control/thread-automations.ts").ThreadAutomations;
   /** Threads whose browser an agent works in now (`browser.browsing.watch`). */
   browsing?: import("./browsing.ts").BrowsingThreads;
   /** Threads whose agent uses Mac apps now (`computer.using.watch`). */
@@ -81,6 +84,8 @@ export interface ServerOptions {
   history?: Pick<DaemonHistory, "handle">;
   usage?: UsageCommands;
   maintenance?: boolean;
+  /** The daemon's shared admission gate; the server makes its own when none is given. */
+  maintenanceGate?: MaintenanceGate;
   version?: string;
   serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[];
   /** Current and maximum event-loop delay for `/v1/status`. */
@@ -123,6 +128,10 @@ export interface ServerOptions {
   health?: () => Promise<DiagnosticsHealth>;
   doctor?: () => Promise<import("@ace/protocol").DiagnosticReport>;
   toolchains?: () => Promise<import("@ace/protocol").Toolchain[]>;
+  doctorFix?: (assertAuthorized: () => void) => Promise<{
+    report: import("@ace/protocol").DiagnosticReport;
+    repairs: import("@ace/protocol").DiagnosticRepair[];
+  }>;
   supportFiles?: FilesService;
   context?: {
     downloadAttachment?: import("@ace/context").ContextService["downloadAttachment"];

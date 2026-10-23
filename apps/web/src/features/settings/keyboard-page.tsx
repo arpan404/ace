@@ -43,6 +43,7 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
       "newThreadHere",
       "addProject",
       "settings",
+      "reloadApp",
       "back",
       "forward",
       "toggleSidebar",
@@ -217,7 +218,12 @@ export function KeyboardShortcuts() {
       return;
     }
     const keys = result.keys;
-    if (reservedKeys().some((chord) => normalizeKeys(chord) === normalizeKeys(keys))) {
+    // A shortcut may always take back its own default (Reload's ⌘R).
+    const ownDefault = normalizeKeys(keys) === normalizeKeys(keymap[id].keys);
+    if (
+      !ownDefault &&
+      reservedKeys().some((chord) => normalizeKeys(chord) === normalizeKeys(keys))
+    ) {
       setProblem({
         id,
         text: `${formatKeys(keys)} is used by ${env.web ? "the browser" : "the system"}.`,

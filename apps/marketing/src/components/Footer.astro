@@ -1,0 +1,58 @@
+---
+import { links } from "../site.ts";
+import AceMark from "./AceMark.astro";
+---
+
+<footer class="footer">
+  <div class="page footer-inner">
+    <a class="brand" href="/" aria-label="ace home">
+      <AceMark size={20} />
+      <span>ace</span>
+    </a>
+    <nav aria-label="Footer">
+      <a href={links.source}>GitHub</a>
+      <a href={links.releases}>Releases</a>
+      <a href={links.license}>Apache-2.0 license</a>
+    </nav>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    border-top: 1px solid var(--border);
+  }
+
+  .footer-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-block: 32px;
+  }
+
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    text-decoration: none;
+  }
+
+  nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+  }
+
+  nav a {
+    color: var(--subtle);
+    font-size: 14px;
+    text-decoration: none;
+  }
+
+  nav a:hover {
+    color: var(--foreground);
+  }
+</style>

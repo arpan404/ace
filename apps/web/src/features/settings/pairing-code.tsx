@@ -97,12 +97,27 @@ export function PairingCode(props: {
               </span>
             )}
           </div>
-          <p
-            aria-label={`Pairing code ${pairing.code}`}
-            className="font-mono text-lg font-semibold tracking-[0.14em] tabular-nums"
-          >
-            {pairing.code}
-          </p>
+          {pairing.code.length > 12 ? (
+            // A long code wraps in groups of four, as wide as the QR, like a fingerprint.
+            <p
+              aria-label={`Pairing code ${pairing.code}`}
+              className="grid w-44 grid-cols-4 justify-items-center font-mono text-xs leading-5 text-muted-foreground tabular-nums"
+            >
+              {Array.from(
+                { length: Math.ceil(pairing.code.length / 4) },
+                (_, group) => group * 4,
+              ).map((at) => (
+                <span key={at}>{pairing.code.slice(at, at + 4)}</span>
+              ))}
+            </p>
+          ) : (
+            <p
+              aria-label={`Pairing code ${pairing.code}`}
+              className="font-mono text-lg font-semibold tracking-[0.14em] tabular-nums"
+            >
+              {pairing.code}
+            </p>
+          )}
           <div className="h-[3px] w-44 overflow-hidden rounded-full bg-fill-strong">
             <span
               className="block h-full rounded-full bg-ring transition-[width] duration-1000 ease-linear"

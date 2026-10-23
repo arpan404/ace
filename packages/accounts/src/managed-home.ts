@@ -2,30 +2,19 @@ import { lstat, mkdir, realpath } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { AccountEnvKey, ProviderInstance } from "@ace/protocol/accounts";
 import { canonicalHome } from "./paths.ts";
-import { createInstance, instanceEnv } from "./instances.ts";
+import { createInstance } from "./instances.ts";
+import { managedAcpSelectors } from "./acp-managed-home.ts";
 
 /** Validate directory identities without inspecting any provider credential files. */
 async function assertHomeIdentity(input: ProviderInstance): Promise<void> {
   const instance = ProviderInstance.parse(input);
-  const expected = createInstance(instance).env;
+  const expected =
+    instance.provider === "acp" ? managedAcpSelectors(instance) : createInstance(instance).env;
   if (AccountEnvKey.options.some((key) => expected[key] !== instance.env[key]))
     throw new Error("Managed home selectors cannot change");
-  const env = instanceEnv(instance, {});
   const directories = new Set([
     instance.homeDir,
     ...Object.values(instance.env),
-    ...[
-      "HOME",
-      "USERPROFILE",
-      "APPDATA",
-      "XDG_DATA_HOME",
-      "XDG_CONFIG_HOME",
-      "XDG_STATE_HOME",
-      "XDG_CACHE_HOME",
-      "TMPDIR",
-      "TMP",
-      "TEMP",
-    ].flatMap((key) => env[key] ?? []),
     ...(instance.provider === "cursor"
       ? [join(instance.homeDir, "user"), join(instance.homeDir, "user", ".cursor", "sdk")]
       : []),
@@ -88,22 +77,4 @@ export async function restoreCursorHome(
   if (instance.managed) await assertManagedHome(dataDir, instance);
   else await assertHomeIdentity(instance);
   return created;
-}
-
-/**
- * Create the tool-facing skeleton inside a managed home: per-instance HOME
- * (`user/`) config ground plus the XDG roots `instanceEnv` points at. No
- * credentials are ever written here; without these directories every XDG-aware
- * tool fails before per-session env forwarding can help it.
- */
-export async function ensureManagedHomeSkeleton(homeDir: string): Promise<void> {
-  for (const dir of [
-    join(homeDir, "user", ".config"),
-    join(homeDir, "user", ".ssh"),
-    join(homeDir, "config"),
-    join(homeDir, "data"),
-    join(homeDir, "state"),
-    join(homeDir, "cache"),
-  ])
-    await mkdir(dir, { recursive: true, mode: 0o700 });
 }

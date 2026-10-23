@@ -223,8 +223,11 @@ const declarations: Record<string, Declared> = {
 
 /** The usage source declared for an account's provider or ACP agent, if any. */
 export function usageDeclaration(
-  instance: Pick<ProviderInstance, "provider" | "acpAgentId">,
+  instance: Pick<ProviderInstance, "provider" | "acpAgentId" | "homeStrategy">,
 ): UsageDeclaration | undefined {
+  // An agent's declared source reads its CLI's own default login, never an account ace added in
+  // a managed home: those would show the default login's limits as their own.
+  if (instance.provider === "acp" && instance.homeStrategy === "managed") return undefined;
   const key = instance.provider === "acp" ? instance.acpAgentId : instance.provider;
   const declared =
     key !== undefined && Object.hasOwn(declarations, key) ? declarations[key] : undefined;

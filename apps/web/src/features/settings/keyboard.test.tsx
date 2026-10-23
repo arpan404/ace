@@ -210,3 +210,23 @@ for (const [env, key, code, shifted] of [
       );
     expect(settings.textContent).toBe("Press keys…");
   });
+
+test("Reload can move off Ctrl+R and take it back, though Ctrl+R stays reserved for others", async () => {
+  await harness().open("/settings/keyboard");
+  const reload = await shortcut("Reload ace");
+  expect(reload.textContent).toBe("Ctrl+R");
+
+  await userEvent.click(reload);
+  press(reload, { key: "r", code: "KeyR", ctrlKey: true, altKey: true, shiftKey: true });
+  expect(reload.textContent).toBe("Alt+Shift+Ctrl+R");
+
+  const settings = await shortcut("Settings");
+  await userEvent.click(settings);
+  press(settings, { key: "r", code: "KeyR", ctrlKey: true });
+  expect(screen.getByRole("alert").textContent).toBe("Ctrl+R is used by the browser.");
+  press(settings, { key: "Escape", code: "Escape" });
+
+  await userEvent.click(reload);
+  press(reload, { key: "r", code: "KeyR", ctrlKey: true });
+  expect(reload.textContent).toBe("Ctrl+R");
+});

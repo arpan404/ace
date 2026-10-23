@@ -28,7 +28,7 @@ export interface LivenessPorts {
 }
 
 /** Inputs that resume when their thread runs again; everything else needs a live session. */
-const resumable = new Set([
+export const resumable = new Set([
   "thread.send",
   "thread.create",
   "thread.fork",
@@ -256,12 +256,14 @@ export function retireThreadIntents(
 /**
  * One transcript notice per interruption, so a second one is not folded into the first. A
  * daemon restart reads "Interrupted by a restart"; a provider that died on its own reads as an
- * unexpected stop. Either way the turn is held until the person resumes it.
+ * unexpected stop. A restart's notice also says whether ace is continuing the turn or why it
+ * waits for the person.
  */
 export function interruptedNotice(
   agent: string | undefined,
   at: number,
   cause: "restart" | "exit",
+  text?: string,
 ): Fact {
   return {
     type: "item.upsert",
@@ -271,7 +273,9 @@ export function interruptedNotice(
       type: "notice",
       level: "warning",
       code: cause === "restart" ? "restart_interrupted" : "agent_stopped",
-      text: cause === "restart" ? "Interrupted by a restart" : "The agent stopped unexpectedly",
+      text:
+        text ??
+        (cause === "restart" ? "Interrupted by a restart" : "The agent stopped unexpectedly"),
       complete: true,
     },
   };

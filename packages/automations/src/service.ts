@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   type Automation,
   AutomationEvent,
@@ -6,7 +7,7 @@ import {
   type AutomationRun,
 } from "@ace/protocol";
 import { type Dependencies, type ExecutionInput } from "./contracts.ts";
-import { renderPrompt, scheduledDeadline, recoverOccurrence } from "./decisions.ts";
+import { renderPrompt, scheduledDeadline, recoverOccurrence, withRunNote } from "./decisions.ts";
 import { normalizeAutomation } from "./definition.ts";
 import { Occurrence } from "./recurrence.ts";
 import { AutomationStore, type JobMetadata } from "./store.ts";
@@ -15,10 +16,26 @@ import { Lifecycle } from "./lifecycle.ts";
 import { ExecutionOwner } from "./execution-owner.ts";
 import { observe } from "./observation.ts";
 import { AutomationRuntime } from "./runtime.ts";
+import { Cancellations } from "./cancellations.ts";
 import type { GhClient } from "./gh-process.ts";
 
+/**
+ * How late a scheduled fire can be and still count as on time. Later than this, the computer
+ * slept or ace wasn't running through it, and "If missed: Skip" skips it.
+ */
+const lateGraceMs = 2 * 60_000;
 function message(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 8192);
+}
+/**
+ * Deterministic manual idempotency keys survive run-history eviction: the same
+ * automation id plus event key always maps to the same key, so the executor's
+ * command-receipt dedup holds even after the run row is pruned. Length-prefixed
+ * scoping keeps automation/event boundaries unambiguous before hashing.
+ */
+function manualId(automationId: string, eventKey: string): string {
+  const scoped = `${automationId.length}:${automationId}:${eventKey}`;
+  return `manual-${createHash("sha256").update(scoped).digest("hex")}`;
 }
 export class AutomationService {
   private store: AutomationStore;
@@ -36,6 +53,7 @@ export class AutomationService {
   private controller = new AbortController();
   private generation = 0;
   private ticking = false;
+  private cancellations: Cancellations;
   constructor(store: AutomationStore, deps: Dependencies, gh?: GhClient) {
     this.store = store;
     this.deps = deps;
@@ -43,15 +61,27 @@ export class AutomationService {
     this.executions = new ExecutionOwner(
       store,
       deps,
-      (run) => this.publish(run),
+      (run) => {
+        this.publish(run);
+        // One run at a time per automation: its waiting run starts once this one is done, and
+        // a run that waited only for room anywhere starts now that there is some.
+        this.drainWaiting();
+      },
       (error) => this.report(error),
       () => this.arm(),
+    );
+    this.cancellations = new Cancellations(
+      store,
+      deps,
+      () => this.live,
+      (error) => this.report(error),
+      (operation) => this.track(operation),
     );
     this.runtime = new AutomationRuntime(
       deps,
       () => this.live,
       (id, event) => {
-        if (!this.store.running(id)) this.trigger(id, event, "file");
+        this.trigger(id, event, "file");
       },
       (error) => this.report(error),
     );
@@ -59,46 +89,53 @@ export class AutomationService {
   start(): void {
     if (!this.lifecycle.beginStart()) return;
     this.generation++;
+    const generation = this.generation;
     this.controller = new AbortController();
     try {
       for (const job of this.store.jobs()) {
-        this.runtime.install(this.runtime.prepare(job.automation));
+        try {
+          const ready = { fired: false };
+          const prepared = this.runtime.prepare(job.automation, this.hooks(generation, ready));
+          this.runtime.install(prepared);
+          if (prepared.watchError !== undefined)
+            this.persistWatchError(
+              job.automation.id,
+              prepared.revision,
+              generation,
+              prepared.watchError,
+            );
+          else if (job.automation.trigger.kind === "file")
+            this.clearIfReady(job.automation.id, prepared.revision, generation, ready);
+        } catch (error) {
+          this.isolateJob(job, generation, error);
+        }
         if (!this.live) break;
         if (
           job.automation.trigger.kind === "schedule" &&
           job.nominal !== null &&
           job.due !== null
         ) {
-          const recurrence = this.runtime.recurrence(job.automation.id);
-          if (!recurrence) throw new Error("Missing recurrence");
-          const cursor = Occurrence.parse(this.store.readState(job.automation.id));
-          const occurrence = recoverOccurrence(
-            job.automation,
-            recurrence,
-            cursor,
-            job.due,
-            this.deps.now(),
-          );
-          if (occurrence?.at !== job.nominal)
-            this.store.transaction(() => {
-              this.store.advance(
-                job.automation.id,
-                occurrence?.at,
-                scheduledDeadline(
-                  occurrence,
-                  recurrence,
-                  job.automation.jitterMs,
-                  this.deps.random(),
-                ),
-              );
-              this.store.savePoll(job.automation.id, occurrence ?? {});
-            });
+          try {
+            this.recoverSchedule(job);
+          } catch (error) {
+            this.isolateJob(job, generation, error);
+          }
+          if (!this.live) break;
         }
       }
       for (const { run, input } of this.store.active()) {
         if (!this.live) break;
-        this.executions.restore(run, input);
+        try {
+          this.executions.restore(run, input);
+        } catch (error) {
+          this.report(error);
+          if (!this.live) break;
+        }
       }
+      // A pause or delete whose stops never reached the executor hands them over again.
+      this.cancellations.carryOut();
+      // Runs that were waiting when ace stopped start once nothing of theirs is running.
+      this.drainWaiting();
       this.arm();
     } catch (error) {
       this.stop();
@@ -107,11 +144,50 @@ export class AutomationService {
       if (this.lifecycle.endStart()) this.stop();
     }
   }
+  private isolateJob(job: JobMetadata, generation: number, error: unknown): void {
+    if (!this.live || generation !== this.generation) return;
+    try {
+      this.store.saveTriggerError(job.automation.id, {
+        message: message(error),
+        at: this.deps.now(),
+      });
+    } catch (persistError) {
+      this.report(persistError);
+    }
+    try {
+      this.store.advance(job.automation.id, job.nominal ?? undefined, undefined);
+    } catch (persistError) {
+      this.report(persistError);
+    }
+    this.report(error);
+  }
+  private recoverSchedule(job: JobMetadata): void {
+    const recurrence = this.runtime.recurrence(job.automation.id);
+    if (!recurrence) throw new Error("Missing recurrence");
+    const cursor = Occurrence.parse(this.store.readState(job.automation.id));
+    const occurrence = recoverOccurrence(
+      job.automation,
+      recurrence,
+      cursor,
+      job.due ?? 0,
+      this.deps.now(),
+    );
+    if (occurrence?.at !== job.nominal)
+      this.store.transaction(() => {
+        this.store.advance(
+          job.automation.id,
+          occurrence?.at,
+          scheduledDeadline(occurrence, recurrence, job.automation.jitterMs, this.deps.random()),
+        );
+        this.store.savePoll(job.automation.id, occurrence ?? {});
+      });
+  }
   stop(): void {
     if (!this.lifecycle.beginStop()) return;
     this.generation++;
     const cancelTimer = this.cancelTimer;
     this.cancelTimer = undefined;
+    this.cancellations.stop();
     this.pending.clear();
     this.polling.clear();
     try {
@@ -147,15 +223,75 @@ export class AutomationService {
       this.report(error);
     }
   }
-  put(input: unknown): Automation {
+  /** Start every waiting run that may start now, oldest first. */
+  private drainWaiting(): void {
+    let waiting: string[];
+    try {
+      waiting = this.store.waitingAutomations();
+    } catch (error) {
+      this.report(error);
+      return;
+    }
+    for (const id of waiting) {
+      if (!this.live) return;
+      this.drain(id);
+    }
+  }
+  /** Start the automation's oldest waiting run, if it has one, nothing of it runs and ace has room. */
+  private drain(id: string): void {
+    if (!this.live) return;
+    const generation = this.generation;
+    try {
+      const automation = this.store.definition(id);
+      if (!automation?.enabled) return;
+      const next = this.store.transaction(() => this.store.promote(automation, this.deps.now()));
+      if (!next) return;
+      this.publish(next.run);
+      if (this.live && generation === this.generation) this.executions.launch(next.run, next.input);
+    } catch (error) {
+      this.report(error);
+    }
+  }
+  /** Publish the runs a pause or delete skipped, then carry out the cancellations it stored. */
+  private halted(id: string, skipped: readonly AutomationRun[]): void {
+    for (const run of skipped) this.publish(run);
+    this.cancellations.carryOut(id);
+  }
+  put(input: unknown, expectedRevision?: number | null): Automation {
     const automation = normalizeAutomation(input);
     const existing = this.store.definition(automation.id);
+    if (expectedRevision === null && existing) throw new Error("Automation already exists");
+    if (typeof expectedRevision === "number") {
+      if (!existing) throw new Error("Automation is missing");
+      const current = this.store.revision(automation.id);
+      if (current !== expectedRevision) throw new Error("Automation revision conflict");
+    }
+    const pausing = existing?.enabled === true && !automation.enabled;
     if (existing && JSON.stringify(existing) === JSON.stringify(automation)) {
-      if (this.runtime.needsWatch(automation))
-        this.runtime.install(this.runtime.prepare(automation));
+      if (this.runtime.needsWatch(automation)) this.healWatch(automation);
       return automation;
     }
-    const prepared = this.runtime.prepare(automation);
+    const generation = this.generation;
+    const ready = { fired: false };
+    const prepared = this.runtime.prepare(automation, this.hooks(generation, ready));
+    if (prepared.watchError !== undefined) {
+      // Replacement failures preserve the previous definition and watcher;
+      // new ids persist as unhealthy so one stale workspace cannot block saves.
+      if (existing) {
+        this.runtime.discard(prepared);
+        throw prepared.watchError;
+      }
+      try {
+        this.store.put(automation, undefined, undefined, {}, expectedRevision);
+      } catch (error) {
+        this.runtime.discard(prepared);
+        throw error;
+      }
+      this.runtime.install(prepared);
+      this.persistWatchError(automation.id, prepared.revision, generation, prepared.watchError);
+      this.arm();
+      return automation;
+    }
     const recurrence = prepared.recurrence;
     const occurrence =
       automation.enabled && recurrence ? recurrence.seek(this.deps.now() - 1) : undefined;
@@ -167,20 +303,109 @@ export class AutomationService {
         : recurrence
           ? scheduledDeadline(occurrence, recurrence, automation.jitterMs, this.deps.random())
           : undefined;
+    let skipped: AutomationRun[] = [];
     try {
-      this.store.put(automation, nominal, due, occurrence ?? {});
+      // A pause commits with its cancellations, so no crash can leave the work going.
+      skipped = this.store.transaction(() => {
+        this.store.put(automation, nominal, due, occurrence ?? {}, expectedRevision);
+        return pausing
+          ? this.store.halt(automation.id, this.deps.now(), "Paused before it started")
+          : [];
+      });
     } catch (error) {
       this.runtime.discard(prepared);
       throw error;
     }
     this.runtime.install(prepared);
+    // File health clears only on confirmed watcher readiness; other triggers
+    // are healthy immediately after a successful save.
+    if (automation.trigger.kind === "file")
+      this.clearIfReady(automation.id, prepared.revision, generation, ready);
+    if (pausing) this.halted(automation.id, skipped);
     this.arm();
     return automation;
   }
-  remove(id: string): void {
-    this.store.remove(id);
+  private hooks(generation: number, ready?: { fired: boolean }) {
+    return {
+      onReady: (id: string, revision: number) => {
+        if (ready) ready.fired = true;
+        if (!this.live || generation !== this.generation) return;
+        if (this.runtime.current(id) !== revision) return;
+        try {
+          this.store.clearTriggerError(id);
+        } catch (error) {
+          this.report(error);
+        }
+      },
+      onError: (id: string, revision: number, error: unknown) => {
+        this.persistWatchError(id, revision, generation, error);
+      },
+    };
+  }
+  private clearIfReady(
+    id: string,
+    revision: number,
+    generation: number,
+    ready: { fired: boolean },
+  ): void {
+    if (!ready.fired) return;
+    if (!this.live || generation !== this.generation) return;
+    if (this.runtime.current(id) !== revision) return;
+    try {
+      this.store.clearTriggerError(id);
+    } catch (error) {
+      this.report(error);
+    }
+  }
+  private persistWatchError(
+    id: string,
+    revision: number,
+    generation: number,
+    error: unknown,
+  ): void {
+    if (!this.live || generation !== this.generation) return;
+    if (this.runtime.current(id) !== revision) return;
+    try {
+      this.store.saveTriggerError(id, { message: message(error), at: this.deps.now() });
+    } catch (persistError) {
+      this.report(persistError);
+    }
+    this.runtime.failed(id, revision);
+    this.report(error);
+  }
+  private saveWatchError(id: string, error: unknown): void {
+    try {
+      this.store.saveTriggerError(id, { message: message(error), at: this.deps.now() });
+    } catch (persistError) {
+      this.report(persistError);
+    }
+    this.report(error);
+  }
+  private healWatch(automation: Automation): void {
+    const generation = this.generation;
+    const ready = { fired: false };
+    const prepared = this.runtime.prepare(automation, this.hooks(generation, ready));
+    if (prepared.watchError !== undefined) {
+      this.saveWatchError(automation.id, prepared.watchError);
+      return;
+    }
+    this.runtime.install(prepared);
+    this.clearIfReady(automation.id, prepared.revision, generation, ready);
+    this.arm();
+  }
+  remove(id: string, expectedRevision?: number | null): void {
+    const skipped = this.store.transaction(() => {
+      this.store.remove(id, expectedRevision ?? undefined);
+      return this.store.halt(id, this.deps.now(), "Deleted before it started");
+    });
+    this.halted(id, skipped);
     this.runtime.remove(id);
     this.arm();
+  }
+  setEnabled(id: string, enabled: boolean, expectedRevision?: number): void {
+    const current = this.store.definition(id);
+    if (!current) throw new Error("Automation is missing");
+    this.put({ ...current, enabled }, expectedRevision);
   }
   list(): Automation[] {
     return this.store.list().map((job) => job.automation);
@@ -191,21 +416,35 @@ export class AutomationService {
   inbox(limit = 50, before?: number, automationId?: string) {
     return this.store.inbox(limit, before, automationId);
   }
-  trigger(id: string, input: unknown, kind: AutomationRun["trigger"] = "manual"): AutomationRun {
+  /**
+   * Admit one run. `note` is the person's extra instruction for a manual run, added after the
+   * saved prompt; a retried request maps to the same run, so its first note is the one kept.
+   */
+  trigger(
+    id: string,
+    input: unknown,
+    kind: AutomationRun["trigger"] = "manual",
+    note?: string,
+  ): AutomationRun {
     if (!this.live) throw new Error("Automation service is stopped");
     const generation = this.generation;
     const automation = this.store.definition(id);
     if (!automation || !automation.enabled) throw new Error("Automation is disabled or missing");
     const event = AutomationEvent.parse(input);
-    const admission = this.store.transaction(() => this.admit(automation, event, kind));
+    const admission = this.store.transaction(() => this.admit(automation, event, kind, note));
     if (admission.created) this.publish(admission.run);
     if (admission.admitted && admission.input && this.live && generation === this.generation)
       this.executions.launch(admission.run, admission.input);
     this.arm();
     return admission.run;
   }
-  private admit(automation: Automation, event: AutomationEvent, kind: AutomationRun["trigger"]) {
-    const id = this.deps.id();
+  private admit(
+    automation: Automation,
+    event: AutomationEvent,
+    kind: AutomationRun["trigger"],
+    note?: string,
+  ) {
+    const id = kind === "manual" ? manualId(automation.id, event.key) : this.deps.id();
     let input: ExecutionInput | undefined;
     let failure: string | undefined;
     try {
@@ -216,8 +455,10 @@ export class AutomationService {
         provider: automation.provider,
         workspace: automation.workspace,
         worktree: automation.worktree,
-        prompt: renderPrompt(automation.prompt, event.variables),
+        prompt: withRunNote(renderPrompt(automation.prompt, event.variables), note),
         ...(automation.model ? { model: automation.model } : {}),
+        ...(automation.effort ? { effort: automation.effort } : {}),
+        ...(automation.instance ? { instance: automation.instance } : {}),
         ...(automation.access ? { access: automation.access } : {}),
       };
     } catch (error) {
@@ -271,7 +512,13 @@ export class AutomationService {
               }
             }),
           );
-        } else this.scheduled(job);
+        } else {
+          try {
+            this.scheduled(job);
+          } catch (error) {
+            this.isolateJob(job, this.generation, error);
+          }
+        }
       }
     } finally {
       this.ticking = false;
@@ -281,7 +528,16 @@ export class AutomationService {
   private scheduled(job: JobMetadata): void {
     const generation = this.generation;
     const recurrence = this.runtime.recurrence(job.automation.id);
-    if (!recurrence || job.nominal === null) throw new Error("Invalid scheduled job");
+    if (!recurrence || job.nominal === null) {
+      this.isolateJob(job, generation, new Error("Invalid scheduled job"));
+      return;
+    }
+    // Long after it was due, the computer slept or ace wasn't running through it: a schedule
+    // set to skip missed runs moves on to its next time, as it does when ace starts.
+    const late =
+      job.automation.missedRun === "skip" &&
+      job.due !== null &&
+      this.deps.now() - job.due > lateGraceMs;
     // Compute before admission so any evaluation error cannot partially advance the cursor.
     let occurrence: Occurrence | undefined;
     try {
@@ -290,8 +546,23 @@ export class AutomationService {
         Occurrence.parse(this.store.readState(job.automation.id)),
       );
     } catch (error) {
-      this.store.advance(job.automation.id, undefined, undefined);
-      throw error;
+      // Evaluation failure parks the schedule without hot-loop retries;
+      // exhaustion returns undefined below and finishes cleanly without an error.
+      try {
+        this.store.saveTriggerError(job.automation.id, {
+          message: message(error),
+          at: this.deps.now(),
+        });
+      } catch (persistError) {
+        this.report(persistError);
+      }
+      try {
+        this.store.advance(job.automation.id, job.nominal ?? undefined, undefined);
+      } catch (persistError) {
+        this.report(persistError);
+      }
+      this.report(error);
+      return;
     }
     const nominal = occurrence?.at;
     const due = scheduledDeadline(
@@ -300,6 +571,13 @@ export class AutomationService {
       job.automation.jitterMs,
       this.deps.random(),
     );
+    if (late) {
+      this.store.transaction(() => {
+        this.store.advance(job.automation.id, nominal, due);
+        this.store.savePoll(job.automation.id, occurrence ?? {});
+      });
+      return;
+    }
     const admission = this.store.transaction(() => {
       const result = this.admit(
         job.automation,
@@ -354,18 +632,124 @@ export class AutomationService {
         this.store.transaction(() => {
           if (result.changed) this.store.savePoll(job.automation.id, result.state);
           this.store.clearPollError(job.automation.id);
+          this.store.clearTriggerError(job.automation.id);
         });
     } catch (error) {
       if (
         this.live &&
         generation === this.generation &&
         this.runtime.current(job.automation.id) === revision
-      )
-        this.store.savePollError(job.automation.id, {
-          message: message(error),
-          at: this.deps.now(),
-        });
+      ) {
+        const failure = { message: message(error), at: this.deps.now() };
+        try {
+          this.store.savePollError(job.automation.id, failure);
+        } catch (persistError) {
+          this.report(persistError);
+        }
+        try {
+          this.store.saveTriggerError(job.automation.id, failure);
+        } catch (persistError) {
+          this.report(persistError);
+        }
+      }
       this.report(error);
+    }
+  }
+  retry(id: string, expectedRevision?: number): void {
+    if (!this.live) throw new Error("Automation service is stopped");
+    const automation = this.store.definition(id);
+    if (!automation) throw new Error("Automation is missing");
+    if (typeof expectedRevision === "number") {
+      const current = this.store.revision(id);
+      if (current !== expectedRevision) throw new Error("Automation revision conflict");
+    }
+    if (!automation.enabled) throw new Error("Automation is disabled or missing");
+    const generation = this.generation;
+    const trigger = automation.trigger;
+    if (trigger.kind === "file") {
+      const ready = { fired: false };
+      const prepared = this.runtime.prepare(automation, this.hooks(generation, ready));
+      if (prepared.watchError !== undefined) {
+        this.saveWatchError(id, prepared.watchError);
+        throw prepared.watchError;
+      }
+      this.runtime.install(prepared);
+      this.clearIfReady(id, prepared.revision, generation, ready);
+      this.arm();
+      return;
+    }
+    if (trigger.kind === "schedule") {
+      if (this.store.metadata(id)?.triggerError === undefined) return;
+      let prepared: ReturnType<AutomationRuntime["prepare"]>;
+      try {
+        prepared = this.runtime.prepare(automation, this.hooks(generation));
+      } catch (error) {
+        try {
+          this.store.saveTriggerError(id, { message: message(error), at: this.deps.now() });
+        } catch (persistError) {
+          this.report(persistError);
+        }
+        try {
+          this.store.advance(id, this.store.metadata(id)?.nominal ?? undefined, undefined);
+        } catch (persistError) {
+          this.report(persistError);
+        }
+        this.report(error);
+        throw error;
+      }
+      const recurrence = prepared.recurrence;
+      if (!recurrence) {
+        this.runtime.discard(prepared);
+        throw new Error("Invalid scheduled job");
+      }
+      let occurrence: Occurrence | undefined;
+      try {
+        occurrence = recurrence.seek(
+          this.deps.now() - 1,
+          Occurrence.parse(this.store.readState(id)),
+        );
+      } catch (error) {
+        this.runtime.discard(prepared);
+        try {
+          this.store.saveTriggerError(id, { message: message(error), at: this.deps.now() });
+        } catch (persistError) {
+          this.report(persistError);
+        }
+        try {
+          const nominal = this.store.metadata(id)?.nominal ?? undefined;
+          this.store.advance(id, nominal, undefined);
+        } catch (persistError) {
+          this.report(persistError);
+        }
+        this.report(error);
+        throw error;
+      }
+      const due = occurrence
+        ? scheduledDeadline(occurrence, recurrence, automation.jitterMs, this.deps.random())
+        : undefined;
+      try {
+        this.store.transaction(() => {
+          this.store.advance(id, occurrence?.at, due);
+          this.store.savePoll(id, occurrence ?? {});
+          this.store.clearTriggerError(id);
+        });
+      } catch (error) {
+        this.runtime.discard(prepared);
+        throw error;
+      }
+      this.runtime.install(prepared);
+      this.arm();
+      return;
+    }
+    if (trigger.kind === "github") {
+      try {
+        this.store.advance(id, this.store.metadata(id)?.nominal ?? undefined, this.deps.now());
+      } catch (error) {
+        this.report(error);
+        throw error;
+      }
+      this.arm();
+      return;
     }
   }
   handle(input: unknown): AutomationResponse {
@@ -374,29 +758,43 @@ export class AutomationService {
       const base = { type: "automation.result" as const, requestId: request.requestId, ok: true };
       switch (request.type) {
         case "automation.put":
-          this.put(request.automation);
+          this.put(request.automation, request.expectedRevision);
           return base;
         case "automation.remove":
-          this.remove(request.id);
+          this.remove(request.id, request.expectedRevision);
+          return base;
+        case "automation.setEnabled":
+          this.setEnabled(request.id, request.enabled, request.expectedRevision);
+          return base;
+        case "automation.retry":
+          this.retry(request.id, request.expectedRevision);
           return base;
         case "automation.run":
           return {
             ...base,
-            run: this.trigger(request.id, {
-              key: `manual:${request.requestId}`,
-              variables: request.variables,
-            }),
+            run: this.trigger(
+              request.id,
+              { key: `manual:${request.requestId}`, variables: request.variables },
+              "manual",
+              request.message,
+            ),
           };
-        case "automation.list":
+        case "automation.list": {
+          const jobs = this.store.list();
+          const runs = this.store.latestRuns();
           return {
             ...base,
-            automations: this.list(),
-            schedules: this.store.list().map((job) => ({
+            automations: jobs.map((job) => job.automation),
+            schedules: jobs.map((job) => ({
               id: job.automation.id,
               nextRunAt: this.live ? job.due : null,
+              revision: job.revision,
               lastPollError: job.lastPollError,
+              triggerError: job.triggerError,
+              lastRun: runs.get(job.automation.id),
             })),
           };
+        }
         case "automation.inbox":
           return {
             ...base,

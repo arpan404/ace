@@ -180,6 +180,31 @@ test("the person can use a tab an agent is working in, with no control to take",
   expect(browser.tab(thread)?.inUse).toMatchObject({ kind: "agent", agentId: "worker" });
 });
 
+test("a wheel over the page scrolls whatever is under the pointer in Chrome, never ace or the picture", async () => {
+  const { panel, browser } = await openBrowser();
+  const picture = await agentPage(panel);
+  const page = within(panel).getByRole("application", {
+    name: "Control localhost:5173/settings/devices",
+  });
+  await waitFor(() => expect(browser.frame(thread)?.width).toBe(800));
+  // A trackpad's fractional step: ace keeps it to itself (no panel scroll, zoom or swipe back).
+  expect(fireEvent.wheel(page, { clientX: 30, clientY: 40, deltaX: 0.5, deltaY: 12.25 })).toBe(
+    false,
+  );
+  await waitFor(() =>
+    expect(browser.wireInputs.map(({ input }) => input)).toContainEqual({
+      kind: "scroll",
+      x: 30,
+      y: 40,
+      deltaX: 0.5,
+      deltaY: 12.25,
+      modifiers: 0,
+    }),
+  );
+  // The picture stays where it is until Chrome's next frame shows what scrolled.
+  expect(picture.style.transform).toBe("");
+});
+
 test("a new browser tab's address opens a daemon tab, which becomes that panel tab", async () => {
   const { panel, browser } = await openBrowser();
   await agentPage(panel);

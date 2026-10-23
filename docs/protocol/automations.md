@@ -19,6 +19,8 @@ See [ADR 0015](../adr/0015-automations.md). Schedule and trigger contracts belon
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
 | access | no | [AccessMode.json](schema/AccessMode.json) |  |
 | model | no | string | {"minLength":1,"maxLength":256} |
+| effort | no | string | {"minLength":1,"maxLength":64} |
+| instance | no | string | {"minLength":1,"maxLength":256} |
 | prompt | yes | [MessageText.json](schema/MessageText.json) |  |
 | worktree | yes | boolean |  |
 | trigger | yes | [AutomationTrigger.json](schema/AutomationTrigger.json) |  |
@@ -30,19 +32,26 @@ Example:
 
 ```json
 {
-  "concurrency": 8,
+  "concurrency": 10,
+  "effort": "example",
   "enabled": true,
   "id": "example",
-  "jitterMs": 5,
+  "jitterMs": 1,
   "missedRun": "run_once",
   "prompt": "example",
-  "provider": "claude",
+  "provider": "cursor",
   "title": "example",
   "trigger": {
-    "kind": "manual"
+    "kind": "schedule",
+    "schedule": {
+      "expression": "example",
+      "kind": "cron",
+      "startAt": 0,
+      "timezone": "example"
+    }
   },
   "workspace": "example",
-  "worktree": true
+  "worktree": false
 }
 ```
 
@@ -77,7 +86,7 @@ Example:
 
 ```json
 {
-  "before": null,
+  "before": 1,
   "runs": []
 }
 ```
@@ -95,7 +104,7 @@ Example:
 
 ```json
 {
-  "at": 0,
+  "at": 1,
   "message": "example"
 }
 ```
@@ -111,25 +120,27 @@ Example:
 | type | yes | `"automation.put"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":256} |
 | automation | yes | [Automation.json](schema/Automation.json) |  |
+| expectedRevision | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/AutomationRevision.json"},{"type":"null"}]} |
 
 Example:
 
 ```json
 {
   "automation": {
-    "concurrency": 7,
-    "enabled": false,
+    "concurrency": 1,
+    "effort": "example",
+    "enabled": true,
     "id": "example",
-    "jitterMs": 8,
+    "jitterMs": 6,
     "missedRun": "skip",
     "prompt": "example",
-    "provider": "antigravity",
+    "provider": "cursor",
     "title": "example",
     "trigger": {
-      "event": "review_comment",
-      "kind": "github",
-      "pollIntervalMs": 60008,
-      "repository": "G.fMMMXTvQW/dfsdOx98mh"
+      "kind": "file",
+      "paths": [
+        "example"
+      ]
     },
     "workspace": "example",
     "worktree": false
@@ -146,11 +157,14 @@ Example:
 | type | yes | `"automation.remove"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":256} |
 | id | yes | string | {"minLength":1,"maxLength":256} |
+| expectedRevision | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/AutomationRevision.json"},{"type":"null"}]} |
+| source | no | [AutomationSource.json](schema/AutomationSource.json) |  |
 
 Example:
 
 ```json
 {
+  "expectedRevision": null,
   "id": "example",
   "requestId": "example",
   "type": "automation.remove"
@@ -165,13 +179,17 @@ Example:
 | requestId | yes | string | {"minLength":1,"maxLength":256} |
 | id | yes | string | {"minLength":1,"maxLength":256} |
 | variables | yes | [TriggerVariables.json](schema/TriggerVariables.json) |  |
+| message | no | [MessageText.json](schema/MessageText.json) |  |
+| source | no | [AutomationSource.json](schema/AutomationSource.json) |  |
 
 Example:
 
 ```json
 {
   "id": "example",
+  "message": "example",
   "requestId": "example",
+  "source": "thread",
   "type": "automation.run",
   "variables": {}
 }
@@ -183,6 +201,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"automation.list"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":256} |
+| includeThreads | no | boolean |  |
 
 Example:
 
@@ -202,14 +221,59 @@ Example:
 | before | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | automationId | no | string | {"minLength":1,"maxLength":256} |
 | limit | yes | integer | {"minimum":1,"maximum":100} |
+| source | no | [AutomationSource.json](schema/AutomationSource.json) |  |
 
 Example:
 
 ```json
 {
-  "limit": 10,
+  "automationId": "example",
+  "before": 8,
+  "limit": 8,
   "requestId": "example",
   "type": "automation.inbox"
+}
+```
+
+### automation.setEnabled
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"automation.setEnabled"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| id | yes | string | {"minLength":1,"maxLength":256} |
+| enabled | yes | boolean |  |
+| expectedRevision | no | [AutomationRevision.json](schema/AutomationRevision.json) |  |
+| source | no | [AutomationSource.json](schema/AutomationSource.json) |  |
+
+Example:
+
+```json
+{
+  "enabled": true,
+  "id": "example",
+  "requestId": "example",
+  "source": "person",
+  "type": "automation.setEnabled"
+}
+```
+
+### automation.retry
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"automation.retry"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| id | yes | string | {"minLength":1,"maxLength":256} |
+| expectedRevision | no | [AutomationRevision.json](schema/AutomationRevision.json) |  |
+
+Example:
+
+```json
+{
+  "id": "example",
+  "requestId": "example",
+  "type": "automation.retry"
 }
 ```
 
@@ -224,19 +288,33 @@ Example:
 | ok | yes | boolean |  |
 | error | no | string | {"maxLength":8192} |
 | automations | no | array | {"maxItems":1000,"items":{"$ref":"https://ace.local/protocol/v1/Automation.json"}} |
-| schedules | no | array | {"maxItems":1000,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":256},"nextRunAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":8640000000000000},{"type":"null"}]},"lastPollError":{"$ref":"https://ace.local/protocol/v1/AutomationPollError.json"}},"required":["id","nextRunAt"]}} |
+| schedules | no | array | {"maxItems":1000,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":256},"nextRunAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":8640000000000000},{"type":"null"}]},"revision":{"$ref":"https://ace.local/protocol/v1/AutomationRevision.json"},"lastPollError":{"$ref":"https://ace.local/protocol/v1/AutomationPollError.json"},"triggerError":{"$ref":"https://ace.local/protocol/v1/AutomationTriggerError.json"},"lastRun":{"$ref":"https://ace.local/protocol/v1/AutomationRun.json"}},"required":["id","nextRunAt"]}} |
 | inbox | no | [AutomationInbox.json](schema/AutomationInbox.json) |  |
 | run | no | [AutomationRun.json](schema/AutomationRun.json) |  |
+| threadAutomations | no | array | {"maxItems":1000,"items":{"type":"object","properties":{"automation":{"$ref":"https://ace.local/protocol/v1/Automation.json"},"threadId":{"type":"string","minLength":1,"maxLength":256},"nextRunAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":8640000000000000},{"type":"null"}]},"revision":{"$ref":"https://ace.local/protocol/v1/AutomationRevision.json"},"triggerError":{"$ref":"https://ace.local/protocol/v1/AutomationTriggerError.json"},"lastRun":{"$ref":"https://ace.local/protocol/v1/AutomationRun.json"}},"required":["automation","threadId","nextRunAt"]}} |
 
 Example:
 
 ```json
 {
-  "ok": true,
+  "error": "example",
+  "ok": false,
   "requestId": "example",
   "schedules": [],
   "type": "automation.result"
 }
+```
+
+## AutomationRevision
+
+[JSON Schema](schema/AutomationRevision.json), input validation.
+
+Type: integer. See JSON Schema for constraints.
+
+Example:
+
+```json
+4
 ```
 
 ## AutomationRun
@@ -250,7 +328,7 @@ Example:
 | title | yes | string | {"minLength":1,"maxLength":256} |
 | eventKey | yes | string | {"maxLength":512} |
 | trigger | yes | ["schedule","github","file","manual"] |  |
-| status | yes | ["running","succeeded","failed","skipped"] |  |
+| status | yes | ["queued","running","succeeded","failed","skipped"] |  |
 | startedAt | yes | integer | {"minimum":0,"maximum":8640000000000000} |
 | finishedAt | no | integer | {"minimum":0,"maximum":8640000000000000} |
 | threadId | no | string | {"minLength":1,"maxLength":256} |
@@ -262,13 +340,11 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 3,
   "id": "example",
-  "startedAt": 5,
-  "status": "succeeded",
-  "threadId": "example",
+  "startedAt": 9,
+  "status": "skipped",
   "title": "example",
-  "trigger": "file"
+  "trigger": "manual"
 }
 ```
 
@@ -288,10 +364,22 @@ Example:
 ```json
 {
   "expression": "example",
-  "kind": "cron",
+  "kind": "rrule",
   "startAt": 0,
   "timezone": "example"
 }
+```
+
+## AutomationSource
+
+[JSON Schema](schema/AutomationSource.json), input validation.
+
+Type: ["person","thread"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"thread"
 ```
 
 ## AutomationTrigger
@@ -326,7 +414,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "cron",
+    "kind": "rrule",
     "startAt": 0,
     "timezone": "example"
   }
@@ -348,10 +436,10 @@ Example:
 
 ```json
 {
-  "event": "issue_labelled",
+  "event": "ci_failed",
   "kind": "github",
-  "pollIntervalMs": 60009,
-  "repository": "8.dx.wsC6/7Yg2m0mZcS"
+  "pollIntervalMs": 60004,
+  "repository": "SBxB3/lY1fvJ"
 }
 ```
 
@@ -370,6 +458,24 @@ Example:
   "paths": [
     "example"
   ]
+}
+```
+
+## AutomationTriggerError
+
+[JSON Schema](schema/AutomationTriggerError.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| message | yes | string | {"maxLength":8192} |
+| at | yes | integer | {"minimum":0,"maximum":8640000000000000} |
+
+Example:
+
+```json
+{
+  "at": 2,
+  "message": "example"
 }
 ```
 

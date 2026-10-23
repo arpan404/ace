@@ -118,8 +118,14 @@ class AcpSession implements ProviderSession {
   selecting = false;
   closed = false;
   deliberate = false;
-  /** Whether this connection's first prompt has carried ace's guidance. */
+  /** Whether this connection has carried ace's guidance (system prompt or first prompt). */
   guided = false;
+  /** ace's tool guidance for this session. */
+  guidance(mcp: NonNullable<SessionContext["mcp"]>): string {
+    return (
+      mcp.instructions ?? developerInstructions(this.quirks.provider, this.ctx.aceMcp?.session?.())
+    );
+  }
   sequence = 0;
   readonly started: number;
   readonly now: () => number;
@@ -269,6 +275,10 @@ class AcpSession implements ProviderSession {
         this.ctx,
         this.launch,
       );
+    // An agent that takes system-prompt text gets ace's guidance there, on every new or loaded
+    // session, instead of in the first prompt where it would stay in the conversation.
+    const systemPrompt =
+      negotiated.systemPromptAppend && this.ctx.mcp ? this.guidance(this.ctx.mcp) : undefined;
     let opened: unknown;
     try {
       opened = await openWithSignIn(
@@ -281,6 +291,9 @@ class AcpSession implements ProviderSession {
               cwd: this.ctx.cwd,
               mcpServers,
               ...(resume ? { sessionId: resume.nativeSessionId } : {}),
+              ...(systemPrompt
+                ? { _meta: { antigravity: { systemPrompt: { append: systemPrompt } } } }
+                : {}),
             },
             { signal: this.ctx.signal },
           ),
@@ -291,6 +304,7 @@ class AcpSession implements ProviderSession {
       if (failure) throw openingError(failure, this.ctx, this.launch);
       throw error;
     }
+    if (systemPrompt) this.guided = true;
     const session = object(opened);
     this.nativeSessionId = string(session["sessionId"]) || resume?.nativeSessionId || "";
     this.routing.bindRoot(this.nativeSessionId);
@@ -298,8 +312,13 @@ class AcpSession implements ProviderSession {
     this.configuration.setup(session, mcpTransport);
     if (this.ctx.permissionMode) await this.setMode(this.ctx.permissionMode);
     if (this.ctx.model) await this.setModel(this.ctx.model);
+    // Effort follows the model: the model's own thinking levels arrive with its selection. An
+    // agent that refuses the level keeps its default; a start never fails over effort.
+    const effort = this.ctx.options?.["effort"];
+    if (typeof effort === "string" && this.configuration.selectors.effort?.values.includes(effort))
+      await this.configuration.select("effort", effort, this.nativeSessionId).catch(() => {});
   }
-  async select(kind: "model" | "mode", value: string): Promise<void> {
+  async select(kind: "model" | "mode" | "effort", value: string): Promise<void> {
     if (
       this.closed ||
       this.active ||
@@ -402,7 +421,7 @@ class AcpSession implements ProviderSession {
               ? [
                   {
                     type: "text",
-                    text: `<ace-tool-guidance>\n${guidance.instructions ?? developerInstructions(this.quirks.provider, this.ctx.aceMcp?.session?.())}\n</ace-tool-guidance>`,
+                    text: `<ace-tool-guidance>\n${this.guidance(guidance)}\n</ace-tool-guidance>`,
                   },
                 ]
               : []),
