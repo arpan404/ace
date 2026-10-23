@@ -4,8 +4,8 @@
   "additionalProperties": false,
   "properties": {
     "delivery": {
-      "default": "queue",
-      "description": "queue (default), steer, or restart.",
+      "default": "steer",
+      "description": "steer (default), queue, or restart.",
       "enum": [
         "queue",
         "steer",

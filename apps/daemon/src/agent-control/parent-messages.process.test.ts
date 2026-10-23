@@ -76,3 +76,24 @@ test("a parent's message starts the child's next turn while its background comma
   expect(received(h, child)).toContain("Now run the tests");
   expect(h.stoppedTasks).toEqual([]);
 });
+
+test("a settled child its parent messages again reads working, never its old result", async () => {
+  const { h, parent, child } = await runningChild(true);
+  await h.complete(child, "first pass");
+  h.clock.advance(1050);
+  await h.engine.flush();
+  expect(h.service.journal.get(child)?.phase).toBe("settled");
+  const sent = await message(h, parent, child, "Also update the docs");
+  expect(sent).toMatchObject({ ok: true, data: { arrival: "starting" } });
+  // Before the provider has taken the message, nothing reports the child finished.
+  expect(h.service.monitor.snapshot(parent).children).toMatchObject([
+    { id: child, state: "working" },
+  ]);
+  const waiting = h.service.monitor.wait(
+    parent,
+    { threadIds: [child], mode: "all", timeoutSeconds: 1 },
+    new AbortController().signal,
+  );
+  h.clock.advance(h.clock.now() + 1000);
+  expect(await waiting).toMatchObject({ ok: true, data: { status: "timeout" } });
+});

@@ -217,7 +217,7 @@
       "additionalProperties": false,
       "properties": {
         "delivery": {
-          "default": "queue",
+          "default": "steer",
           "enum": [
             "queue",
             "steer"
@@ -354,7 +354,7 @@
       "additionalProperties": false,
       "properties": {
         "delivery": {
-          "default": "queue",
+          "default": "steer",
           "enum": [
             "queue",
             "steer",

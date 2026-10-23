@@ -1719,7 +1719,7 @@ Example:
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
 | text | yes | [MessageText.json](schema/MessageText.json) |  |
-| delivery | no | ["queue","steer"] | {"default":"queue"} |
+| delivery | no | ["queue","steer"] | {"default":"steer"} |
 
 Example:
 
@@ -1840,7 +1840,7 @@ Example:
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
 | text | yes | [MessageText.json](schema/MessageText.json) |  |
-| delivery | no | ["queue","steer","restart"] | {"default":"queue"} |
+| delivery | no | ["queue","steer","restart"] | {"default":"steer"} |
 
 Example:
 
@@ -16581,6 +16581,18 @@ Example:
 }
 ```
 
+## MessageArrival
+
+[JSON Schema](schema/MessageArrival.json), input validation.
+
+Type: ["starting","steering","queued","held","delivered"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"steering"
+```
+
 ## MessageContext
 
 [JSON Schema](schema/MessageContext.json), input validation.
@@ -16596,8 +16608,8 @@ Example:
 
 ```json
 {
-  "attachments": [],
-  "draftId": "z"
+  "draftId": "-4ipx",
+  "mentions": []
 }
 ```
 
@@ -16617,7 +16629,6 @@ Example:
 
 ```json
 {
-  "budgetBytes": 1027,
   "threadId": "example",
   "type": "thread_ref"
 }
@@ -16658,8 +16669,8 @@ Example:
 {
   "annotations": [
     {
-      "number": 5,
-      "role": "example"
+      "name": "example",
+      "number": 2
     }
   ],
   "tabId": "example",
@@ -16691,11 +16702,11 @@ Example:
 {
   "from": {
     "model": "example",
-    "provider": "cursor"
+    "provider": "antigravity"
   },
   "interactionId": "example",
-  "kind": "subagent_result",
-  "sources": []
+  "kind": "queue",
+  "parentThreadId": "example"
 }
 ```
 
@@ -16729,8 +16740,9 @@ Example:
 
 ```json
 {
-  "action": "fork",
-  "copiedFiles": 3,
+  "action": "resume",
+  "cleanupWarnings": [],
+  "copiedFiles": 8,
   "nativeSessionId": "example",
   "status": "migrated"
 }
@@ -16785,16 +16797,19 @@ Example:
 | needs | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | ask | no | string | {"maxLength":100} |
 | last | no | string | {"maxLength":100} |
+| queued | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | machine | no | string | {"maxLength":64} |
 
 Example:
 
 ```json
 {
-  "elapsedSeconds": 6,
+  "ask": "example",
+  "elapsedSeconds": 9,
   "id": "example",
+  "needs": 7,
   "role": "example",
-  "state": "working"
+  "state": "cancelled"
 }
 ```
 
@@ -16813,11 +16828,11 @@ Example:
 {
   "children": [],
   "counts": {
-    "cancelled": 9,
+    "cancelled": 4,
     "done": 1,
-    "failed": 7,
-    "needs_you": 6,
-    "working": 1
+    "failed": 4,
+    "needs_you": 3,
+    "working": 5
   }
 }
 ```
@@ -16831,7 +16846,7 @@ Type: ["codex","claude","opencode","cursor","pi"]. See JSON Schema for constrain
 Example:
 
 ```json
-"opencode"
+"cursor"
 ```
 
 ## NativePermissionMode
@@ -16851,11 +16866,10 @@ Example:
 
 ```json
 {
-  "default": true,
+  "default": false,
   "description": "example",
   "id": "example",
   "label": "example",
-  "presentation": "full-access",
   "risk": "medium"
 }
 ```
@@ -16879,9 +16893,9 @@ Example:
 
 ```json
 {
-  "aliases": [],
-  "nativeId": "example",
-  "provider": "opencode"
+  "acpAgentId": "example",
+  "forkedFromNativeId": "example",
+  "provider": "pi"
 }
 ```
 
@@ -16919,9 +16933,8 @@ Example:
 ```json
 {
   "actions": [],
-  "backgroundCount": 9,
+  "backgroundCount": 4,
   "id": "example",
-  "message": "example",
   "status": "background_done",
   "threadId": "example",
   "title": "example"
@@ -16961,11 +16974,11 @@ Example:
 ```json
 {
   "channel": "webpush",
-  "platform": "phone",
+  "platform": "web",
   "subscription": {
-    "auth": "Wz33jGnoRmWCL-ymhmZDuj",
+    "auth": "noRmWCL-ymhmZDujNgygzi",
     "endpoint": "https://example.invalid/",
-    "p256dh": "b4l_ROkO9SbROURPxxN3NQoTNIcxqg8QeFT5OL6PB1At7_JHB7y1Hq1_V265ROyphKLSka0RjJqDQCa-ZB118sr"
+    "p256dh": "kO9SbROURPxxN3NQoTNIcxqg8QeFT5OL6PB1At7_JHB7y1Hq1_V265ROyphKLSka0RjJqDQCa-ZB118srqWz33j"
   }
 }
 ```
@@ -16984,7 +16997,7 @@ Example:
 {
   "channel": "apns",
   "platform": "phone",
-  "token": "F5F5FDE0F406CcF3aCAbbd115CF48F2Eccee104e9C284f7eCDF2B51E3ac6C14a"
+  "token": "E0F406CcF3aCAbbd115CF48F2Eccee104e9C284f7eCDF2B51E3ac6C14aacB24D"
 }
 ```
 
@@ -17040,7 +17053,7 @@ Example:
 ```json
 {
   "preferences": {},
-  "publicKey": "Vovb9tyvd1q-9DD-9dvlAyX3ZcxiMeNsixpbJa4lOyaCbCJlp9SQZaKqZ0zroQZhzXCHAEgOIox2PxgpDs7tCdu",
+  "publicKey": null,
   "requestId": "example",
   "type": "notification.config.result"
 }
@@ -17061,14 +17074,17 @@ Example:
 ```json
 {
   "address": {
-    "channel": "fcm",
+    "channel": "webpush",
     "platform": "phone",
-    "token": "example"
+    "subscription": {
+      "auth": "O4tLZOyEhdrxnASqF3X7pz",
+      "endpoint": "https://example.invalid/",
+      "p256dh": "-9DD-9dvlAyX3ZcxiMeNsixpbJa4lOyaCbCJlp9SQZaKqZ0zroQZhzXCHAEgOIox2PxgpDs7tCdur81zBzpEShP"
+    }
   },
   "id": "example",
   "preferences": {
-    "agentSays": true,
-    "quietHours": null
+    "agentSays": false
   }
 }
 ```
@@ -17087,7 +17103,7 @@ Example:
 
 ```json
 {
-  "cursor": 5,
+  "cursor": 7,
   "entries": [],
   "retracted": []
 }
@@ -17106,13 +17122,12 @@ Example:
 
 ```json
 {
-  "cursor": 2,
+  "cursor": 5,
   "notification": {
     "actions": [],
-    "backgroundCount": 8,
+    "backgroundCount": 3,
     "id": "example",
-    "interactionId": "example",
-    "message": "example",
+    "preview": "example",
     "status": "unresponsive",
     "threadId": "example",
     "title": "example"
@@ -17134,7 +17149,7 @@ Example:
 
 ```json
 {
-  "afterCursor": 2,
+  "afterCursor": 6,
   "requestId": "example",
   "type": "notification.feed"
 }
@@ -17156,7 +17171,7 @@ Example:
 
 ```json
 {
-  "cursor": 7,
+  "cursor": 6,
   "entries": [],
   "requestId": "example",
   "retracted": [],
@@ -17179,9 +17194,14 @@ Example:
 {
   "notification": {
     "actions": [],
-    "backgroundCount": 4,
+    "backgroundCount": 2,
     "id": "example",
-    "status": "needs_you",
+    "preview": "example",
+    "run": {
+      "outcome": "stopped",
+      "phase": "implement"
+    },
+    "status": "done",
     "threadId": "example",
     "title": "example"
   },
@@ -17202,13 +17222,7 @@ Example:
 Example:
 
 ```json
-{
-  "quietHours": {
-    "endMinute": 0,
-    "startMinute": 6,
-    "timeZone": "UTC"
-  }
-}
+{}
 ```
 
 ## NotificationRegister
@@ -17228,7 +17242,7 @@ Example:
   "device": {
     "channel": "apns",
     "platform": "phone",
-    "token": "90A04F2EBf4432AEfc7fbB64DF2C8841eD99E4d7006e4a030eEa9D278E96Ac08"
+    "token": "8841eD99E4d7006e4a030eEa9D278E96Ac08efdd20DfcD7F6EB27fFdB7CE0139"
   },
   "type": "notification.register"
 }
@@ -17266,11 +17280,8 @@ Example:
 ```json
 {
   "preferences": {
-    "quietHours": {
-      "endMinute": 1,
-      "startMinute": 1,
-      "timeZone": "UTC"
-    }
+    "agentSays": true,
+    "includePreview": true
   },
   "type": "notification.preferences"
 }
@@ -17292,7 +17303,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 4
+  "until": 3
 }
 ```
 
@@ -17305,7 +17316,7 @@ Type: ["needs_you","done","failed","unresponsive","background_done","agent_says"
 Example:
 
 ```json
-"done"
+"unresponsive"
 ```
 
 ## NotificationUnregister
@@ -17321,7 +17332,6 @@ Example:
 
 ```json
 {
-  "requestId": "example",
   "type": "notification.unregister"
 }
 ```
@@ -17359,7 +17369,7 @@ Example:
 ```json
 {
   "model": null,
-  "provider": "opencode",
+  "provider": "acp",
   "threadId": "example"
 }
 ```
@@ -17381,7 +17391,7 @@ Example:
 {
   "description": "example",
   "evidence": [],
-  "id": "3FuP4r"
+  "id": "M.MDOARf68N"
 }
 ```
 
@@ -17399,7 +17409,8 @@ Example:
 [
   {
     "description": "example",
-    "id": "v5",
+    "id": "8Cj3",
+    "independent": false,
     "requiredKinds": [
       "source"
     ]
@@ -17423,10 +17434,9 @@ Example:
 ```json
 {
   "description": "example",
-  "id": "PV-4pnh",
-  "independent": false,
+  "id": "BmmI",
   "requiredKinds": [
-    "automated"
+    "human"
   ]
 }
 ```
@@ -17453,10 +17463,11 @@ Example:
 {
   "action": "example",
   "artifact": "example",
-  "criterionId": "YK9M.",
-  "kind": "ui",
+  "by": null,
+  "criterionId": "m",
+  "kind": "source",
   "note": "example",
-  "recordedAt": 6,
+  "recordedAt": 1,
   "result": "pass",
   "revision": "example"
 }
@@ -17475,10 +17486,10 @@ Example:
   {
     "action": "example",
     "artifact": "example",
-    "criterionId": "f68N9w8C",
-    "kind": "automated",
+    "criterionId": "u.fA5.chBvu",
+    "kind": "ui",
     "note": "example",
-    "result": "fail",
+    "result": "pass",
     "revision": "example"
   }
 ]
@@ -17504,10 +17515,10 @@ Example:
 {
   "action": "example",
   "artifact": "example",
-  "criterionId": "a4vBm",
-  "kind": "automated",
+  "criterionId": "rTH.emGyAA",
+  "kind": "ui",
   "note": "example",
-  "result": "fail",
+  "result": "pass",
   "revision": "example"
 }
 ```
@@ -17521,7 +17532,7 @@ Type: ["automated","source","ui","human","manual"]. See JSON Schema for constrai
 Example:
 
 ```json
-"human"
+"ui"
 ```
 
 ## OffshiftEvidenceState
@@ -17533,7 +17544,7 @@ Type: ["pass","fail","stale","missing","not_independent"]. See JSON Schema for c
 Example:
 
 ```json
-"stale"
+"pass"
 ```
 
 ## OffshiftPending
@@ -17550,9 +17561,8 @@ Example:
 
 ```json
 {
-  "criterionId": "m",
-  "kind": "source",
-  "needs": "independent"
+  "criterionId": "48nC2",
+  "kind": "manual"
 }
 ```
 
@@ -17582,15 +17592,15 @@ Example:
 
 ```json
 {
-  "id": "feature",
+  "id": "refactor",
   "purpose": "example",
   "steps": [
     {
-      "id": "7u.fA5",
+      "id": "m",
       "kinds": [
-        "automated"
+        "manual"
       ],
-      "phase": "delivery",
+      "phase": "implement",
       "title": "example"
     }
   ]
@@ -17640,8 +17650,11 @@ Example:
 
 ```json
 {
-  "id": "uKm4",
-  "phase": "implement",
+  "id": "RAYaToWL",
+  "kinds": [
+    "human"
+  ],
+  "phase": "review",
   "title": "example"
 }
 ```
@@ -17671,7 +17684,8 @@ Example:
   "criteria": [
     {
       "description": "example",
-      "id": "eGfC48",
+      "id": "TP",
+      "independent": false,
       "requiredKinds": [
         "source"
       ]
@@ -17679,7 +17693,8 @@ Example:
   ],
   "endpoint": "example",
   "outcome": "example",
-  "runId": ".emGyA"
+  "playbook": "feature",
+  "runId": "YA"
 }
 ```
 
@@ -17695,7 +17710,7 @@ Example:
 ```json
 {
   "action": "get",
-  "runId": "kvdmsb7EQ"
+  "runId": "DXL"
 }
 ```
 
@@ -17744,10 +17759,10 @@ Example:
 {
   "action": "advance",
   "note": "example",
-  "phase": "delivery",
-  "requestId": "gYAKlTPu",
-  "runId": "AYaToWLV",
-  "version": 0
+  "phase": "review",
+  "requestId": "3PMtMe4yl7",
+  "runId": "9kN47",
+  "version": 1
 }
 ```
 
@@ -17767,9 +17782,8 @@ Example:
 {
   "action": "block",
   "note": "example",
-  "requestId": "XLC9kN",
-  "runId": "k3",
-  "version": 8
+  "runId": "gfD",
+  "version": 5
 }
 ```
 
@@ -17789,8 +17803,9 @@ Example:
 {
   "action": "resume",
   "note": "example",
-  "runId": "w53PMtMe4yl",
-  "version": 1
+  "requestId": "Y",
+  "runId": "tWs",
+  "version": 4
 }
 ```
 
@@ -17813,15 +17828,15 @@ Example:
     {
       "action": "example",
       "artifact": "example",
-      "criterionId": "cYE",
+      "criterionId": "b2Q3UrYhq",
       "kind": "source",
       "note": "example",
-      "result": "pass",
+      "result": "fail",
       "revision": "example"
     }
   ],
-  "runId": "ngfD4Mmt",
-  "version": 2
+  "runId": "gzdI4",
+  "version": 4
 }
 ```
 
@@ -17843,14 +17858,16 @@ Example:
   "action": "revise",
   "criterion": {
     "description": "example",
-    "id": "Q3UrYhqu3B",
+    "id": "RhOjD",
+    "independent": false,
     "requiredKinds": [
-      "source"
+      "manual"
     ]
   },
   "note": "example",
-  "runId": "dI4FA",
-  "version": 0
+  "requestId": "Kh",
+  "runId": "uOkWv",
+  "version": 3
 }
 ```
 
@@ -17872,11 +17889,10 @@ Example:
 {
   "action": "step",
   "note": "example",
-  "requestId": "Kh",
-  "runId": "Wv",
-  "state": "skipped",
-  "stepId": "RhOjD",
-  "version": 3
+  "runId": "IoBgml",
+  "state": "done",
+  "stepId": "u",
+  "version": 7
 }
 ```
 
@@ -17904,29 +17920,31 @@ Example:
   "revision": "example",
   "run": {
     "blocker": "example",
-    "createdAt": 5,
+    "createdAt": 4,
     "criteria": [
       {
         "description": "example",
-        "id": "nA_m-n",
-        "independent": true,
+        "id": "n.R",
+        "independent": false,
         "requiredKinds": [
-          "automated"
+          "ui"
         ]
       }
     ],
     "endpoint": "example",
     "evidence": [],
-    "id": "DIoBgmlJVeu",
+    "id": "_m-nk",
     "note": "example",
     "outcome": "example",
-    "phase": "implement",
+    "owner": null,
+    "phase": "delivery",
+    "playbook": "fix",
     "threadId": "example",
-    "updatedAt": 2,
-    "version": 6
+    "updatedAt": 6,
+    "version": 2
   },
-  "state": "active",
-  "treeState": "needs_you"
+  "state": "needs_evidence",
+  "treeState": "failed"
 }
 ```
 
@@ -17997,22 +18015,18 @@ Example:
   "criteria": [
     {
       "description": "example",
-      "id": "wVsvwR1t",
+      "id": "SwVsvwR1tiH",
+      "independent": true,
       "requiredKinds": [
-        "automated"
+        "source"
       ]
     }
   ],
   "endpoint": "example",
   "evidence": [],
-  "id": "teBNMIoL4u7",
+  "id": "L4u",
   "note": "example",
   "outcome": "example",
-  "owner": {
-    "model": "example",
-    "provider": "opencode",
-    "threadId": "example"
-  },
   "phase": "plan",
   "threadId": "example",
   "updatedAt": 0,
