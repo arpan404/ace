@@ -185,6 +185,21 @@ jobs:
           node packages/workspace/build-windows-core.ts --probe-only --headers "%HEADERS_DIR%" --node-lib "%NODE_LIB%" --cl "%CL_EXE%" || exit /b 1
           node packages/workspace/build-windows-core.ts --headers "%HEADERS_DIR%" --node-lib "%NODE_LIB%" --cl "%CL_EXE%" || exit /b 1
 
+      - name: Build Windows descriptor via build.ts and verify exports
+        shell: cmd
+        env:
+          VS_DEVCMD: ${{ steps.msvc.outputs.vs-devcmd }}
+          MSVC_ARCH: ${{ matrix.msvc_arch }}
+          ACE_WINDOWS_HEADERS_DIR: ${{ steps.headers.outputs.headers-dir }}
+          ACE_WINDOWS_NODE_LIB: ${{ steps.headers.outputs.node-lib }}
+        run: |
+          @echo off
+          setlocal
+          call "%VS_DEVCMD%" -arch=%MSVC_ARCH% -host_arch=%MSVC_ARCH% || exit /b 1
+          where cl || exit /b 1
+          node packages/workspace/build.ts || exit /b 1
+          node -e "const a=require('./packages/workspace/dist/descriptor.node');if(typeof a.openRoot!=='function')throw new Error('descriptor.node missing openRoot');if(typeof a.statFd!=='function')throw new Error('descriptor.node missing statFd');console.log('descriptor.node exports ok: openRoot/statFd present')" || exit /b 1
+
       - name: Run bounded Windows-native Vitest suite
         timeout-minutes: 25
         env:

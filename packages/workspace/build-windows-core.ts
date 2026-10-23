@@ -3,9 +3,7 @@
  *
  * Produces an independently loadable dist/windows-core.node exposing exactly
  * pinned opens, creation, deletion, rename, metadata, listing and identity.
- * It does NOT activate the
- * default daemon, hook any build, or change the root postinstall (which still
- * builds only the POSIX descriptor addon).
+ * The normal build.ts entry reuses this compiler for dist/descriptor.node.
  *
  * Usage:
  *   node build-windows-core.ts --probe-only [--headers <dir> --node-lib <path>]
@@ -31,7 +29,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SOURCES = [
@@ -219,16 +217,39 @@ function runProbe(options: Options): boolean {
   return ok;
 }
 
-function runBuild(options: Options): void {
+export interface WindowsAddonBuildInput {
+  headers: string;
+  nodeLib: string;
+  out: string;
+  cl?: string;
+}
+
+/**
+ * Narrow Windows compiler owner: compiles SOURCES to `out`.
+ * Single place owning the cl invocation; both the windows-core CLI and
+ * build.ts (descriptor.node) reuse it. No downloads; headers/node.lib are
+ * externally pinned (CI verifies official SHASUMS256). Node 24+ contract:
+ * refuses older runtimes without pinning an exact version.
+ */
+export function buildWindowsAddon(input: WindowsAddonBuildInput): void {
+  const major = Number(process.versions.node.split(".")[0]);
+  if (!Number.isInteger(major) || major < 24)
+    throw new Error(`Windows addon build requires Node 24+ (got ${process.versions.node}).`);
   if (process.platform !== "win32")
     throw new Error(
       "windows-core build requires a Windows host (compilation unverified on " +
         `${process.platform}). Use --probe-only here and build on a Windows VM.`,
     );
-  if (options.headers === undefined || options.nodeLib === undefined)
-    throw new Error(`--headers and --node-lib are required for a build.\n${usage()}`);
-  if (!runProbe(options)) throw new Error("Probe failed; refusing to build.");
-  const cl = findCl(options.cl);
+  const probeOptions: Options = {
+    headers: input.headers,
+    nodeLib: input.nodeLib,
+    out: input.out,
+    probeOnly: false,
+    cl: input.cl ?? "cl",
+    help: false,
+  };
+  if (!runProbe(probeOptions)) throw new Error("Probe failed; refusing to build.");
+  const cl = findCl(probeOptions.cl);
   const root = fileURLToPath(new URL(".", import.meta.url));
   const nativeDir = join(root, "native", "windows");
   mkdirSync(join(root, "dist"), { recursive: true });
@@ -242,27 +263,50 @@ function runBuild(options: Options): void {
       "/W4",
       "/std:c11",
       "/I",
-      options.headers,
+      input.headers,
       "/I",
       nativeDir,
       ...SOURCES.map((file) => join(nativeDir, file)),
       "/link",
-      `/OUT:${options.out}`,
-      options.nodeLib,
+      `/OUT:${input.out}`,
+      input.nodeLib,
       "kernel32.lib",
       "advapi32.lib",
     ],
     { stdio: "inherit" },
   );
-  const bytes = statSync(options.out).size;
-  console.log(`Built ${options.out} (${bytes} bytes)`);
+  const bytes = statSync(input.out).size;
+  console.log(`Built ${input.out} (${bytes} bytes)`);
 }
 
-const options = parseArgs(process.argv.slice(2));
-if (options.help) {
-  console.log(usage());
-} else if (options.probeOnly) {
-  if (!runProbe(options)) process.exit(1);
-} else {
-  runBuild(options);
+function runBuild(options: Options): void {
+  if (process.platform !== "win32")
+    throw new Error(
+      "windows-core build requires a Windows host (compilation unverified on " +
+        `${process.platform}). Use --probe-only here and build on a Windows VM.`,
+    );
+  if (options.headers === undefined || options.nodeLib === undefined)
+    throw new Error(`--headers and --node-lib are required for a build.\n${usage()}`);
+  buildWindowsAddon({
+    headers: options.headers,
+    nodeLib: options.nodeLib,
+    out: options.out,
+    cl: options.cl,
+  });
+}
+
+function main(): void {
+  const options = parseArgs(process.argv.slice(2));
+  if (options.help) {
+    console.log(usage());
+  } else if (options.probeOnly) {
+    if (!runProbe(options)) process.exit(1);
+  } else {
+    runBuild(options);
+  }
+}
+
+// Importing the compiler must not run the standalone CLI.
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  main();
 }
