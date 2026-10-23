@@ -1,12 +1,11 @@
 import { ClientError } from "@ace/client";
-import type { ForgeBrowserResult } from "@ace/protocol";
 import { actionErrorText } from "@ace/ui-core";
 import { z } from "zod";
 import type { Preview } from "./agents.ts";
 import { ForgeIssueRequest, readIssue } from "./forge-issue.ts";
 import { ForgeListRequest, readIssues, readPulls } from "./forge-lists.ts";
 import { ForgePullRequest, readPull, writePull } from "./forge-pull.ts";
-import { ForgeReads, ForgeRefusal, type ForgeOwner } from "./forge-reads.ts";
+import { ForgeReads, ForgeRefusal, type ForgeMemory, type ForgeOwner } from "./forge-reads.ts";
 
 /*
  * The phone's Pull requests and Issues as native service calls: Swift asks for a list, a page
@@ -34,12 +33,15 @@ export class ForgeService {
   #owner: ForgeOwner;
   #preview: Preview;
   #now: () => number;
-  #cache = new Map<string, { at: number; value: ForgeBrowserResult }>();
+  #stamp: () => string;
+  #cache = new Map<string, ForgeMemory>();
 
-  constructor(owner: ForgeOwner, preview: Preview, now: () => number) {
+  /** `stamp` is the kept forge reads' stamp (`NativeReads.stamp`), so both memories agree. */
+  constructor(owner: ForgeOwner, preview: Preview, now: () => number, stamp: () => string) {
     this.#owner = owner;
     this.#preview = preview;
     this.#now = now;
+    this.#stamp = stamp;
   }
 
   /**
@@ -47,7 +49,14 @@ export class ForgeService {
    * outcome, refused or not, is an answer of its own (`ok`, `message`).
    */
   async answer(request: ForgeRequest, signal: AbortSignal): Promise<unknown> {
-    const reads = new ForgeReads(this.#owner, this.#now, this.#cache, signal, request.fresh);
+    const reads = new ForgeReads(
+      this.#owner,
+      this.#now,
+      this.#cache,
+      signal,
+      request.fresh,
+      this.#stamp(),
+    );
     try {
       switch (request.type) {
         case "forge.projects":

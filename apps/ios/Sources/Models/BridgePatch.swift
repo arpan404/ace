@@ -226,6 +226,8 @@ enum BridgePatch: Decodable, Sendable {
     case devices(DevicesPatch)
     /// A kept read restored from an earlier run, and each family's generation (`bridge/native-reads.ts`).
     case serviceCache(ServiceReply.Cache, ServiceValue)
+    /// A kept read the bridge stopped keeping: Swift's copy lets it go too.
+    case serviceEvict(String)
     case serviceGenerations([String: Int])
 
     private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation }
@@ -238,6 +240,7 @@ enum BridgePatch: Decodable, Sendable {
         case "service.cache":
             let cache = ServiceReply.Cache(key: try box.decode(String.self, forKey: .key), family: try box.decode(String.self, forKey: .family))
             self = .serviceCache(cache, try box.decode(ServiceValue.self, forKey: .value))
+        case "service.evict": self = .serviceEvict(try box.decode(String.self, forKey: .key))
         case "service.generations": self = .serviceGenerations(try box.decode([String: Int].self, forKey: .generations))
         case "terminal.output": self = .terminal(try TerminalOutputPatch(from: decoder))
         case "fragment": self = .fragment(try BridgeFragment(from: decoder))

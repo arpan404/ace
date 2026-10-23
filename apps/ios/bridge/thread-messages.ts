@@ -49,7 +49,8 @@ export function bubbleOf(item: Item) {
   let room = bubbleChars;
   const segments = runs.flatMap((segment) => {
     if (room <= 0) return [];
-    const text = segment.text.slice(0, room);
+    // Native repair: a cut never leaves half a pair, and ill-formed text never reaches JSON.
+    const text = preview(segment.text, room);
     room -= text.length;
     return [{ ...segment, text }];
   });

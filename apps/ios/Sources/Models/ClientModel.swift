@@ -12,6 +12,9 @@ import QuartzCore
     let id: String
     var epoch = 0
     var metadata: ThreadRow?
+    /// Whether `metadata` came from this visit. A reopened thread keeps its last metadata for
+    /// the title, but not its word on status until the current snapshot arrives.
+    var metadataCurrent = false
     var items: [String: ItemModel] = [:]
     var order: [String] = []
     var interactions: [String: ApprovalRow] = [:]
@@ -191,6 +194,7 @@ import QuartzCore
                 if reply.ok, let cache = reply.cache, let value = reply.value { reads.store(key: cache.key, family: cache.family, value: value) }
                 services.receive(reply)
             case .serviceCache(let cache, let value): reads.store(key: cache.key, family: cache.family, value: value)
+            case .serviceEvict(let key): reads.remove(key)
             case .serviceGenerations(let generations): reads.update(generations: generations)
             case .terminal(let patch):
                 if let offset = terminal.receive(patch) { action(["type": "terminal.credit", "id": patch.id, "offset": offset]) }
@@ -274,7 +278,7 @@ import QuartzCore
                     }
                     if let index = row.index, thread.positions[itemId] != index { thread.positions[itemId] = index; reorder = true }
                 } else { thread.items.removeValue(forKey: itemId); thread.positions.removeValue(forKey: itemId); reorder = true }
-            case .metadata(let id, let epoch, let row): if thread?.id == id, thread?.epoch == epoch { thread?.metadata = row }
+            case .metadata(let id, let epoch, let row): if thread?.id == id, thread?.epoch == epoch { thread?.metadata = row; thread?.metadataCurrent = true }
             case .interaction(let id, let epoch, let interactionId, let row):
                 if thread?.id == id, thread?.epoch == epoch {
                     thread?.interactions[interactionId] = row
@@ -330,6 +334,7 @@ import QuartzCore
         if let current = thread, current.id != id { shelf.keep(current) }
         let opened = kept ?? ThreadModel(id: id)
         opened.epoch = generation
+        opened.metadataCurrent = false
         if kept != nil { opened.screen.revisit() }
         ThreadOpenTrace.shared.open(id, warm: kept != nil)
         ThreadOpenTrace.shared.showing(true)

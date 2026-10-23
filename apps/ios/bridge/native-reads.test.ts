@@ -253,3 +253,69 @@ test("each return of the connection is counted for screens whose reads aren't ke
   connect("ready");
   expect(sink.read("service:generations")).toMatchObject({ generations: { reconnects: 2 } });
 });
+
+test("an answer asked before its family went out of date is shown but never kept as fresh", () => {
+  const { owner, broadcast } = fakeOwner();
+  const reads = new NativeReads(owner, new RecordingSink(), { now: () => 0, schedule: noSchedule });
+  const asked = reads.key(projectsRead, "projects");
+  if (!asked) throw new Error("expected a kept read");
+  broadcast({ type: "workspace.changed", workspaceId: "w", change: "removed" });
+  expect(reads.answered(asked, { result: { kind: "workspaces", workspaces: ["old"] } })).toBe(
+    false,
+  );
+  expect(reads.fresh(asked)).toBeUndefined();
+});
+
+test("an answer asked before the connection came back is never kept as fresh", () => {
+  const { owner, connect } = fakeOwner();
+  const reads = new NativeReads(owner, new RecordingSink(), { now: () => 0, schedule: noSchedule });
+  const asked = reads.key({ type: "usage.limits" }, "limits");
+  if (!asked) throw new Error("expected a kept read");
+  connect("reconnecting");
+  connect("ready");
+  expect(reads.answered(asked, { providers: ["old"] })).toBe(false);
+  expect(reads.fresh(asked)).toBeUndefined();
+});
+
+test("an older answer landing after a newer one never replaces it", () => {
+  const reads = new NativeReads(fakeOwner().owner, new RecordingSink(), {
+    now: () => 0,
+    schedule: noSchedule,
+  });
+  const older = reads.key({ type: "usage.limits" }, "limits");
+  const newer = reads.key({ type: "usage.limits" }, "limits");
+  if (!older || !newer) throw new Error("expected kept reads");
+  expect(reads.answered(newer, { providers: ["new"] })).toBe(true);
+  expect(reads.answered(older, { providers: ["old"] })).toBe(false);
+  expect(reads.fresh(newer)).toEqual({ providers: ["new"] });
+});
+
+test("a family's stamp moves with its events and with the connection coming back, not with others", () => {
+  const { owner, broadcast, connect } = fakeOwner();
+  const reads = new NativeReads(owner, new RecordingSink(), { now: () => 0, schedule: noSchedule });
+  const start = reads.stamp("forge");
+  broadcast({ type: "usage.updated" });
+  expect(reads.stamp("forge")).toBe(start);
+  broadcast({ type: "forge.pr.updated" });
+  const updated = reads.stamp("forge");
+  expect(updated).not.toBe(start);
+  connect("reconnecting");
+  connect("ready");
+  expect(reads.stamp("forge")).not.toBe(updated);
+});
+
+test("an answer the bridge stops keeping leaves Swift's copy too, even one still waiting to be sent", () => {
+  const sink = new RecordingSink();
+  const reads = new NativeReads(fakeOwner().owner, sink, {
+    now: () => 0,
+    schedule: noSchedule,
+    limit: 2,
+  });
+  for (const name of ["first", "second", "third"]) {
+    const read = reads.key({ type: "usage.limits" }, name);
+    if (!read) throw new Error("expected a kept read");
+    reads.answered(read, { providers: [name] });
+  }
+  expect(sink.read("service:cache:first")).toEqual({ type: "service.evict", key: "first" });
+  expect(sink.read("service:cache:second")).toBeUndefined();
+});

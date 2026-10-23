@@ -215,7 +215,12 @@ async function start(json: string): Promise<void> {
     devices,
     screen,
     files,
-    new ForgeService(client, preview, () => host.now()),
+    new ForgeService(
+      client,
+      preview,
+      () => host.now(),
+      () => reads.stamp("forge"),
+    ),
     reads,
   );
   terminal = new NativeTerminal(client, pump);

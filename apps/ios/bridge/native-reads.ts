@@ -30,11 +30,24 @@ export interface ReadsOptions {
   schedule(delay: number, run: () => void): () => void;
   /** This machine's storage on the phone; omitted keeps answers for this run only. */
   storage?: ReadStorage;
+  /** At most this many answers are kept (`ReadCache`). */
+  limit?: number;
 }
 /** A kept read's name in Swift's copy, sent with the request. */
 export interface ReadKey {
   key: string;
   family: ReadFamily;
+}
+
+/**
+ * A kept read as it was asked: what had happened by then, so an answer that arrives after its
+ * family went out of date, after a reconnect, or after a newer answer for the same name is
+ * shown to its screen but never kept as fresh.
+ */
+export interface ReadTicket extends ReadKey {
+  readonly generation: number;
+  readonly reconnects: number;
+  readonly sequence: number;
 }
 
 /** Beside the families' generations: how many times the connection came back. */
@@ -49,9 +62,15 @@ export class NativeReads implements NewThreadMemory {
   readonly #sink: PatchSink;
   readonly #stops: (() => void)[] = [];
   #reconnects = 0;
+  #asked = 0;
+  /** Per kept name, the order of the newest answer kept. */
+  readonly #keptOrder = new Map<string, number>();
   constructor(owner: ReadsOwner, sink: PatchSink, options: ReadsOptions) {
     this.#sink = sink;
-    this.#cache = new ReadCache({ now: options.now });
+    this.#cache = new ReadCache({
+      now: options.now,
+      ...(options.limit === undefined ? {} : { limit: options.limit }),
+    });
     this.#keeper = options.storage
       ? new ReadKeeper(this.#cache, options.storage, options.schedule)
       : undefined;
@@ -82,9 +101,24 @@ export class NativeReads implements NewThreadMemory {
   }
 
   /** The request's kept-read name, when Swift named it and its answer is kept. */
-  key(request: unknown, key: string | undefined): ReadKey | undefined {
+  key(request: unknown, key: string | undefined): ReadTicket | undefined {
     const family = key ? readFamily(request) : undefined;
-    return key && family ? { key, family } : undefined;
+    if (!key || !family) return undefined;
+    return {
+      key,
+      family,
+      generation: this.#cache.generation(family),
+      reconnects: this.#reconnects,
+      sequence: ++this.#asked,
+    };
+  }
+
+  /**
+   * Where a family's answers stand: it changes whenever they go out of date or the connection
+   * comes back. Memory kept elsewhere for the family is good only under the same stamp.
+   */
+  stamp(family: ReadFamily): string {
+    return `${this.#cache.generation(family)}:${this.#reconnects}`;
   }
 
   /** The kept answer to give without asking the daemon. */
@@ -92,10 +126,11 @@ export class NativeReads implements NewThreadMemory {
     return this.#cache.fresh(read.key);
   }
 
-  /** The daemon answered a kept read. A refusal is never kept. */
-  answered(read: ReadKey, value: unknown): boolean {
-    if (!keepable(value)) return false;
-    this.#cache.put(read.key, read.family, value);
+  /** The daemon answered a kept read. A refusal or an obsolete answer is never kept. */
+  answered(read: ReadTicket, value: unknown): boolean {
+    if (!keepable(value) || this.#obsolete(read)) return false;
+    this.#keptOrder.set(read.key, read.sequence);
+    this.#evicted(this.#cache.put(read.key, read.family, value));
     this.#keeper?.changed();
     return true;
   }
@@ -110,12 +145,20 @@ export class NativeReads implements NewThreadMemory {
     return Patch.safeParse(this.#cache.latest(ownPrefix + key)).data;
   }
   keep(key: string, family: ReadFamily, patch: Record<string, unknown>): void {
-    this.#cache.put(ownPrefix + key, family, patch);
+    this.#evicted(this.#cache.put(ownPrefix + key, family, patch));
     this.#keeper?.changed();
   }
 
   dispose(): void {
     for (const stop of this.#stops.splice(0)) stop();
+  }
+
+  #obsolete(read: ReadTicket): boolean {
+    return (
+      read.generation !== this.#cache.generation(read.family) ||
+      read.reconnects !== this.#reconnects ||
+      read.sequence < (this.#keptOrder.get(read.key) ?? 0)
+    );
   }
 
   #publish(): void {
@@ -126,6 +169,15 @@ export class NativeReads implements NewThreadMemory {
         ...(this.#reconnects ? { [reconnectsKey]: this.#reconnects } : {}),
       },
     }));
+  }
+
+  /** Answers the cache pushed out leave Swift's copy too; one it is still sending is withdrawn. */
+  #evicted(keys: readonly string[]): void {
+    for (const key of keys) {
+      this.#keptOrder.delete(key);
+      if (key.startsWith(ownPrefix)) continue;
+      this.#sink.put(`service:cache:${key}`, () => ({ type: "service.evict", key }));
+    }
   }
 
   #send(read: KeptRead): void {

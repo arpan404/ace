@@ -71,6 +71,37 @@ import Foundation
         model.receive(try frame([["type": "service.generations", "generations": ["usage": 2, "reconnects": 1]]]))
         #expect(model.reads.reconnects == 1)
     }
+    @Test func aReopenedThreadShowsTheInboxStatusNotTheDoneItWasLeftAt() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("a")
+        model.receive(try frame([["type": "thread.metadata", "threadId": "a", "epoch": 1, "row": row(label: "Done", token: "done")],
+                                 ["type": "thread.ready", "threadId": "a", "epoch": 1, "count": 0]]))
+        model.back()
+        var working = row(label: "Working", token: "working")
+        working["confirmed"] = true; working["generation"] = 1
+        model.receive(try frame([["type": "inbox.row", "id": "a", "row": working]]))
+        model.open("a")
+        let thread = try #require(model.thread)
+        #expect(model.headerStatus(of: thread)?.label == "Working")
+    }
+    @Test func aReopenedThreadWithoutAnInboxRowSyncsUntilItsCurrentMetadataArrives() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("a")
+        model.receive(try frame([["type": "thread.metadata", "threadId": "a", "epoch": 1, "row": row(label: "Done", token: "done")],
+                                 ["type": "thread.ready", "threadId": "a", "epoch": 1, "count": 0]]))
+        model.back()
+        model.open("a")
+        let thread = try #require(model.thread)
+        // The warm copy keeps its title, but not the Done it was left at.
+        #expect(thread.metadata?.title == "A")
+        #expect(model.headerStatus(of: thread)?.label == "Syncing")
+        model.receive(try frame([["type": "thread.metadata", "threadId": "a", "epoch": 3, "row": row(label: "Working", token: "working")]]))
+        #expect(model.headerStatus(of: thread)?.label == "Working")
+    }
+    private func row(label: String, token: String) -> [String: Any] {
+        ["id": "a", "title": "A", "state": token, "project": "p", "branch": "", "machine": "m", "provider": "codex", "model": "x",
+         "agents": 1, "updatedAt": 0, "canSteer": false, "status": ["label": label, "token": token]]
+    }
     private func item(_ id: String, text: String, index: Int) -> [String: Any] {
         ["type": "thread.item", "threadId": "a", "epoch": 1, "id": id,
          "row": ["id": id, "index": index, "type": "message", "role": "assistant", "text": text, "complete": false, "createdAt": 0, "agentId": "root", "truncated": false]]

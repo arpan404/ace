@@ -51,13 +51,21 @@ export class ReadCache {
     return this.#entries.get(key)?.value;
   }
 
-  put(key: string, family: ReadFamily, value: unknown): void {
+  /** Keep an answer; returns the names of the oldest answers it pushed out. */
+  put(key: string, family: ReadFamily, value: unknown): string[] {
     this.#entries.delete(key);
     this.#entries.set(key, { key, family, value, at: this.#now(), stale: false });
+    return this.#trim();
+  }
+
+  #trim(): string[] {
+    const evicted: string[] = [];
     for (const old of this.#entries.keys()) {
       if (this.#entries.size <= this.#limit) break;
       this.#entries.delete(old);
+      evicted.push(old);
     }
+    return evicted;
   }
 
   /** Put every answer of `families` out of date and move their generations. */
@@ -77,6 +85,11 @@ export class ReadCache {
       ...[...this.#entries.values()].map((entry) => entry.family),
     ]);
     return this.invalidate(families);
+  }
+
+  /** One family's generation: it moves whenever that family's answers go out of date. */
+  generation(family: ReadFamily): number {
+    return this.#generations.get(family) ?? 0;
   }
 
   /** Each family's generation, for the screens that show its answers. */
@@ -106,7 +119,8 @@ export class ReadCache {
       this.#entries.set(read.key, { ...read, stale: true });
       restored.push(read);
     }
-    return restored;
+    const evicted = new Set(this.#trim());
+    return restored.filter((read) => !evicted.has(read.key));
   }
 }
 
