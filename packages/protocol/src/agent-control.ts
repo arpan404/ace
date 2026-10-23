@@ -175,7 +175,9 @@ export const DelegationRecord = z.object({
   resolvedEffort: z.string().min(1).max(256).optional(),
   resultDelivery: z.enum(["parent", "owner"]).optional(),
   /** What the parent was last told about a message to this child that didn't go in as sent. */
-  messageNotice: z.object({ text: z.string().max(400), at: Timestamp }).optional(),
+  messageNotice: z
+    .object({ text: z.string().max(400), at: Timestamp, commandId: z.string().max(128).optional() })
+    .optional(),
 });
 export type DelegationRecord = z.infer<typeof DelegationRecord>;
 export const ControlThreadInput = z.strictObject({ threadId: ThreadId });

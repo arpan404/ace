@@ -185,7 +185,7 @@ test("a message to a thread that isn't the agent's child waits for its turn by d
 
 test("a steer the provider refuses as the turn ends is kept for the next turn and the parent is told", async () => {
   const { h, parent, child } = await runningChild(true);
-  h.failNextSteer("rejected");
+  h.failNextSend("rejected");
   expect(await message(h, parent, child, "New repo rule")).toMatchObject({
     ok: true,
     data: { arrival: "steering" },
@@ -197,16 +197,41 @@ test("a steer the provider refuses as the turn ends is kept for the next turn an
   expect(h.service.monitor.snapshot(parent).children).toMatchObject([
     { id: child, notice: expect.stringContaining("runs when that turn ends") },
   ]);
+  // A retry while it waits says so; its bubble no longer belongs to the turn it missed.
+  expect(await message(h, parent, child, "New repo rule")).toMatchObject({
+    ok: true,
+    data: { arrival: "queued" },
+  });
+  const bubble = Object.values(h.store.snapshotThread(child).items).find(
+    (item) =>
+      item.type === "message" &&
+      item.role === "user" &&
+      item.parts.some((part) => part.type === "text" && part.text === "New repo rule"),
+  );
+  expect(bubble).toBeDefined();
+  expect(bubble && "runId" in bubble ? bubble.runId : undefined).toBeUndefined();
   await h.complete(child, "first pass");
-  expect(received(h, child)).toContain("New repo rule");
-  // A new message from the parent clears what it was told.
-  await message(h, parent, child, "Thanks");
+  expect(received(h, child).filter((text) => text === "New repo rule")).toHaveLength(1);
+  // Once the child has it, the notice is no longer news.
   expect(h.service.monitor.snapshot(parent).children[0]?.notice).toBeUndefined();
+});
+
+test("a queued message the provider refuses unread waits for the person and is never resent in a loop", async () => {
+  const { h, parent, child } = await runningChild(false);
+  await message(h, parent, child, "Use the new API");
+  h.failNextSend("rejected", "queue");
+  await h.complete(child, "first pass");
+  later(h, 5000);
+  await h.engine.flush();
+  const tries = h.attempts.filter((entry) => entry.text === "Use the new API");
+  expect(tries).toHaveLength(1);
+  expect(h.engine.queue(child)).toMatchObject({ paused: true, reason: "not_sent" });
+  expect(received(h, parent.threadId).join("\n")).toContain("wasn't sent");
 });
 
 test("a steer lost in transit is never resent, and the parent is told it may not have arrived", async () => {
   const { h, parent, child } = await runningChild(true);
-  h.failNextSteer("lost");
+  h.failNextSend("lost");
   await message(h, parent, child, "New repo rule");
   await h.engine.flush();
   expect(received(h, parent.threadId).join("\n")).toContain("may or may not have reached it");

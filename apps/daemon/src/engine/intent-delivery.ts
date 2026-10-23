@@ -49,6 +49,8 @@ export class IntentDelivery {
     const repo = this.dependencies.repo;
     // Leaving the queue and joining the transcript are one step: the message's place in the
     // thread is where the engine delivers it, and a steer belongs to the run it steers into.
+    // Whether this send goes into a running turn as a steer, decided once at the claim.
+    let steered = false;
     const intent = repo.store.atomic(() => {
       const claimed = repo.claim(candidate);
       if (!claimed || !send) return claimed;
@@ -58,6 +60,7 @@ export class IntentDelivery {
       const active = state.agents[state.rootKey ?? ""]?.activeRun;
       const outstanding = repo.pending.awaiting(actor.id);
       const steer = this.dependencies.isSteer(claimed);
+      steered = steer && active !== undefined;
       repo.beginSend(
         claimed,
         steer ? (active ? undefined : (outstanding?.ackTarget ?? claimed.id)) : claimed.id,
@@ -128,7 +131,8 @@ export class IntentDelivery {
         // Refused unread, so sending it again is safe. A parent agent's message goes back in the
         // queue for the next turn by itself; anything else waits for the person, as unsent input.
         const message = error.message || "The provider refused the message";
-        if (intent.trigger === "parent_agent") this.requeue(intent, message);
+        // Only a steer that lost its turn: a refused queued send would be refused again at once.
+        if (intent.trigger === "parent_agent" && steered) this.requeue(intent, message);
         else this.retainInput(intent, message, false);
       } else {
         // RPC failure cannot undo native consumption, nor prove nonconsumption.
@@ -277,11 +281,14 @@ export class IntentDelivery {
       this.reportFailure(intent, message, code, details);
     });
   }
-  private requeue(intent: IntentHeader, message: string): void {
-    this.dependencies.repo.store.atomic(() => {
-      this.dependencies.repo.queue.clearUncertain(intent.id);
-      this.dependencies.repo.pending.requeue(intent, message);
-      this.dependencies.repo.beginSend(intent, undefined);
+  private requeue(intent: Intent, message: string): void {
+    const repo = this.dependencies.repo;
+    repo.store.atomic(() => {
+      repo.queue.clearUncertain(intent.id);
+      repo.pending.requeue(intent, message);
+      repo.beginSend(intent, undefined);
+      // Its message no longer belongs to the turn it failed to join; the next run binds it.
+      repo.admitInput(intent.command, intent.threadId, undefined, this.dependencies.clock.now());
       this.reportFailure(intent, message, "input_requeued");
     });
   }

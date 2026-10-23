@@ -69,8 +69,10 @@ export function setup(
   const stoppedTasks: string[] = [];
   /** How many of the next task stops the provider fails, as a dropped RPC would. */
   let stopTaskFailures = 0;
-  /** How the provider fails the next steers: refused unread, or lost with no answer. */
-  const steerFailures: ("rejected" | "lost")[] = [];
+  /** How the provider fails its next sends: refused unread, or lost with no answer. */
+  const sendFailures: { how: "rejected" | "lost"; on: "steer" | "queue" }[] = [];
+  /** Every input the providers were asked to take, failed attempts included. */
+  const attempts: { threadId: ThreadId; text: string }[] = [];
   const registry = new AdapterRegistry();
   const capabilities = Capabilities.parse({
     steer,
@@ -148,7 +150,11 @@ export function setup(
             ...session,
             nativeSessionId,
             async send(input, delivery, commandId, origin) {
-              const failure = delivery === "steer" ? steerFailures.shift() : undefined;
+              for (const part of input)
+                if (part.type === "text")
+                  attempts.push({ threadId: ctx.threadId, text: part.text });
+              const failure =
+                sendFailures[0]?.on === delivery ? sendFailures.shift()?.how : undefined;
               if (failure === "rejected") throw new InputRejected("no active turn to steer");
               if (failure === "lost") throw new Error("The provider connection dropped");
               if (commandId) {
@@ -289,9 +295,10 @@ export function setup(
   return {
     home,
     stoppedTasks,
-    failNextSteer(how: "rejected" | "lost") {
-      steerFailures.push(how);
+    failNextSend(how: "rejected" | "lost", on: "steer" | "queue" = "steer") {
+      sendFailures.push({ how, on });
     },
+    attempts,
     failNextTaskStops(count: number) {
       stopTaskFailures = count;
     },

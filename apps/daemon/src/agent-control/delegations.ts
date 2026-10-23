@@ -263,6 +263,15 @@ export class DelegationService {
     return result;
   }
   private requesting: string | undefined;
+  /** A kept-back message the child has now taken is no longer news for the parent. */
+  private clearDeliveredNotice(child: ThreadId) {
+    const edge = this.journal.get(child);
+    const commandId = edge?.messageNotice?.commandId;
+    if (!edge || !commandId) return;
+    if (this.deps.engine.inputFate(child, CommandId.parse(commandId)).state !== "delivered") return;
+    delete edge.messageNotice;
+    this.deps.store.atomic(() => this.journal.save(edge));
+  }
   /**
    * A parent's message to its child that didn't go in as sent (refused, kept back, uncertain or
    * failed after the tool returned). The parent hears it the way it hears results, once per
@@ -279,7 +288,11 @@ export class DelegationService {
     const id = controlCommandId(edge.parentId, `${child}:${notice.commandId}`, notice.code);
     if (this.commandReceipt(id)) return;
     this.deps.store.atomic(() => {
-      edge.messageNotice = { text: text.slice(0, 400), at: this.deps.clock.now() };
+      edge.messageNotice = {
+        text: text.slice(0, 400),
+        at: this.deps.clock.now(),
+        commandId: notice.commandId,
+      };
       this.journal.save(edge);
     });
     try {
@@ -926,6 +939,7 @@ export class DelegationService {
       statuses ||= event.payload.type === "thread.updated";
       const notice = deliveryNotice(event);
       if (notice) this.noticeParent(event.threadId, notice);
+      if (event.payload.type === "run.started") this.clearDeliveredNotice(event.threadId);
       if (
         event.payload.type !== "thread.updated" &&
         event.payload.type !== "usage.updated" &&

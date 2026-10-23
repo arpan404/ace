@@ -40,16 +40,16 @@ const removedFromQueue = "Removed from queue";
 
 export function inputFate(facts: InputFacts): InputFate {
   if (facts.replacement) return { state: "replaced", by: facts.replacement };
-  // A steer joins its run when admitted, before the provider takes it: a lost one stays uncertain.
+  // A steer joins its run when admitted, before the provider takes it: a lost one stays uncertain,
+  // and one back in the queue (refused unread, or kept for the person) is still waiting.
   if (facts.intent?.uncertain) return { state: "uncertain" };
+  if (facts.intent?.status === "pending" || facts.intent?.status === "queued")
+    return { state: "waiting" };
   if (facts.runId !== undefined) return { state: "delivered", runId: RunId.parse(facts.runId) };
   if (facts.written) return { state: "delivered" };
   switch (facts.intent?.status) {
     case undefined:
       return { state: "unknown" };
-    case "pending":
-    case "queued":
-      return { state: "waiting" };
     case "running":
       return { state: "sending" };
     case "done":
