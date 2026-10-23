@@ -8,6 +8,7 @@ import type {
   WatchedState,
   WatchedThread,
 } from "@ace/protocol";
+import { threadAttention } from "@ace/projection";
 import { agentTaskView } from "./task-view.ts";
 
 /*
@@ -26,8 +27,13 @@ export function watchedState(
   record: DelegationRecord | undefined,
   descendantsPending: boolean,
   rootIdle: boolean,
+  /** A resume of this thread is in flight (ace's restart continuation or the person's Resume). */
+  resuming = false,
 ): WatchedState {
   if (thread.status.state === "needs_you") return "needs_you";
+  // A queue held for the person (left by a restart, an uncertain delivery or a pause) never
+  // moves by itself, so a wait on it returns instead of blocking until it times out.
+  if (heldFor(thread, record, resuming)) return "needs_you";
   if (record) {
     const view = agentTaskView(thread, record, descendantsPending, rootIdle);
     if (view.state === "waiting_on_human") return "needs_you";
@@ -42,6 +48,33 @@ export function watchedState(
   if (thread.status.state === "done")
     return thread.queue?.lastFailure?.code === "cancelled" ? "cancelled" : "done";
   return "working";
+}
+
+/** Why the thread's queue waits on the person, when it is held and not being stopped. */
+export function heldFor(
+  thread: Thread,
+  record: DelegationRecord | undefined,
+  resuming = false,
+): string | undefined {
+  // A queue still paused while its resume is in flight is about to move: that is work, not a
+  // hold for the person.
+  if (thread.status.state !== "waiting" || record?.phase === "cancelling" || resuming)
+    return undefined;
+  return threadAttention(thread);
+}
+
+const holdSteps: Record<string, string> = {
+  restart: "held after a daemon restart until the person resumes it",
+  uncertain: "held: a message may not have reached the provider; the person must review it",
+  not_sent: "held: a message was not sent; the person must resend or resume it",
+  model_unavailable: "held: its model is unavailable; the person must pick another",
+  stopped: "held after a Stop until the person resumes it",
+  manual: "paused by the person",
+};
+
+/** Short text for a model: what the person must do to release a held queue. */
+export function holdStep(reason: string): string {
+  return holdSteps[reason] ?? `held (${reason}) until the person resumes it`;
 }
 
 /** Undefined while the wait should keep blocking. A request for the person returns at once. */

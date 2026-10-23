@@ -85,6 +85,9 @@ async function runtime(
         if (!overrides.transport) throw new Error("No Tailscale");
         return JSON.stringify({ BackendState: "Running", TailscaleIPs: ["127.0.0.1"] });
       },
+      certificate: async () => {
+        throw new Error("HTTPS certificates are off for this tailnet");
+      },
     },
   });
   const client = await f.connect();

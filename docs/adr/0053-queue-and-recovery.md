@@ -276,6 +276,27 @@ settled, never working or waiting on work nobody can reach.
   for Resume after a Stop. Startup drops a restart continuation that earlier builds saved behind a
   Stop, so such threads (and the delegated children a parent cancelled) settle on the next start.
 
+## Amendment: resuming a parent resumes the children a restart stopped
+
+Date: 2026-10-22. A daemon restart holds a parent and every delegated child that was working.
+The person resumed the parent, which went back to waiting on its children, but the children
+stayed held, so the parent waited forever.
+
+The person's Resume of a thread, or their next message to it (a parent agent's message to its
+child counts the same), now also resumes each of its running delegated children held with the
+`restart` reason, and each thread its agents opened with `thread_start` that the restart held.
+Each resume goes through the same path, so grandchildren follow.
+A child the person stopped keeps its stop, and a child with uncertain delivery stays held for
+review. Beyond the work [ADR 0098](0098-resume-after-restart.md) continues by itself, only the
+person's action on the tree carries held work on.
+
+Work that stays held no longer blocks a parent either. A watched thread whose queue is held for
+the person (the sidebar's attention rule: a restart, uncertain delivery, unsent message, Stop or
+pause with messages waiting) reads as `needs_you`, so the parent's `wait` returns at once, and
+the thread's step says what the person must do to release it. A thread whose resume is already
+in flight (ace's own restart continuation, or a Resume the person just sent) is not held for
+the person and reads as working.
+
 ## Amendment 2026-10-22: a restart continues the work it cut short
 
 [ADR 0098](0098-resume-after-restart.md) replaces "nothing starts by itself after a restart" for
