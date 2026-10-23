@@ -4,6 +4,7 @@ import { afterEach, expect, test } from "vitest";
 import type { Fact } from "@ace/core";
 import { Capabilities, type ThreadId } from "@ace/protocol";
 import { Engine, Store } from "@ace/daemon";
+import { MaintenanceGate } from "@ace/service";
 import {
   cleanupRecovery,
   crashCopy,
@@ -272,6 +273,27 @@ test.each(["thread.resume", "queue.resume"] as const)(
     }
   },
 );
+
+test("a restart continuation waits while maintenance holds new work and goes out when it reopens", async () => {
+  const { h, id, replacement } = await interruptedThread();
+  // ACE_MAINTENANCE closes the gate before the engine starts recovering.
+  const gate = new MaintenanceGate(() => 0);
+  gate.enter();
+  const recovered = await crashCopy(h, { recovery: { admits: () => gate.admit() } });
+  gate.onReopen(() => recovered.engine.admissionReopened());
+  await recovered.engine.flush();
+  h.clock.advance(h.clock.now() + 60_000);
+  await recovered.engine.flush();
+  expect(sends(replacement)).toEqual([]);
+  expect(restartNotices(recovered.store, id)).toEqual(["Interrupted by a restart. Continuing."]);
+  expect(recovered.store.getThread(id)?.status.state).not.toBe("done");
+
+  gate.leave();
+  h.clock.advance(h.clock.now());
+  await recovered.engine.flush();
+  expect(inputs(replacement).map(restartInput)).toEqual([true]);
+  expect(recovered.store.getThread(id)?.status.state).toBe("done");
+});
 
 test("a turn waiting on the person's answer doesn't resume after a graceful restart", async () => {
   const { h, id, replacement } = await interruptedThread([], [start, question]);
