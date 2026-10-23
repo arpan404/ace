@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The open thread's model sheet: the models its provider and account offer (a thread keeps
-/// its provider, so there is no provider row), then effort and speed for the next message.
+/// The open thread's model sheet: the models its provider and account offer, under the
+/// provider's name (a thread keeps its provider, so there is no provider row), then effort and speed for the next message.
 /// Picking a model marks it; the check switches the thread to it from its next turn. Effort and
 /// speed apply at once to the model in use, as the composer's control did.
 struct ModelPickerSheet: View {
@@ -24,7 +24,7 @@ struct ModelPickerSheet: View {
     private var groups: [ModelPickerGroup] {
         let rows = screen.models.filter { ModelSearch.matches(query, $0.label) }
             .map { ModelPickerRow(id: $0.id, label: $0.label, detail: $0.detail, chosen: $0.id == chosen) }
-        return rows.isEmpty ? [] : [ModelPickerGroup(id: provider, rows: rows)]
+        return rows.isEmpty ? [] : [ModelPickerGroup(id: provider, title: screen.controls?.providerName, rows: rows)]
     }
 
     var body: some View {

@@ -19,10 +19,12 @@ import XCTest
         XCTAssertTrue(agent.waitForExistence(timeout: 10))
         agent.tap()
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "model.claude.")).firstMatch.waitForExistence(timeout: 15))
-        for _ in 0..<25 where !element(app, "agent.cursor.reason").isHittable { app.swipeUp() }
-        XCTAssertTrue(element(app, "agent.cursor.reason").exists)
+        // A signed-out agent keeps its place in the provider row and says why instead of listing models.
+        showProvider(app, "cursor")
+        XCTAssertTrue(element(app, "agent.cursor.reason").waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "model.cursor.")).firstMatch.exists)
         screenshot("newthread-agents")
+        showProvider(app, "claude")
         // Pick a ready agent's model on screen; the sheet returns to the form with it.
         let models = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "model."))
         let visible = (0..<min(models.count, 40)).map { models.element(boundBy: $0) }.first { $0.isHittable }
@@ -115,6 +117,7 @@ import XCTest
         XCTAssertGreaterThan(claudeModels.count, 4)
         screenshot("newthread-agents-more")
         // The demonstration model offers faster tiers; it sits behind Codex's More models.
+        showProvider(app, "codex")
         for _ in 0..<25 where !app.buttons["agent.codex.more"].isHittable { app.swipeUp() }
         app.buttons["agent.codex.more"].tap()
         let tuned = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier CONTAINS[c] %@", "model.codex.", "ultra")).firstMatch
@@ -239,5 +242,18 @@ import XCTest
         attachment.name = "ios-\(name)"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    /// Shows one provider's models from the model sheet's provider row, scrolling the row to it.
+    private func showProvider(_ app: XCUIApplication, _ provider: String) {
+        let chip = app.buttons["provider.\(provider)"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 10))
+        let chips = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "provider."))
+        for _ in 0..<6 where !chip.isHittable {
+            let visible = (0..<chips.count).map { chips.element(boundBy: $0) }.first { $0.isHittable }
+            if chip.frame.minX > app.frame.midX { visible?.swipeLeft() } else { visible?.swipeRight() }
+        }
+        chip.tap()
+        XCTAssertTrue(chip.isSelected)
     }
 }

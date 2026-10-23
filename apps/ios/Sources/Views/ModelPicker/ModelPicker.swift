@@ -89,6 +89,7 @@ struct ModelPicker<Options: View>: View {
                     } header: {
                         if let title = group.title { PickerHeading(title: title, value: group.value) }
                     }
+                    .listSectionSeparator(group.title == nil ? .hidden : .automatic, edges: .top)
                 }
                 if hidden > 0 || expanded { moreRow }
             }
