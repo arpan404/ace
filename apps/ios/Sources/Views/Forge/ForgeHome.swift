@@ -51,8 +51,10 @@ struct ForgeHome: View {
         guard let chosen = ForgeProjectChoice.pick(chip: project.wrappedValue, remembered: remembered, projects: projects) else { return }
         let pulls = client.kept(ClientModel.forgePullsRead(project: chosen, filter: PullsFilter(), query: query), as: ForgePullList.self)
         let issues = client.kept(ClientModel.forgeIssuesRead(project: chosen, filter: IssuesFilter(), query: query), as: ForgeIssueList.self)
-        _pulls = State(initialValue: ForgeListModel(list: pulls, key: Self.listKey(session.hostId, chosen, .pulls, String(describing: PullsFilter()), query)))
-        _issues = State(initialValue: ForgeListModel(list: issues, key: Self.listKey(session.hostId, chosen, .issues, String(describing: IssuesFilter()), query)))
+        _pulls = State(initialValue: ForgeListModel(list: pulls, key: Self.listKey(session.hostId, chosen, .pulls, String(describing: PullsFilter()), query),
+                                                    scope: ForgeListScope(machineId: session.hostId, project: chosen)))
+        _issues = State(initialValue: ForgeListModel(list: issues, key: Self.listKey(session.hostId, chosen, .issues, String(describing: IssuesFilter()), query),
+                                                     scope: ForgeListScope(machineId: session.hostId, project: chosen)))
     }
 
     /// The machine the lists read: the chip's, else the first that is connected.
@@ -89,10 +91,10 @@ struct ForgeHome: View {
         if let session, let chosen {
             switch kind {
             case .pulls:
-                ForgePullsList(model: pulls, machineId: session.hostId, project: chosen,
+                ForgePullsList(model: pulls,
                                open: actions.open, openThread: actions.openThread, refresh: { await load(fresh: true) }, more: { await more() })
             case .issues:
-                ForgeIssuesList(model: issues, machineId: session.hostId, project: chosen,
+                ForgeIssuesList(model: issues,
                                 open: actions.open, openThread: actions.openThread, refresh: { await load(fresh: true) }, more: { await more() })
             }
         } else if let projectsFailed {
@@ -154,15 +156,16 @@ struct ForgeHome: View {
     private func load(fresh: Bool) async {
         guard let client = session?.client, let chosen, client.connection == "ready" else { return }
         let (pullsFilter, issuesFilter, query) = (pullsFilter, issuesFilter, query)
+        let scope = ForgeListScope(machineId: session?.hostId ?? "", project: chosen)
         switch kind {
         case .pulls:
             let kept = client.kept(ClientModel.forgePullsRead(project: chosen, filter: pullsFilter, query: query), as: ForgePullList.self)
-            await pulls.load(listKey, fresh: fresh, kept: kept) { screens, fresh in
+            await pulls.load(listKey, scope: scope, fresh: fresh, kept: kept) { screens, fresh in
                 try await client.forgePulls(project: chosen, filter: pullsFilter, query: query, screens: screens, fresh: fresh)
             }
         case .issues:
             let kept = client.kept(ClientModel.forgeIssuesRead(project: chosen, filter: issuesFilter, query: query), as: ForgeIssueList.self)
-            await issues.load(listKey, fresh: fresh, kept: kept) { screens, fresh in
+            await issues.load(listKey, scope: scope, fresh: fresh, kept: kept) { screens, fresh in
                 try await client.forgeIssues(project: chosen, filter: issuesFilter, query: query, screens: screens, fresh: fresh)
             }
         }

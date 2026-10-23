@@ -14,7 +14,7 @@ struct ForgePullPageView: View {
     @State private var failure: String?
     @State private var writing = false
     @State private var outcome: ForgeWrite?
-    @State private var confirming: ForgePullPage.Action?
+    @State private var confirming: ForgeWriteTarget?
     @Environment(\.openURL) private var openURL
 
     private var method: String { savedMethod.isEmpty ? "squash" : savedMethod }
@@ -60,11 +60,15 @@ struct ForgePullPageView: View {
             }
         }
         .task(id: "\(method)|\(client.readGeneration(request))") { await load() }
-        .confirmationDialog(confirming?.label ?? "", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
-                            titleVisibility: .visible, presenting: confirming) { action in
-            Button(action.label) { Task { await write(action) } }
+        .confirmationDialog(confirming?.action.label ?? "", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
+                            titleVisibility: .visible, presenting: confirming) { target in
+            Button(target.action.label) { Task { await write(target) } }
         } message: { _ in
             if let page { Text(verbatim: "#\(page.number) \(page.title)") }
+        }
+        // A refresh that moves the head or the method ends the question asked against the old one.
+        .onChange(of: "\(page?.headSha ?? "")|\(method)") {
+            if let target = confirming, !target.matches(page, method: method) { confirming = nil }
         }
     }
 
@@ -156,7 +160,7 @@ struct ForgePullPageView: View {
             }
             if let action = page.action {
                 HStack(spacing: AceTheme.Spacing.sm) {
-                    Button { confirming = action } label: {
+                    Button { confirming = ForgeWriteTarget(action: action, project: route.project, page: page, method: method) } label: {
                         HStack {
                             if writing { ProgressView().controlSize(.small) }
                             Text(action.label).fontWeight(.semibold)
@@ -190,7 +194,7 @@ struct ForgePullPageView: View {
                     .accessibilityIdentifier("forge.pull.primary")
             }
             if let secondary = page.secondary {
-                Button(secondary.label) { Task { await write(secondary) } }
+                Button(secondary.label) { Task { await write(ForgeWriteTarget(action: secondary, project: route.project, page: page, method: method)) } }
                     .buttonStyle(.bordered)
                     .buttonBorderShape(.capsule)
                     .tint(AceTheme.Colours.foreground)
@@ -210,10 +214,10 @@ struct ForgePullPageView: View {
         catch { failure = error.localizedDescription }
     }
 
-    private func write(_ action: ForgePullPage.Action) async {
-        guard let page, !writing else { return }
+    private func write(_ target: ForgeWriteTarget) async {
+        guard !writing else { return }
         writing = true
-        outcome = await client.forgeWrite(project: route.project, page: page, kind: action.kind, method: method)
+        outcome = await client.forgeWrite(target)
         // What GitHub did is read, never assumed.
         await load()
         writing = false

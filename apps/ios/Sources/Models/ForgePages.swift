@@ -46,6 +46,41 @@ struct ForgePullPage: Decodable, Sendable, Equatable {
     let threads: [ForgeRelatedThread]
 }
 
+/// A pull request write pinned to what the person saw when they asked: the head commit and
+/// merge method of that moment. A refresh never retargets it; a different head or method ends it.
+struct ForgeWriteTarget: Sendable, Equatable {
+    let action: ForgePullPage.Action
+    let project: String
+    let number: Int
+    let repository: ForgeRepository
+    let headSha: String
+    let method: String
+    init(action: ForgePullPage.Action, project: String, page: ForgePullPage, method: String) {
+        self.action = action
+        self.project = project
+        number = page.number
+        repository = page.repository
+        headSha = page.headSha
+        self.method = method
+    }
+    /// Whether the page still shows what this write was asked against.
+    func matches(_ page: ForgePullPage?, method: String) -> Bool {
+        page?.number == number && page?.headSha == headSha && method == self.method
+    }
+    var payload: [String: Any] {
+        var payload: [String: Any] = [
+            "project": project, "number": number, "repository": repository.json,
+            "method": method, "headSha": headSha,
+        ]
+        switch action.kind {
+        case "merge": payload["type"] = "forge.merge"
+        case "enable-auto-merge": payload["type"] = "forge.auto-merge"; payload["action"] = "enable"
+        default: payload["type"] = "forge.auto-merge"; payload["action"] = "disable"
+        }
+        return payload
+    }
+}
+
 struct ForgeRelatedThread: Decodable, Sendable, Equatable, Hashable {
     let id: String
     let title: String

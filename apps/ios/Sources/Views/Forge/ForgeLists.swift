@@ -5,8 +5,6 @@ import SwiftUI
 /// opens the thread working on it.
 struct ForgePullsList: View {
     let model: ForgeListModel<ForgePullList>
-    let machineId: String
-    let project: String
     let open: (ForgeRoute) -> Void
     let openThread: (InboxKey) -> Void
     let refresh: () async -> Void
@@ -16,18 +14,19 @@ struct ForgePullsList: View {
         ForgeListFrame(loaded: model.list != nil, empty: model.list?.groups.isEmpty ?? true, emptyTitle: "No pull requests match",
                        icon: .gitPullRequest, failure: model.failure, stale: model.stale, hasMore: model.list?.more ?? false,
                        loading: model.loading, refresh: refresh, more: more) {
-            ForEach(model.list?.groups ?? []) { group in
+            // Rows open where they were read, even while another project's rows load.
+            if let scope = model.scope { ForEach(model.list?.groups ?? []) { group in
                 ForgeGroupHeader(label: group.label, count: group.count).forgeRowChrome()
                 ForEach(group.rows) { row in
-                    Button { open(ForgeRoute(kind: .pull, machineId: machineId, project: project, number: row.number)) } label: {
+                    Button { open(ForgeRoute(kind: .pull, machineId: scope.machineId, project: scope.project, number: row.number)) } label: {
                         ForgePullRowView(row: row)
                     }
                     .buttonStyle(.row)
                     .accessibilityIdentifier("forge.pull.\(row.number)")
                     .forgeRowChrome()
-                    .forgeRowActions(url: row.url, thread: row.thread.map { InboxKey(machineId: machineId, id: $0.id) }, openThread: openThread)
+                    .forgeRowActions(url: row.url, thread: row.thread.map { InboxKey(machineId: scope.machineId, id: $0.id) }, openThread: openThread)
                 }
-            }
+            } }
         }
     }
 }
@@ -35,8 +34,6 @@ struct ForgePullsList: View {
 /// The Issues list: assigned to you, opened by you, and the rest.
 struct ForgeIssuesList: View {
     let model: ForgeListModel<ForgeIssueList>
-    let machineId: String
-    let project: String
     let open: (ForgeRoute) -> Void
     let openThread: (InboxKey) -> Void
     let refresh: () async -> Void
@@ -46,18 +43,18 @@ struct ForgeIssuesList: View {
         ForgeListFrame(loaded: model.list != nil, empty: model.list?.groups.isEmpty ?? true, emptyTitle: "No issues match",
                        icon: .record, failure: model.failure, stale: model.stale, hasMore: model.list?.more ?? false,
                        loading: model.loading, refresh: refresh, more: more) {
-            ForEach(model.list?.groups ?? []) { group in
+            if let scope = model.scope { ForEach(model.list?.groups ?? []) { group in
                 if group.id != "all" { ForgeGroupHeader(label: group.label, count: group.count).forgeRowChrome() }
                 ForEach(group.rows) { row in
-                    Button { open(ForgeRoute(kind: .issue, machineId: machineId, project: project, number: row.number)) } label: {
+                    Button { open(ForgeRoute(kind: .issue, machineId: scope.machineId, project: scope.project, number: row.number)) } label: {
                         ForgeIssueRowView(row: row)
                     }
                     .buttonStyle(.row)
                     .accessibilityIdentifier("forge.issue.\(row.number)")
                     .forgeRowChrome()
-                    .forgeRowActions(url: row.url, thread: row.thread.map { InboxKey(machineId: machineId, id: $0.id) }, openThread: openThread)
+                    .forgeRowActions(url: row.url, thread: row.thread.map { InboxKey(machineId: scope.machineId, id: $0.id) }, openThread: openThread)
                 }
-            }
+            } }
         }
     }
 }
