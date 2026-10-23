@@ -27,6 +27,7 @@ import * as forgeChecks from "@ace/protocol/forge-checks";
 import * as forgeBrowser from "@ace/protocol/forge-browser";
 import * as forgeNewPr from "@ace/protocol/forge-new-pr";
 import * as forgePeople from "@ace/protocol/forge-people";
+import * as forgeMedia from "@ace/protocol/forge-media";
 import * as forgeFileContent from "@ace/protocol/forge-file-content";
 import * as forgeStacks from "@ace/protocol/forge-stacks";
 import * as forge from "@ace/protocol/forge";
@@ -62,6 +63,7 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./forge-browser", forgeBrowser],
   ["./forge-new-pr", forgeNewPr],
   ["./forge-people", forgePeople],
+  ["./forge-media", forgeMedia],
   ["./forge-file-content", forgeFileContent],
   ["./forge-worktree", forgeWorktree],
   ["./forge-lifecycle", forgeLifecycle],

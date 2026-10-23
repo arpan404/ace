@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import {
   ArrowSquareOutIcon,
   ChatsCircleIcon,
@@ -9,7 +9,13 @@ import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.t
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ForgeIssueDetail, ForgeRepository } from "@ace/protocol";
-import { Prose } from "@/components/markdown/prose.tsx";
+import {
+  ForgeCompletions,
+  ForgeContentScope,
+  ForgeProse,
+  issueParticipants,
+  useTaskSave,
+} from "@/features/forge/index.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -20,7 +26,6 @@ import { backLabel, useBackToList } from "./back-to-list.ts";
 import { IssueActionsStrip } from "./issue-actions-strip.tsx";
 import { IssueComposer } from "./issue-composer.tsx";
 import { IssueTimeline, timelineSpeakers } from "./issue-timeline.tsx";
-import { ForgeCompletions, issueParticipants } from "@/features/forge/index.ts";
 import { IssuePageSkeleton } from "./issue-skeletons.tsx";
 import { useIssueWrites } from "./issue-writes.ts";
 import { cachedRow, useIssueDetail } from "./lists.ts";
@@ -151,35 +156,58 @@ function IssueBody(props: {
     () => issueParticipants(issue, timelineSpeakers(cache, project, repository, issue.ref.number)),
     [cache, project, repository, issue],
   );
+  const issueRepository = issue.ref.repository;
+  const scope = useMemo(
+    () => ({ workspaceId: props.project, repository: issueRepository }),
+    [props.project, issueRepository],
+  );
+  // Ticking a task box edits the body, guarded by the version it was read at.
+  const tasks = useTaskSave(
+    issue.permissions.edit
+      ? (body: string) =>
+          writes
+            .write({
+              action: "edit",
+              number: issue.ref.number,
+              expectedUpdatedAt: issue.updatedAt,
+              title: issue.title,
+              body,
+            })
+            .then((written) => written !== undefined)
+      : undefined,
+    `${issue.ref.number}:${issue.updatedAt}`,
+  );
   return (
-    <ForgeCompletions
-      workspaceId={props.project}
-      repository={issue.ref.repository}
-      participants={participants}
-    >
-      <div className={`${readable} pt-6 pb-16`}>
-        <Header
-          project={props.project}
-          issue={issue}
-          backLabel={props.backLabel}
-          onBack={props.onBack}
-        />
-        <IssueActionsStrip project={props.project} issue={issue} writes={writes} />
-        <div className="mt-6 border-t border-border pt-5">
-          {issue.body.trim() ? (
-            <Prose text={issue.body} className="text-ui" />
-          ) : (
-            <p className="text-ui text-subtle-foreground">No description.</p>
-          )}
+    <ForgeContentScope value={scope}>
+      <ForgeCompletions
+        workspaceId={props.project}
+        repository={issue.ref.repository}
+        participants={participants}
+      >
+        <div className={`${readable} pt-6 pb-16`}>
+          <Header
+            project={props.project}
+            issue={issue}
+            backLabel={props.backLabel}
+            onBack={props.onBack}
+          />
+          <IssueActionsStrip project={props.project} issue={issue} writes={writes} />
+          <div className="mt-6 border-t border-border pt-5">
+            {issue.body.trim() ? (
+              <ForgeProse text={issue.body} tasks={tasks} className="text-ui" />
+            ) : (
+              <p className="text-ui text-subtle-foreground">No description.</p>
+            )}
+          </div>
+          <IssueTimeline
+            project={props.project}
+            repository={props.repository}
+            number={issue.ref.number}
+          />
+          <IssueComposer project={props.project} issue={issue} writes={writes} />
         </div>
-        <IssueTimeline
-          project={props.project}
-          repository={props.repository}
-          number={issue.ref.number}
-        />
-        <IssueComposer project={props.project} issue={issue} writes={writes} />
-      </div>
-    </ForgeCompletions>
+      </ForgeCompletions>
+    </ForgeContentScope>
   );
 }
 

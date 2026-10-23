@@ -1,0 +1,81 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeMediaResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "bytes": {
+          "exclusiveMinimum": 0,
+          "maximum": 33554432,
+          "type": "integer"
+        },
+        "height": {
+          "exclusiveMinimum": 0,
+          "maximum": 65535,
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "image",
+            "video"
+          ],
+          "type": "string"
+        },
+        "mimeType": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "state": {
+          "const": "ready",
+          "type": "string"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 65535,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "state",
+        "kind",
+        "sha256",
+        "mimeType",
+        "bytes"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "state": {
+          "const": "none",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "reason": {
+          "$ref": "https://ace.local/protocol/v1/ForgeMediaUnavailable.json"
+        },
+        "state": {
+          "const": "unavailable",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "reason"
+      ],
+      "type": "object"
+    }
+  ]
+}

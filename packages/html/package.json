@@ -6,7 +6,8 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
-    "./scripts": "./src/scripts.ts"
+    "./scripts": "./src/scripts.ts",
+    "./app-policy": "./src/app-policy.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

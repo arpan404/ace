@@ -504,6 +504,57 @@
         "value"
       ],
       "type": "object"
+    },
+    {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ForgeMediaResult.json"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "resource": {
+          "const": "media",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource",
+        "items"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "images": {
+          "additionalProperties": {
+            "maxLength": 512,
+            "pattern": "^https:\\/\\/",
+            "type": "string"
+          },
+          "examples": [
+            {
+              "octocat": "https://github.githubassets.com/images/icons/emoji/octocat.png"
+            }
+          ],
+          "propertyNames": {
+            "pattern": "^[a-z0-9_+-]{1,64}$",
+            "type": "string"
+          },
+          "type": "object",
+          "x-ace-constraint": "At most 256 shortcodes."
+        },
+        "resource": {
+          "const": "emojiImages",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource",
+        "images"
+      ],
+      "type": "object"
     }
   ]
 }

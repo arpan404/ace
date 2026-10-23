@@ -30,6 +30,8 @@ export function PrSummary(props: {
   onEdit: (() => void) | undefined;
   /** The milestone, linked issues, lock and branch, under the reviewers. */
   details?: ReactNode;
+  /** Saves the description with one task box ticked, when the viewer may edit it. */
+  onTasks?: ((body: string) => Promise<boolean>) | undefined;
 }) {
   const { context } = props;
   const { detail } = context;
@@ -58,6 +60,7 @@ export function PrSummary(props: {
         extensions={props.extensions}
         onOpen={props.onOpen}
         onEdit={props.onEdit}
+        onTasks={props.onTasks}
       />
       {props.stack && (
         <PrStackSummary

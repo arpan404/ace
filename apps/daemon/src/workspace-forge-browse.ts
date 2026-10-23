@@ -1,4 +1,5 @@
-import { repositoryKey, prUrl } from "@ace/forge";
+import { ForgeError, repositoryKey, prUrl } from "@ace/forge";
+import type { ForgeMediaService } from "./forge-media/media-service.ts";
 import { ThreadId, type ForgePrStatus } from "@ace/protocol";
 import type { IssueActions } from "./issue-actions.ts";
 import type { WorkspaceForgeActions } from "./workspace-forge-actions.ts";
@@ -20,6 +21,7 @@ export class WorkspaceForgeBrowse {
     reviews: WorkspaceForgeReviews;
     stacks: WorkspaceForgeStacks;
     newPr: WorkspaceNewPr;
+    media?: (() => ForgeMediaService) | undefined;
   };
   constructor(ctx: WorkspaceForgeContext, parts: WorkspaceForgeBrowse["parts"]) {
     this.ctx = ctx;
@@ -155,6 +157,27 @@ export class WorkspaceForgeBrowse {
         resource: "prCheck",
         value: await backend.checks.run(operation.checkRunId, operation.jobId, signal),
       };
+    if (operation.op === "forge.media.resolve") {
+      const media = this.parts.media?.();
+      if (!media) throw new ForgeError("unsupported");
+      return {
+        resource: "media",
+        items: await media.resolve(
+          {
+            host: repository.host,
+            repository: `${repository.host}/${repository.owner}/${repository.name}`,
+            workspaceId: operation.workspaceId,
+          },
+          (items, abort) => backend.renderMedia(items, abort),
+          operation.items,
+          async (abort) => {
+            await backend.repositoryMetadata(abort);
+          },
+        ),
+      };
+    }
+    if (operation.op === "forge.emoji.images")
+      return { resource: "emojiImages", images: await backend.emojiImages(signal) };
     if (operation.op === "forge.file.content")
       return { resource: "fileContent", value: await backend.fileContent(operation, signal) };
     if (operation.op === "forge.people")

@@ -61,6 +61,7 @@ export class WorkspaceForge {
     now: () => number,
     runner: (cwd: string) => CommandRunner,
     sourceControl?: import("./source-control.ts").SourceControl,
+    media?: () => import("./forge-media/media-service.ts").ForgeMediaService,
   ) {
     const owner = this.owner;
     this.store = store;
@@ -106,6 +107,7 @@ export class WorkspaceForge {
       lifecycle: this.lifecycle,
       reviews: this.reviews,
       stacks: this.stacks,
+      media,
     });
     this.associations = new WorkspacePrAssociations(context);
     this.creation = new WorkspacePrCreation(context);

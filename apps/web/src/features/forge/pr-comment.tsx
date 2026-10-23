@@ -165,7 +165,12 @@ export function PrComment(props: {
           <div className={cn("space-y-1.5", indent)}>
             {comment.body.trim() && (
               <div className="mt-0.5">
-                <PrClampedText text={comment.body} open={props.open} onToggle={props.onToggle} />
+                <PrClampedText
+                  text={comment.body}
+                  comment={comment}
+                  open={props.open}
+                  onToggle={props.onToggle}
+                />
               </div>
             )}
             <PrSuggestionActions comment={comment} outdated={props.outdated ?? false} />

@@ -126,4 +126,11 @@ export interface ForgeBrowser {
     number: number,
     signal: AbortSignal,
   ): Promise<import("@ace/protocol/forge-people").ForgePrReviewers>;
+  /** The forge's own rendering of media URLs from PR and issue text (ADR 0096). */
+  renderMedia(
+    items: readonly import("@ace/protocol/forge-media").ForgeMediaRequest[],
+    signal: AbortSignal,
+  ): Promise<import("./github-media.ts").RenderedMedia[]>;
+  /** The forge's image-only emoji, shortcode to image URL. */
+  emojiImages(signal: AbortSignal): Promise<Record<string, string>>;
 }

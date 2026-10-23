@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { ForgePrCheckout } from "@ace/protocol/forge-worktree";
 import { BrowserPr } from "./github-browser-schemas.ts";
 import { GitHubLifecycle } from "./github-lifecycle.ts";
@@ -40,6 +41,7 @@ import { GitHubPr } from "./github-schemas.ts";
 import { ForgeError } from "./errors.ts";
 import type { CommandRunner } from "./command.ts";
 import { githubStates } from "./github-states.ts";
+import { renderGitHubMedia } from "./github-media.ts";
 
 const positive = z.number().int().positive();
 const shaSchema = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
@@ -309,6 +311,34 @@ export class GitHubForge implements Forge, ForgeBrowser {
   prReviewers(number: number, signal: AbortSignal) {
     this.#ref(number);
     return this.#people.reviewers(number, signal);
+  }
+  renderMedia(
+    items: readonly import("@ace/protocol/forge-media").ForgeMediaRequest[],
+    signal: AbortSignal,
+  ) {
+    // A fresh nonce per request, so nothing in a URL can pose as an item's marker.
+    const nonce = randomUUID().replaceAll("-", "").slice(0, 16);
+    return renderGitHubMedia(this.#api, this.repository, items, nonce, signal);
+  }
+  /**
+   * GitHub's emoji that are images of its own (`:octocat:`, `:shipit:`): its emoji list holds
+   * every shortcode, and the rest are Unicode, drawn as text.
+   */
+  async emojiImages(signal: AbortSignal): Promise<Record<string, string>> {
+    const page = await this.#api.request("emojis", signal);
+    const listed = z.record(z.string(), z.string()).safeParse(page.body);
+    if (!listed.success) throw new ForgeError("invalid_data");
+    const images: Record<string, string> = {};
+    for (const [name, url] of Object.entries(listed.data)) {
+      if (Object.keys(images).length >= 256) break;
+      if (
+        /^[a-z0-9_+-]{1,64}$/.test(name) &&
+        url.startsWith("https://") &&
+        !url.includes("/unicode/")
+      )
+        images[name] = url;
+    }
+    return images;
   }
   async states(numbers: readonly number[], signal: AbortSignal) {
     return githubStates(this.#api, this.repository, numbers, signal);

@@ -1,3 +1,6 @@
+import { ForgeMediaCache, forgeMediaRoot } from "./forge-media/media-cache.ts";
+import { ForgeMediaService } from "./forge-media/media-service.ts";
+import type { ForgeMediaGrants } from "./forge-media/media-grants.ts";
 import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { DefaultBranches } from "./default-branch.ts";
 import type { createWritingCli } from "./source-control-cli.ts";
@@ -63,6 +66,10 @@ export interface WorkspaceRuntimeOptions {
     commit?: () => void,
   ): Promise<void>;
   forgeRunner?: (cwd: string) => CommandRunner;
+  /** Media for forge text (ADR 0096); by default kept under the daemon's data directory. */
+  forgeMedia?: () => ForgeMediaService;
+  /** Where the media service records which project may download what (the files layer's). */
+  forgeMediaGrants?: ForgeMediaGrants;
   /** Injected endpoint selection for isolated Git fixtures; production matches repository identity. */
   prRemote?: (remotes: PrRemotes, repository: ForgeRepository) => string;
   gitService?: WorkspaceGit;
@@ -84,10 +91,35 @@ export interface WorkspaceRuntimeOptions {
   /** Reports failures nobody waits on: background worktree cleanup and its recovery. */
   log?: (message: string, error: unknown) => void;
 }
+/**
+ * The media service, made on first use (a daemon that never shows forge media never makes its
+ * folder) and flushed at shutdown if it was made.
+ */
+function lazyMedia(create: () => ForgeMediaService) {
+  let service: ForgeMediaService | undefined;
+  return {
+    get: () => (service ??= create()),
+    close: async () => service?.close(),
+  };
+}
+
+function forgeMedia(
+  directory: string,
+  now: () => number,
+  grants: ForgeMediaGrants | undefined,
+): () => ForgeMediaService {
+  return () =>
+    new ForgeMediaService({
+      cache: new ForgeMediaCache(forgeMediaRoot(directory)),
+      now,
+      ...(grants ? { grants } : {}),
+    });
+}
 export class WorkspaceRuntime {
   readonly creationDrafts: CreationDrafts;
   readonly git: WorkspaceGit;
   readonly forge: WorkspaceForge;
+  private media: ReturnType<typeof lazyMedia>;
   private defaultBranches: DefaultBranches;
   readonly commands: AsyncCommands;
   readonly checkpoints: RunCheckpoints;
@@ -119,12 +151,16 @@ export class WorkspaceRuntime {
     this.machine = options.machine ?? { host: hostname(), name: hostname() };
     this.git = options.gitService ?? new GitService(options.git);
     this.defaultBranches = new DefaultBranches(now);
+    this.media = lazyMedia(
+      options.forgeMedia ?? forgeMedia(directory, now, options.forgeMediaGrants),
+    );
     this.forge = new WorkspaceForge(
       store,
       this.git,
       now,
       options.forgeRunner ?? ((cwd) => createCommandRunner({ cwd })),
       options.sourceControl,
+      this.media.get,
     );
     this.roots = new WorkspaceRoots(store, this.git, directory, now, this.machine, {
       ...(options.baseFetchTimeoutMs ? { baseFetchTimeoutMs: options.baseFetchTimeoutMs } : {}),
@@ -435,7 +471,9 @@ export class WorkspaceRuntime {
       op.op === "forge.compare" ||
       op.op === "forge.people" ||
       op.op === "forge.references" ||
-      op.op === "forge.pr.reviewers"
+      op.op === "forge.pr.reviewers" ||
+      op.op === "forge.media.resolve" ||
+      op.op === "forge.emoji.images"
     ) {
       if (
         op.op === "forge.pr.stack" &&
@@ -875,6 +913,8 @@ export class WorkspaceRuntime {
     for (const lifetime of this.writing) lifetime.abort();
     this.prLifetime.abort();
     this.forge.close();
+    // The media cache's gathered index writes land before the daemon stops.
+    await this.media.close();
     await this.roots.close();
     await this.commands.drained();
     await this.checkpoints.close();

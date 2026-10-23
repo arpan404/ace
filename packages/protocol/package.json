@@ -22,6 +22,7 @@
     "./forge-new-pr": "./src/forge-new-pr.ts",
     "./forge-file-content": "./src/forge-file-content.ts",
     "./forge-people": "./src/forge-people.ts",
+    "./forge-media": "./src/forge-media.ts",
     "./queue": "./src/queue.ts",
     "./context-meter": "./src/context-meter.ts",
     "./accounts": "./src/accounts.ts",
