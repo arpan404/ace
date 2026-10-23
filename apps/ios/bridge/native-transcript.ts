@@ -1,13 +1,7 @@
 import type { ClientCore, Lease, ThreadSource } from "@ace/client";
 import { inRootLane } from "@ace/projection";
 import { ItemId, ThreadId } from "@ace/protocol";
-import {
-  JumpController,
-  jumpedSource,
-  windowBounds,
-  type JumpSnapshot,
-  type WindowBounds,
-} from "@ace/ui-core";
+import { JumpController, jumpedSource, type JumpSnapshot, type WindowBounds } from "@ace/ui-core";
 import { z } from "zod";
 import type { PatchSink } from "./agents.ts";
 import { followThread } from "./patches.ts";
@@ -23,6 +17,13 @@ import { followBlocks } from "./thread-blocks.ts";
  * as the live transcript, so a page sends only what it added or evicted, and a joined window's
  * streaming rows stay live. Replies carry only where the window stands.
  */
+
+/**
+ * The phone's window: a few hundred rows (dozens of screens), as the web's agent transcript
+ * holds. Every frame that moves the window re-lays out the rows it holds, so the bound is the
+ * cost of each page on the main thread and of the memory the rows keep.
+ */
+export const phoneWindow: WindowBounds = { capacity: 400, weight: 2 * 1024 * 1024 };
 
 export const NativeTranscriptRequest = z
   .object({
@@ -72,7 +73,7 @@ export class NativeTranscript {
   readonly client: ClientCore;
   readonly #sink: PatchSink;
   readonly #bounds: WindowBounds;
-  constructor(client: ClientCore, sink: PatchSink, bounds: WindowBounds = windowBounds) {
+  constructor(client: ClientCore, sink: PatchSink, bounds: WindowBounds = phoneWindow) {
     this.client = client;
     this.#sink = sink;
     this.#bounds = bounds;
@@ -130,7 +131,18 @@ export class NativeTranscript {
       };
     } finally {
       signal.removeEventListener("abort", cancel);
+      this.#settled(active);
     }
+  }
+
+  /**
+   * Everything this read changed has been put: native, which holds a requested page's rows,
+   * applies them together, so a page is one layout and one keep-place scroll, not one per frame.
+   */
+  #settled(active: Active): void {
+    if (this.#active !== active) return;
+    const { threadId, epoch } = active;
+    this.#sink.put("reading:settled", () => ({ type: "reading.settled", threadId, epoch }));
   }
 
   /** The window session for this thread and reading generation, started if needed. */

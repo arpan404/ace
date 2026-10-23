@@ -120,6 +120,16 @@ import Observation
 }
 
 extension BridgePatch {
+    /// The thread and generation any thread-scoped patch belongs to: the open thread's or the
+    /// reading view's.
+    var threadScope: (thread: String, epoch: Int)? {
+        switch self {
+        case .threadReset(let id, let epoch), .position(let id, let epoch, _, _), .item(let id, let epoch, _, _),
+             .itemText(let id, let epoch, _, _, _), .metadata(let id, let epoch, _), .interaction(let id, let epoch, _, _),
+             .cursor(let id, let epoch, _), .ready(let id, let epoch, _), .readingSettled(let id, let epoch): (id, epoch)
+        default: screenScope
+        }
+    }
     /// The thread and navigation generation a thread-screen patch belongs to.
     var screenScope: (thread: String, epoch: Int)? {
         switch self {

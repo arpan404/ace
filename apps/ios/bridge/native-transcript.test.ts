@@ -133,6 +133,21 @@ test("reading far back keeps the window within its text weight", async () => {
   expect(rows.length).toBeLessThanOrEqual(14);
 });
 
+test("each page's rows reach Swift before the read says it settled", async () => {
+  const { client } = await longThread(1500);
+  const read = reader(client);
+  const reading = (frame: Record<string, unknown>) => frame.epoch === -1;
+  for (const operation of ["older", "older", "older", "newer"] as const) {
+    const mark = native.frames.length;
+    await read(operation);
+    const page = native.frames.slice(mark).filter(reading);
+    const settled = page.findLastIndex((frame) => frame.type === "reading.settled");
+    expect(page.some((frame) => frame.type === "thread.item")).toBe(true);
+    expect(settled).toBeGreaterThanOrEqual(0);
+    expect(page.slice(settled + 1).filter((frame) => frame.type === "thread.item")).toEqual([]);
+  }
+});
+
 test("paging newer after reading old history joins the live tail again", async () => {
   const { client } = await longThread(1500);
   const read = reader(client);

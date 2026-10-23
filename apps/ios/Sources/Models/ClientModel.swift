@@ -56,6 +56,9 @@ import QuartzCore
     /// Around each frame that moves the reading rows, so the feed keeps the reader's place.
     @ObservationIgnored var readingWillMove: (() -> Void)?
     @ObservationIgnored var readingMoved: (() -> Void)?
+    /// A requested page's reading patches, held until the bridge says the read settled, so a
+    /// page lands as one change rather than one per frame. Nil while nothing is requested.
+    @ObservationIgnored private var readingHeld: [BridgePatch]?
     /// An item a search hit asked to show once its thread is open.
     var focusOnOpen: ThreadFocus?
     var inboxLoaded = false
@@ -198,6 +201,16 @@ import QuartzCore
         if let reading, reading.id == id, reading.epoch == epoch { return reading }
         return nil
     }
+    /// Hold the reading rows from here until the page asked for settles.
+    func holdReading() { if readingHeld == nil { readingHeld = [] } }
+    /// Apply what was held now: the read failed or was cancelled, so no settle will come.
+    func releaseReading() {
+        guard let held = readingHeld else { return }
+        readingHeld = nil
+        if !held.isEmpty { apply(held) }
+    }
+    /// The reading view ended: what it held goes with it.
+    func dropReading() { readingHeld = nil; reading = nil }
     private func apply(_ patches: [BridgePatch]) {
         var reorder = false
         var added: [String] = []
@@ -213,6 +226,10 @@ import QuartzCore
         var activityChanged = false
         for patch in patches {
             patchCount += 1
+            if readingHeld != nil, let reading, let scope = patch.threadScope, scope.thread == reading.id, scope.epoch == reading.epoch {
+                if case .readingSettled = patch { releaseReading() } else { readingHeld?.append(patch) }
+                continue
+            }
             switch patch {
             case .service(let reply):
                 if reply.ok, let cache = reply.cache, let value = reply.value { reads.store(key: cache.key, family: cache.family, value: value) }
@@ -220,6 +237,7 @@ import QuartzCore
             case .serviceCache(let cache, let value): reads.store(key: cache.key, family: cache.family, value: value)
             case .serviceEvict(let key): reads.remove(key)
             case .serviceGenerations(let generations): reads.update(generations: generations)
+            case .readingSettled: break // Only a held page waits for it.
             case .terminal(let patch):
                 if let offset = terminal.receive(patch) { action(["type": "terminal.credit", "id": patch.id, "offset": offset]) }
             case .fragment: break // BridgeFrames only returns complete patches.

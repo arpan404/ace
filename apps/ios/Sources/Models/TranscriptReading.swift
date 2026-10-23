@@ -56,6 +56,8 @@ struct ThreadFocus: Equatable {
         let epoch = operation == "live" ? (thread?.epoch ?? -1) : (thread ?? open(model: model, live: live)).epoch
         var payload: [String: Any] = ["type": "native.transcript", "threadId": live.id, "epoch": epoch, "operation": operation]
         if let item { payload["itemId"] = item }
+        // A page's rows land together once the bridge says the read settled.
+        if operation != "live" { model.holdReading() }
         request = Task {
             defer { if generation == version { loading = false } }
             do {
@@ -69,7 +71,9 @@ struct ThreadFocus: Equatable {
                 if operation != "hold" { paged = true }
                 ThreadOpenTrace.page(operation, items: reply.count, blocks: thread?.screen.blockOrder.count ?? 0, seconds: CACurrentMediaTime() - asked)
             } catch {
-                if !Task.isCancelled, generation == version { problem = error.localizedDescription }
+                guard !Task.isCancelled, generation == version else { return }
+                model.releaseReading()
+                problem = error.localizedDescription
             }
         }
     }
@@ -105,7 +109,7 @@ struct ThreadFocus: Equatable {
         return next
     }
     private func close(model: ClientModel) {
-        if model.reading === thread { model.reading = nil }
+        if model.reading === thread { model.dropReading() }
         thread = nil
     }
 }

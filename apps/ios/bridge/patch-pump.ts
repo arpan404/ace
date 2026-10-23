@@ -39,7 +39,7 @@ const statusShare = 24;
 const framePatches = 32;
 
 /** The open thread's rows and the history window's (`reading:`), which mirror them. */
-const transcript = /^(thread|reading):(item:|position:|block|history$|ready$|cursor$)/;
+const transcript = /^(thread|reading):(item:|position:|block|history$|ready$|cursor$|settled$)/;
 
 function priority(key: string): 0 | 1 | 2 {
   if (key === "inbox:reset" || key === "thread:reset" || key === "reading:reset") return 0;

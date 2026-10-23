@@ -2,7 +2,7 @@ import { ClientCore } from "@ace/client";
 import { FakeDaemon, ScenarioPlayer, fakeTransport, multiDayDemo } from "@ace/fake-daemon";
 import { DeviceId, ThreadId } from "@ace/protocol";
 import { host } from "../bridge/polyfills.ts";
-import { NativeTranscript } from "../bridge/native-transcript.ts";
+import { NativeTranscript, phoneWindow } from "../bridge/native-transcript.ts";
 
 /**
  * Bounded history regression tests for NativeTranscript (ADR 0062), through the real public
@@ -13,8 +13,8 @@ import { NativeTranscript } from "../bridge/native-transcript.ts";
 
 const THREAD_ID = "thread-history";
 const THREAD = ThreadId.parse(THREAD_ID);
-/** History window bound the native transcript must stay within while paging older. */
-const WINDOW_ITEM_BOUND = 2200;
+/** Rows the reading view may hold while paging older: the window and the live tail it joins. */
+const WINDOW_ITEM_BOUND = phoneWindow.capacity + 200;
 
 export function installHistoryScenarios(): void {
   if (typeof globalThis.setTimeout !== "function") {

@@ -11,7 +11,7 @@ import Testing
         let pages = detail.int("pages")
         let counts = detail.numbers("counts")
         #expect(pages >= 2)
-        #expect(counts.allSatisfy { $0 <= 2200 })
+        #expect(counts.allSatisfy { $0 <= 600 })
         // Successive windows overlap (older pages prepend): shared rows must keep their order,
         // and only older rows may appear, before them.
         #expect(detail.bool("firstMoved"))
@@ -35,7 +35,7 @@ import Testing
         let result = try harness.run("transcriptHistoryWindowBound", snapshot: "window-bound")
         #expect(result.ok, "JS error: \(result.errorText)")
         #expect(result.detail.bool("reachedStart"))
-        #expect(result.detail.int("maxItems") <= 2200)
+        #expect(result.detail.int("maxItems") <= result.detail.int("bound"))
     }
 
     @Test func aCancelledOlderReadRetriesWithAFreshFetch() throws {

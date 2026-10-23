@@ -209,9 +209,10 @@ import XCTest
         report("reading far back: pages older, newer", [older, app.probeValue("pages.newer") ?? 0])
         report("reading far back: main-thread ms per page", [mainPerPage])
         report("reading far back: late-frame ms per s", [lost / max(spent, 0.001)])
+        report("reading far back: late-frame ms per page, seconds spent", [lost / max(pages, 1), spent])
         report("reading far back: footprint opened, far back, peak (MiB)", [opened, farBack, peak])
         XCTAssertLessThan(mainPerPage, PerfBudget.pageMainMs)
-        XCTAssertLessThan(lost / max(spent, 0.001), PerfBudget.readingHitchMsPerS)
+        XCTAssertLessThan(lost / max(pages, 1), PerfBudget.readingLostMsPerPage)
         XCTAssertLessThan(peak - opened, PerfBudget.readingGrowthMiB)
         // Scroll to end discards the window and follows the live end again.
         app.buttons["Scroll to end"].tap()
@@ -366,7 +367,7 @@ enum PerfBudget {
     static let sheetFillMs = 350.0                // [Agents 140, Changes 128]
     static let modelSheetTapMs = 3_000.0          // [1,940, mostly XCUITest waiting]
     static let pageMainMs = 1_000.0               // [measuring]
-    static let readingHitchMsPerS = 1_000.0       // [measuring]
+    static let readingLostMsPerPage = 1_000.0     // [measuring]
     static let readingGrowthMiB = 1_000.0         // [measuring]
 }
 
