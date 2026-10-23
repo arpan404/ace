@@ -1,3 +1,4 @@
+import type { MaintenanceGate } from "@ace/service";
 import type { CursorHostSlots } from "@ace/adapter-cursor";
 import type { DevicesService } from "@ace/devices";
 import type { ComputerClient, ScreenManager } from "@ace/screen";
@@ -135,5 +136,10 @@ export interface ServiceContext {
   log: ReturnType<typeof createLogger>;
   resources: Resources;
   services: Partial<Services>;
+  /**
+   * The daemon's maintenance gate, created before any service so engine recovery honours it
+   * from the start; the server shares the same gate.
+   */
+  maintenance?: MaintenanceGate;
   onListen: ((server: Awaited<ReturnType<typeof startServer>>) => void | Promise<void>)[];
 }

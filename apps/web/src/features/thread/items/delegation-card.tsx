@@ -30,7 +30,7 @@ const outcomes: Record<DelegationResult["outcome"], SubagentState> = {
 export function DelegationCard(props: {
   threadId: string;
   results: readonly DelegationResult[];
-  received?: string;
+  received?: string | undefined;
 }) {
   const read = useCallback(
     (facts: AgentFacts) =>

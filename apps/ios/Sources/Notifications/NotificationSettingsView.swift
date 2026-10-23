@@ -23,7 +23,8 @@ struct NotificationSettingsView: View {
             } footer: {
                 Text("Alerts arrive while ace is open or refreshing in the background. A locked phone may show them late.")
             }
-            Section("Machines") {
+            .insetRowBackground()
+            Section {
                 ForEach(inbox.sessions) { session in
                     NavigationLink {
                         MachineNotificationSettings(notifications: notifications, hostId: session.hostId,
@@ -36,8 +37,10 @@ struct NotificationSettingsView: View {
                     }
                     .accessibilityIdentifier("notifications.machine.\(session.hostId)")
                 }
-            }
+            } header: { InsetHeader("Machines") }
+            .insetRowBackground()
         }
+        .insetGroupedList()
         .navigationTitle("Notifications").navigationBarTitleDisplayMode(.inline)
         .task { notifications.loadPreferences(); await notifications.refreshPermission() }
     }
@@ -53,7 +56,7 @@ struct MachineNotificationSettings: View {
 
     var body: some View {
         Form {
-            Section("Quiet hours") {
+            Section {
                 Toggle("Quiet hours", isOn: Binding(get: { preferences.quietHours != nil }, set: { on in
                     var next = preferences
                     next.quietHours = on ? QuietHours(timeZone: TimeZone.current.identifier, startMinute: 22 * 60, endMinute: 7 * 60) : nil
@@ -65,7 +68,8 @@ struct MachineNotificationSettings: View {
                     DatePicker("Until", selection: minute(\.endMinute), displayedComponents: .hourAndMinute)
                 }
             }
-            Section("Snooze a thread") {
+            .insetRowBackground()
+            Section {
                 ForEach(threads) { row in
                     let until = notifications.snoozes(for: hostId)[row.id]
                     Menu {
@@ -78,8 +82,10 @@ struct MachineNotificationSettings: View {
                         }
                     }
                 }
-            }
+            } header: { InsetHeader("Snooze a thread") }
+            .insetRowBackground()
         }
+        .insetGroupedList()
         .navigationTitle(name).navigationBarTitleDisplayMode(.inline)
     }
     private var threads: [ThreadRow] {

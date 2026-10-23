@@ -1,44 +1,24 @@
 import { useAgent, useInteraction } from "@ace/client-react";
 import type { Interaction, InteractionResolution, Question } from "@ace/protocol";
-import { agentName, answeredQuestions, questionTitle, requestIdentity } from "@ace/ui-core";
+import {
+  agentName,
+  closedMeta,
+  closedQuestionWords,
+  questionTitle,
+  requestIdentity,
+  type AnsweredMeta,
+} from "@ace/ui-core";
 import { ArrowRightIcon, ChatTeardropIcon, ChatTeardropTextIcon } from "@phosphor-icons/react";
 import { useId, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
 import { RailMark } from "../items/step-rail.tsx";
 import { pressableRowClass } from "../items/transcript-row.tsx";
-import { AnsweredQuestionCard, closedMeta, type AnsweredMeta } from "./answered-question.tsx";
+import { AnsweredQuestionCard } from "./answered-question.tsx";
 import { useLocalAnswer } from "./answers.ts";
 import { focusRequest } from "./request-focus.ts";
 import { useEarlierAnswer } from "./use-earlier-answer.ts";
 import { useItemInteraction } from "./use-item-interaction.ts";
-
-/** The answer a question got, in a few words: the options picked and anything typed. */
-function answerWords(questions: readonly Question[], resolution: InteractionResolution): string {
-  const answers = resolution.kind === "question" ? resolution.answers : {};
-  return answeredQuestions(questions, answers)
-    .map((row) => [...row.chosen.map((option) => option.label), ...row.typed].join(", "))
-    .filter(Boolean)
-    .join("; ");
-}
-
-/** How a closed question's line ends when it got no answer to show. */
-function outcomeWords(meta: AnsweredMeta, resolution: InteractionResolution | undefined) {
-  switch (meta.kind) {
-    case "skipped": {
-      const note = resolution?.kind === "question" ? resolution.feedback?.trim() : undefined;
-      return note ? `Skipped · “${note}”` : "Skipped";
-    }
-    case "expired":
-      return "Expired before an answer";
-    case "cancelled":
-      return "Withdrawn by the agent";
-    case "sending":
-      return "Sending…";
-    default:
-      return undefined;
-  }
-}
 
 /**
  * A question in the transcript where the agent asked it (IR-1). While it waits, one line saying
@@ -131,9 +111,7 @@ function ClosedLine(props: {
   const [open, setOpen] = useState(false);
   const details = useId();
   const title = questionTitle(props.questions);
-  const answer =
-    resolution && meta.kind !== "skipped" ? answerWords(props.questions, resolution) : "";
-  const outcome = outcomeWords(meta, resolution);
+  const { answer, outcome } = closedQuestionWords(props.questions, resolution, meta);
   return (
     <div role="group" aria-label={`Question: ${title}`}>
       <button

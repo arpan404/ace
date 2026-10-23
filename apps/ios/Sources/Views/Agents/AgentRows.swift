@@ -15,7 +15,7 @@ struct AgentRowView: View {
                     .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
                     .lineLimit(typeSize.isAccessibilitySize ? 4 : 1)
                 Text(detail).aceFont(AceTheme.Typography.label, relativeTo: .footnote).fontWeight(.regular)
-                    .foregroundStyle(row.needsYou ? StateStyle.text(row.status.token) : AceTheme.Colours.mutedForeground)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
                     .lineLimit(typeSize.isAccessibilitySize ? 4 : 1)
             }
             Spacer(minLength: AceTheme.Spacing.sm)
@@ -72,7 +72,7 @@ struct TaskRowView: View {
                     .aceFont(AceTheme.Typography.label, relativeTo: .footnote).fontWeight(.semibold)
                     .foregroundStyle(AceTheme.StatusText.failed)
                     .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 34)
-                    .background(AceTheme.Colours.diffDelete, in: Capsule())
+                    .background(AceTheme.Colours.diffDelete, in: AceShape.capsule)
                     .buttonStyle(.plain)
                     .frame(minHeight: AceTheme.Dimensions.touchTarget)
                     .accessibilityIdentifier("agents.task.stop.\(task.id)")

@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { emptyDraft, type QuestionDraft } from "./question-draft.ts";
+import { emptyDraft, type QuestionDraft } from "@ace/ui-core";
 
 /*
  * What each open question card has been given so far, by interaction id, in memory only (a

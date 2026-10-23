@@ -1,11 +1,15 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { ForgePrRow } from "@ace/protocol";
-import { prStepLabels, type LocalCheckResult, type PrNextStep } from "@ace/ui-core";
+import {
+  prStepLabels,
+  type LocalCheckResult,
+  type PrNextStep,
+  type LinkedThread,
+  agentRequest,
+} from "@ace/ui-core";
 import { useToast } from "@/components/ui/toast.tsx";
 import { insertTextWhenMounted } from "@/lib/composer-insert.ts";
 import { cn } from "@/lib/cn.ts";
-import type { LinkedThread } from "./linked-threads.ts";
-import { agentRequest } from "./next-steps.ts";
 
 /** The step's text button: one word or two, flat, overhanging the gutter by its padding. */
 const stepText = "inline-flex h-5 items-center rounded-sm px-1.5 text-xs font-medium";

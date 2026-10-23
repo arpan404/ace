@@ -11,14 +11,16 @@ extension ClientModel {
         }
     }
     /// Persist a follow-up: `alternate` asks for the other delivery the composer offered.
-    func sendMessage(_ text: String, alternate: Bool) async -> Bool {
+    /// `reply` is the question card on the strip: the bridge sends the words as its answer when
+    /// they can be one (`@ace/ui-core` composerReply), else as a message.
+    func sendMessage(_ text: String, alternate: Bool, reply: QuestionReply? = nil) async -> Bool {
         guard canOperate, let thread else { return false }
         // Words, files or both; the bridge checks again with the shared rule.
         guard !thread.screen.attachments.isEmpty || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let id = admissions.nextId()
-        return await admissions.wait(id: id) {
-            threadAction(["type": "send", "text": text, "opposite": alternate, "requestId": id])
-        }
+        var action: [String: Any] = ["type": "send", "text": text, "opposite": alternate, "requestId": id]
+        if let reply { action["reply"] = reply.payload }
+        return await admissions.wait(id: id) { threadAction(action) }
     }
     /// Stop the whole agent tree of the turn on screen.
     func stopTree() {
@@ -66,6 +68,17 @@ extension ClientModel {
         let id = admissions.nextId()
         return await admissions.wait(id: id) {
             threadAction(["type": "queue", "messageId": message.id, "change": change, "requestId": id])
+        }
+    }
+    /// Pause, resume or clear a thread's goal from its sheet, for the navigation generation the
+    /// sheet was opened on (`epoch`): a sheet left over from a thread the person has since left is
+    /// refused by the bridge, never applied to the thread open now. Resolves once the daemon took
+    /// it (nil) or refused it (its words).
+    func changeGoal(_ change: String, epoch: Int) async -> String? {
+        guard canOperate else { return "This phone can only view this machine." }
+        let id = admissions.nextId()
+        return await receipts.wait(id: id) {
+            action(threadMessage(["type": "goal", "change": change, "requestId": id], epoch: epoch))
         }
     }
     @discardableResult func threadAction(_ value: [String: Any]) -> Bool {

@@ -14,35 +14,39 @@ struct SkillSourceView: View {
     @State private var review: PluginReviewRequest?
     var body: some View {
         List {
-            Section {
-                Text(component.description)
-                if component.kind == "skill", model.canOperate {
-                    Toggle("Enabled for new sessions", isOn: Binding(get: { enabled ?? component.skillAvailability?.enabled ?? component.enabled }, set: { on in availability(enabled: on, providers: providers ?? component.skillAvailability?.providers ?? component.providers) }))
-                    ForEach(ProviderLabels.ids, id: \.self) { provider in
-                        Toggle(provider.capitalized, isOn: Binding(get: { (providers ?? component.skillAvailability?.providers ?? component.providers).contains(provider) }, set: { on in
-                            var selected = providers ?? component.skillAvailability?.providers ?? component.providers
-                            selected.removeAll { $0 == provider }; if on { selected.append(provider) }
-                            availability(enabled: enabled ?? component.skillAvailability?.enabled ?? component.enabled, providers: selected)
-                        }))
+            Group {
+                Section {
+                    Text(component.description)
+                    if component.kind == "skill", model.canOperate {
+                        Toggle("Enabled for new sessions", isOn: Binding(get: { enabled ?? component.skillAvailability?.enabled ?? component.enabled }, set: { on in availability(enabled: on, providers: providers ?? component.skillAvailability?.providers ?? component.providers) }))
+                        ForEach(ProviderLabels.ids, id: \.self) { provider in
+                            Toggle(provider.capitalized, isOn: Binding(get: { (providers ?? component.skillAvailability?.providers ?? component.providers).contains(provider) }, set: { on in
+                                var selected = providers ?? component.skillAvailability?.providers ?? component.providers
+                                selected.removeAll { $0 == provider }; if on { selected.append(provider) }
+                                availability(enabled: enabled ?? component.skillAvailability?.enabled ?? component.enabled, providers: selected)
+                            }))
+                        }
+                    }
+                }
+                if loading { ProgressView("Reading source…") }
+                ServiceProblem(message: problem)
+                if problem != nil { Button("Retry") { Task { await read() } } }
+                if hash != nil {
+                    if editing {
+                        TextEditor(text: $source).frame(minHeight: AceTheme.Dimensions.touchTarget * 5).scrollContentBackground(.hidden)
+                            .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
+                        Button("Review changes") {
+                            if let hash { review = PluginReviewRequest(operation: ["type": "plugins.edit", "name": component.plugin, "path": component.path, "expectedHash": hash, "text": source]) }
+                        }.disabled(source == original || source.utf16.count > 262144)
+                    } else {
+                        MarkdownView(text: source)
+                        if model.canOperate { Button("Edit source") { editing = true }.disabled(source.utf16.count > 262144) }
                     }
                 }
             }
-            if loading { ProgressView("Reading source…") }
-            ServiceProblem(message: problem)
-            if problem != nil { Button("Retry") { Task { await read() } } }
-            if hash != nil {
-                if editing {
-                    TextEditor(text: $source).frame(minHeight: AceTheme.Dimensions.touchTarget * 5)
-                        .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
-                    Button("Review changes") {
-                        if let hash { review = PluginReviewRequest(operation: ["type": "plugins.edit", "name": component.plugin, "path": component.path, "expectedHash": hash, "text": source]) }
-                    }.disabled(source == original || source.utf16.count > 262144)
-                } else {
-                    MarkdownView(text: source)
-                    if model.canOperate { Button("Edit source") { editing = true }.disabled(source.utf16.count > 262144) }
-                }
-            }
+            .insetRowBackground()
         }
+        .insetGroupedList()
         .navigationTitle(component.title ?? component.name).navigationBarTitleDisplayMode(.inline)
         .task { await read() }
         .sheet(item: $review) { PluginReviewView(model: model, request: $0, installed: { editing = false; Task { await read() } }) }

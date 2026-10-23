@@ -7,44 +7,8 @@ import { checkFixRequest } from "./pr-check-model.ts";
  * filters and paging the tab offers. Pure.
  */
 
-export type ReviewOutcome = "approved" | "changes" | "commented" | "dismissed";
-
-const outcomes: Record<string, ReviewOutcome> = {
-  APPROVED: "approved",
-  CHANGES_REQUESTED: "changes",
-  COMMENTED: "commented",
-  DISMISSED: "dismissed",
-};
-
 const time = (comment: Pick<ForgeComment, "createdAt" | "updatedAt">) =>
   comment.createdAt ?? comment.updatedAt;
-
-/**
- * Each reviewer's standing review, by login, as GitHub counts it: their latest verdict
- * (approved, changes requested, dismissed), which a later comment-only review leaves in force;
- * their latest comment only when they gave no verdict.
- */
-export function reviewerOutcomes(comments: readonly ForgeComment[]): Map<string, ReviewOutcome> {
-  const latest = new Map<string, { at: string; outcome: ReviewOutcome }>();
-  for (const comment of comments) {
-    if (comment.kind !== "review" || !comment.reviewState) continue;
-    const outcome = outcomes[comment.reviewState.toUpperCase()];
-    if (!outcome) continue;
-    const seen = latest.get(comment.author);
-    const verdict = outcome !== "commented";
-    const seenVerdict = seen !== undefined && seen.outcome !== "commented";
-    if (!seen || (verdict === seenVerdict ? time(comment) >= seen.at : verdict))
-      latest.set(comment.author, { at: time(comment), outcome });
-  }
-  return new Map([...latest].map(([author, value]) => [author, value.outcome]));
-}
-
-export const reviewOutcomeLabels: Record<ReviewOutcome, string> = {
-  approved: "Approved",
-  changes: "Changes requested",
-  commented: "Commented",
-  dismissed: "Dismissed",
-};
 
 /** Something on the PR an agent could fix: a failing check or an open review thread. */
 export type AttentionItem =

@@ -1,6 +1,14 @@
 import type { ThreadReader } from "@ace/client";
 import type { CommandPayload, FollowUpBehavior, Interaction, ThreadId } from "@ace/protocol";
-import { followUpDelivery, isBusy, modelLabel, providerDisplayName, stopFence } from "@ace/ui-core";
+import {
+  followUpDelivery,
+  isBusy,
+  modelLabel,
+  providerDisplayName,
+  readTurnActivity,
+  stopFence,
+  waitingDelivery,
+} from "@ace/ui-core";
 import { runsOn } from "@ace/ui-core/thread-execution";
 import { preview } from "./presentation.ts";
 
@@ -16,13 +24,32 @@ const questionPending = (reader: ThreadReader) =>
     return interaction?.state === "pending" && interaction.request.kind === "question";
   });
 
+/**
+ * How a message sent now goes: the shared follow-up rule while the agent works, but while the
+ * main agent only waits on its subagents the model itself isn't busy, so it goes in now (the
+ * web's `waitingDelivery`).
+ */
+function deliveryOf(
+  reader: ThreadReader,
+  setting: FollowUpBehavior | undefined,
+  opposite: boolean,
+): FollowUpBehavior | undefined {
+  const thread = reader.thread;
+  const canSteer = thread?.capabilities?.steer === true;
+  if (!isBusy(thread?.status)) return undefined;
+  const rootId = thread?.rootAgentId ?? "";
+  const wait = readTurnActivity(reader, rootId, { threadStatus: thread?.status }).activity
+    ?.waitingOn;
+  if (wait?.kind === "subagents")
+    return waitingDelivery({ canSteer, turnOver: wait.turnOver, opposite });
+  return followUpDelivery({ status: thread?.status, canSteer, setting, opposite });
+}
+
 export function controlsRow(reader: ThreadReader, setting: FollowUpBehavior | undefined) {
   const thread = reader.thread;
   const status = thread?.status;
-  const canSteer = thread?.capabilities?.steer === true;
-  const input = { status, canSteer, setting };
-  const delivery = followUpDelivery({ ...input, opposite: false });
-  const alternate = followUpDelivery({ ...input, opposite: true });
+  const delivery = deliveryOf(reader, setting, false);
+  const alternate = deliveryOf(reader, setting, true);
   const selection = runsOn(thread);
   const busy = isBusy(status);
   const provider = selection?.provider ?? thread?.provider;
@@ -47,12 +74,7 @@ export function sendPayload(
   text: string,
   options: { opposite: boolean; setting: FollowUpBehavior | undefined },
 ): CommandPayload {
-  const delivery = followUpDelivery({
-    status: reader.thread?.status,
-    canSteer: reader.thread?.capabilities?.steer === true,
-    setting: options.setting,
-    opposite: options.opposite,
-  });
+  const delivery = deliveryOf(reader, options.setting, options.opposite);
   return {
     type: "thread.send",
     threadId,

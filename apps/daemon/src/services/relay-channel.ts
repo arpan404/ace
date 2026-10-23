@@ -16,11 +16,13 @@ import {
   AgentId,
   ThreadId,
   type ClientMessage,
+  type DeviceFailure,
   type DeviceId,
 } from "@ace/protocol";
 import type { HostChannel } from "@ace/relay";
 import type { Store } from "../store.ts";
 import { contextScope } from "./context-scope.ts";
+import { deviceAccessRefused, devicesUnavailable } from "./device-refusals.ts";
 /**
  * The daemon services a relay channel may use. The daemon passes an object whose fields read its
  * live service registry: the relay connects during startup, before listener-phase services such
@@ -77,8 +79,13 @@ export function attachRelayService(
     await channel.send(message);
   };
   if (connection.kind === "devices") {
+    // Answer every request with why, rather than closing the channel without a word: the
+    // client would otherwise wait on a device list that never comes.
     if (!options.appDevices || !authorize("admin"))
-      throw new Error("Devices relay requires admin access");
+      return refusingDevicesRelay(
+        channel,
+        options.appDevices ? deviceAccessRefused : devicesUnavailable,
+      );
     const endpoint = connectDevices(options.appDevices, sessionId, {
       authorize: () => authorize("admin"),
       canReadThread: threadAccess,
@@ -343,5 +350,29 @@ export function attachRelayService(
       legacy?.close();
       void attachments?.close().catch(() => {});
     },
+  };
+}
+
+/** A devices relay channel this client may not use: each request is answered with the refusal. */
+function refusingDevicesRelay(channel: HostChannel, error: DeviceFailure) {
+  return {
+    async accept(message: ClientMessage) {
+      if (message.type === "devices.ack") return;
+      if (message.type !== "devices.request") throw new Error("Unexpected devices relay request");
+      if (channel.bufferedBytes > 256 * 1024) {
+        channel.close();
+        throw new Error("Relay control backpressure");
+      }
+      await channel.send({
+        type: "devices.result",
+        requestId: message.requestId,
+        ok: false,
+        error,
+      });
+    },
+    binary() {
+      throw new Error("Device relay does not accept input binary data");
+    },
+    close() {},
   };
 }

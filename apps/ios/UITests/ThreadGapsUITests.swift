@@ -18,12 +18,15 @@ import XCTest
         screenshot("plan-revise")
         XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 25))
         app.buttons["composer.model"].tap()
+        // Effort is a menu of the model's levels; the pick shows as the row's value.
         let tune = app.buttons["composer.tune"]
         XCTAssertTrue(tune.waitForExistence(timeout: 25))
         tune.tap()
         XCTAssertTrue(app.buttons["High"].waitForExistence(timeout: 10))
-        screenshot("tune-menu")
         app.buttons["High"].tap()
+        XCTAssertTrue(app.buttons["composer.tune"].waitForExistence(timeout: 10))
+        XCTAssertTrue((app.buttons["composer.tune"].value as? String ?? app.buttons["composer.tune"].label).contains("High"))
+        screenshot("tune-effort")
         app.buttons["modelSheet.close"].tap()
         XCTAssertTrue(app.buttons["composer.attach"].waitForExistence(timeout: 10))
         app.buttons["composer.attach"].tap()
@@ -43,7 +46,8 @@ import XCTest
         XCTAssertTrue(worked.waitForExistence(timeout: 25))
         app.scrollViews["transcript"].swipeDown(velocity: .fast)
         worked.tap()
-        XCTAssertTrue(app.staticTexts["Ran"].waitForExistence(timeout: 15))
+        // The turn's steps open grouped, as on the web: sentence rows on a rail.
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "work.group.")).firstMatch.waitForExistence(timeout: 15))
         screenshot("worked-full-steps")
         app.buttons["subagents.rollup"].firstMatch.tap()
         let review = app.buttons["subagent.Review PID-reuse safety"]

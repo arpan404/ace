@@ -1,11 +1,10 @@
-import { formatAgo } from "@ace/ui-core";
+import { formatAgo, prGates, type Gate, type GateKey } from "@ace/ui-core";
 import { hairlineGrid } from "@/components/ui/rules.ts";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { useNow } from "@/lib/time.ts";
 import { cn } from "@/lib/cn.ts";
 import type { PrActions } from "./pr-actions.ts";
 import { usePrActivityEvents } from "./pr-activity-events.ts";
-import { prGates, type Gate, type GateKey } from "./pr-gates.ts";
 import { useReviewOutcomes } from "./pr-reviewers-query.ts";
 
 /** How a finished PR ended, from its activity: who and when, and what became of the branch. */

@@ -235,31 +235,27 @@ test("the latest queued switch wins and survives a daemon restart", async () => 
     selection: { provider: "cursor", model: "newest" },
   });
   await h.engine.flush();
+  // The continued turn can finish after the restart.
+  h.held.delete(id);
   await h.restart();
   await h.engine.flush();
   expect(h.store.getThread(id)?.switch).toMatchObject({
     state: "applied",
     selection: { provider: "cursor", model: "newest" },
   });
-  expect(h.finishedRun(id).state).toBe("interrupted");
-  h.held.delete(id);
-  expect(h.engine.queue(id).paused).toBe(true);
-  expect(
-    h.command({
-      type: "thread.resume",
-      threadId: id,
-      expectedRevision: h.engine.queue(id).revision,
-    }).ok,
-  ).toBe(true);
-  await h.engine.flush();
   follow(h, id);
   await h.engine.flush();
   expect(h.store.getThread(id)).toMatchObject({ provider: "cursor", backend: "cursor-sdk" });
   expect(h.store.getThread(id)?.continuation).toBeUndefined();
   expect(h.inputs.at(-1)?.provider).toBe("cursor");
   expect(h.inputs.at(-1)?.model).toBe("newest");
-  expect(h.inputs.at(-2)?.text).toContain("source history");
-  expect(h.inputs.at(-1)?.text).toBe("follow up");
+  // The cut-short turn continued where it ran; the switch applied at the next boundary and
+  // its handoff went with the next message, once.
+  expect(h.inputs.at(-2)).toMatchObject({ provider: "codex" });
+  expect(h.inputs.at(-2)?.text).toMatch(/^ace restarted while you were working/);
+  expect(h.inputs.at(-1)?.text).toContain("source history");
+  expect(h.inputs.at(-1)?.text.endsWith("follow up")).toBe(true);
+  expect(h.inputs.filter((input) => input.text.includes("<ace_context_handoff"))).toHaveLength(1);
 });
 test("account migration refusal preserves the original account and native session", async () => {
   const h = setup({

@@ -2,49 +2,51 @@ import Foundation
 import Testing
 @testable import Ace
 
-/// Going back from a child thread, view-only machines on the new request cards and composer
+/// Reopening a thread shown recently, view-only machines on the new request cards and composer
 /// controls, and the steps a settled log reads. Native models only; the bridge is recorded.
 @Suite @MainActor struct ThreadGapsTests {
-    @Test func backFromAChildKeepsTheParentsTranscriptUntilItsReopenedSnapshotIsReady() throws {
-        let model = ClientModel(now: { 0 })
-        model.open("parent")
+    @Test func aThreadLeftAndReopenedShowsItsTranscriptAtOnceAndTakesOnlyItsNewGenerationsChanges() async throws {
+        let (model, session) = try await connected()
         model.receive(try frame([
-            ["type": "thread.reset", "threadId": "parent", "epoch": 1],
-            item("ask", thread: "parent", epoch: 1, index: 0),
-            block("turn", thread: "parent", epoch: 1, items: ["ask"], index: 0),
+            ["type": "thread.reset", "threadId": "thread", "epoch": 1],
+            item("ask", thread: "thread", epoch: 1, index: 0),
+            block("turn", thread: "thread", epoch: 1, items: ["ask"], index: 0),
+            ["type": "thread.ready", "threadId": "thread", "epoch": 1, "count": 1],
         ]))
+        let first = try #require(model.thread)
         model.open("child")
-        model.receive(try frame([block("child-turn", thread: "child", epoch: 2, items: [], index: 0)]))
-        #expect(model.thread?.placeholder == nil)
-        model.open("parent")
-        // Nothing of the reopened session yet: the parent's last blocks and items stay on screen.
-        let shown = try #require(model.thread?.placeholder)
-        #expect(shown.screen.blockOrder == ["turn"])
-        #expect(shown.items["ask"] != nil)
-        #expect(model.thread?.screen.blockOrder.isEmpty == true)
-        // Late patches from the first visit are still rejected, and change nothing shown.
-        model.receive(try frame([block("late", thread: "parent", epoch: 1, items: [], index: 1)]))
-        #expect(model.thread?.screen.blocks["late"] == nil)
-        #expect(model.thread?.placeholder?.screen.blocks["late"] == nil)
-        // The reset and individual blocks must not replace the readable previous snapshot.
-        model.receive(try frame([["type": "thread.reset", "threadId": "parent", "epoch": 3], item("ask", thread: "parent", epoch: 3, index: 0)]))
-        #expect(model.thread?.placeholder != nil)
-        model.receive(try frame([block("turn", thread: "parent", epoch: 3, items: ["ask"], index: 0)]))
-        #expect(model.thread?.placeholder != nil)
-        model.receive(try frame([["type": "thread.ready", "threadId": "parent", "epoch": 3, "count": 1]]))
-        #expect(model.thread?.placeholder == nil)
-        #expect(model.thread?.screen.blockOrder == ["turn"])
-    }
-    @Test func aThreadOpenedFromTheInboxNeverShowsAnotherThreadsPlaceholder() throws {
-        let model = ClientModel(now: { 0 })
-        model.open("parent")
-        model.receive(try frame([block("turn", thread: "parent", epoch: 1, items: [], index: 0)]))
         model.back()
-        model.open("parent")
-        #expect(model.thread?.placeholder == nil)
-        model.open("other")
-        model.open("third")
-        #expect(model.thread?.placeholder == nil)
+        model.open("thread")
+        // The same model comes back, drawn at once, and the bridge is told native kept it.
+        #expect(model.thread === first)
+        #expect(model.thread?.loaded == true)
+        #expect(model.thread?.screen.blockOrder == ["turn"])
+        #expect(model.thread?.items["ask"] != nil)
+        #expect(session.opens.map { $0["warm"] as? Bool } == [false, false, true])
+        // Late patches from the first visit change nothing; the new generation's do.
+        model.receive(try frame([block("late", thread: "thread", epoch: 1, items: [], index: 1)]))
+        #expect(model.thread?.screen.blocks["late"] == nil)
+        let epoch = try #require(model.thread?.epoch)
+        model.receive(try frame([block("next", thread: "thread", epoch: epoch, items: [], index: 1)]))
+        #expect(model.thread?.screen.blockOrder == ["turn", "next"])
+    }
+    @Test func aThreadThatNeverFinishedLoadingOrWasPushedOffTheShelfOpensFresh() async throws {
+        let (model, session) = try await connected()
+        // Left before its first snapshot: nothing worth showing again.
+        model.back()
+        model.open("thread")
+        #expect(model.thread?.loaded == false)
+        for index in 0...ThreadShelf.capacity + 1 {
+            let id = "other-\(index)"
+            model.open(id)
+            let epoch = try #require(model.thread?.epoch)
+            model.receive(try frame([["type": "thread.ready", "threadId": id, "epoch": epoch, "count": 0]]))
+        }
+        model.open("other-0")
+        #expect(model.thread?.loaded == false)
+        model.open("other-\(ThreadShelf.capacity + 1)")
+        #expect(model.thread?.loaded == true)
+        #expect(session.opens.suffix(2).map { $0["warm"] as? Bool } == [false, true])
     }
     @Test func aViewOnlyMachineSendsNoPlanFormEffortAttachmentOrQueueChange() async throws {
         let (model, session) = try await connected()
@@ -99,6 +101,23 @@ import Testing
         #expect(model.thread?.screen.steps[2]?.rows.map(\.id) == ["s0", "s1"])
     }
 
+    /// A goal change saved on the phone is still pending: Pause or Clear resolves only on the
+    /// daemon's answer, and a refusal comes back to the sheet, not as the screen-wide error.
+    @Test func aGoalChangeStaysPendingUntilTheDaemonAnswersAndItsRefusalStaysOnTheSheet() async throws {
+        let (model, session) = try await connected()
+        let epoch = try #require(model.thread?.epoch)
+        var answer: String?? = .none
+        let changing = Task { answer = .some(await model.changeGoal("pause", epoch: epoch)) }
+        for _ in 0..<50 where session.threadActions.isEmpty { await Task.yield() }
+        let id = try #require(session.threadActions.first?["requestId"] as? String)
+        model.receive(try frame([["type": "admission", "id": id, "ok": true, "message": ""]]))
+        for _ in 0..<50 { await Task.yield() }
+        #expect(answer == nil, "saved on the phone is not taken by the daemon")
+        model.receive(try frame([["type": "receipt", "id": id, "ok": false, "message": "unsupported_goal"]]))
+        await changing.value
+        #expect(answer == .some("unsupported_goal"))
+        #expect(model.error == nil)
+    }
     private func connected() async throws -> (ClientModel, ThreadActionRecorder) {
         let session = ThreadActionRecorder()
         let model = ClientModel(now: { 0 }, makeRuntime: { _, _, _, _ in session })
@@ -130,6 +149,7 @@ import Testing
 private final class ThreadActionRecorder: ClientSession, @unchecked Sendable {
     private let lock = NSLock()
     private var actions: [[String: Any]] = []
+    var opens: [[String: Any]] { lock.withLock { actions.filter { $0["type"] as? String == "open" } } }
     var threadActions: [[String: Any]] {
         lock.withLock { actions.compactMap { $0["type"] as? String == "thread" ? $0["action"] as? [String: Any] : nil } }
     }

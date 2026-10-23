@@ -70,25 +70,12 @@ test("delta frames only change their snapshot record and recover text beyond the
     await h.engine.flush();
   }
   expect(h.errors).toEqual([]);
+  h.store.atomic((db) => db.exec("DROP TRIGGER forbid_history_rewrite"));
   const restarted = new Store(h.path);
   const engine = new Engine(restarted, { registry: h.registry, clock: h.clock });
   try {
-    await engine.flush();
-    // Resume, access a cold historical item, and append through the same public frame path.
-    h.store.atomic((db) => db.exec("DROP TRIGGER forbid_history_rewrite"));
-    const command = {
-      id: "resume-cold",
-      deviceId: "device",
-      payload: {
-        type: "thread.resume" as const,
-        threadId: id,
-        expectedRevision: engine.queue(id).revision,
-      },
-    };
-    const parsed = Command.parse(command);
-    restarted.recordCommand(parsed.id, parsed.deviceId, () =>
-      engine.handler.handle(parsed, restarted),
-    );
+    // The interrupted turn continues by itself; access a cold historical item and append
+    // through the same public frame path.
     await engine.flush();
     const resumed = h.contexts.at(-1);
     if (!resumed) throw new Error("Missing resumed provider");

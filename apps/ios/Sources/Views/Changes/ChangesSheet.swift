@@ -53,11 +53,13 @@ struct ChangesSheet: View {
             if summary.state == "error" {
                 ContentUnavailableView("Couldn't read changes", systemImage: "exclamationmark.triangle",
                                        description: Text("Check that this thread has a git checkout, then refresh."))
-                    .padding(.top, AceTheme.Spacing.xxxl)
+                    .centredInSheet()
             } else if summary.state == "loading" && summary.files.isEmpty {
-                ProgressView("Reading changes…").frame(maxWidth: .infinity).padding(.top, AceTheme.Spacing.xxxl)
+                loading
             } else if summary.files.isEmpty {
-                ContentUnavailableView("No uncommitted changes", systemImage: "checkmark.circle").padding(.top, AceTheme.Spacing.xxxl)
+                ContentUnavailableView("No changes", systemImage: "checkmark.circle",
+                                       description: Text(summary.branch.isEmpty ? "Everything is committed." : "Everything on \(summary.branch) is committed."))
+                    .centredInSheet()
             } else {
                 ForEach(summary.files) { file in
                     Section {
@@ -72,30 +74,27 @@ struct ChangesSheet: View {
                 footer(summary)
             }
         } else {
-            ProgressView("Reading changes…").frame(maxWidth: .infinity).padding(.top, AceTheme.Spacing.xxxl)
+            loading
         }
     }
+    private var loading: some View { ProgressView().controlSize(.large).centredInSheet().accessibilityLabel("Reading changes") }
     private func show(_ path: String?) {
         open = path
         if let path { model.sheet(["kind": "changes.file", "path": path]) }
         else { model.sheet(["kind": "changes.file", "path": NSNull()]) }
     }
 
-    /// "Changes on fix/queue" over "+42 · −8 · 4 files".
+    /// "Changes" over a quiet "+42 −8 · 4 files".
     private var header: some View {
         VStack(spacing: AceTheme.Spacing.none) {
             Text("Changes")
-                .aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1).truncationMode(.middle)
+                .aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1)
             if let totals = summary?.totals, totals.files > 0 {
-                HStack(spacing: AceTheme.Spacing.xs) {
-                    Text("+\(totals.additions)").foregroundStyle(AceTheme.StatusText.done)
-                    Text("·")
-                    Text("−\(totals.deletions)").foregroundStyle(AceTheme.StatusText.failed)
-                    Text("· \(totals.files) \(totals.files == 1 ? "file" : "files")")
-                }
-                .aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit()
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-                .accessibilityElement(children: .combine).accessibilityIdentifier("changes.totals")
+                Text("+\(totals.additions) −\(totals.deletions) · \(totals.files) \(totals.files == 1 ? "file" : "files")")
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit()
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                    .accessibilityLabel("\(totals.additions) added, \(totals.deletions) removed, \(totals.files) \(totals.files == 1 ? "file" : "files")")
+                    .accessibilityIdentifier("changes.totals")
             }
         }
     }
@@ -106,6 +105,13 @@ struct ChangesSheet: View {
                 .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                 .padding(AceTheme.Spacing.lg)
         }
+    }
+}
+
+private extension View {
+    /// An empty, error or loading state in the middle of the sheet rather than pinned to its top.
+    func centredInSheet() -> some View {
+        frame(maxWidth: .infinity).containerRelativeFrame(.vertical, alignment: .center) { height, _ in height * 0.8 }
     }
 }
 
@@ -182,7 +188,7 @@ struct ChangedFileHeader: View {
 struct FileStatusMark: View {
     let status: String
     var body: some View {
-        RoundedRectangle(cornerRadius: 6).stroke(colour, lineWidth: 1.5)
+        AceShape.glyph.stroke(colour, lineWidth: 1.5)
             .frame(width: 20, height: 20)
             .overlay {
                 if status == "modified" { Circle().fill(colour).frame(width: 6, height: 6) }

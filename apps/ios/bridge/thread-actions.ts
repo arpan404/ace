@@ -1,4 +1,5 @@
 import { KnownSpeed } from "@ace/protocol";
+import { otherAnswer, type QuestionDraft } from "@ace/ui-core";
 import { z } from "zod";
 import { Picked } from "./thread-attachments.ts";
 import { RequestAnswer } from "./thread-requests.ts";
@@ -9,6 +10,16 @@ import { RequestAnswer } from "./thread-requests.ts";
  */
 
 const requestId = z.string().min(1).max(64);
+const words = z.string().max(8192);
+
+/** The question card's state: options picked and words typed per question, the one on screen. */
+export const QuestionReply = z.object({
+  interactionId: z.string().min(1),
+  picked: z.record(z.string(), z.array(words).max(64)),
+  written: z.record(z.string(), words),
+  at: z.number().int().nonnegative(),
+});
+export type QuestionReply = z.infer<typeof QuestionReply>;
 const ordinal = z.number().int().nonnegative();
 
 export const ThreadAction = z.discriminatedUnion("type", [
@@ -17,6 +28,8 @@ export const ThreadAction = z.discriminatedUnion("type", [
     /** Empty when the message carries only files. */
     text: z.string().max(100_000),
     opposite: z.boolean(),
+    /** The question card on the strip, as the person left it: the words may answer it. */
+    reply: QuestionReply.optional(),
     requestId,
   }),
   z.object({ type: z.literal("stop"), requestId }),
@@ -52,6 +65,12 @@ export const ThreadAction = z.discriminatedUnion("type", [
     ]),
     requestId,
   }),
+  /** The goal's sheet: pause, resume or clear the provider's goal where ace can. */
+  z.object({
+    type: z.literal("goal"),
+    change: z.enum(["pause", "resume", "clear"]),
+    requestId,
+  }),
   /** A settled "Worked for" log opened or closed, or asked for the rest of its steps. */
   z.object({ type: z.literal("steps.open"), ordinal, block: z.string().min(1).max(512) }),
   z.object({ type: z.literal("steps.close"), ordinal }),
@@ -63,3 +82,15 @@ export const ThreadAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("detach"), localId: z.string().min(1).max(64) }),
 ]);
 export type ThreadAction = z.infer<typeof ThreadAction>;
+
+/** The card's state as the shared question draft: typed words are the free answer's pick. */
+export function questionDraft(reply: QuestionReply): QuestionDraft {
+  const ids = new Set([...Object.keys(reply.picked), ...Object.keys(reply.written)]);
+  const picked = Object.fromEntries(
+    [...ids].map((id) => [
+      id,
+      [...(reply.picked[id] ?? []), ...(reply.written[id]?.trim() ? [otherAnswer] : [])],
+    ]),
+  );
+  return { picked, texts: reply.written, at: reply.at };
+}

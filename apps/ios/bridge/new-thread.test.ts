@@ -1,4 +1,4 @@
-import { latest, native, until } from "./test-native.ts";
+import { latest, native, until } from "./test-host.ts";
 import { createHash } from "node:crypto";
 import { afterEach, expect, test } from "vitest";
 import { ClientCore } from "@ace/client";
@@ -6,6 +6,8 @@ import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, HostId } from "@ace/protocol";
 import { PatchPump } from "./patches.ts";
 import { ComposeActions } from "./compose-actions.ts";
+import { NativeReads } from "./native-reads.ts";
+import type { NewThreadMemory } from "./new-thread.ts";
 import type { ChunkReader } from "./thread-attachments.ts";
 
 /*
@@ -28,7 +30,11 @@ afterEach(async () => {
   sent.length = 0;
 });
 
-async function connect(daemon: FakeDaemon, chunks?: ChunkReader): Promise<ComposeActions> {
+async function connect(
+  daemon: FakeDaemon,
+  chunks?: ChunkReader,
+  memory?: (owner: ClientCore) => NewThreadMemory,
+): Promise<ComposeActions> {
   let saved: string | null = null;
   const owner = new ClientCore({
     deviceId: DeviceId.parse("ios-compose-test"),
@@ -72,6 +78,7 @@ async function connect(daemon: FakeDaemon, chunks?: ChunkReader): Promise<Compos
     (text, limit) => text.slice(0, limit),
     () => Date.now(),
     chunks,
+    memory?.(owner),
   );
 }
 
@@ -354,4 +361,61 @@ test("access the provider can't express is never loosened: Send waits with the r
   expect(access.problem).toBe(
     "Cursor has nothing as strict as Read-only. Choose its access before sending.",
   );
+});
+
+test("a thread started from an issue links that issue", async () => {
+  const daemon = fixture();
+  const compose = await connect(daemon);
+  const agents = await readyAgents(compose);
+  const start = agents.start as { provider: string; model: string } | null;
+  const issue = {
+    repository: { forge: "github", host: "github.com", owner: "acme", name: "ace" },
+    number: 240,
+  };
+  compose.compose({
+    kind: "create",
+    commandId: "draft-issue-0001",
+    workspaceId: "ace",
+    provider: start?.provider,
+    model: start?.model,
+    mode: "local",
+    text: "Work on GitHub issue #240: Sidebar loses its scroll position",
+    issue,
+  });
+  await until(() => latest("admission", "draft-issue-0001"));
+  expect(createPayloads().at(-1)).toMatchObject({
+    type: "thread.create",
+    workspaceId: "ace",
+    issue,
+  });
+});
+
+test("New thread opens again on its last projects and agents, and keeps them when the reread fails", async () => {
+  const daemon = fixture();
+  const compose = await connect(
+    daemon,
+    undefined,
+    (owner) => new NativeReads(owner, pump, { now: () => Date.now(), schedule: () => () => {} }),
+  );
+  compose.compose({ kind: "open" });
+  const projects = await until(
+    () => latest("compose.projects")?.state === "ready" && latest("compose.projects"),
+  );
+  const agents = await until(
+    () => latest("compose.agents")?.state === "ready" && latest("compose.agents"),
+  );
+  compose.compose({ kind: "close" });
+  daemon.failRequests("workspace.request", "providers.request");
+  const reopened = native.frames.length;
+  compose.compose({ kind: "open" });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const since = native.frames.slice(reopened);
+  expect(since.some((frame) => frame.type === "compose.projects" && frame.state !== "ready")).toBe(
+    false,
+  );
+  expect(since.some((frame) => frame.type === "compose.agents" && frame.state !== "ready")).toBe(
+    false,
+  );
+  expect(latest("compose.projects")?.projects).toEqual(projects.projects);
+  expect(latest("compose.agents")?.providers).toEqual(agents.providers);
 });

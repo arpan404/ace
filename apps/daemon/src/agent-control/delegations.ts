@@ -129,6 +129,7 @@ export class DelegationService {
       clock: deps.clock,
       authorize: (caller, target, write) => this.authorize(caller, target, write),
       delivered: (caller, outcome) => this.delivered(caller, outcome),
+      resuming: (id) => deps.engine.resuming(id),
     });
     // Recovery visits indexed current work, never transcript history or old receipts.
     for (const participant of this.journal.activeParticipants()) {
@@ -568,9 +569,18 @@ export class DelegationService {
       this.showQueued(current);
     });
   }
-  /** Children holding the parent's run slots. */
+  /**
+   * Children holding the parent's run slots. A child a restart or provider exit left held for
+   * someone runs nothing, so it gives its slot to the next queued child; once resumed it counts
+   * again, even past the policy, like any revived child.
+   */
   private running(parent: ThreadId): number {
-    return this.journal.running(parent);
+    const running = this.journal.running(parent);
+    if (!running) return 0;
+    const held = this.journal
+      .liveChildren(parent)
+      .filter((edge) => edge.phase === "running" && this.deps.engine.heldInterrupted(edge.childId));
+    return running - held.length;
   }
   /** A queued child reads as waiting, so its parent never looks done while it waits. */
   private showQueued(edge: DelegationRecord): void {

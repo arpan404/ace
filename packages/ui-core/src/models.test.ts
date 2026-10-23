@@ -15,6 +15,7 @@ import {
   optionEffort,
   threadEffortControl,
   effortLabel,
+  effortShortLabel,
   recordedChoice,
 } from "./models.ts";
 import { threadSwitchRoute } from "./model-switch-route.ts";
@@ -378,6 +379,16 @@ test("effort levels read as words people use, whatever the provider calls them",
     "Minimal",
   ]);
   expect(effortLabel("very_deep")).toBe("Very deep");
+});
+
+test("a compact model chip shortens only the long effort names", () => {
+  expect(["minimal", "medium", "high", "xhigh", "max"].map(effortShortLabel)).toEqual([
+    "Min",
+    "Med",
+    "High",
+    "XHigh",
+    "Max",
+  ]);
 });
 
 test("offline, a thread's model reads from its own record, claiming no account or usage", () => {

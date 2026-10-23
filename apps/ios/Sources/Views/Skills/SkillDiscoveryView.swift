@@ -15,31 +15,35 @@ struct SkillDiscoveryView: View {
     private var scope: [String] { [project, provider, model.connection] }
     var body: some View {
         List {
-            Section {
-                Picker("Project", selection: $project) { ForEach(projects) { Text($0.name).tag($0.id) } }
-                Picker("Coding agent", selection: $provider) { ForEach(ProviderLabels.ids, id: \.self) { Text($0.capitalized).tag($0) } }
+            Group {
+                Section {
+                    Picker("Project", selection: $project) { ForEach(projects) { Text($0.name).tag($0.id) } }
+                    Picker("Coding agent", selection: $provider) { ForEach(ProviderLabels.ids, id: \.self) { Text($0.capitalized).tag($0) } }
+                }
+                ForEach(entries.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.description.localizedCaseInsensitiveContains(query) }) { entry in
+                    NavigationLink {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: AceTheme.Spacing.lg) {
+                                MarkdownView(text: entry.description)
+                                Text("Use this entry from a conversation's Skills and commands menu.").foregroundStyle(AceTheme.Colours.mutedForeground)
+                            }.padding(AceTheme.Spacing.lg)
+                        }.navigationTitle(entry.title ?? entry.name).navigationBarTitleDisplayMode(.inline)
+                    } label: {
+                        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                            LabeledContent(entry.title ?? entry.name, value: entry.kind.capitalized)
+                            Text(entry.description).lineLimit(3).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        }
+                    }.accessibilityIdentifier("skills.entry.\(entry.id)")
+                }
+                if loading { ProgressView("Reading CLI catalog…") }
+                if stale { Text("Showing cached entries. Refresh when the machine is ready.").foregroundStyle(AceTheme.Colours.mutedForeground) }
+                ServiceProblem(message: problem)
+                if problem != nil { Button("Retry") { Task { if project.isEmpty { await readProjects() }; await read() } } }
+                if loaded && entries.isEmpty && problem == nil { ContentUnavailableView("No entries for this agent", systemImage: "book", description: Text("Choose another coding agent or project.")) }
             }
-            ForEach(entries.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.description.localizedCaseInsensitiveContains(query) }) { entry in
-                NavigationLink {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: AceTheme.Spacing.lg) {
-                            MarkdownView(text: entry.description)
-                            Text("Use this entry from a conversation's Skills and commands menu.").foregroundStyle(AceTheme.Colours.mutedForeground)
-                        }.padding(AceTheme.Spacing.lg)
-                    }.navigationTitle(entry.title ?? entry.name).navigationBarTitleDisplayMode(.inline)
-                } label: {
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                        LabeledContent(entry.title ?? entry.name, value: entry.kind.capitalized)
-                        Text(entry.description).lineLimit(3).foregroundStyle(AceTheme.Colours.mutedForeground)
-                    }
-                }.accessibilityIdentifier("skills.entry.\(entry.id)")
-            }
-            if loading { ProgressView("Reading CLI catalog…") }
-            if stale { Text("Showing cached entries. Refresh when the machine is ready.").foregroundStyle(AceTheme.Colours.mutedForeground) }
-            ServiceProblem(message: problem)
-            if problem != nil { Button("Retry") { Task { if project.isEmpty { await readProjects() }; await read() } } }
-            if loaded && entries.isEmpty && problem == nil { ContentUnavailableView("No entries for this agent", systemImage: "book", description: Text("Choose another coding agent or project.")) }
+            .insetRowBackground()
         }
+        .insetGroupedList()
         .searchable(text: $query, prompt: "Search skills and commands")
         .navigationTitle("Available CLI skills").navigationBarTitleDisplayMode(.inline)
         .task(id: model.connection) { if model.connection == "ready" { await readProjects() } }

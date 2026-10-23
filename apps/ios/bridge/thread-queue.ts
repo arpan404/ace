@@ -25,6 +25,7 @@ export class QueueFollower {
   readonly #threadId: ThreadId;
   readonly #signal: AbortSignal;
   readonly #put: Put;
+  readonly #counted: (count: number) => void;
   #page: QueuePage | undefined;
   #reading: number | undefined;
 
@@ -34,12 +35,14 @@ export class QueueFollower {
     threadId: ThreadId,
     signal: AbortSignal,
     put: Put,
+    counted: (count: number) => void = () => {},
   ) {
     this.#client = client;
     this.#store = store;
     this.#threadId = threadId;
     this.#signal = signal;
     this.#put = put;
+    this.#counted = counted;
   }
 
   /** The reader changed: read again when the queue's revision moved, else reword the line. */
@@ -94,6 +97,7 @@ export class QueueFollower {
 
   async #read(revision: number): Promise<void> {
     this.#reading = revision;
+    let failed = false;
     try {
       const page = await readServerQueue(
         this.#threadId,
@@ -105,17 +109,26 @@ export class QueueFollower {
       this.#page = page;
       this.#emit();
     } catch {
-      // Offline, or the queue moved while paging: the next revision reads again.
+      // Offline, or the queue moved while paging: the reader's next change reads again.
+      failed = true;
     } finally {
       if (this.#reading === revision) this.#reading = undefined;
-      // A revision that arrived during the read is read now.
+      // A revision that arrived during the read is read now. Not after a failure: a request that
+      // fails at once (before the socket is ready) would read again at once, forever, and starve
+      // everything else on the JavaScript thread, the socket's own handshake included.
       const latest = this.#store.queue?.revision;
-      if (!this.#signal.aborted && latest !== undefined && latest !== this.#page?.revision)
+      if (
+        !failed &&
+        !this.#signal.aborted &&
+        latest !== undefined &&
+        latest !== this.#page?.revision
+      )
         this.update();
     }
   }
 
   #emit(): void {
+    this.#counted(this.#page?.messages.length ?? 0);
     this.#put("queue", () => {
       const page = this.#page;
       const thread = this.#store.thread;

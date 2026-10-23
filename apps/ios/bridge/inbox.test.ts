@@ -1,31 +1,31 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-const { pumpFrames, pumpTimers } = vi.hoisted(() => {
-  let next = 0;
+const { pumpFrames, pumpTimers } = await vi.hoisted(async () => {
+  const { createNodeHost } = await import("@ace/native-host/node");
   const frames: Record<string, unknown>[][] = [];
   const timers = new Map<string, () => void>();
+  const host = createNodeHost({
+    now: () => 0,
+    emit: (frame) => {
+      frames.push(JSON.parse(frame) as Record<string, unknown>[]);
+    },
+  });
   Object.assign(globalThis, {
     aceHost: {
-      now: () => 0,
-      uuid: () => `id-${++next}`,
-      previewHead: (text: string, limit: number) => text.slice(0, limit),
-      previewTail: (text: string, limit: number) => text.slice(-limit),
-      emit: (frame: string) => {
-        frames.push(JSON.parse(frame) as Record<string, unknown>[]);
-      },
+      ...host,
+      // The tests run the pump's timers by hand.
       timer: (id: string, _delay: number, callback: () => void) => {
         timers.set(id, callback);
       },
       cancelTimer: (id: string) => {
         timers.delete(id);
       },
-      utf8Base64: (text: string) => Buffer.from(text, "utf8").toString("base64"),
     },
   });
   return { pumpFrames: frames, pumpTimers: timers };
 });
 
-import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
+import { CommandId, DeviceId, InteractionRequest, ThreadId } from "@ace/protocol";
 import { Client } from "@ace/client";
 import { FakeDaemon, facts } from "@ace/fake-daemon";
 import { followInbox, inboxAction, type InboxClock } from "./inbox.ts";
@@ -220,6 +220,100 @@ describe("inbox snooze expiry", () => {
   });
 });
 
+describe("inbox attention", () => {
+  type Look = {
+    level: string;
+    word: string | null;
+    tone: string;
+    muted: boolean;
+    glyph: string | null;
+  };
+  const look = (sink: RecordingSink, id: string) =>
+    (sink.read(`inbox:${id}`) as { row: { look: Look } } | undefined)?.row.look;
+
+  test("only the row asking for the person is loud; working recedes and a seen result shows its age", async () => {
+    const { sink } = await following((daemon) => {
+      finished(daemon, "notes", "Notes");
+      daemon.createThread({ id: "busy", workspaceId: "ace", title: "Busy", provider: "codex" });
+      daemon.apply("busy", [facts.rootAgent("codex"), facts.turn("root")]);
+      daemon.createThread({ id: "asks", workspaceId: "ace", title: "Asks", provider: "claude" });
+      daemon.apply("asks", [
+        facts.rootAgent("claude"),
+        facts.turn("root"),
+        {
+          type: "interaction.opened",
+          agent: "root",
+          interaction: "ask",
+          blocking: true,
+          request: InteractionRequest.parse({
+            kind: "approval",
+            title: "Run the tests",
+            options: [{ id: "allow", label: "Allow", kind: "allow_once" }],
+          }),
+        },
+      ]);
+    });
+    await until(() => look(sink, "asks")?.level === "needs-you", "the request");
+    expect(look(sink, "asks")).toEqual({
+      level: "needs-you",
+      word: "Approve",
+      tone: "needs-you",
+      muted: false,
+      glyph: "needs-you",
+      since: null,
+      settled: false,
+      subagents: 0,
+    });
+    await until(() => look(sink, "busy")?.level === "active", "the working row");
+    expect(look(sink, "busy")).toMatchObject({
+      word: "Working",
+      tone: "working",
+      muted: true,
+      glyph: "working",
+    });
+    // Finished before the phone started following: read, so it claims no word, only its age.
+    expect(look(sink, "notes")).toMatchObject({
+      level: "quiet",
+      word: null,
+      muted: true,
+      glyph: null,
+    });
+  });
+});
+
+const account = (sink: RecordingSink, id: string) =>
+  (sink.read(`inbox:${id}`) as { row: { account: string | null } } | undefined)?.row.account;
+const execution = (instanceId: string) => ({
+  provider: "codex" as const,
+  model: "gpt-5.5",
+  instanceId,
+  options: {},
+});
+
+describe("inbox provider accounts", () => {
+  test("a row on one of several accounts wears that account's mark; the CLI's own login stays plain", async () => {
+    const { sink } = await following((daemon) => {
+      daemon.createThread({
+        id: "team",
+        workspaceId: "ace",
+        title: "Team",
+        provider: "codex",
+        execution: execution("codex-team"),
+      });
+      daemon.createThread({
+        id: "plain",
+        workspaceId: "ace",
+        title: "Plain",
+        provider: "codex",
+        execution: execution("codex-cli-default"),
+      });
+    });
+    await until(() => account(sink, "team") != null, "the account bubble");
+    expect(account(sink, "team")).toBe("T");
+    expect(account(sink, "plain")).toBeNull();
+  });
+});
+
 describe("inbox settling", () => {
   test("settling a finished thread moves it to Settled, and unsettling brings it back to Done", async () => {
     const { client, sink } = await following((daemon) => finished(daemon, "notes", "Notes"));
@@ -233,6 +327,98 @@ describe("inbox settling", () => {
     inboxAction(client, { kind: "unsettle", threadId: "notes" }, "unsettle-1", sink);
     await until(() => groups(sink).done?.includes("notes") === true, "unsettled");
     expect(groups(sink).settled).toBeUndefined();
+  });
+});
+
+describe("inbox rows on the phone", () => {
+  test("a thread leaving the list takes only its own row; the phone never blanks the rest", async () => {
+    pumpFrames.length = 0;
+    pumpTimers.clear();
+    const { daemon, client } = sheetFixture();
+    closers.push(() => client.close());
+    finished(daemon, "keep", "Keep");
+    finished(daemon, "leave", "Leave");
+    // More rows than one bounded frame holds, so a reset could never refill them at once.
+    for (let filler = 0; filler < 35; filler++)
+      finished(daemon, `filler-${filler}`, `Filler ${filler}`);
+    await client.start();
+    const pump = new PatchPump();
+    closers.push(followInbox(client, "mac", pump, new TestClock()));
+
+    // The phone applies each delivered frame the way ClientModel does.
+    const phone = new Map<string, unknown>();
+    let applied = 0;
+    let keepLost = false;
+    const sync = () => {
+      for (const frame of pumpFrames.slice(applied))
+        for (const patch of frame as { type?: string; id?: string; row?: unknown }[]) {
+          if (patch.type === "inbox.reset") phone.clear();
+          if (patch.type === "inbox.row" && patch.id !== undefined)
+            if (patch.row) phone.set(patch.id, patch.row);
+            else phone.delete(patch.id);
+        }
+      applied = pumpFrames.length;
+      return true;
+    };
+    await drivePumpUntil(pump, () => sync() && phone.has("leave") && phone.has("keep"), "listed");
+    const watch = () => {
+      sync();
+      if (!phone.has("keep")) keepLost = true;
+    };
+
+    inboxAction(client, { kind: "archive", threadId: "leave" }, "archive-1", pump);
+    await drivePumpUntil(
+      pump,
+      () => {
+        watch();
+        return !phone.has("leave");
+      },
+      "archived",
+    );
+    expect(keepLost).toBe(false);
+    expect(phone.has("filler-0")).toBe(true);
+  });
+});
+
+describe("inbox traffic", () => {
+  test("one thread starting work among many re-sends only that thread's row", async () => {
+    const { daemon, sink } = await following((seed) => {
+      for (let index = 0; index < 40; index++) finished(seed, `busy-${index}`, `Busy ${index}`);
+    });
+    await until(() => status(sink, "busy-7") !== undefined, "listed");
+    const written: string[] = [];
+    const put = sink.put.bind(sink);
+    sink.put = (key, read) => {
+      written.push(key);
+      put(key, read);
+    };
+    daemon.apply("busy-7", [
+      { type: "turn.started", agent: "root", nativeTurnId: "next", trigger: "user" },
+    ]);
+    await until(() => status(sink, "busy-7")?.label === "Working", "working");
+    const rows = new Set(
+      written.filter((key) => key.startsWith("inbox:") && key !== "inbox:sections"),
+    );
+    expect([...rows]).toEqual(["inbox:busy-7"]);
+  });
+
+  test("a thread joining the list sends its own row without re-sending the others", async () => {
+    const { daemon, sink } = await following((seed) => {
+      for (let index = 0; index < 40; index++) finished(seed, `old-${index}`, `Old ${index}`);
+    });
+    await until(() => status(sink, "old-0") !== undefined, "listed");
+    const written: string[] = [];
+    const put = sink.put.bind(sink);
+    sink.put = (key, read) => {
+      written.push(key);
+      put(key, read);
+    };
+    finished(daemon, "new", "New");
+    await until(() => status(sink, "new") !== undefined, "joined");
+    const rows = new Set(
+      written.filter((key) => key.startsWith("inbox:") && key !== "inbox:sections"),
+    );
+    expect([...rows]).toEqual(["inbox:new"]);
   });
 });
 
