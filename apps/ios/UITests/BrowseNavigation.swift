@@ -21,13 +21,18 @@ extension XCUIApplication {
     /// Drags the list without letting it coast until `element` sits clear of the floating header
     /// and the tab bar. A swipe coasts on, and a tap made before it stops lands on whichever row
     /// slid under the finger.
+    /// The drag runs down the element's own column: beside an iPad's open thread the list is not
+    /// in the middle of the window.
     @MainActor func bringToMiddle(_ element: XCUIElement, attempts: Int = 30) {
-        let lower = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.72))
-        let upper = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.38))
         for attempt in 0..<attempts {
-            // A row the lazy list hasn't loaded has no frame to read yet.
+            // A row the lazy list hasn't loaded has no frame to read yet; its list is the one
+            // under the inbox's own Settings button.
             let exists = element.exists
             let frame = exists ? element.frame : .zero
+            let column = exists ? frame : buttons["inbox.settings"].exists ? buttons["inbox.settings"].frame : self.frame
+            let x = self.frame.width > 0 ? min(max(column.midX / self.frame.width, 0.05), 0.95) : 0.5
+            let lower = coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.72))
+            let upper = coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.38))
             let visible = exists && frame.minY > self.frame.height * 0.2 && frame.maxY < self.frame.height * 0.82
             if visible && element.isHittable { return }
             // Above: drag down. Below: drag up. Not loaded yet: look further down the list first,
