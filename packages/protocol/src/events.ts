@@ -2,7 +2,12 @@ import { ProviderGoal } from "./goal.ts";
 import { PermissionState } from "./permissions.ts";
 import { RunClientUpdated } from "./run-client.ts";
 import { ThreadClientUpdated } from "./thread-client.ts";
-import { ThreadLineage, ExecutionSelection, ThreadSwitch } from "./thread-transitions.ts";
+import {
+  ThreadLineage,
+  ExecutionSelection,
+  ThreadSwitch,
+  QueuedLaunch,
+} from "./thread-transitions.ts";
 import { AcpIdentity, AcpSessionSupport } from "./agent-registry.ts";
 import { WorkspaceFilesChanged } from "./files.ts";
 import { z } from "zod";
@@ -54,6 +59,8 @@ export const EventPayload = z.discriminatedUnion("type", [
     provider: ExecutionSelection.shape.provider.optional(),
     lineage: ThreadLineage.optional(),
     delegatedBy: Thread.shape.delegatedBy,
+    /** The queued launch began, or never will: null clears it. */
+    queuedLaunch: QueuedLaunch.nullable().optional(),
     execution: ExecutionSelection.optional(),
     switch: ThreadSwitch.optional(),
     effectiveCapabilities: Capabilities.optional(),
