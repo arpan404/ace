@@ -30,17 +30,16 @@ const SET_DACL_PS = [
   "$ErrorActionPreference='Stop'",
   "$p=$env:ACE_PRIVATE_TARGET",
   "$x=$env:ACE_PRIVATE_EXTRA",
-  "$a=Get-Acl -LiteralPath $p",
+  "$a=[System.IO.File]::GetAccessControl($p)",
   "$m=[System.Security.Principal.WindowsIdentity]::GetCurrent().User",
   "$a.SetOwner($m)",
   "$a.SetAccessRuleProtection($true,$false)",
   "foreach($r in @($a.Access)){[void]$a.RemoveAccessRuleAll($r)}",
-  "$o=New-Object System.Security.AccessControl.FileSystemAccessRule($m,'FullControl','Allow')",
+  "$o=[System.Security.AccessControl.FileSystemAccessRule]::new($m,'FullControl','Allow')",
   "$a.AddAccessRule($o)",
-  "$everyone=New-Object System.Security.Principal.SecurityIdentifier('S-1-1-0')",
-  "if($x -eq 'read'){$e=New-Object System.Security.AccessControl.FileSystemAccessRule($everyone,'ReadAndExecute','Allow');$a.AddAccessRule($e)}",
-  "elseif($x -eq 'full'){$e=New-Object System.Security.AccessControl.FileSystemAccessRule($everyone,'FullControl','Allow');$a.AddAccessRule($e)}",
-  "Set-Acl -LiteralPath $p -AclObject $a",
+  "$everyone=[System.Security.Principal.SecurityIdentifier]::new('S-1-1-0')",
+  "if($x -eq 'read'){$e=[System.Security.AccessControl.FileSystemAccessRule]::new($everyone,'ReadAndExecute','Allow');$a.AddAccessRule($e)} elseif($x -eq 'full'){$e=[System.Security.AccessControl.FileSystemAccessRule]::new($everyone,'FullControl','Allow');$a.AddAccessRule($e)}",
+  "[System.IO.File]::SetAccessControl($p,$a)",
 ].join(";");
 
 async function secureOwnerOnly(target: string, extra = "none"): Promise<void> {
