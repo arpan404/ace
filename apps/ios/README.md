@@ -102,18 +102,18 @@ TEST_RUNNER_ACE_IOS_SPIKE_PORT=9882 TEST_RUNNER_ACE_IOS_SPIKE_BUSY_PORT=9883 \
 
 Medians on the iOS 26 simulator (Perf, 2026-10-22), with the budget in brackets:
 
-| Flow                                                                        | Measured                                 | Budget               |
-| --------------------------------------------------------------------------- | ---------------------------------------- | -------------------- |
-| Launch to inbox rows on screen (XCUITest launch)                            | 1,157 ms                                 | 1,700 ms             |
-| Busy inbox (300 threads, one changing every 200 ms), per 5 s                | 50 patches, 614 KB, 15 ms main thread    | 400, 800 KB, 40 ms   |
-| Open the long live thread (650,000 streamed deltas) cold: ready, first rows | 317 ms, 387 ms                           | 700, 800 ms          |
-| Reopen it (kept copy): ready                                                | 280 ms                                   | 500 ms               |
-| Streaming 20 deltas a second into it, per 5 s                               | 5.4 ms main thread, 95 ms script, 7.4 KB | 30 ms, 250 ms, 40 KB |
-| Footprint over a minute of streaming                                        | flat (−1 MiB)                            | +8 MiB               |
-| Scrolling its transcript: late-frame time during the swipes only            | 17.8 ms per s                            | 60 ms per s          |
-| Agents and Changes sheets, asked to rows applied                            | 140, 128 ms                              | 350 ms               |
-| Model sheet, tap to shown (mostly XCUITest waiting)                         | 1,940 ms                                 | 3,000 ms             |
-| Typing 33 characters with the long thread behind (XCUITest's own pace)      | 830 ms                                   | 1,800 ms             |
+| Flow | Measured | Budget |
+|---|---|---|
+| Launch to inbox rows on screen (XCUITest launch) | 1,157 ms | 1,700 ms |
+| Busy inbox (300 threads, one changing every 200 ms), per 5 s | 50 patches, 614 KB, 15 ms main thread | 400, 800 KB, 40 ms |
+| Open the long live thread (650,000 streamed deltas) cold: ready, first rows | 317 ms, 387 ms | 700, 800 ms |
+| Reopen it (kept copy): ready | 280 ms | 500 ms |
+| Streaming 20 deltas a second into it, per 5 s | 5.4 ms main thread, 95 ms script, 7.4 KB | 30 ms, 250 ms, 40 KB |
+| Footprint over a minute of streaming | flat (−1 MiB) | +8 MiB |
+| Scrolling its transcript: late-frame time during the swipes only | 17.8 ms per s | 60 ms per s |
+| Agents and Changes sheets, asked to rows applied | 140, 128 ms | 350 ms |
+| Model sheet, tap to shown (mostly XCUITest waiting) | 1,940 ms | 3,000 ms |
+| Typing 33 characters with the long thread behind (XCUITest's own pace) | 830 ms | 1,800 ms |
 
 Budgets sit 1.5 to 5 times above the medians so a busy Mac doesn't fail them and a real
 regression does. Lower one when the app gets faster; never raise one without a measured reason.
