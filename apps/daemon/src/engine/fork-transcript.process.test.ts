@@ -1,5 +1,7 @@
 import { afterEach, expect, test } from "vitest";
 import type { Item, ThreadId } from "@ace/protocol";
+import { trimmedText } from "@ace/handoff";
+import { maxInheritedTextBytes } from "./fork-history.ts";
 import { transitionHarness } from "./transition-test-support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -22,6 +24,7 @@ function messages(h: ReturnType<typeof setup>, id: ThreadId) {
             role: item.role,
             text: item.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(""),
             inherited: item.inherited,
+            at: item.createdAt,
             // A long text reads as its preview; its stream holds the whole of it.
             length: item.parts.reduce(
               (sum, part) =>
@@ -90,6 +93,19 @@ test("a long answer is copied whole, not as its preview", async () => {
   expect(copied.map((message) => message.length)).toContain(long.length);
 });
 
+test("a copy keeps when it was said; an answer past the copy's budget is cut and says so", async () => {
+  const h = setup();
+  const source = await h.create();
+  const said = messages(h, source)[0];
+  await send(h, source, "y".repeat(40_000));
+  const fork = await h.fork(source);
+  const copied = messages(h, fork).filter((message) => message.inherited);
+  expect(copied[0]?.inherited?.at).toBe(said?.at);
+  // Both the long ask and its answer are cut to the budget, then say the rest is in the source.
+  const cut = maxInheritedTextBytes / 2 + trimmedText.length;
+  expect(copied.filter((message) => message.length === cut)).toHaveLength(2);
+});
+
 test("a native fork whose provider brings its turns along copies nothing", async () => {
   const h = setup({ native: true, forkTranscript: true });
   const source = await h.create();
@@ -108,4 +124,72 @@ test("a native fork whose provider keeps its turns private still shows them", as
       .filter((message) => message.inherited)
       .map((m) => m.text),
   ).toEqual(["source history", expect.stringContaining("answer: source history")]);
+});
+
+test("a native fork that leaves for another provider before it opens still shows its history", async () => {
+  const h = setup({
+    native: true,
+    forkTranscript: true,
+    beforeFork: async () => {
+      throw new Error("Native fork unavailable");
+    },
+  });
+  const source = await h.create();
+  const fork = await h.fork(source);
+  expect(messages(h, fork).filter((message) => message.inherited)).toEqual([]);
+  const result = h.command({
+    type: "thread.switch",
+    threadId: fork,
+    selection: { provider: "claude", model: "model-a" },
+  });
+  expect(result.ok).toBe(true);
+  await h.engine.flush();
+  expect(
+    messages(h, fork)
+      .filter((message) => message.inherited)
+      .map((m) => m.text),
+  ).toEqual(["source history", expect.stringContaining("answer: source history")]);
+});
+
+test("turns a provider's native fork brings along read as the source's history", async () => {
+  const h = setup({
+    native: true,
+    forkTranscript: true,
+    forkReplay: [
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: "replayed-ask",
+        draft: {
+          type: "message",
+          role: "user",
+          complete: true,
+          parts: [{ type: "text", text: "old ask" }],
+        },
+      },
+    ],
+  });
+  const source = await h.create();
+  const fork = await h.fork(source);
+  const replayed = messages(h, fork).find((message) => message.text === "old ask");
+  expect(replayed?.inherited).toEqual({ threadId: source });
+  // The fork's own answer, after it opened, is its own.
+  expect(messages(h, fork).at(-1)?.inherited).toBeUndefined();
+});
+
+test("a merge can't cite what the fork copied from its source", async () => {
+  const h = setup();
+  const source = await h.create();
+  const fork = await h.fork(source);
+  const copy = h.store
+    .readItemPage(fork, Number.MAX_SAFE_INTEGER, 200)
+    .items.find((item) => item.type === "message" && item.inherited && item.role === "assistant");
+  if (!copy) throw new Error("No copy");
+  const result = h.command({
+    type: "thread.merge",
+    threadId: fork,
+    summary: "Bring the source's answer back",
+    citations: [{ threadId: fork, itemId: copy.id }],
+  });
+  expect(result).toMatchObject({ ok: false, error: "Citation is the source's own message" });
 });

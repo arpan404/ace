@@ -106,7 +106,7 @@ export function acceptTransition(
           !thread.continuation &&
           sourceNativeId &&
           nativePoint
-            ? { nativeSessionId: sourceNativeId, point: nativePoint }
+            ? { nativeSessionId: sourceNativeId, point: nativePoint, inherited: true as const }
             : undefined;
         const portable = native
           ? undefined

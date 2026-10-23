@@ -9,6 +9,7 @@ import type { NativeFork } from "./transition-state.ts";
 import type { z } from "zod";
 import type { Sessions } from "./sessions.ts";
 import { validateCitations } from "./transition-history.ts";
+import { lateForkHistoryFacts } from "./fork-history.ts";
 import { abandonReturn, planCrossProvider, type CrossProviderPlan } from "./provider-return.ts";
 import { routeAccountChange } from "./account-route.ts";
 import { admitTransitionMetadata } from "./transition-state.ts";
@@ -172,6 +173,13 @@ export class ThreadTransitions {
     let nativeSessionId = metadata.nativeSessionId;
     let migratedFork: z.infer<typeof NativeFork> | undefined;
     let plan: CrossProviderPlan | undefined;
+    // A native fork whose provider would bring the source's turns along, leaving before it
+    // opened: copy them now, so its transcript and the next provider's handoff both hold them.
+    const lateHistory =
+      !!previous.fork &&
+      !!this.registry.get(current.provider, backend).capabilities.forkTranscript &&
+      (crossProvider || crossAccount);
+    if (lateHistory && crossProvider) actor.apply(lateForkHistoryFacts(this.repo, actor.id));
     if (crossProvider)
       plan = planCrossProvider(this.repo, actor.id, {
         from: current,
@@ -195,7 +203,10 @@ export class ThreadTransitions {
       if (continuation.kind === "copied") {
         nativeSessionId = continuation.nativeSessionId;
         migratedFork = continuation.fork;
-      } else if (continuation.kind === "handoff") plan = continuation.plan;
+      } else if (continuation.kind === "handoff") {
+        plan = continuation.plan;
+        if (lateHistory) actor.apply(lateForkHistoryFacts(this.repo, actor.id));
+      }
     } else if (!crossProvider && actor.session?.configure) {
       try {
         await actor.session.configure(selection);

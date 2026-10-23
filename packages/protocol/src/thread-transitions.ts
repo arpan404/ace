@@ -65,10 +65,15 @@ export const HandoffModel = z.object({
 });
 export type HandoffModel = z.infer<typeof HandoffModel>;
 /**
- * Where a fork's copy of an earlier message came from: the item in the thread it was forked
- * from, as it read at the fork point.
+ * A message a fork opens on that belongs to the thread it was forked from: ace's copy of the
+ * source `itemId` as it read at the fork point, or (without `itemId`) a turn the provider's own
+ * fork brought along. `at` is when it was said in the source.
  */
-export const InheritedItem = z.object({ threadId: ThreadId, itemId: ItemId });
+export const InheritedItem = z.object({
+  threadId: ThreadId,
+  itemId: ItemId.optional(),
+  at: Timestamp.optional(),
+});
 export type InheritedItem = z.infer<typeof InheritedItem>;
 export const MergedForkContext = z.object({
   sourceThreadId: ThreadId,

@@ -6,6 +6,7 @@ import { useItem, usePendingSends } from "@ace/client-react";
 import type { ContentPart } from "@ace/protocol";
 import {
   formatClock,
+  saidAt,
   messageOrigin,
   withoutPortableHandoff,
   sanitizeUserText,
@@ -136,10 +137,10 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
         )}
         <div className={cn(messageActions("bubble"), "shrink-0")}>
           <time
-            dateTime={new Date(message.createdAt).toISOString()}
+            dateTime={new Date(saidAt(message)).toISOString()}
             className="pr-1 text-xs text-subtle-foreground"
           >
-            {formatClock(message.createdAt)}
+            {formatClock(saidAt(message))}
           </time>
           {readable && (
             <IconButton

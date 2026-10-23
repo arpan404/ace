@@ -33,7 +33,6 @@ import {
 import {
   NotificationMessage,
   type Notification,
-  AgentId,
   CommandId,
   DeviceId,
   EventId,
@@ -86,7 +85,7 @@ import {
 import { holdOnLimit, isQueueCommand, queueCommand, queuePage } from "./queue-commands.ts";
 import {
   forkPointError,
-  inheritedFacts,
+  forkOpening,
   mergeFacts,
   mergeForkError,
   switchEvents,
@@ -1143,17 +1142,12 @@ export class FakeDaemon implements Host {
           title: payload.title ?? `${from.title} (fork)`,
           input: [{ type: "text", text: payload.input }],
         });
+        const opening = forkOpening(source, payload.point, provider);
         this.createThread({
           ...started.thread,
           ...(from.details ? { details: from.details } : {}),
           execution: payload.selection ?? { provider, options: {} },
-          lineage: {
-            parentThreadId: from.id,
-            parentAgentId: AgentId.parse(source.view.thread.rootAgentId ?? `${from.id}.root`),
-            point: payload.point,
-            mode: provider === from.provider ? "native" : "portable",
-            lossy: provider !== from.provider,
-          },
+          lineage: opening.lineage,
         });
         if (attachments.length)
           this.servicesWire.context.inherit(
@@ -1170,11 +1164,7 @@ export class FakeDaemon implements Host {
           )
             fact.draft.attachments = attachments;
         const [root, ...rest] = started.facts;
-        this.apply(id, [
-          ...(root ? [root] : []),
-          ...inheritedFacts(source, payload.point),
-          ...rest,
-        ]);
+        this.apply(id, [...(root ? [root] : []), ...opening.facts, ...rest]);
         return { commandId, ok: true, forkThreadId: ThreadId.parse(id) };
       }
       case "thread.merge": {

@@ -1,6 +1,6 @@
 import type { ThreadReader } from "@ace/client";
 import { useAgent, useItem, useThread } from "@ace/client-react";
-import { agentName, formatClock } from "@ace/ui-core";
+import { agentName, formatClock, saidAt } from "@ace/ui-core";
 import { GitForkIcon } from "@phosphor-icons/react";
 import { lazy, Suspense, useCallback } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -78,10 +78,10 @@ export function AssistantMessage(props: { threadId: string; itemId: string; betw
       {!props.between && (item.complete || (answer.truncated && !streaming)) && (
         <div className={cn(messageActions("answer"), "absolute top-full left-0")}>
           <time
-            dateTime={new Date(item.createdAt).toISOString()}
+            dateTime={new Date(saidAt(item)).toISOString()}
             className="text-xs text-subtle-foreground"
           >
-            {formatClock(item.createdAt)}
+            {formatClock(saidAt(item))}
           </time>
           <Suspense fallback={null}>
             <CopyAnswer

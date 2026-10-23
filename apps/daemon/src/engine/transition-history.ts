@@ -124,8 +124,14 @@ export function validateCitations(
   itemIds: readonly string[],
 ): void {
   repo.store.atomic((db) => {
-    const find = db.prepare("SELECT id FROM item_heads WHERE thread_id=? AND id=?");
-    for (const itemId of itemIds)
-      if (!find.get(id, itemId)) throw new Error("Citation does not belong to fork");
+    // What the fork opened on is the source's own: citing it would merge the source into itself.
+    const find = db.prepare(
+      "SELECT json_extract(item,'$.inherited') IS NOT NULL AS inherited FROM items WHERE thread_id=? AND id=?",
+    );
+    for (const itemId of itemIds) {
+      const row = find.get(id, itemId);
+      if (!row) throw new Error("Citation does not belong to fork");
+      if (row.inherited) throw new Error("Citation is the source's own message");
+    }
   });
 }

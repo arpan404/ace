@@ -111,14 +111,13 @@ export function createBlockReader(
               }),
       };
     const order = ownOrder?.order ?? noKeys;
-    // A fork's divider sits where its copied history ends, once its first items are loaded.
-    const forkedFrom =
-      agentId === undefined && reader.itemsBefore == null
-        ? reader.thread?.lineage?.parentThreadId
-        : undefined;
+    // A fork's divider sits where the source's history ends, once that boundary is in view.
+    const forkedFrom = agentId === undefined ? reader.thread?.lineage?.parentThreadId : undefined;
+    const fromStart = reader.itemsBefore == null;
     const fixed = [
       order,
       forkedFrom,
+      forkedFrom && fromStart,
       ownerId,
       ledger.interactionsVersion,
       ledger.tasksVersion,
@@ -229,6 +228,7 @@ export function createBlockReader(
       ? withForkMarker(built, {
           sourceThreadId: forkedFrom,
           order: reader.order,
+          fromStart,
           item: (id) => reader.item(id),
         })
       : built;

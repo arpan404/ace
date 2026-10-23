@@ -8,36 +8,51 @@ import { blockItems, type Block } from "./transcript-blocks.ts";
  * work starts at the first message ace delivered to it. Pure.
  */
 
+/** When a message was said: a fork's copy keeps its time in the source, not the copy's. */
+export function saidAt(item: Item): number {
+  return (item.type === "message" ? item.inherited?.at : undefined) ?? item.createdAt;
+}
+
 export interface ForkFacts {
   /** The thread it was forked from. */
   sourceThreadId: string;
-  /** The transcript's items, oldest first, from the thread's first item. */
+  /** The loaded items, oldest first. */
   order: readonly string[];
+  /** Whether `order` starts at the thread's first item. */
+  fromStart: boolean;
   item(id: string): Item | undefined;
 }
 
-/** The fork's first item of its own: the first message ace delivered that it didn't copy. */
-function ownStart(facts: ForkFacts): string | undefined {
-  return facts.order.find((id) => {
+const inherited = (item: Item | undefined) => item?.type === "message" && !!item.inherited;
+
+/**
+ * Where the fork's own work starts in `order`: the first message ace delivered that is not the
+ * source's, and whether the loaded items show the boundary (they start at the thread's start or
+ * hold some of the source's history before it). Reads the prefix up to it and nothing after.
+ */
+function ownStart(facts: ForkFacts): { at: number; shown: boolean } {
+  let before = facts.fromStart;
+  for (const [at, id] of facts.order.entries()) {
     const item = facts.item(id);
-    return item?.type === "message" && item.inherited === undefined && item.origin !== undefined;
-  });
+    if (inherited(item)) before = true;
+    else if (item?.type === "message" && item.origin !== undefined) return { at, shown: before };
+  }
+  return { at: -1, shown: before };
 }
 
 /**
- * `blocks` with the fork's divider before the first block showing anything from its first item
- * of its own on, or after everything while it has none yet (it waits for its first message).
+ * `blocks` with the fork's divider before the first block showing anything from its own first
+ * message on, or after everything while it has none yet (it waits for its first message). When
+ * the loaded items reach neither the thread's start nor any of the source's history, the
+ * boundary is further back and nothing is added. The source's messages only ever precede the
+ * fork's own, so a boundary in view is final.
  */
-export function withForkMarker(blocks: readonly Block[], facts: ForkFacts): Block[] {
-  const marker: Block = { kind: "forked", key: "forked", threadId: facts.sourceThreadId };
+export function withForkMarker(blocks: readonly Block[], facts: ForkFacts): readonly Block[] {
   const start = ownStart(facts);
-  const from = start === undefined ? -1 : facts.order.indexOf(start);
-  const position = new Map(facts.order.map((id, index) => [id, index]));
-  const at =
-    from < 0
-      ? -1
-      : blocks.findIndex((block) =>
-          blockItems(block).some((id) => (position.get(id) ?? -1) >= from),
-        );
+  if (!start.shown) return blocks;
+  const marker: Block = { kind: "forked", key: "forked", threadId: facts.sourceThreadId };
+  if (start.at < 0) return [...blocks, marker];
+  const own = new Set(facts.order.slice(start.at));
+  const at = blocks.findIndex((block) => blockItems(block).some((id) => own.has(id)));
   return at < 0 ? [...blocks, marker] : [...blocks.slice(0, at), marker, ...blocks.slice(at)];
 }

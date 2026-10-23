@@ -110,7 +110,9 @@ export class SearchWriter {
     } else if (
       (p.type === "item.created" || p.type === "item.updated") &&
       // An item type search has no kind for yet stays unindexed; it must never fail the append.
-      SearchKind.safeParse(p.item.type).success
+      SearchKind.safeParse(p.item.type).success &&
+      // A fork's copy of its source's message is found once, in the source.
+      !(p.item.type === "message" && p.item.inherited)
     ) {
       const detail = p.item.type === "tool_call" ? p.item.call.detail : undefined;
       const output =
