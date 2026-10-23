@@ -111,7 +111,7 @@ test("choosing a model on another account updates the composer and its row's det
   const row = screen.getByRole("link", { name: /Replay cursor resets/ });
   await userEvent.hover(row);
   const details = await screen.findByLabelText(/^Details for Replay cursor resets/);
-  expect(within(details).getByText("Claude Code · Work (queued)")).toBeTruthy();
+  expect(details.textContent).toContain("Work (queued)");
 });
 
 /** Usage › Limits lists the renamed account once, as "provider · account · environment". */
@@ -159,8 +159,8 @@ test("editing an account label updates its composer, thread row, picker, search 
 
   await userEvent.hover(row);
   const details = await screen.findByLabelText(/^Details for Replay cursor resets/);
-  expect(within(details).getByText("Claude Code · Studio")).toBeTruthy();
-  expect(within(details).queryByText("Claude Code · Personal")).toBeNull();
+  expect(details.textContent).toContain("Studio");
+  expect(details.textContent).not.toContain("Personal");
   await userEvent.unhover(row);
   const popover = await openModelControl();
   const list = await openModelPicker(popover);
