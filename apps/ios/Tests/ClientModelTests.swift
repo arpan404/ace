@@ -17,6 +17,22 @@ import Foundation
         #expect(model.thread?.items["first"] === first)
         #expect(first?.row.text == "One")
     }
+    @Test func newItemsJoinInPositionOrderWhetherTheyLandAtTheEndOrAboveIt() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("a")
+        model.receive(try frame([["type": "thread.reset", "threadId": "a", "epoch": 1],
+                                 item("b", text: "B", index: 10), item("c", text: "C", index: 20)]))
+        // Streaming adds after the end, out of order within the frame.
+        model.receive(try frame([item("e", text: "E", index: 40), item("d", text: "D", index: 30)]))
+        #expect(model.thread?.order == ["b", "c", "d", "e"])
+        // An older page lands above what is shown, and one item between.
+        model.receive(try frame([item("a", text: "A", index: 5), item("bc", text: "BC", index: 15)]))
+        #expect(model.thread?.order == ["a", "b", "bc", "c", "d", "e"])
+        // A position given before its item arrives counts once the item does.
+        model.receive(try frame([["type": "thread.position", "threadId": "a", "epoch": 1, "id": "z", "index": 1]]))
+        model.receive(try frame([item("z", text: "Z", index: 1)]))
+        #expect(model.thread?.order.first == "z")
+    }
     @Test func anOldThreadPatchCannotReplaceTheNewConversation() throws {
         let model = ClientModel(now: { 0 })
         model.open("a")

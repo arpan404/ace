@@ -14,7 +14,7 @@ struct UserMessageRow: View {
                 AttachmentChips(attachments: attachments, more: row.moreAttachments ?? 0)
                     .padding(.leading, UserBubble.inset)
             }
-            if readable { UserBubble(text: row.text, bubble: row.bubble, id: row.id) }
+            if readable { UserBubble(text: row.text, bubble: row.bubble, id: row.id).messageMenu(copyText, title: "Message") }
             MessageActions(at: row.createdAt, copy: readable ? copyText : nil, label: "Copy message")
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
@@ -110,7 +110,7 @@ private struct BubbleText: View {
                 }
             }
         }
-        .textSelection(.enabled)
+        // Copy and Select text are the bubble's long-press menu (`messageMenu`).
     }
     private var pieces: [Piece] {
         guard let segments = bubble?.segments, !segments.isEmpty else { return [.prose(AttributedString(text))] }
@@ -165,6 +165,7 @@ struct MessageActions: View {
             }
         }
         .frame(minHeight: AceTheme.Spacing.xxl)
+        .sensoryFeedback(.success, trigger: copied) { _, now in now }
         .task(id: copied) {
             guard copied else { return }
             do { try await Task.sleep(for: .seconds(1.5)); copied = false } catch { }

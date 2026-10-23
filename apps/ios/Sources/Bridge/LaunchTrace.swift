@@ -23,6 +23,7 @@ enum LaunchTrace {
     /// A one-off milestone, such as the first inbox row on screen.
     nonisolated static func mark(_ name: StaticString, _ detail: String = "") {
         signposter.emitEvent(name, "\(detail, privacy: .public)")
+        PerfProbe.record(["launch.\(name)": String(format: "%.0f", sinceStart())])
         log.notice("\(name, privacy: .public) \(String(format: "%.1f", sinceStart()), privacy: .public)ms \(detail, privacy: .public)")
     }
 

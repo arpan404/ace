@@ -1,11 +1,11 @@
 import SwiftUI
 
 /// The one row anatomy the work log's rows share (the web's `transcript-row.tsx`): a 20pt lead
-/// column, the title, an optional meta at the right; 44pt tall for touch. Its wash bleeds 8pt
-/// past the reading column, so the lead lines up with the prose above. A row that opens shows
-/// its open state as a soft wash, never a caret.
+/// column, the title, an optional meta at the right; 44pt tall for touch, its lead lined up with
+/// the prose above. A row that opens carries the disclosure caret after its title (DESIGN.md §4,
+/// "Worked for 2m ›"), turned down while open; nil marks a row that opens nothing.
 struct LogRowBox<Lead: View, Title: View, Meta: View>: View {
-    var open = false
+    var open: Bool? = nil
     @ViewBuilder var lead: () -> Lead
     @ViewBuilder var title: () -> Title
     @ViewBuilder var meta: () -> Meta
@@ -13,7 +13,11 @@ struct LogRowBox<Lead: View, Title: View, Meta: View>: View {
         HStack(spacing: AceTheme.Spacing.sm) {
             lead().foregroundStyle(AceTheme.Colours.subtleForeground)
                 .frame(minWidth: AceTheme.Spacing.xl)
-            title().frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
+                title()
+                if let open { DisclosureCaret(open: open) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             meta().aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                 .foregroundStyle(AceTheme.Colours.subtleForeground).monospacedDigit()
         }
@@ -21,22 +25,30 @@ struct LogRowBox<Lead: View, Title: View, Meta: View>: View {
         .foregroundStyle(AceTheme.Colours.mutedForeground)
         .lineLimit(1)
         .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs)
-        .padding(.horizontal, AceTheme.Spacing.sm)
-        .background(open ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
         .contentShape(Rectangle())
-        .padding(.horizontal, -AceTheme.Spacing.sm)
+    }
+}
+
+/// The disclosure caret: faint, pointing right, turned down while its row is open.
+struct DisclosureCaret: View {
+    let open: Bool
+    var body: some View {
+        AceIcon(.caretRight, size: 11, weight: .bold, relativeTo: .caption2)
+            .foregroundStyle(AceTheme.Colours.decoration)
+            .rotationEffect(.degrees(open ? 90 : 0))
+            .accessibilityHidden(true)
     }
 }
 
 extension LogRowBox where Meta == EmptyView {
-    init(open: Bool = false, @ViewBuilder lead: @escaping () -> Lead, @ViewBuilder title: @escaping () -> Title) {
+    init(open: Bool? = nil, @ViewBuilder lead: @escaping () -> Lead, @ViewBuilder title: @escaping () -> Title) {
         self.init(open: open, lead: lead, title: title, meta: { EmptyView() })
     }
 }
 
 extension LogRowBox where Lead == EmptyView, Meta == EmptyView {
     /// A plain line with no lead: "Worked for 2m 5s".
-    init(open: Bool = false, @ViewBuilder title: @escaping () -> Title) {
+    init(open: Bool? = nil, @ViewBuilder title: @escaping () -> Title) {
         self.init(open: open, lead: { EmptyView() }, title: title, meta: { EmptyView() })
     }
 }

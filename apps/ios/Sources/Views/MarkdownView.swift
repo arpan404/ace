@@ -5,6 +5,9 @@ import SwiftUI
 /// its own row only.
 struct MarkdownView: View {
     let text: String
+    /// Off where the message's own long-press menu offers Copy and Select text instead: the
+    /// system's whole-block selection would take the long press from it.
+    var selectable = true
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
             ForEach(Array(Markdown.blocks(text).enumerated()), id: \.offset) { _, block in
@@ -12,7 +15,7 @@ struct MarkdownView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .textSelection(.enabled)
+        .modifier(Selectable(on: selectable))
     }
     @ViewBuilder private func view(for block: MarkdownBlock) -> some View {
         switch block {
@@ -90,5 +93,12 @@ private struct MarkdownProse: View, Equatable {
     let text: String
     var body: some View {
         Text(MarkdownView.styled(text)).aceFont(AceTheme.Typography.body, relativeTo: .body)
+    }
+}
+
+private struct Selectable: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View {
+        if on { content.textSelection(.enabled) } else { content }
     }
 }

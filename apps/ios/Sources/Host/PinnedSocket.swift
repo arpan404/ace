@@ -34,9 +34,9 @@ struct ConnectionTarget: Sendable {
         if isLoopbackFixture { return }
         throw HostError.transport
     }
-    /// Release builds compile this to false: production requires WSS and an exact pin.
+    /// Release builds (no `ACE_FIXTURE`) compile this to false: production requires WSS and an exact pin.
     var isLoopbackFixture: Bool {
-        #if DEBUG
+        #if ACE_FIXTURE
         endpoint.scheme == "ws" && secretKey == nil && ["127.0.0.1", "localhost", "::1"].contains(endpoint.host ?? "")
         #else
         false

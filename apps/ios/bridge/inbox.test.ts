@@ -380,6 +380,48 @@ describe("inbox rows on the phone", () => {
   });
 });
 
+describe("inbox traffic", () => {
+  test("one thread starting work among many re-sends only that thread's row", async () => {
+    const { daemon, sink } = await following((seed) => {
+      for (let index = 0; index < 40; index++) finished(seed, `busy-${index}`, `Busy ${index}`);
+    });
+    await until(() => status(sink, "busy-7") !== undefined, "listed");
+    const written: string[] = [];
+    const put = sink.put.bind(sink);
+    sink.put = (key, read) => {
+      written.push(key);
+      put(key, read);
+    };
+    daemon.apply("busy-7", [
+      { type: "turn.started", agent: "root", nativeTurnId: "next", trigger: "user" },
+    ]);
+    await until(() => status(sink, "busy-7")?.label === "Working", "working");
+    const rows = new Set(
+      written.filter((key) => key.startsWith("inbox:") && key !== "inbox:sections"),
+    );
+    expect([...rows]).toEqual(["inbox:busy-7"]);
+  });
+
+  test("a thread joining the list sends its own row without re-sending the others", async () => {
+    const { daemon, sink } = await following((seed) => {
+      for (let index = 0; index < 40; index++) finished(seed, `old-${index}`, `Old ${index}`);
+    });
+    await until(() => status(sink, "old-0") !== undefined, "listed");
+    const written: string[] = [];
+    const put = sink.put.bind(sink);
+    sink.put = (key, read) => {
+      written.push(key);
+      put(key, read);
+    };
+    finished(daemon, "new", "New");
+    await until(() => status(sink, "new") !== undefined, "joined");
+    const rows = new Set(
+      written.filter((key) => key.startsWith("inbox:") && key !== "inbox:sections"),
+    );
+    expect([...rows]).toEqual(["inbox:new"]);
+  });
+});
+
 describe("inbox confirmation", () => {
   test("ready alone never confirms a cached done row; confirmed working arrives only with its snapshot", async () => {
     let now = 1_000;
