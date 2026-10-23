@@ -2840,21 +2840,13 @@ Example:
 
 ```json
 {
-  "seq": 2,
+  "seq": 3,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
     "kind": "threads",
-    "seq": 2,
-    "threads": {},
-    "window": {
-      "before": {
-        "at": 3,
-        "id": "example"
-      },
-      "counts": [],
-      "total": 1
-    }
+    "seq": 3,
+    "threads": {}
   }
 }
 ```
@@ -2875,7 +2867,7 @@ Example:
 
 ```json
 {
-  "afterSeq": 4,
+  "afterSeq": 3,
   "events": [],
   "subscriptionId": "example",
   "throughSeq": 6,
@@ -2898,7 +2890,7 @@ Example:
 
 ```json
 {
-  "afterSeq": 7,
+  "afterSeq": 3,
   "subscriptionId": "example",
   "throughSeq": 8,
   "type": "progress"
@@ -2942,92 +2934,64 @@ Example:
 
 ```json
 {
-  "alive": {
-    "agentsRunning": 4,
-    "operationsRunning": 9,
-    "terminalsOpen": 4
-  },
-  "code": "example",
   "commandId": "example",
+  "commit": "fec891204fdf780ec0533b76cda180bc974f77c8cd11842d833736bf",
+  "editor": {
+    "editor": {
+      "command": "example",
+      "id": "example",
+      "name": "example"
+    },
+    "path": "example"
+  },
   "error": "example",
-  "forkThreadId": "example",
+  "inboxAction": {
+    "action": "done",
+    "id": "example",
+    "state": "uncertain"
+  },
   "inspection": {
     "git": null,
     "path": "example"
   },
   "issueAction": {
-    "action": "edit",
+    "action": "create",
     "error": "example",
     "id": "example",
-    "issue": {
-      "number": 6,
-      "repository": {
-        "forge": "gitlab",
-        "host": "8MM",
-        "name": "r-Vq",
-        "owner": "q37Vc/E_VW0obBCmO/mxADBtn/DW"
-      }
-    },
-    "state": "failed"
+    "state": "uncertain"
   },
-  "ok": false,
-  "prExisting": false,
-  "prStatus": {
-    "checks": [],
-    "ci": "none",
-    "comments": [],
-    "headSha": "example",
-    "mergeState": {
-      "autoMerge": {
-        "actor": "example",
-        "enabledAt": "example",
-        "method": "example"
-      },
-      "blockers": [],
-      "canDequeue": false,
-      "canDisable": true,
-      "canEnable": false,
-      "checksState": "example",
-      "headSha": "6d5B2EbAeC03E2d322eA0FCAFDDf4dbdb97bAfc4dc4AB0d929abC29",
-      "mergeState": "example",
-      "queue": null,
-      "raw": null,
-      "reviewDecision": null,
-      "rules": [],
-      "state": "example",
-      "writeState": "pending"
-    },
-    "mergeability": "mergeable",
-    "raw": null,
-    "ref": {
-      "number": 8,
-      "repository": {
-        "forge": "github",
-        "host": "hrLT",
-        "name": "r",
-        "owner": "YZ51OxXO/t2q"
-      }
-    },
-    "reviewThreads": [],
-    "state": "closed",
-    "title": "example",
-    "url": "example"
+  "ok": true,
+  "pr": {
+    "number": 3,
+    "repository": {
+      "forge": "github",
+      "host": "Wah",
+      "name": "Yo8Q",
+      "owner": "yYikwFQ/5o2l9DxsJ8/vM"
+    }
   },
-  "stackOperation": {
-    "action": "abort",
-    "message": "example",
-    "state": "pending",
-    "uuid": "ffffffff-ffff-ffff-ffff-ffffffffffff"
+  "prExisting": true,
+  "publication": {
+    "error": null,
+    "input": {
+      "account": "Pbwn",
+      "description": "example",
+      "host": "lp",
+      "name": "FS",
+      "owner": "6Ph88",
+      "visibility": "public"
+    },
+    "phase": "origin_added",
+    "remote": null,
+    "updatedAt": 8,
+    "workspaceId": "example"
   },
   "terminalId": "example",
   "threadId": "example",
-  "title": "example",
   "type": "commandResult",
   "workspace": {
-    "icon": "data:image/webp;base64,AaFKBHnIj8Oac1DktVQNd6J7iRsKPB==",
     "id": "example",
     "name": "example",
-    "notes": [],
     "path": "example"
   }
 }
@@ -3050,10 +3014,8 @@ Example:
 ```json
 {
   "code": "example",
-  "commandId": "example",
   "message": "example",
   "requestId": "example",
-  "retryable": true,
   "type": "error"
 }
 ```
@@ -3076,8 +3038,8 @@ Example:
 {
   "bytes": "example",
   "eof": true,
-  "nextOffset": 1,
-  "offset": 1,
+  "nextOffset": 6,
+  "offset": 6,
   "requestId": "example",
   "streamId": "example",
   "type": "output.data"
@@ -3103,11 +3065,10 @@ Example:
 
 ```json
 {
-  "itemSeqs": {},
   "items": [],
-  "itemsBefore": 5,
+  "itemsBefore": 2,
   "requestId": "example",
-  "seq": 5,
+  "seq": 6,
   "threadId": "example",
   "type": "items.page"
 }

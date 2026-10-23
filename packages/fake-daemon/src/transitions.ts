@@ -1,5 +1,6 @@
 import type { Fact } from "@ace/core";
-import type { CommandPayload, EventPayload, ForkPoint } from "@ace/protocol";
+import { inheritedMessages } from "@ace/handoff";
+import type { CommandPayload, EventPayload, ForkPoint, Item } from "@ace/protocol";
 import { busy } from "./thread-commands.ts";
 import type { ThreadHost } from "./thread-host.ts";
 
@@ -17,6 +18,32 @@ export function forkPointError(host: ThreadHost, point: ForkPoint): string | und
   }
   const item = host.view.items[point.itemId];
   return item && (!("complete" in item) || item.complete) ? undefined : "fork_point_unavailable";
+}
+
+/**
+ * The copies a fork opens on, as the daemon makes them: the source agent's asks and answers
+ * through the fork point, each marked with the item it came from.
+ */
+export function inheritedFacts(host: ThreadHost, point: ForkPoint): Fact[] {
+  const items = Object.values(host.view.items).toSorted(
+    (a: Item, b: Item) => a.createdAt - b.createdAt,
+  );
+  const end = items.findLastIndex((item) =>
+    point.type === "turn" ? item.runId === point.runId : item.id === point.itemId,
+  );
+  const agentId = host.view.thread.rootAgentId ?? "";
+  return inheritedMessages(items.slice(0, end + 1), agentId).map((copied) => ({
+    type: "item.upsert",
+    agent: "root",
+    item: `inherited:${copied.itemId}`,
+    draft: {
+      type: "message",
+      role: copied.role,
+      parts: copied.parts,
+      complete: true,
+      inherited: { threadId: host.view.thread.id, itemId: copied.itemId },
+    },
+  }));
 }
 
 /** Publish a selection split off a steer, then apply a queued switch once nothing runs. */

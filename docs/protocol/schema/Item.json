@@ -124,6 +124,9 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },
+        "inherited": {
+          "$ref": "https://ace.local/protocol/v1/InheritedItem.json"
+        },
         "mergedContext": {
           "$ref": "https://ace.local/protocol/v1/MergedForkContext.json"
         },

@@ -141,8 +141,8 @@ export function acceptTransition(
         // The fork's transcript opens on the conversation it continues, unless the provider's
         // own fork already brings those turns along.
         if (!(native && capabilities.forkTranscript)) {
-          const inherited = forkHistoryFacts(repo, thread.id, point);
-          if (inherited.length) repo.apply(id, inherited, now);
+          const copies = forkHistoryFacts(repo, thread.id, point);
+          if (copies.length) repo.apply(id, copies, now);
         }
         repo.transitions.history.grant(id, thread.id, point.throughSeq);
         repo.transitions.guard(id, command.id);

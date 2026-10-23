@@ -2,6 +2,7 @@ import type { ThreadReader } from "@ace/client";
 import type { Run } from "@ace/protocol";
 import { approvalRecordLabel } from "./approvals.ts";
 import { ledgerOf } from "./thread-ledger.ts";
+import { withForkMarker } from "./fork-marker.ts";
 import { limitHoldShown } from "./queue.ts";
 import { rootRunOf, type TurnReader } from "./turn-ordinals.ts";
 import { turnTreeOf } from "./turn-tree.ts";
@@ -110,8 +111,14 @@ export function createBlockReader(
               }),
       };
     const order = ownOrder?.order ?? noKeys;
+    // A fork's divider sits where its copied history ends, once its first items are loaded.
+    const forkedFrom =
+      agentId === undefined && reader.itemsBefore == null
+        ? reader.thread?.lineage?.parentThreadId
+        : undefined;
     const fixed = [
       order,
+      forkedFrom,
       ownerId,
       ledger.interactionsVersion,
       ledger.tasksVersion,
@@ -218,8 +225,15 @@ export function createBlockReader(
       unsettledTail,
       turnKeys,
     });
+    const marked = forkedFrom
+      ? withForkMarker(built, {
+          sourceThreadId: forkedFrom,
+          order: reader.order,
+          item: (id) => reader.item(id),
+        })
+      : built;
     const byKey = new Map(last.map((block) => [block.key, block]));
-    const blocks = built.map((block) => {
+    const blocks = marked.map((block) => {
       const old = byKey.get(block.key);
       return old && sameBlock(old, block) ? old : block;
     });

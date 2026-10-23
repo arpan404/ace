@@ -197,3 +197,31 @@ Decisions:
   as a fresh session with the full conversation-first handoff. That handoff is computed and stored
   with the switch, and the marker is updated to name every model carried. Any other open failure
   is reported as before.
+
+## Amendment (2026-10-22): a fork is its own thread
+
+Field use showed forks read as children of the thread they came from: the header named the
+source in place of the project, the details card listed the source as the fork's parent agent,
+and only Codex native forks showed the earlier conversation. Portable forks and Claude native
+forks opened on the handoff alone.
+
+Decisions:
+
+- **Not an agent.** Lineage is never execution ownership. Only `delegatedBy` makes a thread
+  another's child: a fork names its project in the header, lists only its own subagents, and
+  its status never rolls into the source's (or the source's into it). Merge-back still follows
+  lineage.
+- **History copied at the fork.** When a fork is made, the daemon copies the forked agent's asks
+  and answers through the boundary into the fork, oldest first, each marked
+  `inherited: { threadId, itemId }`. ace's own inputs, injected messages, attachments and work
+  steps stay with the source. The copy is a cold operation bounded to 40 pages of 200 items and the
+  newest 400 messages, each read whole from its text stream (at most 256 KiB). It runs once, in
+  the fork's transaction, so the fork is complete after a restart and pages like any thread.
+- **Providers that bring their turns.** An adapter whose native fork translates the source's
+  turns into the new thread declares `forkTranscript` (Codex). Its native forks copy nothing.
+- **Transcript marker.** Clients draw one centred divider, "Forked from <source title>", the title a
+  link, before the fork's first message ace delivered (or after the history while there is none):
+  `@ace/ui-core` `withForkMarker`. It shares the context handoff's layout. Copies never offer
+  fork, retry or edit, and merge-back never cites them.
+- **Source side.** A fork an agent made with `thread_fork` reads in the source as one quiet
+  "Forked to <title>" line, not an agent row.

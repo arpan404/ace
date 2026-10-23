@@ -84,7 +84,13 @@ import {
   type ThreadCommandOutcome,
 } from "./thread-commands.ts";
 import { holdOnLimit, isQueueCommand, queueCommand, queuePage } from "./queue-commands.ts";
-import { forkPointError, mergeFacts, mergeForkError, switchEvents } from "./transitions.ts";
+import {
+  forkPointError,
+  inheritedFacts,
+  mergeFacts,
+  mergeForkError,
+  switchEvents,
+} from "./transitions.ts";
 import { fakeCheckoutPath, fakeWorktreeBase } from "./worktree-base.ts";
 
 export type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
@@ -1163,7 +1169,12 @@ export class FakeDaemon implements Host {
             attachments.length
           )
             fact.draft.attachments = attachments;
-        this.apply(id, started.facts);
+        const [root, ...rest] = started.facts;
+        this.apply(id, [
+          ...(root ? [root] : []),
+          ...inheritedFacts(source, payload.point),
+          ...rest,
+        ]);
         return { commandId, ok: true, forkThreadId: ThreadId.parse(id) };
       }
       case "thread.merge": {

@@ -2,10 +2,12 @@ import type { ForkPoint, Item, Run } from "@ace/protocol";
 
 /**
  * Where a fork of this answer starts: its turn once that turn has finished (any outcome), the
- * message itself when it carries no turn. Undefined while it is still being written. Pure.
+ * message itself when it carries no turn. Undefined while it is still being written, and for a
+ * fork's copy of its source's answer: that one forks from the source. Pure.
  */
 export function forkPointOf(item: Item | undefined, run: Run | undefined): ForkPoint | undefined {
   if (item?.type !== "message" || item.role !== "assistant" || !item.complete) return undefined;
+  if (item.inherited) return undefined;
   if (item.runId === undefined) return { type: "item", itemId: item.id };
   return run && run.state !== "active" ? { type: "turn", runId: run.id } : undefined;
 }
