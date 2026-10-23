@@ -165,7 +165,16 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
         ...base,
         items: [block.itemId],
         started: started
-          ? { threadId: started.threadId, title: preview(started.title ?? "Conversation", 256) }
+          ? {
+              threadId: started.threadId,
+              // A fork is a thread of its own: the source names it as where it went.
+              title: preview(
+                started.forked
+                  ? `Forked to ${started.title ?? "a fork"}`
+                  : (started.title ?? "Conversation"),
+                256,
+              ),
+            }
           : null,
       };
     }
@@ -232,23 +241,27 @@ export function followBlocks(
     const built = read(store);
     watch = new Set(built.watch);
     const next = new Map<string, Block>();
-    built.value.forEach((block, index) => {
-      next.set(block.key, block);
-      const old = blocks.get(block.key);
-      const moved = positions.get(block.key) !== index;
-      positions.set(block.key, index);
-      if (old === block && !moved) return;
-      if (old !== block) {
-        forget(block.key);
-        touched.add(block.key);
-      } else
-        put(`${prefix}blockPosition:${block.key}`, () => ({
-          type: `${type}Position`,
-          ...lane,
-          id: block.key,
-          index: positions.get(block.key) ?? null,
-        }));
-    });
+    // The native transcript has no "Forked from" divider yet; it leaves the block out rather
+    // than drawing an empty row.
+    built.value
+      .filter((block) => block.kind !== "forked")
+      .forEach((block, index) => {
+        next.set(block.key, block);
+        const old = blocks.get(block.key);
+        const moved = positions.get(block.key) !== index;
+        positions.set(block.key, index);
+        if (old === block && !moved) return;
+        if (old !== block) {
+          forget(block.key);
+          touched.add(block.key);
+        } else
+          put(`${prefix}blockPosition:${block.key}`, () => ({
+            type: `${type}Position`,
+            ...lane,
+            id: block.key,
+            index: positions.get(block.key) ?? null,
+          }));
+      });
     for (const key of blocks.keys())
       if (!next.has(key)) {
         forget(key);

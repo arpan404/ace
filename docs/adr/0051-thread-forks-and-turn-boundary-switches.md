@@ -212,16 +212,27 @@ Decisions:
   its status never rolls into the source's (or the source's into it). Merge-back still follows
   lineage.
 - **History copied at the fork.** When a fork is made, the daemon copies the forked agent's asks
-  and answers through the boundary into the fork, oldest first, each marked
-  `inherited: { threadId, itemId }`. ace's own inputs, injected messages, attachments and work
-  steps stay with the source. The copy is a cold operation bounded to 40 pages of 200 items and the
-  newest 400 messages, each read whole from its text stream (at most 256 KiB). It runs once, in
-  the fork's transaction, so the fork is complete after a restart and pages like any thread.
+  and answers through the boundary into the fork, oldest first. Each copy is marked
+  `inherited: { threadId, itemId, at }`, where `at` is when it was said in the source, and clients show
+  that time. ace's own inputs, injected messages, attachments and work steps stay with the source.
+  The copy runs once, in the fork's transaction, so the fork is complete after a restart and pages
+  like any thread. It is bounded: one query on the item index for the agent's messages, the
+  newest 200 of them, each read as it stood at the boundary with at most 64 KiB of text. A cut text
+  ends by saying the rest is in the source, and when older messages stayed behind, one notice
+  before the copies says so. Copies are not indexed for search: a message is found once, in the
+  source. `apps/daemon/bench/fork-history.ts` (gated in `check:perf`) measures a fork of a
+  5,000-item thread at about 130 ms.
 - **Providers that bring their turns.** An adapter whose native fork translates the source's
   turns into the new thread declares `forkTranscript` (Codex). Its native forks copy nothing.
-- **Transcript marker.** Clients draw one centred divider, "Forked from <source title>", the title a
-  link, before the fork's first message ace delivered (or after the history while there is none):
-  `@ace/ui-core` `withForkMarker`. It shares the context handoff's layout. Copies never offer
-  fork, retry or edit, and merge-back never cites them.
+  The messages it translates while the fork's session opens are marked `inherited` (without an
+  `itemId`). A fork that leaves that path before it opens, by switching provider or account,
+  gets ace's copies then.
+- **Transcript marker.** Clients draw one centred divider, "Forked from <source title>", the
+  title a link, before the fork's first message ace delivered (or after the history while there
+  is none): `@ace/ui-core` `withForkMarker`. It shows as soon as the loaded page holds some
+  inherited history before that message, or starts at the thread's start. Inherited messages
+  only ever come before the fork's own, so a boundary in view is final. It shares the context
+  handoff's layout. Copies never offer fork, retry or edit, and merge-back refuses to cite
+  them. The iOS transcript leaves the block out until it has a native divider.
 - **Source side.** A fork an agent made with `thread_fork` reads in the source as one quiet
   "Forked to <title>" line, not an agent row.
