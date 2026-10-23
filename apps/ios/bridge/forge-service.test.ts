@@ -1,3 +1,4 @@
+// oxlint-disable-next-line import/no-unassigned-import -- Install the test host before the bridge reads it.
 import "./test-host.ts";
 import { seedForgeBrowse } from "@ace/fake-daemon";
 import { WorkspaceId, type CommandPayload, type ThreadListEntry } from "@ace/protocol";
@@ -66,7 +67,7 @@ test("open pull requests come grouped by what each needs next, each row with its
     "Waiting",
     "Drafts",
   ]);
-  expect(pulls.counts).toEqual({ open: 7, merged: 1, closed: 1 });
+  expect(pulls.counts).toEqual({ open: 8, merged: 1, closed: 1 });
   const rows = pulls.groups.flatMap((group) => group.rows);
   expect(rows.find((row) => row.number === 229)).toMatchObject({
     step: "Review",
@@ -83,6 +84,12 @@ test("open pull requests come grouped by what each needs next, each row with its
     quiet: "Checks running",
   });
   expect(numbers(pulls).merge).toEqual([233, 224]);
+  expect(numbers(pulls).wait).toEqual([231, 245]);
+  expect(rows.find((row) => row.number === 245)).toMatchObject({
+    step: null,
+    quiet: "Waiting on review",
+    labels: [{ name: "web", color: "1d76db" }],
+  });
 });
 
 test("sorted by activity, pull requests group as yours, asking for your review, and the rest, with GitHub's totals", async () => {
@@ -111,10 +118,12 @@ test("Merged lists the merged pull requests", async () => {
 test("issues group as assigned to you, opened by you, and the rest, and the Filters menu offers their authors and labels", async () => {
   const { ask } = await connected();
   const issues = (await ask({ type: "forge.issues", project: "ace", search: {} })) as IssuesReply;
-  expect(numbers(issues)).toEqual({ assigned: [240], created: [235], others: [238] });
-  expect(issues.counts).toEqual({ open: 3, closed: 1 });
+  expect(numbers(issues)).toEqual({ assigned: [246, 240], created: [235], others: [238] });
+  expect(issues.counts).toEqual({ open: 4, closed: 1 });
   expect(issues.authors).toContain("mira");
+  expect(issues.authors).toContain("sam");
   expect(issues.labels).toContain("bug");
+  expect(issues.labels).toContain("web");
 });
 
 test("a list read again within half a minute is answered from memory until the person refreshes", async () => {

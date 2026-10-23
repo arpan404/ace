@@ -120,10 +120,13 @@ test("a successful merge followed by a failed detail refresh stays disabled unti
     name: "Squash and merge",
   });
   await waitFor(() => expect(merge.disabled).toBe(false));
-  app.daemon.failRequests("workspace.request");
-  // Merging takes two presses.
   await userEvent.click(merge);
-  await userEvent.click(panel().getByRole("button", { name: "Confirm merge?" }));
+  const commit = within(
+    await screen.findByRole("dialog", { name: "Squash and merge into main" }, { timeout: 10_000 }),
+  );
+  // The commit prefill is already shown; only the refresh after merging should fail.
+  app.daemon.failRequests("workspace.request");
+  await userEvent.click(commit.getByRole("button", { name: "Confirm squash and merge" }));
   await screen.findByRole("button", { name: "Reconcile action" });
   await waitFor(() =>
     expect(
@@ -397,6 +400,7 @@ test("a refused metadata write keeps its text and shows the daemon refusal", asy
   );
   await openPullRequest(app, { project: "api", number: 42 });
   await screen.findByRole("heading", { name: "Retry reconnects" });
+  app.daemon.refuseCommands("unsupported_by_fake_daemon", "forge.hosted.lifecycle");
   await userEvent.click(await menuItem("Edit details…"));
   const body = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "PR description" });
   await userEvent.clear(body);
@@ -491,12 +495,11 @@ const reviewState = (drafts: ForgeReviewState["drafts"] = []): ForgeReviewState 
   operations: [],
 });
 
-/** Open the floating composer on its Review tab. */
+/** Open the header Review popover. */
 async function openReview() {
   await userEvent.click(
-    await screen.findByRole("button", { name: "Write a comment or review" }, { timeout: 10_000 }),
+    await screen.findByRole("button", { name: /^Review( · \d+ pending)?$/ }, { timeout: 10_000 }),
   );
-  await userEvent.click(await screen.findByRole("tab", { name: "Review" }));
 }
 
 test("new commits visibly invalidate durable hosted drafts and disable all review submission", async () => {
@@ -522,9 +525,16 @@ test("new commits visibly invalidate durable hosted drafts and disable all revie
   const first = await openPullRequest(app, { project: "api", number: 42 });
   await openReview();
   expect(await screen.findByText("Keep this unsent finding")).toBeTruthy();
-  expect(screen.getByText(/Outdated anchor/)).toBeTruthy();
-  for (const name of ["Submit comment review", "Approve on GitHub", "Request changes on GitHub"])
-    expect(screen.getByRole<HTMLButtonElement>("button", { name }).disabled).toBe(true);
+  expect(screen.getByText("Outdated")).toBeTruthy();
+  expect(
+    screen.getByText(/New commits moved the lines of outdated comments\. Remove them to submit\./),
+  ).toBeTruthy();
+  for (const verdict of ["Comment", "Approve", "Request changes"]) {
+    await userEvent.click(screen.getByRole("radio", { name: verdict }));
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Submit review" }).disabled).toBe(
+      true,
+    );
+  }
   await userEvent.type(
     screen.getByRole("textbox", { name: "Review summary" }),
     "Preserve my summary",
@@ -557,8 +567,9 @@ test("a refused GitHub review shows the daemon refusal and retains the unsent su
   const summary = await screen.findByRole<HTMLTextAreaElement>("textbox", {
     name: "Review summary",
   });
+  app.daemon.refuseCommands("unsupported_by_fake_daemon", "forge.hosted.review");
   await userEvent.type(summary, "Keep my unsent review");
-  await userEvent.click(screen.getByRole("button", { name: "Submit comment review" }));
+  await userEvent.click(screen.getByRole("button", { name: "Submit review" }));
   expect(
     await screen.findAllByText("This daemon can't do that yet: update the daemon."),
   ).not.toHaveLength(0);

@@ -126,9 +126,10 @@ test("armed auto-merge and queue membership show in the header and clear on refr
   app.daemon.workspace.setForgeRead(operation, { resource: "prMergeState", value: state });
   await openPullRequest(app, { project: "api", number: 42 });
   await screen.findByRole("article", { name: "Pull request #42" }, { timeout: 10_000 });
-  await waitFor(() => expect(panel().getByText(/^Auto-merge on · squash/)).toBeTruthy(), {
+  await waitFor(() => expect(panel().getByText(/^Auto-merge on/)).toBeTruthy(), {
     timeout: 10_000,
   });
+  expect(panel().getByText(/^Auto-merge on/).textContent).toContain("· squash · by octo");
   expect(panel().queryByRole("button", { name: "Squash and merge" })).toBeNull();
   // Without a linked task, GitHub writes wait for a link.
   expect(disabled(await menuItem(/^Disable auto-merge/))).toBe(true);
@@ -140,7 +141,7 @@ test("armed auto-merge and queue membership show in the header and clear on refr
   });
   await userEvent.click(await menuItem("Refresh"));
   expect(await panel().findByRole("button", { name: "Link to merge" })).toBeTruthy();
-  expect(panel().queryByText(/^Auto-merge on · squash/)).toBeNull();
+  expect(panel().queryByText(/^Auto-merge on/)).toBeNull();
 });
 
 test("linked workspace controls cancel auto-merge and queue membership separately", async () => {
@@ -153,7 +154,7 @@ test("linked workspace controls cancel auto-merge and queue membership separatel
       canDequeue: true,
     }),
   );
-  expect(await panel().findByText(/^Auto-merge on · squash/)).toBeTruthy();
+  expect(await panel().findByText(/^Auto-merge on/)).toBeTruthy();
   const cancel = await menuItem(/^Disable auto-merge/);
   await waitFor(() => expect(disabled(cancel)).toBe(false));
   await userEvent.click(cancel);
@@ -172,6 +173,11 @@ test("a clear refusal shows its reason and leaves the merge-state controls usabl
   await waitFor(() => expect(disabled(enable)).toBe(false));
   app.daemon.refuseCommands("forge_rate_limit", "forge.pr.merge-state.change");
   await userEvent.click(enable);
+  // Enabling now edits its squash commit first; confirm it to run the refused write.
+  const dialog = await screen.findByRole("dialog", {
+    name: "Squash and merge into main automatically",
+  });
+  await userEvent.click(within(dialog).getByRole("button", { name: "Enable auto-merge" }));
   expect(
     await screen.findAllByText("GitHub's rate limit was reached: wait a few minutes, then retry."),
   ).not.toHaveLength(0);
@@ -185,6 +191,10 @@ test("an uncertain receipt blocks further writes until a fresh read reconciles t
   await waitFor(() => expect(disabled(enable)).toBe(false));
   app.daemon.refuseCommands("action_outcome_uncertain", "forge.pr.merge-state.change");
   await userEvent.click(enable);
+  const confirmDialog = await screen.findByRole("dialog", {
+    name: "Squash and merge into main automatically",
+  });
+  await userEvent.click(within(confirmDialog).getByRole("button", { name: "Enable auto-merge" }));
   const check = await screen.findByRole<HTMLButtonElement>("button", {
     name: "Check auto-merge result",
   });
@@ -195,7 +205,7 @@ test("an uncertain receipt blocks further writes until a fresh read reconciles t
   seed(mergeState({ autoMerge: armed, canEnable: false, canDisable: true }));
   app.daemon.restoreRequests();
   await userEvent.click(check);
-  expect(await panel().findByText(/^Auto-merge on · squash/)).toBeTruthy();
+  expect(await panel().findByText(/^Auto-merge on/)).toBeTruthy();
   const cancel = await menuItem(/^Disable auto-merge/);
   await waitFor(() => expect(disabled(cancel)).toBe(false));
   await userEvent.click(cancel);
@@ -212,7 +222,7 @@ test("reconnecting reads external cancellation before re-enabling controls", asy
       canDequeue: true,
     }),
   );
-  await panel().findByText(/^Auto-merge on · squash/);
+  await panel().findByText(/^Auto-merge on/);
   act(() => app.daemon.refuseConnections(true));
   await waitFor(() => expect(app.client.state).not.toBe("ready"));
   expect(disabled(await menuItem(/^Disable auto-merge/))).toBe(true);

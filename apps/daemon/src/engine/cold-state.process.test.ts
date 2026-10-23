@@ -21,6 +21,8 @@ test("an old undelivered model failure retains its exact message in a held queue
     "old-failure",
   );
   await h.engine.flush();
+  // Simulate old on-disk state without today's settlement subscriber rewriting it.
+  await h.engine.close();
   // Stored by older releases before undelivered inputs were retained.
   h.store.atomic((db) =>
     db

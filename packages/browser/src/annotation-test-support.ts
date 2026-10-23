@@ -288,7 +288,7 @@ export async function pixel(
   return [data[index] ?? 0, data[index + 1] ?? 0, data[index + 2] ?? 0];
 }
 
-/** ace's light accent (#3065CC), which markers use on every page. */
-export function isMarkerBlue([r, g, b]: [number, number, number]): boolean {
-  return Math.abs(r - 0x30) < 40 && Math.abs(g - 0x65) < 40 && Math.abs(b - 0xcc) < 40;
+/** Annotation markers use the light page ink (#222222); JPEG captures add noise. */
+export function isAnnotationMark([r, g, b]: [number, number, number]): boolean {
+  return Math.abs(r - 0x22) < 24 && Math.abs(g - 0x22) < 24 && Math.abs(b - 0x22) < 24;
 }

@@ -1,3 +1,4 @@
+// oxlint-disable-next-line import/no-unassigned-import -- Install the test host before the bridge reads it.
 import "./test-host.ts";
 import type { ConnectionState } from "@ace/client";
 import type { ServerMessage } from "@ace/protocol";
@@ -242,6 +243,7 @@ test("a kept read the screen stopped waiting for still finishes and is kept for 
 test("each return of the connection is counted for screens whose reads aren't kept", () => {
   const { owner, connect } = fakeOwner();
   const sink = new RecordingSink();
+  // oxlint-disable-next-line eslint/no-new -- Constructor under test installs the reconnect observer; the instance is intentionally unheld.
   new NativeReads(owner, sink, { now: () => 0, schedule: noSchedule });
   connect("reconnecting");
   connect("ready");

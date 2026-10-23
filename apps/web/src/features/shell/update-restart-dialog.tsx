@@ -37,7 +37,7 @@ export function UpdateRestartDialog(props: {
         material="glass"
         showCloseButton={false}
         initialFocus={cancel}
-        className="w-[min(400px,calc(100vw-2rem))] gap-3 rounded-[20px] p-[22px]"
+        className="w-[min(400px,calc(100vw-2rem))] gap-3 rounded-xl p-[22px]"
       >
         <DialogHeader className="pr-0">
           <DialogTitle>Restart to update?</DialogTitle>

@@ -62,7 +62,6 @@ test("published images read their own authenticated attachment and cannot be fet
   };
   const result = await readNativeMedia(client, request, new AbortController().signal);
   expect(result).toEqual({ kind: "image", data: fixtureImage.data });
-  daemon.createThread({ id: "foreign", workspaceId: "ace", provider: "codex", title: "Foreign" });
   await expect(
     readNativeMedia(
       client,

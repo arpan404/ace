@@ -23,22 +23,24 @@ export type WindowsJobApi = {
   assignProcess: (job: unknown, target: unknown) => boolean;
   close: (handle: unknown) => void;
   unload: () => void;
+  activeCount?: (job: unknown) => number;
+  terminate?: (job: unknown) => void;
 };
 
 const killOnJobClose = 0x2000;
-const basicLimitInformation = 2;
+const extendedLimitInformation = 9;
 const processSetQuota = 0x0100;
 const processTerminate = 0x0001;
 const integer = z.number().int();
 
 /**
- * JOBOBJECT_BASIC_LIMIT_INFORMATION with only KILL_ON_JOB_CLOSE set. The flag
- * sits at offset 16 on every architecture; the tail size follows the pointer
- * width so the same bytes work on x64, ARM64 and x86 Windows.
+ * KILL_ON_JOB_CLOSE requires JOBOBJECT_EXTENDED_LIMIT_INFORMATION, class 9.
+ * Its basic-limit prefix includes alignment before SIZE_T and ULONG_PTR.
+ * The complete SDK layout is 144 bytes on x64/ARM64, 112 bytes on x86/32-bit ARM.
+ * https://learn.microsoft.com/windows/win32/api/winnt/ns-winnt-jobobject_extended_limit_information
  */
 export function killOnCloseInfo(): Buffer {
-  const pointer = process.arch === "ia32" ? 4 : 8;
-  const info = Buffer.alloc(32 + 3 * pointer);
+  const info = Buffer.alloc(process.arch === "ia32" || process.arch === "arm" ? 112 : 144);
   info.writeUInt32LE(killOnJobClose, 16);
   return info;
 }
@@ -52,91 +54,185 @@ export function killOnCloseInfo(): Buffer {
 export function loadWindowsJobApi(): WindowsJobApi {
   const koffi: typeof koffiModule = createRequire(import.meta.url)("koffi");
   const library = koffi.load("kernel32.dll");
-  const createJobObject = library.func("void* __stdcall CreateJobObjectW(void* attrs, void* name)");
-  const setInformationJobObject = library.func(
-    "int __stdcall SetInformationJobObject(void* job, int infoClass, void* info, uint length)",
-  );
-  const openProcess = library.func(
-    "void* __stdcall OpenProcess(uint access, int inherit, uint pid)",
-  );
-  const assignProcessToJobObject = library.func(
-    "int __stdcall AssignProcessToJobObject(void* job, void* target)",
-  );
-  const closeHandle = library.func("int __stdcall CloseHandle(void* handle)");
-  return {
-    create: () => createJobObject(null, null),
-    setKillOnClose: (job) => {
-      const info = killOnCloseInfo();
-      return (
-        integer.parse(setInformationJobObject(job, basicLimitInformation, info, info.length)) !== 0
-      );
-    },
-    openProcess: (pid) => openProcess(processSetQuota | processTerminate, 0, pid),
-    assignProcess: (job, target) => integer.parse(assignProcessToJobObject(job, target)) !== 0,
-    close: (handle) => {
-      closeHandle(handle);
-    },
-    unload: () => {
+  try {
+    const createJobObject = library.func(
+      "void* __stdcall CreateJobObjectW(void* attrs, void* name)",
+    );
+    const setInformationJobObject = library.func(
+      "int __stdcall SetInformationJobObject(void* job, int infoClass, void* info, uint length)",
+    );
+    const openProcess = library.func(
+      "void* __stdcall OpenProcess(uint access, int inherit, uint pid)",
+    );
+    const assignProcessToJobObject = library.func(
+      "int __stdcall AssignProcessToJobObject(void* job, void* target)",
+    );
+    const closeHandle = library.func("int __stdcall CloseHandle(void* handle)");
+    const query = library.func(
+      "int __stdcall QueryInformationJobObject(void* job, int infoClass, _Out_ void* info, uint length, void* returned)",
+    );
+    const terminate = library.func("int __stdcall TerminateJobObject(void* job, uint exitCode)");
+    return {
+      create: () => createJobObject(null, null),
+      setKillOnClose: (job) => {
+        const info = killOnCloseInfo();
+        return (
+          integer.parse(
+            setInformationJobObject(job, extendedLimitInformation, info, info.length),
+          ) !== 0
+        );
+      },
+      openProcess: (pid) => openProcess(processSetQuota | processTerminate, 0, pid),
+      assignProcess: (job, target) => integer.parse(assignProcessToJobObject(job, target)) !== 0,
+      close: (handle) => {
+        if (integer.parse(closeHandle(handle)) === 0)
+          throw new Error("Windows handle close failed");
+      },
+      activeCount(job) {
+        // JOBOBJECT_BASIC_ACCOUNTING_INFORMATION: four LARGE_INTEGERs and four DWORDs.
+        const info = Buffer.alloc(48);
+        if (integer.parse(query(job, 1, info, info.length, null)) === 0)
+          throw new Error("Windows job inspection failed");
+        return info.readUInt32LE(40);
+      },
+      terminate(job) {
+        if (integer.parse(terminate(job, 1)) === 0)
+          throw new Error("Windows job termination failed");
+      },
+      unload: () => {
+        library.unload();
+      },
+    };
+  } catch (error) {
+    try {
       library.unload();
+    } catch {
+      /* Keep the binding error. */
+    }
+    throw error;
+  }
+}
+
+/** Retains the kernel job independently of its original shell's lifetime. */
+export interface RetainedWindowsJob {
+  assign(pid: number): void;
+  activeCount(): number;
+  terminate(): void;
+  dispose(): void;
+}
+
+function nullHandle(value: unknown): boolean {
+  return value === null || value === undefined || value === 0 || value === 0n;
+}
+
+/** Required containment. Setup, assignment and inspection failures stay visible. */
+export function createRetainedWindowsJob(
+  load: () => WindowsJobApi = loadWindowsJobApi,
+): RetainedWindowsJob {
+  const api = load();
+  let handle: unknown;
+  try {
+    handle = api.create();
+    if (nullHandle(handle)) throw new Error("Windows job creation failed");
+    if (!api.setKillOnClose(handle)) throw new Error("Windows job setup failed");
+  } catch (error) {
+    const failures: unknown[] = [error];
+    try {
+      if (!nullHandle(handle)) api.close(handle);
+    } catch (cleanup) {
+      failures.push(cleanup);
+    }
+    try {
+      api.unload();
+    } catch (cleanup) {
+      failures.push(cleanup);
+    }
+    if (failures.length > 1)
+      throw new AggregateError(failures, "Windows job setup and cleanup failed", { cause: error });
+    throw error;
+  }
+  let handleClosed = false;
+  let unloaded = false;
+  const pendingHandles = new Set<unknown>();
+  function requireOpen(): void {
+    if (handleClosed) throw new Error("Windows job is closed");
+  }
+  return {
+    assign(pid) {
+      requireOpen();
+      z.number().int().min(1).max(0xffffffff).parse(pid);
+      const target = api.openProcess(pid);
+      if (nullHandle(target)) throw new Error("Windows process cannot join its job");
+      pendingHandles.add(target);
+      const failures: unknown[] = [];
+      try {
+        if (!api.assignProcess(handle, target)) throw new Error("Windows job assignment failed");
+      } catch (error) {
+        failures.push(error);
+      }
+      try {
+        api.close(target);
+        pendingHandles.delete(target);
+      } catch (error) {
+        failures.push(error);
+      }
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1)
+        throw new AggregateError(failures, "Windows job assignment and cleanup failed", {
+          cause: failures[0],
+        });
+    },
+    activeCount() {
+      requireOpen();
+      if (!api.activeCount) throw new Error("Windows job inspection is unavailable");
+      return z.number().int().nonnegative().parse(api.activeCount(handle));
+    },
+    terminate() {
+      requireOpen();
+      if (!api.terminate) throw new Error("Windows job termination is unavailable");
+      api.terminate(handle);
+    },
+    dispose() {
+      for (const pending of pendingHandles) {
+        api.close(pending);
+        pendingHandles.delete(pending);
+      }
+      // Handle close and library unload can each retry without double-closing.
+      if (!handleClosed) {
+        api.close(handle);
+        handleClosed = true;
+      }
+      if (!unloaded) {
+        api.unload();
+        unloaded = true;
+      }
     },
   };
 }
 
-/**
- * One kill-on-close job. Returns undefined when the platform has no Job
- * Objects (or setup fails) so callers fall back to the taskkill tree stop.
- */
+/** Optional containment for existing supervised processes using tree-stop fallback. */
 export function createKillOnCloseJob(
   load: () => WindowsJobApi = loadWindowsJobApi,
 ): WindowsJob | undefined {
-  let api: WindowsJobApi | undefined;
   try {
-    const loaded = load();
-    api = loaded;
-    const job = loaded.create();
-    // A NULL handle fails here, so no representation check is needed.
-    if (!loaded.setKillOnClose(job)) throw new Error("Windows job setup failed");
-    let disposed = false;
-    const owner = loaded;
-    const handle = job;
+    const job = createRetainedWindowsJob(load);
     return {
       assign(pid) {
-        if (disposed) return;
         try {
-          const target = owner.openProcess(pid);
-          try {
-            owner.assignProcess(handle, target);
-          } finally {
-            owner.close(target);
-          }
+          job.assign(pid);
         } catch {
-          // Joining the job is hardening; the tree stop still owns the process.
+          /* Existing tree stop remains responsible. */
         }
       },
       dispose() {
-        if (disposed) return;
-        disposed = true;
         try {
-          owner.close(handle);
+          job.dispose();
         } catch {
-          // Disposal runs on process exit; a failing close cannot block it.
-        } finally {
-          try {
-            owner.unload();
-          } catch {
-            // The library handle is already accounted for by the failed close.
-          }
-          api = undefined;
+          /* Best effort during process exit. */
         }
       },
     };
   } catch {
-    // No Job Objects here; the taskkill tree stop remains the owner.
-    try {
-      api?.unload();
-    } catch {
-      // Loading succeeded but setup failed; nothing is held.
-    }
     return undefined;
   }
 }

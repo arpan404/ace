@@ -28,7 +28,15 @@ export type ScrollMode =
 
 export type ScrollEvent =
   /** A wheel, touch move, key or scrollbar drag, before the scroll it causes. */
-  | { type: "gesture"; upward: boolean; atEnd: boolean; detached: boolean; at: number }
+  | {
+      type: "gesture";
+      upward: boolean;
+      atEnd: boolean;
+      scrollable: boolean;
+      hasOlder: boolean;
+      detached: boolean;
+      at: number;
+    }
   /** A press on the view (a click, a touch starting): no direction, but the reader is there. */
   | { type: "press"; at: number }
   /** A scroll event, from any cause. `upward` is the reader's last direction. */
@@ -64,6 +72,9 @@ export function transition(mode: ScrollMode, event: ScrollEvent): Transition {
   switch (event.type) {
     case "gesture": {
       const cancelAim = aiming(mode, event.at);
+      // A fitting window cannot produce a scroll event. Release following so
+      // the upward gesture can page older history and hold the visible row.
+      if (event.upward && event.hasOlder && !event.scrollable) return { mode: free, cancelAim };
       if (mode.kind === "following" && event.atEnd && !event.detached)
         return {
           mode: event.upward ? { kind: "following", until: event.at + nudgeWindow } : following,

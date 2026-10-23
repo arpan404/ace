@@ -1,15 +1,29 @@
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
-import { watch, type Stats, type FSWatcher } from "node:fs";
+import { watch, type FSWatcher } from "node:fs";
 import { lstat, open, realpath, stat, type FileHandle } from "node:fs/promises";
+import { posixStats, type IdentifiedStats } from "./file-identity.ts";
 import { Worker } from "node:worker_threads";
+import { windowsBinding } from "./descriptor-native.ts";
+import { createWindowsFilesystem } from "./windows-filesystem.ts";
 
 export interface WorkspaceFileSystem {
   realpath(path: string): Promise<string>;
-  stat(path: string): Promise<Stats>;
-  lstat(path: string): Promise<Stats>;
+  stat(path: string): Promise<IdentifiedStats>;
+  lstat(path: string): Promise<IdentifiedStats>;
   open(path: string, flags: number): Promise<FileHandle>;
 }
-export const filesystem: WorkspaceFileSystem = { realpath, stat, lstat, open };
+export const filesystem: WorkspaceFileSystem = {
+  realpath,
+  async stat(path) {
+    if (process.platform === "win32") return createWindowsFilesystem(windowsBinding()).stat(path);
+    return posixStats(await stat(path, { bigint: true }));
+  },
+  async lstat(path) {
+    if (process.platform === "win32") return createWindowsFilesystem(windowsBinding()).lstat(path);
+    return posixStats(await lstat(path, { bigint: true }));
+  },
+  open,
+};
 export type CancelTimer = () => void;
 export interface WorkspaceClock {
   after(callback: () => void | Promise<void>, milliseconds: number): CancelTimer;
@@ -17,6 +31,7 @@ export interface WorkspaceClock {
 }
 export interface WorkspaceRuntime {
   environment: NodeJS.ProcessEnv;
+  platform: NodeJS.Platform;
   filesystem: WorkspaceFileSystem;
   spawn: (binary: string, args: string[], options: SpawnOptions) => ChildProcess;
   worker: (url: URL) => Worker;
@@ -31,6 +46,7 @@ export interface WorkspaceRuntime {
 export function workspaceRuntime(): WorkspaceRuntime {
   return {
     environment: { ...process.env },
+    platform: process.platform,
     filesystem,
     spawn,
     watch,

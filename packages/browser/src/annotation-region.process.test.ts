@@ -3,7 +3,7 @@ import { BrowserAnnotationCapture } from "@ace/protocol";
 import {
   annotationFixture,
   executablePath,
-  isMarkerBlue,
+  isAnnotationMark,
   pixel,
 } from "./annotation-test-support.ts";
 
@@ -124,6 +124,6 @@ test("a region's marker stays on its corner of the document as the page scrolls"
   const width = Number(await person.evaluate("innerWidth"));
   // The marker's centre is the region's bottom-right corner, now 100 px higher in the viewport.
   // Sample beside the digit, right of the region so its dashed edge is not what is seen.
-  expect(isMarkerBlue(await pixel(page, width, 300 + 6, 150))).toBe(true);
-  expect(isMarkerBlue(await pixel(page, width, 300 + 6, 250))).toBe(false);
+  expect(isAnnotationMark(await pixel(page, width, 300 + 6, 150))).toBe(true);
+  expect(isAnnotationMark(await pixel(page, width, 300 + 6, 250))).toBe(false);
 }, 60_000);

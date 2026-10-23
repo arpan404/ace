@@ -68,7 +68,8 @@ export class SettledTrees {
   }
   private async stopOne(id: ThreadId, still: () => boolean): Promise<void> {
     const { repo, sessions, clock } = this.ports;
-    if (!repo.state(id)) return;
+    const state = repo.state(id);
+    if (!state) return;
     const holdQueued = () => {
       if (repo.queue.count(id) > 0)
         repo.queue.set(
@@ -80,6 +81,18 @@ export class SettledTrees {
     this.ports.recovery.discard(id);
     retireLiveIntents(repo, id);
     holdQueued();
+    // A finished session closes before its lifetime is aborted, retaining the
+    // native checkpoint for the next send. Sessions owns generation and closing
+    // guards here as it does in the control lane. Live work still stops below.
+    if (this.isIdleReleasable(id)) {
+      await this.ports.drain(id);
+      if (!still()) return;
+      if (this.isIdleReleasable(id)) {
+        const live = this.ports.actor(id);
+        if (live?.session) await sessions.close(live, "idle");
+        return;
+      }
+    }
     const actor = this.ports.actor(id);
     actor?.lifetime?.abort();
     // A provider that won't exit keeps its session: the thread reads as it is until a retry.
@@ -104,6 +117,35 @@ export class SettledTrees {
       clock.now(),
     );
     this.ports.forget(id);
+  }
+  /**
+   * Idle release is only for a done thread with no live execution. `repo.quiescent`
+   * covers state indexes alone, so also require the done status and no pending
+   * execution: opening or closing sessions, running or awaiting intents, recovery,
+   * transitions, controls, unheld messages, uncertain queue entries and actor backlog.
+   * Held queued sends stay held for the person's return.
+   */
+  private isIdleReleasable(id: ThreadId): boolean {
+    const { repo, sessions } = this.ports;
+    const state = repo.state(id);
+    if (!state) return false;
+    if (!repo.quiescent(state)) return false;
+    if (repo.store.getThread(id)?.status.state !== "done") return false;
+    if (repo.sessionOpening(id)) return false;
+    if (sessions.isClosing(id)) return false;
+    if (repo.pending.running(id)) return false;
+    if (repo.pending.recovering(id)) return false;
+    if (repo.pending.awaiting(id)) return false;
+    if (repo.pending.transition(id)) return false;
+    if (repo.pending.controls(id).length > 0) return false;
+    if (repo.queue.hasUncertain(id)) return false;
+    const queue = repo.queue.get(id);
+    const held = queue.paused || queue.limited;
+    if (!held && repo.pending.message(id)) return false;
+    const actor = this.ports.actor(id);
+    if (!actor?.session) return false;
+    if (actor.backlog().frames > 0 || actor.backlog().bytes > 0) return false;
+    return true;
   }
 }
 

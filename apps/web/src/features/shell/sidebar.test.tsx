@@ -37,11 +37,25 @@ test("profile views replace app navigation and return to the thread list", async
   for (const place of ["Automations", "Skills"] as const) {
     expect(within(appNav()).queryByRole("link", { name: place })).toBeNull();
     await openProfileView(place);
-    await title(place);
+    // The seeded workbench holds automations, so Automations auto-selects its first
+    // entry and the detail carries that entry's title as the page heading.
+    if (place === "Automations") await title("Nightly dependency audit");
+    else await title(place);
     // Its own page: its own list under its own heading, never Settings' pages around it.
     const sidebar = await screen.findByRole("complementary", { name: place });
     expect(within(sidebar).getByRole("heading", { level: 2, name: place })).toBeTruthy();
-    expect(await ownList[place](sidebar)).toBeTruthy();
+    if (place === "Automations") {
+      const autoList = await within(sidebar).findByRole("navigation", {
+        name: "Automation list",
+      });
+      expect(
+        within(autoList)
+          .getByRole("link", { name: /Nightly dependency audit/ })
+          .getAttribute("aria-current"),
+      ).toBe("page");
+    } else {
+      expect(await ownList[place](sidebar)).toBeTruthy();
+    }
     expect(screen.queryByRole("navigation", { name: "Settings pages" })).toBeNull();
     expect(screen.queryByRole("complementary", { name: "Settings" })).toBeNull();
     expect(list("Threads")).toBeNull();
@@ -160,9 +174,23 @@ test("⌘K opens Automations and Skills as their own pages, each with its list a
     await userEvent.click(
       await within(palette).findByRole("option", { name: new RegExp(`^${place}`) }),
     );
-    await title(place);
+    // The seeded workbench holds automations, so Automations auto-selects its first
+    // entry and the detail carries that entry's title as the page heading.
+    if (place === "Automations") await title("Nightly dependency audit");
+    else await title(place);
     const sidebar = await screen.findByRole("complementary", { name: place });
-    expect(await ownList[place](sidebar)).toBeTruthy();
+    if (place === "Automations") {
+      const autoList = await within(sidebar).findByRole("navigation", {
+        name: "Automation list",
+      });
+      expect(
+        within(autoList)
+          .getByRole("link", { name: /Nightly dependency audit/ })
+          .getAttribute("aria-current"),
+      ).toBe("page");
+    } else {
+      expect(await ownList[place](sidebar)).toBeTruthy();
+    }
     expect(screen.queryByRole("navigation", { name: "Settings pages" })).toBeNull();
     await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
     await title("New thread");
