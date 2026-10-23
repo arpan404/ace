@@ -1,6 +1,6 @@
 # Windows workspace backend — safe design (research)
 
-Status: the independent addon implements pinned filesystem operations, lossless identity, metadata-only descriptors, owner-only ACL checks/setting and atomic private creation. Native x64 and ARM64 each pass MSVC compilation and 22 files / 162 tests in [run 39996443611](https://github.com/arpan404/ace/actions/runs/39996443611), including the explicit path-stat adapter. Production backend selection, ACL consumers and clean installation remain unfinished.
+Status: native Windows filesystem and same-handle ACL operations pass MSVC compilation and 23 files / 166 tests per architecture in [run 39999625209](https://github.com/arpan404/ace/actions/runs/39999625209), pinned to `566492794`. Commit `11859cd89` selects this backend for shared workspace operations and private-file consumers. Production integration and a real clean installation are under native verification in [run 40000660283](https://github.com/arpan404/ace/actions/runs/40000660283); neither is a completed release gate yet.
 
 ## 1. Consumers pin numeric fds; HANDLE-only is rejected
 
@@ -133,7 +133,7 @@ traversal refusal and pinned parent/leaf replacement. All 24 host regressions pa
 target-following and `lstat` leaf-observation behavior. It closes the pinned
 handles after each observation; expected-versus-anchored confinement checks
 remain required. All four cases pass on native x64 and ARM64 in [run 39996443611](https://github.com/arpan404/ace/actions/runs/39996443611), pinned to `c0469a9a2`: MSVC compilation and 22 files / 162 tests per architecture.
-Default bindings and path-stat guards remain POSIX-only.
+That adapter slice kept the default bindings POSIX-only. `11859cd89` now selects the Windows binding and path adapter on Windows.
 
 ## 8. Error mapping
 
@@ -181,3 +181,41 @@ No public native `close`: ordinary fd lifetime stays with TS `Descriptor` via No
 ## 12. Open risks
 
 Native x64 and ARM64 runs verify the read, metadata and exclusive-creation subset, including the libuv fd bridge. Run 39876189647 also verifies handle-relative deletion on both architectures. The remaining U1–U6 contracts require operation-specific evidence. Integration requires real win-x64 AND win-arm64 hosts at merge, Electron `daemon/descriptor.node` staging check, and `docs/verification/windows-workspace-checklist.md`. No merge with either arch red.
+
+## Production selection and build prerequisites
+
+`c6f692419` keeps POSIX and Windows schemas separate while sharing the lazy addon
+loader. `566492794` adds a metadata-only private-file open with `READ_CONTROL`
+and `WRITE_DAC`, plus DACL repair on the same held descriptor. Four fixtures
+prove replacement cannot redirect repair, hardlink refusal leaves the broad ACL
+unchanged, metadata handles cannot read data, and unsafe names/types are refused.
+All four execute and pass in run 39999625209 on native x64 and ARM64.
+
+`89c2989f8` connects `build.ts` to the existing Windows compiler. Run the normal
+install under a matching MSVC Developer Prompt with native Node 24+ and these
+explicit inputs:
+
+- `ACE_WINDOWS_HEADERS_DIR`: the matching full Node include directory containing
+  `node_api.h` and `uv.h`.
+- `ACE_WINDOWS_NODE_LIB`: the matching architecture/version's `node.lib`.
+- `ACE_WINDOWS_CL`: optional explicit `cl.exe`; otherwise the developer prompt's
+  `cl` is used.
+
+The compiler writes production `dist/descriptor.node`. It downloads no tools and
+refuses missing inputs. CI reuses its SHA-256-verified official Node headers and
+library. `cd62df05f` replaces dependency staging with a real frozen install that
+runs postinstall; a passed native run is still required before recording W06.
+
+`11859cd89` selects typed native directory/file/private opens, lossless metadata,
+listing and mutations. Private reads check the held file's SID/DACL rather than
+Windows numeric uid/mode. Upload metadata repair obtains the required rights
+before handing its descriptor to the caller. Publication flushes staged data
+before rename and keeps the POSIX directory fence on POSIX only, under the
+Windows durability limits in section 3. Four new native integration cases cover
+default workspace read/list/search/confinement, private publication and held-file
+repair. Host confinement/list/read/search/publication checks pass 35 cases; the
+Windows integration cases skip on macOS and await the linked native run.
+
+Absolute upload writers and confined Git startup still need their Windows
+integration. This selection does not establish complete local daemon or installed
+app readiness.

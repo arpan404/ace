@@ -403,3 +403,30 @@ gate is recorded.
 shared descriptor operations. The extraction preserves loading behavior and
 passes 23 existing host cases. This prepares a separate Windows binding schema;
 it does not select that backend yet.
+
+## Default backend and clean-install verification
+
+`c6f692419` adds the separate Windows native binding. `566492794` adds held-fd
+private metadata and ACL repair. [Run 39999625209](https://github.com/arpan404/ace/actions/runs/39999625209)
+passes native MSVC compilation and **23 files / 166 tests on each architecture**,
+including all four new security fixtures.
+
+`89c2989f8` connects the normal build entry to the existing Windows compiler,
+producing `dist/descriptor.node` from explicit full Node headers, matching
+`node.lib` and MSVC. `cd62df05f` enables real frozen dependency installation with
+postinstall scripts in CI. Build prerequisites are listed in the
+[workspace research](research/windows-workspace-backend.md#production-selection-and-build-prerequisites).
+
+`11859cd89` selects Windows native operations and metadata for the shared
+workspace, uses real ACL checks and private creation for pinned private files,
+and acquires held private metadata descriptors for upload repair. Publication
+flushes staged data before rename; Windows directory/power-loss limits remain
+explicit. All 35 applicable host confinement/read/list/search/publication cases
+pass. Four new Windows integration cases await
+[run 40000660283](https://github.com/arpan404/ace/actions/runs/40000660283), pinned
+to that commit, together with the first real clean-install attempt on both
+architectures. W06 remains unchecked until that evidence passes.
+
+A fresh two-worker `bun run check` is running. Confined Git startup, absolute
+upload writers, process recovery and daemon/installed-app workflows remain on
+the critical path. The full local Windows app is not usable yet.
