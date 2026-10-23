@@ -16,19 +16,19 @@ import XCTest
         feedback.tap()
         feedback.typeText("Also cover zombie processes")
         screenshot("plan-revise")
-        XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 25))
-        app.buttons["composer.model"].tap()
-        // Effort shows the model's levels in words; the chosen one is selected.
+        // The model chip's effort part opens effort and speed, the levels in words.
+        XCTAssertTrue(app.buttons["composer.effort"].waitForExistence(timeout: 25))
+        app.buttons["composer.effort"].tap()
         let high = app.buttons["composer.tune.high"]
         XCTAssertTrue(high.waitForExistence(timeout: 25))
-        for _ in 0..<6 where !high.isHittable { app.swipeUp() }
         high.tap()
         XCTAssertTrue(app.buttons["composer.tune.high"].waitForExistence(timeout: 10))
         let selected = NSPredicate(format: "isSelected == true")
         expectation(for: selected, evaluatedWith: app.buttons["composer.tune.high"])
         waitForExpectations(timeout: 10)
         screenshot("tune-effort")
-        app.buttons["modelSheet.close"].tap()
+        app.otherElements["tunePanel"].swipeDown(velocity: .fast)
+        XCTAssertTrue(app.buttons["composer.tune.high"].waitForNonExistence(timeout: 10))
         XCTAssertTrue(app.buttons["composer.attach"].waitForExistence(timeout: 10))
         app.buttons["composer.attach"].tap()
         XCTAssertTrue(app.buttons["Photo Library"].waitForExistence(timeout: 10))

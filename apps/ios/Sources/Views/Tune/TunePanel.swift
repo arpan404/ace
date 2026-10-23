@@ -21,6 +21,7 @@ struct TunePanel<Rows: View, Footer: View>: View {
         .tint(AceTheme.Colours.foreground)
         .presentationDetents([.height(268)])
         .presentationDragIndicator(.visible)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tunePanel")
     }
 }

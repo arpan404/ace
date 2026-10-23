@@ -129,19 +129,26 @@ import XCTest
         let tuned = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier CONTAINS[c] %@", "model.codex.", "ultra")).firstMatch
         for _ in 0..<25 where !tuned.isHittable { app.swipeUp() }
         tuned.tap()
-        // Speed and access follow the agents in the model sheet.
-        for _ in 0..<25 where !element(app, "newThread.access").isHittable { app.swipeUp() }
-        XCTAssertTrue(element(app, "newThread.speed").waitForExistence(timeout: 10))
-        XCTAssertTrue(element(app, "newThread.access").waitForExistence(timeout: 15))
-        screenshot("newthread-tuning")
-        // Access shows its modes in words; picking one says what it does.
-        let readOnly = app.buttons["newThread.access.read-only"]
-        XCTAssertTrue(readOnly.waitForExistence(timeout: 5))
-        for _ in 0..<4 where !readOnly.isHittable { element(app, "newThread.access").swipeLeft() }
-        readOnly.tap()
-        screenshot("newthread-access-menu")
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Reads and plans")).firstMatch.waitForExistence(timeout: 10))
         app.buttons["modelSheet.done"].tap()
+        XCTAssertTrue(app.buttons["modelSheet.done"].waitForNonExistence(timeout: 10))
+        // Effort and speed have their own panel from the model chip's effort part.
+        XCTAssertTrue(app.buttons["newThread.tune"].waitForExistence(timeout: 10))
+        app.buttons["newThread.tune"].tap()
+        XCTAssertTrue(element(app, "newThread.speed").waitForExistence(timeout: 10))
+        screenshot("newthread-tuning")
+        app.otherElements["tunePanel"].swipeDown(velocity: .fast)
+        XCTAssertTrue(element(app, "newThread.speed").waitForNonExistence(timeout: 10))
+        // Access sits beside +: its menu lists each mode with what it does.
+        let access = app.buttons["newThread.access"]
+        XCTAssertTrue(access.waitForExistence(timeout: 15))
+        access.tap()
+        let readOnly = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Read-only")).firstMatch
+        XCTAssertTrue(readOnly.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Full access")).firstMatch.waitForExistence(timeout: 5))
+        screenshot("newthread-access-menu")
+        readOnly.tap()
+        expectation(for: NSPredicate(format: "value == %@", "Read-only"), evaluatedWith: app.buttons["newThread.access"])
+        waitForExpectations(timeout: 10)
         // The compact composer keeps attachment next to the input.
         XCTAssertTrue(element(app, "newThread.attach").waitForExistence(timeout: 5))
         XCTAssertTrue(element(app, "newThread.attach").isHittable)
