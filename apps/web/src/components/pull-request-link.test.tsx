@@ -30,16 +30,16 @@ test("a pull request an answer links opens in the thread's side panel", async ()
   expect(await within(side).findByRole("tab", { name: "#1173", selected: true })).toBeTruthy();
 }, 30_000);
 
-test("a bare pull request address opens in the panel; a cmd-click leaves it to the browser", async () => {
+test("a bare pull request address opens in the panel; the platform's modified click opens the browser", async () => {
   const feed = await answer(
     "See https://github.com/acme/ace/pull/7/files and https://github.com/acme/ace/pull/8.",
   );
   const user = userEvent.setup();
-  await user.keyboard("{Meta>}");
+  await user.keyboard("{Meta>}{Control>}");
   await user.click(
     await within(feed).findByRole("link", { name: "https://github.com/acme/ace/pull/8" }),
   );
-  await user.keyboard("{/Meta}");
+  await user.keyboard("{/Control}{/Meta}");
   expect(screen.queryByRole("tab", { name: "#8" })).toBeNull();
 
   await user.click(
