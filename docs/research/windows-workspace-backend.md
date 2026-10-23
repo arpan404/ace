@@ -1,6 +1,6 @@
 # Windows workspace backend — safe design (research)
 
-Status: independent native addon implements pinned reads, identity, metadata, enumeration and exclusive creation. Native x64 and ARM64 verification passed for those operations in run 39874497061. Handle-relative deletion passed native x64 and ARM64 verification in run 39876189647. Handle-relative rename and replacement passed native x64 and ARM64 verification in run 39878029237. Owner-only ACL check/set operations are implemented with native confirmation pending. Production descriptor integration remains unfinished.
+Status: independent native addon implements pinned reads, identity, metadata, enumeration and exclusive creation. Native x64 and ARM64 verification passed for those operations in run 39874497061. Handle-relative deletion passed native x64 and ARM64 verification in run 39876189647. Handle-relative rename and replacement passed native x64 and ARM64 verification in run 39878029237. Owner-only ACL check/set and stdin search passed native x64 and ARM64 verification in run 39880850603. Production descriptor integration remains unfinished.
 
 ## 1. Consumers pin numeric fds; HANDLE-only is rejected
 
@@ -55,8 +55,10 @@ This chooses confinement and straightforward cleanup over spawn efficiency.
 On macOS ARM64, the bounded benchmark measured medians of 13 ms for 64 tiny
 files via fd batching and 219 ms via stdin per file; four 256 KiB files measured
 5 ms versus 14 ms. These host observations are not Windows performance evidence.
-Run `node packages/workspace/bench/ripgrep-input.ts` to reproduce; native CI runs
-its Windows lane as an observation. Named-pipe batching remains a possible
+Run `node packages/workspace/bench/ripgrep-input.ts` to reproduce. In native run
+39880850603, Windows stdin measured 573 ms on x64 and 768 ms on ARM64 for
+64 small files, and 39/52 ms respectively for four 256 KiB files. These are
+transport microbenchmarks, not installed-app performance acceptance. Named-pipe batching remains a possible
 optimization requiring its own ACL, cancellation and performance evidence.
 Windows workspace search no longer depends on a native numeric-pipe export.
 
@@ -68,7 +70,12 @@ and [ripgrep guide](https://github.com/BurntSushi/ripgrep/blob/master/GUIDE.md).
 
 No `uid 0` bypass exists on Windows; ownership is owner-SID equality, never a well-known-admin shortcut. `chmodMetadata` is deleted from the Windows binding (a no-op success fakes permissions). Instead `checkPrivateAt(parentFd, name)` (`GetSecurityInfo(OWNER|DACL)`; owner SID `EqualSid` against the current token user via `GetTokenInformation(TokenUser)`; DACL `PROTECTED_DACL`, exactly one allow ACE for the owner, no inherited or other-user ACEs; `FileStandardInfo.NumberOfLinks === 1`; regular file only) and `securePrivateAt(parentFd, name)` (`SetSecurityInfo(PROTECTED_DACL_SECURITY_INFORMATION)` installing the owner-only DACL; fails closed — caller retries or reports `PERMISSION_DENIED`, never silent success). ([GetSecurityInfo](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-getsecurityinfo), [SetSecurityInfo](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setsecurityinfo), [EqualSid](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-equalsid), [GetTokenInformation](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-gettokeninformation), [DACLs and ACEs](https://learn.microsoft.com/en-us/windows/win32/secauthz/dacls-and-aces).)
 
-TS `readBytes(owner)` / `privateFileMetadata` call `checkPrivateAt` where mode/`nlink`/`uid` checks run today; `atomicWrite` staging calls `securePrivateAt` where `chmod 0600` runs today. `filesystem.ts openUpload` uses backend `openAt` + `checkPrivateAt` + identity verify.
+The native check/set operations now pass Windows fixtures. Production
+`readBytes(owner)` / `privateFileMetadata` still need wiring to `checkPrivateAt`
+where mode/`nlink`/`uid` checks run today; `atomicWrite` staging must call
+`securePrivateAt` before writing private bytes where `chmod 0600` runs today.
+The caller must keep identity checks tied to the descriptor used for reading or
+writing, since securing a name does not by itself secure a separately opened fd. `filesystem.ts openUpload` uses backend `openAt` + `checkPrivateAt` + identity verify.
 
 ## 8. Error mapping
 

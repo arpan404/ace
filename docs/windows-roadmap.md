@@ -218,14 +218,16 @@ module stays below its 400-line source budget. This is not daemon activation.
    all three Win32 rename calls while the existing 124 tests passed. Commit
    `9488f1304` changes the call to native `NtSetInformationFile`, keeping the
    same record and pinned handles. Both architectures pass all 127 tests.
-2. Enforce private-file ownership and DACLs before storing private data.
+2. Wire the verified owner-only ACL operations into production private-file
+   readers and writers, preserving the identity of the descriptor actually used.
    `chmod(0600)` and numeric uid comparisons do not provide that contract on
-   Windows. Add creation/security fixtures against actual Windows tokens.
+   Windows. The native check/set fixtures pass against actual Windows tokens.
 3. Integrate the Windows backend into `descriptor.ts`, identity comparison and
    `build.ts`, then pass clean installs without `--ignore-scripts` on both
    architectures. The current `build.ts` still explicitly rejects Windows.
-4. Replace `/dev/fd` ripgrep input and `fchdir` Git execution with confined
-   Windows transports. Do not substitute pathname joins for pinned access.
+4. Ripgrep stdin is now verified. Replace `fchdir` Git execution with confined
+   Windows process startup and complete secure command discovery. Do not
+   substitute pathname joins for pinned access.
 5. Complete process recovery and daemon startup/reconnect/shutdown before
    enabling the Windows desktop managed target.
 6. Complete service, installer, updater, browser, computer-use and provider
@@ -257,3 +259,21 @@ continues to refuse taking ownership. UI token fixes in `add98a010` clear all
 three existing `check:ui` failures. Live browser inspection verified the pairing
 sheet opens and keyboard focus reaches its first control without console errors.
 The full repository gate is now running past that former blocker.
+
+## Native ACL and stdin verification
+
+[Run 39880850603](https://github.com/arpan404/ace/actions/runs/39880850603)
+verifies `a37bc0a4f` on native Windows x64 and ARM64: each passes **18 files and
+144 tests**, including ACL check/set, hardlink and junction refusal, pinned
+ancestor security, streaming input cancellation/early exits and real ripgrep
+stdin behavior. The native benchmark completes on both architectures. Its
+64-small-file medians are 573 ms on x64 and 768 ms on ARM64; four 256 KiB
+files take 39 ms and 52 ms. These are transport observations, not application
+release performance acceptance.
+
+`c7dec0451` makes production directory, file and exclusive-create intent explicit
+without activating the Windows backend. Its 20 existing pinned-directory,
+confinement and file tests pass, as do scoped formatting/lint and workspace
+typechecking. This is a prerequisite for mapping those operations to Windows
+without relying on unavailable POSIX `O_DIRECTORY` flags. Lossless identity,
+private-file consumer checks, backend loading/build and pinned Git remain gated.
