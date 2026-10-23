@@ -31,6 +31,16 @@ provider-exit hold, uncertain input, a resume already in flight) is not running 
 is left alone. Settled and archived threads are never resumed. Cursor SDK work keeps its own
 checkpoint reconciliation and is not resumed by this rule.
 
+**Evidence travels with the capture.** Stopping a provider expires its open requests, so whoever
+decides later can no longer see that the agent was waiting on the person: startup after a
+graceful shutdown, or the next start after a crash between startup's capture pass and its
+decision pass. The capture therefore saves what it saw (the open request, if any) in
+`engine_restart_captures`, in the same transaction as the continuation. The decision pass reads
+and removes that record in its own transaction, so a crash before the decision leaves it for the
+next start. If the provider reports the turn completed while shutdown is closing it, and nothing
+else is live, the capture is stale: the continuation and its record are dropped and the restart
+continues nothing.
+
 **How it continues.** Startup records an engine `thread.resume` for the thread. The provider
 reopens the same native session and receives one synthetic input with origin and run trigger
 `restart`:
@@ -61,9 +71,17 @@ after a restart. Naming it in the notice re-presents it, and Continue lets the a
 The person's Continue or next message works exactly as before in every held case: one action.
 
 **Loop guard.** A small table (`engine_restart_resumes`) counts automatic restart continuations
-per thread. A completed root turn, any new input to the thread, or the person's own Resume clears
-it. After three automatic continuations in a row the next restart holds instead. This stops a turn
+per thread. A completed root turn, any new input to the thread, or the person's own accepted Resume
+(`thread.resume` or `queue.resume`) clears it; a refused Resume does not. After three automatic continuations in a row the next restart holds instead. This stops a turn
 that crashes ace from restarting it forever.
+
+**Maintenance holds it.** ADR 0041's admission barrier applies to turns ace starts by itself. The
+daemon creates one maintenance gate before any service starts (closed when `ACE_MAINTENANCE=1`)
+and shares it with the server and the engine. While it is closed, a restart continuation, a
+usage-limit timer resume, a migration and a capacity retry keep a due deadline instead of starting
+a turn, and no deadline timer runs. Reopening the gate schedules them. The deadline is stored, so a
+restart during maintenance keeps the deferred continuation. Work admitted before the barrier
+closed (an intent already recorded) is existing work and may finish, as ADR 0041 allows.
 
 **Provider exits are unchanged.** A provider process that dies while ace keeps running still holds
 its turn for the person with "The agent stopped unexpectedly". That is a provider failure, not a
@@ -88,6 +106,10 @@ restart, and repeating it automatically could loop without a restart in between.
 - A restart no longer needs a visit to every thread; nothing runs that was not running.
 - Agents get an explicit message that background work died, instead of a bare "continue".
 - Tests: `apps/daemon/src/engine/restart-resume.process.test.ts` (resume after crash and graceful
-  restart, queued order, not-running, waiting-on-person, stopped, provider without resume, loop
-  guard) and `apps/daemon/src/agent-control/recovery.process.test.ts` (child resumes without its
-  parent seeing it settle, dead children free slots after a provider exit and after a restart).
+  restart, queued order, not-running, waiting-on-person after a crash, a graceful restart and a
+  crash between startup passes, stopped, provider without resume, loop guard reset by either
+  Resume, a turn that completes during shutdown, maintenance deferral),
+  `apps/daemon/src/restart-maintenance.process.test.ts` (a daemon started with
+  `ACE_MAINTENANCE=1` holds the continuation until the gate reopens) and
+  `apps/daemon/src/agent-control/recovery.process.test.ts` (child resumes without its parent
+  seeing it settle, dead children free slots after a provider exit and after a restart).
