@@ -4,9 +4,10 @@ import UIKit
 /// The terminal's keyboard focus. It holds no text: every keystroke goes straight to the
 /// terminal, as in a desktop terminal, and hardware keys (Ctrl, Option, Esc, arrows) are read
 /// before the text system turns them into editing commands.
-final class TerminalKeyTextField: UITextField {
+final class TerminalKeyTextField: UITextField, UITextFieldDelegate {
     var onText: (String) -> Void = { _ in }
     var onDelete: () -> Void = {}
+    var onReturn: () -> Void = {}
     var onKey: (TerminalInput) -> Void = { _ in }
 
     override init(frame: CGRect) {
@@ -21,17 +22,18 @@ final class TerminalKeyTextField: UITextField {
         keyboardType = .asciiCapable
         returnKeyType = .default
         textContentType = .none
+        delegate = self
     }
     required init?(coder: NSCoder) { nil }
 
-    override func insertText(_ text: String) { onText(text) }
+    /// Every edit (keyboard, hardware typing, paste, dictation) is sent and never kept.
+    func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+        if string.isEmpty { onDelete() } else { onText(string) }
+        return false
+    }
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool { onReturn(); return false }
+    /// The field is always empty, so a delete arrives here rather than as an edit.
     override func deleteBackward() { onDelete() }
-    override func paste(_ sender: Any?) {
-        if let text = UIPasteboard.general.string, !text.isEmpty { onText(text) }
-    }
-    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        action == #selector(paste(_:)) ? UIPasteboard.general.hasStrings : false
-    }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         var rest = Set<UIPress>()
@@ -84,6 +86,7 @@ struct TerminalKeyField: UIViewRepresentable {
     @Binding var focused: Bool
     let onText: (String) -> Void
     let onDelete: () -> Void
+    let onReturn: () -> Void
     let onKey: (TerminalInput) -> Void
 
     func makeUIView(context: Context) -> TerminalKeyTextField {
@@ -102,6 +105,7 @@ struct TerminalKeyField: UIViewRepresentable {
         context.coordinator.parent = self
         field.onText = { onText($0) }
         field.onDelete = { onDelete() }
+        field.onReturn = { onReturn() }
         field.onKey = { onKey($0) }
         field.isEnabled = enabled
         if focused, enabled, !field.isFirstResponder { DispatchQueue.main.async { field.becomeFirstResponder() } }

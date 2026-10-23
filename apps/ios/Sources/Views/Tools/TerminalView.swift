@@ -57,9 +57,10 @@ struct TerminalView: View {
                         enabled: canType, focused: $typing,
                         onText: { type(modifiers.apply(text: $0)) },
                         onDelete: { type([modifiers.apply(key: "Backspace")]) },
+                        onReturn: { type([modifiers.apply(key: "Enter")]) },
                         onKey: { type([$0]) }
                     )
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .frame(height: AceTheme.Dimensions.touchTarget)
                     Button("Interrupt", systemImage: "stop.circle") { type([.key("c", ctrl: true)]) }
                 }
             }.disabled(!canType)

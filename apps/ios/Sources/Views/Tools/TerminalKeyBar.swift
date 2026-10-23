@@ -2,7 +2,8 @@ import SwiftUI
 
 /// Keys a phone keyboard lacks, as one scrolling row of plain words and symbols above it.
 /// Ctrl and Alt are sticky: one tap holds them for the next key, a second locks them, a third
-/// lets go. A held modifier reads in the accent; a locked one is also underlined.
+/// lets go. A held modifier reads bold in the accent with a dotted underline; a locked one with
+/// a solid underline.
 struct TerminalKeyBar: View {
     @Binding var modifiers: TerminalModifiers
     let send: (TerminalInput) -> Void
@@ -47,6 +48,7 @@ struct TerminalKeyBar: View {
             }
         }
         .scrollIndicators(.hidden)
+        .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Terminal keys")
     }
@@ -69,8 +71,8 @@ struct TerminalKeyBar: View {
         let value = state.wrappedValue
         return Button { state.wrappedValue.tap() } label: {
             Text(title).aceMonospace(AceTheme.Typography.code, relativeTo: .body)
-                .fontWeight(value.isOn ? .medium : .regular)
-                .underline(value == .locked)
+                .fontWeight(value.isOn ? .semibold : .regular)
+                .underline(value.isOn, pattern: value == .locked ? .solid : .dot)
                 .foregroundStyle(value.isOn ? AceTheme.Colours.accent : AceTheme.Colours.foreground)
                 .frame(minWidth: AceTheme.Dimensions.touchTarget, minHeight: AceTheme.Dimensions.touchTarget)
                 .contentShape(.rect)
