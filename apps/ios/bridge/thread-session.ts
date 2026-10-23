@@ -1,6 +1,12 @@
 import { retrySend, type ChangeTap, type ClientCore, type ThreadSource } from "@ace/client";
-import { FollowUpBehavior, InteractionId, ThreadId, type CommandPayload } from "@ace/protocol";
-import { composerReply, isBusy, messageHasContent, modelLabel } from "@ace/ui-core";
+import {
+  FollowUpBehavior,
+  InteractionId,
+  ThreadId,
+  type CatalogModel,
+  type CommandPayload,
+} from "@ace/protocol";
+import { catalogModelIds, composerReply, isBusy, messageHasContent, modelKey } from "@ace/ui-core";
 import { runsOn } from "@ace/ui-core/thread-execution";
 import { z } from "zod";
 import { host, scheduler } from "./host.ts";
@@ -14,6 +20,8 @@ import { goalPayload, PillFollower } from "./thread-pill.ts";
 import { QueueFollower } from "./thread-queue.ts";
 import { requestResolution } from "./thread-requests.ts";
 import { StepsFollower } from "./thread-steps.ts";
+import { ModelFavorites } from "./model-favorites.ts";
+import { threadModelRows, type ThreadModelRow } from "./thread-models.ts";
 import { TuneFollower } from "./thread-tune.ts";
 import { answerResolution, controlsRow, sendPayload, stopPayload } from "./thread-controls.ts";
 
@@ -55,7 +63,11 @@ export class ThreadSession {
     this.#known = resolve;
   });
   #loading = false;
-  #models: { state: string; models: Record<string, unknown>[] } = { state: "idle", models: [] };
+  #models: { state: string; models: ThreadModelRow[] } = { state: "idle", models: [] };
+  #listed: CatalogModel[] = [];
+  #stars: string[] = [];
+  #starProblem: string | null = null;
+  readonly #favorites: ModelFavorites;
 
   constructor(
     client: ClientCore,
@@ -78,6 +90,7 @@ export class ThreadSession {
       this.#pill.queued(count),
     );
     this.#steps = new StepsFollower(client, store, this.#threadId, put);
+    this.#favorites = new ModelFavorites(client);
     this.#tune = new TuneFollower(client, store, signal, put, () => host.now());
     this.#tray = new AttachmentTray(
       client,
@@ -202,6 +215,9 @@ export class ThreadSession {
         break;
       case "switchModel":
         this.#dispatch(this.#switchPayload(action.model), action.requestId);
+        break;
+      case "favorite":
+        void this.#favorite(action.model);
         break;
       case "queue":
         this.#dispatch(
@@ -414,30 +430,41 @@ export class ThreadSession {
   async #listModels(): Promise<void> {
     const selection = this.#selection();
     if (!selection) return;
-    this.#publishModels("loading", []);
+    this.#publishModels("loading");
     try {
-      const listed = await this.#tune.read();
-      const seen = new Set<string>();
-      const models = listed.flatMap((model) => {
-        if (seen.has(model.id)) return [];
-        seen.add(model.id);
-        return [
-          {
-            id: model.id,
-            label: preview(model.displayName || modelLabel(model.id), 128),
-            detail: preview(model.detail ?? "", 256),
-            current: model.id === selection.model,
-          },
-        ];
-      });
-      this.#publishModels("ready", models);
+      this.#listed = await this.#tune.read();
+      this.#stars = await this.#favorites.read(catalogModelIds(this.#listed));
+      this.#publishModels("ready");
     } catch {
-      if (!this.#abort.signal.aborted) this.#publishModels("failed", []);
+      if (!this.#abort.signal.aborted) this.#publishModels("failed");
     }
   }
-  #publishModels(state: string, models: Record<string, unknown>[]): void {
-    this.#models = { state, models };
-    this.#put("models", () => ({ type: "thread.models", ...this.#models }));
+  async #favorite(model: string): Promise<void> {
+    const selection = this.#selection();
+    if (!selection) return;
+    try {
+      const key = modelKey(selection.provider, model);
+      this.#stars = await this.#favorites.toggle(key, catalogModelIds(this.#listed));
+      this.#starProblem = null;
+    } catch {
+      this.#starProblem = "Couldn't save this favourite. Reconnect and try again.";
+    }
+    if (this.#models.state === "ready") this.#publishModels("ready");
+  }
+  #publishModels(state: string): void {
+    const selection = this.#selection();
+    const rows =
+      state === "ready" && selection
+        ? threadModelRows(this.#listed, selection, this.#stars, preview)
+        : { models: [], favorites: [] };
+    this.#models = { state, models: rows.models };
+    const patch = {
+      type: "thread.models",
+      ...this.#models,
+      favorites: rows.favorites,
+      starProblem: this.#starProblem,
+    };
+    this.#put("models", () => patch);
   }
   #switchPayload(model: string): CommandPayload | undefined {
     const selection = this.#selection();

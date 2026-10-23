@@ -51,6 +51,8 @@ export const ThreadAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("loadOlder") }),
   z.object({ type: z.literal("models") }),
   z.object({ type: z.literal("switchModel"), model: z.string().min(1).max(256), requestId }),
+  /** Star or unstar one of the thread's provider's models. */
+  z.object({ type: z.literal("favorite"), model: z.string().min(1).max(512) }),
   /** Effort for the next message; null goes back to the model's default. */
   z.object({ type: z.literal("effort"), effort: z.string().min(1).max(64).nullable(), requestId }),
   z.object({ type: z.literal("speed"), speed: KnownSpeed, requestId }),

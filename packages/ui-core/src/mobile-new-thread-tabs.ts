@@ -57,27 +57,29 @@ export function newThreadTabs(
     instance: input.current?.account,
   }).rows.flatMap((model) => (model.instance ? [{ key: model.key, account: model.instance }] : []));
   return entries.map((entry): NewThreadTab => {
-    if (entry.id === "favorites") return { ...tab(entry), models: starred, lead: starred.length };
+    if (entry.id === "favorites") return tab(entry, starred, starred.length);
     const own: NewThreadModelRow[] = (
       entry.provider ? (rows.get(entry.provider) ?? []) : []
     ).filter((model) => entry.instance === undefined || model.account === entry.instance);
     const inUse =
       input.current && input.current.provider === entry.provider ? input.current : undefined;
     const list = newThreadModelList(own, inUse);
-    return {
-      ...tab(entry),
-      models: list.models.map((model) => ({ key: model.key, account: model.account })),
-      lead: list.lead,
-    };
+    return tab(
+      entry,
+      list.models.map((model) => ({ key: model.key, account: model.account })),
+      list.lead,
+    );
   });
 }
 
-function tab(entry: PickerEntry): Omit<NewThreadTab, "models" | "lead"> {
+function tab(entry: PickerEntry, models: NewThreadTab["models"], lead: number): NewThreadTab {
   return {
     id: entry.id,
     provider: entry.provider,
     instance: entry.instance,
     name: entry.name,
     reason: entry.reason,
+    models,
+    lead,
   };
 }

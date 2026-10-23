@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { afterEach, expect, test } from "vitest";
 import { ClientCore } from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
-import { DeviceId, HostId } from "@ace/protocol";
+import { DeviceId, HostId, ProviderConfigurations } from "@ace/protocol";
 import { PatchPump } from "./patches.ts";
 import { ComposeActions } from "./compose-actions.ts";
 import { NativeReads } from "./native-reads.ts";
@@ -367,14 +367,13 @@ test("the picker has Favorites and one tab per account, and a star is saved wher
     return (patch?.favorites as string[] | undefined)?.includes(starred?.key ?? "") && patch;
   });
   expect((saved.tabs as Tab[])[0]?.models.map((model) => model.key)).toEqual([starred?.key]);
-  const rows = (await client?.request({
+  const reply = await client?.request({
     type: "settings.get",
     key: "providers.configuration",
     scope: {},
-  })) as {
-    entries: { value: { provider: string; instance?: string; favourites?: string[] }[] }[];
-  };
-  const own = rows.entries[0]?.value.find((row) => row.provider === "codex" && !row.instance);
+  });
+  const rows = ProviderConfigurations.parse(reply?.entries[0]?.value ?? []);
+  const own = rows.find((row) => row.provider === "codex" && !row.instance);
   expect(own?.favourites?.length).toBe(1);
   compose.compose({ kind: "favorite", key: starred?.key });
   await until(() => (latest("compose.agents")?.favorites as string[] | undefined)?.length === 0);

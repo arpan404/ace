@@ -29,13 +29,13 @@ export function agentsPatch(
 ) {
   const start = selectNewThreadAgent(agents, {});
   const current = selectNewThreadAgent(agents, choice);
-  const inUse = current.ok
+  const chosen = current.ok
     ? { provider: current.provider, key: current.model.key, account: current.model.account }
     : undefined;
   return {
     type: "compose.agents",
     state: "ready",
-    tabs: newThreadTabs(agents, { favorites: stars.keys, current: inUse })
+    tabs: newThreadTabs(agents, { favorites: stars.keys, current: chosen })
       .slice(0, 64)
       .map((tab) => ({
         id: tab.id,
