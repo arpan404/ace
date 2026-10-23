@@ -160,6 +160,9 @@ const char *wcore_close_fd(int fd);
 const char *wcore_wide_from_utf8(
     const char *utf8, size_t bytes, WCHAR *wide, DWORD cap, DWORD *used);
 
+// Submit the directory-relative rename record through native class 10.
+const char *wcore_nt_rename(HANDLE source, FILE_RENAME_INFO *info, ULONG size);
+
 // Open one relative component inside `parent` (RootDirectory, no path join).
 const char *wcore_nt_create_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
     ULONG options, ACCESS_MASK access, HANDLE *out);

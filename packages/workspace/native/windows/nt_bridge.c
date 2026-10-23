@@ -75,16 +75,19 @@ typedef struct {
 typedef WCORE_NTSTATUS(NTAPI *wcore_nt_create_file_fn)(PHANDLE, ACCESS_MASK,
     WCORE_OBJECT_ATTRIBUTES *, WCORE_IO_STATUS_BLOCK *, PLARGE_INTEGER, ULONG,
     ULONG, ULONG, ULONG, PVOID, ULONG);
+typedef WCORE_NTSTATUS(NTAPI *wcore_nt_set_information_fn)(HANDLE,
+    WCORE_IO_STATUS_BLOCK *, PVOID, ULONG, ULONG);
 typedef ULONG(NTAPI *wcore_rtl_nt_to_dos_fn)(WCORE_NTSTATUS);
 
 static INIT_ONCE g_nt_once = INIT_ONCE_STATIC_INIT;
 static wcore_nt_create_file_fn g_nt_create = NULL;
 static wcore_rtl_nt_to_dos_fn g_nt_to_dos = NULL;
+static wcore_nt_set_information_fn g_nt_set = NULL;
 
 // One-time ntdll resolution. Runs exactly once via InitOnceExecuteOnce, so
-// concurrent Node Worker opens block until both symbols are fully published.
+// concurrent Node Worker opens block until all symbols are fully published.
 // Locals hold the probe results; the globals are published together (either
-// a valid pair or NULL/NULL), then TRUE is returned to cache the outcome
+// all valid symbols or all NULL), then TRUE is returned to cache the outcome
 // permanently — including ENOSYS — with no partially published pointers and
 // no transient failure for a racing caller.
 //
@@ -97,18 +100,24 @@ static BOOL CALLBACK wcore_init_ntdll(PINIT_ONCE once, PVOID param, PVOID *ctx) 
   HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
   wcore_nt_create_file_fn create = NULL;
   wcore_rtl_nt_to_dos_fn to_dos = NULL;
+  wcore_nt_set_information_fn set = NULL;
   if (ntdll != NULL) {
     create =
         (wcore_nt_create_file_fn)(void *)GetProcAddress(ntdll, "NtCreateFile");
     to_dos = (wcore_rtl_nt_to_dos_fn)(void *)GetProcAddress(
         ntdll, "RtlNtStatusToDosError");
   }
-  if (create == NULL || to_dos == NULL) {
+  if (ntdll != NULL)
+    set = (wcore_nt_set_information_fn)(void *)GetProcAddress(
+        ntdll, "NtSetInformationFile");
+  if (create == NULL || to_dos == NULL || set == NULL) {
     create = NULL;
     to_dos = NULL;
+    set = NULL;
   }
   g_nt_create = create;
   g_nt_to_dos = to_dos;
+  g_nt_set = set;
   return TRUE;
 }
 
@@ -133,6 +142,7 @@ const char *wcore_dos_to_code(DWORD dos) {
     case ERROR_FILE_EXISTS:
     case ERROR_ALREADY_EXISTS:
       return "EEXIST";
+    case ERROR_INVALID_PARAMETER:
     case ERROR_INVALID_NAME:
       return "EINVAL";
     case ERROR_DIR_NOT_EMPTY:
@@ -242,6 +252,23 @@ const char *wcore_nt_create_new_child(HANDLE parent, const WCHAR *wname, DWORD w
     ULONG options, ACCESS_MASK access, HANDLE *out) {
   // FILE_CREATE (2): fail with collision if any object already has this name.
   return nt_open_child(parent, wname, wlen, options, access, 2UL, out);
+}
+
+// Native FileRenameInformation (10) accepts a directory-relative target.
+// The Win32 SetFileInformationByHandle wrapper rejected the same record in
+// the native Windows fixtures. Keep its directory handle, layout and length.
+// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntsetinformationfile
+const char *wcore_nt_rename(HANDLE source, FILE_RENAME_INFO *info, ULONG size) {
+  const char *load = wcore_load_ntdll();
+  if (load != NULL) return load;
+  WCORE_IO_STATUS_BLOCK iosb;
+  memset(&iosb, 0, sizeof(iosb));
+  WCORE_NTSTATUS status = g_nt_set(source, &iosb, info, size, 10UL);
+  if (!WCORE_NT_SUCCESS(status)) {
+    const char *code = wcore_dos_to_code(g_nt_to_dos(status));
+    return code != NULL ? code : "EIO";
+  }
+  return NULL;
 }
 
 const char *wcore_assert_noreparse(HANDLE handle) {

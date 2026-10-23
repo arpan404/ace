@@ -1,6 +1,6 @@
 // Same-parent renames using an opened source and a pinned destination directory.
 // No absolute path resolution or target traversal occurs.
-// https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info
+// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntsetinformationfile
 #ifdef _WIN32
 #include "windows_core.h"
 #include <stdlib.h>
@@ -41,8 +41,7 @@ static const char *rename_child(int parent_fd, const char *from,
   info->RootDirectory = parent;
   info->FileNameLength = name_bytes;
   memcpy(info->FileName, destination, name_bytes);
-  if (!SetFileInformationByHandle(child, FileRenameInfo, info, size))
-    code = wcore_dos_to_code(GetLastError());
+  code = wcore_nt_rename(child, info, size);
   free(info);
   if (!CloseHandle(child) && code == NULL)
     code = wcore_dos_to_code(GetLastError());
