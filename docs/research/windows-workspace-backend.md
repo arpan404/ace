@@ -1,6 +1,6 @@
 # Windows workspace backend — safe design (research)
 
-Status: independent native addon implements pinned reads, identity, metadata, enumeration and exclusive creation. Native x64 and ARM64 verification passed for those operations in run 39874497061. Handle-relative deletion passed native x64 and ARM64 verification in run 39876189647. Handle-relative rename and replacement passed native x64 and ARM64 verification in run 39878029237. Owner-only ACL check/set and stdin search passed native x64 and ARM64 verification in run 39880850603. Production descriptor integration remains unfinished.
+Status: independent native addon implements pinned reads, identity, metadata, enumeration and exclusive creation. Native x64 and ARM64 verification passed for those operations in run 39874497061. Handle-relative deletion passed native x64 and ARM64 verification in run 39876189647. Handle-relative rename and replacement passed native x64 and ARM64 verification in run 39878029237. Owner-only ACL check/set and stdin search passed native x64 and ARM64 verification in run 39880850603. The lossless POSIX identity prerequisite is implemented in `ef16a3188`. Windows descriptor integration remains unfinished. `76253a305` adds checks on an already-open private-file descriptor; native x64 and ARM64 each pass 18 files / 146 tests in run 39913429652.
 
 ## 1. Consumers pin numeric fds; HANDLE-only is rejected
 
@@ -37,7 +37,20 @@ Each op borrows the parent `HANDLE` via `uv_get_osfhandle(parentFd)`; the fd mus
 
 libuv on Windows fills [`uv_stat_t`](https://docs.libuv.org/en/v1.x/fs.html#data-types) lossily ([src/win/fs.c](https://github.com/libuv/libuv/blob/v1.x/src/win/fs.c)): `st_dev` is only `VolumeSerialNumber.LowPart` (32 bits), `st_ino` is the 64-bit `IndexNumber` rather than the 128-bit `FILE_ID_INFO.FileId`, and pipes get `st_ino = (uintptr_t) handle`. Node [Stats](https://nodejs.org/api/fs.html#class-fsstats) surfaces these as JS doubles, exact only to 2^53. Comparing native identity against Stats `dev:ino` doubles therefore silently aliases (ReFS, where the 64-bit index is not unique, is the sharp case).
 
-Minimal safe changes, no consumer rewrite beyond types: Windows identity is `(VolumeSerialNumber u64, FileId u128)` surfacing only as hex strings `{vol: string, id: string}` (+ `size`, `mtimeMs`, `attrs`), never `{dev, ino: number}`. TS `same()`/`version()` gain a Windows comparator over `(vol, id)`; `PinnedDirectory.identity`, `SafeRoot.identity`, and `filesystem.ts` fingerprints use the native string identity on win32. `Descriptor.stat()` stays `fstat`-backed for data reads but is never an identity source on win32. `readBytes` unlinked-during-read maps to re-`statAt` after open; name-missing-or-different-id means `ENOENT`/`PATH_CHANGED` retry.
+`ef16a3188` carries a discriminated identity through production POSIX descriptor,
+path and metadata observations. POSIX device/inode values are decimal strings
+from the same bigint stat observation; native `statAt` also returns exact strings.
+`sameFile` compares those identities, while numeric `Stats` fields remain display
+metadata and serialize without bigint fields. Four precision/serialization tests
+and 23 existing confinement/file/runtime tests pass.
+
+The schema also accepts Windows identities as `{kind: "win32", vol, id}`, with
+16 hex digits for the volume and 32 for the file ID. Windows observations still
+need mapping from native `FileIdInfo`, including descriptor, path and metadata
+proofs. `Descriptor.stat()` and the runtime's path stat functions explicitly
+reject Windows until that mapping exists. Bigint Node `dev/ino` values cannot
+substitute for the native Windows identity. Backend loading and build activation
+remain separate gates.
 
 ## 6. Search input: POSIX fd batches and Windows stdin
 
@@ -70,12 +83,26 @@ and [ripgrep guide](https://github.com/BurntSushi/ripgrep/blob/master/GUIDE.md).
 
 No `uid 0` bypass exists on Windows; ownership is owner-SID equality, never a well-known-admin shortcut. `chmodMetadata` is deleted from the Windows binding (a no-op success fakes permissions). Instead `checkPrivateAt(parentFd, name)` (`GetSecurityInfo(OWNER|DACL)`; owner SID `EqualSid` against the current token user via `GetTokenInformation(TokenUser)`; DACL `PROTECTED_DACL`, exactly one allow ACE for the owner, no inherited or other-user ACEs; `FileStandardInfo.NumberOfLinks === 1`; regular file only) and `securePrivateAt(parentFd, name)` (`SetSecurityInfo(PROTECTED_DACL_SECURITY_INFORMATION)` installing the owner-only DACL; fails closed — caller retries or reports `PERMISSION_DENIED`, never silent success). ([GetSecurityInfo](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-getsecurityinfo), [SetSecurityInfo](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setsecurityinfo), [EqualSid](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-equalsid), [GetTokenInformation](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-gettokeninformation), [DACLs and ACEs](https://learn.microsoft.com/en-us/windows/win32/secauthz/dacls-and-aces).)
 
-The native check/set operations now pass Windows fixtures. Production
-`readBytes(owner)` / `privateFileMetadata` still need wiring to `checkPrivateAt`
-where mode/`nlink`/`uid` checks run today; `atomicWrite` staging must call
-`securePrivateAt` before writing private bytes where `chmod 0600` runs today.
-The caller must keep identity checks tied to the descriptor used for reading or
-writing, since securing a name does not by itself secure a separately opened fd. `filesystem.ts openUpload` uses backend `openAt` + `checkPrivateAt` + identity verify.
+The native name-based check/set operations pass Windows fixtures. `76253a305`
+adds `checkPrivateFd(fd)`, applying the same shape, owner and DACL checks to the
+borrowed handle without reopening its name or closing it. Its fixtures replace
+the name in both directions and read the held descriptor afterward. Native x64 and ARM64 each pass all ten private-file tests in
+[run 39913429652](https://github.com/arpan404/ace/actions/runs/39913429652).
+
+Production `readBytes(owner)` and `privateFileMetadata` must use the descriptor
+that supplies their bytes and metadata. They are not wired to the Windows ACL
+checker yet. A successful name-based check alone does not prove a separately
+opened descriptor is private.
+
+Private creation remains unfinished. The current `createFileAt` uses the inherited
+security descriptor and is not a private-file creation operation. A future private
+create must install the protected owner-only security descriptor at exclusive
+creation, then verify the returned handle before writing bytes. Creating a public
+file and tightening its DACL later permits another process to open it first.
+Existing generic read/write access also omits `WRITE_DAC`; a setter cannot assume
+that a data descriptor grants permission to change the DACL. See Microsoft's
+[file security and access rights](https://learn.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights)
+and [GetSecurityInfo access requirement](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-getsecurityinfo).
 
 ## 8. Error mapping
 
@@ -103,6 +130,7 @@ Names names(int dirFd, int cap);                      // at most 10000, no . / .
 // Windows search uses standard child stdin; POSIX alone exports pipe().
 Ident identityOf(int fd);                             // FileIdInfo over borrowed HANDLE
 void checkPrivateAt(int parentFd, const char* name);  // §7, fails closed
+void checkPrivateFd(int fd);                         // same opened object, borrowed
 void securePrivateAt(int parentFd, const char* name); // §7, fails closed
 ```
 

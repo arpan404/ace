@@ -304,3 +304,44 @@ No complete full-gate pass is recorded yet. The next identity change must cover
 both opened-descriptor comparisons and path/metadata proofs with lossless values;
 changing only the stored root identity would leave rounded-number comparisons
 in production confinement checks.
+
+## Production identity and descriptor security prerequisites
+
+`ef16a3188` makes POSIX descriptor, path and metadata identity comparisons
+lossless. Exact device/inode strings accompany numeric metadata, preserving JSON
+serialization. Four precision/serialization tests and 23 existing behavior tests
+pass. Windows still needs native FileId mapping, ACL consumers and backend build
+selection before production activation.
+
+`6cf2fced8` fixes a real regression found during repository validation. Sidebar PR
+buttons read the shared sidebar record instead of subscribing to every thread's
+transcript. The original cold-cache search tests pass unchanged, alongside 30
+PR/New thread tests. Live browser inspection confirms correct PR navigation.
+
+`f81b463f3` integrates main through `e4b58b77f`; the generated protocol manifest
+was regenerated after the only conflict. Reviewed base-integration repairs update
+stale UI/iOS expectations while preserving refusal, persistence and navigation
+assertions. Each repair was committed and pushed separately.
+
+[Run 39911893770](https://github.com/arpan404/ace/actions/runs/39911893770)
+verifies runtime commit `c4e6f7722` on Windows x64 and ARM64. Each passes real
+MSVC compilation and 18 files / 144 tests. This does not establish production
+backend integration or clean installation.
+
+`76253a305` adds `checkPrivateFd` for the actual open file used by a caller. It
+borrows the handle, reuses the strict owner-only checks and leaves descriptor
+ownership with Node. Two new fixtures cover filename replacement in both
+directions, hardlink/directory refusal and invalid/closed descriptors. Source
+checks pass; all ten private-file tests skip on this Mac.
+[Run 39913429652](https://github.com/arpan404/ace/actions/runs/39913429652)
+verifies the change with MSVC compilation and 18 files / 146 tests on each of
+native Windows x64 and ARM64.
+Private-file creation with an owner-only security descriptor at creation remains
+required, as do production reader/writer integration and Windows identity mapping.
+
+The full local run passed 815 unit files and four client-react files before web
+tests hit timeouts. The first two New thread failures pass unchanged with one
+worker in 7.7 and 5.3 seconds. The earlier run was stopped after ten reported web
+failures, including contamination from timed-out input. A complete `bun run check`
+is now running with `ACE_TEST_WORKERS=2`, keeping the existing test deadlines.
+No full-gate pass is claimed yet.
