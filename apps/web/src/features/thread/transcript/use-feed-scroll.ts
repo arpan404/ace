@@ -60,6 +60,7 @@ export interface FeedScrollOptions {
   keys: readonly string[];
   total: number;
   detached: boolean;
+  hasOlder: boolean;
   /** Room kept above the first row in view (the search bar floats there). */
   topRoom: number;
   dock: RefObject<HTMLElement | null>;
@@ -153,7 +154,8 @@ function compensateBy(
 }
 
 export function useFeedScroll(options: FeedScrollOptions) {
-  const { viewport, dock, virtualizer, rows, keys, total, detached, now, onDirection } = options;
+  const { viewport, dock, virtualizer, rows, keys, total, detached, hasOlder, now, onDirection } =
+    options;
   const mode = useRef<ScrollMode>(detached ? { kind: "free" } : { kind: "following" });
   const [following, setFollowing] = useState(!detached);
   const held = useRef<Held | undefined>(undefined);
@@ -258,7 +260,18 @@ export function useFeedScroll(options: FeedScrollOptions) {
         if (up) glidingUntil.current = 0;
         onDirection(up);
         const atEnd = distanceToEnd(el) < nearEdge;
-        apply({ type: "gesture", upward: up, atEnd, detached, at: now() }, el);
+        apply(
+          {
+            type: "gesture",
+            upward: up,
+            atEnd,
+            scrollable: el.scrollHeight > el.clientHeight,
+            hasOlder,
+            detached,
+            at: now(),
+          },
+          el,
+        );
         // Leaving the end holds the row in view at once, before any rows can land.
         latestLook.current(el);
       },
@@ -267,7 +280,7 @@ export function useFeedScroll(options: FeedScrollOptions) {
         apply({ type: "press", at: now() }, el);
       },
     );
-  }, [viewport, apply, detached, now, onDirection]);
+  }, [viewport, apply, detached, hasOlder, now, onDirection]);
 
   // Opening or closing a disclosure holds its row still: what changes is below its toggle.
   useEffect(() => {

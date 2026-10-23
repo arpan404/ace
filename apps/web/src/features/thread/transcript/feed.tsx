@@ -186,6 +186,7 @@ export function Feed(props: FeedProps) {
     keys,
     total,
     detached,
+    hasOlder: pager.hasOlder,
     topRoom,
     dock,
     now,
