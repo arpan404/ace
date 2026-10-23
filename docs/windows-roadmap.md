@@ -369,3 +369,37 @@ transcript regression pass, with web typechecking and live browser verification.
 `5cbf5cc63` removes repeated full tree expansion inside each retention protection
 check, preserving fresh live checks. All 14 retention tests pass on this branch;
 the 300-thread case still takes 186 seconds in isolation and needs further work.
+
+## Opened metadata and path observations
+
+`8b98a871e` adds metadata-only child descriptors without following reparse
+points. Its first native run exposed two assumptions: Windows refused an
+ancestor rename while its child was open, and Node's `fstat` classified an
+opened junction as a directory. `84859b865` separates the replacement scenarios
+and adds `statFd`, sharing the native metadata query with `statAt`. The explicit
+Windows stat adapter now takes identity and type from the same native handle.
+[Run 39994964122](https://github.com/arpan404/ace/actions/runs/39994964122), pinned
+to `84859b865`, passes MSVC compilation and **21 files / 158 tests on each of
+native x64 and ARM64**, including all four metadata-open fixtures.
+
+`c0469a9a2` adds an explicit Windows filesystem adapter for path `stat` and
+`lstat`. It follows the target for `stat`, observes the leaf itself for `lstat`,
+and closes parent and child descriptors after the same-handle observation.
+Its four native fixtures cover junction identity, drive roots, replacement and
+error cleanup. They skip on macOS. [Run 39996443611](https://github.com/arpan404/ace/actions/runs/39996443611),
+pinned to `c0469a9a2`, passes MSVC compilation and **22 files / 162 tests per
+architecture**, including all four new path-adapter cases on x64 and ARM64.
+Default bindings, private-file consumers and clean installation remain gated.
+
+Repository validation also found a real provider-close ordering bug.
+`09c995298` closes finished settled sessions before aborting their lifetime,
+preserving the native checkpoint for resume. All 17 release, settlement,
+background-child and reopen-during-close cases pass. Formatting, lint, size,
+generated bundles, incremental and full source typechecking pass. Browser
+quality and restart failures remain under diagnosis; no clean full repository
+gate is recorded.
+
+`f34ae1f44` separates the existing native binding schema and lazy loader from
+shared descriptor operations. The extraction preserves loading behavior and
+passes 23 existing host cases. This prepares a separate Windows binding schema;
+it does not select that backend yet.

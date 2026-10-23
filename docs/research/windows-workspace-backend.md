@@ -1,6 +1,6 @@
 # Windows workspace backend — safe design (research)
 
-Status: the independent addon implements pinned filesystem operations, lossless identity, metadata, owner-only ACL checks/setting and atomic private creation. `42c4f2ad6` adds an explicit Windows descriptor-stat source. Native x64 and ARM64 each pass MSVC compilation and 20 files / 154 tests in [run 39989547686](https://github.com/arpan404/ace/actions/runs/39989547686). Production backend selection, path-stat mapping, ACL consumers and clean installation remain unfinished.
+Status: the independent addon implements pinned filesystem operations, lossless identity, metadata-only descriptors, owner-only ACL checks/setting and atomic private creation. Native x64 and ARM64 each pass MSVC compilation and 22 files / 162 tests in [run 39996443611](https://github.com/arpan404/ace/actions/runs/39996443611), including the explicit path-stat adapter. Production backend selection, ACL consumers and clean installation remain unfinished.
 
 ## 1. Consumers pin numeric fds; HANDLE-only is rejected
 
@@ -19,7 +19,7 @@ Ownership: successful `uv_open_osfhandle(h)` transfers the handle into Node's ru
 All opens use user-mode [NtCreateFile](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntcreatefile) with [OBJECT_ATTRIBUTES.RootDirectory](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/object-attributes) set to the parent directory handle and `ObjectName` set to exactly one component (`RootDirectory` resolves a relative `ObjectName` inside the supplied directory object — documented user-mode-callable NT semantics).
 
 - `openRoot(volumePath)`: parse the volume prefix (`C:\`, UNC `\\server\share\`; reject `\\?\` caller inputs), open the volume root, walk each component with `NtCreateFile(RootDirectory=parent, FILE_OPEN, FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT, SYNCHRONIZE)`, asserting directory plus not `FILE_ATTRIBUTE_REPARSE_POINT` per step and capturing `FileIdInfo`. Never accept `.`, `..`, `/`, `\`, `:`, `? * < > |`, NUL/1..31, trailing space/dot, reserved `CON PRN AUX NUL COM1-9 LPT1-9`, ADS colon, or case-variant `..`. Rules: [naming a file](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file); tags (`SYMLINK 0xA000000C`, `MOUNT_POINT 0xA0000003`, cloud / AppExecLink / WSL): [reparse points](https://learn.microsoft.com/en-us/windows/win32/fileio/reparse-points), [MS-FSCC](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/c8e77b37-3909-4fe6-a4ea-2b9d423b1ee4).
-- `openAt(parentFd, name, kind)`: same single-component validator; `RootDirectory = uv_get_osfhandle(parentFd)`; `FILE_OPEN` (+ `FILE_CREATE` only for exclusive create); `FILE_OPEN_REPARSE_POINT` always; access `GENERIC_READ` (read/dir), `0` (metadata), `GENERIC_READ|GENERIC_WRITE|DELETE` as needed. Query identity (§5) immediately; non-metadata opens fail closed on reparse points. Directory opens follow the [CreateFileW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew) `FILE_FLAG_BACKUP_SEMANTICS` + `FILE_FLAG_OPEN_REPARSE_POINT` pattern.
+- `openAt(parentFd, name, kind)`: same single-component validator; `RootDirectory = uv_get_osfhandle(parentFd)`; `FILE_OPEN` (+ `FILE_CREATE` only for exclusive create); `FILE_OPEN_REPARSE_POINT` always; access `GENERIC_READ` (read/dir), `FILE_READ_ATTRIBUTES|SYNCHRONIZE` (metadata), `GENERIC_READ|GENERIC_WRITE|DELETE` as needed. Query identity (§5) immediately; non-metadata opens fail closed on reparse points. Directory opens follow the [CreateFileW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew) `FILE_FLAG_BACKUP_SEMANTICS` + `FILE_FLAG_OPEN_REPARSE_POINT` pattern.
 - Every returned `HANDLE` is converted with `uv_open_osfhandle` before crossing napi, so napi carries only CRT fds. Any reparse point is an escape unless the op explicitly opens the link itself.
 
 ## 4. Handle-relative ops (normative, no path joins)
@@ -115,14 +115,25 @@ that a data descriptor grants permission to change the DACL. See Microsoft's
 [file security and access rights](https://learn.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights)
 and [GetSecurityInfo access requirement](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-getsecurityinfo).
 
-`42c4f2ad6` adds `windowsDescriptorStats(identityOf)` for explicit use with
-`Descriptor`. It validates native identity strings and combines them with Node
-bigint stat metadata from the same held fd, preserving numeric display fields
-and JSON serialization. Async parse failures reject the observation. Callers
-keep the fd open through the operation. All four new fixtures pass on native x64 and ARM64 in
-[run 39989547686](https://github.com/arpan404/ace/actions/runs/39989547686), alongside
-MSVC compilation and 20 files / 154 tests on each architecture. The 24 host
-regressions also pass. Default bindings and path-stat guards remain POSIX-only.
+`42c4f2ad6` introduced an explicit Windows stat source for `Descriptor`.
+`84859b865` changes it to `windowsDescriptorStats(statFd)`: native volume/file-ID
+strings and reparse-aware mode accompany Node bigint display metadata from the
+same held fd. Node's `fstat` reports an opened junction as a directory, so native
+mode also owns the type predicates. Async parse failures reject the observation;
+the caller keeps the fd open through it. JSON serialization remains numeric.
+
+`8b98a871e` adds `openMetadataAt`, requesting only `FILE_READ_ATTRIBUTES` and
+`SYNCHRONIZE`, without data or ACL modification access. `statFd` and `statAt`
+share the same native handle query. [Run 39994964122](https://github.com/arpan404/ace/actions/runs/39994964122),
+pinned to `84859b865`, passes MSVC compilation and 21 files / 158 tests on each
+native architecture. The fixtures verify metadata-only access, link identity,
+traversal refusal and pinned parent/leaf replacement. All 24 host regressions pass.
+
+`c0469a9a2` adds an explicit Windows filesystem adapter with separate `stat`
+target-following and `lstat` leaf-observation behavior. It closes the pinned
+handles after each observation; expected-versus-anchored confinement checks
+remain required. All four cases pass on native x64 and ARM64 in [run 39996443611](https://github.com/arpan404/ace/actions/runs/39996443611), pinned to `c0469a9a2`: MSVC compilation and 22 files / 162 tests per architecture.
+Default bindings and path-stat guards remain POSIX-only.
 
 ## 8. Error mapping
 
@@ -139,13 +150,14 @@ regressions also pass. Default bindings and path-stat guards remain POSIX-only.
 // cross napi; each call borrows via uv_get_osfhandle(fd) and stores nothing.
 int openRoot(const char* volumePath);                 // walk -> uv_open_osfhandle -> fd
 int openAt(int parentFd, const char* name, int kind); // RootDirectory open -> fd
-int openMetadataAt(int parentFd, const char* name);   // zero-access, link-itself -> fd
+int openMetadataAt(int parentFd, const char* name);   // attributes-only, link-itself -> fd
 void mkdirAt(int parentFd, const char* name);
 void renameAt(int parentFd, const char* from, const char* to);
 void renameExclusiveAt(int parentFd, const char* from, const char* to);
 void unlinkAt(int parentFd, const char* name);
 void removeDirectoryAt(int parentFd, const char* name);
 Stat statAt(int parentFd, const char* name);          // {vol,id,size,mtimeMs,attrs} strings
+Stat statFd(int fd);                                 // same metadata, borrowed HANDLE
 Names names(int dirFd, int cap);                      // at most 10000, no . / ..
 // Windows search uses standard child stdin; POSIX alone exports pipe().
 Ident identityOf(int fd);                             // FileIdInfo over borrowed HANDLE
@@ -160,7 +172,7 @@ No public native `close`: ordinary fd lifetime stays with TS `Descriptor` via No
 ## 11. Unresolved contracts (verify on a Windows host; not normative)
 
 - U1: `node.lib` on win-x64 and win-arm64 exports `uv_open_osfhandle` / `uv_get_osfhandle` for addon linkage; the link check is the first gate.
-- U2: `NtCreateFile` handles (including directory handles and zero-access metadata handles) are accepted by `uv_open_osfhandle`, and the resulting fd works with Node `read` / `write` / `fstat` / `close`.
+- U2: `NtCreateFile` handles are accepted by `uv_open_osfhandle`. Data descriptors support Node `read` / `write`; metadata-only descriptors support `fstat` / `close` while refusing content access. Reparse type comes from native `statFd`, not Node `fstat`.
 - U3: the `uv_get_osfhandle(fd)` borrowed `HANDLE` is valid for `NtCreateFile(RootDirectory=...)`, `SetFileInformationByHandle`, `GetFileInformationByHandleEx`, and `GetSecurityInfo` while the fd is open.
 - U4: Windows search uses stdin and needs no numeric pipe bridge. Extra fd-based inputs remain POSIX-only; audit any new callers before exposing them on Windows.
 - U5: ReFS behavior of the 64-bit index; until measured, §5 assumes it is unsafe and uses only 128-bit string identity.
