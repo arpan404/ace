@@ -121,6 +121,24 @@ const char *wcore_check_private_fd(int fd);
 // directories EISDIR, hardlinks and any owner mismatch EACCES.
 const char *wcore_secure_private_at(int parent_fd, const char *name);
 
+// Private-file secure on an already-open fd: same fail-closed hardening as
+// securePrivateAt, applied to the borrowed HANDLE itself (never reopened by
+// name, never closed here, never changes the owner). Requires the regular
+// single-link shape and current-user ownership, installs the protected
+// owner-only DACL, then re-reads the SAME handle. The caller keeps the fd
+// alive through this synchronous call. Pair with openPrivateMetadataAt,
+// whose WRITE_DAC access authorizes the replacement. No WRITE_OWNER.
+const char *wcore_secure_private_fd(int fd);
+
+// Private metadata open for a later same-handle secure: one validated
+// component relative to a pinned parent (directory, no reparse; strict
+// component, no follow) opened with READ_CONTROL | WRITE_DAC |
+// FILE_READ_ATTRIBUTES | SYNCHRONIZE only (never data, never WRITE_OWNER).
+// Fails closed unless the child is a regular single link owned by the
+// current user; the DACL may be broad so it stays healable by secure.
+// Returns a Node-owned fd for securePrivateFd.
+const char *wcore_open_private_metadata_at(int parent_fd, const char *name, int *out_fd);
+
 // Atomically create a private regular file. Exclusively creates one
 // validated component relative to a pinned parent (FILE_CREATE: any
 // existing name, including junctions and directories, is EEXIST with no

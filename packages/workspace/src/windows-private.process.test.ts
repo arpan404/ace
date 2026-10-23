@@ -1,5 +1,4 @@
 import { closeSync, readFileSync } from "node:fs";
-import { execFile } from "node:child_process";
 import {
   link,
   lstat,
@@ -14,9 +13,9 @@ import {
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { expect, test } from "vitest";
 import { z } from "zod";
+import { secureOwnerOnly, ensureOwner } from "./windows-private-fixture.ts";
 
 const require = createRequire(import.meta.url);
 const Binding = z.object({
@@ -27,62 +26,6 @@ const Binding = z.object({
   securePrivateAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
 });
 const win = test.runIf(process.platform === "win32");
-const runFile = promisify(execFile);
-
-function systemPowerShell(): string {
-  return join(
-    process.env.SystemRoot ?? "C:\\Windows",
-    "System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-  );
-}
-
-// Owner-only DACL via documented .NET FileSecurity: current TokenUser owns,
-// inheritance disabled and stripped, then one FullControl allow (zero flags,
-// FILE_ALL_ACCESS) for the owner. Optional Everyone reader broadens it.
-const SET_DACL_PS = [
-  "$ErrorActionPreference='Stop'",
-  "$p=$env:ACE_PRIVATE_TARGET",
-  "$x=$env:ACE_PRIVATE_EXTRA",
-  "$a=[System.IO.File]::GetAccessControl($p)",
-  "$m=[System.Security.Principal.WindowsIdentity]::GetCurrent().User",
-  "$a.SetOwner($m)",
-  "$a.SetAccessRuleProtection($true,$false)",
-  "foreach($r in @($a.Access)){[void]$a.RemoveAccessRuleAll($r)}",
-  "$o=[System.Security.AccessControl.FileSystemAccessRule]::new($m,'FullControl','Allow')",
-  "$a.AddAccessRule($o)",
-  "$everyone=[System.Security.Principal.SecurityIdentifier]::new('S-1-1-0')",
-  "if($x -eq 'read'){$e=[System.Security.AccessControl.FileSystemAccessRule]::new($everyone,'ReadAndExecute','Allow');$a.AddAccessRule($e)} elseif($x -eq 'full'){$e=[System.Security.AccessControl.FileSystemAccessRule]::new($everyone,'FullControl','Allow');$a.AddAccessRule($e)}",
-  "[System.IO.File]::SetAccessControl($p,$a)",
-].join(";");
-
-async function secureOwnerOnly(target: string, extra = "none"): Promise<void> {
-  await runFile(
-    systemPowerShell(),
-    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", SET_DACL_PS],
-    { env: { ...process.env, ACE_PRIVATE_TARGET: target, ACE_PRIVATE_EXTRA: extra } },
-  );
-}
-
-// Owner precondition only: points the file owner at the current TokenUser
-// while leaving the existing DACL (inherited or broad) untouched, so the
-// setter-behavior fixtures start from a known owner without pre-securing.
-const SET_OWNER_PS = [
-  "$ErrorActionPreference='Stop'",
-  "$p=$env:ACE_PRIVATE_TARGET",
-  "$a=[System.IO.File]::GetAccessControl($p)",
-  "$m=[System.Security.Principal.WindowsIdentity]::GetCurrent().User",
-  "$a.SetOwner($m)",
-  "[System.IO.File]::SetAccessControl($p,$a)",
-].join(";");
-
-async function ensureOwner(target: string): Promise<void> {
-  await runFile(
-    systemPowerShell(),
-    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", SET_OWNER_PS],
-    { env: { ...process.env, ACE_PRIVATE_TARGET: target } },
-  );
-}
-
 function expectCode(fn: () => unknown, code: string): void {
   try {
     fn();
