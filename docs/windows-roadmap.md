@@ -277,3 +277,30 @@ confinement and file tests pass, as do scoped formatting/lint and workspace
 typechecking. This is a prerequisite for mapping those operations to Windows
 without relying on unavailable POSIX `O_DIRECTORY` flags. Lossless identity,
 private-file consumer checks, backend loading/build and pinned Git remain gated.
+
+## Base integration and renewed verification
+
+`33dcc7ed7` merges `main` through `843c31d9b`, preserving the Windows changes.
+The sole content conflict was the generated protocol manifest, regenerated from
+the combined sources. The branch is mergeable again. A frozen-lockfile install
+and the native workspace/terminal rebuild pass on the Mac.
+
+[Run 39882666616](https://github.com/arpan404/ace/actions/runs/39882666616)
+verifies that merged commit on native Windows x64 and ARM64. Each passes
+MSVC compilation and **18 files / 144 tests**. This repeats the native evidence
+after base integration; it still does not establish clean Windows installation
+or production daemon activation.
+
+`2d733eb0a` removes a duplicate foreign-thread setup in the iOS media fixture;
+the existing cross-thread media refusal assertion passes. Base integration
+exposed ten arbitrary font sizes in the forge rich-text renderer. `3d986e635`
+maps them to design tokens, clearing the UI gate. Its 13 existing rich-content
+tests pass. Browser inspection of the rich PR fixture confirms keyboard labels
+and commit references use 11.5 px, with no console errors. Both fixes are saved
+separately from the Windows runtime work.
+
+The full repository check is running on the merged branch with those fixes.
+No complete full-gate pass is recorded yet. The next identity change must cover
+both opened-descriptor comparisons and path/metadata proofs with lossless values;
+changing only the stored root identity would leave rounded-number comparisons
+in production confinement checks.
