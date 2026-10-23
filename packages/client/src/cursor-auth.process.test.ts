@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { ready, setup } from "./test-support.ts";
 
 test.each(["cursor.auth.status", "cursor.auth.select", "cursor.auth.logout"] as const)(
-  "%s reports an unavailable instance outside the durable intent outbox",
+  "%s reports an unavailable auth service outside the durable intent outbox",
   async (type) => {
     const h = await setup();
     const { client, faults } = h.make();
@@ -13,7 +13,7 @@ test.each(["cursor.auth.status", "cursor.auth.select", "cursor.auth.logout"] as 
       await expect(status).resolves.toMatchObject({
         type: "cursor.auth.error",
         code: "unavailable",
-        reason: "instance_unavailable",
+        reason: "service_unavailable",
       });
       expect(
         faults.sent.map((text) => JSON.parse(text)).some((message) => message.type === "command"),
