@@ -58,7 +58,8 @@ import Foundation
     @Test func aReopenedThreadShowsTheInboxStatusNotTheDoneItWasLeftAt() throws {
         let model = ClientModel(now: { 0 })
         model.open("a")
-        model.receive(try frame([["type": "thread.metadata", "threadId": "a", "epoch": 1, "row": row(label: "Done", token: "done")]]))
+        model.receive(try frame([["type": "thread.metadata", "threadId": "a", "epoch": 1, "row": row(label: "Done", token: "done")],
+                                 ["type": "thread.ready", "threadId": "a", "epoch": 1, "count": 0]]))
         model.back()
         var working = row(label: "Working", token: "working")
         working["confirmed"] = true; working["generation"] = 1
@@ -70,10 +71,13 @@ import Foundation
     @Test func aReopenedThreadWithoutAnInboxRowSyncsUntilItsCurrentMetadataArrives() throws {
         let model = ClientModel(now: { 0 })
         model.open("a")
-        model.receive(try frame([["type": "thread.metadata", "threadId": "a", "epoch": 1, "row": row(label: "Done", token: "done")]]))
+        model.receive(try frame([["type": "thread.metadata", "threadId": "a", "epoch": 1, "row": row(label: "Done", token: "done")],
+                                 ["type": "thread.ready", "threadId": "a", "epoch": 1, "count": 0]]))
         model.back()
         model.open("a")
         let thread = try #require(model.thread)
+        // The warm copy keeps its title, but not the Done it was left at.
+        #expect(thread.metadata?.title == "A")
         #expect(model.headerStatus(of: thread)?.label == "Syncing")
         model.receive(try frame([["type": "thread.metadata", "threadId": "a", "epoch": 3, "row": row(label: "Working", token: "working")]]))
         #expect(model.headerStatus(of: thread)?.label == "Working")
