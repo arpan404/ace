@@ -128,13 +128,17 @@ struct PublishedMediaRow: View {
 
     private var page: some View {
         VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
+            // A small glass circle, so it reads as a button without competing with the page.
             Button(action: open) {
-                AceIcon(.cornersOut, size: 16, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
-                    .contentShape(Rectangle())
+                AceIcon(.arrowsOutSimple, size: 16, relativeTo: .body)
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .frame(width: Self.expandSize, height: Self.expandSize)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
+            .aceGlass(in: Circle(), interactive: true)
+            .padding((AceTheme.Dimensions.touchTarget - Self.expandSize) / 2)
+            .contentShape(Rectangle())
             .accessibilityLabel("Open \(row.text) full screen")
             if case .page(let document) = media {
                 InlineCanvas(document: document, title: row.text)
@@ -148,6 +152,7 @@ struct PublishedMediaRow: View {
     }
 
     private static let maxImageHeight: CGFloat = 420
+    private static let expandSize: CGFloat = 32
     private static let placeholderHeight: CGFloat = 160
 }
 
