@@ -120,10 +120,13 @@ test("a successful merge followed by a failed detail refresh stays disabled unti
     name: "Squash and merge",
   });
   await waitFor(() => expect(merge.disabled).toBe(false));
-  app.daemon.failRequests("workspace.request");
-  // Merging takes two presses.
   await userEvent.click(merge);
-  await userEvent.click(panel().getByRole("button", { name: "Confirm merge?" }));
+  const commit = within(
+    await screen.findByRole("dialog", { name: "Squash and merge into main" }, { timeout: 10_000 }),
+  );
+  // The commit prefill is already shown; only the refresh after merging should fail.
+  app.daemon.failRequests("workspace.request");
+  await userEvent.click(commit.getByRole("button", { name: "Confirm squash and merge" }));
   await screen.findByRole("button", { name: "Reconcile action" });
   await waitFor(() =>
     expect(
