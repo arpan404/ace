@@ -115,6 +115,17 @@ const char *wcore_check_private_fd(int fd);
 // directories EISDIR, hardlinks and any owner mismatch EACCES.
 const char *wcore_secure_private_at(int parent_fd, const char *name);
 
+// Atomically create a private regular file. Exclusively creates one
+// validated component relative to a pinned parent (FILE_CREATE: any
+// existing name, including junctions and directories, is EEXIST with no
+// mutation). The owner-only protected DACL (one zero-flag
+// FILE_ALL_ACCESS ACE for the current TokenUser) is installed in
+// OBJECT_ATTRIBUTES.SecurityDescriptor at NtCreateFile creation, never
+// repaired afterwards. The returned fd is verified with the shared
+// checkPrivateFd logic; verification failure closes the fresh fd and
+// never reopens or deletes by name. No WRITE_OWNER, no admin bypass.
+const char *wcore_create_private_file_at(int parent_fd, const char *name, int *out_fd);
+
 // Shared private-security helpers (single owner: private_security.c).
 // wcore_current_user_sid loads a malloc'd copy of the current process
 // TokenUser SID; wcore_owner_only_acl builds a malloc'd ACL with exactly
@@ -172,14 +183,19 @@ const char *wcore_names_collect(int dir_fd, int cap, wcore_name_sink_fn sink,
 // make CRT descriptor tables or invalid-parameter handlers interchangeable.
 const char *wcore_borrow_handle(int fd, HANDLE *out);
 
+// Consume an owned HANDLE into Node's fd table. On failure closes the
+// HANDLE and returns EMFILE; on success Node owns *out_fd. Never close
+// the HANDLE after this call, even on failure.
+const char *wcore_adopt_handle(HANDLE handle, int *out_fd);
+
 // Close a newly acquired Node-owned fd through Node's libuv. The addon CRT
 // can have a different descriptor table even when it is built with /MD.
 const char *wcore_close_fd(int fd);
 
 // --- NT-bridge internals shared by volume_root.c and child_open.c ---
 // CreateOptions values from the NtCreateFile docs table; CreateDisposition
-// FILE_OPEN from WDK ntifs.h (only FILE_OPEN is used: missing names must
-// fail, never create).
+// FILE_OPEN from WDK ntifs.h. Exclusive creation uses FILE_CREATE in the
+// bridge; opening existing objects never creates a missing name.
 #define WCORE_FILE_DIRECTORY_FILE 0x00000001UL
 #define WCORE_FILE_NON_DIRECTORY_FILE 0x00000040UL
 #define WCORE_FILE_SYNCHRONOUS_IO_NONALERT 0x00000020UL
@@ -203,6 +219,11 @@ const char *wcore_nt_create_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
     ULONG options, ACCESS_MASK access, HANDLE *out);
 const char *wcore_nt_create_new_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
     ULONG options, ACCESS_MASK access, HANDLE *out);
+// Narrow FILE_CREATE variant carrying an absolute SECURITY_DESCRIPTOR for
+// OBJECT_ATTRIBUTES.SecurityDescriptor (NULL selects the inherited default
+// and is never used by private creation). Only creation uses a non-NULL SD.
+const char *wcore_nt_create_new_child_sd(HANDLE parent, const WCHAR *wname, DWORD wlen,
+    ULONG options, ACCESS_MASK access, PSECURITY_DESCRIPTOR sd, HANDLE *out);
 #endif
 
 #endif

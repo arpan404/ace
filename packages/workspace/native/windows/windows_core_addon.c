@@ -194,6 +194,10 @@ static napi_value do_create_file_at(napi_env env, napi_callback_info info) {
   return open_child_at(env, info, "createFileAt", wcore_create_file_at);
 }
 
+static napi_value do_create_private_file_at(napi_env env, napi_callback_info info) {
+  return open_child_at(env, info, "createPrivateFileAt", wcore_create_private_file_at);
+}
+
 typedef const char *(*child_mutation)(int, const char *);
 
 static napi_value mutate_child_at(napi_env env, napi_callback_info info,
@@ -282,6 +286,7 @@ static napi_value init(napi_env env, napi_value exports) {
     {"openDirectoryAt", NULL, do_open_directory_at, NULL, NULL, NULL, napi_default, NULL},
     {"openFileAt", NULL, do_open_file_at, NULL, NULL, NULL, napi_default, NULL},
     {"createFileAt", NULL, do_create_file_at, NULL, NULL, NULL, napi_default, NULL},
+    {"createPrivateFileAt", NULL, do_create_private_file_at, NULL, NULL, NULL, napi_default, NULL},
     {"unlinkAt", NULL, do_unlink_at, NULL, NULL, NULL, napi_default, NULL},
     {"removeDirectoryAt", NULL, do_remove_directory_at, NULL, NULL, NULL, napi_default, NULL},
     {"renameAt", NULL, do_rename_at, NULL, NULL, NULL, napi_default, NULL},

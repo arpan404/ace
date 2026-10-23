@@ -28,7 +28,6 @@
 // identityOf before use.
 
 #ifdef _WIN32
-#include <uv.h>
 #include <windows.h>
 #include "windows_core.h"
 #include <string.h>
@@ -137,14 +136,6 @@ const char *wcore_open_root(const char *volume_path, int *out_fd) {
     p = end;
   }
 
-  // Bridge to a CRT fd. uv_open_osfhandle consumes `current`: never
-  // CloseHandle after success; the fd dies with Node close (libuv _close).
-  int fd = uv_open_osfhandle((uv_os_fd_t)current);
-  if (fd < 0) {
-    CloseHandle(current);
-    return "EMFILE";
-  }
-  *out_fd = fd;
-  return NULL;
+  return wcore_adopt_handle(current, out_fd);
 }
 #endif

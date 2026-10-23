@@ -180,9 +180,13 @@ const char *wcore_wide_from_utf8(
 }
 
 // Open one relative component inside `parent` without any path join.
-// The caller picks directory vs file semantics via `options`.
+// The caller picks directory vs file semantics via `options`. `sd` is the
+// OBJECT_ATTRIBUTES.SecurityDescriptor for creation only; existing public
+// opens always pass NULL (inherited default), and the untyped reparse
+// probe below always passes NULL.
 static const char *nt_open_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
-    ULONG options, ACCESS_MASK access, ULONG disposition, HANDLE *out) {
+    ULONG options, ACCESS_MASK access, ULONG disposition, PSECURITY_DESCRIPTOR sd,
+    HANDLE *out) {
   const char *load = wcore_load_ntdll();
   if (load != NULL) return load;
   if (parent == NULL || parent == INVALID_HANDLE_VALUE || wname == NULL ||
@@ -198,7 +202,7 @@ static const char *nt_open_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
   attr.ObjectName = &uname;
   // Case-insensitive lookup without OBJ_INHERIT: non-inheritable handle.
   attr.Attributes = WCORE_OBJ_CASE_INSENSITIVE;
-  attr.SecurityDescriptor = NULL;
+  attr.SecurityDescriptor = (PVOID)sd;
   attr.SecurityQualityOfService = NULL;
   WCORE_IO_STATUS_BLOCK iosb;
   memset(&iosb, 0, sizeof(iosb));
@@ -228,7 +232,7 @@ static const char *nt_open_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
       HANDLE metadata = NULL;
       const char *probe = nt_open_child(parent, wname, wlen,
           WCORE_FILE_SYNCHRONOUS_IO_NONALERT | WCORE_FILE_OPEN_REPARSE_POINT,
-          FILE_READ_ATTRIBUTES | SYNCHRONIZE, WCORE_FILE_OPEN_DISPOSITION,
+          FILE_READ_ATTRIBUTES | SYNCHRONIZE, WCORE_FILE_OPEN_DISPOSITION, NULL,
           &metadata);
       if (probe == NULL) {
         const char *link = wcore_assert_noreparse(metadata);
@@ -245,13 +249,21 @@ static const char *nt_open_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
 const char *wcore_nt_create_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
     ULONG options, ACCESS_MASK access, HANDLE *out) {
   return nt_open_child(parent, wname, wlen, options, access,
-      WCORE_FILE_OPEN_DISPOSITION, out);
+      WCORE_FILE_OPEN_DISPOSITION, NULL, out);
 }
 
 const char *wcore_nt_create_new_child(HANDLE parent, const WCHAR *wname, DWORD wlen,
     ULONG options, ACCESS_MASK access, HANDLE *out) {
   // FILE_CREATE (2): fail with collision if any object already has this name.
-  return nt_open_child(parent, wname, wlen, options, access, 2UL, out);
+  return nt_open_child(parent, wname, wlen, options, access, 2UL, NULL, out);
+}
+
+const char *wcore_nt_create_new_child_sd(HANDLE parent, const WCHAR *wname, DWORD wlen,
+    ULONG options, ACCESS_MASK access, PSECURITY_DESCRIPTOR sd, HANDLE *out) {
+  // Narrow FILE_CREATE-only carrier for the private-create security
+  // descriptor. Public opens keep passing NULL above, so only this path can
+  // install a creation-time descriptor.
+  return nt_open_child(parent, wname, wlen, options, access, 2UL, sd, out);
 }
 
 // Native FileRenameInformation (10) accepts a directory-relative target.
@@ -313,6 +325,17 @@ const char *wcore_borrow_handle(int fd, HANDLE *out) {
       borrowed == (uv_os_fd_t)-2 || borrowed == 0)
     return "EBADF";
   *out = (HANDLE)borrowed;
+  return NULL;
+}
+
+// Consumes the HANDLE on either path. Only Node's libuv allocates its fd.
+const char *wcore_adopt_handle(HANDLE handle, int *out_fd) {
+  int fd = uv_open_osfhandle((uv_os_fd_t)handle);
+  if (fd < 0) {
+    CloseHandle(handle);
+    return "EMFILE";
+  }
+  *out_fd = fd;
   return NULL;
 }
 

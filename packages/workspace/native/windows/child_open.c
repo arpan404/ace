@@ -15,22 +15,9 @@
 // SYNCHRONIZE is required with FILE_SYNCHRONOUS_IO_NONALERT.
 
 #ifdef _WIN32
-#include <uv.h>
 #include <windows.h>
 #include "windows_core.h"
 #include <string.h>
-
-static const char *bridge_to_fd(HANDLE handle, int *out_fd) {
-  // uv_open_osfhandle consumes the HANDLE; Node close releases it via the
-  // Node-owned fd table (requires linkage to Node's libuv; see build probe).
-  int fd = uv_open_osfhandle((uv_os_fd_t)handle);
-  if (fd < 0) {
-    CloseHandle(handle);
-    return "EMFILE";
-  }
-  *out_fd = fd;
-  return NULL;
-}
 
 typedef const char *(*child_opener)(HANDLE, const WCHAR *, DWORD, ULONG,
     ACCESS_MASK, HANDLE *);
@@ -79,7 +66,7 @@ static const char *open_child(
     CloseHandle(child);
     return "EISDIR";
   }
-  return bridge_to_fd(child, out_fd);
+  return wcore_adopt_handle(child, out_fd);
 }
 
 const char *wcore_open_dir_at(int parent_fd, const char *name, int *out_fd) {

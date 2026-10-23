@@ -32,6 +32,7 @@ export default defineConfig({
       "packages/workspace/src/windows-write.process.test.ts",
       "packages/workspace/src/windows-rename.process.test.ts",
       "packages/workspace/src/windows-private.process.test.ts",
+      "packages/workspace/src/windows-private-create.process.test.ts",
       "packages/workspace/src/command-stdin.process.test.ts",
       "packages/workspace/src/rg-stdin.process.test.ts",
       "packages/provider-kit/src/windows-job.process.test.ts",
