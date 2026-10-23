@@ -187,5 +187,12 @@ gates.
 The next W05 slice adds handle-relative `unlinkAt` and `removeDirectoryAt`,
 including type errors, nonempty-directory rejection, junction removal without
 following its target, and pinned-parent behavior after ancestor replacement.
-Its native verification is pending. Rename, ACLs and production descriptor
-integration remain unfinished.
+[Run 39876189647](https://github.com/arpan404/ace/actions/runs/39876189647)
+verified commit `564848785` on native x64 and ARM64, each passing 14 files and
+124 tests. Rename, ACLs and production descriptor integration remain unfinished.
+
+Local formatting, lint, source-size, protocol, generated-bundle checks and
+incremental typechecking passed. The dependency check reported no violations,
+with its existing warning about incomplete TypeScript 7 support. `bun run check`
+stopped at three UI style violations in untouched files: `pair-device.tsx`,
+`update-restart-dialog.tsx` and `turn-end.tsx`. Later full-gate steps did not run.

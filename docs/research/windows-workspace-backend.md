@@ -1,6 +1,6 @@
 # Windows workspace backend — safe design (research)
 
-Status: independent native addon implements pinned reads, identity, metadata, enumeration and exclusive creation. Native x64 and ARM64 verification passed for those operations in run 39874497061. Handle-relative deletion is implemented with native verification pending. Production descriptor integration, rename and ACL enforcement remain unfinished.
+Status: independent native addon implements pinned reads, identity, metadata, enumeration and exclusive creation. Native x64 and ARM64 verification passed for those operations in run 39874497061. Handle-relative deletion passed native x64 and ARM64 verification in run 39876189647. Production descriptor integration, rename and ACL enforcement remain unfinished.
 
 ## 1. Consumers pin numeric fds; HANDLE-only is rejected
 
@@ -90,4 +90,4 @@ No public native `close`: ordinary fd lifetime stays with TS `Descriptor` via No
 
 ## 12. Open risks
 
-Native x64 and ARM64 runs verify the read, metadata and exclusive-creation subset, including the libuv fd bridge. Deletion still needs matching native execution; the remaining U1–U6 contracts require operation-specific evidence. Integration requires real win-x64 AND win-arm64 hosts at merge, Electron `daemon/descriptor.node` staging check, and `docs/verification/windows-workspace-checklist.md`. No merge with either arch red.
+Native x64 and ARM64 runs verify the read, metadata and exclusive-creation subset, including the libuv fd bridge. Run 39876189647 also verifies handle-relative deletion on both architectures. The remaining U1–U6 contracts require operation-specific evidence. Integration requires real win-x64 AND win-arm64 hosts at merge, Electron `daemon/descriptor.node` staging check, and `docs/verification/windows-workspace-checklist.md`. No merge with either arch red.
