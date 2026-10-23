@@ -1,8 +1,7 @@
 import { dirname, basename, join } from "node:path";
 import {
-  constants,
-  fstatSync,
   closeSync,
+  fstatSync,
   readSync,
   writeSync,
   fsyncSync,
@@ -15,7 +14,9 @@ import {
   removeDirectoryAt,
   unlinkAt,
   openRoot,
-  openAt,
+  openDirectoryAt,
+  openFileAt,
+  createFileAt,
   mkdirAt,
   descriptorNames,
   statAt,
@@ -70,7 +71,7 @@ export class PinnedDirectory {
     }
   }
   child(name: string): PinnedDirectory {
-    const handle = openAt(this.fd, name, constants.O_RDONLY | constants.O_DIRECTORY);
+    const handle = openDirectoryAt(this.fd, name);
     try {
       return new PinnedDirectory(handle);
     } catch (error) {
@@ -96,7 +97,7 @@ export class PinnedDirectory {
   }
   /** Regular-file identity through a no-follow descriptor, including change timestamps. */
   fileMetadata(name: string): Stats {
-    const file = openAt(this.fd, name, constants.O_RDONLY);
+    const file = openFileAt(this.fd, name);
     try {
       const info = fstatSync(file.fd);
       if (!info.isFile()) throw new Error("Expected a regular file");
@@ -109,7 +110,7 @@ export class PinnedDirectory {
     return statAt(this.fd, name);
   }
   async writeExclusive(name: string, text: string): Promise<void> {
-    const file = openAt(this.fd, name, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL);
+    const file = createFileAt(this.fd, name);
     try {
       await file.write(Buffer.from(text));
     } finally {
@@ -122,7 +123,7 @@ export class PinnedDirectory {
   }
   /** Bounded regular-file bytes through the pinned directory, without following symlinks. */
   readBytes(name: string, limit: number, owner?: number): Buffer {
-    const file = openAt(this.fd, name, constants.O_RDONLY);
+    const file = openFileAt(this.fd, name);
     try {
       const info = fstatSync(file.fd);
       if (
@@ -151,7 +152,7 @@ export class PinnedDirectory {
     }
   }
   createExclusive(name: string): number {
-    return openAt(this.fd, name, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL).fd;
+    return createFileAt(this.fd, name).fd;
   }
   private stage(fd: number, text: string): void {
     const bytes = Buffer.from(text);

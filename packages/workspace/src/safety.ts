@@ -1,12 +1,13 @@
 import {
-  openAt,
+  openDirectoryAt,
+  openFileAt,
   openRoot,
   openMetadataAt,
   statAt,
   descriptorNames,
   type Descriptor,
 } from "./descriptor.ts";
-import { constants, type Stats } from "node:fs";
+import { type Stats } from "node:fs";
 import { type FileHandle } from "node:fs/promises";
 import { workspaceRuntime, type WorkspaceFileSystem, type WorkspaceRuntime } from "./runtime.ts";
 import { passesWindowsRelativePathPolicy } from "./path-policy.ts";
@@ -115,7 +116,10 @@ export class SafeRoot {
       throw new WorkspaceError("PATH_CHANGED", "Path changed during the operation");
     }
   }
-  private async anchored(resolved: string, flags: number): Promise<FileHandle | Descriptor> {
+  private async anchored(
+    resolved: string,
+    openLeaf: (parent: number, name: string) => Descriptor,
+  ): Promise<FileHandle | Descriptor> {
     this.contains(resolved);
     let current: FileHandle | Descriptor = openRoot(this.root);
     try {
@@ -123,11 +127,10 @@ export class SafeRoot {
         throw new WorkspaceError("PATH_CHANGED", "Workspace root was replaced");
       const parts = relative(this.root, resolved).split(sep).filter(Boolean);
       for (const [index, part] of parts.entries()) {
-        const next = openAt(
-          current.fd,
-          part,
-          index === parts.length - 1 ? flags : constants.O_RDONLY | constants.O_DIRECTORY,
-        );
+        const next: Descriptor =
+          index === parts.length - 1
+            ? openLeaf(current.fd, part)
+            : openDirectoryAt(current.fd, part);
         await current.close();
         current = next;
       }
@@ -147,7 +150,7 @@ export class SafeRoot {
         throw new WorkspaceError("INVALID_PATH", "Upload temporary files are private");
       const expected = await this.fs.lstat(resolved);
       if (!expected.isFile()) throw new WorkspaceError("NOT_FILE", "Path is not a regular file");
-      handle = await this.anchored(resolved, constants.O_RDONLY);
+      handle = await this.anchored(resolved, openFileAt);
       const info = await handle.stat();
       if (!info.isFile() || !same(info, expected))
         throw new WorkspaceError("PATH_CHANGED", "File was replaced while opening");
@@ -172,10 +175,7 @@ export class SafeRoot {
       const expected = await this.fs.lstat(resolved);
       if (!expected.isFile())
         throw new WorkspaceError("NOT_FILE", "Expected a regular private file");
-      const parent = await this.anchored(
-        parentResolved,
-        constants.O_RDONLY | constants.O_DIRECTORY,
-      );
+      const parent = await this.anchored(parentResolved, openDirectoryAt);
       try {
         handle = openMetadataAt(parent.fd, basename(path));
       } finally {
@@ -230,7 +230,7 @@ export class SafeRoot {
       const expected = await this.fs.lstat(resolved);
       const parent = await this.anchored(
         resolved === this.root ? resolved : dirname(resolved),
-        constants.O_RDONLY | constants.O_DIRECTORY,
+        openDirectoryAt,
       );
       let proof;
       try {
@@ -267,7 +267,7 @@ export class SafeRoot {
       const expected = await this.fs.lstat(resolved);
       if (!expected.isDirectory())
         throw new WorkspaceError("NOT_DIRECTORY", "Path is not a directory");
-      handle = await this.anchored(resolved, constants.O_RDONLY | constants.O_DIRECTORY);
+      handle = await this.anchored(resolved, openDirectoryAt);
       if (!same(await handle.stat(), expected))
         throw new WorkspaceError("PATH_CHANGED", "Directory was replaced");
       const fd = handle.fd;

@@ -1,4 +1,4 @@
-import { close, fstat, read, write, type Stats } from "node:fs";
+import { close, constants, fstat, read, write, type Stats } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { getSystemErrorName } from "node:util";
@@ -85,6 +85,15 @@ export function openAt(parent: number, name: string, flags: number): Descriptor 
   } catch (error) {
     return nativeFailure(error);
   }
+}
+export function openDirectoryAt(parent: number, name: string): Descriptor {
+  return openAt(parent, name, constants.O_RDONLY | constants.O_DIRECTORY);
+}
+export function openFileAt(parent: number, name: string): Descriptor {
+  return openAt(parent, name, constants.O_RDONLY);
+}
+export function createFileAt(parent: number, name: string): Descriptor {
+  return openAt(parent, name, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL);
 }
 export function openMetadataAt(parent: number, name: string): Descriptor {
   try {
