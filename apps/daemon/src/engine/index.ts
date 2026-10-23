@@ -1086,6 +1086,10 @@ export class Engine {
     if (this.closing) return;
     this.recovery.schedule();
   }
+  /** A resume or limit continuation of the thread is accepted and not yet started. */
+  resuming(id: ThreadId): boolean {
+    return this.repo.state(id) !== undefined && this.repo.pending.recovering(id);
+  }
   heldInterrupted(id: ThreadId): boolean {
     return heldInterrupted(this.repo, id, Boolean(this.actors.get(id)?.session));
   }

@@ -127,3 +127,43 @@ test("after a restart, a child ace won't continue frees its slot and the queued 
   expect(recovered.store.getThread(held.childId)?.status.state).not.toBe("done");
   expect(recovered.store.getThread(parent.threadId)?.status.state).not.toBe("done");
 });
+
+test("a parent's wait on a child whose restart continuation is still opening reads it as working", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  const edge = h.delegate(parent, "resuming");
+  await h.engine.flush();
+  const snapshot = join(h.home, "resuming.sqlite");
+  let sourceDb: DatabaseSync | undefined;
+  h.store.atomic((db) => {
+    sourceDb = db;
+  });
+  if (!sourceDb) throw new Error("Missing snapshot source");
+  await backup(sourceDb, snapshot);
+  await h.close();
+  // The child's provider takes its time to open, so its continuation stays in flight.
+  const entered = Promise.withResolvers<void>();
+  const ready = Promise.withResolvers<void>();
+  const recovered = setup({}, snapshot, false, {
+    entered: () => entered.resolve(),
+    ready: ready.promise,
+  });
+  try {
+    await entered.promise;
+    expect(recovered.engine.queue(edge.childId)).toMatchObject({ paused: true, reason: "restart" });
+    const waiting = recovered.service.monitor.wait(
+      parent,
+      { threadIds: [edge.childId], mode: "all", timeoutSeconds: 1 },
+      new AbortController().signal,
+    );
+    recovered.clock.advance(recovered.clock.now() + 2000);
+    const result = await waiting;
+    // Nothing waits on the person: the child is about to continue.
+    expect(result).toMatchObject({ ok: true, data: { threads: [{ state: "working" }] } });
+    expect(JSON.stringify(result)).not.toContain("needs_you");
+  } finally {
+    ready.resolve();
+  }
+  await recovered.engine.flush();
+  expect(recovered.inputs.get(edge.childId)?.map(restartInput)).toEqual([true]);
+});

@@ -20,7 +20,8 @@ export const transportOptions = [
 
 export const transportNotes: Record<(typeof transportOptions)[number]["value"], string> = {
   lan: "Same network only. Browsers must trust its HTTPS certificate.",
-  tailscale: "Your private Tailscale network, from anywhere. Tailscale must be running.",
+  tailscale:
+    "Your private Tailscale network, from anywhere. For browsers, turn on HTTPS certificates in Tailscale.",
   relay: "Through a relay you host. The local network stays on for pairing.",
 };
 
