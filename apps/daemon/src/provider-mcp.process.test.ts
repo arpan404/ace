@@ -55,11 +55,11 @@ for (const provider of ["claude", "codex", "opencode", "antigravity", "acp", "pi
             fidelity: "full",
             cwd: directory,
             status: { state: "idle" },
-            createdAt: 1,
+            createdAt: thread.createdAt,
           }),
         },
       ],
-      1,
+      thread.createdAt,
     );
     await features.handOver(thread.id);
     const discovery = {
