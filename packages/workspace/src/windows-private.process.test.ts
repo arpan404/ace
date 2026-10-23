@@ -1,4 +1,4 @@
-import { closeSync } from "node:fs";
+import { closeSync, readFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import {
   link,
@@ -21,6 +21,8 @@ import { z } from "zod";
 const require = createRequire(import.meta.url);
 const Binding = z.object({
   openRoot: z.function({ input: [z.string()], output: z.number().int() }),
+  openFileAt: z.function({ input: [z.number().int(), z.string()], output: z.number().int() }),
+  checkPrivateFd: z.function({ input: [z.number().int()], output: z.void() }),
   checkPrivateAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
   securePrivateAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
 });
@@ -279,3 +281,67 @@ win("a replaced ancestor cannot redirect the secure operation", async ({ onTestF
     closeSync(fresh);
   }
 });
+
+win(
+  "checks private security on the opened file after its name is replaced",
+  async ({ onTestFinished }) => {
+    const core = Binding.parse(require("../dist/windows-core.node"));
+    const root = await mkdtemp(join(tmpdir(), "ace-wprivate-fd-swap-"));
+    onTestFinished(() => rm(root, { recursive: true, force: true }));
+    const name = "secret-日本語.txt";
+    await writeFile(join(root, name), "pinned private bytes");
+    await secureOwnerOnly(join(root, name));
+    const parent = core.openRoot(root);
+    try {
+      const original = core.openFileAt(parent, name);
+      try {
+        await rename(join(root, name), join(root, "held.txt"));
+        await writeFile(join(root, name), "public replacement");
+        await secureOwnerOnly(join(root, name), "read");
+        expect(core.checkPrivateFd(original)).toBeUndefined();
+        expectCode(() => core.checkPrivateAt(parent, name), "EACCES");
+        expect(readFileSync(original, "utf8")).toBe("pinned private bytes");
+        expect(await readFile(join(root, name), "utf8")).toBe("public replacement");
+      } finally {
+        closeSync(original);
+      }
+
+      const broad = core.openFileAt(parent, name);
+      try {
+        await rename(join(root, name), join(root, "broad.txt"));
+        await writeFile(join(root, name), "private replacement");
+        await secureOwnerOnly(join(root, name));
+        expectCode(() => core.checkPrivateFd(broad), "EACCES");
+        expect(core.checkPrivateAt(parent, name)).toBeUndefined();
+        expect(readFileSync(broad, "utf8")).toBe("public replacement");
+      } finally {
+        closeSync(broad);
+      }
+    } finally {
+      closeSync(parent);
+    }
+  },
+);
+
+win(
+  "refuses hardlinked, directory and closed descriptors as private",
+  async ({ onTestFinished }) => {
+    const core = Binding.parse(require("../dist/windows-core.node"));
+    const root = await mkdtemp(join(tmpdir(), "ace-wprivate-fd-refuse-"));
+    onTestFinished(() => rm(root, { recursive: true, force: true }));
+    await writeFile(join(root, "linked.txt"), "linked bytes");
+    await secureOwnerOnly(join(root, "linked.txt"));
+    await link(join(root, "linked.txt"), join(root, "alias.txt"));
+    const parent = core.openRoot(root);
+    const child = core.openFileAt(parent, "linked.txt");
+    try {
+      expectCode(() => core.checkPrivateFd(child), "EACCES");
+      expectCode(() => core.checkPrivateFd(parent), "EISDIR");
+      expectCode(() => core.checkPrivateFd(-1), "EINVAL");
+    } finally {
+      closeSync(child);
+      closeSync(parent);
+    }
+    expectCode(() => core.checkPrivateFd(child), "EBADF");
+  },
+);

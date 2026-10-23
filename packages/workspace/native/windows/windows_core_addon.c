@@ -225,6 +225,21 @@ static napi_value do_check_private_at(napi_env env, napi_callback_info info) {
   return mutate_child_at(env, info, "checkPrivateAt", wcore_check_private_at);
 }
 
+static napi_value do_check_private_fd(napi_env env, napi_callback_info info) {
+  napi_value args[1];
+  napi_value result = NULL;
+  size_t count = 1;
+  int32_t fd = -1;
+  if (napi_get_cb_info(env, info, &count, args, NULL, NULL) != napi_ok ||
+      count != 1 || !read_fd(env, args[0], &fd))
+    return fail_for(env, "checkPrivateFd", "EINVAL", NULL);
+  const char *code = wcore_check_private_fd(fd);
+  if (code != NULL) return fail_for(env, "checkPrivateFd", code, NULL);
+  if (napi_get_undefined(env, &result) != napi_ok)
+    return throw_binding_error(env, "checkPrivateFd");
+  return result;
+}
+
 static napi_value do_unlink_at(napi_env env, napi_callback_info info) {
   return mutate_child_at(env, info, "unlinkAt", wcore_unlink_at);
 }
@@ -273,6 +288,7 @@ static napi_value init(napi_env env, napi_value exports) {
     {"renameExclusiveAt", NULL, do_rename_exclusive_at, NULL, NULL, NULL, napi_default, NULL},
     {"securePrivateAt", NULL, do_secure_private_at, NULL, NULL, NULL, napi_default, NULL},
     {"checkPrivateAt", NULL, do_check_private_at, NULL, NULL, NULL, napi_default, NULL},
+    {"checkPrivateFd", NULL, do_check_private_fd, NULL, NULL, NULL, napi_default, NULL},
     {"mkdirAt", NULL, do_mkdir_at, NULL, NULL, NULL, napi_default, NULL},
   };
   if (napi_define_properties(env, exports,

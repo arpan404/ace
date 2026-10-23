@@ -270,6 +270,19 @@ const char *wcore_check_private_at(int parent_fd, const char *name) {
   return verdict;
 }
 
+// Borrowed-handle check: same fail-closed verdict as checkPrivateAt, but on
+// an already-open fd. Never reopens by name, never closes the borrowed
+// handle, never changes any ACL. The caller keeps the fd alive through this
+// synchronous call.
+const char *wcore_check_private_fd(int fd) {
+  HANDLE handle = NULL;
+  const char *borrowed = wcore_borrow_handle(fd, &handle);
+  if (borrowed != NULL) return borrowed;
+  const char *shape = private_assert_regular_single_link(handle);
+  if (shape != NULL) return shape;
+  return private_verify_security(handle);
+}
+
 const char *wcore_secure_private_at(int parent_fd, const char *name) {
   if (name == NULL) return "EINVAL";
   HANDLE parent = NULL;

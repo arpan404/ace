@@ -99,6 +99,13 @@ const char *wcore_remove_directory_at(int parent_fd, const char *name);
 // mismatch EACCES. No admin bypass.
 const char *wcore_check_private_at(int parent_fd, const char *name);
 
+// Private-file check on an already-open fd: same fail-closed verdict as
+// checkPrivateAt, applied to the borrowed HANDLE itself (never reopened by
+// name, never closed here, never changes any ACL). The caller keeps the fd
+// alive through this synchronous call. Reparse points are ELOOP,
+// directories EISDIR, hardlinks and any DACL/owner mismatch EACCES.
+const char *wcore_check_private_fd(int fd);
+
 // Private-file secure (no ownership change, no admin bypass): fail closed
 // unless the named child is a regular file with a single link, already
 // owned by the current process user. Installs the exact owner-only
