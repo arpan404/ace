@@ -28,6 +28,7 @@ import { z } from "zod";
 import type { PatchSink } from "./agents.ts";
 import type { CheckoutFiles } from "./checkout-files.ts";
 import { NativeFilesRequest } from "./checkout-request.ts";
+import { NativeAttachmentRequest, readNativeAttachment } from "./native-attachment.ts";
 import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
 import { NativeHistoryWindow, readHistoryWindow } from "./native-search.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
@@ -227,6 +228,16 @@ export class NativeServices {
       const media = NativeMediaRequest.safeParse(raw);
       if (media.success) {
         this.#reply(id, true, await readNativeMedia(this.owner, media.data, controller.signal), "");
+        return;
+      }
+      const attachment = NativeAttachmentRequest.safeParse(raw);
+      if (attachment.success) {
+        this.#reply(
+          id,
+          true,
+          await readNativeAttachment(this.owner, attachment.data, controller.signal),
+          "",
+        );
         return;
       }
       const request = Request.parse({
