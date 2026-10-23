@@ -38,11 +38,12 @@ const statusShare = 24;
 /** ADR 0074: a frame carries at most 32 patches and 32 KiB. */
 const framePatches = 32;
 
+/** The open thread's rows and the history window's (`reading:`), which mirror them. */
+const transcript = /^(thread|reading):(item:|position:|block|history$|ready$|cursor$)/;
+
 function priority(key: string): 0 | 1 | 2 {
-  if (key === "inbox:reset" || key === "thread:reset") return 0;
-  if (key.startsWith("thread:item:") || key.startsWith("thread:position:")) return 2;
-  if (key.startsWith("thread:block") || key === "thread:history") return 2;
-  if (key === "thread:ready" || key === "thread:cursor" || key === "changes:file") return 2;
+  if (key === "inbox:reset" || key === "thread:reset" || key === "reading:reset") return 0;
+  if (transcript.test(key) || key === "changes:file") return 2;
   return 1; // Canonical status, interactions, connection and command outcomes precede content.
 }
 
@@ -124,7 +125,10 @@ export class PatchPump {
         this.#queue("inbox:reset").has("inbox:reset")) ||
       (task.key !== "thread:reset" &&
         task.key.startsWith("thread:") &&
-        this.#queue("thread:reset").has("thread:reset"))
+        this.#queue("thread:reset").has("thread:reset")) ||
+      (task.key !== "reading:reset" &&
+        task.key.startsWith("reading:") &&
+        this.#queue("reading:reset").has("reading:reset"))
     );
   }
   /**

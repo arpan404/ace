@@ -60,9 +60,13 @@ daemon.createThread({
   live: { model: "gpt-6.1 · high", subagentCount: 0, backgroundTaskCount: 0 },
 });
 daemon.apply("ios-stream", [facts.rootAgent("codex"), facts.turn("root")]);
-for (let start = 0; start < 1999; start += 100) {
+// `ACE_IOS_SPIKE_HISTORY=8000` seeds that many history messages instead of 1,999, so reading far
+// back pages past the history window's bound and evicts.
+const historyEnv = Number(process.env.ACE_IOS_SPIKE_HISTORY ?? 1999);
+const history = Number.isSafeInteger(historyEnv) && historyEnv > 0 ? historyEnv : 1999;
+for (let start = 0; start < history; start += 100) {
   const batch: Fact[] = [];
-  for (let i = start; i < Math.min(start + 100, 1999); i++)
+  for (let i = start; i < Math.min(start + 100, history); i++)
     batch.push(
       facts.message(
         "root",
@@ -282,6 +286,7 @@ const server = Bun.serve<undefined>({
         // The seed, so performance tests can refuse a fixture without their workload.
         streamed: Number.isSafeInteger(streamed) && streamed > 0 ? streamed : 0,
         busy: Number.isSafeInteger(busy) && busy > 0 ? busy : 0,
+        history,
         deltas,
         commands,
         snapshots,

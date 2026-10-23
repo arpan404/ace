@@ -100,7 +100,33 @@ function wrapTransport(inner: InnerTransport): InnerTransport {
 interface Fixture {
   client: ClientCore;
   transcript: NativeTranscript;
+  /** The reading rows Swift would hold, in the order it shows them. */
+  rows: () => string[];
   releaseHeld: () => void;
+}
+
+/** A sink that applies each reading patch at once, as Swift's copy of the window. */
+function readingSink() {
+  const positions = new Map<string, number>();
+  const sink = {
+    put(key: string, read: () => Record<string, unknown> | undefined) {
+      if (!key.startsWith("reading:")) return;
+      const patch = read();
+      if (!patch) return;
+      if (patch.type === "thread.reset") positions.clear();
+      if (patch.type === "thread.position" && typeof patch.id === "string")
+        positions.set(patch.id, Number(patch.index));
+      if (patch.type !== "thread.item" || typeof patch.id !== "string") return;
+      const row = patch.row as { index?: number } | null;
+      if (!row) positions.delete(patch.id);
+      else positions.set(patch.id, row.index ?? positions.get(patch.id) ?? 0);
+    },
+    clear(prefix: string) {
+      if (prefix === "reading:") positions.clear();
+    },
+  };
+  const rows = () => [...positions].toSorted((a, b) => a[1] - b[1]).map(([id]) => id);
+  return { sink, rows };
 }
 
 async function settleMicrotasks(rounds = 200): Promise<void> {
@@ -147,9 +173,11 @@ async function setupFixture(): Promise<Fixture> {
   } finally {
     probe.release();
   }
+  const reading = readingSink();
   return {
     client,
-    transcript: new NativeTranscript(client),
+    transcript: new NativeTranscript(client, reading.sink),
+    rows: reading.rows,
     releaseHeld: () => {
       const text = heldRequest;
       heldRequest = undefined;
@@ -163,9 +191,9 @@ async function teardownFixture(fixture: Fixture): Promise<void> {
   await fixture.client.close();
 }
 
-function readOlder(transcript: NativeTranscript) {
-  return transcript.read(
-    { type: "native.transcript", threadId: THREAD, operation: "older" },
+function readOlder(fixture: Fixture) {
+  return fixture.transcript.read(
+    { type: "native.transcript", threadId: THREAD, epoch: -1, operation: "older" },
     new AbortController().signal,
   );
 }
@@ -174,61 +202,43 @@ async function olderPagesTask(): Promise<Record<string, unknown>> {
   const fixture = await setupFixture();
   try {
     await fixture.transcript.read(
-      { type: "native.transcript", threadId: THREAD, operation: "hold" },
+      { type: "native.transcript", threadId: THREAD, epoch: -1, operation: "hold" },
       new AbortController().signal,
     );
     const counts: number[] = [];
-    const firstSeqs: number[] = [];
     let withinPageDupes = 0;
     let overlapConsistent = true;
     let prependedAreOlder = true;
-    let allSequenced = true;
+    let firstMoved = true;
     let reachedStart = false;
-    let prev: { ids: string[]; seqOf: Map<string, number> } | undefined;
+    let prev: string[] | undefined;
     for (let page = 0; page < 30; page++) {
-      const result = await readOlder(fixture.transcript);
-      const ids = result.items.map((item) => String((item as { id: string }).id));
-      const seqs = result.items.map((item) => (item as { seq?: unknown }).seq);
+      const result = await readOlder(fixture);
+      const ids = fixture.rows();
       counts.push(ids.length);
-      if (seqs.some((seq) => typeof seq !== "number")) allSequenced = false;
-      // Reading windows overlap by construction (older pages prepend), so correctness is
-      // the overlap: shared items keep order and sequence, and only older items are new.
-      const seqOf = new Map<string, number>();
       const pos = new Map<string, number>();
       ids.forEach((id, index) => {
-        if (typeof seqs[index] === "number" && !seqOf.has(id)) seqOf.set(id, seqs[index] as number);
         if (!pos.has(id)) pos.set(id, index);
       });
-      const firstId = ids[0];
-      const firstSeq = firstId === undefined ? undefined : seqOf.get(firstId);
-      if (typeof firstSeq === "number") firstSeqs.push(firstSeq);
       withinPageDupes += ids.length - pos.size;
       if (prev !== undefined) {
-        const prevFirstId = prev.ids[0];
-        const prevFirst = prevFirstId === undefined ? undefined : prev.seqOf.get(prevFirstId);
-        const common = prev.ids.filter((id) => seqOf.has(id));
+        // Successive windows overlap (older pages prepend): shared rows keep their order, and
+        // every new row comes before them.
+        const common = prev.filter((id) => pos.has(id));
         if (common.length === 0) overlapConsistent = false;
         let lastIndex = -1;
         for (const id of common) {
-          const index = pos.get(id) as number;
-          if (index <= lastIndex || seqOf.get(id) !== prev.seqOf.get(id)) {
-            overlapConsistent = false;
-            break;
-          }
+          const index = pos.get(id) ?? -1;
+          if (index <= lastIndex) overlapConsistent = false;
           lastIndex = index;
         }
-        if (typeof prevFirst === "number") {
-          for (const id of ids) {
-            if (prev.seqOf.has(id)) continue;
-            const seq = seqOf.get(id);
-            if (typeof seq !== "number" || seq >= prevFirst) {
-              prependedAreOlder = false;
-              break;
-            }
-          }
-        }
+        const firstShared = pos.get(common[0] ?? "") ?? 0;
+        const known = new Set(prev);
+        if (ids.some((id, index) => !known.has(id) && index > firstShared))
+          prependedAreOlder = false;
+        if (ids[0] === prev[0] && result.hasOlder) firstMoved = false;
       }
-      prev = { ids, seqOf };
+      prev = ids;
       if (!result.hasOlder) {
         reachedStart = true;
         break;
@@ -237,11 +247,10 @@ async function olderPagesTask(): Promise<Record<string, unknown>> {
     return {
       pages: counts.length,
       counts,
-      firstSeqs,
       withinPageDupes,
       overlapConsistent,
       prependedAreOlder,
-      allSequenced,
+      firstMoved,
       reachedStart,
     };
   } finally {
@@ -259,10 +268,10 @@ async function liveTailTask(): Promise<Record<string, unknown>> {
       const tailBefore = observer.store.order.slice(-8);
       const lenBefore = observer.store.order.length;
       await fixture.transcript.read(
-        { type: "native.transcript", threadId: THREAD, operation: "hold" },
+        { type: "native.transcript", threadId: THREAD, epoch: -1, operation: "hold" },
         new AbortController().signal,
       );
-      for (let page = 0; page < 3; page++) await readOlder(fixture.transcript);
+      for (let page = 0; page < 3; page++) await readOlder(fixture);
       const tailAfter = observer.store.order.slice(-8);
       const lenAfter = observer.store.order.length;
       return {
@@ -284,15 +293,15 @@ async function windowBoundTask(): Promise<Record<string, unknown>> {
   const fixture = await setupFixture();
   try {
     await fixture.transcript.read(
-      { type: "native.transcript", threadId: THREAD, operation: "hold" },
+      { type: "native.transcript", threadId: THREAD, epoch: -1, operation: "hold" },
       new AbortController().signal,
     );
     let maxItems = 0;
     let pages = 0;
     let reachedStart = false;
     for (; pages < 30; pages++) {
-      const result = await readOlder(fixture.transcript);
-      maxItems = Math.max(maxItems, result.items.length);
+      const result = await readOlder(fixture);
+      maxItems = Math.max(maxItems, fixture.rows().length);
       if (!result.hasOlder) {
         reachedStart = true;
         pages++;
@@ -309,13 +318,13 @@ async function cancelRetryTask(): Promise<Record<string, unknown>> {
   const fixture = await setupFixture();
   try {
     await fixture.transcript.read(
-      { type: "native.transcript", threadId: THREAD, operation: "hold" },
+      { type: "native.transcript", threadId: THREAD, epoch: -1, operation: "hold" },
       new AbortController().signal,
     );
     holdArmed = true;
     const interrupted = new AbortController();
     const first = fixture.transcript.read(
-      { type: "native.transcript", threadId: THREAD, operation: "older" },
+      { type: "native.transcript", threadId: THREAD, epoch: -1, operation: "older" },
       interrupted.signal,
     );
     const held = await waitFor(() => heldRequest !== undefined);
@@ -326,14 +335,14 @@ async function cancelRetryTask(): Promise<Record<string, unknown>> {
     } catch (error) {
       cancelled = /cancel/i.test(error instanceof Error ? error.message : String(error));
     }
-    const retried = await readOlder(fixture.transcript);
+    const retried = await readOlder(fixture);
     fixture.releaseHeld();
     await settleMicrotasks();
     return {
       held,
       cancelled,
       retriedActive: retried.active,
-      retriedItems: retried.items.length,
+      retriedItems: fixture.rows().length,
       retriedHasOlder: retried.hasOlder,
     };
   } finally {

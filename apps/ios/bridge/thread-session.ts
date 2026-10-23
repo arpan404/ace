@@ -19,7 +19,7 @@ import { answerResolution, controlsRow, sendPayload, stopPayload } from "./threa
 
 /*
  * What the open thread adds to the spike's item and interaction rows: its blocks, the composer's
- * controls (effort, speed, attachments), history paging, the model list, finished turns' steps
+ * controls (effort, speed, attachments), whether older history exists, the model list, finished turns' steps
  * and a subagent's lane, and the actions the thread screen sends. One session per navigation
  * generation; leaving the thread disposes it and cancels its reads.
  */
@@ -54,7 +54,6 @@ export class ThreadSession {
   readonly #whenKnown = new Promise<void>((resolve) => {
     this.#known = resolve;
   });
-  #loading = false;
   #models: { state: string; models: Record<string, unknown>[] } = { state: "idle", models: [] };
 
   constructor(
@@ -122,7 +121,7 @@ export class ThreadSession {
   }
 
   // Queued after the snapshot's items AND blocks, so native reveals one coherent transcript: the
-  // latest window, never waiting for older history (`thread-history.ts`).
+  // latest window, never waiting for older history (the reading window, `native-transcript.ts`).
   #ready(): void {
     if (this.#store.thread)
       this.#put("ready", () => ({ type: "thread.ready", count: this.#store.order.length }));
@@ -193,9 +192,6 @@ export class ThreadSession {
         break;
       case "retrySend":
         void this.#retry(action.id, action.requestId);
-        break;
-      case "loadOlder":
-        void this.#loadOlder();
         break;
       case "models":
         void this.#listModels();
@@ -349,7 +345,6 @@ export class ThreadSession {
     this.#put("history", () => ({
       type: "thread.history",
       hasOlder: this.#store.itemsBefore != null,
-      loading: this.#loading,
     }));
   }
   async #readSetting(): Promise<void> {
@@ -377,23 +372,6 @@ export class ThreadSession {
     this.#settingKnown = true;
     this.#known();
     this.#controls();
-  }
-  async #loadOlder(): Promise<void> {
-    if (this.#loading || this.#store.itemsBefore == null) return;
-    this.#loading = true;
-    this.#history();
-    try {
-      await this.#client.loadOlder(this.#threadId, 200, { signal: this.#abort.signal });
-    } catch {
-      if (!this.#abort.signal.aborted)
-        this.#pump.put("error", () => ({
-          type: "error",
-          message: "Couldn't load earlier messages. Check your connection.",
-        }));
-    } finally {
-      this.#loading = false;
-      if (!this.#abort.signal.aborted) this.#history();
-    }
   }
   async #retry(commandId: string, id: string): Promise<void> {
     const pending = this.#client.pendingSend(commandId);
