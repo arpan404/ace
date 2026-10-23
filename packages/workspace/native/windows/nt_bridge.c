@@ -291,8 +291,9 @@ const char *wcore_assert_noreparse(HANDLE handle) {
     const char *code = wcore_dos_to_code(GetLastError());
     return code != NULL ? code : "EIO";
   }
-  // Deny-all unless the op explicitly opens the link itself. This core has no
-  // link-itself op yet, so any reparse point is an escape: ELOOP.
+  // Data opens and traversal require an ordinary file or directory. Metadata
+  // queries and link-itself mutations inspect the opened reparse point
+  // separately instead of admitting it through this assertion.
   if (info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) return "ELOOP";
   return NULL;
 }

@@ -3,6 +3,7 @@
 // openRoot(volumePath) -> fd
 // openDirectoryAt(parentFd, name) -> fd
 // openFileAt(parentFd, name) -> fd
+// openMetadataAt(parentFd, name) -> metadata fd for the child itself
 // createFileAt(parentFd, name) -> writable fd, exclusive create
 // mkdirAt(parentFd, name) -> void, exclusive directory creation
 // identityOf(fd) -> { vol: string, id: string }
@@ -190,6 +191,10 @@ static napi_value do_open_file_at(napi_env env, napi_callback_info info) {
   return open_child_at(env, info, "openFileAt", wcore_open_file_at);
 }
 
+static napi_value do_open_metadata_at(napi_env env, napi_callback_info info) {
+  return open_child_at(env, info, "openMetadataAt", wcore_open_metadata_at);
+}
+
 static napi_value do_create_file_at(napi_env env, napi_callback_info info) {
   return open_child_at(env, info, "createFileAt", wcore_create_file_at);
 }
@@ -285,6 +290,7 @@ static napi_value init(napi_env env, napi_value exports) {
     {"openRoot", NULL, do_open_root, NULL, NULL, NULL, napi_default, NULL},
     {"openDirectoryAt", NULL, do_open_directory_at, NULL, NULL, NULL, napi_default, NULL},
     {"openFileAt", NULL, do_open_file_at, NULL, NULL, NULL, napi_default, NULL},
+    {"openMetadataAt", NULL, do_open_metadata_at, NULL, NULL, NULL, napi_default, NULL},
     {"createFileAt", NULL, do_create_file_at, NULL, NULL, NULL, napi_default, NULL},
     {"createPrivateFileAt", NULL, do_create_private_file_at, NULL, NULL, NULL, napi_default, NULL},
     {"unlinkAt", NULL, do_unlink_at, NULL, NULL, NULL, napi_default, NULL},

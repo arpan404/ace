@@ -29,6 +29,7 @@ export default defineConfig({
     include: [
       "packages/workspace/src/windows-core.process.test.ts",
       "packages/workspace/src/windows-metadata.process.test.ts",
+      "packages/workspace/src/windows-metadata-open.process.test.ts",
       "packages/workspace/src/windows-write.process.test.ts",
       "packages/workspace/src/windows-rename.process.test.ts",
       "packages/workspace/src/windows-private.process.test.ts",

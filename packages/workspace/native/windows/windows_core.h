@@ -81,6 +81,12 @@ const char *wcore_open_dir_at(int parent_fd, const char *name, int *out_fd);
 // regular file (fails closed on directories and reparse points).
 const char *wcore_open_file_at(int parent_fd, const char *name, int *out_fd);
 
+// Open one validated component relative to a borrowed parent fd:
+// metadata-only handle for the link itself (file, directory or reparse
+// point, never followed). Carries no data, WRITE_DAC or WRITE_OWNER access;
+// callers observe the same handle with identity or stat helpers.
+const char *wcore_open_metadata_at(int parent_fd, const char *name, int *out_fd);
+
 // Exclusively create a regular file. Existing files, links and directories
 // are never overwritten. The writable fd remains owned by Node.
 const char *wcore_create_file_at(int parent_fd, const char *name, int *out_fd);
