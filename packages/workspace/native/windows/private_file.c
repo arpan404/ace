@@ -52,9 +52,10 @@
 // - SID copy: Microsoft Learn "CopySid function"
 //   (https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-copysid).
 //
-// Helpers are file-static but factored by responsibility (open, type/link,
-// DACL shape, current-user SID load/equality, shared security verdict) so
-// check and secure reuse the same owner/ACL logic. No addon CRT fd calls:
+// Local helpers stay file-static by responsibility (open, type/link, DACL
+// shape, owner equality, shared security verdict) so check and secure reuse
+// the same logic. Current-user SID load and owner-only ACL build are shared
+// (private_security.c, via windows_core.h). No addon CRT fd calls:
 // the subject HANDLE is closed with CloseHandle, security descriptors with
 // LocalFree, SID/ACL buffers with free, token state with CloseHandle.
 
@@ -145,70 +146,13 @@ static const char *private_assert_owner_only_dacl(
   return NULL;
 }
 
-// Load a malloc'd copy of the current process TokenUser SID; the caller
-// frees it. No well-known-admin or privilege bypass: the copy is only ever
-// compared with EqualSid or installed as the single owner ACE.
-static const char *private_load_current_user_sid(PSID *out) {
-  if (out == NULL) return "EINVAL";
-  *out = NULL;
-  HANDLE token = NULL;
-  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
-    const char *code = wcore_dos_to_code(GetLastError());
-    return code != NULL ? code : "EIO";
-  }
-  DWORD needed = 0;
-  // Size probe: the expected failure is ERROR_INSUFFICIENT_BUFFER with
-  // the required byte count in `needed`.
-  GetTokenInformation(token, TokenUser, NULL, 0, &needed);
-  const char *code = NULL;
-  BYTE *buffer = NULL;
-  PSID copy = NULL;
-  if (needed == 0) {
-    code = "EIO";
-  } else {
-    buffer = (BYTE *)malloc(needed);
-    if (buffer == NULL) {
-      code = "ENOMEM";
-    } else {
-      DWORD got = 0;
-      if (!GetTokenInformation(token, TokenUser, buffer, needed, &got)) {
-        const char *mapped = wcore_dos_to_code(GetLastError());
-        code = mapped != NULL ? mapped : "EIO";
-      } else {
-        TOKEN_USER *user = (TOKEN_USER *)(void *)buffer;
-        if (user->User.Sid == NULL || !IsValidSid(user->User.Sid)) {
-          code = "EACCES";
-        } else {
-          DWORD sid_len = GetLengthSid(user->User.Sid);
-          copy = (PSID)malloc(sid_len);
-          if (copy == NULL) {
-            code = "ENOMEM";
-          } else if (!CopySid(sid_len, copy, user->User.Sid)) {
-            const char *mapped = wcore_dos_to_code(GetLastError());
-            code = mapped != NULL ? mapped : "EIO";
-            free(copy);
-            copy = NULL;
-          }
-        }
-      }
-      free(buffer);
-    }
-  }
-  CloseHandle(token);
-  if (code != NULL) {
-    if (copy != NULL) free(copy);
-    return code;
-  }
-  *out = copy;
-  return NULL;
-}
-
 // Require the file owner SID to equal the current process TokenUser SID.
-// No well-known-admin or privilege bypass: equality only.
+// No well-known-admin or privilege bypass: equality only. The SID load is
+// shared with the ACL builder in private_security.c.
 static const char *private_assert_owner_is_current_user(PSID owner) {
   if (owner == NULL || !IsValidSid(owner)) return "EACCES";
   PSID user = NULL;
-  const char *loaded = private_load_current_user_sid(&user);
+  const char *loaded = wcore_current_user_sid(&user);
   if (loaded != NULL) return loaded;
   const char *verdict = EqualSid(owner, user) ? NULL : "EACCES";
   free(user);
@@ -300,7 +244,7 @@ const char *wcore_secure_private_at(int parent_fd, const char *name) {
   const char *verdict = private_assert_regular_single_link(child);
   PSID user = NULL;
   PACL acl = NULL;
-  if (verdict == NULL) verdict = private_load_current_user_sid(&user);
+  if (verdict == NULL) verdict = wcore_current_user_sid(&user);
   if (verdict == NULL) {
     PSID owner = NULL;
     PSECURITY_DESCRIPTOR descriptor = NULL;
@@ -315,22 +259,10 @@ const char *wcore_secure_private_at(int parent_fd, const char *name) {
     }
   }
   if (verdict == NULL) {
-    // Exact owner-only DACL: one zero-flag ACCESS_ALLOWED_ACE with a
-    // FILE_ALL_ACCESS mask for the owner SID. SID sizes are bounded
-    // (SECURITY_MAX_SID_SIZE), so the ACL length cannot overflow.
-    DWORD acl_len = (DWORD)(sizeof(ACL) +
-        offsetof(ACCESS_ALLOWED_ACE, SidStart) + GetLengthSid(user));
-    acl = (PACL)malloc(acl_len);
-    if (acl == NULL) {
-      verdict = "ENOMEM";
-    } else if (!InitializeAcl(acl, acl_len, ACL_REVISION)) {
-      const char *mapped = wcore_dos_to_code(GetLastError());
-      verdict = mapped != NULL ? mapped : "EIO";
-    } else if (!AddAccessAllowedAceEx(
-        acl, ACL_REVISION, 0, FILE_ALL_ACCESS, user)) {
-      const char *mapped = wcore_dos_to_code(GetLastError());
-      verdict = mapped != NULL ? mapped : "EIO";
-    } else {
+    // Shared owner-only ACL build (private_security.c): one zero-flag
+    // ACCESS_ALLOWED_ACE with FILE_ALL_ACCESS for the owner SID.
+    verdict = wcore_owner_only_acl(user, &acl);
+    if (verdict == NULL) {
       // DACL-only replacement, protected from inheritance. The owner is
       // left untouched: NULL owner/group and no OWNER_SECURITY_INFORMATION.
       DWORD set_status = SetSecurityInfo(child, SE_FILE_OBJECT,

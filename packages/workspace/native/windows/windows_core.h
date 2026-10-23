@@ -115,6 +115,16 @@ const char *wcore_check_private_fd(int fd);
 // directories EISDIR, hardlinks and any owner mismatch EACCES.
 const char *wcore_secure_private_at(int parent_fd, const char *name);
 
+// Shared private-security helpers (single owner: private_security.c).
+// wcore_current_user_sid loads a malloc'd copy of the current process
+// TokenUser SID; wcore_owner_only_acl builds a malloc'd ACL with exactly
+// one zero-flag ACCESS_ALLOWED_ACE carrying FILE_ALL_ACCESS for `user`.
+// On success the caller frees *out with free(); on failure *out is NULL
+// and the return is a static POSIX code string. Fail closed, no admin
+// bypass.
+const char *wcore_current_user_sid(PSID *out);
+const char *wcore_owner_only_acl(PSID user, PACL *out);
+
 // Same-parent rename of the source object itself. Destination is one validated
 // component relative to the pinned parent. rename replaces, exclusive refuses
 // an existing destination. Neither operation follows a reparse point.
