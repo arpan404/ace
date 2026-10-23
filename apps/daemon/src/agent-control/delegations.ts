@@ -33,6 +33,7 @@ import { AgentMonitor } from "./monitor.ts";
 import { DelegationAdmission } from "./admission.ts";
 import { type DelegationReservation, DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
+import { messageArrival } from "./message-arrival.ts";
 import { readAgentCatalog } from "./catalog.ts";
 import { recoverLocalUsage } from "./local-usage-recovery.ts";
 import { AcpIdentity as importAcpIdentitySchema } from "@ace/protocol";
@@ -254,6 +255,25 @@ export class DelegationService {
     return result;
   }
   private requesting: string | undefined;
+  /** How the message `requestId` sent to `threadId` reaches it, read once it was accepted. */
+  arrival(
+    caller: McpAttribution,
+    requestId: string,
+    threadId: ThreadId,
+    delivery: "queue" | "steer",
+  ): import("@ace/protocol").MessageArrival {
+    const id = CommandId.parse(controlCommandId(caller.threadId, requestId, "thread.message"));
+    const fate = this.deps.engine.inputFate(threadId, id).state;
+    if (fate === "delivered" || fate === "sending") return "delivered";
+    const queue = this.deps.engine.queue(threadId);
+    return messageArrival({
+      status: this.deps.store.getThread(threadId)?.status.state ?? "new",
+      held: queue.paused,
+      steers: this.deps.engine.supportsSteering(threadId),
+      delivery,
+      ahead: queue.messages.filter((message) => message.id !== id).length,
+    });
+  }
   async prepareModels(caller: McpAttribution, value: DelegationRequest) {
     const request = delegationRequest(value);
     this.admission.validate(caller, request);

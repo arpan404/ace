@@ -165,6 +165,7 @@ export class AgentMonitor {
         ),
         ...(needs[0] ? { needs: needs.length, ask: clip(needs[0].prompt, 100) } : {}),
         ...(last ? { last } : {}),
+        ...(thread.queue?.pendingCount ? { queued: thread.queue.pendingCount } : {}),
       });
     }
     for (const child of this.remote?.children(caller) ?? []) {

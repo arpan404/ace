@@ -333,7 +333,15 @@ export function createAgentControlPort(
                   operation.text,
                   operation.delivery,
                 );
-          return { ok: result.ok, ...(result.ok ? {} : { code: "unavailable" as const }) };
+          if (!result.ok) return { ok: false, code: "unavailable" };
+          // Says whether the message went in now or waits, so the sender never assumes delivery.
+          const arrival = service.arrival(
+            caller,
+            operation.requestId,
+            operation.threadId,
+            operation.delivery === "restart" ? "queue" : operation.delivery,
+          );
+          return { ok: true, data: { arrival } };
         }
         case "wait":
           return service.monitor.wait(caller, operation, signal);

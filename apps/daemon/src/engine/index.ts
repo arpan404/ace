@@ -1403,11 +1403,13 @@ export class Engine {
           ? readyForChildResults(state)
           : ["new", "done", "failed"].includes(status.state) ||
             this.repo.quiescent(state) ||
-            // A plain message only needs the provider between turns. One that changes the
-            // model or options may reopen the session, which would end its background
-            // commands, so it still waits for the whole tree.
+            // A plain message, the person's or a parent agent's, only needs the provider
+            // between turns. One that changes the model or options may reopen the session,
+            // which would end its background commands, so it still waits for the whole tree.
             (intent.kind === "thread.send" &&
-              (intent.trigger === undefined || intent.trigger === "user") &&
+              (intent.trigger === undefined ||
+                intent.trigger === "user" ||
+                intent.trigger === "parent_agent") &&
               !this.repo.pending.hasSelection(intent.id) &&
               this.repo.acceptsPersonInput(state));
       if (!this.repo.pending.awaiting(actor.id) && ready) {
