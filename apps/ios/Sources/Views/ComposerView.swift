@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// The thread's composer on the dock's glass at `rounded-xl`: + · the message · the model chip ·
-/// round Send. When the message wraps, the input takes its own rows and the controls sit on a row
-/// below. While the agent works an empty composer's round button stops the whole tree; a typed
+/// round Send. Tapped into, or when the message wraps, the input takes its own rows (a few lines
+/// tall while focused, in step with the keyboard) and the controls sit on a row below. While the agent works an empty composer's round button stops the whole tree; a typed
 /// message goes the way the bridge says (steer or queue), and a long press offers the other
 /// delivery where the provider can steer. Files on the next message sit above the input.
 struct ComposerView<Top: View, Leading: View, Trailing: View>: View {
@@ -24,20 +24,22 @@ struct ComposerView<Top: View, Leading: View, Trailing: View>: View {
     @State private var draft = ComposerDraft()
     @State private var feedback = 0
     @State private var wraps = false
+    @State private var focused = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.threadDrafts) private var drafts
     @Environment(\.scenePhase) private var scenePhase
     private var empty: Bool { files == 0 && draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var card: Bool { ComposerFit.card(focused: focused, wraps: wraps) }
     private var stops: Bool { empty && controls?.busy == true && controls?.canStop == true }
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             top()
             HStack(spacing: AceTheme.Spacing.none) {
-                if !wraps { leading() }
+                if !card { leading() }
                 input
-                if !wraps { trailing(); action }
+                if !card { trailing(); action }
             }
-            if wraps {
+            if card {
                 HStack(spacing: AceTheme.Spacing.none) {
                     leading()
                     Spacer(minLength: AceTheme.Spacing.sm)
@@ -59,7 +61,8 @@ struct ComposerView<Top: View, Leading: View, Trailing: View>: View {
     }
     private var input: some View {
         NativeTextInput(text: $draft.text, inputBegan: inputBegan, submit: { if !disabled && !stops { submit(alternate: false) } },
-                        wraps: wraps, onWrap: { wraps = $0 })
+                        wraps: wraps, onWrap: { wraps = $0 }, card: card, focused: focused,
+                        onFocus: { focus, duration in withAnimation(reduceMotion ? nil : .spring(duration: duration, bounce: 0)) { focused = focus } })
             .overlay(alignment: .topLeading) {
                 if draft.text.isEmpty {
                     Text(placeholder).aceFont(AceTheme.Typography.body, relativeTo: .body)
@@ -69,8 +72,8 @@ struct ComposerView<Top: View, Leading: View, Trailing: View>: View {
                 }
             }
             .accessibilityLabel(placeholder)
-            .padding(.leading, wraps ? AceTheme.Spacing.md : AceTheme.Spacing.none)
-            .padding(.trailing, wraps ? AceTheme.Spacing.md : AceTheme.Spacing.xs)
+            .padding(.leading, card ? AceTheme.Spacing.md : AceTheme.Spacing.none)
+            .padding(.trailing, card ? AceTheme.Spacing.md : AceTheme.Spacing.xs)
     }
     private var action: some View {
         ComposerActionButton(stopping: stops, saving: draft.saving, disabled: disabled, label: label) {

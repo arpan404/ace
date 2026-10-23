@@ -76,6 +76,8 @@ struct NewThreadComposer: View {
     @Binding var attachProblem: String?
     let chooseModel: () -> Void
     let send: () -> Void
+    @State private var focused = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var draft: NewThreadDraft { drafts.draft }
 
     var body: some View {
@@ -88,9 +90,12 @@ struct NewThreadComposer: View {
                     .padding(.horizontal, AceTheme.Spacing.md)
                 }
             }
-            // The thread composer's text view: it wraps and grows to five lines, then scrolls.
+            // The thread composer's text view: a few lines tall while focused, and it grows to five
+            // lines, then scrolls.
             NativeTextInput(text: Binding(get: { draft.text }, set: { text in drafts.edit { $0.text = text } }), inputBegan: {},
-                            submit: { if blocker == nil && !sending { send() } }, identifier: "newThread.message", focusOnAppear: true)
+                            submit: { if blocker == nil && !sending { send() } }, card: true, focused: focused,
+                            onFocus: { focus, duration in withAnimation(reduceMotion ? nil : .spring(duration: duration, bounce: 0)) { focused = focus } },
+                            identifier: "newThread.message", focusOnAppear: true)
                 .overlay(alignment: .topLeading) {
                     if draft.text.isEmpty {
                         Text("Describe a task").aceFont(AceTheme.Typography.body, relativeTo: .body)

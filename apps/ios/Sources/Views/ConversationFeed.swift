@@ -41,6 +41,8 @@ struct ConversationFeed: View {
     /// While the keyboard moves, the live tail doesn't jump to the end on each delta: the
     /// keyboard's own animation carries the rows there.
     @State private var keyboardMoving = false
+    /// The keyboard's last animation duration: the composer opens on the same spring as it.
+    @State private var keyboardDuration = 0.35
     @State private var feedBottom: CGFloat = 0
     private var shown: ThreadModel { reading.thread ?? thread }
     private var ready: Bool { thread.loaded }
@@ -154,6 +156,7 @@ struct ConversationFeed: View {
             guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
             let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
             let lift = max(0, feedBottom - end.minY)
+            if duration > 0 { keyboardDuration = duration }
             guard lift != keyboardLift else { return }
             let motion: Animation? = reduceMotion ? nil : .spring(duration: duration, bounce: 0)
             let growth = lift - keyboardLift
@@ -166,7 +169,9 @@ struct ConversationFeed: View {
             roomChanged(by: growth, motion: motion, proxy: proxy)
         }
         .onChange(of: barHeight) { old, new in
-            roomChanged(by: new - old, motion: reduceMotion ? nil : AceTheme.Motion.standardCurve, proxy: proxy)
+            // The composer opening as it takes the keyboard moves on the keyboard's spring.
+            let motion = keyboardMoving ? Animation.spring(duration: keyboardDuration, bounce: 0) : AceTheme.Motion.standardCurve
+            roomChanged(by: new - old, motion: reduceMotion ? nil : motion, proxy: proxy)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { _ in
             keyboardMoving = false
