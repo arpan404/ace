@@ -96,7 +96,8 @@ export function attentionItems(
         kind: "thread",
         key: `thread:${thread.id}`,
         title: (first?.body ?? "").split("\n")[0] ?? "",
-        detail: `${thread.file}:${thread.line ?? ""}`,
+        // An outdated conversation has no line on the current diff: just its file.
+        detail: thread.line === null ? thread.file : `${thread.file}:${thread.line}`,
         at: first ? time(first) : null,
         author: first?.author ?? "",
         body: first?.body ?? "",

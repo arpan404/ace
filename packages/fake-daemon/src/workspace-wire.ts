@@ -454,8 +454,10 @@ export class FakeWorkspaceWire {
         this.context.now(),
       ) ??
       this.pullRequests.create(payload, this.context.now()) ??
-      (this.scriptedReview(payload) ? undefined : this.pullRequests.review(payload, commandId)) ??
-      this.pullRequests.edit(payload);
+      // A scripted review answer wins; otherwise the catalog's review actions, then guarded edits.
+      (this.scriptedReview(payload)
+        ? undefined
+        : (this.pullRequests.review(payload, commandId) ?? this.pullRequests.edit(payload)));
     if (merged) return merged;
     const project = this.projects.command(payload);
     if (project) return project;

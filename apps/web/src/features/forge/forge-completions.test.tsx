@@ -12,7 +12,7 @@ const repository = {
   name: "docs-site",
 } as const;
 
-/** PR #31 of acme/docs-site, "Rewrite the install page for the daemon", its comment box open. */
+/** PR #31 of acme/docs-site, "Rewrite the install page for the daemon", on its Timeline comment box. */
 async function commentBox() {
   // Each test starts with an empty comment: drafts are kept on this device.
   localStorage.clear();
@@ -21,8 +21,8 @@ async function commentBox() {
   app.daemon.workspace.seedPullRequests(pullRequestDetails(1_000));
   await openPullRequest(app, { project: "api", repository, number: 31 });
   await screen.findByRole("article", { name: "Pull request #31" }, { timeout: 10_000 });
-  await userEvent.click(await screen.findByRole("button", { name: "Write a comment or review" }));
-  return screen.findByRole<HTMLTextAreaElement>("textbox", { name: "PR conversation comment" });
+  await userEvent.click(await screen.findByRole("tab", { name: "Timeline" }));
+  return screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Comment" }, { timeout: 5_000 });
 }
 
 const rows = async () =>

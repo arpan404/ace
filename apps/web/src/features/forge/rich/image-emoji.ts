@@ -1,5 +1,5 @@
 import type { ClientApi } from "@ace/client";
-import { useClient } from "@ace/client-react";
+import { useOptionalClient } from "@ace/client-react";
 import { useContext, useSyncExternalStore } from "react";
 import { readForge } from "@/lib/forge-read.ts";
 import type { ForgeScope } from "./media-loads.ts";
@@ -58,9 +58,10 @@ function entryFor(client: ClientApi, scope: ForgeScope): Entry {
 
 /** The forge's image emoji once read (starting the read when `wanted`); empty until then. */
 export function useImageEmoji(wanted: boolean): ReadonlyMap<string, string> {
-  const client = useClient();
+  // Text drawn outside a connected page (no client or scope) keeps its shortcodes as text.
+  const client = useOptionalClient();
   const scope = useContext(ForgeContentScope);
-  const entry = wanted && scope ? entryFor(client, scope) : undefined;
+  const entry = wanted && scope && client ? entryFor(client, scope) : undefined;
   return useSyncExternalStore(
     (listener) => {
       entry?.listeners.add(listener);

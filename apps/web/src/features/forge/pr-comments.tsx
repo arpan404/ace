@@ -38,7 +38,7 @@ function CommentRow(props: { comment: ForgeComment; open: boolean; onToggle(): v
         }
         place={
           comment.kind === "inline" && comment.file
-            ? `${comment.file}:${comment.line ?? ""}`
+            ? `${comment.file}${comment.line === null ? "" : `:${comment.line}`}`
             : undefined
         }
         quoteTarget="conversation"
