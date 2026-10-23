@@ -16,6 +16,7 @@ struct InboxUndo: Equatable {
 struct InboxView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @Bindable var inbox: MachineInbox
     /// Rename, remove and pairing for Settings › Machines; nil for the debug fixture.
     var machines: MachinesModel?
@@ -106,7 +107,8 @@ struct InboxView: View {
         }
         .onChange(of: pullsPath) { old, new in pathChanged(.pulls, old: old, new: new) }
         .sensoryFeedback(.success, trigger: settles)
-        .overlay(alignment: .bottom) { toast }
+        // Beside an open thread the toast sits under the list it acted on, clear of the composer.
+        .overlay(alignment: sizeClass == .regular ? .bottomLeading : .bottom) { toast }
     }
 
     private var sheets: some View {
@@ -165,7 +167,7 @@ struct InboxView: View {
     }
 
     @ViewBuilder private var toast: some View {
-        if let undo, openTab == nil {
+        if let undo, openTab == nil || sizeClass == .regular {
             HStack(spacing: AceTheme.Spacing.md) {
                 Text(undo.kind == .settled ? "Settled thread" : "Archived thread").lineLimit(1)
                 Button("Undo") {
@@ -184,6 +186,7 @@ struct InboxView: View {
             .padding(.leading, AceTheme.Spacing.xl).padding(.trailing, AceTheme.Spacing.lg)
             .aceGlass(in: AceShape.capsule)
             // Clear of the tab bar.
+            .padding(.leading, sizeClass == .regular ? AceTheme.Spacing.xl : AceTheme.Spacing.none)
             .padding(.bottom, 76)
             .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             .task(id: undo) {

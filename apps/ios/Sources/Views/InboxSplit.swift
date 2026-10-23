@@ -14,11 +14,18 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     @State private var width: CGFloat = 0
     /// Counts the window's changes still settling; zero once the split view has settled.
     @State private var settling = 0
+    /// The split view said the list is on top; it is, once the list itself appears.
+    @State private var listReported = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $visibility, preferredCompactColumn: compactColumn) {
             list()
                 .environment(\.openThreadRow, ThreadColumns.selection(path))
+                // Going back to the list in a compact window closes the thread, as popping it did.
+                .onAppear {
+                    if ThreadColumns.backToList(sizeClass, reported: listReported) { path = [] }
+                    listReported = false
+                }
                 // As a stack, the tab bar hides once a thread is pushed; beside the list it stays.
                 .toolbarVisibility(ThreadColumns.showsTabBar(sizeClass, path: path) ? .automatic : .hidden, for: .tabBar)
         } detail: {
@@ -57,10 +64,11 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     private var detail: Binding<[InboxRoute]> {
         Binding(get: { ThreadColumns.detail(path) }, set: { path = ThreadColumns.path(path, detail: $0) })
     }
-    /// Going back to the list in a compact window closes the thread, as popping it did.
+    /// The split view reports the list on top whenever a compact window pops a page, the
+    /// browser over a thread included: the report only arms `backToList`.
     private var compactColumn: Binding<NavigationSplitViewColumn> {
         Binding(get: { ThreadColumns.compactColumn(path) }, set: { column in
-            if column == .sidebar, sizeClass == .compact, !path.isEmpty { path = [] }
+            if column == .sidebar, sizeClass == .compact { listReported = true }
         })
     }
 }
@@ -82,3 +90,4 @@ struct CloseOpenThread {
     let id: String
     let close: () -> Void
 }
+

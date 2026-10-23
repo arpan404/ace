@@ -91,6 +91,18 @@ import XCTest
         XCTAssertTrue(list.waitForHittable(timeout: 10))
     }
 
+    func testBackFromAPageOverTheThreadKeepsTheThreadOpen() {
+        let app = launch()
+        open("thread.ios-browser", in: app)
+        XCTAssertTrue(title("Check the checkout flow", in: app).waitForExistence(timeout: 20))
+        app.buttons["thread.menu"].tap()
+        app.buttons["thread.browser"].tap()
+        XCTAssertTrue(app.buttons["browser.menu"].waitForExistence(timeout: 15))
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(app.buttons["browser.menu"].waitForNonExistence(timeout: 10))
+        XCTAssertTrue(title("Check the checkout flow", in: app).waitForExistence(timeout: 10), "the thread stays open under the page")
+    }
+
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]

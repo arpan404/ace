@@ -29,6 +29,14 @@ enum ThreadColumns {
         path.isEmpty ? .sidebar : .detail
     }
 
+    /// Whether the list appearing means the person went back to it, closing the thread: in a
+    /// compact window, after the split view reported the list on top. The report alone comes
+    /// for any popped page (a browser over the thread too); the list alone appears as a window
+    /// changes shape.
+    static func backToList(_ sizeClass: UserInterfaceSizeClass?, reported: Bool) -> Bool {
+        sizeClass == .compact && reported
+    }
+
     /// The thread the list shows as open.
     static func selection(_ path: [InboxRoute]) -> InboxKey? { path.first?.thread }
     /// The pages pushed over the open thread in the detail column: child threads and the like.
