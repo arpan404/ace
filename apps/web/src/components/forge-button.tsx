@@ -1,6 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { GithubLogoIcon } from "@phosphor-icons/react";
-import { Icon } from "@/components/icon.tsx";
+import { GithubMark } from "@/components/github-mark.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 
@@ -36,12 +35,12 @@ export function ForgeButton(props: {
           props.active && "bg-sidebar-accent text-foreground",
         )}
       >
-        <Icon icon={GithubLogoIcon} />
+        <GithubMark size={15} />
         {waiting > 0 && (
           <span
             aria-hidden
             data-tone="needs-you"
-            className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-(--tone) ring-2 ring-sidebar"
+            className="absolute top-1 right-1 size-1.5 rounded-full bg-(--tone) ring-2 ring-sidebar"
           />
         )}
       </Link>
