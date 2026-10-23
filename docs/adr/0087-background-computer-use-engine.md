@@ -235,3 +235,14 @@ Ace's browser already moves locked-screen pages to its own Chromium backend. Tha
 non-GUI tools can continue when native app controls are unavailable. Universal native GUI
 operation behind the real lock and a persistent status surface on the secure lock screen
 remain unimplemented; this change must not be described as providing either.
+
+### Follow-up investigation: authorization-assisted Locked Use
+
+[The clean-room investigation](../research/macos-codex-locked-use.md) found that OpenAI
+documents a separately enabled authorization plug-in that temporarily unlocks the desktop
+under display covers for approved work. Local bundle and authorization-policy metadata
+confirm that integration is installed on this Mac. The AX-only test above does not rule out
+such a consented architecture. Ace currently has no corresponding installation, scoped
+authorization or protected-desktop lifecycle. Those require a separate design review; this
+investigation changed no authorization policy. [Apple API boundaries](../research/macos-authorization-plugin-locked-use.md)
+and the unresolved unlock/relock controls are recorded separately.
