@@ -196,3 +196,16 @@ incremental typechecking passed. The dependency check reported no violations,
 with its existing warning about incomplete TypeScript 7 support. `bun run check`
 stopped at three UI style violations in untouched files: `pair-device.tsx`,
 `update-restart-dialog.tsx` and `turn-end.tsx`. Later full-gate steps did not run.
+
+## Rename and replacement slice
+
+The independent Windows core now implements same-parent `renameAt` with
+replacement and `renameExclusiveAt` without replacement. Both validate each
+name and use the opened source plus the pinned parent for the destination.
+Reparse sources are moved themselves. Native fixtures cover flushed publication,
+identity preservation, collisions, invalid names, missing sources and ancestor
+replacement. Native execution is pending; production descriptor integration and
+private-file ACLs remain blockers.
+
+Metadata Node-API callbacks now live in a separate binding module so the entry
+module stays below its 400-line source budget. This is not daemon activation.

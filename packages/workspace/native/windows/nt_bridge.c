@@ -141,6 +141,11 @@ const char *wcore_dos_to_code(DWORD dos) {
       return "ENOTDIR";
     case ERROR_FILENAME_EXCED_RANGE:
       return "ENAMETOOLONG";
+    case ERROR_NOT_SAME_DEVICE:
+      return "EXDEV";
+    case ERROR_NOT_ENOUGH_MEMORY:
+    case ERROR_OUTOFMEMORY:
+      return "ENOMEM";
     case ERROR_NOT_SUPPORTED:
       return "ENOTSUP";
     default:

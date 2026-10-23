@@ -90,6 +90,12 @@ const char *wcore_mkdir_at(int parent_fd, const char *name);
 const char *wcore_unlink_at(int parent_fd, const char *name);
 const char *wcore_remove_directory_at(int parent_fd, const char *name);
 
+// Same-parent rename of the source object itself. Destination is one validated
+// component relative to the pinned parent. rename replaces, exclusive refuses
+// an existing destination. Neither operation follows a reparse point.
+const char *wcore_rename_at(int parent_fd, const char *from, const char *to);
+const char *wcore_rename_exclusive_at(int parent_fd, const char *from, const char *to);
+
 // Lossless identity of an open fd: VolumeSerialNumber as 16 lowercase hex
 // chars plus the 128-bit FileId as 32 lowercase hex chars (raw identifier
 // byte order, string equality only — never truncated to JS doubles).

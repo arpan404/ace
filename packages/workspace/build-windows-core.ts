@@ -2,7 +2,7 @@
  * Explicit Windows-only probe/build entry for the bounded W04 handle core.
  *
  * Produces an independently loadable dist/windows-core.node exposing exactly
- * openRoot, openDirectoryAt, openFileAt, createFileAt, mkdirAt, identityOf, statAt, names.
+ * pinned opens, creation, deletion, rename, metadata, listing and identity.
  * It does NOT activate the
  * default daemon, hook any build, or change the root postinstall (which still
  * builds only the POSIX descriptor addon).
@@ -40,9 +40,11 @@ const SOURCES = [
   "volume_root.c",
   "child_open.c",
   "delete_child.c",
+  "rename_child.c",
   "file_identity.c",
   "directory_metadata.c",
   "windows_core_addon.c",
+  "windows_metadata_addon.c",
 ];
 
 const MAX_LINES = 400;
@@ -109,7 +111,7 @@ function probeLayout(nativeDir: string): Finding[] {
   // Matches a bare _open_osfhandle( / _get_osfhandle( call outside // comments
   // while ignoring the uv_-prefixed wrappers and prose mentions.
   const directCrt = /(^|[^A-Za-z0-9_])(?:_(?:open|get)_osfhandle|_close|_pipe)\s*\(/;
-  for (const file of [...SOURCES, "windows_core.h"]) {
+  for (const file of [...SOURCES, "windows_core.h", "windows_binding.h"]) {
     const path = join(nativeDir, file);
     if (!existsSync(path)) {
       findings.push({ ok: false, line: `missing ${file}` });
