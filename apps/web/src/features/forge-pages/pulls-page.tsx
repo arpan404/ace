@@ -27,21 +27,20 @@ import { useProjectDialogs } from "@/features/projects/index.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
-import { WordChoice } from "@/components/ui/word-choice.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { FiltersMenu, type FilterSection } from "./filters-menu.tsx";
 import { useLinkedThreads } from "./linked-threads.ts";
 import { RowsSkeleton } from "./list-skeletons.tsx";
-import { ListFrame, ToolbarRule } from "./list-frame.tsx";
+import { ListFrame } from "./list-frame.tsx";
 import { useGroupCounts, usePrPages } from "./lists.ts";
 import { PrRow } from "./pr-row.tsx";
 import { useReadyPages } from "./ready-pages.ts";
 import { useMergeRun } from "./merge-run.ts";
 import { MergeStrip } from "./merge-strip.tsx";
 import { useRowSteps } from "./row-steps.ts";
-import { useProjectChoice } from "./project-choice.ts";
+import { projectSection, useProjectChoice, type ProjectChoice } from "./project-choice.ts";
 import { GroupHeader } from "./row-parts.tsx";
 
 const groupIcons = {
@@ -58,6 +57,48 @@ const noRuns: readonly VerifyRun[] = [];
 const noRows: readonly ForgePrRow[] = [];
 const unique = (values: readonly string[]) =>
   [...new Set(values)].toSorted((a, b) => a.localeCompare(b));
+
+/**
+ * Who the list concerns, its order and its project, first in the Filters menu: who counts as a
+ * filter that is on; sort and project are the view's settings.
+ */
+function viewSections(
+  search: PullsSearch,
+  onSearch: (patch: Partial<PullsSearch>) => void,
+  choice: ProjectChoice,
+): FilterSection[] {
+  return [
+    {
+      kind: "one",
+      id: "who",
+      label: "Involvement",
+      value: search.who ?? "",
+      choices: [
+        { value: "", label: "Everyone" },
+        { value: "authored", label: "Authored" },
+        { value: "reviewing", label: "Reviewing" },
+      ],
+      onChange: (value) =>
+        onSearch({ who: value === "authored" || value === "reviewing" ? value : undefined }),
+    },
+    {
+      kind: "one",
+      id: "sort",
+      label: "Sort",
+      setting: true,
+      value: search.sort && search.sort !== "ready" ? search.sort : "",
+      choices: (Object.keys(sortLabels) as PullsSort[]).map((value) => ({
+        value: value === "ready" ? "" : value,
+        label: sortLabels[value],
+      })),
+      onChange: (value) =>
+        onSearch({ sort: (Object.keys(sortLabels) as PullsSort[]).find((key) => key === value) }),
+    },
+    ...projectSection(choice, (project) =>
+      onSearch({ project, labels: undefined, author: undefined }),
+    ),
+  ];
+}
 
 function filterSections(
   search: PullsSearch,
@@ -240,53 +281,22 @@ export function PullRequestsPage(props: {
       }
       search={search.q ?? ""}
       onSearch={(text) => onSearch({ q: text.trim() || undefined })}
-      controls={
+      menus={
         <>
-          <WordChoice
+          <FilterMenu
             label="State"
             value={search.state ?? "open"}
             options={stateOptions}
             onValueChange={(state) => onSearch({ state: state === "open" ? undefined : state })}
           />
-          <ToolbarRule />
-          <WordChoice
-            label="Involvement"
-            value={search.who ?? "all"}
-            options={[
-              { value: "all", label: "Everyone" },
-              { value: "authored", label: "Authored" },
-              { value: "reviewing", label: "Reviewing" },
-            ]}
-            onValueChange={(who) => onSearch({ who: who === "all" ? undefined : who })}
-          />
-        </>
-      }
-      menus={
-        <>
-          {project && choice.projects.length > 1 && (
-            <FilterMenu
-              label="Project"
-              value={project}
-              options={choice.projects.map((id) => ({ value: id, label: choice.name(id) }))}
-              onValueChange={(next) => {
-                choice.remember(next);
-                onSearch({ project: next, labels: undefined, author: undefined });
-              }}
-            />
-          )}
-          <FilterMenu
-            label="Sort"
-            value={sort}
-            options={(Object.keys(sortLabels) as PullsSort[]).map((value) => ({
-              value,
-              label: sortLabels[value],
-            }))}
-            onValueChange={(next) => onSearch({ sort: next === "ready" ? undefined : next })}
-          />
           <FiltersMenu
-            sections={filterSections(search, list.rows, onSearch)}
+            sections={[
+              ...viewSections(search, onSearch, choice),
+              ...filterSections(search, list.rows, onSearch),
+            ]}
             onClear={() =>
               onSearch({
+                who: undefined,
                 draft: undefined,
                 review: undefined,
                 checks: undefined,

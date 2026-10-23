@@ -1,6 +1,5 @@
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
-import { NavRow } from "@/components/nav-row.tsx";
-import { GitPullRequestIcon, TrayIcon } from "@phosphor-icons/react";
+import { ForgeButton } from "@/components/forge-button.tsx";
 import { AddAccountHost } from "@/features/account-management/index.ts";
 import { useConnectionState } from "@ace/client-react";
 import { Outlet, useRouter, useRouterState } from "@tanstack/react-router";
@@ -122,49 +121,28 @@ export function AppShell() {
 /** The thread list in the sidebar's body, composed independently of shell controls. */
 const threads = <ThreadsSidebar />;
 
-/** The sidebar's Inbox and Pull requests rows with their counts, loaded after the first paint. */
-const PullRequestsRow = deferredComponent(() =>
-  import("@/features/forge-pages/index.ts").then((m) => m.PullRequestsNavRow),
-);
-const InboxRow = deferredComponent(() =>
-  import("@/features/forge-pages/index.ts").then((m) => m.InboxNavRow),
+/** The sidebar's GitHub button with its counts, loaded after the first paint. */
+const ForgeButtonWithCounts = deferredComponent(() =>
+  import("@/features/forge-pages/index.ts").then((m) => m.ForgeNavButton),
 );
 
-/** Inbox and Pull requests over the profile; the one whose page is open is lit. */
-function ForgeRows(props: { forgeOpen: boolean }) {
-  // The inbox, or a pull request or issue opened from it.
-  const inbox = useRouterState({
-    select: (state) =>
-      state.location.pathname.startsWith("/inbox") ||
-      new URLSearchParams(state.location.searchStr).get("back")?.startsWith("/inbox") === true,
-  });
-  const inboxActive = props.forgeOpen && inbox;
-  const pullsActive = props.forgeOpen && !inbox;
-  // Until their code (and the lists they read) arrives, the rows show without counts.
-  const plainInbox = <NavRow to="/inbox" icon={TrayIcon} label="Inbox" active={inboxActive} />;
-  const plainPulls = (
-    <NavRow to="/pulls" icon={GitPullRequestIcon} label="Pull requests" active={pullsActive} />
-  );
+/** The GitHub button beside Settings, lit while Inbox, Pull requests or Issues is open. */
+function ForgeNav(props: { forgeOpen: boolean }) {
+  // Until its code (and the lists it reads) arrives, the button shows without counts.
+  const plain = <ForgeButton to="/pulls" active={props.forgeOpen} />;
   return (
-    <>
-      <LocalBoundary label="inbox row" fallback={plainInbox}>
-        <Suspense fallback={plainInbox}>
-          <InboxRow.Component active={inboxActive} />
-        </Suspense>
-      </LocalBoundary>
-      <LocalBoundary label="pull requests row" fallback={plainPulls}>
-        <Suspense fallback={plainPulls}>
-          <PullRequestsRow.Component active={pullsActive} />
-        </Suspense>
-      </LocalBoundary>
-    </>
+    <LocalBoundary label="GitHub button" fallback={plain}>
+      <Suspense fallback={plain}>
+        <ForgeButtonWithCounts.Component active={props.forgeOpen} />
+      </Suspense>
+    </LocalBoundary>
   );
 }
-const forgeRows = (forgeOpen: boolean) => <ForgeRows forgeOpen={forgeOpen} />;
+const forgeNav = (forgeOpen: boolean) => <ForgeNav forgeOpen={forgeOpen} />;
 
-/** The sidebar with what other slices own: the thread list and the Inbox and Pull requests rows. */
+/** The sidebar with what other slices own: the thread list and the GitHub button. */
 function ShellSidebar() {
-  return <AppSidebar threads={threads} pages={forgeRows} />;
+  return <AppSidebar threads={threads} forge={forgeNav} />;
 }
 
 function ShellHotkeys() {

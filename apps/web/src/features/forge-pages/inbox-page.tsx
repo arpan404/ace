@@ -5,7 +5,7 @@ import type { ForgeInboxList, ForgeInboxRow } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { WordChoice } from "@/components/ui/word-choice.tsx";
+import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { Screen } from "@/features/shell/index.ts";
@@ -16,7 +16,7 @@ import { FiltersMenu } from "./filters-menu.tsx";
 import { inboxKey, useInboxPages, useInboxWrites } from "./inbox-data.ts";
 import { reasonChoices, repositoryChoices, type InboxSearch } from "./inbox-model.ts";
 import { InboxRow } from "./inbox-row.tsx";
-import { ListFrame, ToolbarRule } from "./list-frame.tsx";
+import { ListFrame } from "./list-frame.tsx";
 import { RowsSkeleton } from "./list-skeletons.tsx";
 import { useProjectChoice } from "./project-choice.ts";
 
@@ -99,9 +99,9 @@ export function InboxPage(props: {
           </Button>
         ) : null
       }
-      controls={
+      menus={
         <>
-          <WordChoice
+          <FilterMenu
             label="Read state"
             value={search.view ?? "unread"}
             options={[
@@ -110,51 +110,49 @@ export function InboxPage(props: {
             ]}
             onValueChange={(view) => onSearch({ view: view === "all" ? "all" : undefined })}
           />
-          <ToolbarRule />
-          <WordChoice
-            label="Involvement"
-            value={search.only ?? "everything"}
-            options={[
-              { value: "everything" as const, label: "Everything" },
-              { value: "participating" as const, label: "Participating" },
+          <FiltersMenu
+            sections={[
+              {
+                kind: "one",
+                id: "only",
+                label: "Involvement",
+                value: search.only ?? "",
+                choices: [
+                  { value: "", label: "Everything" },
+                  { value: "participating", label: "Participating" },
+                ],
+                onChange: (value) =>
+                  onSearch({ only: value === "participating" ? "participating" : undefined }),
+              },
+              {
+                kind: "one",
+                id: "reason",
+                label: "Reason",
+                value: search.reason ?? "",
+                choices: [
+                  { value: "", label: "Any reason" },
+                  ...reasonChoices([...everything.rows, ...allRows], search.reason),
+                ],
+                onChange: (value) => onSearch({ reason: value || undefined }),
+              },
+              {
+                kind: "one",
+                id: "repository",
+                label: "Repository",
+                value: search.repo ?? "",
+                choices: [
+                  { value: "", label: "Every repository" },
+                  ...repositoryChoices(
+                    [...everything.rows, ...seenRows(cache, project)],
+                    search.repo,
+                  ),
+                ],
+                onChange: (value) => onSearch({ repo: value || undefined }),
+              },
             ]}
-            onValueChange={(only) =>
-              onSearch({ only: only === "participating" ? "participating" : undefined })
-            }
+            onClear={() => onSearch({ only: undefined, reason: undefined, repo: undefined })}
           />
         </>
-      }
-      menus={
-        <FiltersMenu
-          sections={[
-            {
-              kind: "one",
-              id: "reason",
-              label: "Reason",
-              value: search.reason ?? "",
-              choices: [
-                { value: "", label: "Any reason" },
-                ...reasonChoices([...everything.rows, ...allRows], search.reason),
-              ],
-              onChange: (value) => onSearch({ reason: value || undefined }),
-            },
-            {
-              kind: "one",
-              id: "repository",
-              label: "Repository",
-              value: search.repo ?? "",
-              choices: [
-                { value: "", label: "Every repository" },
-                ...repositoryChoices(
-                  [...everything.rows, ...seenRows(cache, project)],
-                  search.repo,
-                ),
-              ],
-              onChange: (value) => onSearch({ repo: value || undefined }),
-            },
-          ]}
-          onClear={() => onSearch({ reason: undefined, repo: undefined })}
-        />
       }
     >
       {!project ? (

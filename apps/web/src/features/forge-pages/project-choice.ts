@@ -2,6 +2,7 @@ import { readJson, writeJson } from "@ace/ui-core";
 import { z } from "zod";
 import { useLayout } from "@/lib/layout.tsx";
 import { useRegisteredProjects } from "@/lib/projects.ts";
+import type { FilterSection } from "./filters-menu.tsx";
 
 const key = "ace.forge.project";
 
@@ -28,4 +29,32 @@ export function useProjectChoice(routed: string | undefined) {
     name,
     remember: (project: string) => writeJson(storage, key, project),
   };
+}
+
+export type ProjectChoice = ReturnType<typeof useProjectChoice>;
+
+/**
+ * The Filters menu's Project part, a view setting, when there is more than one project to pick:
+ * picking one remembers it and hands it to `onPick`.
+ */
+export function projectSection(
+  choice: ProjectChoice,
+  onPick: (project: string) => void,
+): FilterSection[] {
+  const current = choice.project;
+  if (!current || choice.projects.length < 2) return [];
+  return [
+    {
+      kind: "one",
+      id: "project",
+      label: "Project",
+      setting: true,
+      value: current,
+      choices: choice.projects.map((id) => ({ value: id, label: choice.name(id) })),
+      onChange: (next) => {
+        choice.remember(next);
+        onPick(next);
+      },
+    },
+  ];
 }
