@@ -67,9 +67,10 @@ struct ConversationFeed: View {
                 Color.clear.frame(height: barHeight + keyboardLift).accessibilityHidden(true)
                 // Growth at the end keeps the end in view by itself (the size-change anchor below);
                 // the tail scrolls only when the feed is not at the end, so a streamed delta lays
-                // the feed out once rather than again for a scroll.
+                // the feed out once rather than again for a scroll. Not at the end either way: a
+                // kept copy replaced by a shorter one leaves the view past the new end.
                 TranscriptTail(thread: thread, following: pinned) {
-                    if !keyboardMoving, intent.metrics.bottom > 1 { position.scrollTo(edge: .bottom) }
+                    if !keyboardMoving, abs(intent.metrics.bottom) > 1 { position.scrollTo(edge: .bottom) }
                 }
             }
             .scrollTargetLayout()
