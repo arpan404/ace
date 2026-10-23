@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// New thread's model sheet: the machine's coding agents and their models, grouped by agent,
-/// then effort, speed and access for the first turn. One that isn't installed, is signed out or
-/// needs attention stays listed with the reason the bridge gave. Each agent leads with the model
-/// in use (else its default); the rest of a long list waits behind "More models", in the order the
-/// bridge sent (`newThreadModelList` in `@ace/ui-core/mobile`). Picks edit the draft as they're
+/// New thread's model sheet: the computer's coding agents as a row of providers, the shown one's
+/// models below, then effort, speed and access for the first turn. It opens on the draft's agent
+/// with its model checked. One that is signed out or needs attention says why in one line; one
+/// that isn't installed isn't listed (`newThreadPickerAgents`). A long list keeps its rest behind
+/// "More models", in the bridge's order (`newThreadModelList`). Picks edit the draft as they're
 /// made; X puts the draft back as it was.
 struct NewThreadModelSheet: View {
     @Bindable var compose: ComposeModel
@@ -13,78 +13,53 @@ struct NewThreadModelSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var expanded: Set<String> = []
+    @State private var shown = ""
     @State private var snapshot: NewThreadChoice.Snapshot?
     private var draft: NewThreadDraft { drafts.draft }
     private var choice: NewThreadChoice { NewThreadChoice(compose: compose, draft: draft) }
+    private var agent: ComposeAgent? { compose.agents.first { $0.provider == shown } }
+    private var state: ModelPickerState {
+        switch compose.agentsState {
+        case "ready": .ready
+        case "failed": .failed(title: "Couldn't read coding agents", message: "Your computer didn't answer.")
+        default: .loading
+        }
+    }
+    private var chosen: NewThreadPickerRows.Chosen? {
+        guard let agent = choice.agent, let model = choice.model else { return nil }
+        return .init(provider: agent.provider, key: model.key, account: model.account)
+    }
 
     var body: some View {
-        ModelSheet(query: $query, cancel: restore, confirm: { dismiss() }) {
-            switch compose.agentsState {
-            case "ready":
-                ForEach(compose.agents) { agent in agentSection(agent) }
-                if query.isEmpty { NewThreadOptions(compose: compose, drafts: drafts, choice: choice) }
-            case "failed":
-                ContentUnavailableView {
-                    Label("Couldn't read coding agents", systemImage: "wifi.exclamationmark")
-                } description: { Text("Your computer didn't answer.") } actions: { Button("Try again", action: reload) }
-            default:
-                HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear)
-            }
+        let open = expanded.contains(shown)
+        ModelPicker(
+            query: $query,
+            providers: compose.agents.map { ModelPickerProvider(id: $0.provider, name: $0.name, note: $0.ready ? nil : ($0.reason ?? "Not ready")) },
+            shown: $shown, state: state,
+            groups: agent.map { NewThreadPickerRows.groups($0, chosen: chosen, query: query, expanded: open) } ?? [],
+            hidden: agent.map { NewThreadPickerRows.hidden($0, query: query, expanded: open) } ?? 0,
+            expanded: open && (agent?.more.isEmpty == false) && query.isEmpty,
+            toggleMore: { if open { expanded.remove(shown) } else { expanded.insert(shown) } },
+            rowPrefix: "model.\(shown)", morePrefix: "agent.\(shown)",
+            retry: reload, cancel: restore, confirm: { dismiss() }, choose: pick
+        ) {
+            if choice.agent?.provider == shown { NewThreadOptions(compose: compose, drafts: drafts, choice: choice) }
         }
-        .onAppear { if snapshot == nil { snapshot = .init(draft) } }
+        .onAppear {
+            if snapshot == nil { snapshot = .init(draft) }
+            if shown.isEmpty { shown = choice.agent?.provider ?? compose.agents.first?.provider ?? "" }
+        }
+        .onChange(of: compose.agents.map(\.provider)) { _, providers in
+            if !providers.contains(shown) { shown = choice.agent?.provider ?? providers.first ?? "" }
+        }
+    }
+    private func pick(_ row: ModelPickerRow) {
+        guard let agent, let model = agent.models.first(where: { $0.id == row.id }) else { return }
+        drafts.edit { $0.provider = agent.provider; $0.model = model.key; $0.account = model.account; $0.effort = nil; $0.speed = nil }
     }
     private func restore() {
         guard let snapshot else { return }
         drafts.edit { snapshot.restore(&$0) }
-    }
-
-    @ViewBuilder private func agentSection(_ agent: ComposeAgent) -> some View {
-        let searching = !query.trimmingCharacters(in: .whitespaces).isEmpty
-        let models = (searching || expanded.contains(agent.provider) ? Array(agent.models) : Array(agent.leading))
-            .filter { ModelSearch.matches(query, $0.label, agent.name) }
-        if !searching || !models.isEmpty {
-            Section {
-                if agent.ready {
-                    ForEach(models) { model in row(agent, model) }
-                    if !searching && !agent.more.isEmpty { more(agent) }
-                } else {
-                    Text(agent.reason ?? "Not ready").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .accessibilityIdentifier("agent.\(agent.provider).reason")
-                }
-            } header: {
-                HStack {
-                    InsetHeader(agent.name)
-                    Spacer()
-                    if !agent.ready { StateLabel(status: agent.status) }
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("agent.\(agent.provider)")
-            }
-            .insetRowBackground()
-        }
-    }
-    private func row(_ agent: ComposeAgent, _ model: ComposeAgent.Model) -> some View {
-        let chosen = choice.agent?.provider == agent.provider && choice.model?.key == model.key && choice.model?.account == model.account
-        let account = agent.accounts.count > 1 ? agent.accounts.first { $0.id == model.account } : nil
-        return ModelChoiceRow(provider: agent.provider, label: model.label, detail: account.map { "\($0.label) · \($0.usage)" }, chosen: chosen) {
-            drafts.edit { $0.provider = agent.provider; $0.model = model.key; $0.account = model.account; $0.effort = nil; $0.speed = nil }
-        }
-        .accessibilityIdentifier("model.\(agent.provider).\(model.label)")
-    }
-    @ViewBuilder private func more(_ agent: ComposeAgent) -> some View {
-        let open = expanded.contains(agent.provider)
-        Button {
-            if open { expanded.remove(agent.provider) } else { expanded.insert(agent.provider) }
-        } label: {
-            InsetRow(systemImage: nil, title: open ? "Fewer models" : "More models") {
-                if !open { InsetValue(text: "\(agent.more.count)") }
-                Image(systemName: open ? "chevron.up" : "chevron.down").foregroundStyle(AceTheme.Colours.decoration).accessibilityHidden(true)
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityValue(open ? "" : "\(agent.more.count) more")
-        .accessibilityIdentifier("agent.\(agent.provider).\(open ? "fewer" : "more")")
     }
 }
 
@@ -99,9 +74,9 @@ private struct NewThreadOptions: View {
     var body: some View {
         if let model = choice.model {
             let speeds = model.speeds ?? []
-            Section {
+            ModelOptionsSection {
                 if model.efforts.count > 1 {
-                    ModelOptionMenu(systemImage: "lightbulb", title: "Effort", value: model.efforts.first { $0.id == choice.effort }?.label ?? "Default") {
+                    ModelOptionMenu(title: "Effort", value: model.efforts.first { $0.id == choice.effort }?.label ?? "Default") {
                         Picker("Effort", selection: Binding(get: { choice.effort ?? "" }, set: { effort in pick(model) { $0.effort = effort } })) {
                             ForEach(model.efforts) { Text($0.label).tag($0.id) }
                         }
@@ -110,8 +85,7 @@ private struct NewThreadOptions: View {
                 }
                 speedRow(model, speeds: speeds)
                 accessRow
-            } header: { InsetHeader("Options") } footer: { footer }
-            .insetRowBackground()
+            } footer: { footer }
         }
     }
     @ViewBuilder private func speedRow(_ model: ComposeAgent.Model, speeds: [ComposeAgent.Speed]) -> some View {
@@ -120,7 +94,7 @@ private struct NewThreadOptions: View {
             FastModeRow(on: current == fast.speed) { on in pick(model) { $0.speed = on ? fast.speed : "standard" } }
                 .accessibilityIdentifier("newThread.speed")
         } else if speeds.count > 1 {
-            ModelOptionMenu(systemImage: "bolt", title: "Speed", value: speeds.first { $0.speed == current }?.label ?? "") {
+            ModelOptionMenu(title: "Speed", value: speeds.first { $0.speed == current }?.label ?? "") {
                 Picker("Speed", selection: Binding(get: { current }, set: { speed in pick(model) { $0.speed = speed } })) {
                     ForEach(speeds) { Text($0.label).tag($0.speed) }
                 }
@@ -131,9 +105,9 @@ private struct NewThreadOptions: View {
     @ViewBuilder private var accessRow: some View {
         if let access {
             if access.state == "loading", access.choices.isEmpty {
-                InsetRow(systemImage: "checkmark.shield", title: "Access") { ProgressView() }
+                InsetRow(systemImage: nil, title: "Access") { ProgressView() }
             } else if !access.choices.isEmpty {
-                ModelOptionMenu(systemImage: "checkmark.shield", title: "Access", value: access.choices.first { $0.mode == access.selected }?.label ?? "") {
+                ModelOptionMenu(title: "Access", value: access.choices.first { $0.mode == access.selected }?.label ?? "") {
                     Picker("Access", selection: Binding(get: { access.selected ?? "" }, set: { mode in drafts.edit { $0.access = mode } })) {
                         ForEach(access.choices) { choice in Text(choice.label).tag(choice.mode) }
                     }
