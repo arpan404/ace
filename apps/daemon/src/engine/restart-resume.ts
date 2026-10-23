@@ -1,4 +1,4 @@
-import type { InteractionRequest, ThreadId } from "@ace/protocol";
+import type { ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
 
 /**
@@ -98,20 +98,4 @@ export class RestartStreaks {
   clear(id: ThreadId): void {
     this.store.statement("DELETE FROM engine_restart_resumes WHERE thread_id=?").run(id);
   }
-}
-
-/** One line naming what an open request asked the person. */
-export function requestLine(request: InteractionRequest): string {
-  const text =
-    request.kind === "question"
-      ? request.questions[0]?.text
-      : request.kind === "approval"
-        ? request.title
-        : request.title;
-  return (
-    text
-      ?.split("\n")
-      .find((part) => part.trim())
-      ?.trim() ?? request.kind.replace("_", " ")
-  );
 }
