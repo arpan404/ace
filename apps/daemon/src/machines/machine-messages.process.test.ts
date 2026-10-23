@@ -196,3 +196,20 @@ it("a message whose reply is lost keeps a finished child on another machine work
   const status = MonitorSnapshot.parse((await pair.source.call({ op: "agents.status" })).data);
   expect(status.children).toEqual([expect.objectContaining({ id: child, state: "working" })]);
 });
+
+it("a restart sent to another machine lifts the child's usage-limit hold there, as a local one does", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const child = await remoteChild(pair);
+  const until = pair.target.h.clock.now() + 3_600_000;
+  await pair.emit(
+    child,
+    { type: "retry", agent: "root", on: "rate_limit", message: "Usage limit", until },
+    { type: "turn.ended", agent: "root", outcome: "failed" },
+  );
+  expect(pair.target.daemon.engine?.queue(child)).toMatchObject({ paused: true, reason: "limit" });
+  expect(await pair.source.call(message(child, "Start over from main", "restart"))).toMatchObject({
+    ok: true,
+    data: { arrival: "starting" },
+  });
+  await eventually(() => expect(received(pair, child).at(-1)).toBe("Start over from main"));
+});

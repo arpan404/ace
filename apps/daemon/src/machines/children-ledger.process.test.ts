@@ -28,6 +28,8 @@ function ledger() {
   stores.push(store);
   let view: MachineThreadView | undefined;
   const delivered: string[] = [];
+  /** The parent's receipts: a key it already took is never handed over twice. */
+  const taken = new Set<string>();
   const state = { refusals: 0 };
   const children = new MachineChildren({
     store,
@@ -43,11 +45,13 @@ function ledger() {
       log: () => {},
     }),
     label: () => "Studio",
-    deliver: (_parent, _key, text) => {
+    deliver: (_parent, key, text) => {
       if (state.refusals > 0) {
         state.refusals--;
         throw new Error("Agent control is not ready");
       }
+      if (taken.has(key)) return;
+      taken.add(key);
       delivered.push(text);
     },
     waiting: () => false,
@@ -116,6 +120,8 @@ it("a child messaged again before its result reached the parent still delivers t
   await h.children.poll();
   expect(h.delivered).toEqual([]);
   h.children.reopen(child);
+  h.report({});
+  await h.children.poll();
   expect(h.delivered).toEqual([expect.stringContaining("First pass done.")]);
   h.report(done("Docs updated.", 9));
   await h.children.poll();
@@ -123,4 +129,50 @@ it("a child messaged again before its result reached the parent still delivers t
     expect.stringContaining("First pass done."),
     expect.stringContaining("Docs updated."),
   ]);
+});
+
+it("a result the parent couldn't take, even at reopen, still reaches it later", async () => {
+  const h = ledger();
+  h.report(done("First pass done.", 5));
+  h.state.refusals = 2;
+  await h.children.poll();
+  h.children.reopen(child);
+  h.report({});
+  await h.children.poll();
+  expect(h.delivered).toEqual([]);
+  await h.children.poll();
+  expect(h.delivered).toEqual([expect.stringContaining("First pass done.")]);
+});
+
+it("a notice that arrives with the result and can't be delivered yet is retried after it settles", async () => {
+  const h = ledger();
+  h.report({
+    ...done("First pass done.", 5),
+    notice: { text: "Your message wasn't sent.", commandId: "message-a", code: "input_queued" },
+  });
+  h.state.refusals = 1;
+  await h.children.poll();
+  await h.children.poll();
+  expect(h.delivered).toEqual(
+    expect.arrayContaining([
+      expect.stringContaining("Your message wasn't sent."),
+      expect.stringContaining("First pass done."),
+    ]),
+  );
+  expect(h.delivered).toHaveLength(2);
+});
+
+it("the same settled result read again with a new notice is not sent to the parent twice", async () => {
+  const h = ledger();
+  h.report(done("First pass done.", 5));
+  await h.children.poll();
+  h.children.reopen(child);
+  // The message was refused there; the child is still finished with the same result.
+  h.report({
+    ...done("First pass done.", 5),
+    notice: { text: "Your message wasn't sent.", commandId: "message-b", code: "input_queued" },
+  });
+  await h.children.poll();
+  expect(h.delivered.filter((text) => text.includes("First pass done."))).toHaveLength(1);
+  expect(h.delivered.filter((text) => text.includes("wasn't sent"))).toHaveLength(1);
 });
