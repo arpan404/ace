@@ -43,7 +43,7 @@ test("by default open pull requests are grouped by what each needs next", async 
       // Reviews asked of you come before your own branch that fell behind.
       "Needs you": ["229", "226", "222"],
       "Ready to merge": ["233", "224"],
-      Waiting: ["231"],
+      Waiting: ["231", "245"],
       Drafts: ["227"],
     }),
   );
@@ -54,14 +54,14 @@ test("sorted by activity, open pull requests are grouped as yours, waiting on yo
   await app.open("/pulls?project=ace&sort=updated");
   await waitFor(async () =>
     expect(await groups("Pull requests")).toEqual({
-      "Authored by you": ["231", "227", "222"],
+      "Authored by you": ["231", "245", "227", "222"],
       "Review requested": ["229", "226"],
       Others: ["233", "224"],
     }),
   );
   await waitFor(async () =>
     expect(await headings("Pull requests")).toEqual([
-      "Authored by you3",
+      "Authored by you4",
       "Review requested2",
       "Others2",
     ]),
