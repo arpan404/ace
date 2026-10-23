@@ -66,14 +66,14 @@ No recorder runs are included in this work.
       11 ARM64 ISO, create an isolated Fusion VM, install guest tooling and
       establish a repeatable command and screenshot path. Preserve personal data.
 - [ ] W01: document the Windows filesystem design against primary Win32 sources.
-- [ ] W02: select Windows shells without inheriting a POSIX `SHELL`.
-- [ ] W03: read Windows kernel process creation identity and distinguish absence
+- [x] W02: select Windows shells without inheriting a POSIX `SHELL`.
+- [x] W03: read Windows kernel process creation identity and distinguish absence
       from permission failure. Preserve PID-reuse safety.
-- [ ] W04: add the Windows descriptor build and native read/metadata operations,
+- [x] W04: add the Windows descriptor build and native read/metadata operations,
       preserving root confinement against junctions, links, path aliases and races.
 - [ ] W05: add directory enumeration, mutations, permissions, flush and error
       semantics. Update consumers only where Windows requires a different contract.
-- [ ] W06: clean `bun install` succeeds on both Windows architectures without
+- [x] W06: clean `bun install` succeeds on both Windows architectures without
       skipping descriptor.node, node-pty/ConPTY, koffi or SQLite. Document the
       native build prerequisites. The parent owns interim Windows checks until CI
       takes over in W08.
@@ -430,3 +430,34 @@ architectures. W06 remains unchecked until that evidence passes.
 A fresh two-worker `bun run check` is running. Confined Git startup, absolute
 upload writers, process recovery and daemon/installed-app workflows remain on
 the critical path. The full local Windows app is not usable yet.
+
+## Native install and cold-start milestone
+
+[Run 40006284111](https://github.com/arpan404/ace/actions/runs/40006284111), pinned
+to `97945b24b`, passes the real frozen install, native MSVC builds and **29 files /
+179 tests on each of Windows x64 and ARM64**. This completes W06's dependency
+install gate, including real ConPTY/Koffi use and a SQLite WAL/locking/persistence
+case. W02/W03/W04 record the implemented shell selection, kernel identity and
+native descriptor read/metadata gates from this suite. Their later workflow and
+installed-app gates remain separate.
+
+The public daemon API cold-boots, reports its listener ready, closes, and restarts
+from the same home with its workspace, token and host identity preserved. This
+fixture substitutes provider discovery boundaries and starts no provider session.
+It proves a clean-start baseline, not inventory crash recovery or managed desktop
+acceptance. Full W12 remains unfinished, including enforced Windows data-home
+ACLs and remaining private/absolute-path consumers.
+
+Private plugin markers, held upload-metadata repair including readonly recovery,
+private skill leases, and default workspace operations also pass. The expanded
+run first exposed two fixture assumptions: attributes-only handles did not block
+rename, and public skill evidence throws `EACCES`. The corrected test requests
+actual directory read access and preserves the refusal. Both pass in this run.
+
+The GUID-cwd fixture keeps Node and Git in the intended directory after remapping
+an owned scratch drive alias, and a directory read handle without delete sharing
+blocks renaming that object. These are prerequisites for the confined Git launcher;
+production still uses its POSIX helper and is not Windows-ready.
+
+Global and full source typechecking pass. The fresh full repository gate has
+reached process tests and is still running; no complete pass is claimed.

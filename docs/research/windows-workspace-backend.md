@@ -1,6 +1,6 @@
 # Windows workspace backend — safe design (research)
 
-Status: native Windows filesystem and same-handle ACL operations pass MSVC compilation and 23 files / 166 tests per architecture in [run 39999625209](https://github.com/arpan404/ace/actions/runs/39999625209), pinned to `566492794`. Commit `11859cd89` selects this backend for shared workspace operations and private-file consumers. Production integration and a real clean installation are under native verification in [run 40000660283](https://github.com/arpan404/ace/actions/runs/40000660283); neither is a completed release gate yet.
+Status: the production Windows binding, private file consumers and normal install pass MSVC compilation and 29 files / 179 tests on both architectures in [run 40006284111](https://github.com/arpan404/ace/actions/runs/40006284111), pinned to `97945b24b`. The public daemon API clean-start/restart baseline also passes. Private directory creation and data-home ACL enforcement remain in progress; confined Git startup and complete installed-app acceptance remain required.
 
 ## 1. Consumers pin numeric fds; HANDLE-only is rejected
 
@@ -219,3 +219,26 @@ Windows integration cases skip on macOS and await the linked native run.
 Absolute upload writers and confined Git startup still need their Windows
 integration. This selection does not establish complete local daemon or installed
 app readiness.
+
+## Native clean-start evidence
+
+Run 40006284111 passes a real frozen install and 29 files / 179 tests on native
+x64 and ARM64. The daemon's public status endpoint reports `running` and `ready`
+after cold boot and again after a clean restart, with its workspace, host identity
+and token preserved. The test substitutes provider discovery; it runs no real
+provider session. SQLite WAL rows/locking/persistence, private plugin markers,
+private skill evidence and readonly upload repair also execute and pass.
+
+The confined-Git prerequisites are narrower than a completed launcher. A volume
+GUID cwd works for Node and Git across an owned scratch drive alias remap. A
+metadata-only `FILE_READ_ATTRIBUTES` handle did not deny rename on either host;
+requesting directory read access established the expected sharing denial. The
+production path still needs the full ancestor lease and process-lifetime owner.
+
+`1f6abef61` shares strict SID/protected-DACL checks and the directory inheritance
+ACE builder without changing file rejection rules. `c75b3c1da` shares protected
+security-descriptor construction for exclusive creation. The new private-directory
+API is under verification. It creates a protected current-user-owned directory
+atomically and observes existing directory security through a same-object handle.
+It provides no directory ACL setter that could propagate changes through an
+existing tree. Data-home integration remains a separate gate.
