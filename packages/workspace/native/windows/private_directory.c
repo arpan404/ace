@@ -1,18 +1,18 @@
 // Atomic private-directory creation and same-object ACL observation.
 // The creation SD sets the TokenUser owner and a protected owner-only DACL
 // with child-inheritance flags. Existing names are refused without repair.
-// The checker acquires READ_CONTROL through ReOpenFile on the caller-held
-// object, never a pathname; it closes only its owned security-query handle.
+// The checker acquires READ_CONTROL by the caller-held object's volume/file
+// identity, never a pathname; it closes only its owned security-query handle.
 // There is no ACL setter that could propagate changes through an existing tree.
 //
 // Primary contracts:
 // https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntcreatefile
-// https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-reopenfile
+// https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-openfilebyid
 // https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew
 // https://docs.libuv.org/en/v1.x/fs.html
 
 #ifdef _WIN32
-// Win10 baseline (matches nt_bridge.c) so the security and ReOpenFile
+// Win10 baseline (matches nt_bridge.c) so security and 128-bit file ID
 // declarations resolve.
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0A00
@@ -30,18 +30,38 @@ const char *wcore_check_private_directory_fd(int fd) {
   if (loan != NULL) return loan;
   const char *pinned = wcore_assert_dir_noreparse(borrowed);
   if (pinned != NULL) return pinned;
-  // Same object, never by name: the borrowed directory fd may lack
-  // READ_CONTROL (list-only opens), so reopen for the security read while
-  // keeping backup + no-follow semantics for the directory itself.
-  HANDLE owned = ReOpenFile(borrowed,
-      READ_CONTROL | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
-      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-      FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
-  if (owned == NULL || owned == INVALID_HANDLE_VALUE) {
+  // ReOpenFile requires a CreateFile-created object. Core child handles come
+  // from NtCreateFile. OpenFileById accepts any file on the volume as its hint.
+  // The held original prevents ID reuse while acquiring the security handle.
+  FILE_ID_INFO expected;
+  if (!GetFileInformationByHandleEx(borrowed, FileIdInfo, &expected, sizeof(expected))) {
     const char *mapped = wcore_dos_to_code(GetLastError());
     return mapped != NULL ? mapped : "EIO";
   }
+  FILE_ID_DESCRIPTOR id;
+  memset(&id, 0, sizeof(id));
+  id.dwSize = (DWORD)sizeof(id);
+  id.Type = ExtendedFileIdType;
+  id.ExtendedFileId = expected.FileId;
+  HANDLE owned = OpenFileById(borrowed, &id,
+      READ_CONTROL | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+      NULL, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+  if (owned == NULL || owned == INVALID_HANDLE_VALUE) {
+    DWORD failed = GetLastError();
+    fprintf(stderr, "[DEBUG-private-dir] OpenFileById status=%lu\n", (unsigned long)failed);
+    const char *mapped = wcore_dos_to_code(failed);
+    return mapped != NULL ? mapped : "EIO";
+  }
   const char *verdict = wcore_assert_dir_noreparse(owned);
+  FILE_ID_INFO actual;
+  if (verdict == NULL && !GetFileInformationByHandleEx(owned, FileIdInfo, &actual, sizeof(actual))) {
+    const char *mapped = wcore_dos_to_code(GetLastError());
+    verdict = mapped != NULL ? mapped : "EIO";
+  }
+  if (verdict == NULL && (expected.VolumeSerialNumber != actual.VolumeSerialNumber ||
+      memcmp(expected.FileId.Identifier, actual.FileId.Identifier, sizeof(actual.FileId.Identifier)) != 0))
+    verdict = "EACCES";
   if (verdict == NULL) verdict = wcore_verify_private_directory_security(owned);
   // The owned reopen is always closed; the borrowed fd stays with the caller.
   // A close failure matters only when the verdict was success.
