@@ -50,6 +50,7 @@ test.runIf(process.platform === "win32")(
         hostId = await readFile(join(home, "host-id"), "utf8");
         expect(await accessRequest(origin, "/v1/status", { token })).toMatchObject({
           running: true,
+          ready: true,
         });
         workspaceId = first.store.createWorkspace(workspaceRoot, "Win workspace");
         expectedWorkspace = first.store.getWorkspace(workspaceId);
@@ -67,6 +68,7 @@ test.runIf(process.platform === "win32")(
         expect(nextHostId).toBe(hostId);
         expect(await accessRequest(nextOrigin, "/v1/status", { token: nextToken })).toMatchObject({
           running: true,
+          ready: true,
         });
         expect(second.store.getWorkspace(workspaceId)).toEqual(expectedWorkspace);
       } finally {
