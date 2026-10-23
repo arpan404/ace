@@ -4,6 +4,8 @@ import SwiftUI
 /// words, and a quiet line under them when there's something to say. It sits low (system glass on
 /// iOS 26) and closes by swiping or tapping outside.
 struct TunePanel<Rows: View, Footer: View>: View {
+    /// How many option rows it shows; the panel is as tall as they need.
+    let count: Int
     @ViewBuilder var rows: () -> Rows
     @ViewBuilder var footer: () -> Footer
 
@@ -19,7 +21,7 @@ struct TunePanel<Rows: View, Footer: View>: View {
         .padding(.top, AceTheme.Spacing.xl)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .tint(AceTheme.Colours.foreground)
-        .presentationDetents([.height(268)])
+        .presentationDetents([.height(CGFloat(104 + 100 * max(1, count)))])
         .presentationDragIndicator(.visible)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tunePanel")
@@ -32,7 +34,7 @@ struct ThreadTunePanel: View {
     let model: ClientModel
 
     var body: some View {
-        TunePanel {
+        TunePanel(count: (tune.efforts.isEmpty ? 0 : 1) + (tune.speeds.count > 1 ? 1 : 0)) {
             if !tune.efforts.isEmpty {
                 OptionChoiceRow(title: "Effort", items: tune.efforts.map { GlassChoiceItem(id: $0.id, label: $0.label) },
                                 selection: tune.effort, note: tune.effortReason.isEmpty ? nil : tune.effortReason,
@@ -67,7 +69,7 @@ struct NewThreadTunePanel: View {
     let choice: NewThreadChoice
 
     var body: some View {
-        TunePanel {
+        TunePanel(count: (choice.model?.efforts.count ?? 0 > 1 ? 1 : 0) + ((choice.model?.speeds ?? []).count > 1 ? 1 : 0)) {
             if let model = choice.model {
                 let speeds = model.speeds ?? []
                 if model.efforts.count > 1 {
