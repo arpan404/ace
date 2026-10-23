@@ -12,8 +12,6 @@ enum ThreadColumns {
     /// A regular window narrower than this keeps the thread full width and shows the list over
     /// it: a list beside the thread would leave the transcript too narrow to read.
     static let sideBySideMinimum: CGFloat = 700
-    /// The list column's width beside the thread.
-    static let listWidth = (min: CGFloat(300), ideal: CGFloat(340), max: CGFloat(400))
 
     /// Whether the list sits beside the open thread.
     static func sideBySide(_ sizeClass: UserInterfaceSizeClass?, width: CGFloat) -> Bool {

@@ -12,6 +12,8 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var visibility = NavigationSplitViewVisibility.all
     @State private var width: CGFloat = 0
+    /// Counts the window's changes still settling; zero once the split view has settled.
+    @State private var settling = 0
 
     var body: some View {
         NavigationSplitView(columnVisibility: $visibility, preferredCompactColumn: compactColumn) {
@@ -35,8 +37,18 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
         .navigationSplitViewStyle(.balanced)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         // The columns follow the window's shape when it changes, and leave the person's own
-        // sidebar toggle alone in between.
-        .onChange(of: columns, initial: true) { _, wanted in visibility = wanted }
+        // sidebar toggle alone in between. Expanding from a stack, the split view picks its own
+        // columns just after the change: while it settles, the window's columns win.
+        .onChange(of: ColumnsChange(sizeClass: sizeClass, wanted: columns), initial: true) { _, change in
+            visibility = change.wanted
+            settling += 1
+        }
+        .onChange(of: visibility) { _, now in if settling > 0, now != columns { visibility = columns } }
+        .task(id: settling) {
+            guard settling > 0 else { return }
+            try? await Task.sleep(for: .milliseconds(800))
+            if !Task.isCancelled { settling = 0 }
+        }
     }
 
     private var columns: NavigationSplitViewVisibility {
@@ -51,6 +63,12 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
             if column == .sidebar, sizeClass == .compact, !path.isEmpty { path = [] }
         })
     }
+}
+
+/// What the split view's columns follow: the window's size class and the columns it wants.
+private struct ColumnsChange: Equatable {
+    let sizeClass: UserInterfaceSizeClass?
+    let wanted: NavigationSplitViewVisibility
 }
 
 extension EnvironmentValues {

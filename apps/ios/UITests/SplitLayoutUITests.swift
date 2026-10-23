@@ -1,0 +1,102 @@
+import XCTest
+
+/// The Threads tab's split layout against the spike fixture: on iPad the list stays beside the
+/// thread it opens; on a large iPhone, turning it between portrait (compact) and landscape
+/// (regular) collapses and restores the list live, as an iPad window resize or the iPhone Duo
+/// folding does, keeping the open thread and its draft. Run on a fresh fixture,
+/// `TEST_RUNNER_ACE_IOS_SPIKE_PORT` selecting its port; `ACE_IOS_SHOTS` (a folder) also saves
+/// each screenshot there.
+@MainActor final class SplitLayoutUITests: XCTestCase, @unchecked Sendable {
+    override func setUp() { continueAfterFailure = false }
+    override func tearDown() { XCUIDevice.shared.orientation = .portrait }
+
+    func testTheThreadListStaysBesideTheThreadsItOpensOnIPad() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
+        let app = launch()
+        open("thread.ios-form", in: app)
+        XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
+        // The list is still there, the open row selected, and the next thread opens from it.
+        let next = app.buttons["thread.ios-question"]
+        XCTAssertTrue(next.reachable)
+        XCTAssertTrue(app.buttons["thread.ios-form"].isSelected)
+        screenshot("ipad-sidebar-thread")
+        next.tap()
+        XCTAssertTrue(title("Clean up the release notes", in: app).waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["thread.ios-form"].reachable)
+        XCTAssertTrue(next.isSelected)
+        XCTAssertFalse(app.buttons["thread.ios-form"].isSelected)
+    }
+
+    func testTurningALargePhoneKeepsTheOpenThreadAndItsDraftAsTheListJoinsIt() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = launch()
+        // Only the largest phones are regular in landscape.
+        guard UIDevice.current.userInterfaceIdiom == .phone, app.windows.firstMatch.frame.width >= 428 else {
+            throw XCTSkip("needs an iPhone that is regular width in landscape")
+        }
+        open("thread.ios-approval", in: app)
+        XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 20))
+        // The first row, clear of the keyboard in landscape.
+        let list = app.buttons["thread.ios-form"]
+        XCTAssertFalse(list.reachable, "a compact window stacks the list under the thread")
+        let input = app.textViews["composer.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 10))
+        input.tap()
+        input.typeText("Keep this draft")
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(list.waitForHittable(timeout: 10), "a regular window shows the list beside the thread")
+        XCTAssertTrue(title("Fix the flaky queue test", in: app).exists)
+        XCTAssertTrue(app.buttons["thread.ios-approval"].isSelected)
+        XCTAssertEqual(input.value as? String, "Keep this draft")
+        screenshot("phone-landscape-split")
+
+        XCUIDevice.shared.orientation = .portrait
+        XCTAssertTrue(list.waitForNotHittable(timeout: 10), "back to compact, the thread stays on top")
+        XCTAssertTrue(title("Fix the flaky queue test", in: app).exists)
+        XCTAssertEqual(input.value as? String, "Keep this draft")
+        // Back from the thread is the list again, as on any phone.
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(list.waitForHittable(timeout: 10))
+    }
+
+    private func launch() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
+        app.launch()
+        return app
+    }
+    private func open(_ id: String, in app: XCUIApplication) {
+        let row = app.buttons[id]
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        row.tap()
+    }
+    private func title(_ text: String, in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: "thread.title").matching(NSPredicate(format: "label BEGINSWITH %@", text)).firstMatch
+    }
+    private func screenshot(_ name: String) {
+        let shot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: shot)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        if let folder = ProcessInfo.processInfo.environment["ACE_IOS_SHOTS"] {
+            try? shot.pngRepresentation.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name).png"))
+        }
+    }
+}
+
+private extension XCUIElement {
+    /// On screen and reachable; a list under the thread in a collapsed stack is neither.
+    var reachable: Bool { exists && isHittable }
+    func waitForHittable(timeout: TimeInterval) -> Bool { settles(timeout) { $0.reachable } }
+    func waitForNotHittable(timeout: TimeInterval) -> Bool { settles(timeout) { !$0.reachable } }
+    private func settles(_ timeout: TimeInterval, _ condition: (XCUIElement) -> Bool) -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        while Date() < end {
+            if condition(self) { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        return condition(self)
+    }
+}

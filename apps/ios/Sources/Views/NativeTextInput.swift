@@ -18,6 +18,9 @@ struct NativeTextInput: UIViewRepresentable {
         let view = ComposerTextView()
         view.delegate = context.coordinator
         view.inputBegan = inputBegan
+        view.resized = { [weak coordinator = context.coordinator, weak view] old, new in
+            if let view { coordinator?.resized(view, from: old, to: new) }
+        }
         view.font = AceTheme.uiFont(AceTheme.Typography.body, relativeTo: .body, traits: view.traitCollection)
         view.adjustsFontForContentSizeCategory = true
         view.backgroundColor = .clear
@@ -71,9 +74,29 @@ struct NativeTextInput: UIViewRepresentable {
             let wraps = text.contains("\n") || (compactWidth > 0 && needed > compactWidth - AceTheme.Spacing.xs)
             if wraps != parent.wraps { Task { @MainActor in onWrap(wraps) } }
         }
+        /// Whether the composer showed the card when the field last changed width.
+        private var lastWraps = false
+        /// The window changed width (an iPad resize, the iPhone Duo folding): the line the text
+        /// must fit moved with it. A width change the card itself made is not the window's.
+        func resized(_ textView: UITextView, from old: CGFloat, to new: CGFloat) {
+            let wraps = parent.wraps
+            defer { lastWraps = wraps }
+            guard wraps == lastWraps, old > 0 else { return }
+            if wraps { compactWidth += new - old }
+            measure(textView)
+        }
         func textViewDidChangeSelection(_ textView: UITextView) { textView.scrollRangeToVisible(textView.selectedRange) }
     }
 }
 @MainActor final class ComposerTextView: UITextView {
     var inputBegan: () -> Void = {}
+    var resized: ((CGFloat, CGFloat) -> Void)?
+    private var width: CGFloat = 0
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.width != width else { return }
+        let old = width
+        width = bounds.width
+        resized?(old, width)
+    }
 }
