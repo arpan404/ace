@@ -35,7 +35,8 @@ export function ForgeButton(props: {
           props.active && "bg-sidebar-accent text-foreground",
         )}
       >
-        <GithubMark size={15} />
+        {/* The mark fills its box; the gear beside it draws 13px tall in 16, so this matches it. */}
+        <GithubMark size={13.5} />
         {waiting > 0 && (
           <span
             aria-hidden
