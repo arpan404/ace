@@ -75,7 +75,7 @@ struct BridgeMachineAccess: MachineAccess {
             let finish: @Sendable (Result<AccessOutcome, ProblemNotice>) -> Void = { result in
                 if once.claim() { continuation.resume(returning: result) }
             }
-            services.result = { json in
+            services.result = { json in LaunchTrace.mark("DBG.result", String(json.prefix(600)));
                 guard let value = try? JSONDecoder().decode(AccessOutcome.self, from: Data(json.utf8)) else { finish(.failure(.unknown)); return }
                 finish(value.ok ? .success(value) : .failure(value.problem ?? .unknown))
             }

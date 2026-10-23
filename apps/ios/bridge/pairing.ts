@@ -77,6 +77,6 @@ export async function performAccess(deps: PairingDeps, raw: unknown): Promise<Ac
       paired: { hostId: entry.hostId, scopes: credential.device.scopes },
     };
   } catch (error) {
-    return { ok: false, problem: pairingProblem(error, trust) };
+    return { ok: false, problem: { ...pairingProblem(error, trust), message: "DBG " + String(error) + " " + JSON.stringify(error) } };
   }
 }

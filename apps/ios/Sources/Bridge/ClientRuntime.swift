@@ -105,7 +105,7 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
                 }
                 self.context = context
                 creating.end()
-                context.exceptionHandler = { [weak self] _, _ in self?.fail("The client runtime encountered a JavaScript error") }
+                context.exceptionHandler = { [weak self] _, exception in LaunchTrace.mark("DBG.exception", exception?.toString() ?? "nil"); self?.fail("The client runtime encountered a JavaScript error") }
                 let native = NativeHost(runtime: self, binding: lock.withLock { binding })
                 host = native
                 native.install(in: context)
