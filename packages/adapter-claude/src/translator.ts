@@ -4,7 +4,7 @@ import { factRaw, canonicalOnly } from "./raw-facts.ts";
 import { interactionFrame } from "./translate-interactions.ts";
 import type { Key } from "@ace/core";
 import type { Translator, Frame } from "@ace/engine-api";
-import { rateLimitFacts, clearRateLimit } from "./rate-limits.ts";
+import { rateLimitFacts, clearRateLimit, clearRetry } from "./rate-limits.ts";
 import { ResultUsage } from "./result-usage.ts";
 import { NativeQueue } from "./native-queue.ts";
 import { ConsumedInputs } from "./consumed-inputs.ts";
@@ -116,8 +116,10 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       return false;
     }
     if (type === "stream_event") {
-      if (!data["parent_tool_use_id"] && object(data["event"])["type"] === "message_start")
+      if (!data["parent_tool_use_id"] && object(data["event"])["type"] === "message_start") {
         clearRateLimit(state);
+        clearRetry(state);
+      }
       stream(state, data, streams);
       return true;
     }
