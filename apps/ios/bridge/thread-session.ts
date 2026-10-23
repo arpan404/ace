@@ -21,6 +21,7 @@ import { QueueFollower } from "./thread-queue.ts";
 import { requestResolution } from "./thread-requests.ts";
 import { StepsFollower } from "./thread-steps.ts";
 import { ModelFavorites } from "./model-favorites.ts";
+import { ThreadAccessFollower } from "./thread-access.ts";
 import { threadModelRows, type ThreadModelRow } from "./thread-models.ts";
 import { TuneFollower } from "./thread-tune.ts";
 import { answerResolution, controlsRow, sendPayload, stopPayload } from "./thread-controls.ts";
@@ -68,6 +69,7 @@ export class ThreadSession {
   #stars: string[] = [];
   #starProblem: string | null = null;
   readonly #favorites: ModelFavorites;
+  readonly #access: ThreadAccessFollower;
 
   constructor(
     client: ClientCore,
@@ -91,6 +93,9 @@ export class ThreadSession {
     );
     this.#steps = new StepsFollower(client, store, this.#threadId, put);
     this.#favorites = new ModelFavorites(client);
+    this.#access = new ThreadAccessFollower(client, store, this.#threadId, put, (payload, id) =>
+      this.#dispatch(payload, id),
+    );
     this.#tune = new TuneFollower(client, store, signal, put, () => host.now());
     this.#tray = new AttachmentTray(
       client,
@@ -115,7 +120,10 @@ export class ThreadSession {
         [...keys].some((key) => key.startsWith("agent:"))
       )
         this.#controls();
-      if (keys === "all" || keys.has("thread")) this.#tune.update();
+      if (keys === "all" || keys.has("thread")) {
+        this.#tune.update();
+        this.#access.update();
+      }
       if (keys === "all" || keys.has("order") || keys.has("history")) this.#history();
       if (keys === "all" || keys.has("queue") || keys.has("thread") || keys.has("agents"))
         this.#queue.update();
@@ -127,6 +135,7 @@ export class ThreadSession {
     this.#history();
     this.#queue.update();
     this.#tune.update();
+    this.#access.update();
     this.#ready();
     void this.#readSetting();
     // Offline, the read waits for the connection; the composer must not wait with it.
@@ -215,6 +224,9 @@ export class ThreadSession {
         break;
       case "switchModel":
         this.#dispatch(this.#switchPayload(action.model), action.requestId);
+        break;
+      case "access":
+        this.#access.set(action.mode, action.requestId);
         break;
       case "favorite":
         void this.#favorite(action.model);
