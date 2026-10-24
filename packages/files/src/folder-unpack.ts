@@ -1,4 +1,6 @@
 import { close, createReadStream, fchmod, futimes, write } from "node:fs";
+import { lstat } from "node:fs/promises";
+import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
 import { PinnedDirectory } from "@ace/workspace/pinned-directory";
@@ -40,19 +42,27 @@ function parentOf(path: string): string {
 function nameOf(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
 }
+function code(error: unknown): unknown {
+  return error instanceof Error && "code" in error ? error.code : undefined;
+}
 function seconds(header: Header): number | undefined {
   const pax = header.pax?.mtime === undefined ? Number.NaN : Number(header.pax.mtime);
   if (Number.isFinite(pax)) return pax;
   return header.mtime ? header.mtime.getTime() / 1000 : undefined;
 }
 
-/** Directories this unpack created, reopened from the pinned root one component at a time. */
+/**
+ * Directories this unpack created (or, merging, found already there), reopened from the pinned
+ * root one component at a time.
+ */
 class Tree {
   private readonly root: PinnedDirectory;
+  private readonly merging: boolean;
   private readonly made = new Map<string, { dev: number; ino: number }>();
   private open: { path: string; directory: PinnedDirectory } | undefined;
-  constructor(root: PinnedDirectory) {
+  constructor(root: PinnedDirectory, merging: boolean) {
     this.root = root;
+    this.merging = merging;
   }
   has(path: string): boolean {
     return path === "" || this.made.has(path);
@@ -81,15 +91,30 @@ class Tree {
     this.open = { path, directory: current };
     return current;
   }
-  async mkdir(path: string, mode: number): Promise<void> {
-    const created = this.directory(parentOf(path)).mkdir(nameOf(path));
+  /** Makes a directory; merging, an existing one is used as it is and anything else blocks. */
+  async mkdir(path: string, mode: number): Promise<"made" | "existing" | "blocked"> {
+    const parent = this.directory(parentOf(path));
+    let created: PinnedDirectory;
+    let existing = false;
+    try {
+      created = parent.mkdir(nameOf(path));
+    } catch (error) {
+      if (!this.merging || code(error) !== "EEXIST") throw error;
+      try {
+        created = parent.child(nameOf(path));
+        existing = true;
+      } catch {
+        return "blocked";
+      }
+    }
     try {
       const info = created.stat();
-      await chmodFd(created.fd, mode);
+      if (!existing) await chmodFd(created.fd, mode);
       this.made.set(path, { dev: info.dev, ino: info.ino });
     } finally {
       created.closeSync();
     }
+    return existing ? "existing" : "made";
   }
   release(): void {
     this.open?.directory.closeSync();
@@ -97,14 +122,22 @@ class Tree {
   }
 }
 
+/** Writes one file; `false` when merging and that name is already taken. */
 async function writeFile(
   tree: Tree,
   path: string,
   header: Header,
   stream: EntryStream,
-  signal?: AbortSignal,
-) {
-  const fd = tree.directory(parentOf(path)).createExclusive(nameOf(path));
+  options: { signal?: AbortSignal | undefined; merging: boolean },
+): Promise<boolean> {
+  const { signal } = options;
+  let fd: number;
+  try {
+    fd = tree.directory(parentOf(path)).createExclusive(nameOf(path));
+  } catch (error) {
+    if (options.merging && code(error) === "EEXIST") return false;
+    throw error;
+  }
   try {
     let position = 0;
     for await (const chunk of stream) {
@@ -124,6 +157,16 @@ async function writeFile(
   } finally {
     await closeFd(fd);
   }
+  return true;
+}
+
+/** Whether a folder-relative directory of the destination is a link already there. */
+async function linkThere(destination: string, path: string): Promise<boolean> {
+  try {
+    return (await lstat(join(destination, path))).isSymbolicLink();
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -137,15 +180,56 @@ export async function unpackArchive(
   destination: string,
   options: { signal?: AbortSignal } = {},
 ): Promise<{ entries: number }> {
-  const { signal } = options;
+  const { entries } = await extractArchive(file, destination, { ...options, merging: false });
+  return { entries };
+}
+
+export interface MergeResult {
+  /** Members written. */
+  entries: number;
+  /** Regular files written. */
+  files: number;
+  /** Members left out because that name was already taken there, or sat under a non-folder. */
+  skipped: number;
+}
+
+/**
+ * Adds a folder archive's members to `destination`, an existing directory, never replacing
+ * anything: a file or link whose name is taken is skipped, an existing folder is used as it is,
+ * and a member whose parent there is not a folder is skipped. The same rules as unpackArchive
+ * keep every write inside the destination.
+ */
+export async function mergeArchive(
+  file: string,
+  destination: string,
+  options: {
+    signal?: AbortSignal;
+    /** Members (and, for a folder, everything under it) never written, counted as skipped. */
+    exclude?: (path: string) => boolean;
+  } = {},
+): Promise<MergeResult> {
+  return extractArchive(file, destination, { ...options, merging: true });
+}
+
+async function extractArchive(
+  file: string,
+  destination: string,
+  options: { signal?: AbortSignal; merging: boolean; exclude?: (path: string) => boolean },
+): Promise<MergeResult> {
+  const { signal, merging, exclude } = options;
   checkAborted(signal);
   const root = PinnedDirectory.atBoundary(destination);
-  const tree = new Tree(root);
+  const tree = new Tree(root, merging);
   const seen = new Set<string>();
   const links = new Map<string, string>();
+  const blocked = new Set<string>();
   let entries = 0;
+  let files = 0;
+  let skipped = 0;
   try {
-    if (!root.stat().isDirectory() || !root.empty())
+    if (!root.stat().isDirectory())
+      throw new FolderArchiveError("NOT_EMPTY", "Destination must be a directory");
+    if (!merging && !root.empty())
       throw new FolderArchiveError("NOT_EMPTY", "Destination must be an empty directory");
     const extract = tar.extract();
     const member = async (raw: unknown, stream: EntryStream) => {
@@ -163,13 +247,35 @@ export async function unpackArchive(
       const parent = parentOf(path);
       for (let above = parent; above; above = parentOf(above))
         if (links.has(above)) throw unsafe("Archive entry goes through a link", path);
+      if (exclude?.(path)) {
+        if (type === "directory") blocked.add(path);
+        skipped++;
+        return;
+      }
+      for (let above = parent; above; above = parentOf(above))
+        if (blocked.has(above)) {
+          if (type === "directory") blocked.add(path);
+          skipped++;
+          return;
+        }
       if (!tree.has(parent)) throw unsafe("Archive entry has no parent directory", path);
       if (type !== "file" && (header.size ?? 0) !== 0)
         throw unsafe("Archive entry carries unexpected data", path);
-      if (type === "file") await writeFile(tree, path, header, stream, signal);
-      else if (type === "directory")
-        await tree.mkdir(path, ((header.mode ?? 0o755) & 0o755) | 0o700);
-      else if (type === "symlink") {
+      if (type === "file") {
+        if (!(await writeFile(tree, path, header, stream, { signal, merging }))) {
+          skipped++;
+          return;
+        }
+        files++;
+      } else if (type === "directory") {
+        const made = await tree.mkdir(path, ((header.mode ?? 0o755) & 0o755) | 0o700);
+        if (made === "blocked") {
+          blocked.add(path);
+          skipped++;
+          return;
+        }
+        if (made === "existing") return;
+      } else if (type === "symlink") {
         if (!header.linkname) throw unsafe("Archive link has no target", path);
         links.set(path, header.linkname);
       } else throw unsafe(`Archive entry type ${type} is not allowed`, path);
@@ -193,9 +299,25 @@ export async function unpackArchive(
     }
     for (const [path, target] of links) {
       checkAborted(signal);
-      tree.directory(parentOf(path)).symlink(target, nameOf(path));
+      if (merging) {
+        // A link must not route through a link the destination already had.
+        const route = linkRoute(path, target) ?? [];
+        let through = false;
+        for (const directory of route) if (await linkThere(destination, directory)) through = true;
+        if (through) {
+          skipped++;
+          continue;
+        }
+      }
+      try {
+        tree.directory(parentOf(path)).symlink(target, nameOf(path));
+      } catch (error) {
+        if (!merging || code(error) !== "EEXIST") throw error;
+        skipped++;
+        entries--;
+      }
     }
-    return { entries };
+    return { entries, files, skipped };
   } catch (error) {
     if (error instanceof FolderArchiveError) throw error;
     if (error instanceof Error && error.name === "AbortError")

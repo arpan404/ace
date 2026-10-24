@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { lstat, mkdir, open, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 /** The SHA-256 of a whole file, streamed. */
@@ -52,6 +52,12 @@ export async function ensureDirectory(path: string): Promise<void> {
 
 export async function removeQuietly(path: string): Promise<void> {
   await rm(path, { recursive: true, force: true }).catch(() => undefined);
+}
+
+/** Removes every entry of a transfers directory that `keep` doesn't claim, after a restart. */
+export async function removeStray(directory: string, keep: (name: string) => boolean) {
+  const names = await readdir(directory).catch(() => []);
+  for (const name of names) if (!keep(name)) await removeQuietly(join(directory, name));
 }
 
 async function exists(path: string): Promise<boolean> {

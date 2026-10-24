@@ -54,11 +54,13 @@ export class TransferClient {
     offset: number,
     data: Buffer,
     signal?: AbortSignal,
+    part: "code" | "ignored" = "code",
   ): Promise<number> {
+    const query = `transfer=${encodeURIComponent(transferId)}&offset=${offset}`;
     const answer = await this.transport(
       this.profile,
       {
-        path: `/v1/transfers/chunk?transfer=${encodeURIComponent(transferId)}&offset=${offset}`,
+        path: `/v1/transfers/chunk?${query}${part === "ignored" ? "&part=ignored" : ""}`,
         method: "PUT",
         body: data,
         contentType: "application/octet-stream",

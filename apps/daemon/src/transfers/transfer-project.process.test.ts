@@ -15,7 +15,8 @@ it("opens a project on another machine on the same branch, uncommitted changes s
   await writeFile(join(path, "feature.txt"), "committed here only\n");
   await git(path, "add", "-A");
   await git(path, "commit", "-m", "feature work");
-  // Uncommitted: an edit, a deletion, a binary file and an untracked file; an ignored one stays.
+  // Uncommitted: an edit, a deletion, a binary file and an untracked file; an ignored one stays
+  // when the transfer leaves ignored files out.
   await writeFile(join(path, "README.md"), "hello, edited\n");
   await rm(join(path, "gone.txt"));
   await writeFile(join(path, "image.bin"), binary);
@@ -29,6 +30,7 @@ it("opens a project on another machine on the same branch, uncommitted changes s
     workspaceId,
     hostId: m.targetHostId,
     includeChanges: true,
+    includeIgnored: false,
   });
   expect(receipt.ok).toBe(true);
   const transfer = await m.settled();

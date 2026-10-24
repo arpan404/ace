@@ -224,6 +224,12 @@ const transfer = controlTool({
       .optional()
       .describe("Continue this thread there; the person sends its next message there."),
     includeChanges: z.boolean().optional().describe("Send uncommitted changes. Default true."),
+    includeIgnored: z
+      .boolean()
+      .optional()
+      .describe(
+        "Send files Git ignores, such as .env; dependency folders never go. Default: this machine's setting.",
+      ),
   }),
   output: controlResult(z.looseObject({ transferId: z.string() })),
   run: (input, control) => control.run({ op: "transfer", ...input }),

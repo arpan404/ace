@@ -3,7 +3,8 @@ import { close, fstat, read } from "node:fs";
 import { open, unlink, type FileHandle } from "node:fs/promises";
 import { promisify } from "node:util";
 import { checkAborted, FolderArchiveError } from "./folder-errors.ts";
-import { walkFolder, type FolderMember } from "./folder-walk.ts";
+import { walkSelected } from "./folder-select.ts";
+import { walkFolder, type FolderMember, type FolderPrune, type FolderWalk } from "./folder-walk.ts";
 import { tarHeaders } from "./tar.ts";
 
 export interface PackOptions {
@@ -17,6 +18,8 @@ export interface PackResult {
   entries: number;
   /** Sockets, FIFOs, devices and symlinks leaving the folder, which are not stored. */
   skipped: number;
+  /** Regular files stored. */
+  files: number;
 }
 export interface FolderMeasure {
   bytes: number;
@@ -134,15 +137,38 @@ export async function packFolder(
   file: string,
   options: PackOptions = {},
 ): Promise<PackResult> {
+  checkAborted(options.signal);
+  return packWalk(await walkFolder(root, options.signal), file, options);
+}
+
+/**
+ * Writes a tar of only `paths` (folder-relative; a trailing `/` takes a whole directory) and
+ * their parent directories, with the same rules as packFolder. `prune` keeps a member and
+ * everything under it out.
+ */
+export async function packFiles(
+  root: string,
+  paths: readonly string[],
+  file: string,
+  options: PackOptions & { prune?: FolderPrune } = {},
+): Promise<PackResult> {
+  checkAborted(options.signal);
+  const walk = await walkSelected(root, paths, {
+    ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.prune ? { prune: options.prune } : {}),
+  });
+  return packWalk(walk, file, options);
+}
+
+async function packWalk(walk: FolderWalk, file: string, options: PackOptions): Promise<PackResult> {
   const { signal } = options;
-  checkAborted(signal);
-  const walk = await walkFolder(root, signal);
   const handle = await open(file, "wx", 0o600);
   try {
     const output = await handle.stat();
     const sink = new Sink(handle, options.maxBytes ?? Number.POSITIVE_INFINITY);
     const scratch = Buffer.alloc(BUFFER);
     let entries = 0;
+    let files = 0;
     let own = 0;
     for await (const member of walk.members) {
       // An output file inside the folder must not copy itself.
@@ -151,14 +177,23 @@ export async function packFolder(
         continue;
       }
       for (const block of header(member)) await sink.append(block);
-      if (member.kind === "file") await copyFile(member, sink, scratch, signal);
+      if (member.kind === "file") {
+        await copyFile(member, sink, scratch, signal);
+        files++;
+      }
       entries++;
     }
     await sink.append(Buffer.alloc(END));
     await sink.flush();
     await handle.sync();
     await handle.close();
-    return { bytes: sink.bytes, sha256: sink.sha256(), entries, skipped: walk.skipped() + own };
+    return {
+      bytes: sink.bytes,
+      sha256: sink.sha256(),
+      entries,
+      files,
+      skipped: walk.skipped() + own,
+    };
   } catch (error) {
     await handle.close().catch(() => {});
     await unlink(file).catch(() => {});

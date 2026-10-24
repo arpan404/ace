@@ -1,4 +1,5 @@
 import { maxTransferBytes, type TransferMethod } from "@ace/protocol";
+import { ignoredSelection, staysBehind } from "./ignored-files.ts";
 import type { TransferPlan } from "./outgoing-rows.ts";
 import { fileDigest, removeQuietly } from "./files.ts";
 import { TransferError, type TransferArchive, type TransferGit } from "./ports.ts";
@@ -15,7 +16,7 @@ export function formatBytes(bytes: number): string {
   return unit === 0 ? `${bytes} bytes` : `${value.toFixed(1)} ${units[unit]}`;
 }
 
-function tooLarge(bytes: number): TransferError {
+export function tooLarge(bytes: number): TransferError {
   return new TransferError(
     "transfer_too_large",
     `This is ${formatBytes(bytes)}; a transfer can carry at most ${formatBytes(maxTransferBytes)}.`,
@@ -112,4 +113,44 @@ export async function writeTransferFile(
     throw tooLarge(written.bytes);
   }
   return { path: file, bytes: written.bytes, sha256: await fileDigest(file, signal) };
+}
+
+/**
+ * Packs the files Git ignores in `source` into `file` (mode 0600), leaving dependency and cache
+ * folders and nested repositories behind. None when nothing would travel. `room` is what the
+ * 20 GiB cap leaves after the code. Failures name no file: the names may be secret.
+ */
+export async function writeIgnoredFile(
+  deps: { git: TransferGit; archive: TransferArchive },
+  input: { source: string; file: string; room: number; signal: AbortSignal },
+): Promise<{ path: string; bytes: number; sha256: string; files: number } | undefined> {
+  const { file, signal } = input;
+  await removeQuietly(file);
+  let packed: Awaited<ReturnType<TransferArchive["packFiles"]>>;
+  try {
+    const selection = ignoredSelection(await deps.git.ignoredPaths(input.source));
+    if (!selection.length) return undefined;
+    packed = await deps.archive.packFiles(input.source, selection, file, {
+      signal,
+      prune: staysBehind,
+      maxBytes: input.room,
+    });
+  } catch (error) {
+    await removeQuietly(file);
+    if (signal.aborted) throw error;
+    if (error instanceof Error && "code" in error && error.code === "TOO_LARGE")
+      throw new TransferError(
+        "transfer_too_large",
+        `The code and the files Git ignores come to more than ${formatBytes(maxTransferBytes)}, the most a transfer carries. Turn off Bring ignored files and try again.`,
+      );
+    throw new TransferError(
+      "ignored_unreadable",
+      "The files Git ignores couldn't be read. Turn off Bring ignored files, or try again.",
+    );
+  }
+  if (!packed.files) {
+    await removeQuietly(file);
+    return undefined;
+  }
+  return { path: file, bytes: packed.bytes, sha256: packed.sha256, files: packed.files };
 }

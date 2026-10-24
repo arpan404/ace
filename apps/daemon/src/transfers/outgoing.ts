@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import {
   HostId,
+  maxTransferBytes,
   transferChunkBytes,
   type CommandId,
   type IncomingTransfer,
@@ -19,9 +20,14 @@ import type { RemoteProfile } from "../cli/profiles.ts";
 import { MachineFailure } from "../machines/transport.ts";
 import type { Store } from "../store.ts";
 import { TransferClient, type TransferTransport } from "./client.ts";
-import { ensureDirectory, fileBytes, readAt, removeQuietly } from "./files.ts";
-import { OutgoingRows, type OutgoingRecord, type TransferRequest } from "./outgoing-rows.ts";
-import { planSource, writeTransferFile } from "./prepare.ts";
+import { ensureDirectory, fileBytes, readAt, removeQuietly, removeStray } from "./files.ts";
+import {
+  OutgoingRows,
+  type OutgoingRecord,
+  type TransferPlan,
+  type TransferRequest,
+} from "./outgoing-rows.ts";
+import { planSource, tooLarge, writeIgnoredFile, writeTransferFile } from "./prepare.ts";
 import { TransferError, type TransferArchive, type TransferGit } from "./ports.ts";
 
 /** The source thread's side of a continuation. */
@@ -65,6 +71,21 @@ export interface StartTransfer {
 }
 
 const retentionMs = 24 * 60 * 60 * 1000;
+
+/** The files a transfer wrote to send: the code's bundle or archive, and the ignored files. */
+function payloads(plan: TransferPlan | undefined): string[] {
+  return [
+    ...(plan?.file ? [plan.file.path] : []),
+    ...(plan?.ignored && "path" in plan.ignored ? [plan.ignored.path] : []),
+  ];
+}
+
+/** The ignored files are already packed, or known to be none, and still whole on disk. */
+async function ignoredHeld(plan: TransferPlan): Promise<boolean> {
+  if (!plan.ignored) return false;
+  if (!("path" in plan.ignored)) return true;
+  return (await fileBytes(plan.ignored.path)) === plan.ignored.bytes;
+}
 const terminal = new Set<TransferPhase>(["completed", "failed", "cancelled"]);
 const cancellable = new Set<TransferPhase>(["preparing", "cloning", "sending", "importing"]);
 
@@ -194,9 +215,13 @@ export class OutgoingTransfers {
   /** After a restart: unsettled transfers carry on, and old rows and files go. */
   async recover(): Promise<void> {
     await ensureDirectory(this.deps.directory);
-    for (const record of this.rows.unsettled()) this.run(record.transfer.transferId);
+    const unsettled = this.rows.unsettled();
+    // Payloads a crash left behind for transfers that are settled or gone.
+    const live = unsettled.map((record) => `${record.transfer.transferId}.`);
+    await removeStray(this.deps.directory, (name) => live.some((id) => name.startsWith(id)));
+    for (const record of unsettled) this.run(record.transfer.transferId);
     for (const record of this.rows.expired(this.deps.now() - retentionMs)) {
-      if (record.plan?.file) await removeQuietly(record.plan.file.path);
+      for (const path of payloads(record.plan)) await removeQuietly(path);
       this.rows.delete(record.transfer.transferId);
     }
   }
@@ -346,20 +371,49 @@ export class OutgoingTransfers {
           signal,
         });
         plan = { ...plan, ...(file ? { file } : {}), incremental };
-        record = this.update(this.need(transferId), { totalBytes: file?.bytes ?? 0 }, plan);
+        record = this.update(this.need(transferId), {}, plan);
       }
-      record = this.update(this.need(transferId), { phase: "sending" });
+      // Files Git ignores travel as their own archive, to a target that says it takes them.
+      const takesIgnored =
+        record.request.includeIgnored && method !== "archive" && status.ignoredOffset !== undefined;
+      if (takesIgnored && !(await ignoredHeld(plan))) {
+        const ignored = await writeIgnoredFile(this.deps, {
+          source: plan.source,
+          file: join(this.deps.directory, `${transferId}.ignored.tar`),
+          room: maxTransferBytes - (plan.file?.bytes ?? 0),
+          signal,
+        });
+        plan = { ...plan, ignored: ignored ?? { files: 0 } };
+        record = this.update(
+          this.need(transferId),
+          ignored ? { ignoredFiles: { files: ignored.files, bytes: ignored.bytes } } : {},
+          plan,
+        );
+      }
       const file = plan.file;
-      let offset = status.offset;
-      const path = file?.path ?? "";
-      const total = file?.bytes ?? 0;
-      while (offset < total) {
-        signal.throwIfAborted();
-        const data = await readAt(path, offset, Math.min(transferChunkBytes, total - offset));
-        const from = offset;
-        offset = await this.reach(signal, () => client.chunk(transferId, from, data, signal));
-        record = this.bytes(this.need(transferId), offset);
-      }
+      const ignored =
+        takesIgnored && plan.ignored && "path" in plan.ignored ? plan.ignored : undefined;
+      const codeBytes = file?.bytes ?? 0;
+      const ignoredBytes = ignored?.bytes ?? 0;
+      const total = codeBytes + ignoredBytes;
+      if (total > maxTransferBytes) throw tooLarge(total);
+      if (record.transfer.totalBytes !== total)
+        record = this.update(this.need(transferId), { totalBytes: total });
+      record = this.update(this.need(transferId), { phase: "sending" });
+      const sent = { code: status.offset, ignored: status.ignoredOffset ?? 0 };
+      const upload = async (part: "code" | "ignored", path: string, bytes: number) => {
+        while (sent[part] < bytes) {
+          signal.throwIfAborted();
+          const from = sent[part];
+          const data = await readAt(path, from, Math.min(transferChunkBytes, bytes - from));
+          sent[part] = await this.reach(signal, () =>
+            client.chunk(transferId, from, data, signal, part),
+          );
+          record = this.bytes(this.need(transferId), sent.code + sent.ignored);
+        }
+      };
+      await upload("code", file?.path ?? "", codeBytes);
+      await upload("ignored", ignored?.path ?? "", ignoredBytes);
       const thread = record.request.thread;
       const threadId = record.transfer.threadId;
       // An agent continuing its own thread is the work that is still running; it hands over now.
@@ -378,6 +432,11 @@ export class OutgoingTransfers {
             ...(plan.head ? { head: plan.head } : {}),
             ...(plan.changes ? { changes: plan.changes } : {}),
             ...(carried ? { thread: carried } : {}),
+            ...(ignored
+              ? {
+                  ignored: { bytes: ignored.bytes, sha256: ignored.sha256, files: ignored.files },
+                }
+              : {}),
           },
           signal,
         ),
@@ -439,7 +498,7 @@ export class OutgoingTransfers {
     if (terminal.has(current.transfer.phase)) return current.transfer;
     const settled = this.update(current, change);
     this.lastBytes.delete(record.transfer.transferId);
-    if (current.plan?.file) await removeQuietly(current.plan.file.path);
+    for (const path of payloads(current.plan)) await removeQuietly(path);
     if (current.plan?.changes)
       await this.deps.git
         .deleteRef(current.plan.source, current.plan.changes.ref)

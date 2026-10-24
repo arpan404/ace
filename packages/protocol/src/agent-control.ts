@@ -296,6 +296,7 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     project: z.string().min(1).max(256).optional(),
     thread: z.literal("self").optional(),
     includeChanges: z.boolean().optional(),
+    includeIgnored: z.boolean().optional(),
   }),
   z.strictObject({ op: z.literal("agent.result"), threadId: ThreadId }),
   z.strictObject({ op: z.literal("agent.cancel"), threadId: ThreadId, requestId: key }),

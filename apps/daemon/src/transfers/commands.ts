@@ -17,6 +17,8 @@ import { TransferError } from "./ports.ts";
 export interface TransferCommandDeps {
   store: Store;
   outgoing: OutgoingTransfers;
+  /** `remote.transferIgnoredFiles`: whether ignored files go when a transfer doesn't say. */
+  ignoredByDefault(): Promise<boolean>;
   /** thread.move's refusal for a live tree; none when the thread may be carried. */
   continueRefusal(threadId: ThreadId): Promise<string | undefined>;
 }
@@ -31,6 +33,8 @@ export interface TransferInput {
   hostId: string;
   parent?: string | undefined;
   includeChanges: boolean;
+  /** Omitted: this machine's `remote.transferIgnoredFiles`. */
+  includeIgnored?: boolean | undefined;
   workspaceId?: WorkspaceId;
   threadId?: ThreadId;
   provider?: ProviderKind | undefined;
@@ -62,6 +66,7 @@ export class TransferCommands {
           hostId: p.hostId,
           ...(p.parent ? { parent: p.parent } : {}),
           includeChanges: p.includeChanges,
+          includeIgnored: p.includeIgnored,
           ...(p.type === "workspace.transfer"
             ? { workspaceId: p.workspaceId }
             : { threadId: p.threadId, provider: p.provider, model: p.model }),
@@ -103,6 +108,7 @@ export class TransferCommands {
     if (source && !source.ready)
       throw new TransferError("workspace_preparing", "The thread's checkout is still being made.");
     const target = await this.deps.outgoing.resolve(input.hostId);
+    const includeIgnored = input.includeIgnored ?? (await this.deps.ignoredByDefault());
     const asker = input.asker;
     return this.deps.outgoing.start({
       commandId: input.commandId,
@@ -118,6 +124,7 @@ export class TransferCommands {
         profile: target.profile.name,
         ...(input.parent ? { parent: input.parent } : {}),
         includeChanges: input.includeChanges,
+        includeIgnored,
         ...(thread
           ? {
               thread: {

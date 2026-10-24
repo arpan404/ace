@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { logFields } from "@ace/diagnostics";
-import { measureFolder, packFolder, unpackArchive } from "@ace/files";
+import { measureFolder, mergeArchive, packFiles, packFolder, unpackArchive } from "@ace/files";
 import { GitService } from "@ace/git";
 import { HostId, WorkspaceId } from "@ace/protocol";
 import { Profiles } from "../cli/profiles.ts";
@@ -50,7 +50,7 @@ export function startTransfers(context: ServiceContext): void {
   const record = (level: "info" | "warn") => (message: string, fields: Record<string, unknown>) =>
     log.log(level, message, logFields(Object.entries(fields)));
   const git = new GitService({ timeoutMs: 600_000, ...options.projects?.git }).transfer;
-  const archive = { measureFolder, packFolder, unpackArchive };
+  const archive = { measureFolder, packFolder, packFiles, unpackArchive, mergeArchive };
   const directory = join(config.dataDir, "transfers");
   const profiles = () => {
     const table = new Profiles(config.dataDir);
@@ -96,6 +96,8 @@ export function startTransfers(context: ServiceContext): void {
   const commands = new TransferCommands({
     store,
     outgoing,
+    ignoredByDefault: async () =>
+      (await services.settings?.get("remote.transferIgnoredFiles"))?.value ?? true,
     continueRefusal: async (id) => {
       const runtime = services.workspaceActions;
       if (!runtime) return "workspace_unavailable";

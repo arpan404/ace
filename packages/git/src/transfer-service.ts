@@ -11,6 +11,7 @@ import {
   landingBranch,
 } from "./transfer-checkout.ts";
 import { cloneFromBundle, type BundleCloneOptions } from "./transfer-clone.ts";
+import { ignoredPaths } from "./transfer-ignored.ts";
 import { bundleRefs, createBranch, deleteRef, transferOrigin } from "./transfer-refs.ts";
 
 /**
@@ -37,6 +38,10 @@ export class GitTransfer {
   /** Uncommitted changes as a commit on HEAD at `ref`; checkout and index untouched. */
   captureChanges(path: string, options: { ref: string; message?: string | undefined }) {
     return this.within(path, (root) => captureChanges(this.repository, root, options));
+  }
+  /** Paths Git ignores; a whole ignored folder once, ending in `/`. See `ignoredPaths`. */
+  ignoredPaths(path: string): Promise<string[]> {
+    return this.within(path, (root) => ignoredPaths(this.repository, root));
   }
   bundleRefs(path: string) {
     return this.within(path, (root) => bundleRefs(this.repository, root));

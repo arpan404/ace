@@ -140,6 +140,7 @@ export class AgentTransfers {
         commandId: CommandId.parse(`transfer-agent:${caller.threadId}:${this.deps.now()}`),
         hostId: target.hostId,
         includeChanges: operation.includeChanges ?? true,
+        includeIgnored: operation.includeIgnored,
         ...(self ? { threadId: caller.threadId } : { workspaceId }),
         asker: { kind: "agent", threadId: caller.threadId, agentId: caller.agentId, self },
         hold: (started) =>

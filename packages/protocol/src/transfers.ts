@@ -19,6 +19,11 @@ const TransferPlacement = {
   parent: path.optional(),
   /** Send uncommitted changes too, as uncommitted changes there. Default true. */
   includeChanges: z.boolean().default(true),
+  /**
+   * Send files Git ignores too, such as `.env` and local config, without dependency or cache
+   * folders. Omitted: the sending machine's `remote.transferIgnoredFiles`.
+   */
+  includeIgnored: z.boolean().optional(),
 };
 
 export const TransferCommands = [
@@ -65,6 +70,16 @@ export const TransferPhase = z.enum([
 ]);
 export type TransferPhase = z.infer<typeof TransferPhase>;
 
+/**
+ * Ignored files a transfer carries or placed: only counts and bytes, never names, so nothing
+ * about them reaches rows, pushes or logs.
+ */
+export const TransferIgnoredFiles = z.object({
+  files: z.number().int().nonnegative(),
+  bytes: z.number().int().nonnegative(),
+});
+export type TransferIgnoredFiles = z.infer<typeof TransferIgnoredFiles>;
+
 /** One transfer as the sending machine sees it. */
 export const Transfer = z.object({
   transferId: id,
@@ -76,8 +91,11 @@ export const Transfer = z.object({
   target: z.object({ hostId: HostId, name: z.string().min(1).max(256) }),
   phase: TransferPhase,
   method: TransferMethod.optional(),
+  /** Bytes sent and to send, counting both the code and the ignored files. */
   sentBytes: z.number().int().nonnegative(),
   totalBytes: z.number().int().nonnegative().optional(),
+  /** Set when ignored files travel with it. */
+  ignoredFiles: TransferIgnoredFiles.optional(),
   /** Set once completed: what now exists on the other machine. */
   result: z
     .object({
@@ -85,6 +103,8 @@ export const Transfer = z.object({
       path,
       branch: z.string().max(1024).optional(),
       threadId: ThreadId.optional(),
+      /** Ignored files that were kept back because the project there already had them. */
+      ignoredSkipped: z.number().int().nonnegative().optional(),
     })
     .optional(),
   /** Set once failed, in words a person acts on. */

@@ -89,8 +89,11 @@ export function transfersHttp(
           const offset = Number(url.searchParams.get("offset"));
           if (!Number.isSafeInteger(offset) || offset < 0)
             throw new TargetRefusal("invalid", "Bad offset.");
+          const part = url.searchParams.get("part") ?? "code";
+          if (part !== "code" && part !== "ignored")
+            throw new TargetRefusal("invalid", "Bad part.");
           const data = await readBody(request, transferChunkBytes);
-          reply(200, await owner.incoming.chunk(device, transferId, offset, data));
+          reply(200, await owner.incoming.chunk(device, transferId, offset, data, part));
           return;
         }
         const parsed = MachineTransferCall.safeParse(
