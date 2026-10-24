@@ -180,13 +180,12 @@ test("a failed transfer shows the other machine's words, and Try again sends it 
   expect(build.projects.list().workspaces.map((each) => each.name)).toEqual(["weather"]);
 }, 30_000);
 
-test("with no linked machines the chooser points to Settings › Machines", async () => {
+test("with no other machine linked, the thread menu doesn't offer Continue on", async () => {
   const { app } = linkedMachines({ links: false });
   await app.open("/t/thread-forecast");
-  const dialog = await continueOn();
-  expect(await within(dialog).findByText(/No other machines are linked to this one/)).toBeTruthy();
-  await userEvent.click(within(dialog).getByRole("link", { name: "Settings › Machines" }));
-  expect(await screen.findByRole("region", { name: "Machines" })).toBeTruthy();
+  await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
+  await screen.findByRole("menuitem", { name: /Rename/ });
+  expect(screen.queryByRole("menuitem", { name: "Continue on…" })).toBeNull();
 }, 30_000);
 
 test("a transfer an agent started shows on the thread the same way, with Cancel", async () => {

@@ -18,6 +18,7 @@ import {
 import { useConnectionState } from "@ace/client-react";
 import { useProjectDialogs } from "./projects-host.tsx";
 import { useTransferOpener } from "@/lib/transfer-opener.ts";
+import { useHasLinkedMachines } from "@/lib/fleet-links.ts";
 
 const DeferredOpenIn = deferredComponent(() =>
   import("./project-open-in.tsx").then((module) => module.ProjectOpenIn),
@@ -45,16 +46,19 @@ export function AddProjectItem() {
 export function ManageProjectItems(props: { projectId: string; name: string }) {
   const projects = useProjectDialogs();
   const transfers = useTransferOpener();
+  const linked = useHasLinkedMachines();
   return (
     <>
-      <MenuItem
-        icon={<Icon icon={DesktopIcon} />}
-        onClick={() =>
-          transfers.open({ kind: "project", workspaceId: props.projectId, name: props.name })
-        }
-      >
-        Open on…
-      </MenuItem>
+      {linked && (
+        <MenuItem
+          icon={<Icon icon={DesktopIcon} />}
+          onClick={() =>
+            transfers.open({ kind: "project", workspaceId: props.projectId, name: props.name })
+          }
+        >
+          Open on…
+        </MenuItem>
+      )}
       <MenuSub>
         <MenuSubTrigger icon={<Icon icon={ArrowSquareOutIcon} />}>Open in…</MenuSubTrigger>
         <MenuContent>

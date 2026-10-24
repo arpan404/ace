@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/menu.tsx";
 import { useThreadMover } from "./mover.ts";
 import { useTransferOpener } from "@/lib/transfer-opener.ts";
+import { useHasLinkedMachines } from "@/lib/fleet-links.ts";
 import { SnoozeItems } from "./snooze-items.tsx";
 import { useThreadActions, type ThreadActions } from "./use-thread-actions.ts";
 
@@ -237,17 +238,22 @@ export function ThreadActionItems(props: {
   const actions = useThreadActions();
   const mover = useThreadMover();
   const transfers = useTransferOpener();
+  const linked = useHasLinkedMachines();
   const allActions = threadActions(entry, flags, actions, {
     onRename: props.onRename,
     fork: props.fork,
     onMove: () => mover.open({ entries: [entry] }),
-    onContinueOn: () =>
-      transfers.open({
-        kind: "thread",
-        threadId: entry.id,
-        workspaceId: entry.workspaceId,
-        title: entry.title,
-      }),
+    ...(linked
+      ? {
+          onContinueOn: () =>
+            transfers.open({
+              kind: "thread",
+              threadId: entry.id,
+              workspaceId: entry.workspaceId,
+              title: entry.title,
+            }),
+        }
+      : {}),
     ...(props.onLeave ? { onLeave: props.onLeave } : {}),
   });
   const list = props.compact
