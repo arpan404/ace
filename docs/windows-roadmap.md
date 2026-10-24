@@ -595,6 +595,19 @@ browser warmup remain possible factors. The default benchmark timing and its
 55/45 requirements stay unchanged. A failure-only fixture snapshot will separate
 lost focus, actual Unicode delivery and delayed UIA readback on the next ARM64 run.
 
+[Diagnostic run 40137265692](https://github.com/arpan404/ace/actions/runs/40137265692),
+pinned to `8d9a913de`, again passes **three screen tests, 193 browser/foundation
+tests and 23 Rust tests on each native architecture**. The Unicode failure does
+not recur, so its new failure-only fixture snapshot does not fire. The prior
+Unicode and Chrome startup failures remain unexplained, not fixed by this rerun.
+
+Its optional-baseline benchmark reports **x64 55 fps median / 53 p10**, with a
+60 fps unwatched page and 55.7 fps streaming page. **ARM64 remains below target at
+40 / 39 fps**, with a 41.1 fps unwatched page and 39.7 fps streaming page. The
+encoded and delivered rates remain close. ARM64's deficit is already visible
+before video subscription; profiling must distinguish renderer/machine conditions
+from startup and capture effects before changing codecs or quality policy.
+
 Oversized capture on drivers without video processing, Windows performance,
 repeatable input/startup and installed desktop acceptance remain open.
 W14/W15 remain unfinished.
