@@ -147,10 +147,14 @@ export class OutgoingRows {
       .map(decode)
       .filter((record) => record.request.agent);
   }
+  /**
+   * Settled rows older than `before`, for retention. An agent's row whose result its thread
+   * hasn't been given yet never expires: it is that thread's only copy of the result.
+   */
   expired(before: number): OutgoingRecord[] {
     return this.store
       .statement(
-        `SELECT * FROM transfer_outgoing WHERE updated_at<? AND phase NOT IN (${unsettledPhases.map(() => "?").join(",")}) LIMIT 64`,
+        `SELECT * FROM transfer_outgoing WHERE updated_at<? AND delivered=1 AND phase NOT IN (${unsettledPhases.map(() => "?").join(",")}) LIMIT 64`,
       )
       .all(before, ...unsettledPhases)
       .map(decode);

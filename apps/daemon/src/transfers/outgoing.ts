@@ -199,6 +199,11 @@ export class OutgoingTransfers {
       ...(input.threadId ? { threadId: input.threadId } : {}),
       target: input.target,
       phase: "preparing",
+      options: {
+        includeChanges: input.request.includeChanges,
+        includeIgnored: input.request.includeIgnored,
+        ...(input.request.parent ? { parent: input.request.parent } : {}),
+      },
       sentBytes: 0,
       startedAt: at,
       updatedAt: at,
@@ -214,7 +219,10 @@ export class OutgoingTransfers {
     this.run(transfer.transferId);
     return transfer;
   }
-  /** After a restart: unsettled transfers carry on, and old rows and files go. */
+  /**
+   * After a restart: unsettled transfers carry on, and old rows and files go. An agent's row
+   * stays until its result is delivered (see `OutgoingRows.expired`).
+   */
   async recover(): Promise<void> {
     await ensureDirectory(this.deps.directory);
     const unsettled = this.rows.unsettled();
