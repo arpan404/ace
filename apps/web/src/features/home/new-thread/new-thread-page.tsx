@@ -56,6 +56,7 @@ import { useHostIdentity } from "@/lib/host-name.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { useScopedMachine } from "@/lib/machines.ts";
 import { rememberMachine, rememberedProject } from "./machine-choice.ts";
+import { MachineLine } from "./machine-picker.tsx";
 import {
   preparation,
   preparationSaveFailed,
@@ -724,7 +725,7 @@ function PreparationPage(props: {
         className="flex h-full min-h-0 flex-col overflow-y-auto pt-6 pb-[max(1rem,env(safe-area-inset-bottom))] [scrollbar-gutter:stable]"
       >
         {/* The thread's reading column: a question naming the project (its name picks another),
-            the composer high on the page, and the project's open work to start from below it. */}
+            the machine under it while there are several, the composer high on the page, and the project's open work to start from below it. */}
         <div className={cn(readingColumn, "flex flex-col pt-[clamp(1rem,22vh,12rem)]")}>
           <h2 className="mb-6 px-1 text-center text-2xl leading-tight font-normal tracking-title text-balance break-words text-muted-foreground">
             What should we build in{" "}
@@ -737,6 +738,7 @@ function PreparationPage(props: {
             />
             ?
           </h2>
+          <MachineLine returnFocus={messageField} />
           <div className="shrink-0">
             <Composer
               ref={composer}

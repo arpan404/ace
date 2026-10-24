@@ -37,8 +37,10 @@ scoped view (`useMachineSearch()`) stay on it.
 
 ### New thread
 
-The composer's top strip holds a machine picker while more than one machine is online (or the
-page is already on another one). Offline machines show their status and can't be picked.
+The machine is a line under the page's question, "on Build server", the way the iOS sheet shows
+it. It appears while more than one device is connected and is a picker while more than one
+machine is online (or the page is already on another one); the composer's strip keeps only the
+worktree and branch. Offline machines show their status and can't be picked.
 Picking one moves the page to it. The palette's "New thread in…" step does the same: while more
 than one machine is online a chip in its field names the machine whose projects it lists (the one
 New thread used last, else this one), and choosing the chip lists the machines. A project chosen
