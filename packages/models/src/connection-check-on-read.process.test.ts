@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { ModelCatalog, normalizeCodex, openModelStorage } from "./index.ts";
 import { Clock, codexPayload, instance, workspace } from "./testing/support.ts";
 
@@ -74,7 +74,7 @@ test("a subscribed viewer sees a login changed outside ace without reading the c
   cleanup.push(() => catalog.close());
   await catalog.refresh();
   expect(catalog.list().models.map((entry) => entry.id)).toEqual(["coder"]);
-  for (let i = 0; i < 100 && checks === 0; i++) await pause(10);
+  await vi.waitFor(() => expect(checks).toBe(1), { timeout: 10_000 });
   const changes: string[] = [];
   catalog.listen((filter) => changes.push(filter.instance ?? ""));
   const stopObserving = catalog.observeConnections();
