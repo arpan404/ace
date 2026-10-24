@@ -11,6 +11,9 @@
     "lineage": {
       "$ref": "https://ace.local/protocol/v1/ThreadLineage.json"
     },
+    "queuedLaunch": {
+      "$ref": "https://ace.local/protocol/v1/QueuedLaunch.json"
+    },
     "switch": {
       "$ref": "https://ace.local/protocol/v1/ThreadSwitch.json"
     }
