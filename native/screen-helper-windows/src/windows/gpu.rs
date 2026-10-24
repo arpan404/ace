@@ -50,17 +50,17 @@ impl Gpu {
                 None,
                 Some(&mut context),
             )
-            .map_err(|e| Error::from(e).phase("gpu-create-device"))?;
+            .map_err(|e| Error::from(e).context("gpu-create-device"))?;
             let device = require(device)?;
             let context = require(context)?;
             let dxgi: IDXGIDevice = device
                 .cast()
-                .map_err(|e| Error::from(e).phase("gpu-device-cast-dxgi"))?;
+                .map_err(|e| Error::from(e).context("gpu-device-cast-dxgi"))?;
             let winrt_device = CreateDirect3D11DeviceFromDXGIDevice(&dxgi)
-                .map_err(|e| Error::from(e).phase("gpu-create-winrt-device"))?;
+                .map_err(|e| Error::from(e).context("gpu-create-winrt-device"))?;
             let winrt: IDirect3DDevice = winrt_device
                 .cast()
-                .map_err(|e| Error::from(e).phase("gpu-winrt-cast-device"))?;
+                .map_err(|e| Error::from(e).context("gpu-winrt-cast-device"))?;
             Ok(Self {
                 device,
                 context,
@@ -93,11 +93,11 @@ impl Gpu {
             let video: ID3D11VideoDevice = self
                 .device
                 .cast()
-                .map_err(|e| Error::from(e).phase("gpu-device-cast-video-device"))?;
+                .map_err(|e| Error::from(e).context("gpu-device-cast-video-device"))?;
             let video_context: ID3D11VideoContext = self
                 .context
                 .cast()
-                .map_err(|e| Error::from(e).phase("gpu-context-cast-video-context"))?;
+                .map_err(|e| Error::from(e).context("gpu-context-cast-video-context"))?;
             let desc = D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC {
                 ViewDimension: D3D11_VPIV_DIMENSION_TEXTURE2D,
                 Anonymous: D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0 {
@@ -111,7 +111,7 @@ impl Gpu {
             let mut input = None;
             video
                 .CreateVideoProcessorInputView(texture, &scaler.enumerator, &desc, Some(&mut input))
-                .map_err(|e| Error::from(e).phase("gpu-create-input-view"))?;
+                .map_err(|e| Error::from(e).context("gpu-create-input-view"))?;
             let input = require(input)?;
             let source = RECT {
                 left: 0,
@@ -196,7 +196,7 @@ impl Scaler {
             let mut output = None;
             device
                 .CreateTexture2D(&desc, None, Some(&mut output))
-                .map_err(|e| Error::from(e).phase("scaler-create-output-texture"))?;
+                .map_err(|e| Error::from(e).context("scaler-create-output-texture"))?;
             let output = require(output)?;
             let mut staging = None;
             device
@@ -210,10 +210,10 @@ impl Scaler {
                     None,
                     Some(&mut staging),
                 )
-                .map_err(|e| Error::from(e).phase("scaler-create-staging-texture"))?;
+                .map_err(|e| Error::from(e).context("scaler-create-staging-texture"))?;
             let video: ID3D11VideoDevice = device
                 .cast()
-                .map_err(|e| Error::from(e).phase("scaler-device-cast-video-device"))?;
+                .map_err(|e| Error::from(e).context("scaler-device-cast-video-device"))?;
             let enumerator = video
                 .CreateVideoProcessorEnumerator(&D3D11_VIDEO_PROCESSOR_CONTENT_DESC {
                     InputFrameFormat: D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
@@ -231,10 +231,10 @@ impl Scaler {
                         Denominator: 1,
                     },
                 })
-                .map_err(|e| Error::from(e).phase("scaler-create-enumerator"))?;
+                .map_err(|e| Error::from(e).context("scaler-create-enumerator"))?;
             let processor = video
                 .CreateVideoProcessor(&enumerator, 0)
-                .map_err(|e| Error::from(e).phase("scaler-create-processor"))?;
+                .map_err(|e| Error::from(e).context("scaler-create-processor"))?;
             let desc = D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC {
                 ViewDimension: D3D11_VPOV_DIMENSION_TEXTURE2D,
                 Anonymous: D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0 {
@@ -244,7 +244,7 @@ impl Scaler {
             let mut view = None;
             video
                 .CreateVideoProcessorOutputView(&output, &enumerator, &desc, Some(&mut view))
-                .map_err(|e| Error::from(e).phase("scaler-create-output-view"))?;
+                .map_err(|e| Error::from(e).context("scaler-create-output-view"))?;
             Ok(Self {
                 input_size: (width, height),
                 output_size: size,

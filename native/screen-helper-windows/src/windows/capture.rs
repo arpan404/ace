@@ -74,10 +74,7 @@ impl Capture {
                     let _ = session.Close();
                     let _ = pool.Close();
                     if let Err(error) = result {
-                        eprintln!(
-                            "screen capture [{}]: {error}",
-                            error.phase.unwrap_or("frame")
-                        );
+                        eprintln!("screen capture: {error}");
                         std::process::exit(1);
                     }
                 }
@@ -241,14 +238,14 @@ fn run(
         }
         let surface = frame
             .Surface()
-            .map_err(|e| Error::from(e).phase("frame-surface"))?;
+            .map_err(|e| Error::from(e).context("frame-surface"))?;
         let access: IDirect3DDxgiInterfaceAccess = surface
             .cast()
-            .map_err(|e| Error::from(e).phase("surface-cast-access"))?;
+            .map_err(|e| Error::from(e).context("surface-cast-access"))?;
         let texture: ID3D11Texture2D = unsafe {
             access
                 .GetInterface()
-                .map_err(|e| Error::from(e).phase("surface-getinterface-texture2d"))?
+                .map_err(|e| Error::from(e).context("surface-getinterface-texture2d"))?
         };
         if size != pool_size {
             frame.Close()?;
