@@ -15,7 +15,12 @@ import {
 import { Helper, windowsEndpoint, type Frame } from "./index.ts";
 const HelperEnv = z.object({ ACE_WINDOWS_SCREEN_HELPER: z.string().min(1) });
 const SystemEnv = z.object({ SystemRoot: z.string().min(1) });
-const FixtureLine = z.object({ hwnd: z.number().int().positive() });
+const FixtureLine = z.object({
+  hwnd: z.number().int().positive(),
+  visible: z.boolean(),
+  dwmStatus: z.number().int(),
+  session: z.number().int().nonnegative(),
+});
 const Allowlist = z.array(z.string().min(1).max(256));
 
 function unstartedLines(error: Error): void {
@@ -66,7 +71,7 @@ it.runIf(process.platform === "win32")(
     const child = spawn(powershell, ["-NoProfile", "-Sta", "-File", fixture], {
       env: { ...process.env, ACE_OWNED_TITLE: title },
       stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
+      windowsHide: false,
     });
     const closed = new Promise<void>((resolve) => {
       child.once("close", () => resolve());
@@ -88,6 +93,7 @@ it.runIf(process.platform === "win32")(
     let failLines: (error: Error) => void = unstartedLines;
     const lines = lineReader(stdout, 64 * 1024, (error: Error) => failLines(error));
     let helper: Helper | undefined;
+    let fixtureFacts = "";
     try {
       const hwnd = await new Promise<number>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error("Fixture startup timed out")), 30_000);
@@ -113,6 +119,7 @@ it.runIf(process.platform === "win32")(
           }
           const parsed = FixtureLine.safeParse(raw);
           if (parsed.success) {
+            fixtureFacts = JSON.stringify(parsed.data);
             clearTimeout(timer);
             resolve(parsed.data.hwnd);
           }
@@ -163,7 +170,10 @@ it.runIf(process.platform === "win32")(
         });
       const inventory = ScreenInventory.parse(await helper.request({ op: "targets" }));
       const owned = inventory.windows.find((entry) => entry.windowId === hwnd);
-      if (owned === undefined) throw new Error("Owned window missing from inventory");
+      if (owned === undefined)
+        throw new Error(
+          `Owned window missing from ${inventory.windows.length} visible targets: ${fixtureFacts}`,
+        );
       const target = ScreenTarget.parse({
         kind: "window",
         bundleId: owned.bundleId,

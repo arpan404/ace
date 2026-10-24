@@ -1,5 +1,13 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class AceFixtureWindow {
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
+  [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr window, int attribute, [Out] int[] value, int size);
+}
+'@
 $title = $env:ACE_OWNED_TITLE
 if ([string]::IsNullOrEmpty($title)) {
   $title = $args[0]
@@ -19,7 +27,9 @@ $box.Top = 20
 $box.Width = 340
 $form.Controls.Add($box)
 $form.Add_Shown({
-  $line = (@{ hwnd = $form.Handle.ToInt64() } | ConvertTo-Json -Compress)
+  $bounds = New-Object int[] 4
+  $dwm = [AceFixtureWindow]::DwmGetWindowAttribute($form.Handle, 9, $bounds, 16)
+  $line = (@{ hwnd = $form.Handle.ToInt64(); visible = [AceFixtureWindow]::IsWindowVisible($form.Handle); dwmStatus = $dwm; session = [Diagnostics.Process]::GetCurrentProcess().SessionId } | ConvertTo-Json -Compress)
   [Console]::WriteLine($line)
   [Console]::Out.Flush()
 })
