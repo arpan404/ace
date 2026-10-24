@@ -744,21 +744,17 @@ function PreparationPage(props: {
             the composer high on the page, and the project's open work to start from below it. */}
         <div className={cn(readingColumn, "flex flex-col pt-[clamp(1rem,22vh,12rem)]")}>
           {props.chat ? (
-            // A chat names no project: a plain question, with the picker below to choose one.
-            <div className="mb-6 flex flex-col items-center gap-2 px-1 text-center">
-              <h2 className="text-2xl leading-tight font-normal tracking-title text-balance text-muted-foreground">
-                What should we work on?
-              </h2>
-              <p className="text-ui text-muted-foreground">
-                <ProjectPicker
-                  projects={projects}
-                  projectName={name}
-                  project={chatChoice}
-                  onProject={chooseProject}
-                  returnFocus={messageField}
-                />
-              </p>
-            </div>
+            // A chat names no project: a plain question, with the picker after it to choose one.
+            <h2 className="mb-6 px-1 text-center text-2xl leading-tight font-normal tracking-title text-balance break-words text-muted-foreground">
+              What should we work on?{" "}
+              <ProjectPicker
+                projects={projects}
+                projectName={name}
+                project={chatChoice}
+                onProject={chooseProject}
+                returnFocus={messageField}
+              />
+            </h2>
           ) : (
             <h2 className="mb-6 px-1 text-center text-2xl leading-tight font-normal tracking-title text-balance break-words text-muted-foreground">
               What should we build in{" "}
