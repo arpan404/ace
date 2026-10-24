@@ -18,6 +18,7 @@ import { createAgentControlPort } from "@ace/daemon";
 import { mcpAwareness } from "../mcp-awareness.ts";
 import { scriptedEfforts, scriptedModelInstance } from "../testing/models.ts";
 import { setup } from "./test-support.ts";
+import { modelLoadWaitMs } from "./delegations.ts";
 
 const signal = () => new AbortController().signal;
 const homes: string[] = [];
@@ -67,7 +68,8 @@ type Served = readonly [
 /**
  * The default Claude and Codex logins plus added Claude accounts, each serving its own models.
  * An account `serves` leaves out runs the scripted default model; discovery fails for an account
- * whose id starts with "broken-". `discoveries` counts discovery runs per account.
+ * whose id starts with "broken-", and never finishes for one starting "slow-" once `stall` is
+ * set; discovery for one starting "late-" takes a moment. `discoveries` counts discovery runs.
  */
 async function harness(
   added: Record<string, string>,
@@ -84,6 +86,7 @@ async function harness(
     ["chosen-model", "Scripted model", undefined, undefined, true],
   ];
   const discoveries = new Map<string, number>();
+  const stall = { on: false, held: [] as (() => void)[] };
   const catalog = new ModelCatalog({
     storage: openModelStorage(join(home, "models.sqlite")),
     instances: ids.map((id) =>
@@ -94,7 +97,16 @@ async function harness(
     discover: async (target) => {
       discoveries.set(target.id, (discoveries.get(target.id) ?? 0) + 1);
       if (target.id.startsWith("broken-")) throw new Error("CLI not installed");
-      return (serves[target.id] ?? fallback).map(([id, name, family, tier, isDefault]) =>
+      // A login whose discovery takes a moment, so a request arrives while it is running.
+      if (target.id.startsWith("late-")) await new Promise((resolve) => setTimeout(resolve, 50));
+      if (stall.on && target.id.startsWith("slow-")) {
+        await new Promise<void>((resolve) => stall.held.push(resolve));
+        throw new Error("Discovery released at shutdown");
+      }
+      const listed = serves[target.id] ?? fallback;
+      // A login that answers with no models still loads, as an empty list with no sources.
+      if (!listed.length) return Object.assign([], { sources: [] });
+      return listed.map(([id, name, family, tier, isDefault]) =>
         model(target.provider, target.id, id, name, {
           ...(family ? { family } : {}),
           ...(tier === "legacy" ? { tier: "legacy" as const } : {}),
@@ -136,11 +148,19 @@ async function harness(
   const port = createAgentControlPort(h.store, h.service);
   const run = (caller: McpAttribution, operation: Record<string, unknown>) =>
     port.execute(caller, AgentControlOperation.parse(operation), signal());
-  const delegate = (caller: McpAttribution, task: Record<string, unknown>) =>
-    run(caller, {
-      op: "delegate_task",
-      tasks: [{ task: "Review the change", provider: "claude", ...task }],
-    });
+  const delegate = (
+    caller: McpAttribution,
+    task: Record<string, unknown>,
+    abort: AbortSignal = signal(),
+  ) =>
+    port.execute(
+      caller,
+      AgentControlOperation.parse({
+        op: "delegate_task",
+        tasks: [{ task: "Review the change", provider: "claude", ...task }],
+      }),
+      abort,
+    );
   const childModel = async (result: { data?: unknown }) => {
     const childId = childOf(result);
     await h.engine.flush();
@@ -152,7 +172,7 @@ async function harness(
     await catalog.close();
     db.close();
   };
-  return { h, catalog, discoveries, run, delegate, childModel, close };
+  return { h, catalog, discoveries, stall, run, delegate, childModel, close };
 }
 
 // "346" serves Opus 5.5; "Work" serves Opus 4.8 and, as its default, Sonnet 5.5.
@@ -418,6 +438,68 @@ test("an account whose discovery failed is not probed again on every unknown mod
       ).rejects.toThrow(/unavailable/);
     expect(discoveries.get("broken-claude") ?? 0).toBe(before);
   } finally {
+    await close();
+  }
+});
+
+test("an account that loaded empty and is rediscovering is waited for before a name is refused", async () => {
+  const lists: Record<string, readonly Served[]> = { "late-claude": [] };
+  const { h, catalog, delegate, childModel, close } = await harness(
+    { "late-claude": "New" },
+    lists,
+  );
+  try {
+    const parent = await h.parent();
+    // Its login now serves a model, and the next discovery will find it.
+    lists["late-claude"] = [["claude-opus-5-5", "Opus 5.5", "claude-opus", "current", true]];
+    catalog.markStale({ instance: "late-claude" });
+    const result = await delegate(parent, {
+      requestId: "recovered",
+      role: "review-recovered",
+      model: "opus 5.5",
+      accountId: "New",
+    });
+    expect(await childModel(result)).toEqual({ instance: "late-claude", model: "claude-opus-5-5" });
+  } finally {
+    await close();
+  }
+});
+
+test("a stalled discovery delays a request by at most the wait cap, and cancelling ends the wait", async () => {
+  const { h, catalog, stall, delegate, close } = await harness({ "slow-claude": "Slow" }, {});
+  try {
+    const parent = await h.parent();
+    stall.on = true;
+    await catalog.invalidate({ instance: "slow-claude" });
+    const progress = { settled: false };
+    const capped = delegate(parent, {
+      requestId: "capped",
+      role: "review-capped",
+      model: "opus 5.5",
+      accountId: "Slow",
+    }).finally(() => {
+      progress.settled = true;
+    });
+    // Discovery never finishes, so only the cap can end each wait for it.
+    for (let step = 0; !progress.settled && step < 100; step++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      h.clock.advance(h.clock.now() + modelLoadWaitMs);
+    }
+    await expect(capped).rejects.toThrow(/requested model opus 5.5 is unavailable/);
+    expect(stall.held.length).toBeGreaterThan(0);
+
+    const abort = new AbortController();
+    const cancelled = delegate(
+      parent,
+      { requestId: "cancelled", role: "review-cancelled", model: "opus 5.5", accountId: "Slow" },
+      abort.signal,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    abort.abort();
+    await expect(cancelled).rejects.toThrow();
+  } finally {
+    stall.on = false;
+    for (const release of stall.held.splice(0)) release();
     await close();
   }
 });

@@ -220,7 +220,9 @@ const CatalogPage = z.looseObject({
       accounts: z.array(z.string()).optional(),
     }),
   ),
-  instances: z.array(z.looseObject({ provider: z.string(), instance: z.string() })),
+  instances: z.array(
+    z.looseObject({ provider: z.string(), instance: z.string(), accountId: z.string().optional() }),
+  ),
 });
 const models = controlTool({
   ...agents,
@@ -287,7 +289,7 @@ function compactCatalog(page: z.infer<typeof CatalogPage>) {
   return {
     models: compactModels(page.models),
     accounts: page.instances.map((instance) => ({
-      accountId: instance.instance,
+      accountId: instance.accountId ?? instance.instance,
       ...pick(instance, [
         "provider",
         "accountLabel",

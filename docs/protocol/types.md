@@ -1414,6 +1414,7 @@ Example:
 | stale | yes | boolean |  |
 | refreshing | yes | boolean |  |
 | error | no | ["discovery_failed","timeout","persistence_failed"] |  |
+| accountId | yes | string | {"minLength":1,"maxLength":256} |
 | installed | yes | boolean |  |
 | auth | yes | ["logged_in","logged_out","unknown"] |  |
 | accountLabel | no | string | {"maxLength":256} |
@@ -1425,6 +1426,7 @@ Example:
 
 ```json
 {
+  "accountId": "example",
   "acpAgentId": "example",
   "allowedAccessModes": [],
   "auth": "logged_in",

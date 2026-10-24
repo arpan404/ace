@@ -3,7 +3,7 @@ import { createScriptedAdapter } from "@ace/adapter-testkit";
 import type { SessionContext } from "@ace/engine-api";
 import { start, end } from "../engine/test-support.ts";
 import { setup } from "./test-support.ts";
-import { AgentControlOperation } from "@ace/protocol";
+import { AgentCatalogPage, AgentControlOperation } from "@ace/protocol";
 import { createAgentControlPort } from "./tools.ts";
 import { scriptedModelInstance, seedScriptedModels } from "../testing/models.ts";
 
@@ -67,7 +67,7 @@ test("delegation resolves an approved ACP catalog by installation and account id
   expect(h.store.listThreads()).toHaveLength(2);
 });
 
-test("an agent names an ACP agent's own login and a loose model through delegate, and the child runs there", async () => {
+test("an ACP login's account id from the catalog, with a loose model name, delegates there", async () => {
   const h = setup();
   const identity = {
     acpAgentId: "local:agent",
@@ -99,23 +99,28 @@ test("an agent names an ACP agent's own login and a loose model through delegate
     ...identity,
   });
   const port = createAgentControlPort(h.store, h.service);
-  const result = await port.execute(
-    parent,
-    AgentControlOperation.parse({
-      op: "delegate_task",
-      tasks: [
-        {
-          requestId: "acp-loose",
-          task: "work",
-          role: "acp-loose-name-task",
-          provider: "acp",
-          accountId: identity.instanceId,
-          model: "Scripted Model",
-        },
-      ],
-    }),
-    new AbortController().signal,
+  const run = (operation: Record<string, unknown>) =>
+    port.execute(parent, AgentControlOperation.parse(operation), new AbortController().signal);
+  // What the agent reads: the login and the model, each with the account id delegate takes.
+  const page = AgentCatalogPage.parse(
+    (await run({ op: "agents.catalog", provider: "acp", query: "scripted" })).data,
   );
+  const accountId = page.instances[0]?.accountId;
+  expect(accountId).toBe(identity.instanceId);
+  expect(page.models[0]?.accounts).toEqual([identity.instanceId]);
+  const result = await run({
+    op: "delegate_task",
+    tasks: [
+      {
+        requestId: "acp-loose",
+        task: "work",
+        role: "acp-loose-name-task",
+        provider: "acp",
+        accountId,
+        model: "Scripted Model",
+      },
+    ],
+  });
   expect(result).toMatchObject({ ok: true });
   await h.engine.flush();
   expect(contexts[0]?.acpIdentity).toEqual(identity);

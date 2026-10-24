@@ -19,7 +19,7 @@ export const AgentCatalogInput = ModelFilter.extend({
 });
 const { raw: _raw, ...catalogModelShape } = CatalogModel.shape;
 export const AgentCatalogModel = z.object(catalogModelShape).extend({
-  /** With a query: every account that serves this model (`instance` is the first). */
+  /** The accountIds of every account that serves this model, as `delegate` takes them. */
   accounts: z.array(z.string().min(1).max(256)).max(64).optional(),
 });
 /** Native permission selectors stay in ace: an agent chooses by `allowedAccessModes`. */
@@ -28,6 +28,8 @@ export const AgentCatalogInstance = ModelInstanceStatus.omit({
   permissionModes: true,
   accessModes: true,
 }).extend({
+  /** The id `delegate` takes as accountId for this account. */
+  accountId: z.string().min(1).max(256),
   installed: z.boolean(),
   auth: z.enum(["logged_in", "logged_out", "unknown"]),
   accountLabel: z.string().max(256).optional(),

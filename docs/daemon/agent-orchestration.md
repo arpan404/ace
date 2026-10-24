@@ -6,8 +6,8 @@ another caller, collect provider credentials, or approve permission requests.
 
 Start with `models`. It reads the same live catalog as the composer, including
 configured models and account-specific discovery. Models expose their IDs,
-reasoning efforts and the accounts that serve them. Every page lists every
-account, with its id, label, installation, login state and the access modes a
+reasoning efforts and the `accountId`s of the accounts that serve them. Every page lists every
+account, with the `accountId` that `delegate` takes, its label, installation, login state and the access modes a
 child may take, so an agent never pages for accounts. Those modes describe the
 caller's ceiling, not authentication or remaining quota. Admission checks those
 separately.
@@ -40,7 +40,12 @@ model. A name that is not an exact id is matched only after every
 account it could run on has loaded its model list, so a cold account's closer
 match is never lost to a loaded account's weaker one. Loading shares a discovery
 already running and keeps a failed one's retry pause, so a provider that is not
-installed is not probed on every request. Every page of the catalog is searched.
+installed is not probed on every request; an account that loaded an empty list
+and is rediscovering is waited for too. A request waits at most 20 seconds for
+loading, and cancelling it ends the wait; slow discovery keeps running in the
+background. Every page of the catalog is searched. The same model through two
+upstream routes (OpenCode's `openai/…` and `azure/…`) is refused as ambiguous,
+since the route decides who runs and bills it.
 An ACP agent's own login is named by its source-qualified instance id, which
 becomes the child's ACP identity. A task for
 another machine is matched against that machine's catalog there. `thread_start`,

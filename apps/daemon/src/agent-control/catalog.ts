@@ -14,6 +14,14 @@ import type { z } from "zod";
 import type { DelegationDependencies } from "./delegations.ts";
 
 /**
+ * The id `delegate` takes for the account behind a catalog row: an ACP login's source-qualified
+ * instance id (its catalog key is an opaque digest), else the catalog instance.
+ */
+function accountOf(row: { instance: string; instanceId?: string | undefined }): string {
+  return row.instanceId ?? row.instance;
+}
+
+/**
  * The nearest runnable models to a name, across every page and account, nearest first: one entry
  * per model, naming every account that serves it, so accounts never crowd out other models.
  */
@@ -25,8 +33,9 @@ function searched(deps: DelegationDependencies, filter: ModelFilter, query: stri
   for (const model of searchModels(rows, query)) {
     const key = `${model.provider}\u0000${model.id}`;
     const entry = byModel.get(key);
-    if (!entry) byModel.set(key, { ...model, accounts: [model.instance] });
-    else if (!entry.accounts.includes(model.instance)) entry.accounts.push(model.instance);
+    const account = accountOf(model);
+    if (!entry) byModel.set(key, { ...model, accounts: [account] });
+    else if (!entry.accounts.includes(account)) entry.accounts.push(account);
   }
   return [...byModel.values()];
 }
@@ -62,6 +71,7 @@ export function readAgentCatalog(
     const account = deps.accounts?.get(status.instanceId ?? status.instance);
     const offers = status.accessModes ?? capabilities?.accessModes ?? [];
     return Object.assign({}, status, {
+      accountId: accountOf(status),
       sources: undefined,
       permissionModes: undefined,
       accessModes: undefined,
@@ -84,7 +94,9 @@ export function readAgentCatalog(
   });
   const found = query ? searched(deps, filter, query) : undefined;
   const rows = found ? found.slice(input.offset, input.offset + input.limit) : page.models;
-  const models = rows.map(({ raw: _raw, ...model }) => model);
+  const models = rows.map(({ raw: _raw, ...model }) =>
+    "accounts" in model ? model : Object.assign(model, { accounts: [accountOf(model)] }),
+  );
   // Reserve envelope space, including worst-case JSON string escaping. Accounts' discovery error
   // details give way first, then models (they page on), and an account is left out only as a
   // last resort.
