@@ -39,6 +39,8 @@ export interface ServerOptions {
   agentControl?: import("./services/types.ts").Services["agentControl"];
   /** Agent calls from other paired machines (ADR 0078). */
   machineCalls?: import("./machines/target.ts").MachineTarget;
+  /** Projects and threads this machine sends to other machines (ADR 0099). */
+  transfers?: import("./transfers/service.ts").DaemonTransfers;
   /** Projects and threads other machines send here (ADR 0099). */
   transferTarget?: import("./transfers/http.ts").TransferTarget;
   /** This machine's links to other machines (`fleet.request`). */

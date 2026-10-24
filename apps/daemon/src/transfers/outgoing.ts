@@ -58,6 +58,8 @@ export interface StartTransfer {
   name: string;
   request: TransferRequest;
   target: { hostId: HostId; name: string };
+  /** Runs once the row exists and before any work, e.g. an agent's background hold. */
+  hold?: ((transfer: Transfer) => void) | undefined;
 }
 
 const retentionMs = 24 * 60 * 60 * 1000;
@@ -117,6 +119,22 @@ export class OutgoingTransfers {
       "This machine has no link to that one. Link them in Settings › Machines.",
     );
   }
+  /** A machine by its profile name, as `machines` lists it: its host id and display name. */
+  async resolveProfile(machine: string): Promise<{ hostId: HostId; name: string }> {
+    const profile = this.deps.profiles().find((entry) => entry.name === machine);
+    if (!profile)
+      throw new TransferError(
+        "machine_not_linked",
+        `No linked machine named ${machine.slice(0, 64)}. Call machines for the names.`,
+      );
+    if (profile.hostId) return { hostId: profile.hostId, name: profile.label ?? profile.name };
+    try {
+      const probe = await new TransferClient(this.deps.transport, profile).probe();
+      return { hostId: probe.hostId, name: probe.name };
+    } catch {
+      throw new TransferError("machine_offline", `${machine.slice(0, 64)} is offline or unreachable.`);
+    }
+  }
   /** Checks the target takes transfers from this device, then starts one. A retry returns it. */
   async start(input: StartTransfer): Promise<Transfer> {
     const existing = this.rows.byCommand(input.commandId);
@@ -161,6 +179,7 @@ export class OutgoingTransfers {
       plan: { source: input.source, name: input.name },
       delivered: !input.request.agent,
     });
+    input.hold?.(transfer);
     this.publish(transfer);
     this.run(transfer.transferId);
     return transfer;
@@ -322,7 +341,8 @@ export class OutgoingTransfers {
       }
       const thread = record.request.thread;
       const threadId = record.transfer.threadId;
-      if (threadId) await this.deps.threads.assertIdle(threadId);
+      // An agent continuing its own thread is the work that is still running; it hands over now.
+      if (threadId && !record.request.agent?.self) await this.deps.threads.assertIdle(threadId);
       const carried: TransferThread | undefined =
         thread && threadId
           ? { ...thread, sourceThreadId: threadId, handoff: this.deps.threads.handoff(threadId) }

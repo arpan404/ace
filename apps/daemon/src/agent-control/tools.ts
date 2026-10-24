@@ -110,6 +110,11 @@ export interface AgentControlExtensions {
   snooze?(thread: ThreadId, until: number | null): Promise<void>;
   /** Other paired machines (ADR 0078); their children join wait and agents_status. */
   machines?: MachinePort;
+  /** Carry a project or the calling thread to another paired machine (ADR 0099). */
+  transfer?(
+    caller: McpAttribution,
+    operation: Extract<AgentControlOperation, { op: "transfer" }>,
+  ): Promise<AgentControlResult>;
   /** The person's role settings, for `delegate` tasks with runRole. */
   runRole?: RoleLookup;
 }
@@ -215,6 +220,10 @@ export function createAgentControlPort(
         }
         case "machines":
           return machines ? machines.list(caller) : { ok: false, code: "unsupported" };
+        case "transfer":
+          return extensions.transfer
+            ? extensions.transfer(caller, operation)
+            : { ok: false, code: "unsupported" };
         case "delegate_task": {
           /** Every refusal a task can meet before anything is created, so a batch never half-starts. */
           const check = async (request: DelegationRequest) => {

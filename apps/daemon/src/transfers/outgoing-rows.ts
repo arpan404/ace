@@ -43,7 +43,9 @@ export const TransferRequest = z.object({
     })
     .optional(),
   /** Set when an agent started it: its thread holds the transfer like a background task. */
-  agent: z.object({ threadId: ThreadId, agentId: AgentId }).optional(),
+  agent: z
+    .object({ threadId: ThreadId, agentId: AgentId, self: z.boolean().default(false) })
+    .optional(),
 });
 export type TransferRequest = z.infer<typeof TransferRequest>;
 

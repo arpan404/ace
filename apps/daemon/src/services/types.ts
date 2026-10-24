@@ -65,6 +65,8 @@ export interface Services {
   /** This machine's links to the person's other machines, made from Settings. */
   fleet?: import("../machines/fleet-links.ts").FleetLinks;
   /** Agents here using other paired machines (ADR 0078). */
+  /** Projects and threads this machine sends to other machines (ADR 0099). */
+  transfers?: import("../transfers/service.ts").DaemonTransfers;
   machines?: {
     caller: import("../machines/caller.ts").MachineCaller;
     children: import("../machines/children.ts").MachineChildren;

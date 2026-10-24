@@ -197,10 +197,36 @@ const machines = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Other machines the person paired that let agents in: name (pass as machine), online or offline, access (read or operate), projects, tool groups and providers. Use with delegate {machine, project}; delegated children there join wait and agents_status.",
+    "Other machines the person paired: name (pass as machine), online or offline, access (read or operate), projects, tool groups, providers, and transfers (true: transfer can move work there). Use with delegate {machine, project}; delegated children there join wait and agents_status.",
   input: z.strictObject({}),
   output: controlResult(z.unknown()),
   run: (_, control) => control.run({ op: "machines" }),
+});
+
+const transfer = controlTool({
+  ...agents,
+  name: "transfer",
+  title: "Move work to another machine",
+  riskClass: "external-effect",
+  capability: "agents",
+  description:
+    'Carry a project, or this thread, to another paired machine: same branch, uncommitted changes included. Default: this thread\'s project. thread: "self" continues this thread there as a new thread with its history. Returns at once with transferId; the result arrives as a new turn, so end your turn. Never poll.',
+  input: z.strictObject({
+    machine: MachineName.describe("A machine from `machines` whose transfers is true."),
+    project: z
+      .string()
+      .min(1)
+      .max(256)
+      .optional()
+      .describe("A project on this machine, by id or name. Default: this thread's."),
+    thread: z
+      .literal("self")
+      .optional()
+      .describe("Continue this thread there; the person sends its next message there."),
+    includeChanges: z.boolean().optional().describe("Send uncommitted changes. Default true."),
+  }),
+  output: controlResult(z.looseObject({ transferId: z.string() })),
+  run: (input, control) => control.run({ op: "transfer", ...input }),
 });
 
 const CatalogPage = z.looseObject({
@@ -261,5 +287,6 @@ export const agentTools = [
   agentMessage,
   agentCancel,
   machines,
+  transfer,
   models,
 ];
