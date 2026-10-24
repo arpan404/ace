@@ -1,7 +1,4 @@
 import { expect, test } from "vitest";
-import { execFile } from "node:child_process";
-import { join } from "node:path";
-import { promisify } from "node:util";
 import { z } from "zod";
 import { connectBrowser } from "./index.ts";
 import { decodeStreamMessage, StreamAssembler } from "./stream.ts";
@@ -15,20 +12,6 @@ test.skipIf(!executablePath && process.platform !== "win32")(
   async () => {
     if (!executablePath)
       throw new Error("Windows streaming checks require a real Chrome executable");
-    if (process.platform === "win32") {
-      const systemRoot = z.string().min(1).parse(process.env.SystemRoot);
-      const { stdout } = await promisify(execFile)(
-        join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
-        ["-NoProfile", "-Command", "[Environment]::GetFolderPath('LocalApplicationData')"],
-        { timeout: 10_000, windowsHide: true, maxBuffer: 4096 },
-      );
-      console.info(
-        JSON.stringify({
-          nativeLocalAppData: stdout.trim(),
-          configuredLocalAppData: process.env.LOCALAPPDATA,
-        }),
-      );
-    }
     const f = await fixture();
     await f.navigate();
     await f.execute({ action: "resize", width: 320, height: 200 });
