@@ -82,9 +82,9 @@ export function startProviderInstalls(context: ServiceContext): void {
       .catch(() => context.log.log("warn", "Provider installer shutdown failed"));
   });
   context.resources.own(() => installs.close());
+  // The startup check ran before installers existed, so it has no update information yet.
   void context.services.providerStatuses
-    ?.refreshAfterMutation()
-    .then(() => context.services.providerStatuses?.publish())
+    ?.refreshVersions()
     .catch(() => context.log.log("warn", "Provider version refresh failed"));
 }
 export function createProviderInstallsSession(context: SocketContext): SocketService {
