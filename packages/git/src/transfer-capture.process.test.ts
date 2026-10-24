@@ -41,7 +41,9 @@ test("capturing changes leaves the checkout and its index byte-identical", async
   expect(await scalar(repo, "rev-parse", "refs/ace/transfer/t1")).toBe(captured?.commit);
   expect(await scalar(repo, "rev-parse", `${captured?.commit}^`)).toBe(head);
   expect(
-    (await scalar(repo, "ls-tree", "-r", "--name-only", "refs/ace/transfer/t1")).split("\n").sort(),
+    (await scalar(repo, "ls-tree", "-r", "--name-only", "refs/ace/transfer/t1"))
+      .split("\n")
+      .toSorted(),
   ).toEqual([".gitignore", "new/untracked.txt", "staged.txt", "tracked.txt"]);
   expect(await scalar(repo, "show", "refs/ace/transfer/t1:tracked.txt")).toBe("edited");
 });

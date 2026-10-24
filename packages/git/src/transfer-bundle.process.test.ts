@@ -12,7 +12,7 @@ afterEach(() => service.close());
 
 const binary = Buffer.from([0, 1, 2, 255, 0, 10, 13, 0, 128]);
 const sortedStatus = async (repo: string) =>
-  (await scalar(repo, "status", "--porcelain", "--untracked-files=all")).split("\n").sort();
+  (await scalar(repo, "status", "--porcelain", "--untracked-files=all")).split("\n").toSorted();
 
 /** A checkout with one of every kind of uncommitted change. */
 async function changedSource() {

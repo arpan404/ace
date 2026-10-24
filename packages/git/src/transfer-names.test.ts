@@ -61,14 +61,15 @@ test("a transferred branch keeps its name when free or already at the commit", (
   ).toEqual({ branch: "feature", existing: true });
 });
 
+const land = (entries: Record<string, string>) =>
+  landingBranchName({
+    branch: "feature",
+    commit: "b",
+    machine: "Arpan’s MacBook Pro",
+    heads: heads(entries),
+  });
+
 test("a branch name the target uses for other commits lands with a -from-machine suffix", () => {
-  const land = (entries: Record<string, string>) =>
-    landingBranchName({
-      branch: "feature",
-      commit: "b",
-      machine: "Arpan’s MacBook Pro",
-      heads: heads(entries),
-    });
   expect(land({ feature: "a" })).toEqual({
     branch: "feature-from-arpans-macbook-pro",
     existing: false,

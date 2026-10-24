@@ -2,7 +2,7 @@ import { lstat, open } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { GitError } from "./types.ts";
 
-const signatures = ["# v2 git bundle\n", "# v3 git bundle\n"];
+const signatures = new Set(["# v2 git bundle\n", "# v3 git bundle\n"]);
 
 /**
  * A bundle path is the one place ace opens Git's `file` transport, so it must name exactly a
@@ -19,7 +19,7 @@ export async function assertBundleFile(bundle: string): Promise<void> {
     const head = Buffer.alloc(16);
     const { bytesRead } = await handle.read(head, 0, head.length, 0);
     const text = head.subarray(0, bytesRead).toString("latin1");
-    if (!signatures.includes(text))
+    if (!signatures.has(text))
       throw new GitError("invalid_argument", "The file is not a Git bundle");
   } finally {
     await handle.close();
