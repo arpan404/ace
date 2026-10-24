@@ -9,6 +9,7 @@ export function isolatedTestEnvironment(
   ambient: NodeJS.ProcessEnv,
   home: string,
   realHome: string,
+  platform: NodeJS.Platform,
   gitCeilings: readonly string[] = [],
 ): NodeJS.ProcessEnv {
   const selectors = new Set(testHomePathVariables);
@@ -36,8 +37,9 @@ export function isolatedTestEnvironment(
     XDG_RUNTIME_DIR: join(home, ".runtime"),
     XDG_CONFIG_DIRS: join(home, ".config"),
     XDG_DATA_DIRS: join(home, ".local/share"),
-    APPDATA: join(home, ".config"),
-    LOCALAPPDATA: join(home, ".local/share"),
+    APPDATA: platform === "win32" ? join(home, "AppData", "Roaming") : join(home, ".config"),
+    LOCALAPPDATA:
+      platform === "win32" ? join(home, "AppData", "Local") : join(home, ".local/share"),
     TMPDIR: join(home, "tmp"),
     TMP: join(home, "tmp"),
     TEMP: join(home, "tmp"),
