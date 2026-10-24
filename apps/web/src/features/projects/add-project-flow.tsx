@@ -1,14 +1,13 @@
-import { DesktopIcon } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
-import { CommandChoices, type CommandChoice } from "@/components/ui/command-choices.tsx";
+import { CommandChoices } from "@/components/ui/command-choices.tsx";
 import type { PaletteStart } from "@/lib/layout.tsx";
-import { machineStatus } from "@/lib/machine-status.ts";
 import { useMachines, type Machine } from "@/lib/machines.ts";
 import { CloneProjectStep } from "./clone-project-step.tsx";
 import { CreateProjectStep } from "./create-project-step.tsx";
 import { GithubStep } from "./github-step.tsx";
 import { useLandInProject } from "./land.ts";
 import { LocalFolderStep } from "./local-folder-step.tsx";
+import { MachineChip, machineChoices } from "./machine-step.tsx";
 import { projectSources, type AddPage } from "./project-sources.ts";
 import { useProjectDialogs } from "./projects-context.ts";
 
@@ -40,24 +39,7 @@ export function AddProjectFlow(props: {
     ? (found ?? { ...chosen, status: "offline", client: undefined })
     : machines[0];
   const several = machines.length > 1 || (chosen !== undefined && found === undefined);
-  const choices = useMemo(
-    () =>
-      machines.map((each): CommandChoice => ({
-        id: each.id,
-        label: each.name,
-        icon: DesktopIcon,
-        ...(each.status === "online"
-          ? {}
-          : {
-              aside: (
-                <span className="text-xs text-muted-foreground">
-                  {machineStatus[each.status].label}
-                </span>
-              ),
-            }),
-      })),
-    [machines],
-  );
+  const choices = useMemo(() => machineChoices(machines, { onlineOnly: false }), [machines]);
 
   if (!machine) return null;
   if (several && picking)
@@ -77,14 +59,7 @@ export function AddProjectFlow(props: {
       />
     );
   const chip = several ? (
-    <button
-      type="button"
-      aria-label={`Machine: ${machine.name}`}
-      onClick={() => setPicking(true)}
-      className="h-6 max-w-40 shrink-0 truncate rounded-sm px-2 text-sm text-muted-foreground focus-ring hover:bg-accent hover:text-foreground"
-    >
-      {machine.name}
-    </button>
+    <MachineChip name={machine.name} onClick={() => setPicking(true)} />
   ) : undefined;
 
   if (props.page === "add-local")

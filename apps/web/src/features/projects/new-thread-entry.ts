@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import { useOrganizer } from "@/features/organize/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
+import { useMachines } from "@/lib/machines.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 
 /** The project of the list's most recently updated thread. */
@@ -19,7 +20,8 @@ function latestProject(reader: SidebarReader): string | undefined {
 
 /**
  * Ways into a new thread. `start` asks where when it has to: with no project it opens Add
- * project, with one it opens the draft there, with several the palette's "New thread in…".
+ * project, with one it opens the draft there, with several, or while another machine is online,
+ * the palette's "New thread in…" (which chooses the machine too).
  * `here` skips the question: the open thread's project, else the project Home is filtered to,
  * else the one worked in last.
  */
@@ -31,17 +33,19 @@ export function useNewThreadEntry(): { start(): void; here(): void } {
   const sidebar = useSidebarStore();
   const open = useParams({ strict: false }).threadId;
   const { projects } = directory;
+  const machines = useMachines();
+  const elsewhere = machines.some((machine) => !machine.primary && machine.status === "online");
   const draft = useCallback(
     (project: string) => void navigate({ to: "/new", search: { project } }),
     [navigate],
   );
   const start = useCallback(() => {
-    const only = projects.length === 1 ? projects[0] : undefined;
+    const only = projects.length === 1 && !elsewhere ? projects[0] : undefined;
     if (only) draft(only.id);
-    else if (projects.length > 1) openPalette({ page: "new-thread-in" });
+    else if (projects.length > 1 || elsewhere) openPalette({ page: "new-thread-in" });
     else if (directory.loaded) openPalette({ page: "add-project" });
     else void navigate({ to: "/new" });
-  }, [projects, directory.loaded, draft, openPalette, navigate]);
+  }, [projects, elsewhere, directory.loaded, draft, openPalette, navigate]);
   const here = useCallback(() => {
     const known = (id: string | null | undefined) =>
       id && projects.some((project) => project.id === id) ? id : undefined;
