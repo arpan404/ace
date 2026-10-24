@@ -20,6 +20,11 @@ const listed = (models: readonly CatalogModel[]) =>
     .slice(0, 8)
     .map((model) => `${model.id} (${model.provider})`)
     .join(", ");
+const accounts = (models: readonly CatalogModel[]) =>
+  models
+    .slice(0, 8)
+    .map((model) => model.instanceId ?? model.instance)
+    .join(", ");
 
 /** A loose model name that fits several models equally, refused with the ids to choose from. */
 export function ambiguousModel(name: string, options: readonly CatalogModel[]): AgentControlError {
@@ -28,6 +33,16 @@ export function ambiguousModel(name: string, options: readonly CatalogModel[]): 
     "model_ambiguous",
     undefined,
     `"${name}" fits several models: ${listed(options)}. Pass one of these ids as model.`,
+  );
+}
+
+/** One model several ACP logins serve as different agents, refused with the logins to choose. */
+export function ambiguousLogin(model: string, rows: readonly CatalogModel[]): AgentControlError {
+  return new AgentControlError(
+    "invalid_arguments",
+    "model_ambiguous",
+    undefined,
+    `${model} is served by several ACP logins: ${accounts(rows)}. Pass one as accountId.`,
   );
 }
 

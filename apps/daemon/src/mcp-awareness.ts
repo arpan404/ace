@@ -55,7 +55,8 @@ export function mcpAwareness(deps: {
         if (!instance.installed || instance.auth === "logged_out") continue;
         const entry = byProvider.get(instance.provider) ?? { modes: new Set(), accounts: [] };
         for (const mode of instance.allowedAccessModes) entry.modes.add(mode);
-        entry.accounts.push(instance.accountLabel ?? instance.instance);
+        // An ACP login has no label; its account id is what an agent passes, never its catalog key.
+        entry.accounts.push(instance.accountLabel ?? instance.accountId);
         byProvider.set(instance.provider, entry);
       }
       return [...byProvider].map(([provider, entry]) => ({

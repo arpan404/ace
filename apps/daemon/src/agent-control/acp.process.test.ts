@@ -5,6 +5,7 @@ import { start, end } from "../engine/test-support.ts";
 import { setup } from "./test-support.ts";
 import { AgentCatalogPage, AgentControlOperation } from "@ace/protocol";
 import { createAgentControlPort } from "./tools.ts";
+import { mcpAwareness } from "../mcp-awareness.ts";
 import { scriptedModelInstance, seedScriptedModels } from "../testing/models.ts";
 
 test("delegation resolves an approved ACP catalog by installation and account identity instead of catalog id", async () => {
@@ -107,6 +108,16 @@ test("an ACP login's account id from the catalog, with a loose model name, deleg
   );
   const accountId = page.instances[0]?.accountId;
   expect(accountId).toBe(identity.instanceId);
+  // The brief names the login the same way, never by its catalog key.
+  const brief = mcpAwareness({
+    store: h.store,
+    delegations: () => h.service,
+    notes: () => [],
+    machine: null,
+  });
+  expect(brief.delegates(parent).find((entry) => entry.provider === "acp")?.accounts).toEqual([
+    identity.instanceId,
+  ]);
   expect(page.models[0]?.accounts).toEqual([identity.instanceId]);
   const result = await run({
     op: "delegate_task",

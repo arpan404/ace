@@ -47,7 +47,8 @@ background. Every page of the catalog is searched. The same model through two
 upstream routes (OpenCode's `openai/…` and `azure/…`) is refused as ambiguous,
 since the route decides who runs and bills it.
 An ACP agent's own login is named by its source-qualified instance id, which
-becomes the child's ACP identity. A task for
+becomes the child's ACP identity; a model several ACP logins serve is refused
+until one is named. A task for
 another machine is matched against that machine's catalog there. `thread_start`,
 `thread_fork` and `thread_control configure` take loose names the same way, the
 last two on the thread's own account. Use a

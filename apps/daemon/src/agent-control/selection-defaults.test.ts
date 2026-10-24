@@ -153,3 +153,32 @@ it("a loose name on an ACP account is matched on that account's rows, which also
     instanceId: "approved:default",
   });
 });
+
+/** An ACP login serving gemini-4, keyed in the catalog by an opaque digest as in production. */
+function acpLogin(name: string) {
+  return {
+    ...model("acp", "gemini-4", {
+      acpAgentId: `local:${name}`,
+      installationId: name,
+      instanceId: `${name}:default`,
+    }),
+    instance: `acp-${name}-digest`,
+  };
+}
+
+it("a model two ACP logins serve is refused without an account, and runs on the one named", () => {
+  const list = catalogue([acpLogin("first"), acpLogin("second")]);
+  expect(() => resolveSelection({ provider: "acp", model: "gemini-4" }, "claude", list)).toThrow(
+    expect.objectContaining({
+      code: "invalid_arguments",
+      publicDetail: expect.stringMatching(/first:default, second:default/),
+    }),
+  );
+  expect(
+    resolveSelection(
+      { provider: "acp", model: "gemini-4", accountId: "second:default" },
+      "claude",
+      list,
+    ),
+  ).toMatchObject({ acpAgentId: "local:second", instanceId: "second:default" });
+});

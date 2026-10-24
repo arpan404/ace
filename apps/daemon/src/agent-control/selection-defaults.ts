@@ -6,7 +6,7 @@ import {
   type ModelListResult,
 } from "@ace/protocol";
 import { isDefaultSelection, resolveModelName } from "@ace/models";
-import { ambiguousModel as ambiguous, modelElsewhere } from "./models.ts";
+import { ambiguousLogin, ambiguousModel as ambiguous, modelElsewhere } from "./models.ts";
 
 /** What an agent may leave out of a selection: the provider and ACP agent identity. */
 export interface OpenSelection {
@@ -157,7 +157,14 @@ export function resolveSelection<T extends OpenSelection>(
   }
   if (provider !== "acp" || !model || selection.acpAgentId) return { ...selection, provider };
   // The ACP agent and installation come from the named account's own rows when there is one.
-  const served = matches(list, "acp", model, selection.accountId)[0];
+  // Without one, a model several ACP logins serve is a choice of agent, never made silently.
+  const serving = matches(list, "acp", model, selection.accountId);
+  const logins = new Set(serving.map((row) => row.instanceId ?? row.instance));
+  if (logins.size > 1)
+    throw ambiguousLogin(model, [
+      ...new Map(serving.map((row) => [row.instanceId ?? row.instance, row])).values(),
+    ]);
+  const served = serving[0];
   if (!served?.acpAgentId) return { ...selection, provider };
   return {
     ...selection,

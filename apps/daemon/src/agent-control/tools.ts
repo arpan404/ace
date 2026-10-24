@@ -146,7 +146,7 @@ export function createAgentControlPort(
       if (!store.getMcpAgent(caller.threadId, caller.agentId))
         return { ok: false, code: "forbidden" };
       const callerProvider = store.getThread(caller.threadId)?.provider;
-      /** An agent may leave the provider (and an ACP model's agent ids) for ace to resolve. */
+      // An agent may leave the provider (and an ACP model's agent ids) for ace to resolve.
       // The account comes first: a label becomes its id and fixes the provider, and a loose model
       // name is then matched against that account's catalog alone. A name that is not an exact
       // catalog id is matched only after every account it could run on has loaded its models, so
