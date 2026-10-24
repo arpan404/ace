@@ -11,7 +11,8 @@ const workspace = { id: "weather", name: "weather", path: "/Users/dev/weather" }
 
 /**
  * This Mac with a thread in its weather project, linked to a build server (which takes
- * transfers), a studio that is offline and a laptop that doesn't allow projects. Each transfer
+ * transfers), a studio that is offline, a laptop that doesn't allow projects and a desk that
+ * takes transfers but not agents. Each transfer
  * step runs when the test says so.
  */
 function linkedMachines(options: { links?: boolean } = {}) {
@@ -21,6 +22,7 @@ function linkedMachines(options: { links?: boolean } = {}) {
       { hostId: "build", name: "Build server" },
       { hostId: "studio", name: "Studio" },
       { hostId: "laptop", name: "Old laptop" },
+      { hostId: "desk", name: "Desk" },
     ],
     projectScheduler: (callback) => void steps.push(callback),
   });
@@ -33,6 +35,8 @@ function linkedMachines(options: { links?: boolean } = {}) {
     app.daemon.linkTo(machine("build"));
     app.daemon.linkTo(machine("studio"), { status: "offline" });
     app.daemon.linkTo(machine("laptop"), { projects: false });
+    // Agents from other machines aren't let in there, but the person's transfers are.
+    app.daemon.linkTo(machine("desk"), { status: "refused", access: undefined, projects: true });
   }
   app.daemon.createThread({
     id: "thread-forecast",
@@ -83,7 +87,7 @@ test("a thread continues on a linked machine: progress, then the project and a n
       within(machines)
         .getAllByRole("option")
         .map((each) => each.textContent),
-    ).toEqual(["Build server", "StudioOffline", "Old laptopProjects not allowed"]),
+    ).toEqual(["Build server", "StudioOffline", "Old laptopProjects not allowed", "Desk"]),
   );
   expect(
     within(machines).getByRole("option", { name: "Studio" }).getAttribute("aria-disabled"),

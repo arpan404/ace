@@ -20,7 +20,8 @@ export function transferMachines(links: readonly FleetLink[]): TransferMachine[]
     const reason =
       link.status === "offline"
         ? "Offline"
-        : link.access !== "operate" || link.projects === false
+        : // Older daemons don't say; then `operate` access is the best sign there is.
+          (link.projects ?? link.access === "operate") === false
           ? "Projects not allowed"
           : undefined;
     return [{ hostId: link.hostId, name: link.name, ...(reason ? { reason } : {}) }];
