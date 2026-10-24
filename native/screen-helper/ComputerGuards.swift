@@ -32,6 +32,12 @@ func cuConflictsWithHuman(_ facts: CUHumanTargetFacts) -> Bool {
 
 /// Whether an action may run now. Pure: the person always wins over the agent.
 func cuGuard(_ facts: CUGuardFacts, app: String) throws {
+    try cuGuard(facts, app: app, conflict: { facts.conflictsWithHuman })
+}
+
+/// Focus/ancestor queries can block on the target app. Only consult them when recent
+/// human input in that frontmost app could actually refuse the action.
+func cuGuard(_ facts: CUGuardFacts, app: String, conflict: () throws -> Bool) throws {
     if facts.cancelled { throw CUError("cancelled", cuCancelledMessage) }
     if facts.stopRequested {
         throw CUError("stopped_by_person", "The person pressed Esc to stop computer use. Stop acting and ask them how they want to continue.")
@@ -39,7 +45,8 @@ func cuGuard(_ facts: CUGuardFacts, app: String) throws {
     guard facts.sessionAvailable else { throw cuSessionUnavailableError }
     // Accessibility targets the app, independently of the lock screen. The previous
     // frontmost app can still report active while locked; that is not human takeover.
-    if !facts.locked && facts.appFrontmost && facts.conflictsWithHuman && facts.secondsSinceHumanInput < 1.5 {
+    guard !facts.locked, facts.appFrontmost, facts.secondsSinceHumanInput < 1.5 else { return }
+    if try conflict() {
         throw CUError("person_active", "The person is using this control in \(app) right now. Select another element or window, or wait before trying again.")
     }
 }

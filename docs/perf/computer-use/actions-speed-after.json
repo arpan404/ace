@@ -1,0 +1,2300 @@
+{
+  "rounds": 8,
+  "load": "{ 26.18 14.03 11.88 }",
+  "sequenceP50Ms": 920,
+  "steps": {
+    "look": {
+      "coldMs": 601,
+      "p50Ms": 32,
+      "p95Ms": 36
+    },
+    "type expression": {
+      "coldMs": 367,
+      "p50Ms": 305,
+      "p95Ms": 322
+    },
+    "click by id": {
+      "coldMs": 119,
+      "p50Ms": 103,
+      "p95Ms": 108
+    },
+    "click by id, no observe": {
+      "coldMs": 12,
+      "p50Ms": 7,
+      "p95Ms": 12
+    },
+    "screenshot only": {
+      "coldMs": 304,
+      "p50Ms": 34,
+      "p95Ms": 36
+    },
+    "look + screenshot": {
+      "coldMs": 88,
+      "p50Ms": 50,
+      "p95Ms": 117
+    },
+    "repeat look": {
+      "coldMs": 12,
+      "p50Ms": 7,
+      "p95Ms": 9
+    },
+    "act + screenshot": {
+      "coldMs": 324,
+      "p50Ms": 291,
+      "p95Ms": 301
+    },
+    "key then wait_for": {
+      "coldMs": 106,
+      "p50Ms": 91,
+      "p95Ms": 99
+    }
+  },
+  "requestTimings": [
+    {
+      "op": "resolve",
+      "outcome": "ok",
+      "queueMs": 0.177250000000015,
+      "startupMs": 3.5483329999999853,
+      "helperMs": 352.21004199999993,
+      "decodeMs": 0.47395800000003874,
+      "totalMs": 356.49474999999995,
+      "native": {
+        "phases": {},
+        "observation": {}
+      },
+      "step": "cold: look"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.02837499999998272,
+      "startupMs": 0.5149169999999685,
+      "helperMs": 221.87516600000004,
+      "decodeMs": 0.47900000000004184,
+      "totalMs": 222.92708299999993,
+      "native": {
+        "elapsedMs": 146,
+        "phases": {
+          "windowsMs": 8.2,
+          "visited": 68,
+          "sessionMs": 45.8,
+          "describeMs": 1.6,
+          "screenshotMs": 0,
+          "events": 0,
+          "actionsMs": 12.8,
+          "walkMs": 90.4,
+          "fetchMs": 72.6
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "cold: look"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.033916999999973996,
+      "startupMs": 0.0027499999999918145,
+      "helperMs": 364.20170799999994,
+      "decodeMs": 0.3391670000000886,
+      "totalMs": 364.6044999999999,
+      "native": {
+        "elapsedMs": 363,
+        "phases": {
+          "windowsMs": 2,
+          "actionMs": 118.3,
+          "guardMs": 3.2,
+          "finalSettleMs": 114.5,
+          "observationMs": 34,
+          "sessionMs": 0.1,
+          "betweenSettleMs": 93.7
+        },
+        "observation": {
+          "fetchMs": 20.2,
+          "describeMs": 0.8,
+          "screenshotMs": 0,
+          "visited": 70,
+          "walkMs": 31.6,
+          "actionsMs": 0.4,
+          "events": 10
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "cold: type expression"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.026749999999992724,
+      "startupMs": 0.002459000000044398,
+      "helperMs": 118.1395,
+      "decodeMs": 0.14187500000002728,
+      "totalMs": 118.33324999999991,
+      "native": {
+        "elapsedMs": 116,
+        "phases": {
+          "windowsMs": 1.2,
+          "actionMs": 18.3,
+          "guardMs": 2.6,
+          "finalSettleMs": 68.7,
+          "observationMs": 27.5,
+          "sessionMs": 0.1,
+          "betweenSettleMs": 0
+        },
+        "observation": {
+          "fetchMs": 19.2,
+          "describeMs": 0.7,
+          "screenshotMs": 0,
+          "visited": 68,
+          "walkMs": 24.1,
+          "actionsMs": 0.2,
+          "events": 17
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "cold: click by id"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.32837500000005093,
+      "startupMs": 0.0031249999999545253,
+      "helperMs": 11.084333000000015,
+      "decodeMs": 0.06820799999991323,
+      "totalMs": 11.511499999999842,
+      "native": {
+        "elapsedMs": 8,
+        "phases": {
+          "windowsMs": 4.3,
+          "actionMs": 4.2,
+          "guardMs": 0.2,
+          "finalSettleMs": 0,
+          "observationMs": 0,
+          "sessionMs": 0.1,
+          "betweenSettleMs": 0
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "cold: click by id, no observe"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.02483299999994415,
+      "startupMs": 0.005249999999932697,
+      "helperMs": 303.4401250000001,
+      "decodeMs": 0.13137499999993452,
+      "totalMs": 303.63016700000003,
+      "native": {
+        "elapsedMs": 302,
+        "phases": {
+          "fetchMs": 0,
+          "describeMs": 0.6,
+          "screenshotMs": 301.1,
+          "sessionMs": 0.4,
+          "visited": 0,
+          "walkMs": 0,
+          "actionsMs": 0,
+          "windowsMs": 0.9,
+          "events": 19
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "cold: screenshot only"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.018500000000130967,
+      "startupMs": 0.002499999999827196,
+      "helperMs": 84.74404100000015,
+      "decodeMs": 0.1761669999998503,
+      "totalMs": 84.96129100000007,
+      "native": {
+        "elapsedMs": 84,
+        "phases": {
+          "fetchMs": 28.1,
+          "describeMs": 0.7,
+          "screenshotMs": 47.4,
+          "sessionMs": 0.4,
+          "visited": 68,
+          "walkMs": 30.8,
+          "actionsMs": 0,
+          "windowsMs": 4.7,
+          "events": 19
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "cold: look + screenshot"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.02683300000012423,
+      "startupMs": 0.0029580000000350992,
+      "helperMs": 11.044166999999788,
+      "decodeMs": 0.13745800000015151,
+      "totalMs": 11.229500000000144,
+      "native": {
+        "elapsedMs": 10,
+        "phases": {
+          "fetchMs": 28.1,
+          "describeMs": 1.7,
+          "screenshotMs": 0,
+          "sessionMs": 1.4,
+          "visited": 68,
+          "walkMs": 2.8,
+          "actionsMs": 0,
+          "windowsMs": 4.5,
+          "events": 19
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "cold: repeat look"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.0232499999999618,
+      "startupMs": 0.003290999999990163,
+      "helperMs": 322.288542,
+      "decodeMs": 0.6297500000000582,
+      "totalMs": 322.96408299999985,
+      "native": {
+        "elapsedMs": 318,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 2.5,
+          "windowsMs": 4.5,
+          "betweenSettleMs": 0,
+          "actionMs": 59.6,
+          "finalSettleMs": 150.8,
+          "observationMs": 103.6
+        },
+        "observation": {
+          "fetchMs": 25,
+          "describeMs": 0.7,
+          "screenshotMs": 71.9,
+          "visited": 68,
+          "walkMs": 29.7,
+          "actionsMs": 0.2,
+          "events": 23
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "cold: act + screenshot"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.024957999999969616,
+      "startupMs": 0.0037090000000716827,
+      "helperMs": 105.59745800000019,
+      "decodeMs": 0.09029199999986304,
+      "totalMs": 105.74762499999997,
+      "native": {
+        "elapsedMs": 101,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 3.2,
+          "windowsMs": 3.9,
+          "betweenSettleMs": 2.1,
+          "actionMs": 94.6,
+          "finalSettleMs": 0,
+          "observationMs": 0
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "cold: key then wait_for"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.017083000000184256,
+      "startupMs": 0.0027079999999841675,
+      "helperMs": 34.88304199999993,
+      "decodeMs": 0.09741699999995035,
+      "totalMs": 35.01908300000014,
+      "native": {
+        "elapsedMs": 32,
+        "phases": {
+          "fetchMs": 12.6,
+          "describeMs": 2.7,
+          "screenshotMs": 0,
+          "sessionMs": 2.7,
+          "visited": 68,
+          "walkMs": 1.7,
+          "actionsMs": 0,
+          "windowsMs": 25.7,
+          "events": 24
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "look"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.01616599999988466,
+      "startupMs": 0.002791999999772088,
+      "helperMs": 318.9749999999999,
+      "decodeMs": 0.2173330000000533,
+      "totalMs": 319.237208,
+      "native": {
+        "elapsedMs": 317,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 4.4,
+          "windowsMs": 1.2,
+          "betweenSettleMs": 100.9,
+          "actionMs": 83.1,
+          "finalSettleMs": 104.7,
+          "observationMs": 27.2
+        },
+        "observation": {
+          "fetchMs": 21.7,
+          "describeMs": 0.8,
+          "screenshotMs": 0,
+          "visited": 70,
+          "walkMs": 25.4,
+          "actionsMs": 0.4,
+          "events": 35
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "type expression"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.0253339999999298,
+      "startupMs": 0.00466599999981554,
+      "helperMs": 101.17441700000018,
+      "decodeMs": 0.20354200000019773,
+      "totalMs": 101.43304200000011,
+      "native": {
+        "elapsedMs": 100,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 0.1,
+          "windowsMs": 0.9,
+          "betweenSettleMs": 0,
+          "actionMs": 13.3,
+          "finalSettleMs": 66.5,
+          "observationMs": 19.6
+        },
+        "observation": {
+          "fetchMs": 14.6,
+          "describeMs": 0.7,
+          "screenshotMs": 0,
+          "visited": 68,
+          "walkMs": 17.8,
+          "actionsMs": 0.1,
+          "events": 42
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "click by id"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.024042000000008557,
+      "startupMs": 0.003917000000001281,
+      "helperMs": 6.90304100000003,
+      "decodeMs": 0.053584000000228116,
+      "totalMs": 7.003375000000233,
+      "native": {
+        "elapsedMs": 5,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 0.1,
+          "windowsMs": 1,
+          "betweenSettleMs": 0,
+          "actionMs": 3.7,
+          "finalSettleMs": 0,
+          "observationMs": 0
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "click by id, no observe"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.012459000000035303,
+      "startupMs": 0.0029159999999137654,
+      "helperMs": 35.31916700000011,
+      "decodeMs": 0.09808299999986048,
+      "totalMs": 35.44816700000001,
+      "native": {
+        "elapsedMs": 34,
+        "phases": {
+          "fetchMs": 0,
+          "describeMs": 0.4,
+          "screenshotMs": 29.9,
+          "sessionMs": 2,
+          "visited": 0,
+          "walkMs": 0,
+          "actionsMs": 0,
+          "windowsMs": 2.2,
+          "events": 44
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "screenshot only"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.013333999999758817,
+      "startupMs": 0.002541000000292115,
+      "helperMs": 58.934792000000016,
+      "decodeMs": 0.23608299999978044,
+      "totalMs": 59.21116699999993,
+      "native": {
+        "elapsedMs": 58,
+        "phases": {
+          "fetchMs": 12.4,
+          "describeMs": 0.7,
+          "screenshotMs": 38.7,
+          "sessionMs": 1.9,
+          "visited": 68,
+          "walkMs": 16.2,
+          "actionsMs": 0,
+          "windowsMs": 0.7,
+          "events": 44
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "look + screenshot"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.02250000000003638,
+      "startupMs": 0.004707999999936874,
+      "helperMs": 8.514625000000251,
+      "decodeMs": 0.19583400000010442,
+      "totalMs": 8.783957999999984,
+      "native": {
+        "elapsedMs": 8,
+        "phases": {
+          "fetchMs": 12.4,
+          "describeMs": 2.8,
+          "screenshotMs": 0,
+          "sessionMs": 1.8,
+          "visited": 68,
+          "walkMs": 2.4,
+          "actionsMs": 0,
+          "windowsMs": 1,
+          "events": 44
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "repeat look"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.030416999999943073,
+      "startupMs": 0.006915999999819178,
+      "helperMs": 275.0875420000002,
+      "decodeMs": 0.15574999999989814,
+      "totalMs": 275.29299999999967,
+      "native": {
+        "elapsedMs": 274,
+        "phases": {
+          "finalSettleMs": 153.2,
+          "sessionMs": 0.1,
+          "windowsMs": 6.5,
+          "betweenSettleMs": 0,
+          "guardMs": 0.3,
+          "actionMs": 57.9,
+          "observationMs": 56
+        },
+        "observation": {
+          "fetchMs": 14.4,
+          "describeMs": 0.8,
+          "screenshotMs": 37.6,
+          "visited": 68,
+          "walkMs": 16.6,
+          "actionsMs": 0.1,
+          "events": 48
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "act + screenshot"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.01341599999977916,
+      "startupMs": 0.0037090000000716827,
+      "helperMs": 90.30037500000026,
+      "decodeMs": 0.0649159999998119,
+      "totalMs": 90.39720799999986,
+      "native": {
+        "elapsedMs": 89,
+        "phases": {
+          "finalSettleMs": 0,
+          "sessionMs": 0.1,
+          "windowsMs": 1.1,
+          "betweenSettleMs": 2.1,
+          "guardMs": 0.6,
+          "actionMs": 86.3,
+          "observationMs": 0
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "key then wait_for"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.01187500000014552,
+      "startupMs": 0.00233299999990777,
+      "helperMs": 31.107167000000118,
+      "decodeMs": 0.09966699999995399,
+      "totalMs": 31.237166999999772,
+      "native": {
+        "elapsedMs": 30,
+        "phases": {
+          "fetchMs": 12.4,
+          "describeMs": 1.4,
+          "screenshotMs": 0,
+          "sessionMs": 0.3,
+          "visited": 68,
+          "walkMs": 1.5,
+          "actionsMs": 0,
+          "windowsMs": 27.6,
+          "events": 49
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "look"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.01358299999992596,
+      "startupMs": 0.0017920000000231084,
+      "helperMs": 300.3750420000001,
+      "decodeMs": 0.1301659999999174,
+      "totalMs": 300.53549999999996,
+      "native": {
+        "elapsedMs": 299,
+        "phases": {
+          "finalSettleMs": 101.3,
+          "sessionMs": 0.1,
+          "windowsMs": 0.6,
+          "betweenSettleMs": 101.1,
+          "guardMs": 0.7,
+          "actionMs": 69.8,
+          "observationMs": 26.7
+        },
+        "observation": {
+          "fetchMs": 18.9,
+          "describeMs": 0.7,
+          "screenshotMs": 0,
+          "visited": 70,
+          "walkMs": 23.3,
+          "actionsMs": 0.3,
+          "events": 60
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "type expression"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.012541999999939435,
+      "startupMs": 0.001625000000331056,
+      "helperMs": 100.84579199999962,
+      "decodeMs": 0.11187500000005457,
+      "totalMs": 100.98649999999998,
+      "native": {
+        "elapsedMs": 100,
+        "phases": {
+          "finalSettleMs": 65.9,
+          "sessionMs": 0.1,
+          "windowsMs": 0.7,
+          "betweenSettleMs": 0,
+          "guardMs": 0.1,
+          "actionMs": 14.2,
+          "observationMs": 19.4
+        },
+        "observation": {
+          "fetchMs": 11.8,
+          "describeMs": 0.6,
+          "screenshotMs": 0,
+          "visited": 68,
+          "walkMs": 16.3,
+          "actionsMs": 0.1,
+          "events": 67
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "click by id"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.011833999999907974,
+      "startupMs": 0.0019579999998313724,
+      "helperMs": 9.809499999999844,
+      "decodeMs": 0.12541700000019773,
+      "totalMs": 9.9760839999999,
+      "native": {
+        "elapsedMs": 8,
+        "phases": {
+          "finalSettleMs": 0,
+          "sessionMs": 0.1,
+          "windowsMs": 4.9,
+          "betweenSettleMs": 0,
+          "guardMs": 0.1,
+          "actionMs": 3.6,
+          "observationMs": 0
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "click by id, no observe"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.014250000000174623,
+      "startupMs": 0.0025420000001759036,
+      "helperMs": 34.30199999999968,
+      "decodeMs": 0.07729199999994307,
+      "totalMs": 34.408792000000176,
+      "native": {
+        "elapsedMs": 33,
+        "phases": {
+          "fetchMs": 0,
+          "describeMs": 0.4,
+          "screenshotMs": 24.9,
+          "sessionMs": 3,
+          "visited": 0,
+          "walkMs": 0,
+          "actionsMs": 0,
+          "windowsMs": 5.2,
+          "events": 69
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "screenshot only"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.01116699999965931,
+      "startupMs": 0.001833000000260654,
+      "helperMs": 117.01433399999996,
+      "decodeMs": 0.1287080000001879,
+      "totalMs": 117.16899999999987,
+      "native": {
+        "elapsedMs": 116,
+        "phases": {
+          "fetchMs": 64.7,
+          "describeMs": 5.3,
+          "screenshotMs": 28.1,
+          "sessionMs": 1.4,
+          "visited": 68,
+          "walkMs": 75.8,
+          "actionsMs": 0,
+          "windowsMs": 6,
+          "events": 69
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "look + screenshot"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.012040999999953783,
+      "startupMs": 0.002292000000124972,
+      "helperMs": 6.957791999999699,
+      "decodeMs": 0.10375000000021828,
+      "totalMs": 7.091457999999875,
+      "native": {
+        "elapsedMs": 6,
+        "phases": {
+          "fetchMs": 64.7,
+          "describeMs": 0.8,
+          "screenshotMs": 0,
+          "sessionMs": 2,
+          "visited": 68,
+          "walkMs": 2.3,
+          "actionsMs": 0,
+          "windowsMs": 1.5,
+          "events": 69
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "repeat look"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.018999999999778083,
+      "startupMs": 0.002250000000003638,
+      "helperMs": 300.47937500000035,
+      "decodeMs": 0.1455839999998716,
+      "totalMs": 300.65987499999983,
+      "native": {
+        "elapsedMs": 299,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 1.9,
+          "windowsMs": 3.4,
+          "betweenSettleMs": 0,
+          "actionMs": 84.8,
+          "finalSettleMs": 139.1,
+          "observationMs": 72
+        },
+        "observation": {
+          "fetchMs": 33.1,
+          "describeMs": 0.8,
+          "screenshotMs": 32.7,
+          "visited": 68,
+          "walkMs": 36.8,
+          "actionsMs": 0.1,
+          "events": 73
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "act + screenshot"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.012499999999818101,
+      "startupMs": 0.0018749999999272404,
+      "helperMs": 84.21395900000016,
+      "decodeMs": 0.050416000000041095,
+      "totalMs": 84.29541699999982,
+      "native": {
+        "elapsedMs": 83,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 1.5,
+          "windowsMs": 1.2,
+          "betweenSettleMs": 2,
+          "actionMs": 80.2,
+          "finalSettleMs": 0,
+          "observationMs": 0
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "key then wait_for"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.012041999999382824,
+      "startupMs": 0.001958000000740867,
+      "helperMs": 31.367041999999856,
+      "decodeMs": 0.09841599999981554,
+      "totalMs": 31.49304200000006,
+      "native": {
+        "elapsedMs": 31,
+        "phases": {
+          "fetchMs": 19,
+          "describeMs": 0.5,
+          "screenshotMs": 0,
+          "sessionMs": 0.3,
+          "visited": 68,
+          "walkMs": 2.2,
+          "actionsMs": 0,
+          "windowsMs": 28.1,
+          "events": 74
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "look"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.014250000000174623,
+      "startupMs": 0.002207999999882304,
+      "helperMs": 303.5738340000007,
+      "decodeMs": 0.12208299999929295,
+      "totalMs": 303.72920800000065,
+      "native": {
+        "elapsedMs": 303,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 0.8,
+          "windowsMs": 4.5,
+          "betweenSettleMs": 101.8,
+          "actionMs": 65.2,
+          "finalSettleMs": 108.2,
+          "observationMs": 23
+        },
+        "observation": {
+          "fetchMs": 14.1,
+          "describeMs": 0.6,
+          "screenshotMs": 0,
+          "visited": 70,
+          "walkMs": 21.4,
+          "actionsMs": 5.1,
+          "events": 84
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "type expression"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.014917000000423286,
+      "startupMs": 0.0019579999998313724,
+      "helperMs": 93.3754170000002,
+      "decodeMs": 0.10766599999988102,
+      "totalMs": 93.51545799999985,
+      "native": {
+        "elapsedMs": 92,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 0.1,
+          "windowsMs": 1.1,
+          "betweenSettleMs": 0,
+          "actionMs": 14.8,
+          "finalSettleMs": 60.2,
+          "observationMs": 16.5
+        },
+        "observation": {
+          "fetchMs": 12.9,
+          "describeMs": 0.6,
+          "screenshotMs": 0,
+          "visited": 68,
+          "walkMs": 15,
+          "actionsMs": 0.1,
+          "events": 91
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "click by id"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.011791999999331892,
+      "startupMs": 0.001958000000740867,
+      "helperMs": 4.9780000000000655,
+      "decodeMs": 0.05020799999965675,
+      "totalMs": 5.0587500000001455,
+      "native": {
+        "elapsedMs": 4,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 0.1,
+          "windowsMs": 0.7,
+          "betweenSettleMs": 0,
+          "actionMs": 3.7,
+          "finalSettleMs": 0,
+          "observationMs": 0
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "click by id, no observe"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.010916999999608379,
+      "startupMs": 0.0020830000003115856,
+      "helperMs": 33.204749999999876,
+      "decodeMs": 0.07779200000004494,
+      "totalMs": 33.30766700000004,
+      "native": {
+        "elapsedMs": 32,
+        "phases": {
+          "fetchMs": 0,
+          "describeMs": 0.4,
+          "screenshotMs": 30.4,
+          "sessionMs": 1.4,
+          "visited": 0,
+          "walkMs": 0,
+          "actionsMs": 0,
+          "windowsMs": 0.6,
+          "events": 93
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "screenshot only"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.012749999999869033,
+      "startupMs": 0.0020409999997355044,
+      "helperMs": 49.712500000000546,
+      "decodeMs": 0.13504199999988487,
+      "totalMs": 49.875332999999955,
+      "native": {
+        "elapsedMs": 49,
+        "phases": {
+          "fetchMs": 11.5,
+          "describeMs": 0.6,
+          "screenshotMs": 33,
+          "sessionMs": 0.3,
+          "visited": 68,
+          "walkMs": 14.5,
+          "actionsMs": 0,
+          "windowsMs": 0.6,
+          "events": 93
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "look + screenshot"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.011040999999750056,
+      "startupMs": 0.0020000000004074536,
+      "helperMs": 4.721083999999792,
+      "decodeMs": 0.08708300000034797,
+      "totalMs": 4.833166000000347,
+      "native": {
+        "elapsedMs": 4,
+        "phases": {
+          "fetchMs": 11.5,
+          "describeMs": 0.8,
+          "screenshotMs": 0,
+          "sessionMs": 0.4,
+          "visited": 68,
+          "walkMs": 2.3,
+          "actionsMs": 0,
+          "windowsMs": 0.9,
+          "events": 93
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "repeat look"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.014458000000558968,
+      "startupMs": 0.0014999999993960955,
+      "helperMs": 289.8414579999999,
+      "decodeMs": 0.14887500000077125,
+      "totalMs": 290.0230410000004,
+      "native": {
+        "elapsedMs": 289,
+        "phases": {
+          "finalSettleMs": 142.3,
+          "sessionMs": 0.1,
+          "windowsMs": 4.4,
+          "betweenSettleMs": 0,
+          "guardMs": 0.2,
+          "actionMs": 69,
+          "observationMs": 73.1
+        },
+        "observation": {
+          "fetchMs": 30.5,
+          "describeMs": 0.7,
+          "screenshotMs": 29.3,
+          "visited": 68,
+          "walkMs": 35.5,
+          "actionsMs": 0.3,
+          "events": 97
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "act + screenshot"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.022124999999505235,
+      "startupMs": 0.0023330000003625173,
+      "helperMs": 97.82991700000002,
+      "decodeMs": 0.059500000000298314,
+      "totalMs": 97.93291700000009,
+      "native": {
+        "elapsedMs": 97,
+        "phases": {
+          "finalSettleMs": 0,
+          "sessionMs": 0.1,
+          "windowsMs": 3.4,
+          "betweenSettleMs": 2.1,
+          "guardMs": 0.6,
+          "actionMs": 91.5,
+          "observationMs": 0
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "key then wait_for"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.011790999999902851,
+      "startupMs": 0.00204200000007404,
+      "helperMs": 18.50524999999925,
+      "decodeMs": 0.1017920000003869,
+      "totalMs": 18.635415999999168,
+      "native": {
+        "elapsedMs": 18,
+        "phases": {
+          "fetchMs": 11.4,
+          "describeMs": 0.6,
+          "screenshotMs": 0,
+          "sessionMs": 0.4,
+          "visited": 68,
+          "walkMs": 16.5,
+          "actionsMs": 0,
+          "windowsMs": 0.6,
+          "events": 98
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "look"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.014790999999604537,
+      "startupMs": 0.0032090000004245667,
+      "helperMs": 321.7761250000003,
+      "decodeMs": 0.10670799999934388,
+      "totalMs": 321.91420800000014,
+      "native": {
+        "elapsedMs": 321,
+        "phases": {
+          "finalSettleMs": 102.7,
+          "sessionMs": 0.1,
+          "windowsMs": 14.5,
+          "betweenSettleMs": 103,
+          "guardMs": 4,
+          "actionMs": 74.4,
+          "observationMs": 26.2
+        },
+        "observation": {
+          "fetchMs": 19.7,
+          "describeMs": 0.6,
+          "screenshotMs": 0,
+          "visited": 70,
+          "walkMs": 23.1,
+          "actionsMs": 0.4,
+          "events": 108
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "type expression"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.01212500000019645,
+      "startupMs": 0.002290999999786436,
+      "helperMs": 99.81224999999995,
+      "decodeMs": 0.10637500000029831,
+      "totalMs": 99.94854099999975,
+      "native": {
+        "elapsedMs": 99,
+        "phases": {
+          "finalSettleMs": 60.7,
+          "sessionMs": 0.1,
+          "windowsMs": 2.5,
+          "betweenSettleMs": 0,
+          "guardMs": 0.1,
+          "actionMs": 14.1,
+          "observationMs": 21.8
+        },
+        "observation": {
+          "fetchMs": 12.7,
+          "describeMs": 0.8,
+          "screenshotMs": 0,
+          "visited": 68,
+          "walkMs": 15.8,
+          "actionsMs": 0.1,
+          "events": 115
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "click by id"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.011292000000139524,
+      "startupMs": 0.0034159999995608814,
+      "helperMs": 11.932625000000371,
+      "decodeMs": 0.04570899999998801,
+      "totalMs": 12.006916999999703,
+      "native": {
+        "elapsedMs": 11,
+        "phases": {
+          "finalSettleMs": 0,
+          "sessionMs": 0.1,
+          "windowsMs": 7.6,
+          "betweenSettleMs": 0,
+          "guardMs": 0.1,
+          "actionMs": 3.6,
+          "observationMs": 0
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "click by id, no observe"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.010291999999935797,
+      "startupMs": 0.0032920000003286987,
+      "helperMs": 32.747582999999395,
+      "decodeMs": 0.13283300000057352,
+      "totalMs": 32.90820900000017,
+      "native": {
+        "elapsedMs": 32,
+        "phases": {
+          "fetchMs": 0,
+          "describeMs": 0.4,
+          "screenshotMs": 31.1,
+          "sessionMs": 0.3,
+          "visited": 0,
+          "walkMs": 0,
+          "actionsMs": 0,
+          "windowsMs": 0.5,
+          "events": 117
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "screenshot only"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.01224999999976717,
+      "startupMs": 0.002375000000029104,
+      "helperMs": 47.5722080000005,
+      "decodeMs": 0.1455419999992955,
+      "totalMs": 47.7465000000002,
+      "native": {
+        "elapsedMs": 47,
+        "phases": {
+          "fetchMs": 13.9,
+          "describeMs": 0.9,
+          "screenshotMs": 27.5,
+          "sessionMs": 0.3,
+          "visited": 68,
+          "walkMs": 17.4,
+          "actionsMs": 0,
+          "windowsMs": 0.9,
+          "events": 117
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "look + screenshot"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.014083000000027823,
+      "startupMs": 0.002291999999215477,
+      "helperMs": 7.583708000000115,
+      "decodeMs": 0.10008400000060647,
+      "totalMs": 7.714791999999761,
+      "native": {
+        "elapsedMs": 7,
+        "phases": {
+          "fetchMs": 13.9,
+          "describeMs": 0.9,
+          "screenshotMs": 0,
+          "sessionMs": 1.7,
+          "visited": 68,
+          "walkMs": 2.4,
+          "actionsMs": 0,
+          "windowsMs": 2.2,
+          "events": 117
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "repeat look"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.01449999999931606,
+      "startupMs": 0.001958000000740867,
+      "helperMs": 283.94929199999933,
+      "decodeMs": 0.1447920000000522,
+      "totalMs": 284.12383299999965,
+      "native": {
+        "elapsedMs": 283,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 1.3,
+          "windowsMs": 2.9,
+          "betweenSettleMs": 0,
+          "actionMs": 72.6,
+          "finalSettleMs": 137.6,
+          "observationMs": 69.8
+        },
+        "observation": {
+          "fetchMs": 34.6,
+          "describeMs": 0.7,
+          "screenshotMs": 29.8,
+          "visited": 68,
+          "walkMs": 37.9,
+          "actionsMs": 0.3,
+          "events": 121
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "act + screenshot"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.01212500000019645,
+      "startupMs": 0.0017920000000231084,
+      "helperMs": 98.56183299999975,
+      "decodeMs": 0.05066700000043056,
+      "totalMs": 98.641208,
+      "native": {
+        "elapsedMs": 98,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 2.3,
+          "windowsMs": 3.8,
+          "betweenSettleMs": 2,
+          "actionMs": 91.8,
+          "finalSettleMs": 0,
+          "observationMs": 0
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "key then wait_for"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.012083000000529864,
+      "startupMs": 0.00204200000007404,
+      "helperMs": 36.04704099999981,
+      "decodeMs": 0.11849999999958527,
+      "totalMs": 36.196875000000546,
+      "native": {
+        "elapsedMs": 35,
+        "phases": {
+          "fetchMs": 12.7,
+          "describeMs": 2.4,
+          "screenshotMs": 0,
+          "sessionMs": 1.7,
+          "visited": 68,
+          "walkMs": 1.6,
+          "actionsMs": 0,
+          "windowsMs": 30,
+          "events": 122
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "look"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.01783400000022084,
+      "startupMs": 0.002207999999882304,
+      "helperMs": 312.1300000000001,
+      "decodeMs": 0.10429199999998673,
+      "totalMs": 312.26879199999985,
+      "native": {
+        "elapsedMs": 311,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 2.1,
+          "windowsMs": 3.1,
+          "betweenSettleMs": 100.6,
+          "actionMs": 71.1,
+          "finalSettleMs": 109.9,
+          "observationMs": 26.4
+        },
+        "observation": {
+          "fetchMs": 21,
+          "describeMs": 0.6,
+          "screenshotMs": 0,
+          "visited": 70,
+          "walkMs": 24.8,
+          "actionsMs": 0.3,
+          "events": 133
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "type expression"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.011374999999134161,
+      "startupMs": 0.0018340000005991897,
+      "helperMs": 105.5244160000002,
+      "decodeMs": 0.10645899999963149,
+      "totalMs": 105.65820899999926,
+      "native": {
+        "elapsedMs": 105,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 0.1,
+          "windowsMs": 0.7,
+          "betweenSettleMs": 0,
+          "actionMs": 14.9,
+          "finalSettleMs": 65.4,
+          "observationMs": 22.2
+        },
+        "observation": {
+          "fetchMs": 13.2,
+          "describeMs": 0.7,
+          "screenshotMs": 0,
+          "visited": 68,
+          "walkMs": 20.6,
+          "actionsMs": 0.1,
+          "events": 140
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "click by id"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.010833000000275206,
+      "startupMs": 0.001916999999593827,
+      "helperMs": 6.443625000000793,
+      "decodeMs": 0.044249999999919964,
+      "totalMs": 6.513792000000649,
+      "native": {
+        "elapsedMs": 6,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 0.1,
+          "windowsMs": 2.4,
+          "betweenSettleMs": 0,
+          "actionMs": 3.4,
+          "finalSettleMs": 0,
+          "observationMs": 0
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "click by id, no observe"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.009667000000263215,
+      "startupMs": 0.002292000000124972,
+      "helperMs": 33.61133299999983,
+      "decodeMs": 0.14179199999944103,
+      "totalMs": 33.77866699999959,
+      "native": {
+        "elapsedMs": 33,
+        "phases": {
+          "fetchMs": 0,
+          "describeMs": 0.4,
+          "screenshotMs": 30.5,
+          "sessionMs": 0.3,
+          "visited": 0,
+          "walkMs": 0,
+          "actionsMs": 0,
+          "windowsMs": 2,
+          "events": 142
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "screenshot only"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.013500000000021828,
+      "startupMs": 0.002749999999650754,
+      "helperMs": 46.204749999999876,
+      "decodeMs": 0.15687500000058208,
+      "totalMs": 46.39387499999975,
+      "native": {
+        "elapsedMs": 45,
+        "phases": {
+          "fetchMs": 12.4,
+          "describeMs": 0.7,
+          "screenshotMs": 27.4,
+          "sessionMs": 1.1,
+          "visited": 68,
+          "walkMs": 15.5,
+          "actionsMs": 0,
+          "windowsMs": 0.9,
+          "events": 142
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "look + screenshot"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.014541999999892141,
+      "startupMs": 0.002457999999933236,
+      "helperMs": 5.493083000000297,
+      "decodeMs": 0.10258400000020629,
+      "totalMs": 5.6244580000002316,
+      "native": {
+        "elapsedMs": 5,
+        "phases": {
+          "fetchMs": 12.4,
+          "describeMs": 0.6,
+          "screenshotMs": 0,
+          "sessionMs": 1.8,
+          "visited": 68,
+          "walkMs": 2.2,
+          "actionsMs": 0,
+          "windowsMs": 0.6,
+          "events": 142
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "repeat look"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.01375000000007276,
+      "startupMs": 0.0014590000000680448,
+      "helperMs": 285.55662500000017,
+      "decodeMs": 0.1505830000005517,
+      "totalMs": 285.7385840000006,
+      "native": {
+        "elapsedMs": 284,
+        "phases": {
+          "finalSettleMs": 136.9,
+          "sessionMs": 0.1,
+          "windowsMs": 0.7,
+          "betweenSettleMs": 0,
+          "guardMs": 1.1,
+          "actionMs": 63,
+          "observationMs": 84
+        },
+        "observation": {
+          "fetchMs": 32,
+          "describeMs": 2.8,
+          "screenshotMs": 31.1,
+          "visited": 68,
+          "walkMs": 35.5,
+          "actionsMs": 0.1,
+          "events": 146
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "act + screenshot"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.011625000000094587,
+      "startupMs": 0.0019160000001647859,
+      "helperMs": 88.83525000000009,
+      "decodeMs": 0.04829200000040146,
+      "totalMs": 88.91058299999986,
+      "native": {
+        "elapsedMs": 88,
+        "phases": {
+          "finalSettleMs": 0,
+          "sessionMs": 0.1,
+          "windowsMs": 4.4,
+          "betweenSettleMs": 1.8,
+          "guardMs": 1.8,
+          "actionMs": 81.8,
+          "observationMs": 0
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "key then wait_for"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.011000000000422006,
+      "startupMs": 0.001959000000169908,
+      "helperMs": 31.38866599999983,
+      "decodeMs": 0.10262499999953434,
+      "totalMs": 31.52058399999987,
+      "native": {
+        "elapsedMs": 31,
+        "phases": {
+          "fetchMs": 20.1,
+          "describeMs": 0.6,
+          "screenshotMs": 0,
+          "sessionMs": 0.3,
+          "visited": 68,
+          "walkMs": 2.2,
+          "actionsMs": 0,
+          "windowsMs": 28,
+          "events": 147
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "look"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.015084000000570086,
+      "startupMs": 0.002290999999786436,
+      "helperMs": 298.49754200000007,
+      "decodeMs": 0.10633299999972223,
+      "totalMs": 298.6350000000002,
+      "native": {
+        "elapsedMs": 298,
+        "phases": {
+          "finalSettleMs": 101.7,
+          "sessionMs": 0.1,
+          "windowsMs": 4.3,
+          "betweenSettleMs": 100.5,
+          "guardMs": 1.8,
+          "actionMs": 65.6,
+          "observationMs": 25.5
+        },
+        "observation": {
+          "fetchMs": 19.2,
+          "describeMs": 0.7,
+          "screenshotMs": 0,
+          "visited": 70,
+          "walkMs": 23.8,
+          "actionsMs": 0.4,
+          "events": 158
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "type expression"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.011083000000326138,
+      "startupMs": 0.0018749999999272404,
+      "helperMs": 99.7949579999995,
+      "decodeMs": 0.1089590000001408,
+      "totalMs": 99.93320800000038,
+      "native": {
+        "elapsedMs": 99,
+        "phases": {
+          "finalSettleMs": 65.6,
+          "sessionMs": 0.1,
+          "windowsMs": 2.5,
+          "betweenSettleMs": 0,
+          "guardMs": 0.1,
+          "actionMs": 13.9,
+          "observationMs": 17.1
+        },
+        "observation": {
+          "fetchMs": 12.7,
+          "describeMs": 0.7,
+          "screenshotMs": 0,
+          "visited": 68,
+          "walkMs": 15.5,
+          "actionsMs": 0.1,
+          "events": 165
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "click by id"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.011042000000088592,
+      "startupMs": 0.0018749999999272404,
+      "helperMs": 8.68633299999965,
+      "decodeMs": 0.05404200000066339,
+      "totalMs": 8.771875000000364,
+      "native": {
+        "elapsedMs": 8,
+        "phases": {
+          "finalSettleMs": 0,
+          "sessionMs": 0.1,
+          "windowsMs": 4.7,
+          "betweenSettleMs": 0,
+          "guardMs": 0.1,
+          "actionMs": 3.4,
+          "observationMs": 0
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "click by id, no observe"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.009917000000314147,
+      "startupMs": 0.002290999999786436,
+      "helperMs": 30.864042000000154,
+      "decodeMs": 0.09883300000001327,
+      "totalMs": 30.987082999999984,
+      "native": {
+        "elapsedMs": 30,
+        "phases": {
+          "fetchMs": 0,
+          "describeMs": 0.4,
+          "screenshotMs": 29.3,
+          "sessionMs": 0.2,
+          "visited": 0,
+          "walkMs": 0,
+          "actionsMs": 0,
+          "windowsMs": 0.5,
+          "events": 167
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "screenshot only"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.01116699999965931,
+      "startupMs": 0.0020830000003115856,
+      "helperMs": 47.7846669999999,
+      "decodeMs": 0.13816700000006676,
+      "totalMs": 47.95058399999925,
+      "native": {
+        "elapsedMs": 47,
+        "phases": {
+          "fetchMs": 11.6,
+          "describeMs": 0.7,
+          "screenshotMs": 29.3,
+          "sessionMs": 1.9,
+          "visited": 68,
+          "walkMs": 13.7,
+          "actionsMs": 0,
+          "windowsMs": 1.7,
+          "events": 167
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "look + screenshot"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.010834000000613742,
+      "startupMs": 0.0019159999992552912,
+      "helperMs": 4.5801250000004075,
+      "decodeMs": 0.09979199999997945,
+      "totalMs": 4.70679199999995,
+      "native": {
+        "elapsedMs": 4,
+        "phases": {
+          "fetchMs": 11.6,
+          "describeMs": 1.4,
+          "screenshotMs": 0,
+          "sessionMs": 0.3,
+          "visited": 68,
+          "walkMs": 1.6,
+          "actionsMs": 0,
+          "windowsMs": 0.9,
+          "events": 167
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "repeat look"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.01412499999969441,
+      "startupMs": 0.00204200000007404,
+      "helperMs": 278.6473329999999,
+      "decodeMs": 0.14362500000061118,
+      "totalMs": 278.819708,
+      "native": {
+        "elapsedMs": 278,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 4.1,
+          "windowsMs": 1,
+          "betweenSettleMs": 0,
+          "actionMs": 74.2,
+          "finalSettleMs": 138.2,
+          "observationMs": 64.2
+        },
+        "observation": {
+          "fetchMs": 28.7,
+          "describeMs": 0.7,
+          "screenshotMs": 28.8,
+          "visited": 68,
+          "walkMs": 33.5,
+          "actionsMs": 0.1,
+          "events": 171
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "act + screenshot"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.011833999999907974,
+      "startupMs": 0.002124999999978172,
+      "helperMs": 85.70445800000016,
+      "decodeMs": 0.05008300000008603,
+      "totalMs": 85.78250000000025,
+      "native": {
+        "elapsedMs": 85,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 0.6,
+          "windowsMs": 1,
+          "betweenSettleMs": 2,
+          "actionMs": 81.9,
+          "finalSettleMs": 0,
+          "observationMs": 0
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "key then wait_for"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.011499999999614374,
+      "startupMs": 0.002290999999786436,
+      "helperMs": 30.697791999999936,
+      "decodeMs": 0.09799999999995634,
+      "totalMs": 30.832416000000194,
+      "native": {
+        "elapsedMs": 30,
+        "phases": {
+          "fetchMs": 12.5,
+          "describeMs": 2.3,
+          "screenshotMs": 0,
+          "sessionMs": 0.3,
+          "visited": 68,
+          "walkMs": 1.3,
+          "actionsMs": 0,
+          "windowsMs": 26.5,
+          "events": 172
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "look"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.012832999999773165,
+      "startupMs": 0.0022499999995488906,
+      "helperMs": 284.6670840000006,
+      "decodeMs": 0.11908299999959127,
+      "totalMs": 284.81874999999945,
+      "native": {
+        "elapsedMs": 284,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 0.7,
+          "windowsMs": 2.5,
+          "betweenSettleMs": 101.4,
+          "actionMs": 69.8,
+          "finalSettleMs": 83.5,
+          "observationMs": 26.6
+        },
+        "observation": {
+          "fetchMs": 19.5,
+          "describeMs": 0.8,
+          "screenshotMs": 0,
+          "visited": 70,
+          "walkMs": 24.7,
+          "actionsMs": 0.4,
+          "events": 182
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "type expression"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.01337500000045111,
+      "startupMs": 0.0022499999995488906,
+      "helperMs": 107.5664999999999,
+      "decodeMs": 0.1667090000000826,
+      "totalMs": 107.76333400000021,
+      "native": {
+        "elapsedMs": 107,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 0.1,
+          "windowsMs": 8.6,
+          "betweenSettleMs": 0,
+          "actionMs": 14.4,
+          "finalSettleMs": 60.7,
+          "observationMs": 22.9
+        },
+        "observation": {
+          "fetchMs": 12.9,
+          "describeMs": 0.7,
+          "screenshotMs": 0,
+          "visited": 68,
+          "walkMs": 17.3,
+          "actionsMs": 0.1,
+          "events": 189
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "click by id"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.015542000000095868,
+      "startupMs": 0.002124999999978172,
+      "helperMs": 5.732665999999881,
+      "decodeMs": 0.05749999999989086,
+      "totalMs": 5.8249580000001515,
+      "native": {
+        "elapsedMs": 5,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 0.1,
+          "windowsMs": 1.4,
+          "betweenSettleMs": 0,
+          "actionMs": 3.7,
+          "finalSettleMs": 0,
+          "observationMs": 0
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "click by id, no observe"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.012999999999919964,
+      "startupMs": 0.002375000000029104,
+      "helperMs": 28.956207999999606,
+      "decodeMs": 0.09308400000008987,
+      "totalMs": 29.077582999999322,
+      "native": {
+        "elapsedMs": 28,
+        "phases": {
+          "fetchMs": 0,
+          "describeMs": 0.5,
+          "screenshotMs": 25.2,
+          "sessionMs": 0.4,
+          "visited": 0,
+          "walkMs": 0,
+          "actionsMs": 0,
+          "windowsMs": 2.5,
+          "events": 191
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "screenshot only"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.014041000000361237,
+      "startupMs": 0.0019589999992604135,
+      "helperMs": 49.34404100000029,
+      "decodeMs": 0.13850000000093132,
+      "totalMs": 49.51029100000051,
+      "native": {
+        "elapsedMs": 48,
+        "phases": {
+          "fetchMs": 11.2,
+          "describeMs": 0.7,
+          "screenshotMs": 33.1,
+          "sessionMs": 0.2,
+          "visited": 68,
+          "walkMs": 14.2,
+          "actionsMs": 0,
+          "windowsMs": 0.7,
+          "events": 191
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "look + screenshot"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.011249999999563443,
+      "startupMs": 0.00220900000022084,
+      "helperMs": 4.968915999999808,
+      "decodeMs": 0.1000000000003638,
+      "totalMs": 5.094959000000017,
+      "native": {
+        "elapsedMs": 4,
+        "phases": {
+          "fetchMs": 11.2,
+          "describeMs": 0.9,
+          "screenshotMs": 0,
+          "sessionMs": 0.3,
+          "visited": 68,
+          "walkMs": 2.6,
+          "actionsMs": 0,
+          "windowsMs": 0.9,
+          "events": 191
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "repeat look"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.01429199999984121,
+      "startupMs": 0.0017500000012660166,
+      "helperMs": 293.576665999999,
+      "decodeMs": 0.14670900000055553,
+      "totalMs": 293.7515000000003,
+      "native": {
+        "elapsedMs": 292,
+        "phases": {
+          "finalSettleMs": 154.5,
+          "sessionMs": 0.1,
+          "windowsMs": 1,
+          "betweenSettleMs": 0,
+          "guardMs": 0.2,
+          "actionMs": 64.5,
+          "observationMs": 72.6
+        },
+        "observation": {
+          "fetchMs": 27.1,
+          "describeMs": 3.8,
+          "screenshotMs": 35.1,
+          "visited": 68,
+          "walkMs": 30.7,
+          "actionsMs": 0.1,
+          "events": 195
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "act + screenshot"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.011667000000670669,
+      "startupMs": 0.001833000000260654,
+      "helperMs": 88.43754199999967,
+      "decodeMs": 0.058832999999140156,
+      "totalMs": 88.52487500000097,
+      "native": {
+        "elapsedMs": 88,
+        "phases": {
+          "finalSettleMs": 0,
+          "sessionMs": 0.1,
+          "windowsMs": 1,
+          "betweenSettleMs": 2.1,
+          "guardMs": 0.4,
+          "actionMs": 84.7,
+          "observationMs": 0
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "key then wait_for"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.011832999998659943,
+      "startupMs": 0.002084000001559616,
+      "helperMs": 32.04920799999854,
+      "decodeMs": 0.09329200000138371,
+      "totalMs": 32.16979199999878,
+      "native": {
+        "elapsedMs": 31,
+        "phases": {
+          "fetchMs": 19.9,
+          "describeMs": 1.3,
+          "screenshotMs": 0,
+          "sessionMs": 0.3,
+          "visited": 68,
+          "walkMs": 2.2,
+          "actionsMs": 0,
+          "windowsMs": 27.9,
+          "events": 196
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "look"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.01279199999953562,
+      "startupMs": 0.0017079999997804407,
+      "helperMs": 304.21320899999955,
+      "decodeMs": 0.12600000000020373,
+      "totalMs": 304.3677919999991,
+      "native": {
+        "elapsedMs": 303,
+        "phases": {
+          "finalSettleMs": 95.8,
+          "sessionMs": 0.1,
+          "windowsMs": 3.9,
+          "betweenSettleMs": 99.7,
+          "guardMs": 1.2,
+          "actionMs": 70.9,
+          "observationMs": 32.9
+        },
+        "observation": {
+          "fetchMs": 16.3,
+          "describeMs": 0.7,
+          "screenshotMs": 0,
+          "visited": 70,
+          "walkMs": 26.1,
+          "actionsMs": 5.2,
+          "events": 206
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "type expression"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.01354199999877892,
+      "startupMs": 0.002291000000695931,
+      "helperMs": 104.7554999999993,
+      "decodeMs": 0.11891700000160199,
+      "totalMs": 104.90649999999914,
+      "native": {
+        "elapsedMs": 104,
+        "phases": {
+          "finalSettleMs": 66.1,
+          "sessionMs": 0.1,
+          "windowsMs": 0.7,
+          "betweenSettleMs": 0,
+          "guardMs": 1.8,
+          "actionMs": 17.1,
+          "observationMs": 20.1
+        },
+        "observation": {
+          "fetchMs": 12.1,
+          "describeMs": 0.7,
+          "screenshotMs": 0,
+          "visited": 68,
+          "walkMs": 17.5,
+          "actionsMs": 0.1,
+          "events": 213
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "click by id"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.011791000000812346,
+      "startupMs": 0.0018749999999272404,
+      "helperMs": 6.419374999999491,
+      "decodeMs": 0.05041700000037963,
+      "totalMs": 6.4973750000008295,
+      "native": {
+        "elapsedMs": 6,
+        "phases": {
+          "finalSettleMs": 0,
+          "sessionMs": 0.1,
+          "windowsMs": 0.8,
+          "betweenSettleMs": 0,
+          "guardMs": 1.6,
+          "actionMs": 5,
+          "observationMs": 0
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "click by id, no observe"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.01149999999870488,
+      "startupMs": 0.00204200000007404,
+      "helperMs": 30.49187499999971,
+      "decodeMs": 0.0750000000007276,
+      "totalMs": 30.59124999999949,
+      "native": {
+        "elapsedMs": 30,
+        "phases": {
+          "fetchMs": 0,
+          "describeMs": 0.3,
+          "screenshotMs": 28.6,
+          "sessionMs": 0.6,
+          "visited": 0,
+          "walkMs": 0,
+          "actionsMs": 0,
+          "windowsMs": 0.6,
+          "events": 215
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "screenshot only"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.011000000000422006,
+      "startupMs": 0.001958000000740867,
+      "helperMs": 59.39737499999865,
+      "decodeMs": 0.12725000000136788,
+      "totalMs": 59.55000000000109,
+      "native": {
+        "elapsedMs": 58,
+        "phases": {
+          "fetchMs": 19.4,
+          "describeMs": 0.7,
+          "screenshotMs": 31.2,
+          "sessionMs": 1.6,
+          "visited": 68,
+          "walkMs": 24.2,
+          "actionsMs": 0,
+          "windowsMs": 1.1,
+          "events": 215
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "look + screenshot"
+    },
+    {
+      "op": "state",
+      "outcome": "ok",
+      "queueMs": 0.011958000000959146,
+      "startupMs": 0.0018339999987802003,
+      "helperMs": 7.0897080000013375,
+      "decodeMs": 0.10570799999914016,
+      "totalMs": 7.224833000000217,
+      "native": {
+        "elapsedMs": 6,
+        "phases": {
+          "fetchMs": 19.4,
+          "describeMs": 3.1,
+          "screenshotMs": 0,
+          "sessionMs": 0.3,
+          "visited": 68,
+          "walkMs": 1.5,
+          "actionsMs": 0,
+          "windowsMs": 1.9,
+          "events": 215
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "repeat look"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.01341599999977916,
+      "startupMs": 0.00220900000022084,
+      "helperMs": 295.51095800000076,
+      "decodeMs": 0.13795799999934388,
+      "totalMs": 295.67691600000035,
+      "native": {
+        "elapsedMs": 294,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 0.2,
+          "windowsMs": 1.9,
+          "betweenSettleMs": 0,
+          "actionMs": 76.1,
+          "finalSettleMs": 138.5,
+          "observationMs": 78.1
+        },
+        "observation": {
+          "fetchMs": 30.7,
+          "describeMs": 1.4,
+          "screenshotMs": 31.7,
+          "visited": 68,
+          "walkMs": 39,
+          "actionsMs": 0.2,
+          "events": 219
+        }
+      },
+      "app": "com.apple.calculator",
+      "step": "act + screenshot"
+    },
+    {
+      "op": "act",
+      "outcome": "ok",
+      "queueMs": 0.011500000000523869,
+      "startupMs": 0.001624999998966814,
+      "helperMs": 97.01650000000154,
+      "decodeMs": 0.05241599999862956,
+      "totalMs": 97.09579099999974,
+      "native": {
+        "elapsedMs": 96,
+        "phases": {
+          "sessionMs": 0.1,
+          "guardMs": 2.2,
+          "windowsMs": 2.8,
+          "betweenSettleMs": 2.1,
+          "actionMs": 91.4,
+          "finalSettleMs": 0,
+          "observationMs": 0
+        },
+        "observation": {}
+      },
+      "app": "com.apple.calculator",
+      "step": "key then wait_for"
+    }
+  ]
+}

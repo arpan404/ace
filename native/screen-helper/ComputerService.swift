@@ -117,12 +117,14 @@ import ApplicationServices
 
     /// The check long-running work calls: cancellation and Esc on every call, the slower
     /// system facts (lock, the person using this app) at most every 100 ms.
-    private func checkpoint(id: String, session: CUAppSession, acting: Bool) -> CUCheckpoint {
+    private func checkpoint(id: String, session: CUAppSession, acting: Bool, record: ((UInt64) -> Void)? = nil) -> CUCheckpoint {
         let cancellations = self.cancellations, stop = self.stop
         var throttle = CUThrottle(intervalNs: 100_000_000)
         var checkedAction = -1
         var lastRefusal: CUError?
         return CUCheckpoint {
+            let started = record == nil ? 0 : cuNow()
+            defer { if let record { record(cuNow() - started) } }
             if cancellations.isCancelled(id) { throw CUError("cancelled", cuCancelledMessage) }
             guard acting else { return }
             let stopRequested = stop.stopRequested
@@ -135,10 +137,10 @@ import ApplicationServices
             let facts = MainActor.assumeIsolated {
                 let status = cuSessionStatus()
                 return CUGuardFacts(locked: status == .locked, appFrontmost: session.app.isActive, secondsSinceHumanInput: cuSecondsSinceHumanInput(), stopRequested: stopRequested,
-                             conflictsWithHuman: session.conflictsWithHuman, sessionAvailable: status != .unavailable)
+                             sessionAvailable: status != .unavailable)
             }
             do {
-                try cuGuard(facts, app: session.name)
+                try cuGuard(facts, app: session.name, conflict: { MainActor.assumeIsolated { session.conflictsWithHuman } })
                 lastRefusal = nil
             } catch let fault as CUError {
                 lastRefusal = fault
@@ -178,6 +180,7 @@ import ApplicationServices
     private func act(_ request: CUObject, id: String) async throws -> CUObject {
         let started = cuNow()
         let (session, _) = try await session(for: request.string("app") ?? "", launch: false)
+        let resolved = cuNow()
         session.beginRequest()
         defer { session.endRequest() }
         // Settling never stretches a batch past a minute, however many steps it has.
@@ -185,34 +188,42 @@ import ApplicationServices
         defer { session.settler.deadline = nil }
         // Visibility, position and minimization can change between calls, including at lock.
         _ = try session.chooseWindow(request["window"])
+        let chosen = cuNow()
         let focusedBefore = session.notResponding ? nil : cuElementAttribute(session.element, "AXFocusedWindow")
         stop.begin()
         defer { stop.end() }
-        let check = checkpoint(id: id, session: session, acting: true)
+        var guardNs: UInt64 = 0
+        let check = checkpoint(id: id, session: session, acting: true, record: cuTimingsEnabled ? { guardNs += $0 } : nil)
         var actor = CUActor(session: session)
         let overlay = self.overlay
         actor.indicate = { point in overlay.show(at: point, window: session.window) }
         actor.checkpoint = check.check
         var done: [String] = []
         var failure: CUObject?
+        var actionNs: UInt64 = 0, betweenSettleNs: UInt64 = 0, finalSettleNs: UInt64 = 0, observationNs: UInt64 = 0
         if !cuScreenLocked() { try awake.keepDisplayAwake() }
         let actions = request.objects("actions")
         for (index, action) in actions.enumerated() {
+            let stepStarted = cuNow()
             do {
                 done.append(try await actor.run(action))
             } catch {
+                actionNs += cuNow() - stepStarted
                 let fault = error as? CUError ?? CUError("internal", String(describing: error))
                 failure = ["index": index, "code": fault.code, "message": fault.message]
                 break
             }
+            actionNs += cuNow() - stepStarted
             if index < actions.count - 1 {
-                if cuConsecutiveEdits(action, actions[index + 1]) {
-                    // Ordered edits already confirm delivery themselves. Yield for cancel,
-                    // Esc and app notifications, without waiting for the whole UI to quiet.
+                let settling = cuNow()
+                if !cuNeedsSettleAfter(action, next: actions[index + 1], skipped: actor.skipped) {
+                    // Confirmed edits, skipped actions and explicit waits need no extra
+                    // quiet interval. Yield so cancel, Esc and notifications keep flowing.
                     try? await Task.sleep(nanoseconds: 1_000_000)
                 } else {
                     await session.settler.settle(minimumMs: 40, quietMs: 100, respondedQuietMs: 40, maximumMs: 1_200)
                 }
+                betweenSettleNs += cuNow() - settling
             }
         }
         session.endRequest()
@@ -221,7 +232,10 @@ import ApplicationServices
         if let failure { result["error"] = failure }
         let cancelled = cancellations.isCancelled(id)
         if request.bool("observe") ?? true, !cancelled {
+            let settling = cuNow()
             if !session.notResponding { await session.settler.settle(minimumMs: 60, quietMs: 150, respondedQuietMs: 60, maximumMs: 2_000) }
+            finalSettleNs = cuNow() - settling
+            let observing = cuNow()
             // Follow a window or dialog the actions opened.
             let focusedAfter = session.notResponding ? nil : cuElementAttribute(session.element, "AXFocusedWindow")
             if let focusedAfter, focusedBefore.map({ !CFEqual($0, focusedAfter) }) ?? true {
@@ -231,6 +245,12 @@ import ApplicationServices
             let windows = try session.chooseWindow(nil)
             result["state"] = await session.observation(windows: windows, screenshot: request.bool("screenshot") ?? false, outline: request.bool("outline") ?? true,
                                                         marks: request.bool("marks") ?? true, deadline: cuNow() + 4_000_000_000)
+            observationNs = cuNow() - observing
+        }
+        if cuTimingsEnabled {
+            result["timings"] = ["sessionMs": cuMs(resolved - started), "windowsMs": cuMs(chosen - resolved),
+                "actionMs": cuMs(actionNs), "guardMs": cuMs(guardNs), "betweenSettleMs": cuMs(betweenSettleNs),
+                "finalSettleMs": cuMs(finalSettleNs), "observationMs": cuMs(observationNs)]
         }
         result["elapsedMs"] = Int((cuNow() - started) / 1_000_000)
         return result

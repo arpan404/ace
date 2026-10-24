@@ -12,14 +12,19 @@ import ApplicationServices
     /// using the app). Called between sub-steps and inside every long loop.
     var checkpoint: () throws -> Void = {}
     var poster: CUPoster { CUPoster(pid: session.pid) }
+    private(set) var skipped = false
 
-    func run(_ action: CUObject) async throws -> String {
+    mutating func run(_ action: CUObject) async throws -> String {
+        skipped = false
         guard let kind = action.string("type") else { throw CUError("bad_action", "Each action needs a type.") }
         session.prepareAction(action)
         try await waitForHuman()
         session.refreshWindow()
         if let condition = try cuCondition(action["when"]) {
-            guard cuConditionHolds(condition, nodes: session.refreshNodes()) else { return "skipped \(kind): condition not met" }
+            guard cuConditionHolds(condition, nodes: session.refreshNodes()) else {
+                skipped = true
+                return "skipped \(kind): condition not met"
+            }
         }
         if session.window?.onScreen == true, !cuScreenLocked(), let target = session.actionTarget, let point = visibleCenter(target) {
             indicate(point)
@@ -31,8 +36,10 @@ import ApplicationServices
     }
 
     private func dispatch(_ kind: String, _ action: CUObject) async throws -> String {
-        // Keyboard, menus and editing act on the app's key window; make ours key first.
-        if ["type", "key", "paste", "menu", "set_value", "select_text", "focus"].contains(kind) { session.makeKey() }
+        // Keyboard input and menus act on the app's key window; make ours key first.
+        // Direct value, selection and focus setters name their AX element. They do not
+        // use the app's first responder and need no background key-window activation.
+        if ["type", "key", "paste", "menu"].contains(kind) { session.makeKey() }
         switch kind {
         case "click": return try await click(action)
         case "move": return try await move(action)

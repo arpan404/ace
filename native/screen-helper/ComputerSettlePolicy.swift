@@ -32,3 +32,11 @@ func cuConsecutiveEdits(_ current: CUObject, _ next: CUObject) -> Bool {
     // Return/Tab in typed text can submit a form or move focus just like a named key.
     return !(current.string("text") ?? "").contains(where: { $0 == "\n" || $0 == "\r" || $0 == "\t" })
 }
+
+/// An explicit wait owns its synchronization. A skipped conditional performed no
+/// side effect. Neither needs an additional whole-app quiet interval between steps.
+func cuNeedsSettleAfter(_ current: CUObject, next: CUObject, skipped: Bool) -> Bool {
+    if skipped { return false }
+    if next["when"] == nil, ["wait", "wait_for"].contains(next.string("type") ?? "") { return false }
+    return !cuConsecutiveEdits(current, next)
+}
