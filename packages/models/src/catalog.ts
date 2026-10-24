@@ -847,6 +847,14 @@ export class ModelCatalog implements ModelCatalogApi {
       this.#select(ModelFilter.parse(input)).map((state) => this.#refreshCurrent(state)),
     );
   }
+  async loadMissing(input: ModelFilter = {}): Promise<ModelInstanceStatus[]> {
+    if (this.#closed) throw new Error("Catalog closed");
+    return Promise.all(
+      this.#select(ModelFilter.parse(input))
+        .filter((state) => !state.entry)
+        .map((state) => this.#refresh(state)),
+    );
+  }
   async #refreshCurrent(state: State): Promise<ModelInstanceStatus> {
     state.probeRetryAt = 0;
     state.backoff.reset();

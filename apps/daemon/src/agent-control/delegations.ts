@@ -327,16 +327,13 @@ export class DelegationService {
   }
   /**
    * Load the model lists of accounts in `filter` that have never loaded, so a model name is
-   * matched against what each account really serves rather than an empty cache. Accounts that
-   * already loaded are left alone: this never re-runs discovery for a warm catalog.
+   * matched against what each account really serves rather than an empty cache. A discovery
+   * already running is shared, and one that failed keeps its retry pause: an uninstalled
+   * provider is not probed again on every request.
    */
-  async warmModels(filter: import("@ace/protocol").ModelFilter): Promise<boolean> {
+  async warmModels(filter: import("@ace/protocol").ModelFilter): Promise<void> {
     await this.deps.modelsReady;
-    const cold = this.deps.models
-      .list({ ...filter, limit: 1 })
-      .instances.filter((instance) => instance.refreshedAt === undefined);
-    for (const instance of cold) await this.deps.models.refresh({ instance: instance.instance });
-    return cold.length > 0;
+    await this.deps.models.loadMissing?.(filter);
   }
   async prepareModels(caller: McpAttribution, value: DelegationRequest) {
     const request = delegationRequest(value);
@@ -367,13 +364,17 @@ export class DelegationService {
           ? { instance: request.accountId }
           : {}),
     };
-    const page = catalog.list(filter);
-    // Auto-selection can choose an account whose catalog is still cold.
-    if (
-      !page.models.length ||
-      page.instances.some((instance) => instance.refreshedAt === undefined)
-    )
-      await catalog.refresh(filter);
+    // Auto-selection can choose an account whose catalog is still cold. Loading it keeps a failed
+    // discovery's retry pause; only the person's explicit refresh forces one.
+    if (catalog.loadMissing) await catalog.loadMissing(filter);
+    else {
+      const page = catalog.list(filter);
+      if (
+        !page.models.length ||
+        page.instances.some((instance) => instance.refreshedAt === undefined)
+      )
+        await catalog.refresh(filter);
+    }
     return this.deps.configuredModel?.(caller, request);
   }
   prepare(
