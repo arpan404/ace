@@ -241,6 +241,7 @@ export function engineHandler(
           // A prepared thread runs nothing until it is sent work, which reserves a slot then.
           if (!repo.reserve(threadId) && p.type !== "thread.prepare")
             return fail("engine_capacity_exceeded");
+          const workspace = repo.store.getWorkspace(p.workspaceId);
           createEngineThread(repo, {
             id: threadId,
             ...(p.access && p.access !== "inherit" ? { access: p.access } : {}),
@@ -279,8 +280,9 @@ export function engineHandler(
               details: {
                 workspace: {
                   id: p.workspaceId,
-                  name: repo.store.getWorkspace(p.workspaceId)?.name ?? p.workspaceId,
+                  name: workspace?.name ?? p.workspaceId,
                   path: cwd,
+                  ...(workspace?.kind ? { kind: workspace.kind } : {}),
                 },
                 mode: ("mode" in p ? p.mode : undefined) ?? "local",
                 worktree: cwd,
