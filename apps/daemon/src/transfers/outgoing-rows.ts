@@ -17,6 +17,8 @@ export const TransferPlan = z.object({
   remote: z.object({ url: z.string(), normalized: z.string() }).optional(),
   branch: z.string().optional(),
   head: z.string().optional(),
+  /** A detached HEAD, pinned under this ref in the source repository while it is sent. */
+  pinned: z.string().optional(),
   changes: z.object({ ref: z.string(), commit: z.string() }).optional(),
   /** The bundle or archive, once written, with what it holds. */
   file: z.object({ path: z.string(), bytes: z.number(), sha256: z.string() }).optional(),

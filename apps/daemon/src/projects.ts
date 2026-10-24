@@ -306,16 +306,18 @@ export class Projects {
   }
   /**
    * A canonical folder inside the allowed roots that a project may be made in (ADR 0099):
-   * `requested`, or else the folder of the newest project, or else home.
+   * `requested`, or else the folder of the newest project, or else home. It comes back open, so
+   * the transfer makes and fills its folder through that descriptor; the caller closes it.
    */
-  async transferParent(requested: string | undefined): Promise<string> {
+  async transferParent(requested: string | undefined): Promise<ProjectDirectory> {
     const allowed = async (path: string) => {
       const directory = await ProjectDirectory.open(this.paths, path);
       try {
         assertProjectPath(directory.path, await this.paths.roots());
-        return directory.path;
-      } finally {
+        return directory;
+      } catch (error) {
         await directory.close();
+        throw error;
       }
     };
     if (requested !== undefined) return allowed(requested);

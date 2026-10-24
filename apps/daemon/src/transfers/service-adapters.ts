@@ -89,15 +89,20 @@ export function targetProjects(context: ServiceContext): TargetProjects {
   };
 }
 
-/** The continued thread there: same mode, provider and model when installed, no turn. */
+/**
+ * The continued thread there: same mode, provider and model when installed, no turn. Making it
+ * and setting it up are separate steps, so a restart between them finishes the setup.
+ */
 export function targetThreads(context: ServiceContext): TargetThreadStarter {
   const { services, store, now } = context;
   return {
-    async start(input) {
+    async create(input) {
       const engine = services.engine;
       if (!engine) throw new TransferError("engine_unavailable", "Agents are starting here.");
       const threadId = ThreadId.parse(`transfer-${short(input.key)}`);
-      if (store.getThread(threadId)) return threadId;
+      const existing = store.getThread(threadId);
+      // The same key is the same attempt, which already passed its cutoff.
+      if (existing && existing.workspaceId === input.workspaceId) return threadId;
       const wanted = input.thread.provider;
       const provider = engine.providerAvailability(wanted).installed
         ? wanted
@@ -121,6 +126,7 @@ export function targetThreads(context: ServiceContext): TargetThreadStarter {
           },
         });
       const model = provider === wanted ? input.thread.model : undefined;
+      let cut = false;
       const create = async (command: Command): Promise<CommandResult> => {
         const runtime = services.workspaceActions;
         const prepared =
@@ -129,7 +135,10 @@ export function targetThreads(context: ServiceContext): TargetThreadStarter {
             : undefined;
         try {
           if (prepared) await input.prepare?.(prepared.workspace.path);
-          return store.recordCommand(command.id, command.deviceId, () =>
+          // From here the thread is the transfer's result; a cancel can no longer undo it.
+          if (!cut) input.cutoff();
+          cut = true;
+          return await store.recordCommand(command.id, command.deviceId, () =>
             engine.internalHandler.handle(command, {
               ...commandContext(store),
               ...(prepared ? { preparedWorkspace: prepared.workspace } : {}),
@@ -148,32 +157,43 @@ export function targetThreads(context: ServiceContext): TargetThreadStarter {
           result.error ?? "thread_failed",
           `This machine couldn't start the thread (${result.error ?? "failed"}).`,
         );
-      engine.adoptMachineHandoff(threadId, {
-        handoff: input.thread.handoff,
-        commandId: `transfer:${short(input.key)}`,
-        machine: input.machine.name,
-        to: { provider, ...(model ? { model } : {}) },
-        at: now(),
-      });
+      return threadId;
+    },
+    setUp(input, then) {
+      const engine = services.engine;
+      if (!engine) throw new TransferError("engine_unavailable", "Agents are starting here.");
       const from: ThreadContinuedOn = {
         hostId: HostId.parse(input.machine.hostId),
         name: input.machine.name.slice(0, 256),
         threadId: input.thread.sourceThreadId,
         at: now(),
       };
+      // One transaction: the handoff, the link back and the caller's completion all land or none.
       store.atomic(() => {
-        const thread = store.getThread(threadId);
-        store.appendEvents(threadId, [
-          {
-            type: "thread.client.updated",
-            changes: {
-              hasSentMessage: true,
-              ...(thread?.details ? { details: { ...thread.details, continuedFrom: from } } : {}),
+        const thread = store.getThread(input.threadId);
+        if (thread && !thread.details?.continuedFrom) {
+          engine.adoptMachineHandoff(input.threadId, {
+            handoff: input.thread.handoff,
+            commandId: `transfer:${input.threadId}`,
+            machine: input.machine.name,
+            to: {
+              provider: thread.provider,
+              ...(thread.execution?.model ? { model: thread.execution.model } : {}),
             },
-          },
-        ]);
+            at: now(),
+          });
+          store.appendEvents(input.threadId, [
+            {
+              type: "thread.client.updated",
+              changes: {
+                hasSentMessage: true,
+                ...(thread.details ? { details: { ...thread.details, continuedFrom: from } } : {}),
+              },
+            },
+          ]);
+        }
+        then();
       });
-      return threadId;
     },
   };
 }

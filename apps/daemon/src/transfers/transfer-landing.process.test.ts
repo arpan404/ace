@@ -100,3 +100,58 @@ it("sends the whole repository when the target can't clone its origin", async ()
   expect(await git(landed, "rev-parse", "--abbrev-ref", "@{upstream}")).toBe("origin/main");
   expect(m.here.progress().map((entry) => entry.method)).toContain("remote");
 });
+
+it("lands a detached HEAD at its exact commit, on a branch named for it", async () => {
+  const m = await transferMachines();
+  const { path } = await repositoryWithOrigin(m.sourceRoot, "app");
+  // A commit no branch holds: only the detached HEAD reaches it.
+  await git(path, "switch", "--detach");
+  await writeFile(join(path, "loose.txt"), "loose\n");
+  await git(path, "add", "-A");
+  await git(path, "commit", "-m", "loose");
+  const head = await git(path, "rev-parse", "HEAD");
+  const workspaceId = await m.addProject(m.source, path);
+
+  await m.here.command({
+    type: "workspace.transfer",
+    workspaceId,
+    hostId: m.targetHostId,
+    includeChanges: false,
+  });
+  const transfer = await m.settled();
+  expect(transfer.phase).toBe("completed");
+  const landed = transfer.result?.path ?? "";
+  expect(transfer.result?.branch).toBe(`detached-${head.slice(0, 12)}`);
+  expect(await git(landed, "rev-parse", "HEAD")).toBe(head);
+  expect(await git(landed, "branch", "--show-current")).toBe(`detached-${head.slice(0, 12)}`);
+  // Nothing of the transfer stays pinned on either machine.
+  expect(await git(path, "for-each-ref", "refs/ace")).toBe("");
+  expect(await git(landed, "for-each-ref", "refs/ace")).toBe("");
+});
+
+it("lands beside a dirty checkout already at the same commit, on a branch its worktree can use", async () => {
+  const m = await transferMachines();
+  const { path, origin } = await repositoryWithOrigin(m.sourceRoot, "app");
+  const there = await cloneThere(m, origin);
+  await writeFile(join(there.path, "README.md"), "their edit\n");
+  const theirs = await status(there.path);
+  await writeFile(join(path, "draft.txt"), "draft\n");
+  const workspaceId = await m.addProject(m.source, path);
+
+  await m.here.command({
+    type: "workspace.transfer",
+    workspaceId,
+    hostId: m.targetHostId,
+    includeChanges: true,
+  });
+  const transfer = await m.settled();
+  expect(transfer).toMatchObject({
+    phase: "completed",
+    method: "remote",
+    result: { workspaceId: there.workspaceId, branch: "main-from-macbook" },
+  });
+  const landed = transfer.result?.path ?? "";
+  expect(landed).not.toBe(there.path);
+  expect(await status(landed)).toBe("?? draft.txt");
+  expect(await status(there.path)).toBe(theirs);
+});

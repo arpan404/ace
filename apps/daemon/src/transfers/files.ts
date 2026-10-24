@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { constants, createReadStream } from "node:fs";
+import type { PinnedDirectory } from "@ace/workspace";
 import { lstat, mkdir, open, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -92,4 +93,34 @@ export async function freeFolder(
     if (!held.has(candidate) && !(await exists(candidate))) return candidate;
   }
   throw new Error("No free folder name");
+}
+
+/**
+ * Removes `name` and everything under it through descriptors from a held parent, never
+ * following a link (a link is removed itself). A folder too large to list that way is removed
+ * by path, only while the parent's path still leads to the held parent.
+ */
+export async function removeUnder(
+  parent: { path: string; handle: PinnedDirectory },
+  name: string,
+): Promise<void> {
+  try {
+    removeTree(parent.handle, name);
+  } catch {
+    if (parent.handle.matches(parent.path)) await removeQuietly(join(parent.path, name));
+  }
+}
+
+function removeTree(directory: PinnedDirectory, name: string): void {
+  if ((directory.metadata(name).mode & constants.S_IFMT) !== constants.S_IFDIR) {
+    directory.unlink(name);
+    return;
+  }
+  const child = directory.child(name);
+  try {
+    for (const entry of child.names()) removeTree(child, entry);
+  } finally {
+    child.closeSync();
+  }
+  directory.removeDirectory(name);
 }

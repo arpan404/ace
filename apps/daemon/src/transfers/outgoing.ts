@@ -253,7 +253,13 @@ export class OutgoingTransfers {
       there = await new TransferClient(this.deps.transport, profile)
         .call({ op: "cancel", transferId })
         .catch(() => undefined);
+    // The target waits for an import past its cutoff and answers with how it ended.
     if (there?.state === "completed" && there.result) return this.complete(record, there.result);
+    if (there?.state === "failed")
+      return this.finish(record, {
+        phase: "failed",
+        ...(there.error ? { error: there.error } : {}),
+      });
     return this.finish(record, { phase: "cancelled" });
   }
   private run(transferId: string): void {
@@ -288,7 +294,10 @@ export class OutgoingTransfers {
       });
     this.flights.add(flight);
   }
-  /** Retries calls that couldn't reach the target, until it has been gone too long. */
+  /**
+   * Retries calls that couldn't reach the target, or that it answered while starting or stopping,
+   * until it has been gone too long.
+   */
   private async reach<T>(signal: AbortSignal, call: () => Promise<T>): Promise<T> {
     const since = this.deps.now();
     for (let delay = 250; ; delay = Math.min(delay * 2, 30_000)) {
@@ -296,7 +305,11 @@ export class OutgoingTransfers {
         return await call();
       } catch (error) {
         if (signal.aborted) throw error;
-        if (!(error instanceof MachineFailure) || error.kind === "refused") throw error;
+        // A target starting up or shutting down answers `unavailable`: wait for it like a lost link.
+        const passing =
+          error instanceof MachineFailure &&
+          (error.kind !== "refused" || error.refusal === "unavailable");
+        if (!passing) throw error;
         if (this.deps.now() - since > (this.deps.offlineMs ?? 60 * 60 * 1000))
           throw new TransferError(
             "machine_offline",
@@ -513,10 +526,9 @@ export class OutgoingTransfers {
     const settled = this.update(current, change);
     this.lastBytes.delete(record.transfer.transferId);
     for (const path of payloads(current.plan)) await removeQuietly(path);
-    if (current.plan?.changes)
-      await this.deps.git
-        .deleteRef(current.plan.source, current.plan.changes.ref)
-        .catch(() => undefined);
+    for (const ref of [current.plan?.changes?.ref, current.plan?.pinned])
+      if (ref && current.plan)
+        await this.deps.git.deleteRef(current.plan.source, ref).catch(() => undefined);
     this.deps.log("Transfer to another machine settled", {
       transferId: record.transfer.transferId,
       target: record.transfer.target.name,

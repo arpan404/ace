@@ -1,33 +1,14 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { ProviderKind, type ThreadId } from "@ace/protocol";
-import { git, repositoryWithOrigin, transferMachines } from "./transfer-test-support.ts";
-
-type Machines = Awaited<ReturnType<typeof transferMachines>>;
-
-/** A finished thread on the source, in a project it just added. */
-async function finishedThread(m: Machines, ask: string) {
-  const { path } = await repositoryWithOrigin(m.sourceRoot, "app");
-  await writeFile(join(path, "wip.txt"), "half done\n");
-  const workspaceId = await m.addProject(m.source, path);
-  const created = m.source.controls.delegations.command(`create-${ask.length}`, {
-    type: "thread.create",
-    workspaceId,
-    provider: "codex",
-    title: "Login bug",
-    access: "full-access",
-    input: [{ type: "text", text: ask }],
-  });
-  if (!created.threadId) throw new Error(`Not created: ${created.error}`);
-  const threadId = created.threadId;
-  await m.source.daemon.engine?.flush();
-  await vi.waitFor(() => {
-    if (m.source.daemon.store.getThread(threadId)?.status.state !== "done")
-      throw new Error("Still working");
-  });
-  return { path, workspaceId, threadId };
-}
+import {
+  finishedThread,
+  git,
+  repositoryWithOrigin,
+  transferMachines,
+  type Machines,
+} from "./transfer-test-support.ts";
 
 /** What the target's provider was sent for one thread. */
 const sentTo = (m: Machines, threadId: ThreadId) =>
@@ -111,4 +92,36 @@ it("refuses to continue a thread whose tree is still working", async () => {
   });
   expect(receipt).toMatchObject({ ok: false, error: "thread_busy" });
   expect(m.source.daemon.transfers.outgoing.list()).toEqual([]);
+});
+
+it("continues a thread whose folder isn't a Git repository, with the new thread there", async () => {
+  const m = await transferMachines();
+  const folder = join(m.sourceRoot, "notes");
+  await mkdir(folder);
+  await writeFile(join(folder, "plan.md"), "the plan\n");
+  const source = await finishedThread(m, "Write up the plan", folder);
+
+  await m.here.command({
+    type: "thread.continueOn",
+    threadId: source.threadId,
+    hostId: m.targetHostId,
+    includeChanges: true,
+  });
+  const transfer = await m.settled();
+  expect(transfer).toMatchObject({ phase: "completed", method: "archive", kind: "thread" });
+  const newId = transfer.result?.threadId;
+  if (!newId) throw new Error("No thread there");
+  expect(await readFile(join(transfer.result?.path ?? "", "plan.md"), "utf8")).toBe("the plan\n");
+  expect(m.target.daemon.store.getThread(newId)).toMatchObject({
+    workspaceId: transfer.result?.workspaceId,
+    details: { continuedFrom: { name: "MacBook", threadId: source.threadId } },
+  });
+  expect(m.source.daemon.store.getThread(source.threadId)?.details?.continuedOn).toMatchObject({
+    threadId: newId,
+  });
+  // The thread there is the result: a cancel now is too late.
+  expect(await m.here.request({ op: "cancel", transferId: transfer.transferId })).toMatchObject({
+    kind: "error",
+    code: "too_late",
+  });
 });

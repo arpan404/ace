@@ -18,7 +18,7 @@ Two actions, both started from the app on the machine that has the work:
 - **Open on <machine>** (project menu, `workspace.transfer`): the project appears on the other
   machine, on the same branch, with uncommitted changes as uncommitted changes there.
 - **Continue on <machine>** (thread menu, `thread.continueOn`): the same for the thread's
-  project and checkout, then a new thread there that starts from this thread's history. This
+  project and checkout (a folder that isn't a Git repository too), then a new thread there that starts from this thread's history. This
   thread records where the work went (`ThreadDetails.continuedOn`); the new one records where it
   came from (`continuedFrom`). Both stay ordinary threads; nothing is deleted.
 
@@ -135,10 +135,24 @@ So the git methods (1 and 2) send them too, unless the transfer says not to.
   applied there. Otherwise the target's checkout is never disturbed: the branch gets its own linked
   worktree in a folder beside the project (`<project>-<branch>`), or, for a thread continuation,
   the new thread runs in worktree mode from that branch. A branch name already used there at a
-  different commit gets a `-from-<machine>` suffix (`-2`, `-3`… when that is taken too).
+  different commit, or at the same commit but checked out in a worktree (so the landing couldn't
+  open its own worktree on it), gets a `-from-<machine>` suffix (`-2`, `-3`… when that is taken
+  too). When one of the branch's folders is itself a branch there (`feature` against an incoming
+  `feature/login`), the suffixed names flatten the folders (`feature-login-from-<machine>`).
+  The names tried are bounded; when every one is taken the transfer fails with
+  `branch_unavailable` instead of looking further.
+- A source on a detached HEAD has no branch to carry it. The sender pins the commit under
+  `refs/ace/transfer-head/<id>` so the bundle holds it, and the target lands that exact commit on
+  a new branch named `detached-<first 12 hex of the commit>`, following the same rules as any
+  branch. Both machines delete the pin afterwards.
 - Otherwise a new project in `parent`, or else the folder of the target's newest project, or else
   its home, always inside its allowed project roots; named after the source project (`-2`, `-3`…
-  when taken), registered through `workspace.add` or `workspace.clone`.
+  when taken), registered through `workspace.add` or `workspace.clone`. The parent is validated
+  and held open as a descriptor (ADR 0063) from the moment it is chosen: the new folder is made
+  inside it without following links, the archive is unpacked and the bundle cloned through the
+  new folder's descriptor, and a rollback removes the folder through the parent's descriptor,
+  only while the name still leads to the folder the transfer made. A rollback after a restart
+  validates the parent against the allowed roots again before removing anything.
 - method `remote` clones origin on the target when the import starts. If that clone fails, or the
   bundle needs commits the reused project doesn't have, the target asks for a full bundle and
   the transfer carries on as `bundle`.
@@ -174,9 +188,29 @@ would refuse; for it the check is skipped and the handoff is captured when the u
 - The target verifies the SHA-256 of the whole file before importing; a damaged file fails the
   transfer with `transfer_corrupt`. A failed or cancelled import leaves no project registered
   (one it registered on the way is removed again) and removes only folders it created.
-- Cancel works in every phase before `starting`; after that the thread exists and is the result.
-- Finished transfer files are deleted on both machines; rows are kept 24 hours for the list.
-- Transfers above 20 GiB are refused before sending, with the size in the message.
+- Cancel works until the import's cutoff: the moment the new thread is made, or, for a project
+  without a thread, once everything has landed. The cutoff and a cancel are decided in one
+  synchronous step on the target, so exactly one of them wins. A cancel before it stops the import
+  (every landing step checks for it), waits for it to stop and undoes what it made. A cancel after
+  it waits for the import and answers with its result; the sender's `transfers.request` cancel
+  then answers `too_late`, and the transfer reads completed.
+- The new thread is made and set up as two recoverable steps. The target records the result on
+  the transfer row as soon as the thread exists; the handoff, the `continuedFrom` link and the
+  row's completion then commit in one transaction. A restart in between finishes the setup
+  instead of rolling anything back, so the thread stays unarchived and gets its handoff.
+- Shutting the target down stops running imports and waits for them and for pending writes; an
+  import stopped before its cutoff is undone and runs again on the next start.
+- Finished transfer files are deleted on both machines; rows are kept 24 hours for the list. An
+  agent's row whose result its thread hasn't been given yet is never deleted: retention skips it
+  until the result is delivered and the background hold settled.
+- Transfers above 20 GiB are refused before sending, with the size in the message. The target
+  enforces the same cap on what it holds: each chunk is admitted, in the transfer's serialised
+  write, only if the code and the ignored files together stay within it.
+- Every refusal of `workspace.transfer` and `thread.continueOn` carries a stable `code` (also in
+  `error`) and a `detail` a person reads: `transfers_unavailable`, `forbidden`,
+  `thread_not_found`, `thread_busy`, `workspace_change_in_progress`, `workspace_unavailable`,
+  `workspace_not_found`, `workspace_preparing`, `invalid`, `machine_not_linked`,
+  `machine_offline`, `machine_forbidden`, `transfer_failed`.
 
 ### UI
 
@@ -211,7 +245,10 @@ repositories and a local bare repository standing in for origin. Tests cover eac
 uncommitted changes including deletions and binary files, reuse of an existing project,
 branch-name collision, resume after a dropped connection and after a sender restart, digest
 mismatch, cancel, a device without `projects`, a missing fleet link, an agent's transfer delivered as a background result and refused with the setting off, and a thread continuation
-whose new thread has the handoff and the provider fallback. For ignored files: `.env` and ignored
+whose new thread has the handoff and the provider fallback, a non-Git folder's continuation, a
+detached HEAD, a target already at the same commit with a dirty checkout, a cancel and a
+shutdown during import, a restart between making the thread and setting it up, the receiver's
+size cap, and an agent's undelivered result surviving retention. For ignored files: `.env` and ignored
 local config arrive with their modes while `node_modules` does not; none go with the setting off
 or `includeIgnored: false`; a reused project keeps its `.env`; no ignored file's name appears in
 pushes, rows or logs; both payloads are gone after completion, after cancel and after a restart.

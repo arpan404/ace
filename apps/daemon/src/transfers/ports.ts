@@ -13,6 +13,7 @@ export type TransferGit = Pick<
   | "captureChanges"
   | "createBundle"
   | "deleteRef"
+  | "pinRef"
   | "cloneFromBundle"
   | "verifyBundle"
   | "fetchBundle"

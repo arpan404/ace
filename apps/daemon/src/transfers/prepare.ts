@@ -1,6 +1,7 @@
 import { validateCloneUrl, type ProjectGitPolicy } from "@ace/git";
 import { maxTransferBytes, type TransferMethod } from "@ace/protocol";
 import { ignoredSelection, staysBehind } from "./ignored-files.ts";
+import { headRef } from "./landing.ts";
 import type { TransferPlan } from "./outgoing-rows.ts";
 import { fileDigest, removeQuietly } from "./files.ts";
 import { TransferError, type TransferArchive, type TransferGit } from "./ports.ts";
@@ -55,6 +56,9 @@ export async function planSource(
         message: "Uncommitted changes carried to another machine",
       })
     : undefined;
+  // A detached HEAD has no branch to carry it: a ref pins the commit so the bundle holds it.
+  const pinned = !refs.branch && refs.head ? headRef(input.transferId) : undefined;
+  if (pinned && refs.head) await git.pinRef(input.source, pinned, refs.head);
   return {
     method: remote ? "remote" : "bundle",
     plan: {
@@ -62,6 +66,7 @@ export async function planSource(
       ...(remote ? { remote } : {}),
       ...(refs.branch ? { branch: refs.branch } : {}),
       ...(refs.head ? { head: refs.head } : {}),
+      ...(pinned ? { pinned } : {}),
       ...(changes
         ? { changes: { ref: changesRef(input.transferId), commit: changes.commit } }
         : {}),
@@ -105,6 +110,7 @@ export async function writeTransferFile(
         // Keep the sender's last-known origin branches, without asking origin for anything.
         ...(plan.remote ? refs.originTracking : []),
       ];
+  if (plan.pinned) wanted.push(plan.pinned);
   if (plan.changes) wanted.push(plan.changes.ref);
   if (!wanted.length) return undefined;
   const written = await deps.git.createBundle(plan.source, {

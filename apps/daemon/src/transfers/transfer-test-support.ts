@@ -198,14 +198,12 @@ export async function transferMachines(
     await rm(targetRoot, { recursive: true, force: true });
   });
   const logLevel = options.logs ? { ACE_LOG_LEVEL: "info" } : {};
-  const target = await daemonFixture(
-    undefined,
-    {
-      projects: projects(targetRoot),
-      transfers: options.cloneTimeoutMs ? { cloneTimeoutMs: options.cloneTimeoutMs } : {},
-    },
-    { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1", ...logLevel },
-  );
+  const targetOptions = {
+    projects: projects(targetRoot),
+    transfers: options.cloneTimeoutMs ? { cloneTimeoutMs: options.cloneTimeoutMs } : {},
+  };
+  const targetEnvironment = { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1", ...logLevel };
+  let target: Side = await daemonFixture(undefined, targetOptions, targetEnvironment);
   cleanup.push(() => target.daemon.close());
   const transport = options.transport ? options.transport(transferTransport) : transferTransport;
   const sourceOptions = {
@@ -280,11 +278,24 @@ export async function transferMachines(
     cleanup.push(() => source.daemon.close());
     here = await window(source.daemon);
   }
+  /** Stops the target daemon and starts it again on the same home, port and TLS identity. */
+  async function restartTarget() {
+    await target.daemon.close();
+    target = await daemonFixture(
+      undefined,
+      targetOptions,
+      { ...targetEnvironment, ACE_REMOTE_PORT: new URL(remoteUrl ?? "").port },
+      target.h,
+    );
+    cleanup.push(() => target.daemon.close());
+  }
   return {
     get source() {
       return source;
     },
-    target,
+    get target() {
+      return target;
+    },
     sourceRoot,
     targetRoot,
     targetHostId,
@@ -294,5 +305,37 @@ export async function transferMachines(
     addProject,
     settled,
     restartSource,
+    restartTarget,
   };
+}
+
+export type Machines = Awaited<ReturnType<typeof transferMachines>>;
+
+/**
+ * A finished thread on the source, in a project it just added: by default a repository with
+ * origin and an uncommitted `wip.txt`, or the folder at `path`.
+ */
+export async function finishedThread(m: Machines, ask: string, path?: string) {
+  let folder = path;
+  if (!folder) {
+    folder = (await repositoryWithOrigin(m.sourceRoot, "app")).path;
+    await writeFile(join(folder, "wip.txt"), "half done\n");
+  }
+  const workspaceId = await m.addProject(m.source, folder);
+  const created = m.source.controls.delegations.command(`create-${ask.length}`, {
+    type: "thread.create",
+    workspaceId,
+    provider: "codex",
+    title: "Login bug",
+    access: "full-access",
+    input: [{ type: "text", text: ask }],
+  });
+  if (!created.threadId) throw new Error(`Not created: ${created.error}`);
+  const threadId = created.threadId;
+  await m.source.daemon.engine?.flush();
+  await vi.waitFor(() => {
+    if (m.source.daemon.store.getThread(threadId)?.status.state !== "done")
+      throw new Error("Still working");
+  });
+  return { path: folder, workspaceId, threadId };
 }

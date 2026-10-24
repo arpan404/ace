@@ -1,5 +1,5 @@
-import { validateCloneUrl, type ProjectGitPolicy } from "@ace/git";
-import { join } from "node:path";
+import { GitError, validateCloneUrl, type ProjectGitPolicy } from "@ace/git";
+import { basename, dirname, join } from "node:path";
 import {
   WorkspaceId,
   maxTransferBytes,
@@ -19,6 +19,7 @@ import {
   fileDigest,
   removeQuietly,
   removeStray,
+  removeUnder,
 } from "./files.ts";
 import { neverPlaced } from "./ignored-files.ts";
 import {
@@ -46,8 +47,30 @@ export interface IncomingDeps {
 const retentionMs = 24 * 60 * 60 * 1000;
 const settled = new Set(["completed", "failed", "cancelled"]);
 
+/** Git failures a person can act on, in their words; the rest are `import_failed`. */
+const gitFailures: Partial<Record<string, { code: string; message: string }>> = {
+  ref_conflict: {
+    code: "branch_unavailable",
+    message: "The branch's name and every name it could land under are taken on this machine.",
+  },
+  dirty_worktree: {
+    code: "changes_conflict",
+    message: "The project here has its own changes to the same files. Commit or stash them first.",
+  },
+  branch_checked_out: {
+    code: "branch_unavailable",
+    message: "The branch is checked out in another worktree on this machine.",
+  },
+  head_moved: {
+    code: "branch_diverged",
+    message: "The branch here has commits the transfer doesn't. Try again to land it beside them.",
+  },
+};
+
 function failure(error: unknown): { code: string; message: string } {
   if (error instanceof TransferError) return { code: error.code, message: error.message };
+  const known = error instanceof GitError ? gitFailures[error.code] : undefined;
+  if (known) return known;
   if (error instanceof Error && error.name === "AbortError")
     return { code: "transfer_cancelled", message: "The transfer was cancelled." };
   return { code: "import_failed", message: "This machine couldn't import the transfer." };
@@ -62,7 +85,10 @@ export class IncomingTransfers {
   private deps: IncomingDeps;
   private rows: IncomingRows;
   private running = new Map<string, AbortController>();
-  private flights = new Set<Promise<void>>();
+  /** Each running import's promise, so cancel and shutdown can wait for it. */
+  private imports = new Map<string, Promise<void>>();
+  /** Imports past their cutoff: a cancel waits for their result instead. */
+  private past = new Set<string>();
   private closed = false;
   private writes = new Map<string, Promise<unknown>>();
   private held = new Set<string>();
@@ -74,9 +100,17 @@ export class IncomingTransfers {
   async recover(): Promise<void> {
     await ensureDirectory(this.deps.directory);
     for (const record of this.rows.unsettled()) {
+      // Past the cutoff the result stands: finish setting it up instead of undoing it.
+      if (record.result) {
+        this.finish(record, record.result);
+        await this.removeFiles(record.transferId);
+        continue;
+      }
       await this.rollback(record);
       this.import(this.rows.get(record.transferId) ?? record);
     }
+    // Rows a cancel or failure settled before their rollback finished.
+    for (const record of this.rows.leftovers()) await this.rollback(record);
     // Files a crash left behind for transfers that are settled or gone.
     const live = this.rows.live().map((transferId) => `${transferId}.`);
     await removeStray(this.deps.directory, (name) => live.some((id) => name.startsWith(id)));
@@ -86,7 +120,7 @@ export class IncomingTransfers {
   async close(): Promise<void> {
     this.closed = true;
     for (const controller of this.running.values()) controller.abort();
-    await Promise.allSettled(this.flights);
+    await Promise.allSettled([...this.imports.values(), ...this.writes.values()]);
   }
   private file(transferId: string) {
     return join(this.deps.directory, `${transferId}.part`);
@@ -185,9 +219,20 @@ export class IncomingTransfers {
     if (data.length > transferChunkBytes) throw new TargetRefusal("invalid", "Chunk too large.");
     if (record.state !== "receiving")
       throw new TargetRefusal("invalid", "This transfer isn't receiving bytes.");
+    if (this.closed) throw new TargetRefusal("unavailable", "This machine is shutting down.");
     const file = part === "ignored" ? this.ignoredFile(transferId) : this.file(transferId);
+    const other = part === "ignored" ? this.file(transferId) : this.ignoredFile(transferId);
     const previous = this.writes.get(transferId) ?? Promise.resolve();
-    const write = previous.then(() => appendAt(file, offset, data));
+    // Serialised per transfer, so the cap counts both payloads as they stand before this write.
+    const write = previous.then(async () => {
+      const held = await fileBytes(file);
+      if (held === offset && held + data.length + (await fileBytes(other)) > maxTransferBytes)
+        throw new TargetRefusal(
+          "invalid",
+          "The transfer is larger than a transfer may be (20 GiB with the files Git ignores).",
+        );
+      return appendAt(file, offset, data);
+    });
     this.writes.set(
       transferId,
       write.catch(() => undefined),
@@ -235,10 +280,15 @@ export class IncomingTransfers {
     return this.view(importing);
   }
   private import(record: IncomingRecord): void {
-    if (this.running.has(record.transferId)) return;
+    if (this.running.has(record.transferId) || this.closed) return;
     const controller = new AbortController();
     this.running.set(record.transferId, controller);
-    void this.run(record, controller.signal).finally(() => this.running.delete(record.transferId));
+    const flight = this.run(record, controller.signal).finally(() => {
+      this.running.delete(record.transferId);
+      this.imports.delete(record.transferId);
+      this.past.delete(record.transferId);
+    });
+    this.imports.set(record.transferId, flight);
   }
   private async run(record: IncomingRecord, signal: AbortSignal): Promise<void> {
     const file = this.file(record.transferId);
@@ -247,7 +297,7 @@ export class IncomingTransfers {
     let ignoredSkipped = 0;
     const mine: string[] = [];
     try {
-      const result = await landTransfer(
+      const landed = await landTransfer(
         {
           git: this.deps.git,
           gitPolicy: this.deps.gitPolicy,
@@ -263,37 +313,45 @@ export class IncomingTransfers {
           // Ignored files go in once the checkout is there, never over a file it already has.
           ...(ignored
             ? {
-                landed: async (path: string) => {
+                landed: async (path: string, landing: AbortSignal) => {
                   const merged = await this.deps.archive.mergeArchive(ignored, path, {
-                    signal,
+                    signal: landing,
                     exclude: neverPlaced,
                   });
                   ignoredSkipped += merged.skipped;
                 },
               }
             : {}),
+          cutoff: () => {
+            // Synchronous with cancel's check: one of them wins, never both.
+            if (this.rows.get(record.transferId)?.state !== "importing")
+              throw new TransferError("transfer_cancelled", "The transfer was cancelled.");
+            this.past.add(record.transferId);
+          },
+          created: (result) =>
+            this.rows.update(
+              record.transferId,
+              { result: { ...result, ...(ignored ? { ignoredSkipped } : {}) } },
+              this.deps.now(),
+            ),
         },
         record,
         hasFile ? file : undefined,
         signal,
       );
-      if (this.rows.get(record.transferId)?.state !== "importing") return;
-      this.rows.update(
-        record.transferId,
-        {
-          state: "completed",
-          result: { ...result, ...(ignored ? { ignoredSkipped } : {}) },
-          createdPath: undefined,
-          registeredId: undefined,
-        },
-        this.deps.now(),
-      );
+      this.finish(this.rows.get(record.transferId) ?? record, {
+        ...landed,
+        ...(ignored ? { ignoredSkipped } : {}),
+      });
       await this.removeFiles(record.transferId);
     } catch (error) {
-      // Shutting down: the row stays importing, and the next start rolls back and retries.
-      if (this.closed) return;
       const current = this.rows.get(record.transferId) ?? record;
+      // Past the cutoff (only the setup failed): the next start finishes it.
+      if (current.result) return;
+      // Landing undid what it made; a crash mid-way is undone by the next start.
       await this.rollback(current);
+      // Shutting down: the row stays importing, and the next start runs it again.
+      if (this.closed) return;
       if (current.state !== "importing") return;
       if (error instanceof NeedsFullBundle && current.method === "remote") {
         // Origin's history isn't usable here: the sender sends the whole repository instead.
@@ -311,13 +369,48 @@ export class IncomingTransfers {
       for (const path of mine) this.held.delete(path);
     }
   }
-  /** Unregisters a project this transfer registered and removes the folders it made. */
+  /** Completes an import past its cutoff: the thread's setup and the row in one transaction. */
+  private finish(record: IncomingRecord, result: NonNullable<IncomingRecord["result"]>): void {
+    const complete = () =>
+      this.rows.update(
+        record.transferId,
+        { state: "completed", result, createdPath: undefined, registeredId: undefined },
+        this.deps.now(),
+      );
+    const thread = record.commit?.thread;
+    if (thread && result.threadId)
+      this.deps.threads.setUp(
+        {
+          threadId: result.threadId,
+          thread,
+          machine: { hostId: record.begin.origin.hostId, name: record.begin.origin.hostName },
+        },
+        complete,
+      );
+    else complete();
+  }
+  /**
+   * Unregisters a project this transfer registered and removes the folder it made, through the
+   * folder's parent, validated again against the allowed roots and held open.
+   */
   private async rollback(record: IncomingRecord): Promise<void> {
     if (record.registeredId)
       await this.deps.projects
         .unregister(WorkspaceId.parse(record.registeredId))
         .catch(() => undefined);
-    if (record.createdPath) await removeQuietly(record.createdPath);
+    if (record.createdPath) {
+      const parent = await this.deps.projects
+        .parent(dirname(record.createdPath))
+        .catch(() => undefined);
+      if (parent) {
+        try {
+          if (parent.path === dirname(record.createdPath))
+            await removeUnder(parent, basename(record.createdPath)).catch(() => undefined);
+        } finally {
+          await parent.close();
+        }
+      } else this.deps.log("Transfer folder left in place", { transferId: record.transferId });
+    }
     this.rows.update(
       record.transferId,
       { createdPath: undefined, registeredId: undefined },
@@ -331,14 +424,24 @@ export class IncomingTransfers {
   ) {
     this.rows.update(transferId, { state, ...(error ? { error } : {}) }, this.deps.now());
   }
-  /** Cancel works until the import has made the thread; after that the result stands. */
+  /**
+   * Cancel works until the import's cutoff: the thread being made or, without one, everything
+   * having landed. A running import is stopped and awaited, and what it made is undone; after the
+   * cutoff the cancel waits and answers with the completed result.
+   */
   async cancel(device: Device, transferId: string): Promise<IncomingTransfer> {
     const record = this.owned(device, transferId);
     if (settled.has(record.state)) return this.view(record);
+    const flight = this.imports.get(transferId);
+    if (this.past.has(transferId) || record.result) {
+      await flight;
+      return this.view(this.owned(device, transferId));
+    }
     this.rows.update(transferId, { state: "cancelled" }, this.deps.now());
     this.running.get(transferId)?.abort();
+    await flight;
     await this.writes.get(transferId);
-    if (!this.running.has(transferId)) await this.rollback(record);
+    await this.rollback(this.owned(device, transferId));
     await this.removeFiles(transferId);
     return this.view(this.owned(device, transferId));
   }

@@ -80,11 +80,23 @@ export class IncomingRows {
       .get(transferId);
     return raw ? decode(Row.parse(raw)) : undefined;
   }
-  /** Rows a restart left mid-import, to finish or roll back. */
+  /**
+   * Rows a restart left mid-import: with a `result` they passed the cutoff and are finished,
+   * otherwise they are rolled back and run again.
+   */
   unsettled(): IncomingRecord[] {
     return this.store
       .statement(
         "SELECT * FROM transfer_incoming WHERE state IN ('cloning','importing') ORDER BY created_at LIMIT 64",
+      )
+      .all()
+      .map((raw) => decode(Row.parse(raw)));
+  }
+  /** Settled rows still naming a project or folder to undo, after a crash mid-rollback. */
+  leftovers(): IncomingRecord[] {
+    return this.store
+      .statement(
+        "SELECT * FROM transfer_incoming WHERE state IN ('failed','cancelled') AND (registered_id IS NOT NULL OR created_path IS NOT NULL) LIMIT 64",
       )
       .all()
       .map((raw) => decode(Row.parse(raw)));
