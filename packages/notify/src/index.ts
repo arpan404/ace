@@ -6,7 +6,7 @@ export type {
   DeliveryResult,
   NotificationState,
 } from "./service.ts";
-export { notificationsRetained } from "./database.ts";
+export { notificationsRetained } from "./retained.ts";
 export { deliverableFor } from "./policy.ts";
 export { createNotificationRouter } from "./router.ts";
 export type { NotificationChannels } from "./router.ts";

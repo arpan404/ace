@@ -1,5 +1,5 @@
 import { replayGap } from "./replay-gap.ts";
-import { chmodSync, existsSync } from "node:fs";
+import { chmodSync } from "node:fs";
 import { DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
 import {
@@ -15,6 +15,9 @@ import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 import { InteractionTracking, trackingTables } from "./tracking.ts";
 import { NotificationInbox, inboxTables } from "./inbox.ts";
 import { SleepBoundary, sleepTables, type Boundary } from "./sleep-boundary.ts";
+import { CatchUpLedger, catchUpNotice, catchUpTables } from "./catch-up.ts";
+import { deliverableJobs, retainsWork } from "./retained.ts";
+import { FORMAT } from "./format.ts";
 
 const Job = z.object({
   id: z.number().int(),
@@ -32,8 +35,6 @@ const jobColumns = `id INTEGER PRIMARY KEY AUTOINCREMENT, device TEXT NOT NULL,
 const jobIndexes = `CREATE INDEX IF NOT EXISTS jobs_due ON jobs(due);
   CREATE INDEX IF NOT EXISTS jobs_device ON jobs(device);
   CREATE INDEX IF NOT EXISTS jobs_thread ON jobs(thread);`;
-/** The only format this build reads. Pre-release builds carry no migrations (AGENTS.md). */
-const FORMAT = 4;
 const schema = `CREATE TABLE cursor (id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER NOT NULL);
   INSERT INTO cursor VALUES(1,0);
   CREATE TABLE threads (id TEXT PRIMARY KEY, body TEXT NOT NULL);
@@ -55,41 +56,6 @@ const schema = `CREATE TABLE cursor (id INTEGER PRIMARY KEY CHECK(id=1), seq INT
   CREATE TRIGGER pending_insert AFTER INSERT ON pending BEGIN UPDATE queue_size SET n=n+1 WHERE id=1; END;
   CREATE TRIGGER pending_delete AFTER DELETE ON pending BEGIN UPDATE queue_size SET n=n-1 WHERE id=1; END;
   ${trackingTables}`;
-const deliverableJobs =
-  "SELECT jobs.due FROM jobs JOIN devices ON devices.id=jobs.device WHERE devices.revoked=0 AND devices.expired=0 ORDER BY jobs.due LIMIT 1";
-/**
- * Work that a stopped worker would miss: queued alerts or jobs, or a device that can take an
- * alert while no client is connected (push, or a phone's catch-up inbox). Live-socket desktop
- * and web devices alone need nothing until one connects.
- */
-function retainsWork(statement: (sql: string) => Pick<StatementSync, "get">): boolean {
-  return (
-    statement("SELECT 1 FROM pending LIMIT 1").get() !== undefined ||
-    statement(deliverableJobs).get() !== undefined ||
-    statement(
-      "SELECT 1 FROM devices WHERE revoked=0 AND expired=0 AND NOT (json_extract(body,'$.address.channel')='websocket' AND json_extract(body,'$.address.platform') IN ('desktop','web')) LIMIT 1",
-    ).get() !== undefined
-  );
-}
-/**
- * Read-only check, without opening a worker, of whether the store at `path` retains work. A
- * missing store retains none; one this build cannot read, or any failure, counts as retaining
- * so the worker opens it and reports the problem.
- */
-export function notificationsRetained(path: string): boolean {
-  if (!existsSync(path)) return false;
-  try {
-    const db = new DatabaseSync(path, { readOnly: true });
-    try {
-      const version = db.prepare("PRAGMA user_version").get()?.user_version;
-      return version !== FORMAT || retainsWork((sql) => db.prepare(sql));
-    } finally {
-      db.close();
-    }
-  } catch {
-    return true;
-  }
-}
 /** All writes are bounded, synchronous SQLite transactions around pure policy. */
 export class NotificationDatabase {
   private db: DatabaseSync;
@@ -97,6 +63,7 @@ export class NotificationDatabase {
   private windowMs: number;
   private alertsFrom: number;
   readonly sleep: SleepBoundary;
+  private ledger: CatchUpLedger;
   private tracking: InteractionTracking;
   readonly inbox: NotificationInbox;
   /**
@@ -114,6 +81,7 @@ export class NotificationDatabase {
     this.windowMs = windowMs;
     this.alertsFrom = wake.alertsFrom ?? 0;
     this.sleep = new SleepBoundary((sql) => this.statement(sql));
+    this.ledger = new CatchUpLedger((sql) => this.statement(sql));
     this.tracking = new InteractionTracking((sql) => this.statement(sql));
     this.inbox = new NotificationInbox((sql) => this.statement(sql));
     this.db = new DatabaseSync(path);
@@ -136,6 +104,7 @@ export class NotificationDatabase {
     }
     this.db.exec(inboxTables);
     this.db.exec(sleepTables);
+    this.db.exec(catchUpTables);
     if (wake.sleptAfter) this.sleep.mark(wake.sleptAfter);
   }
   private statement(sql: string): StatementSync {
@@ -220,7 +189,10 @@ export class NotificationDatabase {
           JSON.stringify(CompactThread.parse(state)),
           event.threadId,
         );
-        if (state.deleted) this.statement("DELETE FROM jobs WHERE thread=?").run(event.threadId);
+        if (state.deleted) {
+          this.statement("DELETE FROM jobs WHERE thread=?").run(event.threadId);
+          this.ledger.forgetThread(event.threadId);
+        }
         if (pending) {
           if (!prior && this.count("pending") >= 10_000)
             // Disk spool eviction keeps replay advancing even during sustained overload.
@@ -262,6 +234,7 @@ export class NotificationDatabase {
       this.statement("DELETE FROM jobs WHERE device=?").run(String(stale.id));
       this.statement("DELETE FROM devices WHERE id=?").run(String(stale.id));
       this.inbox.remove(DeviceId.parse(stale.id));
+      this.ledger.forgetDevice(DeviceId.parse(stale.id));
     }
     const device = NotificationDevice.parse({
       id,
@@ -306,6 +279,7 @@ export class NotificationDatabase {
       );
       this.statement("DELETE FROM jobs WHERE device=?").run(id);
       this.inbox.remove(id);
+      this.ledger.forgetDevice(id);
     });
   }
   /**
@@ -437,7 +411,11 @@ export class NotificationDatabase {
   }
   private matches(state: CompactThread, notification: Notification, generation: number): boolean {
     if (state.archived || state.deleted) return false;
-    if (notification.status === "background_done" || notification.status === "agent_says")
+    if (
+      notification.status === "background_done" ||
+      notification.status === "agent_says" ||
+      notification.status === "catch_up"
+    )
       return true;
     return (
       state.generation === generation &&
@@ -471,6 +449,45 @@ export class NotificationDatabase {
   /** Whether anything here still needs a running worker (see `retainsWork`). */
   retains(): boolean {
     return retainsWork((sql) => this.statement(sql));
+  }
+  /**
+   * Queues one catch-up alert for a desktop or web socket device that is back: the threads
+   * still needing the person that it hasn't been told about in this waiting episode. Nothing is
+   * queued when there are none, or while an earlier catch-up for it is still on its way.
+   */
+  catchUp(id: DeviceId, now: number): void {
+    this.transaction(() => {
+      const row = this.statement(
+        "SELECT body FROM devices WHERE id=? AND revoked=0 AND expired=0",
+      ).get(id);
+      if (!row) return;
+      const address = NotificationDevice.parse(JSON.parse(String(row.body))).address;
+      if (address.channel !== "websocket" || address.platform === "phone") return;
+      if (this.ledger.queued(id) || this.count("jobs") >= 10_000) return;
+      const missed = this.ledger.missed(id, now);
+      const first = missed[0];
+      if (!first) return;
+      this.statement(
+        "INSERT INTO jobs(device,thread,body,due,expires,generation) VALUES(?,?,?,?,?,?)",
+      ).run(
+        id,
+        first.thread,
+        JSON.stringify(catchUpNotice(missed)),
+        now,
+        now + 3_600_000,
+        first.generation,
+      );
+      this.ledger.cover(id, missed);
+    });
+  }
+  /** A job is done with: delivered, its waiting episodes count as told to its device. */
+  finish(job: Job, delivered: boolean): void {
+    this.transaction(() => {
+      this.remove(job.id);
+      if (job.notification.status === "catch_up") this.ledger.settle(job.device.id, delivered);
+      else if (delivered && job.notification.status === "needs_you")
+        this.ledger.alerted(job.device.id, job.notification.threadId, job.generation);
+    });
   }
   remove(id: number): void {
     this.statement("DELETE FROM jobs WHERE id=?").run(id);

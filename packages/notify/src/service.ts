@@ -130,15 +130,23 @@ export class NotificationService {
     for (const flight of this.inFlight.values())
       if (flight.device === id) flight.controller.abort();
   }
+  /**
+   * A socket for `id` is up. A device seen before gets one catch-up alert for whatever still
+   * needs the person that it missed; a new one starts from now (it missed nothing).
+   */
   connectDevice(id: DeviceId): void {
-    if (!this.database.device(id))
+    if (!this.database.device(id)) {
       this.database.register(
         id,
         { channel: "websocket", platform: "web" },
         this.options.now(),
         this.presence.activeDevices(this.options.now()),
       );
+      this.database.touch(id, this.options.now());
+      return;
+    }
     this.database.touch(id, this.options.now());
+    this.database.catchUp(id, this.options.now());
   }
   getPreferences(id: DeviceId) {
     return this.database.device(id)?.preferences;
@@ -195,7 +203,7 @@ export class NotificationService {
           (device.address.platform === "phone" &&
             this.presence.viewedElsewhere(job.notification.threadId, device.id, now))
         ) {
-          this.database.remove(job.id);
+          this.database.finish(job, false);
           return;
         }
         const controller = new AbortController();
@@ -229,7 +237,7 @@ export class NotificationService {
             )
               flight.controller.abort();
         if (result !== "retry" || job.attempts >= maxRetries || controller.signal.aborted)
-          this.database.remove(job.id);
+          this.database.finish(job, result === "accepted");
         else
           this.database.retry(
             job.id,
