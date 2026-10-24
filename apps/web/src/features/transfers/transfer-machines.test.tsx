@@ -1,5 +1,5 @@
 import { CommandId, DeviceId, HostId, WorkspaceId } from "@ace/protocol";
-import { configure, screen, waitFor, within } from "@testing-library/react";
+import { act, configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { linkedMachines } from "./transfer-fixture.tsx";
@@ -128,12 +128,22 @@ test("Open on in a fresh window shows the transfer already running instead of of
       includeChanges: true,
     },
   });
+  // The list is slow to answer.
+  app.daemon.holdRequests("transfers.request");
   await app.open("/");
   await userEvent.click(await screen.findByRole("button", { name: /^Project/ }));
   const menu = await screen.findByRole("menu");
   await userEvent.click(await within(menu).findByRole("menuitem", { name: /weather/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Open on…" }));
   const dialog = await screen.findByRole("dialog", { name: "Open on another machine" });
+  expect(await within(dialog).findByText("Checking what this machine is sending…")).toBeTruthy();
+  expect(within(dialog).queryByRole("listbox", { name: "Machines" })).toBeNull();
+
+  app.daemon.restoreRequests();
+  act(() => {
+    app.daemon.disconnectAll();
+    app.client.reconnectNow();
+  });
   expect(await within(dialog).findByText("Getting ready to send to Build server")).toBeTruthy();
   expect(within(dialog).queryByRole("listbox", { name: "Machines" })).toBeNull();
   expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeTruthy();

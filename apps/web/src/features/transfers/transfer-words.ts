@@ -40,38 +40,74 @@ export function doneWords(transfer: Pick<Transfer, "kind" | "target" | "result">
 }
 
 /**
- * A refused command in words a person acts on: the daemon's own words when it gave them, else
- * its code's.
+ * A refused command, cancel or failed transfer in words a person acts on: the daemon's own
+ * words when it gave them, else its code's.
  */
 export function refusalWords(refusal: Refusal, machine: string): string {
   return refusal.detail || codeWords(refusal.code, machine);
 }
 
+/** The daemon's stable codes (ADR 0099), for a refusal or failure that came without words. */
 function codeWords(code: string | undefined, machine: string): string {
   switch (code) {
-    case "machine_not_linked":
-      return `This machine isn't linked to ${machine}. Link them in Settings › Fleet.`;
-    case "machine_forbidden":
-      return `${machine} doesn't allow projects from this machine. Link it again with Projects allowed.`;
-    case "machine_offline":
-      return `${machine} is offline or unreachable. Try again once it's on.`;
+    // Starting one.
+    case "transfers_unavailable":
+    case "unavailable":
+      return "Transfers aren't ready on this machine yet. Try again in a moment.";
+    case "forbidden":
+      return "This window isn't allowed to manage projects on this machine.";
+    case "thread_not_found":
+      return "That thread isn't on this machine any more.";
     case "thread_busy":
       return "The thread is still working. Try again once it stops.";
     case "workspace_change_in_progress":
+      return "The thread's checkout is still being changed. Try again once that's done.";
     case "workspace_preparing":
       return "The thread's checkout is still being made. Try again once it's ready.";
-    case "thread_not_found":
-      return "That thread isn't on this machine any more.";
+    case "workspace_unavailable":
+      return "This machine's projects are still starting. Try again in a moment.";
     case "workspace_not_found":
       return "That project isn't on this machine any more.";
-    case "workspace_unavailable":
-      return "This machine can't send projects right now. Try again in a moment.";
-    case "transfer_too_large":
-      return "It's larger than 20 GB, too large to send.";
+    case "invalid":
+    case "invalid_command":
+      return "This window asked for something this machine doesn't understand. Update ace here or there.";
+    case "machine_not_linked":
+      return `This machine isn't linked to ${machine}. Link them in Settings › Fleet.`;
+    case "machine_offline":
+    case "machine_unavailable":
+      return `${machine} is offline or unreachable. Try again once it's on.`;
+    case "machine_forbidden":
+    case "machine_refused":
+      return `${machine} doesn't allow projects from this machine. Link it again with Projects allowed.`;
+    // Cancelling.
+    case "too_late":
+      return `It already reached ${machine}; the work is there now.`;
     case "not_found":
       return "That transfer isn't on this machine any more.";
-    case "forbidden":
-      return "This window isn't allowed to manage projects on this machine.";
+    // Failing on the way.
+    case "transfer_corrupt":
+      return `The copy on ${machine} didn't match what was sent. Try again.`;
+    case "transfer_cancelled":
+      return `Sending to ${machine} was cancelled.`;
+    case "transfer_too_large":
+      return "It's larger than 20 GB, too large to send.";
+    case "ignored_unreadable":
+      return "The files Git ignores couldn't be read. Try again without them.";
+    case "clone_failed":
+    case "import_failed":
+    case "project_failed":
+      return `${machine} couldn't set the project up. Try again.`;
+    case "branch_unavailable":
+      return `The branch couldn't be made on ${machine}.`;
+    case "branch_diverged":
+      return `The branch on ${machine} has moved on from this one.`;
+    case "changes_conflict":
+      return `The uncommitted changes don't apply cleanly on ${machine}.`;
+    case "parent_not_allowed":
+      return `That folder is outside the project folders ${machine} allows.`;
+    case "provider_unavailable":
+    case "engine_unavailable":
+      return `${machine} can't start the thread's agent right now.`;
     case "offline":
       return "This machine isn't connected. Try again once it is.";
     default:

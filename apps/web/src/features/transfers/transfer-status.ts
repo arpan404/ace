@@ -69,7 +69,12 @@ export function useTransferLine(
     }
     case "failed":
       return {
-        words: words(transfer.error?.message || `Couldn't send it to ${transfer.target.name}.`),
+        words: words(
+          refusalWords(
+            { code: transfer.error?.code, detail: transfer.error?.message },
+            transfer.target.name,
+          ),
+        ),
         actions: again,
         alert: true,
       };

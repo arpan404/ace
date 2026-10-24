@@ -139,3 +139,30 @@ test("Cancel can't be pressed twice while it runs, and says why it couldn't canc
     false,
   );
 }, 30_000);
+
+test("a failure that came without words says what its code means", async () => {
+  const { app, finish } = linkedMachines();
+  app.daemon.transfers.failWith = { code: "changes_conflict", message: "" };
+  await app.open("/t/thread-forecast");
+  const dialog = await optionsFor("Build server");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Continue on Build server" }));
+  await finish();
+  expect(
+    await within(dialog).findByText("The uncommitted changes don't apply cleanly on Build server."),
+  ).toBeTruthy();
+}, 30_000);
+
+test("cancelling a transfer that already arrived is refused as too late", async () => {
+  const { app, finish } = linkedMachines();
+  await app.open("/t/thread-forecast");
+  const dialog = await optionsFor("Build server");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Continue on Build server" }));
+  await finish();
+  expect(await within(dialog).findByText("Continued on Build server")).toBeTruthy();
+  const [done] = app.daemon.transfers.list();
+  await expect(app.client.transfers.cancel(done?.transferId ?? "")).rejects.toMatchObject({
+    code: "too_late",
+    message: "It already reached Build server; the work is there now.",
+  });
+  expect(app.daemon.transfers.list()[0]?.phase).toBe("completed");
+}, 30_000);

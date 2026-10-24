@@ -108,7 +108,7 @@ test("a machine that keeps agents out still takes the person's transfer", async 
 test("a failed transfer shows the other machine's words, and Try again sends it again", async () => {
   const { app, build, finish } = linkedMachines();
   app.daemon.transfers.failWith = {
-    code: "digest_mismatch",
+    code: "transfer_corrupt",
     message: "The copy on Build server didn't match. Try again.",
   };
   await app.open("/t/thread-forecast");
