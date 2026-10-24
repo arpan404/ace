@@ -22,3 +22,4 @@ export {
   type Resolved as ResolvedModel,
 } from "./new-thread/choices.ts";
 export { OnMachine, machineAwayText } from "./on-machine.tsx";
+export { rememberMachine, rememberedMachine, targetMachine } from "./new-thread/machine-choice.ts";

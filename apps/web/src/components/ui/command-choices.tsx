@@ -19,6 +19,8 @@ export interface CommandChoice {
   detail?: string | undefined;
   /** Shown at the right (a machine's status). */
   aside?: ReactNode;
+  /** The row's accessible name when the aside adds to the label ("Studio, Offline"). */
+  spoken?: string | undefined;
   disabled?: boolean;
 }
 
@@ -99,7 +101,7 @@ export function CommandChoices(props: {
             key={choice.id}
             id={`${listId}-${at}`}
             active={at === current}
-            label={choice.label}
+            label={choice.spoken ?? choice.label}
             disabled={choice.disabled}
             onPoint={() => setActive(at)}
             onPick={() => choose(choice)}
