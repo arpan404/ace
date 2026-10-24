@@ -82,6 +82,13 @@ export {
 } from "./file-read.ts";
 export type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 
+export {
+  TransferError,
+  TransferStore,
+  transferRunning,
+  transfersApi,
+  type TransfersApi,
+} from "./transfers.ts";
 export { deferredProjectsApi, type ProjectsApi, type ProjectCallsModule } from "./projects.ts";
 export { loadServiceWire, type ServiceWire } from "./wire-codec.ts";
 export type {

@@ -34,6 +34,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useDebouncedValue, searchSettleMs } from "@/lib/debounced.ts";
 import { useProjectDirectory, useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
+import { useTransferOpener } from "@/lib/transfer-opener.ts";
 import type { PaletteCommand, PaletteGroup } from "./types.ts";
 
 const noEntries: ThreadListEntry[] = [];
@@ -55,6 +56,7 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
   const state = useOrganizerState();
   const actions = useThreadActions();
   const mover = useThreadMover();
+  const transfers = useTransferOpener();
   const now = useNow();
   const { screenActions } = useLayout();
   const current = useParams({ strict: false }).threadId;
@@ -206,6 +208,13 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
           onRename: () => screen?.rename(),
           fork: { point: undefined, onFork: () => screen?.fork?.() },
           onMove: () => mover.open({ entries: [open] }),
+          onContinueOn: () =>
+            transfers.open({
+              kind: "thread",
+              threadId: open.id,
+              workspaceId: open.workspaceId,
+              title: open.title,
+            }),
           onLeave: () => void navigate({ to: "/" }),
         },
       );
@@ -286,6 +295,7 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
     openProject,
     actions,
     mover,
+    transfers,
     selection,
     picked,
     projectName,

@@ -20,7 +20,7 @@ import { useFleet, type Fleet } from "./data/use-fleet.ts";
 import { deviceScopeLabels } from "./device-scopes.ts";
 import { AccessRows } from "./fleet-rules.tsx";
 import { MachineEditor } from "./machine-editor.tsx";
-import { MachineScope } from "./machine-scope.tsx";
+import { MachineScope } from "@/lib/machine-scope.tsx";
 import { PairDevice } from "./pair-device.tsx";
 import { SettingsBody } from "./settings-body.tsx";
 

@@ -52,6 +52,7 @@
     "remote.enabled",
     "remote.transport",
     "remote.agentAccess",
+    "remote.agentTransfers",
     "remote.hostedPairingLink",
     "remote.relayUrl",
     "automations.enabled",

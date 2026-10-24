@@ -94,6 +94,7 @@
                   "state": {
                     "enum": [
                       "working",
+                      "queued",
                       "needs_you",
                       "done",
                       "failed",

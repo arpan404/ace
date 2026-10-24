@@ -277,6 +277,9 @@
           ],
           "type": "string"
         },
+        "remote.agentTransfers": {
+          "type": "boolean"
+        },
         "remote.enabled": {
           "type": "boolean"
         },

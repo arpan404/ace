@@ -269,6 +269,9 @@
       ],
       "type": "string"
     },
+    "remote.agentTransfers": {
+      "type": "boolean"
+    },
     "remote.enabled": {
       "type": "boolean"
     },
@@ -415,6 +418,7 @@
     "remote.enabled",
     "remote.transport",
     "remote.agentAccess",
+    "remote.agentTransfers",
     "remote.hostedPairingLink",
     "remote.relayUrl",
     "automations.enabled",

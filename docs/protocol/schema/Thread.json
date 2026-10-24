@@ -152,6 +152,9 @@
     "queue": {
       "$ref": "https://ace.local/protocol/v1/QueueState.json"
     },
+    "queuedLaunch": {
+      "$ref": "https://ace.local/protocol/v1/QueuedLaunch.json"
+    },
     "readAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },

@@ -43,6 +43,7 @@ const empty: HomeList = {
   needsYou: [],
 };
 const noProjects: ProjectCount[] = [];
+const noOthers: readonly ThreadListEntry[] = [];
 
 const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
   reader.ids.flatMap((id) => {
@@ -82,9 +83,10 @@ const listEqual = (a: HomeList, b: HomeList) =>
  * Pinned threads in the person's order, then Home order (requests, working, then the rest,
  * most recent first in each; settled apart), across every project the filter lets through.
  * Only ids are selected, so a status change re-renders its own row and moves rows only when the
- * order changes.
+ * order changes. `others` are other machines' threads under their machine row ids
+ * (`useMachineEntries`), ordered in the same flat list (ADR 0100).
  */
-export function useHomeList(): HomeList {
+export function useHomeList(others: readonly ThreadListEntry[] = noOthers): HomeList {
   const keys = useEveryEntryKey();
   const state = useOrganizerState();
   const sortBy = useHomeSort();
@@ -92,7 +94,8 @@ export function useHomeList(): HomeList {
   const read = useEntries();
   const select = useCallback(
     (reader: SidebarReader): HomeList => {
-      const entries = read(reader);
+      const own = read(reader);
+      const entries = others.length ? [...own, ...others] : own;
       const { pinned, active, recent, snoozed, settled } = arrange(
         entries,
         { ...state, sortBy },
@@ -105,7 +108,7 @@ export function useHomeList(): HomeList {
         : [...active, ...recent].filter((id) => byId.get(id)?.status.state === "needs_you");
       return { pinned, active, recent, snoozed, settled, needsYou };
     },
-    [state, sortBy, now, read],
+    [state, sortBy, now, read, others],
   );
   return useSidebar(keys, select, listEqual) ?? empty;
 }

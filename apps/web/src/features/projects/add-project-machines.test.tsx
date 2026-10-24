@@ -57,7 +57,7 @@ test("with two machines Add project asks which machine first, and its folders fo
   expect(await option("code")).toBeTruthy();
 });
 
-test("a folder added on the build server is added there, not on this machine", async () => {
+test("a folder added on the build server is added there and opens New thread there", async () => {
   const { made, build } = twoMachines();
   await addProjectOn(made, "Build server", "Local folder");
   const field = await screen.findByRole("combobox", { name: "Folder path" });
@@ -66,18 +66,21 @@ test("a folder added on the build server is added there, not on this machine", a
   await screen.findByText("~/services/api");
   await userEvent.keyboard("{Enter}");
 
-  expect(await screen.findByText("Added api on Build server")).toBeTruthy();
+  // New thread opens on the build server, in the project just added.
+  expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Project: api" })).toBeTruthy();
   expect(paths(build)).toEqual(["/home/ci/services/api"]);
   expect(paths(made.daemon)).toEqual([]);
 });
 
-test("a new project is created on the chosen machine", async () => {
+test("a new project is created on the chosen machine and New thread opens there", async () => {
   const { made, build } = twoMachines();
   await addProjectOn(made, "Build server", "New project");
   await userEvent.type(await screen.findByRole("textbox", { name: "Project name" }), "jobs");
   expect(await screen.findByText("~/jobs")).toBeTruthy();
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
-  expect(await screen.findByText("Created jobs on Build server")).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Project: jobs" })).toBeTruthy();
   expect(paths(build)).toEqual(["/home/ci/jobs"]);
   expect(paths(made.daemon)).toEqual([]);
 });
