@@ -83,7 +83,8 @@ struct InboxFilters: View {
     private var projects: [Choice] {
         var seen = Set<String>()
         return inbox.sessions.filter { machine.isEmpty || $0.hostId == machine }.flatMap { $0.client.inbox.values }.compactMap { row in
-            guard let id = row.workspaceId, seen.insert(id).inserted else { return nil }
+            // Each chat's hidden project is not a project to filter by (ADR 0099).
+            guard let id = row.workspaceId, row.chat != true, seen.insert(id).inserted else { return nil }
             return Choice(id: id, name: row.project)
         }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }

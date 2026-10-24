@@ -50,20 +50,25 @@ function quietLine(item: Item) {
 
 export function threadRow(thread: Thread | ThreadListEntry) {
   const card = cardDetails(thread, undefined);
+  // A chat with no project (ADR 0099) reads as a chat, never as its hidden folder.
+  const chat = thread.details?.workspace?.kind === "chat";
   return {
     id: thread.id,
     workspaceId: thread.workspaceId,
-    badge: projectBadge({
-      id: thread.workspaceId,
-      name: thread.details?.workspace?.name ?? thread.workspaceId,
-    }).initials,
+    chat,
+    badge: chat
+      ? ""
+      : projectBadge({
+          id: thread.workspaceId,
+          name: thread.details?.workspace?.name ?? thread.workspaceId,
+        }).initials,
     diff: thread.details?.diff ?? null,
     testsRunning: thread.status.state === "working" && thread.live?.step === "tests",
     title: preview(thread.title),
     state: thread.status.state,
     status: mobileThreadStatus(thread),
     attention: threadAttention(thread) ?? null,
-    project: preview(thread.details?.workspace?.name ?? thread.workspaceId),
+    project: chat ? "Chat" : preview(thread.details?.workspace?.name ?? thread.workspaceId),
     branch: preview(thread.details?.branch ?? ""),
     machine: preview(thread.details?.machine?.name ?? ""),
     provider: thread.provider,
