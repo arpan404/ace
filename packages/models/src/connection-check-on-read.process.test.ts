@@ -32,8 +32,7 @@ test("a login changed outside ace shows on the next read, and an unread catalog 
   cleanup.push(() => catalog.close());
   await catalog.refresh();
   expect(catalog.list().models.map((entry) => entry.id)).toEqual(["coder"]);
-  await pause(20);
-  expect(checks).toBe(1);
+  await vi.waitFor(() => expect(checks).toBe(1), { timeout: 10_000 });
 
   // Reads within the interval share that check; time passing without reads starts none.
   catalog.list();
