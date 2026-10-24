@@ -8,7 +8,7 @@ import {
   bodyTurn,
   deviceButtons,
   deviceKind,
-  defaultScreens,
+  deviceScreen,
   frameGeometry,
   framePoints,
   type Size,
@@ -90,7 +90,7 @@ export function DeviceStage({
   const kind = deviceKind(row);
   const room = useRef<HTMLDivElement>(null);
   const measured = useElementSize(room);
-  const [screen, setScreen] = useState<Size>(defaultScreens[kind]);
+  const [screen, setScreen] = useState<Size>(() => deviceScreen(kind, row.name));
   const [pictureTurn, setPictureTurn] = useState(0);
   const fit = measured.width > 0 && measured.height > 0 ? measured : fallbackRoom;
   const geometry = props.bare ? bareGeometry : frameGeometry(kind, row.name, screen);
