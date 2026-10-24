@@ -28,6 +28,7 @@ export default defineConfig({
     reporters: ["default", new FailureDetailsReporter()],
     include: [
       "packages/browser/src/video-software.process.test.ts",
+      "packages/browser/src/video-sharpness.process.test.ts",
       "packages/workspace/src/windows-core.process.test.ts",
       "packages/workspace/src/windows-metadata.process.test.ts",
       "packages/workspace/src/windows-metadata-open.process.test.ts",
