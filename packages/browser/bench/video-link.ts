@@ -112,7 +112,7 @@ try {
     binaryFrames: true,
     viewport: pane,
     // What a current web client offers (apps/web lib/video/codecs.ts), HEVC first.
-    video: { codecs: ["hvc1.1.6.L153.B0", "avc1.640033", "avc1.42E033", "vp8"] },
+    video: { codecs: ["hvc1.1.6.L153.B0", "avc1.640033", "avc1.42E033", "vp09.00.41.08", "vp8"] },
   });
   await new Promise((resolve) => setTimeout(resolve, 3_000));
   const start = performance.now();
