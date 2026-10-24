@@ -1,3 +1,4 @@
+import { validateCloneUrl, type ProjectGitPolicy } from "./projects.ts";
 import { textOutput } from "./cli.ts";
 import { longWriteTimeoutMs } from "./deadlines.ts";
 import type { Repository } from "./repository.ts";
@@ -12,6 +13,8 @@ export interface BundleCloneOptions {
   /** An empty folder: created first unless `directoryFd` already holds it open. */
   path: string;
   bundle: string;
+  /** Original fetch URL, never the temporary bundle path. */
+  origin?: string | undefined;
   /** The branch to check out; else the branch at the bundle's HEAD, `main`, `master`, or the first. */
   branch?: string | undefined;
   directoryFd?: number | undefined;
@@ -26,7 +29,9 @@ export interface BundleCloneOptions {
 export async function cloneFromBundle(
   repository: Repository,
   input: BundleCloneOptions,
+  policy: ProjectGitPolicy = {},
 ): Promise<{ branch: string | undefined }> {
+  if (input.origin) (policy.validateUrl ?? validateCloneUrl)(input.origin);
   await assertBundleFile(input.bundle);
   const { cli } = repository;
   const at = { directoryFd: input.directoryFd };
@@ -35,9 +40,16 @@ export async function cloneFromBundle(
     repository,
     input.path,
     input.bundle,
-    ["+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*", "+refs/ace/*:refs/ace/*"],
+    [
+      "+refs/heads/*:refs/heads/*",
+      "+refs/tags/*:refs/tags/*",
+      "+refs/ace/*:refs/ace/*",
+      ...(input.origin ? ["+refs/remotes/origin/*:refs/remotes/origin/*"] : []),
+    ],
     { updateHead: true, ...at },
   );
+  if (input.origin)
+    await cli.call(input.path, ["remote", "add", "origin", input.origin], { write: true, ...at });
   const heads = await refsUnder(repository, input.path, ["refs/heads"], input.directoryFd);
   const branch = input.branch ?? (await bundleBranch(repository, input, heads));
   if (branch === undefined) return { branch: undefined };
@@ -52,6 +64,19 @@ export async function cloneFromBundle(
     timeoutMs: longWriteTimeoutMs,
     ...at,
   });
+  if (input.origin) {
+    const tracking = await refsUnder(
+      repository,
+      input.path,
+      ["refs/remotes/origin"],
+      input.directoryFd,
+    );
+    if (tracking.has(`refs/remotes/origin/${branch}`))
+      await cli.call(input.path, ["branch", `--set-upstream-to=origin/${branch}`, "--", branch], {
+        write: true,
+        ...at,
+      });
+  }
   return { branch };
 }
 

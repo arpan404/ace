@@ -1,3 +1,4 @@
+import type { ProjectGitPolicy } from "@ace/git";
 import { join } from "node:path";
 import {
   HostId,
@@ -37,6 +38,7 @@ export interface OutgoingDeps {
   /** Where bundles and archives wait while they are sent: `<data>/transfers/outgoing`. */
   directory: string;
   git: TransferGit;
+  gitPolicy?: ProjectGitPolicy | undefined;
   archive: TransferArchive;
   transport: TransferTransport;
   profiles(): RemoteProfile[];
@@ -282,12 +284,16 @@ export class OutgoingTransfers {
     let method: TransferMethod;
     if (record.transfer.method) method = record.transfer.method;
     else {
-      const planned = await planSource(this.deps.git, {
-        transferId,
-        source: plan.source,
-        name: plan.name,
-        includeChanges: record.request.includeChanges,
-      });
+      const planned = await planSource(
+        this.deps.git,
+        {
+          transferId,
+          source: plan.source,
+          name: plan.name,
+          includeChanges: record.request.includeChanges,
+        },
+        this.deps.gitPolicy,
+      );
       ({ method, plan } = planned);
       record = this.update(record, { method }, plan);
     }
@@ -299,7 +305,7 @@ export class OutgoingTransfers {
       method,
       name: plan.name.slice(0, 256) || "project",
       ...(record.request.parent ? { parent: record.request.parent } : {}),
-      ...(method === "remote" && plan.remote ? { remote: plan.remote } : {}),
+      ...(plan.remote ? { remote: plan.remote } : {}),
     };
     let status = await this.reach(signal, () => client.call(begin, signal));
     for (;;) {

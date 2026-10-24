@@ -1,3 +1,4 @@
+import { validateCloneUrl, type ProjectGitPolicy } from "@ace/git";
 import { maxTransferBytes, type TransferMethod } from "@ace/protocol";
 import type { TransferPlan } from "./outgoing-rows.ts";
 import { fileDigest, removeQuietly } from "./files.ts";
@@ -36,6 +37,7 @@ export const changesRef = (transferId: string) => `refs/ace/transfer/${transferI
 export async function planSource(
   git: TransferGit,
   input: { transferId: string; source: string; name: string; includeChanges: boolean },
+  policy: ProjectGitPolicy = {},
 ): Promise<{ method: TransferMethod; plan: TransferPlan }> {
   const base = { source: input.source, name: input.name };
   let refs: Awaited<ReturnType<TransferGit["bundleRefs"]>>;
@@ -44,7 +46,8 @@ export async function planSource(
   } catch {
     return { method: "archive", plan: base };
   }
-  const remote = await git.transferOrigin(input.source).catch(() => undefined);
+  const remote = await git.transferOrigin(input.source);
+  if (remote) (policy.validateUrl ?? validateCloneUrl)(remote.url);
   const changes = input.includeChanges
     ? await git.captureChanges(input.source, {
         ref: changesRef(input.transferId),
@@ -98,6 +101,8 @@ export async function writeTransferFile(
     : [
         ...refs.branches.map((name) => fullRef("refs/heads/", name)),
         ...refs.tags.map((name) => fullRef("refs/tags/", name)),
+        // Keep the sender's last-known origin branches, without asking origin for anything.
+        ...(plan.remote ? refs.originTracking : []),
       ];
   if (plan.changes) wanted.push(plan.changes.ref);
   if (!wanted.length) return undefined;

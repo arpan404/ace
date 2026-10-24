@@ -42,7 +42,7 @@ export const TransferBegin = z.strictObject({
   name: z.string().min(1).max(256),
   /** A folder on the target for a new project; omitted: its default. */
   parent: z.string().min(1).max(4096).optional(),
-  /** method remote: the origin the target may already have, or clones itself. */
+  /** Source origin: reused or cloned for remote transfers, restored after bundle imports. */
   remote: z
     .object({ url: z.string().min(1).max(2048), normalized: z.string().max(2048) })
     .optional(),

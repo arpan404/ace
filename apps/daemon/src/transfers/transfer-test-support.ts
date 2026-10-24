@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, vi } from "vitest";
-import { GitError } from "@ace/git";
+import { validateCloneUrl } from "@ace/git";
 import {
   Command,
   DeviceId,
@@ -37,10 +37,11 @@ afterEach(async () => {
 /** Clones of a local bare repository stand in for origin; only tests may use file URLs. */
 const fixturePolicy = {
   validateUrl(value: string) {
-    if (!value.startsWith("file://") && !value.startsWith("/"))
-      throw new GitError("invalid_argument", "Expected a file fixture");
+    if (value.startsWith("file://") || value.startsWith("/")) return;
+    // Local HTTP servers exercise authentication and stalled transports without TLS fixtures.
+    validateCloneUrl(value.replace(/^http:\/\/(127\.0\.0\.1:\d+)\//, "https://$1/"));
   },
-  protocols: ["file"],
+  protocols: ["file", "http", "https", "ssh"],
 };
 
 /** Git as the person runs it in the fixtures, with a fixed identity. */
@@ -183,6 +184,7 @@ export function registered(side: Side): string[] {
 export async function transferMachines(
   options: {
     scopes?: DeviceScope[];
+    cloneTimeoutMs?: number;
     /** Wraps the source's transfer transport, e.g. to drop a connection. */
     transport?: (inner: TransferTransport) => TransferTransport;
   } = {},
@@ -195,7 +197,10 @@ export async function transferMachines(
   });
   const target = await daemonFixture(
     undefined,
-    { projects: projects(targetRoot) },
+    {
+      projects: projects(targetRoot),
+      transfers: options.cloneTimeoutMs ? { cloneTimeoutMs: options.cloneTimeoutMs } : {},
+    },
     { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1" },
   );
   cleanup.push(() => target.daemon.close());

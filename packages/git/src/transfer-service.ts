@@ -1,3 +1,4 @@
+import type { ProjectGitPolicy } from "./projects.ts";
 import { mkdir } from "node:fs/promises";
 import type { Repository } from "./repository.ts";
 import { applyChanges } from "./transfer-apply.ts";
@@ -55,9 +56,14 @@ export class GitTransfer {
   }
 
   /** A new repository at `path` from a bundle, with no remote; see `cloneFromBundle`. */
-  async cloneFromBundle(input: BundleCloneOptions): Promise<{ branch: string | undefined }> {
+  async cloneFromBundle(
+    input: BundleCloneOptions,
+    policy?: ProjectGitPolicy,
+  ): Promise<{ branch: string | undefined }> {
     if (input.directoryFd === undefined) await mkdir(input.path);
-    return this.repository.serial(input.path, () => cloneFromBundle(this.repository, input));
+    return this.repository.serial(input.path, () =>
+      cloneFromBundle(this.repository, input, policy),
+    );
   }
   verifyBundle(path: string, bundle: string): Promise<boolean> {
     return this.within(path, (root) => verifyBundle(this.repository, root, bundle));

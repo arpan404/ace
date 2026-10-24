@@ -61,6 +61,8 @@ export type DaemonOptions = {
     transport?: import("../transfers/client.ts").TransferTransport;
     sleep?(ms: number, signal: AbortSignal): Promise<void>;
     offlineMs?: number;
+    /** Target origin clone deadline; host-injected so stalled-origin tests stay fast. */
+    cloneTimeoutMs?: number;
   };
   /** Calls to other paired machines (ADR 0078): the transport and poll interval. */
   machines?: {

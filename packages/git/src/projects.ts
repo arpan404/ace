@@ -1,6 +1,7 @@
 import { ProjectCloneUrl } from "@ace/protocol";
 import { hash } from "./decode.ts";
 import { GitCli, textOutput } from "./cli.ts";
+import { transportEnv } from "./non-executing.ts";
 import { GitError } from "./types.ts";
 import { parseRemotes, parseWorktrees } from "./parse.ts";
 import { within } from "./repository.ts";
@@ -11,6 +12,8 @@ export function validateCloneUrl(value: string): void {
 }
 
 export interface CloneOptions {
+  /** Host-only transfer clone policy; ordinary project clones keep their existing behavior. */
+  transfer?: { timeoutMs: number };
   directoryFd?: number;
   parent: string;
   path: string;
@@ -30,6 +33,27 @@ export async function cloneRepository(
 ): Promise<void> {
   (policy.validateUrl ?? validateCloneUrl)(input.url);
   const protocols = policy.protocols ?? ["https", "ssh"];
+  let env: Record<string, string> = {
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_ALLOW_PROTOCOL: protocols.join(":"),
+  };
+  if (input.transfer) {
+    const configured = await cli.call(input.path, ["config", "--get", "core.sshCommand"], {
+      directoryFd: input.directoryFd,
+      signal: input.signal,
+      allowFailure: true,
+      timeoutMs: input.transfer.timeoutMs,
+    });
+    if (configured.exitCode !== 0 && configured.exitCode !== 1)
+      throw new GitError("git_failed", "Cannot read SSH configuration");
+    env = {
+      ...env,
+      ...transportEnv(protocols, configured.exitCode === 0 ? textOutput(configured) : undefined),
+      GCM_INTERACTIVE: "never",
+      SSH_ASKPASS: "",
+      SSH_ASKPASS_REQUIRE: "never",
+    };
+  }
   let pending = "";
   let previous = "";
   await cli.call(
@@ -48,7 +72,8 @@ export async function cloneRepository(
       write: true,
       directoryFd: input.directoryFd,
       signal: input.signal,
-      env: { GIT_TERMINAL_PROMPT: "0", GIT_ALLOW_PROTOCOL: protocols.join(":") },
+      env,
+      ...(input.transfer ? { timeoutMs: input.transfer.timeoutMs } : {}),
       captureBytes: 4096,
       stderr: (chunk) => {
         // Report only numeric progress, never URLs, helper output or credential diagnostics.

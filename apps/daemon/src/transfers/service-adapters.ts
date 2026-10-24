@@ -24,9 +24,15 @@ export function targetProjects(context: ServiceContext): TargetProjects {
       throw new TransferError("projects_unavailable", "Projects aren't ready.");
     return services.projects;
   };
-  const run = async (id: string, payload: unknown): Promise<CommandResult> => {
+  const run = async (
+    id: string,
+    payload: unknown,
+    clone?: { signal: AbortSignal; timeoutMs: number },
+  ): Promise<CommandResult> => {
     const result = await projects().execute(
       Command.parse({ id, deviceId: "ace-transfer", payload }),
+      () => !clone?.signal.aborted,
+      clone,
     );
     if (!result.ok)
       throw new TransferError(
@@ -55,8 +61,15 @@ export function targetProjects(context: ServiceContext): TargetProjects {
             "That folder isn't one this machine lets projects be made in.",
           );
         }),
-    clone: async ({ key, parent, name, url }) => {
-      const result = await run(`${key}:clone`, { type: "workspace.clone", parent, name, url });
+    clone: async ({ key, parent, name, url, signal }) => {
+      const result = await run(
+        `${key}:clone`,
+        { type: "workspace.clone", parent, name, url },
+        {
+          signal,
+          timeoutMs: context.options.transfers?.cloneTimeoutMs ?? 180_000,
+        },
+      );
       if (!result.workspace) throw new TransferError("clone_failed", "The clone didn't register.");
       return result.workspace.id;
     },

@@ -331,13 +331,20 @@ export class Projects {
     }
     return allowed(this.home);
   }
-  execute(input: Command, allowed: () => boolean = () => true): Promise<CommandResult> {
+  execute(
+    input: Command,
+    allowed: () => boolean = () => true,
+    transferClone?: { signal: AbortSignal; timeoutMs: number },
+  ): Promise<CommandResult> {
     const existing = this.clones.get(input.id);
     if (existing)
       return existing.device === input.deviceId
         ? existing.finished
         : Promise.resolve({ commandId: input.id, ok: false, error: "forbidden" });
     const controller = new AbortController();
+    const cancelTransfer = () => controller.abort();
+    transferClone?.signal.addEventListener("abort", cancelTransfer, { once: true });
+    if (transferClone?.signal.aborted) controller.abort();
     const flight = this.commands.run(input, async () => {
       try {
         this.check(allowed);
@@ -474,6 +481,7 @@ export class Projects {
                 url: cloneUrl ?? p.url,
                 directoryFd: directory.handle.fd,
                 signal: controller.signal,
+                ...(transferClone ? { transfer: { timeoutMs: transferClone.timeoutMs } } : {}),
                 progress: (value) => {
                   if (!allowed()) controller.abort();
                   else
@@ -529,6 +537,11 @@ export class Projects {
         return { ok: false, error: cancelled ? "clone_cancelled" : projectErrorCode(error) };
       }
     });
+    if (transferClone) {
+      const forgetTransfer = () =>
+        transferClone.signal.removeEventListener("abort", cancelTransfer);
+      void flight.then(forgetTransfer, forgetTransfer);
+    }
     if (input.payload.type === "workspace.clone") {
       this.clones.set(input.id, {
         committed: false,

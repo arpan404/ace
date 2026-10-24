@@ -1,3 +1,4 @@
+import { validateCloneUrl, type ProjectGitPolicy } from "@ace/git";
 import { join } from "node:path";
 import {
   WorkspaceId,
@@ -25,6 +26,7 @@ export interface IncomingDeps {
   /** Where incoming files wait: `<data>/transfers/incoming`. */
   directory: string;
   git: TransferGit;
+  gitPolicy?: ProjectGitPolicy | undefined;
   archive: TransferArchive;
   projects: TargetProjects;
   threads: TargetThreadStarter;
@@ -111,6 +113,7 @@ export class IncomingTransfers {
     }
   }
   private async begin(device: Device, call: TransferBegin): Promise<IncomingTransfer> {
+    if (call.remote) (this.deps.gitPolicy?.validateUrl ?? validateCloneUrl)(call.remote.url);
     const existing = this.rows.get(call.transferId);
     if (existing) return this.view(this.owned(device, call.transferId));
     await this.sweep();
@@ -198,6 +201,7 @@ export class IncomingTransfers {
       const result = await landTransfer(
         {
           git: this.deps.git,
+          gitPolicy: this.deps.gitPolicy,
           archive: this.deps.archive,
           projects: this.deps.projects,
           threads: this.deps.threads,

@@ -1,3 +1,4 @@
+import type { ProjectGitPolicy } from "@ace/git";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
@@ -17,7 +18,13 @@ export interface TargetProjects {
   /** A canonical folder inside the allowed roots for new projects; omitted: the default. */
   parent(requested: string | undefined): Promise<string>;
   /** `workspace.clone`, keyed so a retry runs once. */
-  clone(input: { key: string; parent: string; name: string; url: string }): Promise<WorkspaceId>;
+  clone(input: {
+    key: string;
+    parent: string;
+    name: string;
+    url: string;
+    signal: AbortSignal;
+  }): Promise<WorkspaceId>;
   /** `workspace.add` of a folder this transfer made. */
   register(input: { key: string; path: string; name: string }): Promise<WorkspaceId>;
   /** `workspace.remove`; the folder stays for the caller to remove. */
@@ -42,6 +49,7 @@ export interface TargetThreadStarter {
 
 export interface LandingDeps {
   git: TransferGit;
+  gitPolicy?: ProjectGitPolicy | undefined;
   archive: TransferArchive;
   projects: TargetProjects;
   threads: TargetThreadStarter;
@@ -89,12 +97,16 @@ export async function landTransfer(
   if (record.method === "bundle") {
     if (!file) throw new TransferError("transfer_invalid", "The repository's bundle is missing.");
     path = await newFolder(deps, begin.parent, begin.name);
-    await deps.git.cloneFromBundle({
-      parent: dirname(path),
-      path,
-      bundle: file,
-      ...(commit.branch ? { branch: commit.branch } : {}),
-    });
+    await deps.git.cloneFromBundle(
+      {
+        parent: dirname(path),
+        path,
+        bundle: file,
+        origin: begin.remote?.url,
+        ...(commit.branch ? { branch: commit.branch } : {}),
+      },
+      deps.gitPolicy,
+    );
     workspaceId = await deps.projects.register({ key, path, name: begin.name });
     deps.made({ registeredId: workspaceId });
   } else {
@@ -116,8 +128,10 @@ export async function landTransfer(
           parent,
           name: path.slice(parent.length + 1),
           url: begin.remote.url,
+          signal,
         });
       } catch {
+        signal.throwIfAborted();
         throw new NeedsFullBundle();
       }
       deps.made({ registeredId: workspaceId });
