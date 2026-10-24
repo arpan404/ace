@@ -23,6 +23,8 @@ export interface ChipAttachment {
   name: string;
   /** Object URL for image previews; a draft restored after a reload has none. */
   preview?: string | undefined;
+  /** A small inline still of an image, kept with a saved draft so a restored chip shows it. */
+  still?: string | undefined;
   /** The file itself, for its preview; a draft restored after a reload has none. */
   file?: File | undefined;
   mimeType?: string | undefined;

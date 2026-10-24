@@ -166,6 +166,8 @@ struct InboxLayout: Codable, Sendable, Equatable {
         /// `MergedInbox` orders every machine's sections by them.
         var ranks: [String]? = nil
         var order: Int? = nil
+        /// Threads in the section, loaded or not: Settled counts the daemon's older pages too.
+        var total: Int? = nil
         var id: String { key }
     }
     struct SnoozeOption: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }

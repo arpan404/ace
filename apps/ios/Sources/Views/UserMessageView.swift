@@ -11,7 +11,7 @@ struct UserMessageRow: View {
         VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
             if let origin = row.bubble?.origin, !origin.isEmpty { MessageEyebrow(origin: origin) }
             if let attachments = row.attachments, !attachments.isEmpty {
-                AttachmentChips(attachments: attachments, more: row.moreAttachments ?? 0)
+                MessageAttachments(row: row, attachments: attachments, more: row.moreAttachments ?? 0)
                     .padding(.leading, UserBubble.inset)
             }
             if readable { UserBubble(text: row.text, bubble: row.bubble, id: row.id).messageMenu(copyText, title: "Message") }
@@ -170,24 +170,5 @@ struct MessageActions: View {
             guard copied else { return }
             do { try await Task.sleep(for: .seconds(1.5)); copied = false } catch { }
         }
-    }
-}
-
-/// A message's files by name, never by a host path.
-struct AttachmentChips: View {
-    let attachments: [AttachmentLine]
-    let more: Int
-    var body: some View {
-        HStack(spacing: AceTheme.Spacing.xs) {
-            ForEach(Array(attachments.enumerated()), id: \.offset) { _, attachment in
-                Label(attachment.name.isEmpty ? "Attachment" : attachment.name, ace: attachment.kind == "image" ? .image : attachment.kind == "pdf" ? .fileText : .file)
-                    .lineLimit(1).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .padding(.horizontal, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.xs)
-                    .background(AceTheme.Colours.fill, in: AceShape.capsule)
-            }
-            if more > 0 { Text("+\(more)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit() }
-        }
-        .foregroundStyle(AceTheme.Colours.mutedForeground)
-        .accessibilityElement(children: .combine)
     }
 }

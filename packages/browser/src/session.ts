@@ -25,6 +25,7 @@ import { readDownload } from "./download-read.ts";
 import { OfflineRetries } from "./offline-retry.ts";
 import { printPdf } from "./page-capture.ts";
 import { carriedCookies, type CarriedCookie } from "./cookie-carry.ts";
+import { ViewerSizes } from "./viewer-sizes.ts";
 
 import type { Actor, SessionOptions } from "./session-options.ts";
 import type { BrowserTabActor } from "@ace/protocol";
@@ -68,6 +69,8 @@ export class BrowserSession {
   private stopLifecycle = () => {};
   private offline: OfflineRetries;
   private printing: Promise<void> | undefined;
+  /** Which person's viewer sized the page last, to give it back when that viewer leaves. */
+  private viewers = new ViewerSizes();
   get evictable(): boolean {
     return (
       this.tabs.all().every((tab) => !tab.private && !tab.busy) &&
@@ -169,6 +172,15 @@ export class BrowserSession {
     const woke = await wakeTab(runtime, this.options.backend.tabs);
     if (woke === "reopened") this.tabs.stateLost(tabId, true);
     if (woke) this.emit();
+  }
+  /** The viewed tab's size now; none while the browser has no tab to show. */
+  private viewedSize(): { width: number; height: number } | undefined {
+    if (this.closed) return undefined;
+    try {
+      return this.viewedPage().viewport();
+    } catch {
+      return undefined;
+    }
   }
   private viewedPage() {
     return this.tabs.page(this.tabs.viewedId());
@@ -480,6 +492,24 @@ export class BrowserSession {
   disconnect(connectionId: string): void {
     for (const tab of this.tabs.all())
       if (tab.annotation.owner === connectionId) tab.annotation.end("disconnect");
+    this.leave(connectionId);
+  }
+  /**
+   * A person's viewer stopped watching (or its connection dropped). When the page showed its
+   * size, the previous viewer's size comes back (`ViewerSizes`).
+   */
+  leave(connectionId: string): void {
+    const size = this.viewers.release(connectionId);
+    if (!size || this.closed) return;
+    const command = {
+      action: "resize",
+      width: size.width,
+      height: size.height,
+      ...(size.touch ? { touch: true } : {}),
+      ...(size.devicePixelRatio === undefined ? {} : { devicePixelRatio: size.devicePixelRatio }),
+    };
+    // No connection: the restore is nobody's new size, so it is not recorded again.
+    void this.execute(command, { kind: "human", connectionId: "" }).catch(() => {});
   }
   /** The backend's tabs, dialogs or view changed. */
   changed(): void {
@@ -574,7 +604,31 @@ export class BrowserSession {
   }
   execute(raw: unknown, actor: Actor = { kind: "agent" }, signal?: AbortSignal): Promise<unknown> {
     const command = BrowserCommand.parse(raw);
-    return this.live.during(() => this.submit(command, actor, signal));
+    const done = this.live.during(() => this.submit(command, actor, signal));
+    // A person's viewer sized the page it views: remember whose size it shows.
+    if (
+      actor.kind !== "human" ||
+      !actor.connectionId ||
+      command.action !== "resize" ||
+      command.tabId !== undefined
+    )
+      return done;
+    const before = this.viewedSize();
+    const connectionId = actor.connectionId;
+    return done.then((result) => {
+      if (before)
+        this.viewers.record(
+          connectionId,
+          {
+            width: command.width,
+            height: command.height,
+            touch: command.touch === true,
+            devicePixelRatio: command.devicePixelRatio,
+          },
+          before,
+        );
+      return result;
+    });
   }
   /** Popup events capture the submitting lease and page before entering their tab's queue. */
   async popup(url: string, target: PopupTarget): Promise<void> {

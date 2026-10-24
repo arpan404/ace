@@ -1,6 +1,6 @@
 import type { Item, Thread, ThreadListEntry, Interaction } from "@ace/protocol";
 import { threadAttention } from "@ace/projection";
-import { mobileStatus, transcriptRowContent } from "@ace/ui-core/mobile";
+import { mobileThreadStatus, transcriptRowContent } from "@ace/ui-core/mobile";
 import type { ThreadReader } from "@ace/client";
 import {
   cardDetails,
@@ -61,7 +61,7 @@ export function threadRow(thread: Thread | ThreadListEntry) {
     testsRunning: thread.status.state === "working" && thread.live?.step === "tests",
     title: preview(thread.title),
     state: thread.status.state,
-    status: mobileStatus(thread.status),
+    status: mobileThreadStatus(thread),
     attention: threadAttention(thread) ?? null,
     project: preview(thread.details?.workspace?.name ?? thread.workspaceId),
     branch: preview(thread.details?.branch ?? ""),

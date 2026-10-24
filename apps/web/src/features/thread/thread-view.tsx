@@ -65,6 +65,7 @@ import { WorkButton } from "./header/work-button.tsx";
 import { createWorkCardStore, WorkCardContext } from "./header/work-card-store.ts";
 import { WorkSide } from "./header/work-side.tsx";
 import { DelegateBottom } from "./subagent/delegate-bottom.tsx";
+import { QueuedLaunch } from "./subagent/queued-launch.tsx";
 import { ThreadForgeLinks } from "@/components/forge-links.tsx";
 
 /**
@@ -234,9 +235,13 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                     <DeferredTurnsPanel.Component nav={nav} />
                   </Suspense>
                 )}
-                <div className="col-start-1 row-start-1 min-h-0 min-w-0">
-                  <Transcript threadId={id} />
-                </div>
+                {meta.queuedLaunch ? (
+                  <QueuedLaunch text={meta.queuedLaunch.text} parentThreadId={meta.delegatedBy} />
+                ) : (
+                  <div className="col-start-1 row-start-1 min-h-0 min-w-0">
+                    <Transcript threadId={id} />
+                  </div>
+                )}
                 <TargetJump target={props.target} pending={requests ?? []} />
                 {/* A page's question floats just above the composer, on its column: nothing
                     renders below the composer. */}
