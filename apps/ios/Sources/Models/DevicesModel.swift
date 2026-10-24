@@ -8,6 +8,8 @@ struct DeviceProblem: Codable, Sendable, Equatable {
     let message: String
     let hint: String?
     var permission: String? = nil
+    /// The daemon's error code, when it gave one (`delivery_unconfirmed`, `target_gone`, …).
+    var code: String? = nil
     /// "Message. Hint." as one sentence pair.
     var text: String { [message, hint].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ") }
 }
