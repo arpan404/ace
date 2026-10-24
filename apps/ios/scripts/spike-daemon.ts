@@ -15,7 +15,7 @@ import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
 import { seedMessageAttachments, seedNativeMedia } from "./media-scenario.ts";
 import { answerScreenshot, browserControl, realVideo, seedBrowser } from "./spike-browser.ts";
-import { featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
+import { devicesControl, featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
 import { seedFiles } from "./files-scenario.ts";
 import { seedWorkLogs } from "./worklog-scenario.ts";
 import { seedMessages } from "./message-scenario.ts";
@@ -277,6 +277,8 @@ const server = Bun.serve<undefined>({
     }
     const browserReply = await browserControl(daemon, request);
     if (browserReply) return browserReply;
+    const devicesReply = devicesControl(daemon, request);
+    if (devicesReply) return devicesReply;
     if (path === "/health")
       return Response.json({
         head: daemon.head,

@@ -64,6 +64,7 @@ export function describeActivity(status: AgentStatus, toolTitle?: string): strin
       return {
         human: "needs you",
         subagents: "waiting for subagents",
+        queue: "queued",
         background_task: "waiting on a background task",
         rate_limit: "rate limited",
         network: "waiting for the network",

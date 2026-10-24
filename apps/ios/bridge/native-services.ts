@@ -30,6 +30,7 @@ import type { CheckoutFiles } from "./checkout-files.ts";
 import { NativeFilesRequest } from "./checkout-request.ts";
 import { NativeAttachmentRequest, readNativeAttachment } from "./native-attachment.ts";
 import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
+import { NativeTerminalInputRequest, writeNativeTerminalInput } from "./native-terminal-input.ts";
 import { NativeHistoryWindow, readHistoryWindow } from "./native-search.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
 import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
@@ -236,6 +237,16 @@ export class NativeServices {
           id,
           true,
           await readNativeAttachment(this.owner, attachment.data, controller.signal),
+          "",
+        );
+        return;
+      }
+      const typed = NativeTerminalInputRequest.safeParse(raw);
+      if (typed.success) {
+        this.#reply(
+          id,
+          true,
+          await writeNativeTerminalInput(this.owner, typed.data, controller.signal),
           "",
         );
         return;

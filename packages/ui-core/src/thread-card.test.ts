@@ -362,3 +362,12 @@ test("an unconfirmed card still shows a send that failed on this device", () => 
   expect(card.attention).toMatchObject({ level: "needs-you", word: "Not sent" });
   expect(card.status.label).toBe("Not sent");
 });
+
+test("a delegated thread waiting for its parent's run slot says Queued until it starts", () => {
+  const queued = threadCard(
+    input({ entry: entry("t", { state: "new" }, now, { queuedLaunch: { text: "Tidy" } }) }),
+  );
+  expect(queued.pill?.label).toBe("Queued");
+  const started = threadCard(input({ entry: entry("t", { state: "working", agents: 1 }, now) }));
+  expect(started.pill?.label).toBe("Working");
+});

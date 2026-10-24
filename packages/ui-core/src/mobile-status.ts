@@ -1,6 +1,6 @@
-import type { ThreadStatus } from "@ace/protocol";
+import type { ThreadListEntry, ThreadStatus } from "@ace/protocol";
 import { syncingWord } from "./row-attention.ts";
-import { taskPill, type Tone } from "./status.ts";
+import { queuedPill, taskPill, type Tone } from "./status.ts";
 
 /**
  * The design-token colour a native client paints a status with: a key of the shared `status`
@@ -39,6 +39,15 @@ const tokens: Record<ThreadStatus["state"], StatusToken> = {
 export function mobileStatus(status: ThreadStatus): StatusDisplay {
   const label = taskPill(status, { unread: true, since: 0 })?.label ?? "New";
   return { label, token: tokens[status.state] };
+}
+
+/** A thread's word and colour: Queued while, delegated past its parent's slots, it waits to start. */
+export function mobileThreadStatus(
+  thread: Pick<ThreadListEntry, "status" | "queuedLaunch">,
+): StatusDisplay {
+  return thread.queuedLaunch && thread.status.state === "new"
+    ? { label: queuedPill.label, token: toneToken(queuedPill.tone) }
+    : mobileStatus(thread.status);
 }
 
 /** A row restored from disk that the daemon hasn't confirmed: it claims no state. */
