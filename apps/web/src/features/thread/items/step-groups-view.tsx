@@ -98,12 +98,16 @@ export function GroupedSteps(props: {
   const log = useStepItemsSelect(props.threadId, shown, read, sameWorkLogReading) ?? nothing;
   const groups = useGroups(log.facts);
   const opened = useOpenSteps();
+  // A thought in flight with no words yet is the live log's state, not a step: it titles the
+  // last group (or stands as "Thinking" before the first step), so the rows never regroup for it.
+  const thinking = props.live ? log.thinking : undefined;
   const rows = groups.map((group, index) => (
     <GroupView
       key={group.key}
       threadId={props.threadId}
       group={group}
       live={!!props.live && index === groups.length - 1}
+      thinking={index === groups.length - 1 ? thinking : undefined}
       contexts={ace.contexts}
       surfaces={props.surfaces}
       carried={log.surfaces}
@@ -120,6 +124,7 @@ export function GroupedSteps(props: {
       ) : (
         <ul id={props.id} aria-label="Steps" className="flex flex-col">
           {rows}
+          {thinking && !groups.length && <ThinkingRow />}
         </ul>
       )}
     </OpenStepsContext>
@@ -243,6 +248,8 @@ const GroupView = memo(function GroupView(props: {
   carried: ReadonlyMap<string, ToolSurface>;
   retried: ReadonlySet<string>;
   calls: ReadonlyMap<string, string>;
+  /** The thought in flight after this group's last step, with no words yet. */
+  thinking?: string | undefined;
 }) {
   const { group } = props;
   const [open, setOpen] = useGroupOpen(group.key, group.ids);
@@ -263,8 +270,8 @@ const GroupView = memo(function GroupView(props: {
   if (group.single && group.icon === "think")
     return <ThoughtRow threadId={props.threadId} itemId={group.key} />;
   if (group.single) return step(group.key);
-  const active = group.active ?? group.newest;
-  const runningLive = props.live && group.running;
+  const active = group.active ?? props.thinking ?? group.newest;
+  const runningLive = props.live && (group.running || !!props.thinking);
   return (
     <li className="relative">
       <RailMark state={group.running ? "running" : group.failed ? "failed" : "done"} />

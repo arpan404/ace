@@ -136,6 +136,22 @@ export function workLog(ids: readonly string[], read: ReadItem, facts: LogFacts 
     }
     return group.single ? { kind: "step", id: group.key } : groupRow(group);
   });
+  // A thought in flight with no words yet is the log's live state, never a step (`readWorkLog`):
+  // it titles the last group, or reads "Thinking…" before the first step, so the rows above
+  // never regroup for it and the last row keeps its kind and id.
+  const thinking = reading.thinking === undefined ? undefined : read(reading.thinking);
+  if (thinking && !ended(thinking)) {
+    const last = rows.at(-1);
+    if (!last)
+      rows.push({
+        kind: "thought",
+        id: thinking.id,
+        done: false,
+        label: thoughtLabel(false, undefined),
+      });
+    else if (last.kind === "group")
+      rows[rows.length - 1] = { ...last, running: true, active: thinking.id };
+  }
   const worded: AceSteps = [];
   for (const [id, context] of Object.entries(ace.contexts)) {
     const item = read(id);
