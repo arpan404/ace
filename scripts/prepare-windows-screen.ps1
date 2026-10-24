@@ -9,6 +9,9 @@ using System.Runtime.InteropServices;
 public static class AceRunnerForeground {
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
+  [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr window);
+  [DllImport("user32.dll", EntryPoint = "PostMessageW", SetLastError = true)] public static extern bool PostMessage(IntPtr window, uint message, UIntPtr wParam, IntPtr lParam);
 }
 '@
 
@@ -26,12 +29,23 @@ try {
 
   # The ARM64 runner image leaves this system app in foreground. Request normal
   # closure on the disposable runner; never change focus policy or inject input.
-  Write-Host "Closing foreground system WWAHost on runner, pid=$foregroundProcessId session=$session"
-  if (-not $foreground.CloseMainWindow()) {
-    throw "The runner's foreground WWAHost did not accept normal window closure"
+  Write-Host "Requesting WM_CLOSE for runner WWAHost, pid=$foregroundProcessId session=$session hwnd=$window main=$($foreground.MainWindowHandle) visible=$([AceRunnerForeground]::IsWindowVisible($window)) enabled=$([AceRunnerForeground]::IsWindowEnabled($window))"
+  [uint32]$currentOwner = 0
+  [void][AceRunnerForeground]::GetWindowThreadProcessId($window, [ref]$currentOwner)
+  if ($currentOwner -ne $foregroundProcessId) {
+    throw "Foreground window ownership changed during runner preparation"
   }
-  if (-not $foreground.WaitForExit(10000)) {
-    throw "The runner's foreground WWAHost did not exit after normal window closure"
+  # CloseMainWindow may not discover a CoreWindow. Address the observed HWND;
+  # WM_CLOSE still lets the app refuse, and UIPI remains enforced.
+  if (-not [AceRunnerForeground]::PostMessage($window, 0x0010, [UIntPtr]::Zero, [IntPtr]::Zero)) {
+    throw "The runner's WWAHost close request failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())"
+  }
+  $deadline = [Diagnostics.Stopwatch]::StartNew()
+  while ([AceRunnerForeground]::GetForegroundWindow() -eq $window) {
+    if ($deadline.ElapsedMilliseconds -ge 10000) {
+      throw "The runner's WWAHost retained foreground after WM_CLOSE"
+    }
+    Start-Sleep -Milliseconds 50
   }
 } finally {
   $foreground.Dispose()

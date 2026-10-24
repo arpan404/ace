@@ -101,6 +101,10 @@ jobs:
           bun -e "console.log(JSON.stringify({ bunArch: process.arch, platform: process.platform }))"
           Write-Host "Native evidence = Node arch above. A Bun x64 binary under emulation does not count."
 
+      - name: Close the runner system app before owned foreground tests
+        shell: pwsh
+        run: ./scripts/prepare-windows-screen.ps1
+
       - name: Restore Bun download cache
         id: bun-cache
         uses: actions/cache/restore@v6
@@ -242,10 +246,6 @@ jobs:
           cargo build --locked --target %RUST_TARGET% || exit /b 1
           cargo test --locked --target %RUST_TARGET% || exit /b 1
           popd
-
-      - name: Close the runner system app before owned foreground tests
-        shell: pwsh
-        run: ./scripts/prepare-windows-screen.ps1
 
       - name: Verify real screen helper pipe, owned capture, UIA and input
         timeout-minutes: 3
