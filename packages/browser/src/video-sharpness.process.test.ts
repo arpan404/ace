@@ -158,14 +158,22 @@ describe.skipIf(!executablePath)("how sharp the live video is", () => {
     }
     await sleep(2_000);
     const joined = await shownVersusPage(f, viewer.chunks);
-    // Full device pixels, not a smaller picture scaled up.
-    expect([joined.width, joined.height], JSON.stringify(joined)).toEqual([1318, 1650]);
-    expect(joined.psnr).toBeGreaterThan(34);
+    // Codecs may pad their coded buffer. The visible and displayed picture must
+    // still contain every device pixel of the page, without scaling up.
+    expect([joined.visibleWidth, joined.visibleHeight], JSON.stringify(joined)).toEqual([
+      1318, 1650,
+    ]);
+    expect([joined.displayWidth, joined.displayHeight], JSON.stringify(joined)).toEqual([
+      1318, 1650,
+    ]);
+    expect([joined.pageWidth, joined.pageHeight], JSON.stringify(joined)).toEqual([1318, 1650]);
+    expect(joined.psnr, JSON.stringify(joined)).toBeGreaterThan(34);
     await f.execute({ action: "scroll", x: 0, y: 400 });
     await sleep(2_000);
     // Motion is coded coarse; once the page is still it sharpens again (about 35 dB without
     // the still page's sharp keyframe, about 38.5 with it).
-    expect((await shownVersusPage(f, viewer.chunks)).psnr).toBeGreaterThan(37);
+    const scrolled = await shownVersusPage(f, viewer.chunks);
+    expect(scrolled.psnr, JSON.stringify(scrolled)).toBeGreaterThan(37);
     viewer.bridge.close();
   }, 120_000);
 });
