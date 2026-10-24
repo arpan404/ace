@@ -541,12 +541,29 @@ and full source typechecking. A sequential Mac VP9 link benchmark at 25 Mbps,
 versus 60 / 57 fps at 5.4 Mbps before. This is Mac performance evidence, not a
 native Windows frame-rate measurement.
 
-Real pointer/keyboard input, oversized capture on drivers without video processing,
-Windows performance and installed desktop acceptance remain open. W14/W15 remain
-unfinished.
+[Run 40082390947](https://github.com/arpan404/ace/actions/runs/40082390947),
+pinned to `52ee73595`, adds real foreground input against two owned WinForms windows.
+On **x64**, all three screen tests and all 193 browser/foundation tests pass.
+The input test clicks the textbox and button, delivers Unicode with SendInput,
+observes Ctrl+A and Backspace, verifies counter changes, refuses click/text input
+while the owned decoy is foreground, and confirms both windows remain unchanged
+on refusal. Reacquiring the main window restores successful input.
+
+On **ARM64**, the two existing helper/capture tests and all 193 browser/foundation
+tests pass, but the input test fails before dispatch. Its form never acquires
+foreground status within the original 30-second deadline. The final diagnostic
+records a different foreground process and HWND, with both fixture windows
+unchanged. Ordinary activation retries do not resolve it. No guard, timeout,
+assertion or Windows skip is relaxed; the overall run is **failed**. ARM64 raw
+input needs an interactive session where the owned form can become foreground.
+No paired Windows machine is currently available through ace.
+
+Oversized capture on drivers without video processing, Windows performance and
+installed desktop acceptance also remain open. W14/W15 remain unfinished.
 
 Full source typechecking passed again after the daemon test updates. The full
 repository check completed before these fixes with **2,797 files passed, 9 failed
 and 40 skipped**, **17,064 tests passed and 11 failed**, and five uncaught errors.
 The two streaming timeout cases now pass in focused checks; no clean full gate is
-claimed. Cursor-keyframe, orphan-recovery and unrelated test failures remain.
+claimed. The cursor-keyframe case passes one fresh isolated run without changes;
+its earlier full-suite failure, orphan recovery and unrelated failures remain open.
