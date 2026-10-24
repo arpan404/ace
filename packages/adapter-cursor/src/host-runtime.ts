@@ -22,6 +22,7 @@ import { recoverCursorCheckpoint } from "./recovery.ts";
 import { nativeCursorOptions } from "./agent-options.ts";
 import { sdkFailure, safeCursorErrorMessage } from "./sdk-failure.ts";
 import { sdkInput } from "./sdk-input.ts";
+import { HostRefusal } from "./host-refusal.ts";
 
 export type { SdkModule } from "./runtime-boundary.ts";
 import type { RuntimeSdkBoundary, SdkAgentBoundary, SdkRunBoundary } from "./runtime-boundary.ts";
@@ -341,9 +342,14 @@ export class HostRuntime {
       this.closing ||
       this.transportFenced
     )
-      throw new Error("Host not ready for send");
-    const input = Send.parse(value);
-    boundedJson(input, this.options.limits.maxInputBytes);
+      throw new HostRefusal("Host not ready for send");
+    let input: SendOptions;
+    try {
+      input = Send.parse(value);
+      boundedJson(input, this.options.limits.maxInputBytes);
+    } catch (error) {
+      throw new HostRefusal("Invalid send", { cause: error });
+    }
     this.sending = true;
     this.sendOptions = input;
     try {

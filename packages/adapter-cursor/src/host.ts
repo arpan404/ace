@@ -4,6 +4,7 @@ import {
   type DiscoveryFailureCode,
 } from "@ace/provider-kit/discovery-failure";
 import { safeCursorErrorMessage } from "./sdk-failure.ts";
+import { refusedByHost } from "./host-refusal.ts";
 import { z } from "zod";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -181,6 +182,7 @@ export class CursorHost {
           {
             code,
             ...(method === "models" && code === "discovery_failed" ? { detail: reason } : {}),
+            ...(refusedByHost(error) ? { refused: true } : {}),
           },
         );
       });
