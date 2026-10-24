@@ -154,6 +154,7 @@ import QuartzCore
             ThreadOpenTrace.signposter.endInterval("bridge.frame", signpost)
             ThreadOpenTrace.shared.frame(bytes: bytes, patches: patchCount - patchesBefore, rowUpdates: streamedUpdates - updatesBefore,
                                          inboxRows: inbox.count, seconds: CACurrentMediaTime() - began)
+            DisclosureTrace.shared.frame(bytes: bytes, patches: patchCount - patchesBefore, seconds: CACurrentMediaTime() - began)
         }
         largestFrame = max(largestFrame, bytes)
         if patchCount == 0 { LaunchTrace.mark("bridge.firstFrame") }

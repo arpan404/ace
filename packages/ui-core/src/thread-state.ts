@@ -1,5 +1,5 @@
 import { sidebarSettled } from "@ace/projection";
-import type { ThreadListEntry, ThreadReadStateResponse } from "@ace/protocol";
+import type { ThreadListEntry, ThreadListWindow, ThreadReadStateResponse } from "@ace/protocol";
 
 /*
  * What a thread list entry says about the thread on its own: settled, snoozed, when it last
@@ -9,6 +9,14 @@ import type { ThreadListEntry, ThreadReadStateResponse } from "@ace/protocol";
 /** In the Settled section. Only working threads are never shown settled. */
 export function isSettled(entry: ThreadListEntry): boolean {
   return sidebarSettled(entry);
+}
+
+/**
+ * Settled threads in all, loaded or not: the daemon's count while it still holds older settled
+ * threads back, else undefined (every one is loaded, so the loaded ones are the count).
+ */
+export function settledTotal(window: ThreadListWindow | undefined): number | undefined {
+  return window?.before ? window.total : undefined;
 }
 
 /** Snoozed until a moment still ahead. The daemon clears it once it passes. */

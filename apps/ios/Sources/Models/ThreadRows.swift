@@ -43,9 +43,19 @@ struct StepDetail: Codable, Sendable, Equatable {
     let text: String
     let diffs: [Diff]
 }
+/// One image or file of a message (`bridge/thread-rows.ts`). `ref` names it to
+/// `native.attachment`; `thumbnail` says a preview can be read, `opens` that the file can.
+/// The newer fields are optional so a row kept by an older build still decodes.
 struct AttachmentLine: Codable, Sendable, Equatable, Hashable {
     let kind: String
     let name: String
+    var ref: String? = nil
+    var mimeType: String? = nil
+    var bytes: Int? = nil
+    var width: Double? = nil
+    var height: Double? = nil
+    var thumbnail: Bool? = nil
+    var opens: Bool? = nil
 }
 
 /// One transcript block as `@ace/ui-core` groups it. Items are referenced by id; their rows

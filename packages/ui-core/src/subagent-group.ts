@@ -99,7 +99,10 @@ export function readSubagentGroup(
   const value = direct.map(({ id, agent, spawn, launch }): SubagentEntry => {
     const subtree = agent ? branch(agent.id) : undefined;
     let state = subtree?.state ?? "working";
-    if (launch) {
+    // A child still waiting in its parent's launch queue has run nothing: its launch row is all
+    // there is, and its agent's status (blocked on the queue) must not read as working.
+    if (launch && queuedLaunch(launch)) state = "queued";
+    else if (launch) {
       let launched = delegatedState(launch.status);
       if (launch.phase === "cancelling" && subagentTerminal(launched)) launched = "working";
       else if (subagentTerminal(launched) && launch.outcome?.outcome === "cancelled")
@@ -143,6 +146,13 @@ export function readSubagentGroup(
       ),
     ],
   };
+}
+
+/** A launch admitted past its parent's run slots that has not started yet. */
+function queuedLaunch(launch: Launch): boolean {
+  return (
+    launch.phase === "created" && launch.status.state === "waiting" && launch.status.on === "queue"
+  );
 }
 
 /** The first line of a subagent's final result: its delegation outcome, or its spawn's reply. */

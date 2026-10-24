@@ -1,6 +1,6 @@
 import type { Item, Thread, ThreadListEntry, Interaction } from "@ace/protocol";
 import { threadAttention } from "@ace/projection";
-import { mobileStatus, transcriptRowContent } from "@ace/ui-core/mobile";
+import { mobileThreadStatus, transcriptRowContent } from "@ace/ui-core/mobile";
 import type { ThreadReader } from "@ace/client";
 import {
   cardDetails,
@@ -61,7 +61,7 @@ export function threadRow(thread: Thread | ThreadListEntry) {
     testsRunning: thread.status.state === "working" && thread.live?.step === "tests",
     title: preview(thread.title),
     state: thread.status.state,
-    status: mobileStatus(thread.status),
+    status: mobileThreadStatus(thread),
     attention: threadAttention(thread) ?? null,
     project: preview(thread.details?.workspace?.name ?? thread.workspaceId),
     branch: preview(thread.details?.branch ?? ""),
@@ -98,17 +98,21 @@ export function itemRow(item: Item, index?: number, sourceTruncated = false) {
         ? "Delegated results available"
         : (settledMessageText(input.text) ?? "Delegated results available");
   else if (line) text = line.text;
+  // iOS draws published media inline: an image's row names it by its alt text, captioned below.
+  else if (item.type === "image") text = item.image.alt || item.image.caption || "Image";
   else if (item.type === "compaction") text = "Context compacted";
-  else if (
-    item.type !== "message" &&
-    item.type !== "html" &&
-    item.type !== "image" &&
-    item.type !== "notice"
-  )
+  else if (item.type !== "message" && item.type !== "html" && item.type !== "notice")
     text = item.type;
   return {
-    /** The shared secondary line, such as the visualization fallback. */
-    detail: preview(content.detail, 512),
+    /** The shared secondary line; an image's caption; none for a visualization drawn inline. */
+    detail: preview(
+      item.type === "image"
+        ? (item.image.caption ?? "")
+        : item.type === "html"
+          ? ""
+          : content.detail,
+      512,
+    ),
     quiet: content.quiet,
     id: item.id,
     index: index ?? null,

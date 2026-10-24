@@ -12,6 +12,20 @@ export interface DraftAnnotations {
   }[];
   pages: readonly { url: string; sha256: string; name: string }[];
 }
+/**
+ * A file of an unsent message the daemon already holds. What it is and a small still of an
+ * image are kept with it, so a reopened draft shows the same preview without asking again.
+ */
+export interface DraftFile {
+  sha256: string;
+  name: string;
+  mimeType?: string | undefined;
+  /** Size in bytes. */
+  bytes?: number | undefined;
+  /** A small `data:image/...` still of an image, made on this device when it was attached. */
+  still?: string | undefined;
+}
+
 /** An unsent message: its text, the files it mentions and the attachments already uploaded. */
 export interface ComposerDraft {
   text: string;
@@ -19,7 +33,7 @@ export interface ComposerDraft {
   /** Paths picked from the `@` list that are still written in the text. */
   mentions: readonly string[];
   /** Uploaded attachments; only ones the daemon already holds survive a reload. */
-  attachments: readonly { sha256: string; name: string }[];
+  attachments: readonly DraftFile[];
   annotations?: DraftAnnotations | undefined;
 }
 

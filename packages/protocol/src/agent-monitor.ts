@@ -16,7 +16,15 @@ export const WaitInput = {
   mode: WaitMode.default("all"),
   timeoutSeconds: WaitTimeoutSeconds.default(120),
 };
-export const WatchedState = z.enum(["working", "needs_you", "done", "failed", "cancelled"]);
+/** `queued`: delegated past its parent's run slots, it starts when a running sibling finishes. */
+export const WatchedState = z.enum([
+  "working",
+  "queued",
+  "needs_you",
+  "done",
+  "failed",
+  "cancelled",
+]);
 export type WatchedState = z.infer<typeof WatchedState>;
 export const WatchedRequest = z.object({
   interactionId: InteractionId,

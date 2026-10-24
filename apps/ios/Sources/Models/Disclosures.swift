@@ -5,9 +5,11 @@ import Observation
 /// the same set, so what was open stays open.
 @MainActor @Observable final class Disclosures {
     private var open: Set<String> = []
+    /// Counts the folds the person opened, so the feed can keep what they opened in place.
+    private(set) var opens = 0
     func isOpen(_ key: String) -> Bool { open.contains(key) }
     func toggle(_ key: String) {
-        if open.contains(key) { open.remove(key) } else { open.insert(key) }
+        if open.contains(key) { open.remove(key) } else { open.insert(key); opens += 1 }
         closed.remove(key)
     }
     /// Folds the person closed on purpose, apart from ones never touched: a work log's group
@@ -18,6 +20,6 @@ import Observation
         open.contains(key) ? true : closed.contains(key) ? false : nil
     }
     func set(_ key: String, open value: Bool) {
-        if value { open.insert(key); closed.remove(key) } else { open.remove(key); closed.insert(key) }
+        if value { if open.insert(key).inserted { opens += 1 }; closed.remove(key) } else { open.remove(key); closed.insert(key) }
     }
 }

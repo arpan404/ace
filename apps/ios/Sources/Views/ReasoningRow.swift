@@ -22,6 +22,7 @@ struct ReasoningRow: View {
         let text = row.text.trimmingCharacters(in: .whitespacesAndNewlines)
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             Button {
+                if !open { DisclosureTrace.shared.asked("thought", key: key) }
                 withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) {
                     if let thread { thread.disclosures.toggle(key) } else { localOpen.toggle() }
                 }
@@ -43,6 +44,7 @@ struct ReasoningRow: View {
                     }
                 }
                 .rowDetailIndent().padding(.bottom, AceTheme.Spacing.sm)
+                .onAppear { DisclosureTrace.shared.shown(key) }
             }
         }
         .railMark(done ? .done : .running)

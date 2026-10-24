@@ -49,6 +49,7 @@ struct ConversationHistoryView: View {
                 }
             }
             .accessibilityIdentifier("history.messages")
+            .publishedMedia(model: model, threadId: threadId)
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                 if let window {
                     HStack {
@@ -71,6 +72,7 @@ struct ConversationHistoryView: View {
             .task(id: targetId) { await Task.yield(); if let targetId, !Task.isCancelled { proxy.scrollTo(targetId, anchor: .center) } }
             .sheet(item: $fullMessage) { FullMessageView(model: model, threadId: threadId, item: $0) }
             .sheet(item: $media) { item in NavigationStack { NativeMediaView(model: model, threadId: threadId, item: item) } }
+            .modifier(MessageAttachmentRoutes(model: model, threadId: threadId))
         }
     }
     private func read(sequence: Int? = nil) async {

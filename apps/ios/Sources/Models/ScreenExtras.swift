@@ -44,11 +44,15 @@ extension ThreadScreenModel {
     func apply(_ patch: ScreenPatch) {
         switch patch {
         case .steps(let header):
+            // The same header again (a log opened again) changes nothing on screen.
             let steps = turnSteps(header.ordinal)
-            steps.header = header
+            if steps.header != header { steps.header = header }
             for page in steps.pages.keys where page >= header.pages { steps.pages[page] = nil }
         case .stepsPage(let ordinal, let page, let rows):
-            turnSteps(ordinal).pages[page] = rows
+            let steps = turnSteps(ordinal)
+            if steps.pages[page] != rows { steps.pages[page] = rows }
+        case .stepsReleased(let ordinal):
+            steps[ordinal] = nil
         case .tune(let row): if tune != row { tune = row }
         case .access(let row): if access != row { access = row }
         case .attachments(let files): if attachments != files { attachments = files }

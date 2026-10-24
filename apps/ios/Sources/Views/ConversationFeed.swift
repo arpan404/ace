@@ -8,6 +8,8 @@ private final class TranscriptScrollIntent {
     /// itself, with the keyboard's or the composer's motion.
     var room: CGFloat = 0
     var direction = 0
+    /// The person opened something in place: the next change of height is theirs, not the end's.
+    var opened = false
     var metrics = Metrics(y: 0, top: 0, bottom: 0, viewport: 0, topInset: 0, bottomInset: 0, height: 0)
     struct Metrics: Equatable { let y: CGFloat; let top: CGFloat; let bottom: CGFloat; let viewport: CGFloat; let topInset: CGFloat; let bottomInset: CGFloat; let height: CGFloat }
     func begin() { active = true; consumed = false; direction = 0 }
@@ -124,7 +126,14 @@ struct ConversationFeed: View {
                 viewport: frame, topInset: insets.top, bottomInset: insets.bottom, height: geometry.contentSize.height)
         } action: { old, new in
             intent.metrics = new
-            keepEnd(old: old, new: new, proxy: proxy)
+            if intent.opened, new.height != old.height {
+                // What opened grows under the row the person tapped, which stays put; the feed
+                // follows the end again only if the end is still in view.
+                intent.opened = false
+                if reading.thread == nil { following = new.bottom <= AceTheme.Spacing.xxl }
+            } else {
+                keepEnd(old: old, new: new, proxy: proxy)
+            }
             if thread.loaded, new.bottom <= 1 { ThreadOpenTrace.shared.settled(thread.id) }
             if intent.active {
                 // Scrolling up only stops following: the live list stays in place until the
@@ -139,6 +148,7 @@ struct ConversationFeed: View {
             following = true
             toEnd(proxy)
         }
+        .onChange(of: shown.disclosures.opens) { _, _ in intent.opened = true }
         .onChange(of: reading.loading) { _, loading in if !loading { pageIfNeeded(proxy) } }
         .onChange(of: reading.revision) { _, _ in
             if reading.thread != nil, reading.paged { anchor.restore(with: proxy) }

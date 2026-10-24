@@ -18,6 +18,7 @@ import {
   subagentGroupStatus,
   subagentMeta,
   subagentSpan,
+  subagentRunning,
   subagentTerminal,
   subagentToolId,
   providerSlots,
@@ -69,6 +70,7 @@ const tokens: Record<SubagentState, StatusToken> = {
   working: "working",
   human: "needsYou",
   waiting: "waiting",
+  queued: "neutral",
   unresponsive: "unresponsive",
   failed: "failed",
   cancelled: "neutral",
@@ -145,7 +147,7 @@ function agentRow(store: ThreadSource, entry: SubagentEntry, fresh: boolean) {
     machine: preview(entry.machine ?? "", 128),
     detail: preview(detail ?? "", 256),
     detailKind: kind ?? "",
-    ...elapsedRow(subagentElapsed({ running: !terminal, ...entry }, fresh)),
+    ...elapsedRow(subagentElapsed({ ...entry, running: subagentRunning(entry.state) }, fresh)),
   };
 }
 
