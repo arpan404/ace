@@ -215,21 +215,6 @@ jobs:
           node packages/workspace/build.ts || exit /b 1
           node -e "const a=require('./packages/workspace/dist/descriptor.node');if(typeof a.openRoot!=='function')throw new Error('descriptor.node missing openRoot');if(typeof a.statFd!=='function')throw new Error('descriptor.node missing statFd');console.log('descriptor.node exports ok: openRoot/statFd present')" || exit /b 1
 
-      - name: Prepare real Windows browser for streaming checks
-        timeout-minutes: 12
-        run: node packages/browser/scripts/prepare-windows-test.ts
-
-      - name: Run bounded Windows-native Vitest suite
-        timeout-minutes: 25
-        env:
-          TEMP: ${{ runner.temp }}
-          TMP: ${{ runner.temp }}
-          TMPDIR: ${{ runner.temp }}
-        run: |
-          $ErrorActionPreference = "Stop"
-          node -p "JSON.stringify({ nativeNodeArch: process.arch, platform: process.platform, version: process.version })"
-          node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-native.config.ts
-
       # Native build/protocol/core-test gate only. Does NOT prove GUI capture,
       # screenshots, UIA traversal, or real input injection: #[ignore] interactive,
       # input, and UIA tests stay ignored (default cargo test behavior), and this
@@ -251,8 +236,32 @@ jobs:
           rustup toolchain install stable --profile minimal --no-self-update || exit /b 1
           rustup target add %RUST_TARGET% --toolchain stable || exit /b 1
           rustup default stable || exit /b 1
-          cargo build --locked --manifest-path native\screen-helper-windows\Cargo.toml --target %RUST_TARGET% || exit /b 1
-          cargo test --locked --manifest-path native\screen-helper-windows\Cargo.toml --target %RUST_TARGET% || exit /b 1
+          rem Run from the crate so .cargo/config.toml enables its static CRT.
+          pushd native\screen-helper-windows || exit /b 1
+          cargo build --locked --target %RUST_TARGET% || exit /b 1
+          cargo test --locked --target %RUST_TARGET% || exit /b 1
+          popd
+
+      - name: Verify real screen helper negotiation and named pipe
+        timeout-minutes: 3
+        env:
+          ACE_WINDOWS_SCREEN_HELPER: ${{ github.workspace }}\native\screen-helper-windows\target\${{ matrix.rust_target }}\debug\ace-screen-helper-windows.exe
+        run: node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-screen.config.ts
+
+      - name: Prepare real Windows browser for streaming checks
+        timeout-minutes: 12
+        run: node packages/browser/scripts/prepare-windows-test.ts
+
+      - name: Run bounded Windows-native Vitest suite
+        timeout-minutes: 25
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          node -p "JSON.stringify({ nativeNodeArch: process.arch, platform: process.platform, version: process.version })"
+          node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-native.config.ts
 
       - name: Observe bounded stdin search performance
         run: node packages/workspace/bench/ripgrep-input.ts
