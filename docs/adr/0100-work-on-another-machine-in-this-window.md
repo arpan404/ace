@@ -39,7 +39,12 @@ scoped view (`useMachineSearch()`) stay on it.
 
 The composer's top strip holds a machine picker while more than one machine is online (or the
 page is already on another one). Offline machines show their status and can't be picked.
-Picking one moves the page to it. A draft already names its machine through its key
+Picking one moves the page to it. The palette's "New thread in…" step does the same: while more
+than one machine is online a chip in its field names the machine whose projects it lists (the one
+New thread used last, else this one), and choosing the chip lists the machines. A project chosen
+there opens New thread on its machine, and the sidebar's New thread asks through that step
+whenever another machine is online. A folder typed into the project picker is created on the
+page's machine, never another. A draft already names its machine through its key
 (`newThreadDraftKey(hostId, …)`), so reopening a draft reopens its machine. Bare ⌘N opens the
 machine picked last while it is online, and each machine remembers its own last project. A
 project added on another machine opens New thread there.

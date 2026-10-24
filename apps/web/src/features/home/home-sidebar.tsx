@@ -50,7 +50,7 @@ export function HomeSidebar() {
   const keys = useResolvedKeymap();
   const noProjects = directory.loaded && directory.projects.length === 0;
   const entry = useNewThreadEntry();
-  const only = directory.projects.length === 1 ? directory.projects[0] : undefined;
+  const { only } = entry;
   return (
     <>
       <div className="flex h-9 shrink-0 items-center gap-0.5 px-2">
@@ -59,7 +59,7 @@ export function HomeSidebar() {
         <Tip label="New thread" shortcut="newThread">
           <Link
             to="/new"
-            {...(only ? { search: { project: only.id } } : {})}
+            {...(only ? { search: { project: only } } : {})}
             aria-label="New thread"
             className="relative grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground"
             onClick={(event) => {

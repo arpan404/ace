@@ -23,9 +23,9 @@ function latestProject(reader: SidebarReader): string | undefined {
  * project, with one it opens the draft there, with several, or while another machine is online,
  * the palette's "New thread in…" (which chooses the machine too).
  * `here` skips the question: the open thread's project, else the project Home is filtered to,
- * else the one worked in last.
+ * else the one worked in last. `only` is the project `start` opens without asking, if any.
  */
-export function useNewThreadEntry(): { start(): void; here(): void } {
+export function useNewThreadEntry(): { start(): void; here(): void; only: string | undefined } {
   const navigate = useNavigate();
   const { openPalette } = useLayout();
   const directory = useProjectDirectory();
@@ -39,13 +39,13 @@ export function useNewThreadEntry(): { start(): void; here(): void } {
     (project: string) => void navigate({ to: "/new", search: { project } }),
     [navigate],
   );
+  const only = projects.length === 1 && !elsewhere ? projects[0]?.id : undefined;
   const start = useCallback(() => {
-    const only = projects.length === 1 && !elsewhere ? projects[0] : undefined;
-    if (only) draft(only.id);
+    if (only) draft(only);
     else if (projects.length > 1 || elsewhere) openPalette({ page: "new-thread-in" });
     else if (directory.loaded) openPalette({ page: "add-project" });
     else void navigate({ to: "/new" });
-  }, [projects, elsewhere, directory.loaded, draft, openPalette, navigate]);
+  }, [only, projects, elsewhere, directory.loaded, draft, openPalette, navigate]);
   const here = useCallback(() => {
     const known = (id: string | null | undefined) =>
       id && projects.some((project) => project.id === id) ? id : undefined;
@@ -60,5 +60,5 @@ export function useNewThreadEntry(): { start(): void; here(): void } {
     if (project) draft(project);
     else start();
   }, [open, sidebar, organizer, projects, draft, start]);
-  return useMemo(() => ({ start, here }), [start, here]);
+  return useMemo(() => ({ start, here, only }), [start, here, only]);
 }
