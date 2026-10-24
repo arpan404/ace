@@ -1,10 +1,20 @@
 import { createWriteStream } from "node:fs";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import tar from "tar-stream";
 import { afterEach, expect, it } from "vitest";
+import { PinnedDirectory } from "@ace/workspace/pinned-directory";
 import { unpackArchive } from "./index.ts";
 
 // Hostile archives come from tar-stream's own writer, independent of packFolder.
@@ -131,4 +141,23 @@ it("refuses a file that isn't a tar archive", async () => {
   await expect(unpackArchive(t.archive, t.destination)).rejects.toMatchObject({
     code: "UNSAFE_ENTRY",
   });
+});
+
+it("writes into the folder the caller holds open even when its path is swapped for a link", async () => {
+  const t = await temp();
+  await craft(t.archive, [{ name: "kept.txt", content: "mine\n" }]);
+  const held = PinnedDirectory.open(t.destination);
+  try {
+    // Between making the folder and unpacking, its path now leads somewhere else.
+    const moved = join(t.root, "moved");
+    await rename(t.destination, moved);
+    const elsewhere = join(t.root, "elsewhere");
+    await mkdir(elsewhere);
+    await symlink(elsewhere, t.destination);
+    await unpackArchive(t.archive, held);
+    expect(await readdir(elsewhere)).toEqual([]);
+    expect(await readFile(join(moved, "kept.txt"), "utf8")).toBe("mine\n");
+  } finally {
+    await held.close();
+  }
 });

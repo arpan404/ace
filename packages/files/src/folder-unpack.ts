@@ -1,6 +1,4 @@
-import { close, createReadStream, fchmod, futimes, write } from "node:fs";
-import { lstat } from "node:fs/promises";
-import { join } from "node:path";
+import { close, constants, createReadStream, fchmod, futimes, write } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
 import { PinnedDirectory } from "@ace/workspace/pinned-directory";
@@ -161,9 +159,29 @@ async function writeFile(
 }
 
 /** Whether a folder-relative directory of the destination is a link already there. */
-async function linkThere(destination: string, path: string): Promise<boolean> {
+/** Whether `path` under `root`, or a folder on the way to it, is a link; read without following. */
+function linkThere(root: PinnedDirectory, path: string): boolean {
+  const parts = path.split("/");
+  const last = parts.pop() ?? "";
+  let current = root;
   try {
-    return (await lstat(join(destination, path))).isSymbolicLink();
+    for (const part of parts) {
+      if (isLink(current, part)) return true;
+      const next = current.child(part);
+      if (current !== root) current.closeSync();
+      current = next;
+    }
+    return isLink(current, last);
+  } catch {
+    return false;
+  } finally {
+    if (current !== root) current.closeSync();
+  }
+}
+
+function isLink(directory: PinnedDirectory, name: string): boolean {
+  try {
+    return (directory.metadata(name).mode & constants.S_IFMT) === constants.S_IFLNK;
   } catch {
     return false;
   }
@@ -173,11 +191,13 @@ async function linkThere(destination: string, path: string): Promise<boolean> {
  * Extracts a folder archive into `destination`, an existing empty directory the caller made.
  * Every write goes through descriptors opened from the destination without following links,
  * and links are created last, after every target has been checked. On failure the
- * destination may hold a partial copy; nothing is ever written outside it.
+ * destination may hold a partial copy; nothing is ever written outside it. A caller that made
+ * the folder through a descriptor passes that `PinnedDirectory` (it stays the caller's to
+ * close), so a path swapped after it was made can't redirect the writes.
  */
 export async function unpackArchive(
   file: string,
-  destination: string,
+  destination: string | PinnedDirectory,
   options: { signal?: AbortSignal } = {},
 ): Promise<{ entries: number }> {
   const { entries } = await extractArchive(file, destination, { ...options, merging: false });
@@ -213,12 +233,13 @@ export async function mergeArchive(
 
 async function extractArchive(
   file: string,
-  destination: string,
+  destination: string | PinnedDirectory,
   options: { signal?: AbortSignal; merging: boolean; exclude?: (path: string) => boolean },
 ): Promise<MergeResult> {
   const { signal, merging, exclude } = options;
   checkAborted(signal);
-  const root = PinnedDirectory.atBoundary(destination);
+  const held = typeof destination !== "string";
+  const root = held ? destination : PinnedDirectory.atBoundary(destination);
   const tree = new Tree(root, merging);
   const seen = new Set<string>();
   const links = new Map<string, string>();
@@ -303,7 +324,7 @@ async function extractArchive(
         // A link must not route through a link the destination already had.
         const route = linkRoute(path, target) ?? [];
         let through = false;
-        for (const directory of route) if (await linkThere(destination, directory)) through = true;
+        for (const directory of route) if (linkThere(root, directory)) through = true;
         if (through) {
           skipped++;
           continue;
@@ -328,6 +349,6 @@ async function extractArchive(
     throw error;
   } finally {
     tree.release();
-    root.closeSync();
+    if (!held) root.closeSync();
   }
 }
