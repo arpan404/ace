@@ -427,13 +427,12 @@ export class EngineRepository {
     return cancelPending(this, id, now);
   }
   cancelled(intentId: number): boolean {
-    return this.store.atomic(
-      (_db) =>
-        this.store
-          .statement(
-            "SELECT 1 FROM intents WHERE id=? AND status='failed' AND error='Cancelled before delivery'",
-          )
-          .get(intentId) !== undefined,
+    return (
+      this.store
+        .statement(
+          "SELECT 1 FROM intents WHERE id=? AND status='failed' AND error='Cancelled before delivery'",
+        )
+        .get(intentId) !== undefined
     );
   }
   quiescent(state: ThreadState): boolean {
@@ -536,14 +535,13 @@ export class EngineRepository {
   }
   queuedCount(id: ThreadId): number {
     // Recovery prompts live in Thread.queue; only retained work blocks execution completion.
-    return this.store.atomic((_db) =>
-      Number(
-        this.store
-          .statement(
-            "SELECT (SELECT COUNT(*) FROM intents WHERE thread_id=? AND (status IN ('pending','queued') OR uncertain=1) AND kind IN ('thread.send','thread.create','thread.fork','thread.switch','thread.merge')) + (SELECT COUNT(DISTINCT ack_target) FROM intents WHERE thread_id=? AND awaiting=1 AND status<>'queued') + (SELECT COUNT(*) FROM engine_queue q WHERE q.thread_id=? AND q.continuation IS NOT NULL AND NOT EXISTS(SELECT 1 FROM intents i WHERE i.thread_id=q.thread_id AND i.kind IN ('thread.resume','queue.resume','thread.limit') AND i.awaiting=1)) + (SELECT COUNT(*) FROM workspace_root_reservations WHERE thread_id=?) AS count",
-          )
-          .get(id, id, id, id)?.count,
-      ),
+    // One SELECT over intents and queues, which live output never writes: no transaction.
+    return Number(
+      this.store
+        .statement(
+          "SELECT (SELECT COUNT(*) FROM intents WHERE thread_id=? AND (status IN ('pending','queued') OR uncertain=1) AND kind IN ('thread.send','thread.create','thread.fork','thread.switch','thread.merge')) + (SELECT COUNT(DISTINCT ack_target) FROM intents WHERE thread_id=? AND awaiting=1 AND status<>'queued') + (SELECT COUNT(*) FROM engine_queue q WHERE q.thread_id=? AND q.continuation IS NOT NULL AND NOT EXISTS(SELECT 1 FROM intents i WHERE i.thread_id=q.thread_id AND i.kind IN ('thread.resume','queue.resume','thread.limit') AND i.awaiting=1)) + (SELECT COUNT(*) FROM workspace_root_reservations WHERE thread_id=?) AS count",
+        )
+        .get(id, id, id, id)?.count,
     );
   }
   /**

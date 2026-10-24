@@ -83,13 +83,12 @@ export class TransitionState {
   guarded(id: ThreadId): boolean {
     return this.guardOwner(id) !== undefined;
   }
+  /** One SELECT: it needs no write transaction, and live output never touches guards. */
   guardOwner(id: ThreadId): string | undefined {
-    return this.store.atomic((_db) => {
-      const row = this.store
-        .statement("SELECT command_id FROM engine_transition_guards WHERE thread_id=?")
-        .get(id);
-      return row ? z.string().parse(row.command_id) : undefined;
-    });
+    const row = this.store
+      .statement("SELECT command_id FROM engine_transition_guards WHERE thread_id=?")
+      .get(id);
+    return row ? z.string().parse(row.command_id) : undefined;
   }
   guard(id: ThreadId, commandId: string): void {
     this.store.atomic((_db) =>
