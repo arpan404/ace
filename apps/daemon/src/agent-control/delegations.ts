@@ -24,6 +24,7 @@ import {
   type DelegationOutcome,
   type CommandPayload,
   type CommandResult,
+  type ProviderKind,
 } from "@ace/protocol";
 import type { Engine, EngineClock } from "../engine/index.ts";
 import type { Store } from "../store.ts";
@@ -39,7 +40,7 @@ import { MessageSenders } from "./message-senders.ts";
 import { readAgentCatalog } from "./catalog.ts";
 import { recoverLocalUsage } from "./local-usage-recovery.ts";
 import { AcpIdentity as importAcpIdentitySchema } from "@ace/protocol";
-import { delegationEffort, selectedDelegationModel } from "./models.ts";
+import { accountModelName, delegationEffort, selectedDelegationModel } from "./models.ts";
 import { ConversationJournal } from "./conversation-journal.ts";
 import {
   executionModelId,
@@ -439,23 +440,33 @@ export class DelegationService {
     });
   }
   /**
-   * The account an agent named, by its id or by the label the person gave it ("Work"), on this
-   * provider. A label two accounts share, or no account at all, is left as given to be refused.
+   * The account an agent named, by its id or by the label the person gave it ("Work"), and the
+   * provider it belongs to. A label is looked up on `provider` when one is named, else on every
+   * provider; a label two accounts share, or no account at all, is undefined and the name is
+   * left as given to be refused at admission.
    */
-  accountNamed(provider: string, name: string): string {
+  accountNamed(
+    provider: ProviderKind | undefined,
+    name: string,
+  ): { id: string; provider: ProviderKind } | undefined {
     try {
-      const accounts = this.deps.accounts?.list() ?? [];
-      if (accounts.some((entry) => entry.instance.id === name)) return name;
+      const accounts = (this.deps.accounts?.list() ?? []).map((entry) => ({
+        id: entry.instance.id,
+        label: entry.instance.label.trim().toLowerCase(),
+        provider: accountProvider(entry.instance),
+      }));
+      const byId = accounts.find((entry) => entry.id === name);
+      if (byId) return { id: byId.id, provider: byId.provider };
       const wanted = name.trim().toLowerCase();
       const labelled = accounts.filter(
-        (entry) =>
-          (entry.instance.provider === provider || accountProvider(entry.instance) === provider) &&
-          entry.instance.label.trim().toLowerCase() === wanted,
+        (entry) => entry.label === wanted && (!provider || entry.provider === provider),
       );
-      return labelled.length === 1 && labelled[0] ? labelled[0].instance.id : name;
+      return labelled.length === 1 && labelled[0]
+        ? { id: labelled[0].id, provider: labelled[0].provider }
+        : undefined;
     } catch {
       // Account homes are still being validated: the id is checked again at admission.
-      return name;
+      return undefined;
     }
   }
   /** The name the person gave an account ("Work"), for what an agent tells them. */
@@ -577,6 +588,11 @@ export class DelegationService {
     });
     await this.prepareModels(caller, request);
     const filter = selectionModelFilter(thread.provider, thread.execution?.instanceId, identity);
+    // A loosely written name ("opus 5.5") means the model it fits on the thread's own account.
+    if (filter) {
+      model = accountModelName(this.deps.models, filter, model);
+      request.model = model;
+    }
     const selected =
       filter && this.deps.models.resolve({ role: "configuration", ...filter, model });
     if (!selected?.ok || (!isDefaultSelection(model) && !matchesModel(selected.model, model)))

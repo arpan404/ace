@@ -5,7 +5,7 @@ import {
   type ModelListResult,
 } from "@ace/protocol";
 import { isDefaultSelection, resolveModelName } from "@ace/models";
-import { AgentControlError } from "./failure.ts";
+import { ambiguousModel as ambiguous, modelElsewhere } from "./models.ts";
 
 /** What an agent may leave out of a selection: the provider and ACP agent identity. */
 export interface OpenSelection {
@@ -14,6 +14,8 @@ export interface OpenSelection {
   acpAgentId?: string | undefined;
   installationId?: string | undefined;
   instanceId?: string | undefined;
+  /** An account id: its own catalog is the only one a loose name is matched against. */
+  accountId?: string | undefined;
   /** Another machine resolves the model against its own catalog. */
   machine?: string | undefined;
 }
@@ -22,13 +24,18 @@ type ListModels = (options: ModelListOptions) => ModelListResult;
 const named = (model: CatalogModel, name: string) =>
   model.id === name || model.nativeModelId === name || (model.aliases ?? []).includes(name);
 
-/** Every catalog model of one provider, on every account, across pages. */
-function catalogue(list: ListModels, provider: ProviderKind): CatalogModel[] {
+/** Every catalog model of one provider, on every account (or only `instance`), across pages. */
+function catalogue(list: ListModels, provider: ProviderKind, instance?: string): CatalogModel[] {
   const found: CatalogModel[] = [];
   let offset: number | undefined = 0;
   // A provider's catalog is bounded (100 per page); ten pages covers every installed account.
   for (let page = 0; offset !== undefined && page < 10; page++) {
-    const result: ModelListResult = list({ provider, offset, limit: 100 });
+    const result: ModelListResult = list({
+      provider,
+      ...(instance ? { instance } : {}),
+      offset,
+      limit: 100,
+    });
     found.push(...result.models);
     offset = result.nextOffset;
   }
@@ -36,36 +43,32 @@ function catalogue(list: ListModels, provider: ProviderKind): CatalogModel[] {
 }
 
 /** Every catalog model of one provider with this id, alias or native id, across pages. */
-function matches(list: ListModels, provider: ProviderKind, name: string): CatalogModel[] {
-  return catalogue(list, provider).filter((model) => named(model, name));
+function matches(
+  list: ListModels,
+  provider: ProviderKind,
+  name: string,
+  instance?: string,
+): CatalogModel[] {
+  return catalogue(list, provider, instance).filter((model) => named(model, name));
 }
 
 /** Models a child can run: hidden and deprecated ones are refused at launch anyway. */
-function runnable(list: ListModels, providers: readonly ProviderKind[]): CatalogModel[] {
+function runnable(
+  list: ListModels,
+  providers: readonly ProviderKind[],
+  instance?: string,
+): CatalogModel[] {
   return providers.flatMap((provider) =>
-    catalogue(list, provider).filter((model) => !model.hidden && !model.deprecated),
-  );
-}
-
-const listed = (models: readonly CatalogModel[]) =>
-  models
-    .slice(0, 8)
-    .map((model) => `${model.id} (${model.provider})`)
-    .join(", ");
-
-function ambiguous(name: string, options: readonly CatalogModel[]): AgentControlError {
-  return new AgentControlError(
-    "invalid_arguments",
-    "model_ambiguous",
-    undefined,
-    `"${name}" fits several models: ${listed(options)}. Pass one of these ids as model.`,
+    catalogue(list, provider, instance).filter((model) => !model.hidden && !model.deprecated),
   );
 }
 
 /**
  * The catalog model a loosely written name means ("opus 5.5", "muse spark", "gpt 6.1 sol"),
- * when no catalog id or alias equals it. Searches the named provider, else the caller's, else
- * every provider. Undefined leaves the name as given, for the launch path's own refusal.
+ * when no catalog id or alias equals it. With an account, only that account's models count, so
+ * a model another account serves is never chosen for it. Otherwise it searches the named
+ * provider (all its accounts), else the caller's, else every provider. Undefined leaves the name
+ * as given, for the launch path's own refusal.
  */
 function nearestModel(
   selection: OpenSelection,
@@ -75,7 +78,13 @@ function nearestModel(
   const name = selection.model;
   if (!name || isDefaultSelection(name) || selection.machine) return undefined;
   const home = selection.provider ?? callerProvider;
-  if (matches(list, home, name).length) return undefined;
+  const account = selection.accountId;
+  if (matches(list, home, name, account).length) return undefined;
+  if (account) {
+    const near = resolveModelName(runnable(list, [home], account), name);
+    if (near.kind === "ambiguous") throw ambiguous(name, near.options);
+    return near.kind === "match" ? near.model : undefined;
+  }
   const others = ProviderKind.options.filter((kind) => kind !== home);
   if (!selection.provider) {
     const exact = others.filter((kind) => matches(list, kind, name).length > 0);
@@ -97,12 +106,7 @@ function nearestModel(
   }
   if (elsewhere.kind === "none") return undefined;
   const options = elsewhere.kind === "match" ? [elsewhere.model] : elsewhere.options;
-  throw new AgentControlError(
-    "model_unavailable",
-    "model_on_other_provider",
-    undefined,
-    `No ${home} model fits "${name}". Other providers have ${listed(options)}; pass that provider, or omit provider.`,
-  );
+  throw modelElsewhere(home, name, options);
 }
 
 /**

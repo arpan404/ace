@@ -3,10 +3,78 @@ import {
   executionModelId,
   isDefaultSelection,
   matchesModel,
+  resolveModelName,
   selectionModelFilter,
   type ModelCatalogApi,
 } from "@ace/models";
-import { AcpIdentity, type DelegationRequest, type Thread } from "@ace/protocol";
+import {
+  AcpIdentity,
+  type CatalogModel,
+  type DelegationRequest,
+  type ModelListOptions,
+  type Thread,
+} from "@ace/protocol";
+
+const listed = (models: readonly CatalogModel[]) =>
+  models
+    .slice(0, 8)
+    .map((model) => `${model.id} (${model.provider})`)
+    .join(", ");
+
+/** A loose model name that fits several models equally, refused with the ids to choose from. */
+export function ambiguousModel(name: string, options: readonly CatalogModel[]): AgentControlError {
+  return new AgentControlError(
+    "invalid_arguments",
+    "model_ambiguous",
+    undefined,
+    `"${name}" fits several models: ${listed(options)}. Pass one of these ids as model.`,
+  );
+}
+
+/** A provider names models elsewhere that fit, refused with where they are. */
+export function modelElsewhere(
+  provider: string,
+  name: string,
+  options: readonly CatalogModel[],
+): AgentControlError {
+  return new AgentControlError(
+    "model_unavailable",
+    "model_on_other_provider",
+    undefined,
+    `No ${provider} model fits "${name}". Other providers have ${listed(options)}; pass that provider, or omit provider.`,
+  );
+}
+
+/** Every model one account (or filter) lists, across pages. */
+function catalogRows(catalog: ModelCatalogApi, filter: ModelListOptions): CatalogModel[] {
+  const rows = [];
+  let offset = 0;
+  for (;;) {
+    const page = catalog.list({ ...filter, offset, limit: 100 });
+    rows.push(...page.models);
+    if (page.nextOffset === undefined) break;
+    offset = page.nextOffset;
+  }
+  return rows;
+}
+
+/**
+ * The catalog id a loosely written name ("opus 5.5") means on one account, for configuring or
+ * forking a thread that stays on it. An exact id, alias or default stays as given, as does a name
+ * nothing fits (the caller refuses it); a name that fits several models is refused.
+ */
+export function accountModelName(
+  catalog: ModelCatalogApi,
+  filter: ModelListOptions,
+  name: string,
+): string {
+  if (isDefaultSelection(name)) return name;
+  const available = catalogRows(catalog, filter).filter((row) => !row.hidden && !row.deprecated);
+  if (available.some((row) => matchesModel(row, name))) return name;
+  const near = resolveModelName(available, name);
+  if (near.kind === "ambiguous") throw ambiguousModel(name, near.options);
+  return near.kind === "match" ? near.model.id : name;
+}
 
 /** Only catalog identities from the selected provider/account reach provider launch. */
 export function selectedDelegationModel(
@@ -24,15 +92,7 @@ export function selectedDelegationModel(
       "Cannot delegate without a source-qualified model identity",
     );
   // Page the selected account, preserving the catalog's explicit default and aliases.
-  const rows = [];
-  let offset = 0;
-  for (;;) {
-    const page = catalog.list({ ...filter, offset, limit: 100 });
-    rows.push(...page.models);
-    if (page.nextOffset === undefined) break;
-    offset = page.nextOffset;
-  }
-  const available = rows.filter((row) => !row.hidden && !row.deprecated);
+  const available = catalogRows(catalog, filter).filter((row) => !row.hidden && !row.deprecated);
   const find = (id: string | undefined) => {
     if (!id || isDefaultSelection(id)) return undefined;
     const exact = available.find((row) => matchesModel(row, id));
@@ -42,11 +102,16 @@ export function selectedDelegationModel(
     );
     return aliases.length === 1 ? aliases[0] : undefined;
   };
+  // A model the agent named runs as named or is refused: falling back to the account's default
+  // would run a model nobody chose. Only the person's configured choice may stand in for it.
+  const named = request.model !== undefined && !isDefaultSelection(request.model);
   const chosen =
     find(request.model) ??
     find(configured) ??
-    available.find((row) => row.isDefault) ??
-    (parent.provider === request.provider ? find(parent.execution?.model) : undefined);
+    (named
+      ? undefined
+      : (available.find((row) => row.isDefault) ??
+        (parent.provider === request.provider ? find(parent.execution?.model) : undefined)));
   if (!chosen)
     throw new AgentControlError(
       "model_unavailable",

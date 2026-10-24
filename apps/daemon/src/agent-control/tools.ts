@@ -142,15 +142,24 @@ export function createAgentControlPort(
         return { ok: false, code: "forbidden" };
       const callerProvider = store.getThread(caller.threadId)?.provider;
       /** An agent may leave the provider (and an ACP model's agent ids) for ace to resolve. */
-      const resolved = <T extends OpenSelection & { accountId?: string | undefined }>(
-        selection: T,
-      ) => {
-        const chosen = resolveSelection(selection, callerProvider ?? "codex", (options) =>
-          service.listModels(options),
+      // The account comes first: a label becomes its id and fixes the provider, and a loose model
+      // name is then matched against that account's catalog alone.
+      const resolved = <T extends OpenSelection>(selection: T) => {
+        const account =
+          selection.accountId && !selection.machine
+            ? service.accountNamed(selection.provider, selection.accountId)
+            : undefined;
+        return resolveSelection(
+          account
+            ? {
+                ...selection,
+                accountId: account.id,
+                provider: selection.provider ?? account.provider,
+              }
+            : selection,
+          callerProvider ?? "codex",
+          (options) => service.listModels(options),
         );
-        return chosen.accountId && !chosen.machine
-          ? { ...chosen, accountId: service.accountNamed(chosen.provider, chosen.accountId) }
-          : chosen;
       };
       const machines = extensions.machines;
       if (

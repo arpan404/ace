@@ -82,6 +82,8 @@ export function delegationSelection(
     estimatedLoad: input.estimatedLoad,
   };
   const views: Candidate[] = [];
+  // Why accounts lacked the model, reported when none has it: "no account" would hide the reason.
+  let missing: AgentControlError | undefined;
   for (const candidate of candidates) {
     try {
       const model = selectedDelegationModel(
@@ -94,8 +96,10 @@ export function delegationSelection(
       views.push(eligible(deps, candidate, model));
     } catch (error) {
       if (!(error instanceof AgentControlError) || error.code !== "model_unavailable") throw error;
+      missing ??= error;
     }
   }
+  if (missing && !views.length && (input.accountId || input.model)) throw missing;
   const selected =
     input.provider === "antigravity" && input.accountId
       ? antigravityAccount(deps, input.accountId)
