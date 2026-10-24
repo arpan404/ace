@@ -46,16 +46,17 @@ export class SidebarLive {
     this.index.clear();
   }
   private rebuild(deletes: SQLOutputValue): void {
-    this.index.clear();
     let seen = 0;
-    const rows = this.statement(
+    const all = this.statement(
       `${facts} FROM threads LEFT JOIN sidebar_thread_revisions AS revisions ON revisions.thread_id = threads.id`,
-    ).all();
-    for (const row of rows) {
-      const next = decodeFacts(row);
-      this.index.put(next);
-      seen = Math.max(seen, next.revision);
-    }
+    )
+      .all()
+      .map((row) => {
+        const next = decodeFacts(row);
+        seen = Math.max(seen, next.revision);
+        return next;
+      });
+    this.index.load(all);
     this.seen = seen;
     this.deletes = deletes;
   }
