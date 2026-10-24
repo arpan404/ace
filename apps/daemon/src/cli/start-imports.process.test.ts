@@ -11,7 +11,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
-test("`ace start` runs the daemon without loading the other commands' code", async () => {
+test("`ace start` runs the daemon without loading other commands' or idle subsystems' code", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-start-imports-"));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const loaded = join(root, "loaded");
@@ -64,4 +64,6 @@ registerHooks({ load(url, context, next) { appendFileSync(${JSON.stringify(loade
   const cli = (name: string) => urls.some((url) => url.endsWith(`/apps/daemon/src/cli/${name}`));
   expect(cli("runtime.ts")).toBe(true);
   expect(["threads.ts", "sim.ts", "projects.ts", "tasks.ts", "cloud.ts"].filter(cli)).toEqual([]);
+  // Devices stay off until a person turns them on, so their implementation is not loaded either.
+  expect(urls.filter((url) => url.endsWith("/packages/devices/src/service.ts"))).toEqual([]);
 }, 60_000);

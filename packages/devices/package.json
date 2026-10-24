@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./tools": "./src/tools.ts",
     "./client": "./src/client.ts",
     "./stream-profile": "./src/stream-profile.ts",
     "./testing": "./src/testing/fake-sim.ts"
