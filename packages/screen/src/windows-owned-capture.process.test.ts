@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it, onTestFinished } from "vitest";
-import { lineReader } from "@ace/provider-kit/process";
+import { lineReader, type ProcessExit } from "@ace/provider-kit/process";
 import { z } from "zod";
 import {
   ScreenInventory,
@@ -13,6 +13,7 @@ import {
   ScreenUITree,
 } from "@ace/protocol";
 import { Helper, windowsEndpoint, type Frame } from "./index.ts";
+import { spawnWindowsHelper } from "./windows-process.ts";
 const HelperEnv = z.object({ ACE_WINDOWS_SCREEN_HELPER: z.string().min(1) });
 const SystemEnv = z.object({ SystemRoot: z.string().min(1) });
 const FixtureLine = z.object({
@@ -132,7 +133,17 @@ it.runIf(process.platform === "win32")(
         const pending = listeners.splice(0, listeners.length);
         for (const listener of pending) listener();
       };
+      let nativeStderr = "";
+      let nativeExited: Promise<ProcessExit> | undefined;
       helper = await Helper.open({
+        spawn: (options) => {
+          const proc = spawnWindowsHelper(options);
+          proc.stderr.on("line", (line: string) => {
+            nativeStderr = (nativeStderr + line + "\n").slice(-4096);
+          });
+          nativeExited = proc.exited;
+          return proc;
+        },
         command: helperPath,
         platform: "win32",
         endpoint: windowsEndpoint(randomUUID()),
@@ -152,7 +163,15 @@ it.runIf(process.platform === "win32")(
           const poll = () => {
             if (failures.length > 0) {
               clearTimeout(timer);
-              reject(new Error("Helper exited during frame wait"));
+              const failure = failures[0];
+              void Promise.resolve(nativeExited).then((exit) => {
+                reject(
+                  new Error(
+                    `Helper failed during frame wait: ${failure?.message}; exit=${JSON.stringify(exit)}; stderr=${nativeStderr}`,
+                    { cause: failure },
+                  ),
+                );
+              });
               return;
             }
             for (let index = from; index < frames.length; index += 1) {
