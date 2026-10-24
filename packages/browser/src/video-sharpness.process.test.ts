@@ -119,10 +119,24 @@ async function shownVersusPage(f: Fixture, chunks: readonly BrowserVideoChunk[])
     const a = luma(last), b = luma(page);
     let error = 0;
     for (let i = 0; i < a.length; i++) error += (a[i] - b[i]) ** 2;
-    return JSON.stringify({ width: last.codedWidth, height: last.codedHeight, psnr: 10 * Math.log10(255 * 255 / (error / a.length)) });
+    return JSON.stringify({ width: last.codedWidth, height: last.codedHeight, displayWidth: last.displayWidth, displayHeight: last.displayHeight, visibleWidth: last.visibleRect.width, visibleHeight: last.visibleRect.height, pageWidth: w, pageHeight: h, cssWidth: innerWidth, cssHeight: innerHeight, dpr: devicePixelRatio, codec: config.codec, psnr: 10 * Math.log10(255 * 255 / (error / a.length)) });
   })()`);
   return z
-    .object({ width: z.number(), height: z.number(), psnr: z.number() })
+    .object({
+      width: z.number(),
+      height: z.number(),
+      displayWidth: z.number(),
+      displayHeight: z.number(),
+      visibleWidth: z.number(),
+      visibleHeight: z.number(),
+      pageWidth: z.number(),
+      pageHeight: z.number(),
+      cssWidth: z.number(),
+      cssHeight: z.number(),
+      dpr: z.number(),
+      codec: z.string(),
+      psnr: z.number(),
+    })
     .parse(JSON.parse(String(result)));
 }
 
@@ -145,7 +159,7 @@ describe.skipIf(!executablePath)("how sharp the live video is", () => {
     await sleep(2_000);
     const joined = await shownVersusPage(f, viewer.chunks);
     // Full device pixels, not a smaller picture scaled up.
-    expect([joined.width, joined.height]).toEqual([1318, 1650]);
+    expect([joined.width, joined.height], JSON.stringify(joined)).toEqual([1318, 1650]);
     expect(joined.psnr).toBeGreaterThan(34);
     await f.execute({ action: "scroll", x: 0, y: 400 });
     await sleep(2_000);
