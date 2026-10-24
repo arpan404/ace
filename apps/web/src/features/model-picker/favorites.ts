@@ -1,6 +1,12 @@
 import { useClient } from "@ace/client-react";
 import { ProviderConfiguration, ProviderKind } from "@ace/protocol";
-import { catalogModelIds, modelKey, readJson, toggleFavorite } from "@ace/ui-core";
+import {
+  catalogModelIds,
+  changeProvider,
+  favoriteModelKeys,
+  readJson,
+  withFavoriteToggled,
+} from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
 import { catalogKey, useModelCatalog } from "@/lib/model-catalog.ts";
 import { useEffect, useMemo } from "react";
@@ -8,7 +14,7 @@ import * as z from "zod/mini";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useLayout } from "@/lib/layout.tsx";
-import { changeProvider, editProviderConfiguration } from "@/lib/provider-configuration.ts";
+import { editProviderConfiguration } from "@/lib/provider-configuration.ts";
 
 const Favorites = z.catch(z.array(z.string()), []);
 const favoritesKey = "ace.models.favorites";
@@ -53,30 +59,11 @@ export function useFavoriteModels(): {
     });
   }, [client, storage, rows, query]);
   return {
-    favorites: (rows ?? []).flatMap((row) =>
-      row.instance === undefined
-        ? (row.favourites ?? []).map((id) =>
-            modelKey(row.provider, canonical(row.provider, id) ?? id),
-          )
-        : [],
-    ),
+    favorites: favoriteModelKeys(rows ?? [], canonical),
     toggle(key) {
-      const split = key.indexOf("\u0000");
-      const provider = ProviderKind.safeParse(key.slice(0, split));
-      if (split < 0 || !provider.success) return;
-      const id = key.slice(split + 1);
-      void editProviderConfiguration(client, (before) =>
-        changeProvider(before, provider.data, (row) => ({
-          ...row,
-          favourites: toggleFavorite(
-            [
-              ...new Set(
-                (row.favourites ?? []).map((saved) => canonical(provider.data, saved) ?? saved),
-              ),
-            ],
-            id,
-          ),
-        })),
+      void editProviderConfiguration(
+        client,
+        (before) => withFavoriteToggled(before, key, canonical) ?? before,
       )
         .then(() => query.invalidateQueries({ queryKey: catalogKey }))
         .catch(() =>

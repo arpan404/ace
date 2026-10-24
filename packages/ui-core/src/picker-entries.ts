@@ -1,6 +1,8 @@
-import type { AccountView, PickerModel, PickerProvider } from "@ace/ui-core";
-import { accountLimit, isPlainCliLogin, providerDisplayName, providerNames } from "@ace/ui-core";
 import type { ProviderKind } from "@ace/protocol";
+import { isPlainCliLogin, type AccountView } from "./accounts.ts";
+import { accountLimit } from "./limits.ts";
+import type { PickerModel, PickerProvider } from "./model-picker.ts";
+import { providerDisplayName, providerNames } from "./providers.ts";
 
 export interface PickerEntry {
   id: string;

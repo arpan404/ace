@@ -197,6 +197,7 @@ const extra = [
   "arrows-in-line-vertical",
   "caret-double-down",
   "chat-teardrop-text",
+  "arrows-out-simple",
   "folder-simple",
   "git-pull-request",
   "hammer",

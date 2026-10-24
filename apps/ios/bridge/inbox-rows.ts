@@ -4,6 +4,7 @@ import {
   inboxSections,
   inboxStatus,
   snoozePresets,
+  type InboxSectionOptions,
   type InboxThread,
   type InboxUnsent,
 } from "@ace/ui-core/mobile";
@@ -49,13 +50,16 @@ export function inboxLayout(
   unsent: readonly InboxUnsent[],
   now: number,
   more: boolean,
+  options: InboxSectionOptions = {},
 ) {
   return {
     type: "inbox.sections",
-    sections: inboxSections(threads, unsent, now).map((section) => ({
+    sections: inboxSections(threads, unsent, now, options).map((section) => ({
       key: section.key,
       label: section.label,
       ids: section.keys,
+      // Rows on the phone may be fewer: the daemon pages older settled threads.
+      total: section.total,
       // A merged inbox orders sections from every machine by these (`inboxRank`).
       ranks: section.ranks,
       order: inboxGroupRank(section.key),

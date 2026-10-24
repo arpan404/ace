@@ -1,5 +1,5 @@
 import { AccountSummary } from "@ace/protocol/accounts";
-import { accountView } from "@ace/ui-core";
+import { accountView } from "./accounts.ts";
 import { expect, test } from "vitest";
 import { pickerEntries } from "./picker-entries.ts";
 

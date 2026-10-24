@@ -88,6 +88,11 @@ Budgets fail tests when the app gets slower. Two suites hold them:
   Before measuring, the tests check their workload: the fixture's `/health` must report the
   seed below (`streamed`, `busy`), the app must hold every busy row, and streaming must reach
   the app's rows while it is measured.
+- `AceUITests/DisclosureBudgetUITests`, same scheme, against the fixture's `ios-log-long` thread
+  (six finished turns of 80 steps): opening a "Worked for" log the first time and again, a group
+  of about 60 steps, a step's diff, a thought, and a thought read in full. The app times each from
+  the tap to its content laid out, with the bridge traffic the open caused
+  (`Sources/Models/DisclosureTrace.swift`, a `disclosure.open` signpost and one `perf` line).
 
 Run the UI budgets with two fixtures, the second for the busy inbox:
 
@@ -99,10 +104,12 @@ xcodebuild build-for-testing -project Ace.xcodeproj -scheme AcePerf -configurati
 TEST_RUNNER_ACE_IOS_SPIKE_PORT=9882 TEST_RUNNER_ACE_IOS_SPIKE_BUSY_PORT=9883 \
   xcodebuild test-without-building -project Ace.xcodeproj -scheme AcePerf -configuration Perf \
   -destination 'platform=iOS Simulator,id=YOUR_SIMULATOR_UDID' -derivedDataPath .build/DerivedData \
-  -parallel-testing-enabled NO -only-testing:AceUITests/PerformanceBudgetUITests
+  -parallel-testing-enabled NO -only-testing:AceUITests/PerformanceBudgetUITests \
+  -only-testing:AceUITests/DisclosureBudgetUITests
 ```
 
-Medians on the iOS 26 simulator (Perf, 2026-10-22), with the budget in brackets:
+Medians on the iOS 26 simulator (Perf, 2026-10-22; the last five rows 2026-10-23), with the budget
+in brackets:
 
 | Flow | Measured | Budget |
 |---|---|---|
@@ -117,6 +124,11 @@ Medians on the iOS 26 simulator (Perf, 2026-10-22), with the budget in brackets:
 | Agents and Changes sheets, asked to rows applied | 140, 128 ms | 350 ms |
 | Model sheet, tap to shown (mostly XCUITest waiting) | 1,940 ms | 3,000 ms |
 | Typing 33 characters with the long thread behind (XCUITest's own pace) | 830 ms | 1,800 ms |
+| Open a finished "Worked for" log (80 steps), tap to rows; its steps read ahead | 48 ms, 3.9 KB | 150 ms |
+| Open it again: shown, patches | 26 ms, 1 | 120 ms, 2 |
+| Open a group of about 60 steps | 28 ms | 120 ms |
+| Open a step's diff, a thought | 24, 21 ms | 120 ms |
+| Read a long thought in full (the sheet, its text at once) | 273 ms | 600 ms |
 
 Budgets sit 1.5 to 5 times above the medians so a busy Mac doesn't fail them and a real
 regression does. Lower one when the app gets faster; never raise one without a measured reason.
@@ -223,11 +235,16 @@ behavior tests run with `bunx vitest run apps/ios/bridge/thread-*.test.ts` (shar
 `bridge/thread-harness.ts`).
 
 Plan reviews, MCP forms and browser requests answer on their own cards
-(`bridge/thread-requests.ts`, validated with the shared `@ace/ui-core` form rules). An opened
-settled "Worked for" log reads its turn's full steps (`turn.steps` through the SDK's bounded
-`TurnStepsCache`), sent in 25-step page patches, its groups in the steps header. While the log is open, a change to one of the
-turn's own items reads the turn's summary (`turns.page`) and holds the turn with its `endSeq`, so
-the cache reads it again only when its copy is older, as the web does. The effort and speed chip follows the web's
+(`bridge/thread-requests.ts`, validated with the shared `@ace/ui-core` form rules). A settled
+"Worked for" head that stays on screen 300 ms, or is tapped, reads its turn's full steps
+(`turn.steps` through the SDK's bounded `TurnStepsCache`), sent in 25-step page patches, its groups
+in the steps header, so the log opens on rows rather than a read. The bridge remembers what it sent
+for the last eight turns: opening one again, or scrolling back to it, sends only what changed, and
+a turn pushed past that bound is released in Swift too (`thread.stepsReleased`). While a head is in
+view, a change to one of the turn's own items reads the turn's summary (`turns.page`) and holds
+the turn with its `endSeq`, so the cache reads it again only when its copy is older, as the web
+does. Opening anything in place leaves the tapped row where it is: the feed stops following the
+end unless the end is still in view. The effort and speed chip follows the web's
 capability rules (`threadTuning`, `followUpTurnOptions` in `@ace/ui-core`); a pick goes with the next
 message only. Photos and files are staged natively (`Sources/Bridge/AttachmentStaging.swift`,
 hashed with CryptoKit); the bridge checks the shared limits and what the agent reads, then uploads
@@ -377,11 +394,13 @@ New thread: machine (when several are paired), project, an optional new worktree
 then the first message with any photos or files. The bridge (`bridge/new-thread.ts`) reads
 projects (`workspaces.list`, recent first by thread activity via `newThreadProjects`), the
 machine's agents (`providers.request` readiness, `accounts.list` and the paged `models.list`
-reader shared with the web), and judges each with `newThreadAgents`: one that isn't installed,
-is signed out or needs attention stays listed, disabled, with its reason. The agent picker groups
-models by agent and leads with the model in use (else the account's default); the rest of a long
-list waits behind More models (`newThreadModelList`). Swift tells the bridge what the draft has
-chosen (`choice`), so ordering and access follow it.
+reader shared with the web), and judges each with `newThreadAgents`. The model picker
+(`Sources/Views/ModelPicker`, shared with the thread's model sheet) shows a row of providers and
+the shown one's models below, headed by account when there are several. A CLI that isn't
+installed is left out (`newThreadPickerAgents`); one that is signed out or needs attention shows
+its reason in one line. Models keep one order, each account's default first, and the rest of a
+long list waits behind More models (`newThreadModelList`). Swift tells the bridge what the draft
+has chosen (`choice`), so the lead and access follow it.
 
 - **Speed** offers the tiers the model lists and goes out as `serviceTier`
   (`selectNewThreadAgent`). **Access** (`bridge/new-thread-access.ts`) reads the daemon's

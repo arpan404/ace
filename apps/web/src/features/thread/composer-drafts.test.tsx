@@ -1,11 +1,40 @@
 import { fixtureImage, longHistory, replayCursor } from "@ace/fake-daemon";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { newThreadDraftKey } from "@/lib/new-thread-draft-key.ts";
 
 beforeEach(() => localStorage.clear());
+
+/*
+ * jsdom can neither decode an image nor draw one: the browser's decoder and canvas are stood in
+ * for at that boundary, so a pasted image gets the still a real browser would make of it.
+ */
+const still = "data:image/webp;base64,UklGRhIAAABXRUJQVlA4TAYAAAAvAAAAAAA=";
+const canvas = HTMLCanvasElement.prototype;
+const browser = {
+  bitmap: globalThis.createImageBitmap,
+  context: canvas.getContext,
+  encode: canvas.toDataURL,
+};
+function standInForImageDecoding() {
+  globalThis.createImageBitmap = async () =>
+    Object.assign(Object.create(null), { width: 1200, height: 800, close() {} });
+  canvas.getContext = function () {
+    return Object.assign(Object.create(null), { drawImage() {} });
+  } as typeof canvas.getContext;
+  canvas.toDataURL = () => still;
+}
+afterEach(() => {
+  globalThis.createImageBitmap = browser.bitmap;
+  canvas.getContext = browser.context;
+  canvas.toDataURL = browser.encode;
+});
+const pastedImage = () =>
+  new File([Uint8Array.from(atob(fixtureImage.data), (char) => char.charCodeAt(0))], "shot.png", {
+    type: "image/png",
+  });
 
 function app(storage = memoryKeyValue()) {
   const made = harness({ storage });
@@ -161,4 +190,24 @@ test("a new-thread draft restores after the project directory becomes available 
   );
   await made.open("/new?project=relay");
   expect((await message()).textContent).toBe("Keep this new-thread draft");
+});
+
+test("a new-thread draft with a pasted image shows its preview after the page is reopened", async () => {
+  standInForImageDecoding();
+  const storage = memoryKeyValue();
+  const made = app(storage);
+  await made.open("/new?project=relay");
+  fireEvent.paste(await message(), { clipboardData: { files: [pastedImage()], items: [] } });
+  await screen.findByRole("button", { name: "Remove shot.png" });
+  await waitFor(() =>
+    expect(screen.queryByRole("progressbar", { name: "Uploading shot.png" })).toBeNull(),
+  );
+  await waitFor(() => expect(storage.getItem("ace.composer.drafts")).toContain(still));
+  cleanup();
+
+  // A fresh page: the file itself is gone, and a draft scope has no copy this page can read.
+  await app(storage).open("/new?project=relay");
+  const chips = await screen.findByRole("list", { name: "Attachments" });
+  const preview = await within(chips).findByRole("img", { name: "shot.png" });
+  expect(preview.getAttribute("src")).toBe(still);
 });

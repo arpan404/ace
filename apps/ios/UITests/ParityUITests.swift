@@ -62,14 +62,14 @@ import XCTest
         capture("terminal")
     }
 
-    func testPublishedCanvasRunsItsInteractionInTheNativeSandbox() {
+    func testPublishedCanvasDrawsInlineAndOpensFullScreenInTheNativeSandbox() {
         let app = launch()
         app.revealRow("thread.ios-media").tap()
-        let canvas = app.buttons["Interactive counter"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 20)); canvas.tap()
-        // The shared visualization window nests the page in sandboxed data: frames, which the web
-        // view doesn't expose to XCUITest; the canvas is checked as a loaded web view, not a refusal.
+        // The page draws inline in the transcript, in a sandboxed frame XCUITest can't see into;
+        // it's checked as a loaded web view, then opened full screen, not a refusal.
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 25))
+        let full = app.buttons["Open Interactive counter full screen"]
+        XCTAssertTrue(full.waitForExistence(timeout: 20)); full.tap()
         sleep(2)
         XCTAssertFalse(app.staticTexts["Couldn't open media"].exists)
         capture("canvas")

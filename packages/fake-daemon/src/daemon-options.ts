@@ -37,6 +37,8 @@ export interface ThreadInit {
   execution?: Thread["execution"];
   access?: AccessMode;
   parentThreadId?: string;
+  /** A delegated child still waiting for one of its parent's run slots, with its task. */
+  queuedLaunch?: Thread["queuedLaunch"];
   /** A conversation an agent started is a task from its start, as the daemon records it. */
   hasSentMessage?: boolean;
   /** What the thread's provider can do, over the fake's defaults (a provider that reads no images). */

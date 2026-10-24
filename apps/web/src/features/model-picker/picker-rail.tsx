@@ -2,7 +2,7 @@ import { StarIcon } from "@phosphor-icons/react";
 import type { KeyboardEvent, Ref } from "react";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import type { PickerEntry } from "./picker-entries.ts";
+import type { PickerEntry } from "@ace/ui-core";
 
 const tabButton =
   "relative grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent/60 hover:text-foreground focus-ring-inset aria-selected:bg-accent aria-selected:text-foreground aria-disabled:opacity-40 pointer-coarse:size-8";

@@ -16,8 +16,9 @@ import Observation
     var blockOrder: [String] = []
     var controls: ControlsRow?
     var hasOlder = false
-    var modelsState = "idle"
-    var models: [ModelOption] = []
+    var modelList = ThreadModels()
+    var modelsState: String { modelList.state }
+    var models: [ModelOption] { modelList.models }
     /// Follow-ups waiting in the daemon's queue, outside the transcript until delivered.
     var queue: QueueRow?
     /// Stop was pressed; cleared when the tree stops working, or when this Stop's own request
@@ -46,6 +47,8 @@ import Observation
     var openGroups: Set<String> = []
     /// Effort and speed for the next message.
     var tune: TuneRow?
+    /// The thread's access and the modes it can change to (`thread.access`).
+    var access: ThreadAccessRow?
     /// Files on the next message and their uploads.
     var attachments: [AttachmentFile] = []
     /// The native subagent lane open in its sheet.
@@ -63,6 +66,7 @@ import Observation
         goal = nil
         steps = [:]
         tune = nil
+        access = nil
         attachments = []
         hasOlder = false
     }
@@ -72,8 +76,7 @@ import Observation
         steps = [:]
         lane = nil
         attachments = []
-        modelsState = "idle"
-        models = []
+        modelList = ThreadModels()
         stopping = false
         stopRequest = nil
     }
@@ -99,9 +102,8 @@ import Observation
             hasOlder = older
         case .queue(_, _, let row):
             queue = row
-        case .models(_, _, let state, let list):
-            modelsState = state
-            models = list
+        case .models(_, _, let list):
+            modelList = list
         default: break
         }
     }
@@ -134,7 +136,7 @@ extension BridgePatch {
     var screenScope: (thread: String, epoch: Int)? {
         switch self {
         case .block(let id, let epoch, _, _), .blockPosition(let id, let epoch, _, _): (id, epoch)
-        case .controls(let id, let epoch, _), .history(let id, let epoch, _), .models(let id, let epoch, _, _), .queue(let id, let epoch, _): (id, epoch)
+        case .controls(let id, let epoch, _), .history(let id, let epoch, _), .models(let id, let epoch, _), .queue(let id, let epoch, _): (id, epoch)
         default: nil
         }
     }

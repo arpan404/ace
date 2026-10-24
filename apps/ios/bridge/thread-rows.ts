@@ -80,19 +80,65 @@ export function stepOf(item: Item, context: Omit<StepContext, "labels"> = {}) {
   };
 }
 
-/** Images and files carried by a message, shown as placeholders on the phone. */
+/**
+ * One image or file a message carries, as its bubble shows it: the name, type and size, the
+ * picture's shape (so its tile is sized before the bytes arrive), and `ref`, which names it to
+ * `native.attachment` (a stored file's hash, or `part:<n>` for an inline image). `thumbnail` says
+ * the phone can draw a preview; `opens` that the file can be fetched to view. Never a host path.
+ */
+export interface AttachmentLine {
+  kind: string;
+  name: string;
+  ref: string;
+  mimeType: string;
+  bytes: number;
+  width: number;
+  height: number;
+  thumbnail: boolean;
+  opens: boolean;
+}
+
+/** Inline image data the phone decodes itself; other URLs in a part are never fetched. */
+const inlineImage = /^data:image\/(?:png|jpeg|gif|webp);base64,/;
+
+/** Images and files carried by a message: stored attachments, and legacy image and file parts. */
 function attachmentsOf(item: Item) {
   if (item.type !== "message") return { attachments: [], moreAttachments: 0 };
-  const shown: { kind: string; name: string }[] = [];
-  for (const part of item.parts)
-    if (part.type === "image") shown.push({ kind: "image", name: preview(part.mimeType, 128) });
-    else if (part.type === "file")
+  const shown: AttachmentLine[] = [];
+  const blank = { ref: "", mimeType: "", bytes: 0, width: 0, height: 0 };
+  for (const [index, part] of item.parts.entries())
+    if (part.type === "image") {
+      const inline = inlineImage.test(part.url);
       shown.push({
+        ...blank,
+        kind: "image",
+        name: "Image",
+        ref: inline ? `part:${index}` : "",
+        mimeType: preview(part.mimeType, 128),
+        thumbnail: inline,
+        opens: inline,
+      });
+    } else if (part.type === "file")
+      shown.push({
+        ...blank,
         kind: "file",
         name: preview(part.name ?? part.path.split("/").at(-1) ?? "", 128),
+        mimeType: preview(part.mimeType ?? "", 128),
+        thumbnail: false,
+        opens: false,
       });
   for (const attachment of item.attachments ?? [])
-    shown.push({ kind: attachment.kind ?? "binary", name: preview(attachment.name, 128) });
+    shown.push({
+      kind: attachment.kind ?? "binary",
+      name: preview(attachment.name, 128),
+      ref: attachment.sha256,
+      mimeType: preview(attachment.mimeType, 128),
+      bytes: attachment.bytes,
+      width: attachment.width ?? 0,
+      height: attachment.height ?? 0,
+      thumbnail: attachment.thumbnailAvailable === true,
+      opens: true,
+    });
   return {
     attachments: shown.slice(0, attachmentLimit),
     moreAttachments: Math.max(0, shown.length - attachmentLimit),

@@ -635,6 +635,14 @@ export class DelegationService {
           if (!engineFull(error)) throw error;
         }
       this.launches.add({ childId: current.childId, parentId: current.parentId, text });
+      // The child names its parent and its task while it waits, so its own thread is never blank.
+      this.deps.store.appendEvents(current.childId, [
+        {
+          type: "thread.updated",
+          ...(launchKind(current) === "spawn" ? { delegatedBy: current.parentId } : {}),
+          queuedLaunch: { text: current.request.task },
+        },
+      ]);
       this.showQueued(current);
     });
   }
@@ -705,6 +713,8 @@ export class DelegationService {
   /** A child that never ran settles at once: no run of its will ever end to settle it. */
   private settleUnlaunched(edge: DelegationRecord, outcome: "cancelled" | "failed"): void {
     this.launches.take(edge.childId);
+    if (this.deps.store.getThread(edge.childId)?.queuedLaunch)
+      this.deps.store.appendEvents(edge.childId, [{ type: "thread.updated", queuedLaunch: null }]);
     const result: DelegationOutcome = {
       threadId: edge.childId,
       outcome,
@@ -724,12 +734,7 @@ export class DelegationService {
   }
   private start(current: DelegationRecord, text: string): void {
     this.deps.store.atomic(() => {
-      const role = current.request.role;
-      const kind = role.startsWith("automation:")
-        ? "automation"
-        : role.startsWith("handoff:")
-          ? "handoff"
-          : "spawn";
+      const kind = launchKind(current);
       const result = this.command(controlCommandId(current.parentId, current.requestId, "launch"), {
         type: "thread.send",
         threadId: current.childId,
@@ -744,12 +749,25 @@ export class DelegationService {
       });
       if (!result.ok) throw controlAdmissionError(result.error ?? "Launch failed");
       // The child names its parent on the thread itself, so it survives history paging.
-      if (kind === "spawn")
+      const queued = this.deps.store.getThread(current.childId)?.queuedLaunch !== undefined;
+      if (kind === "spawn" || queued)
         this.deps.store.appendEvents(current.childId, [
-          { type: "thread.updated", delegatedBy: current.parentId },
+          {
+            type: "thread.updated",
+            ...(kind === "spawn" ? { delegatedBy: current.parentId } : {}),
+            ...(queued ? { queuedLaunch: null } : {}),
+          },
         ]);
       current.phase = "running";
       this.journal.save(current);
+      // A child that waited in the queue stops reading as queued in its parent at once.
+      if (queued) {
+        const thread = this.deps.store.getThread(current.childId);
+        if (thread) {
+          this.deps.engine.updateChild(current.parentId, thread);
+          this.deps.engine.delegationStarted(current, thread);
+        }
+      }
     });
   }
   /** Host-owned pause preserves recovery history and does not write subtree stop markers. */
@@ -1189,4 +1207,11 @@ export class DelegationService {
     this.unsubscribe();
     this.cancelTimer?.();
   }
+}
+
+/** How a delegation's first message reaches its child: an automation run, a handoff or a spawn. */
+function launchKind(record: DelegationRecord): "automation" | "handoff" | "spawn" {
+  const role = record.request.role;
+  if (role.startsWith("automation:")) return "automation";
+  return role.startsWith("handoff:") ? "handoff" : "spawn";
 }

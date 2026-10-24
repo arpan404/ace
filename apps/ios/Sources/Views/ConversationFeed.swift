@@ -8,6 +8,8 @@ private final class TranscriptScrollIntent {
     /// itself, with the keyboard's or the composer's motion.
     var room: CGFloat = 0
     var direction = 0
+    /// The person opened something in place: the next change of height is theirs, not the end's.
+    var opened = false
     var metrics = Metrics(y: 0, top: 0, bottom: 0, viewport: 0, topInset: 0, bottomInset: 0, height: 0)
     struct Metrics: Equatable { let y: CGFloat; let top: CGFloat; let bottom: CGFloat; let viewport: CGFloat; let topInset: CGFloat; let bottomInset: CGFloat; let height: CGFloat }
     func begin() { active = true; consumed = false; direction = 0 }
@@ -41,6 +43,8 @@ struct ConversationFeed: View {
     /// While the keyboard moves, the live tail doesn't jump to the end on each delta: the
     /// keyboard's own animation carries the rows there.
     @State private var keyboardMoving = false
+    /// The keyboard's last animation duration: the composer opens on the same spring as it.
+    @State private var keyboardDuration = 0.35
     @State private var feedBottom: CGFloat = 0
     private var shown: ThreadModel { reading.shown ?? thread }
     private var ready: Bool { thread.loaded }
@@ -125,7 +129,14 @@ struct ConversationFeed: View {
                 viewport: frame, topInset: insets.top, bottomInset: insets.bottom, height: geometry.contentSize.height)
         } action: { old, new in
             intent.metrics = new
-            keepEnd(old: old, new: new, proxy: proxy)
+            if intent.opened, new.height != old.height {
+                // What opened grows under the row the person tapped, which stays put; the feed
+                // follows the end again only if the end is still in view.
+                intent.opened = false
+                if reading.thread == nil { following = new.bottom <= AceTheme.Spacing.xxl }
+            } else {
+                keepEnd(old: old, new: new, proxy: proxy)
+            }
             if thread.loaded, new.bottom <= 1 { ThreadOpenTrace.shared.settled(thread.id) }
             if intent.active {
                 // Scrolling up only stops following: the live list stays in place until the
@@ -140,6 +151,7 @@ struct ConversationFeed: View {
             following = true
             toEnd(proxy)
         }
+        .onChange(of: shown.disclosures.opens) { _, _ in intent.opened = true }
         .onChange(of: reading.loading) { _, loading in if !loading { pageIfNeeded(proxy) } }
         .onChange(of: reading.revision) { _, _ in
             guard reading.thread != nil else { return }
@@ -164,6 +176,7 @@ struct ConversationFeed: View {
             guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
             let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
             let lift = max(0, feedBottom - end.minY)
+            if duration > 0 { keyboardDuration = duration }
             guard lift != keyboardLift else { return }
             let motion: Animation? = reduceMotion ? nil : .spring(duration: duration, bounce: 0)
             let growth = lift - keyboardLift
@@ -176,7 +189,9 @@ struct ConversationFeed: View {
             roomChanged(by: growth, motion: motion, proxy: proxy)
         }
         .onChange(of: barHeight) { old, new in
-            roomChanged(by: new - old, motion: reduceMotion ? nil : AceTheme.Motion.standardCurve, proxy: proxy)
+            // The composer opening as it takes the keyboard moves on the keyboard's spring.
+            let motion = keyboardMoving ? Animation.spring(duration: keyboardDuration, bounce: 0) : AceTheme.Motion.standardCurve
+            roomChanged(by: new - old, motion: reduceMotion ? nil : motion, proxy: proxy)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { _ in
             keyboardMoving = false

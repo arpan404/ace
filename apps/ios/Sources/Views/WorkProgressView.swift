@@ -90,10 +90,8 @@ private struct LogStepContent: View {
         case "reasoning":
             ReasoningRow(row: row, thought: source.thoughts[row.id], thread: source.thread, openMessage: source.openMessage)
         case "html", "image":
-            if let openMedia = source.openMedia {
-                QuietLink(icon: row.type == "html" ? .chartBarHorizontal : .image, title: row.text) { openMedia(row) }
-                    .accessibilityIdentifier("media.\(row.id)")
-            } else { VisualizationRow(row: row) }
+            if let openMedia = source.openMedia { PublishedMediaRow(row: row) { openMedia(row) } }
+            else { VisualizationRow(row: row) }
         default:
             if let step = source.ace[row.id] ?? row.step {
                 StepRow(step: step, id: row.id, thread: source.thread, retried: source.retried.contains(row.id))
@@ -106,12 +104,16 @@ private struct LogStepContent: View {
 
 /// Consecutive steps as one row: its icon and sentence ("Ran 3 commands · 1 failed"), or while
 /// the turn works the step in flight ("Running `bun run slow` · 2 steps"). It opens in place to
-/// its steps on a rail, and stays open while it holds a step the reader opened.
+/// its steps on a rail, and stays open while it holds a step the reader opened. A long group lays
+/// out its first rows in the frame it opens and the rest just after, so the tap answers at once.
 private struct LogGroupView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let row: BlockRow.LogRow
     let source: LogSource
     let live: Bool
+    /// About a screen of steps.
+    private static let firstRows = 16
+    @State private var shown = firstRows
     private var key: String { "group:\(row.id)" }
     private var disclosures: Disclosures { source.thread.disclosures }
     private var open: Bool {
@@ -121,6 +123,7 @@ private struct LogGroupView: View {
         let running = row.running == true
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             Button {
+                if !open { DisclosureTrace.shared.asked("group", key: key) }
                 withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { disclosures.set(key, open: !open) }
             } label: {
                 if live && running, let active = row.active, let item = source.thread.items[active] {
@@ -138,7 +141,15 @@ private struct LogGroupView: View {
             .accessibilityValue(open ? "Expanded" : "Collapsed")
             .accessibilityIdentifier("work.group.\(row.id)")
             if open {
-                StepRail { ForEach(row.items ?? [], id: \.self) { LogStep(id: $0, source: source) } }
+                let items = row.items ?? []
+                StepRail { ForEach(items.prefix(shown), id: \.self) { LogStep(id: $0, source: source) } }
+                    .onAppear { DisclosureTrace.shared.shown(key) }
+                    .task {
+                        // The next turn of the run loop, after the opening frame is committed.
+                        if items.count > shown { try? await Task.sleep(for: .milliseconds(1)) }
+                        if !Task.isCancelled { shown = .max }
+                    }
+                    .onDisappear { shown = Self.firstRows }
             }
         }
         .railMark(running ? .running : (row.failed ?? 0) > 0 ? .failed : .done)

@@ -474,6 +474,7 @@ function readActivity(
         rate_limit: "Rate limited",
         network: "Reconnecting to the model",
         upstream: "Provider unavailable",
+        queue: "Queued",
       }[status.on];
       return line(
         status.until === undefined

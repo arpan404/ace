@@ -12,6 +12,25 @@ extension View {
                 .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
         }
     }
+    /// The composer, its strip and the first message's card: glass the transcript scrolls behind
+    /// and shows through, softly blurred, like the system's own bars. iOS 18 gets the thin
+    /// material with a hairline edge.
+    @ViewBuilder func composerGlass<S: Shape>(in shape: S) -> some View {
+        if #available(iOS 26, *) {
+            self.glassEffect(.regular, in: shape)
+        } else {
+            self.background(.thinMaterial, in: shape)
+                .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+        }
+    }
+}
+
+extension View {
+    /// The strip and the composer drawn as one glass on iOS 26, so where they meet reads as one
+    /// surface rather than two blurs stacked.
+    @ViewBuilder func composerGlassGroup() -> some View {
+        if #available(iOS 26, *) { GlassEffectContainer(spacing: AceTheme.Spacing.none) { self } } else { self }
+    }
 }
 
 /// A round glass icon button: the inbox's Settings and the floating jump-to-latest control.

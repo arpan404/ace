@@ -3,6 +3,7 @@ import type { BrowserCommand, BrowserTabEmulation } from "@ace/protocol";
 import { BrowserActionError } from "./action-error.ts";
 import type { BrowserBackendPage } from "./backend.ts";
 import type { Actor } from "./session-options.ts";
+import { mobileAgent, phoneSized } from "./mobile-agent.ts";
 
 /** What a tab shows beyond its page: the device it emulates and its zoom. */
 export interface TabView {
@@ -10,6 +11,8 @@ export interface TabView {
   zoom: number;
   /** The person's last resize came from a touch screen: the page has touch events on. */
   touchScreen?: boolean | undefined;
+  /** The page sends a phone's user agent: the person's touch screen is phone-sized. */
+  phoneAgent?: boolean | undefined;
 }
 
 /** The longest page source returned; a longer document is cut there. */
@@ -113,10 +116,12 @@ export async function emulateDevice(
   check();
   await page.cdp.send("Emulation.setTouchEmulationEnabled", { enabled: command.touch });
   view.touchScreen = false;
+  const phoneAgent = view.phoneAgent === true;
+  view.phoneAgent = false;
   check();
   await page.media(command.colorScheme);
   // An empty override gives the browser its own user agent back.
-  if (command.userAgent !== undefined || view.emulation?.userAgent !== undefined) {
+  if (command.userAgent !== undefined || view.emulation?.userAgent !== undefined || phoneAgent) {
     check();
     await page.cdp.send("Emulation.setUserAgentOverride", { userAgent: command.userAgent ?? "" });
   }
@@ -132,7 +137,8 @@ export async function emulateDevice(
  * A plain resize. An agent's is a size the person's view should show; the person's own puts
  * the page back on the pane's size, so touch and user agent go back to the browser's own. A
  * person on a touch screen (`touch`) gets the pane's size as a mobile viewport with touch
- * events, where the backend can lay a tab out as a device (ace's Chrome).
+ * events, where the backend can lay a tab out as a device (ace's Chrome, the desktop's view),
+ * and a phone-sized one a phone's user agent.
  */
 export async function resizePage(
   {
@@ -154,30 +160,49 @@ export async function resizePage(
   const size = { width, height };
   const touch = actor.kind === "human" && touchScreen === true;
   check();
-  // The viewer's density first, so a touch layout below renders that sharp too.
-  await page.resize(width, height, devicePixelRatio);
-  if (touch && page.emulate) {
-    check();
-    // Scale 0 keeps the browser's own device scale, as the plain resize does.
-    await page.emulate({
-      width: size.width,
-      height: size.height,
-      deviceScaleFactor: 0,
-      mobile: true,
-    });
+  if (touch && page.touchResize) await page.touchResize(width, height, devicePixelRatio);
+  else {
+    // The viewer's density first, so a touch layout below renders that sharp too.
+    await page.resize(width, height, devicePixelRatio);
+    if (touch && page.emulate) {
+      check();
+      // Scale 0 keeps the browser's own device scale, as the plain resize does.
+      await page.emulate({ ...size, deviceScaleFactor: 0, mobile: true });
+    }
   }
   const previous = view.emulation;
   if (touch !== (previous?.touch === true || view.touchScreen === true)) {
     check();
     await page.cdp.send("Emulation.setTouchEmulationEnabled", { enabled: touch });
   }
-  if (previous?.userAgent !== undefined) {
+  // A phone gets pages as a phone does; turned sideways it stays one (`phoneSized`).
+  const phone = touch && phoneSized(width, height);
+  if (previous?.userAgent !== undefined || phone !== (view.phoneAgent === true)) {
     check();
-    await page.cdp.send("Emulation.setUserAgentOverride", { userAgent: "" });
+    const agent = phone ? mobileAgent(await engineVersion(page)) : undefined;
+    // An empty override gives the browser its own user agent back.
+    await page.cdp.send("Emulation.setUserAgentOverride", agent ?? { userAgent: "" });
+    view.phoneAgent = agent !== undefined;
   }
   view.touchScreen = touch;
   view.emulation =
     actor.kind === "agent"
       ? { ...size, deviceScaleFactor: 1, mobile: false, touch: false, by: "agent" }
       : undefined;
+}
+
+const Version = z.object({ product: z.string() });
+const UserAgent = z.object({ result: z.object({ value: z.string() }) });
+
+/** The engine's version (`Chrome/140.0…`), from the browser itself, else from the page. */
+async function engineVersion(page: BrowserBackendPage): Promise<string> {
+  try {
+    return Version.parse(await page.cdp.send("Browser.getVersion")).product;
+  } catch {
+    const read = await page.cdp.send("Runtime.evaluate", {
+      expression: "navigator.userAgent",
+      returnByValue: true,
+    });
+    return UserAgent.parse(read).result.value;
+  }
 }

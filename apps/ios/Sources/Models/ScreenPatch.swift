@@ -55,6 +55,17 @@ struct TuneRow: Codable, Sendable, Equatable {
     let canReset: Bool
     let notice: String
 }
+/// The thread's access (`bridge/thread-access.ts`): the mode in effect, or the one picked to
+/// replace it at the agent's next turn, and the modes its provider supports. `state` "none" has
+/// no access to change.
+struct ThreadAccessRow: Codable, Sendable, Equatable {
+    var state: String
+    var label: String?
+    var selected: String?
+    var pending: Bool?
+    var stricter: String?
+    var choices: [ComposeAccessChoice]
+}
 /// A file on the next message, as the bridge's upload sees it.
 struct AttachmentFile: Codable, Sendable, Equatable, Identifiable {
     let id: String
@@ -125,13 +136,16 @@ struct StepsHeader: Codable, Sendable, Equatable {
 enum ScreenPatch: Sendable {
     case steps(StepsHeader)
     case stepsPage(ordinal: Int, page: Int, rows: [TranscriptRow])
+    /// A turn the bridge no longer keeps steps for: its rows go.
+    case stepsReleased(ordinal: Int)
     case tune(TuneRow)
+    case access(ThreadAccessRow)
     case attachments([AttachmentFile])
     case laneBlock(lane: String, id: String, row: BlockRow?)
     case laneBlockPosition(lane: String, id: String, index: Int?)
     case pill(PillRow?, GoalRow?)
 
-    static let types: Set<String> = ["thread.steps", "thread.stepsPage", "thread.tune", "thread.attachments", "thread.laneBlock", "thread.laneBlockPosition", "thread.pill"]
+    static let types: Set<String> = ["thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.laneBlock", "thread.laneBlockPosition", "thread.pill"]
     private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, lane, id, row, index, pill, goal }
     init(type: String, from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
@@ -139,7 +153,9 @@ enum ScreenPatch: Sendable {
         case "thread.steps": self = .steps(try StepsHeader(from: decoder))
         case "thread.stepsPage":
             self = .stepsPage(ordinal: try box.decode(Int.self, forKey: .ordinal), page: try box.decode(Int.self, forKey: .page), rows: try box.decode([TranscriptRow].self, forKey: .rows))
+        case "thread.stepsReleased": self = .stepsReleased(ordinal: try box.decode(Int.self, forKey: .ordinal))
         case "thread.tune": self = .tune(try TuneRow(from: decoder))
+        case "thread.access": self = .access(try ThreadAccessRow(from: decoder))
         case "thread.pill": self = .pill(try box.decodeIfPresent(PillRow.self, forKey: .pill), try box.decodeIfPresent(GoalRow.self, forKey: .goal))
         case "thread.attachments": self = .attachments(try box.decode([AttachmentFile].self, forKey: .files))
         case "thread.laneBlock":

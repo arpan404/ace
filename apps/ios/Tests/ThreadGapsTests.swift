@@ -100,6 +100,19 @@ import Testing
         model.receive(try frame([["type": "thread.stepsPage", "threadId": "a", "epoch": 0, "ordinal": 2, "page": 0, "rows": [step("stale")]]]))
         #expect(model.thread?.screen.steps[2]?.rows.map(\.id) == ["s0", "s1"])
     }
+    @Test func aTurnTheBridgeLetsGoLosesItsRowsWhileOthersKeepTheirs() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("a")
+        model.receive(try frame([
+            ["type": "thread.stepsPage", "threadId": "a", "epoch": 1, "ordinal": 2, "page": 0, "rows": [step("s0")]],
+            ["type": "thread.steps", "threadId": "a", "epoch": 1, "ordinal": 2, "state": "ready", "pages": 1, "count": 1, "more": false],
+            ["type": "thread.stepsPage", "threadId": "a", "epoch": 1, "ordinal": 3, "page": 0, "rows": [step("t0")]],
+            ["type": "thread.steps", "threadId": "a", "epoch": 1, "ordinal": 3, "state": "ready", "pages": 1, "count": 1, "more": false],
+        ]))
+        model.receive(try frame([["type": "thread.stepsReleased", "threadId": "a", "epoch": 1, "ordinal": 2]]))
+        #expect(model.thread?.screen.steps[2] == nil)
+        #expect(model.thread?.screen.steps[3]?.rows.map(\.id) == ["t0"])
+    }
 
     /// A goal change saved on the phone is still pending: Pause or Clear resolves only on the
     /// daemon's answer, and a refusal comes back to the sheet, not as the screen-wide error.
