@@ -298,12 +298,14 @@ export class EngineRepository {
   attributeAction(state: ThreadState, fact: Fact): Fact {
     return attributeAceAction(state, fact, this.aceAction);
   }
-  /** Only established append streams bypass the durable control-fact transaction. */
+  /**
+   * Only established append streams and an agent's own transport signals bypass the durable
+   * control-fact transaction. Any control event they emit flushes the live batch at once.
+   */
   stream(id: ThreadId, facts: Fact[], now: number): boolean {
     if (
       !facts.length ||
       facts.length > 256 ||
-      !facts.some((fact) => fact.type === "item.delta") ||
       facts.some((fact) => fact.type !== "item.delta" && fact.type !== "signal")
     )
       return false;
