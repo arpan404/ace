@@ -3,7 +3,6 @@ import {
   FolderOpenIcon,
   GitForkIcon,
   GitMergeIcon,
-  ListNumbersIcon,
   MagnifyingGlassIcon,
   NotePencilIcon,
   PaperclipIcon,
@@ -259,13 +258,6 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
                   keys: keymap.findInThread.keys,
                   icon: MagnifyingGlassIcon,
                   run: run(screen.find),
-                },
-                {
-                  id: "thread-turns",
-                  label: "Turns",
-                  keys: keymap.turns.keys,
-                  icon: ListNumbersIcon,
-                  run: run(screen.turns),
                 },
               ]
             : []),
