@@ -6,6 +6,7 @@ import {
   Command,
   Project,
   Thread,
+  ThreadId,
   type CommandPayload,
   type WorkspaceChanged,
 } from "@ace/protocol";
@@ -56,7 +57,9 @@ async function chatFixture() {
       store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
     },
     delete(id: string) {
-      store.appendEvents(id, [{ type: "thread.client.updated", changes: { deletedAt: clock } }]);
+      store.appendEvents(ThreadId.parse(id), [
+        { type: "thread.client.updated", changes: { deletedAt: clock } },
+      ]);
     },
     async close() {
       stop();

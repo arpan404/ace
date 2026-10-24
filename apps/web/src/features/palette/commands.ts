@@ -105,7 +105,7 @@ export function usePaletteGroups(
   const newThread = useNewThreadEntry();
   const directory = useProjectDirectory();
   const { openSearch } = useLayout();
-  // With no project yet, adding one is the only way forward.
+  // With no project yet, adding one comes first; a chat needs none.
   const noProjects = directory.loaded && directory.projects.length === 0;
   const several = directory.projects.length > 1;
   const staticGroups = useMemo(() => {
@@ -114,7 +114,6 @@ export function usePaletteGroups(
       action();
     };
     const go = (to: Destination) => run(() => void navigate({ to }));
-    const needsProject = noProjects ? { disabled: "Add a project first" } : {};
     const addProject: PaletteCommand = {
       id: "add-project",
       label: "Add project…",
@@ -129,7 +128,6 @@ export function usePaletteGroups(
         label: "New thread",
         keys: several ? keymap.newThreadHere.keys : keymap.newThread.keys,
         icon: NotePencilIcon,
-        ...needsProject,
         run: run(newThread.here),
       },
       ...(several

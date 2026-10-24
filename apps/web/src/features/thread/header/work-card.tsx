@@ -9,6 +9,7 @@ import { useGitFlow } from "./use-git-flow.tsx";
 import { WorkspaceGroup } from "./work-card-workspace.tsx";
 import { BranchGroup } from "./work-card-branch.tsx";
 import { AgentsSection } from "./work-card-agents.tsx";
+import { useIsChat } from "@/lib/projects.ts";
 
 const CreateFile = lazy(() => loadCreateFile().then((module) => ({ default: module.CreateFile })));
 
@@ -43,6 +44,8 @@ function WorkGroups(props: { thread: ThreadRef; onClose(): void }) {
   const checkout = useCheckoutMove(props.thread);
   const workspace = useWorkspaceActions(props.thread.id);
   const [addingScript, setAddingScript] = useState(false);
+  // A chat's folder is not a repository (ADR 0099): no branch, no pull request.
+  const chat = useIsChat()(props.thread.workspaceId);
   return (
     <>
       <WorkspaceGroup
@@ -51,7 +54,9 @@ function WorkGroups(props: { thread: ThreadRef; onClose(): void }) {
         onClose={props.onClose}
         onAddScript={() => setAddingScript(true)}
       />
-      <BranchGroup thread={props.thread} git={git} move={checkout.move} onClose={props.onClose} />
+      {!chat && (
+        <BranchGroup thread={props.thread} git={git} move={checkout.move} onClose={props.onClose} />
+      )}
       <AgentsSection threadId={props.thread.id} onClose={props.onClose} />
       {git.dialog}
       {checkout.dialog}
