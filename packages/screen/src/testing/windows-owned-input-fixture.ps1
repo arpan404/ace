@@ -2,12 +2,30 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 Add-Type @'
 using System;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
+using System.Threading;
 public static class AceInputFixture {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+  private static readonly ConcurrentQueue<string> commands = new ConcurrentQueue<string>();
+  public static void StartReader() {
+    var reader = new Thread(ReadCommands);
+    reader.IsBackground = true;
+    reader.Start();
+  }
+  private static void ReadCommands() {
+    string line;
+    while ((line = Console.In.ReadLine()) != null) {
+      if (line.Length <= 32 && commands.Count < 16) commands.Enqueue(line);
+    }
+  }
+  public static string ReadCommand() {
+    string line;
+    return commands.TryDequeue(out line) ? line : null;
+  }
 }
 '@
 $mainTitle = $env:ACE_OWNED_TITLE
@@ -65,14 +83,13 @@ function Write-Foreground($handle, $which) {
   if ($which -eq "main") { $main.Activate() } else { $decoy.Activate(); [void]$decoyLabel.Focus() }
   Write-State $which
 }
-$script:pending = [Console]::In.ReadLineAsync()
+# Console.In's synchronized reader blocks even for ReadLineAsync on .NET Framework.
+# Keep reads off the WinForms thread; only its timer handles owned-window commands.
+[AceInputFixture]::StartReader()
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 50
 $timer.Add_Tick({
-  if ($null -eq $script:pending) { return }
-  if (-not $script:pending.IsCompleted) { return }
-  $line = $script:pending.Result
-  $script:pending = [Console]::In.ReadLineAsync()
+  $line = [AceInputFixture]::ReadCommand()
   if ($null -eq $line) { return }
   $cmd = $line.Trim().ToLowerInvariant()
   if ($cmd -eq "main") { Write-Foreground $main.Handle "main" }
