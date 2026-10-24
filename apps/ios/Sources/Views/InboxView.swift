@@ -218,4 +218,3 @@ struct InboxView: View {
         else if new.count < old.count, let parent = new.last { current?.open(parent.id) }
     }
 }
-

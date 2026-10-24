@@ -27,6 +27,34 @@ import XCTest
         XCTAssertFalse(app.buttons["thread.ios-form"].isSelected)
     }
 
+    func testTheIPadSidebarCarriesThreadsPullRequestsAndNewThread() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
+        let app = launch()
+        open("thread.ios-form", in: app)
+        XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
+        // No tab bar beside the list: its places sit at the sidebar's foot, New thread in its bar.
+        XCTAssertFalse(app.tabBars.buttons["Pulls"].reachable)
+        let threads = app.buttons["sidebar.threads"], pulls = app.buttons["sidebar.pulls"]
+        XCTAssertTrue(threads.reachable)
+        XCTAssertTrue(threads.isSelected)
+        // Pull requests show their own list and page, and Threads comes back to its open thread.
+        pulls.tap()
+        XCTAssertTrue(app.staticTexts["No pull request open"].waitForExistence(timeout: 10))
+        XCTAssertTrue(pulls.isSelected)
+        XCTAssertFalse(title("Deploy the preview", in: app).exists)
+        screenshot("ipad-sidebar-pulls")
+        threads.tap()
+        XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["thread.ios-form"].isSelected)
+        let compose = app.buttons["inbox.compose"]
+        XCTAssertTrue(compose.reachable)
+        compose.tap()
+        let close = app.buttons["newThread.close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 10))
+        close.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 10))
+    }
+
     func testAHardwareKeyboardMovesBetweenThreadsAndOpensAndClosesSheets() throws {
         guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
         let app = launch()
@@ -82,9 +110,19 @@ import XCTest
         XCTAssertEqual(input.value as? String, "Keep this draft")
         screenshot("phone-landscape-split")
 
+        // Beside the list the tab bar's places are the sidebar's; Pull requests stays chosen as
+        // the window turns compact, where the tab bar is back.
+        XCTAssertFalse(app.tabBars.buttons["Pulls"].reachable)
+        app.buttons["sidebar.pulls"].tap()
+        XCTAssertTrue(app.buttons["sidebar.pulls"].isSelected)
         XCUIDevice.shared.orientation = .portrait
+        let pullsTab = app.tabBars.buttons["Pulls"]
+        XCTAssertTrue(pullsTab.waitForHittable(timeout: 10), "a compact window has the tab bar back")
+        XCTAssertTrue(pullsTab.isSelected)
+        XCTAssertFalse(app.buttons["sidebar.pulls"].reachable)
+        app.tabBars.buttons["Threads"].tap()
         XCTAssertTrue(list.waitForNotHittable(timeout: 10), "back to compact, the thread stays on top")
-        XCTAssertTrue(title("Fix the flaky queue test", in: app).exists)
+        XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
         XCTAssertEqual(input.value as? String, "Keep this draft")
         // Back from the thread is the list again, as on any phone.
         app.navigationBars.buttons.firstMatch.tap()
