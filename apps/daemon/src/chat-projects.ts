@@ -18,8 +18,8 @@ const chatRow = z.object({
 export type ChatRow = z.infer<typeof chatRow>;
 
 /**
- * Whether a chat project can go: none of its threads are kept. One that never had a thread
- * goes once the grace period ends; one whose threads all moved to projects goes the same way.
+ * Whether a chat project can go: none of its threads are kept. One with no thread at all (it
+ * never got one, or its thread moved to a project) goes once the grace period ends.
  */
 export function chatDisposable(row: ChatRow, now: number): boolean {
   if (row.kept > 0) return false;
@@ -33,8 +33,9 @@ export function chatFolderOwned(root: string, path: string): boolean {
 
 /**
  * Chats started with no project (ADR 0099). Each gets a fresh empty folder under `root`,
- * registered as a hidden `chat` project. When a chat's threads are all deleted (or moved
- * to projects) its project is unregistered and its folder removed.
+ * registered as a hidden `chat` project. When a chat's threads are all deleted its project is
+ * unregistered and its folder removed; one whose thread moved to a project goes at a later
+ * start.
  */
 export class ChatProjects {
   private store: Store;
@@ -122,9 +123,11 @@ export class ChatProjects {
   }
 }
 
-/** A thread was deleted, or moved to another project: its old chat may now be empty. */
+/**
+ * A thread was deleted: its chat may now be empty. A move to a project waits for the next
+ * start, so Undo can still move the thread back into its chat's folder.
+ */
 function endsChatThread(event: Event): boolean {
   const payload = event.payload;
-  if (payload.type === "thread.updated") return payload.workspaceId !== undefined;
   return payload.type === "thread.client.updated" && payload.changes.deletedAt !== undefined;
 }

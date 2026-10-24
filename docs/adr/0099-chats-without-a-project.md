@@ -26,16 +26,17 @@ A chat is a thread whose project is a hidden **chat project** ace makes for it.
   projects out of every project list, picker, filter and move destination, and show chat threads
   without a project name. The daemon leaves them out of recent projects, the folder picker's
   hints and the agent `projects_find` lookup. Rename, edit and remove refuse with `chat_project`,
-  and so does moving a thread into a chat.
+  and so does moving a thread into a chat that still has a thread (moving back into an empty
+  one is how Undo after Move to project works).
 - **No Git.** The folder is not a repository, so the existing "not a Git repository" handling
   applies: no worktree mode, branches or pull requests.
 - **Moving out.** "Move to project" works unchanged: the chat's thread moves to the project's
   folder. Files the agent wrote in the chat folder do not move with it.
-- **Cleanup.** When none of a chat project's threads are kept (all deleted, or moved to other
-  projects) the project is unregistered and its folder removed. A chat project that never got a
-  thread (the client failed between the two commands) is removed after an hour. The sweep runs at
-  startup and after each thread deletion or move, and only ever removes a direct child of the
-  chats folder (`apps/daemon/src/chat-projects.ts`).
+- **Cleanup.** When a chat project's threads are all deleted, the project is unregistered and
+  its folder removed. One with no thread at all (it never got one, or its thread moved to a
+  project) is removed once it is an hour old, at a later sweep. Sweeps run at startup and after
+  each thread deletion, never on a move, so Undo can move the thread back. A sweep only ever
+  removes a direct child of the chats folder (`apps/daemon/src/chat-projects.ts`).
 - **Access.** Chats use the same default access mode as projects.
 
 ## Consequences

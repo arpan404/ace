@@ -28,8 +28,17 @@ export async function moveThread(
       return { ok: false, error: "thread_busy" };
     const project = projects.get(p.workspaceId);
     if (thread.workspaceId === project.id) return { ok: true, threadId: thread.id };
-    // A chat's folder belongs to the chat it was made for (ADR 0099).
-    if (project.kind === "chat") return { ok: false, error: "chat_project" };
+    // A chat's folder belongs to the chat it was made for (ADR 0099); only that chat moves
+    // back in (Undo after Move to project), while nothing else lives there.
+    if (
+      project.kind === "chat" &&
+      store
+        .statement(
+          "SELECT 1 FROM threads WHERE workspace_id=? AND json_extract(client,'$.deletedAt') IS NULL LIMIT 1",
+        )
+        .get(project.id)
+    )
+      return { ok: false, error: "chat_project" };
     const source = store.executionWorkspace(thread.id);
     if (!source.ready) return { ok: false, error: "workspace_preparing" };
     const oldProject = store.getWorkspacePath(thread.workspaceId);
