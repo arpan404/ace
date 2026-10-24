@@ -9,8 +9,11 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { systemScheduler, type Scheduler } from "../runtime.ts";
 import { ComputerError } from "./errors.ts";
 import { HelperConnection } from "./helper-connection.ts";
+import { performance } from "node:perf_hooks";
+import type { ComputerRequestTiming } from "./timing.ts";
 
 export { ComputerError } from "./errors.ts";
+export type { ComputerRequestTiming } from "./timing.ts";
 
 export interface ComputerClientOptions {
   /** The installed helper executable; resolved before every start. */
@@ -29,6 +32,8 @@ export interface ComputerClientOptions {
   /** Largest reply line accepted; a longer one fails its request at once. */
   maxReplyBytes?: number;
   scheduler?: Scheduler;
+  /** Optional diagnostics. Contains durations, never arguments, titles or screenshots. */
+  timing?: { now?: () => number; report: (timing: ComputerRequestTiming) => void };
 }
 
 export interface ComputerRequestOptions {
@@ -108,6 +113,18 @@ export class ComputerClient {
         maxReplyBytes: this.options.maxReplyBytes ?? 32 * 1024 * 1024,
         graceMs: this.options.graceMs ?? 3_000,
         idle: (idle) => this.idleChanged(key, entry, idle),
+        ...(this.options.timing
+          ? {
+              timing: {
+                now: this.options.timing.now ?? (() => performance.now()),
+                report: (timing: ComputerRequestTiming) =>
+                  this.options.timing?.report({
+                    ...timing,
+                    ...(key === catalog ? {} : { app: key }),
+                  }),
+              },
+            }
+          : {}),
       }),
       // About to take a request: never the one trimmed to make room for itself.
       idle: false,

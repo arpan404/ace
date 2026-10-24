@@ -1,40 +1,82 @@
 import AppKit
+import QuartzCore
 
-/// A small marker that glides to where the agent acts on a visible window, so the person can
-/// follow along. It never takes clicks or focus, and the real cursor never moves.
-/// (Esc to stop is `CUEscapeWatcher`.)
+/// The agent's pointer follows the target window, independently of the person's cursor.
+struct CUCursorAnchor {
+    let window: CGWindowID
+    let localPoint: CGPoint
+
+    func screenPoint(in frame: CGRect) -> CGPoint {
+        CGPoint(x: frame.minX + localPoint.x, y: frame.minY + localPoint.y)
+    }
+}
+
 @MainActor final class CUOverlay {
     private var panel: NSPanel?
-    private var hide: DispatchWorkItem?
+    private var anchor: CUCursorAnchor?
+    private var tracking: Timer?
 
-    /// `point` is a global top-left screen point inside an on-screen window. AppKit's global
-    /// coordinates are anchored to the primary display, whichever display the window is on.
-    func show(at point: CGPoint) {
-        guard let primary = NSScreen.screens.first else { return }
-        let size: CGFloat = 26
-        let origin = CGPoint(x: point.x - size / 2, y: primary.frame.height - point.y - size / 2)
-        let frame = CGRect(origin: origin, size: CGSize(width: size, height: size))
-        let panel = self.panel ?? makePanel(frame)
+    /// Keep the last pointer visible between batches, without a per-click fade-out.
+    func show(at point: CGPoint, window: CUWindow?) {
+        guard let window, let number = window.number, !cuScreenLocked() else { hide(); return }
+        anchor = CUCursorAnchor(window: number, localPoint: CGPoint(x: point.x - window.frame.minX, y: point.y - window.frame.minY))
+        update()
+        if tracking == nil {
+            tracking = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.update() }
+            }
+        }
+    }
+
+    func hide() {
+        tracking?.invalidate()
+        tracking = nil
+        anchor = nil
+        panel?.orderOut(nil)
+    }
+
+    private func update() {
+        guard let anchor, !cuScreenLocked(),
+              let window = cuServerWindowInfo([anchor.window])[anchor.window], window.onScreen, let frame = window.frame else {
+            panel?.orderOut(nil)
+            return
+        }
+        let point = anchor.screenPoint(in: frame)
+        guard frame.contains(point), visible(window: anchor.window, at: point), let primary = NSScreen.screens.first else {
+            panel?.orderOut(nil)
+            return
+        }
+        // Cursor hotspots are top-left based; panel origins are bottom-left based.
+        let size = CUAceCursorView.size
+        let origin = CGPoint(x: point.x - CUAceCursorView.hotSpot.x,
+                             y: primary.frame.height - point.y - size.height + CUAceCursorView.hotSpot.y)
+        let destination = CGRect(origin: origin, size: size)
+        let panel = self.panel ?? makePanel(destination)
         self.panel = panel
-        if panel.isVisible && panel.alphaValue > 0.1 {
+        guard panel.frame != destination || !panel.isVisible else { return }
+        if panel.isVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.18
-                panel.animator().setFrame(frame, display: true)
+                context.duration = 0.16
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().setFrame(destination, display: true)
             }
         } else {
-            panel.setFrame(frame, display: true)
-            panel.alphaValue = 1
+            panel.setFrame(destination, display: true)
             panel.orderFrontRegardless()
         }
-        hide?.cancel()
-        let work = DispatchWorkItem { [weak panel] in
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.4
-                panel?.animator().alphaValue = 0
-            }
+    }
+
+    /// Hide over a covered window instead of pointing at the person's unrelated app.
+    private func visible(window: CGWindowID, at point: CGPoint) -> Bool {
+        let rows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        for row in rows {
+            guard (row[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+                  ((row[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0,
+                  let bounds = row[kCGWindowBounds as String] as? NSDictionary,
+                  let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary), frame.contains(point) else { continue }
+            return (row[kCGWindowNumber as String] as? NSNumber)?.uint32Value == window
         }
-        hide = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6, execute: work)
+        return false
     }
 
     private func makePanel(_ frame: CGRect) -> NSPanel {
@@ -45,21 +87,27 @@ import AppKit
         panel.hasShadow = false
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
-        panel.contentView = CUMarkerView(frame: CGRect(origin: .zero, size: frame.size))
+        panel.contentView = CUAceCursorView(frame: CGRect(origin: .zero, size: frame.size))
         return panel
     }
 }
 
-private final class CUMarkerView: NSView {
+/// The same Pebble pointer as ace's computer-use icon and in-page agent cursor.
+private final class CUAceCursorView: NSView {
+    private static let scale: CGFloat = 1.25
+    static let size = CGSize(width: CUAgentCursorGlyph.box * scale, height: CUAgentCursorGlyph.box * scale)
+    static let hotSpot = CGPoint(x: CUAgentCursorGlyph.tip.x * scale, y: CUAgentCursorGlyph.tip.y * scale)
+    override var isFlipped: Bool { true }
+
     override func draw(_ dirtyRect: NSRect) {
-        let ring = NSBezierPath(ovalIn: bounds.insetBy(dx: 3, dy: 3))
-        NSColor(calibratedRed: 1.0, green: 0.22, blue: 0.55, alpha: 0.28).setFill()
-        ring.fill()
-        NSColor.white.setStroke()
-        ring.lineWidth = 2
-        ring.stroke()
-        let dot = NSBezierPath(ovalIn: bounds.insetBy(dx: 9, dy: 9))
-        NSColor(calibratedRed: 1.0, green: 0.22, blue: 0.55, alpha: 1).setFill()
-        dot.fill()
+        let path = CUAgentCursorGlyph.path()
+        let transform = AffineTransform(scale: Self.scale)
+        path.transform(using: transform)
+        NSColor.labelColor.setFill()
+        path.fill()
+        NSColor.textBackgroundColor.setStroke()
+        path.lineWidth = CUAgentCursorGlyph.outline * Self.scale
+        path.lineJoinStyle = .round
+        path.stroke()
     }
 }

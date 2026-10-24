@@ -1,0 +1,122 @@
+[
+  {
+    "helper": "before",
+    "rounds": [
+      {
+        "ms": 121.47166603244841,
+        "native": null,
+        "verified": true
+      },
+      {
+        "ms": 113.00099990330637,
+        "native": null,
+        "verified": true
+      },
+      {
+        "ms": 112.23008390516043,
+        "native": null,
+        "verified": true
+      },
+      {
+        "ms": 130.4040839895606,
+        "native": null,
+        "verified": true
+      },
+      {
+        "ms": 182.07366694696248,
+        "native": null,
+        "verified": true
+      },
+      {
+        "ms": 157.50899980776012,
+        "native": null,
+        "verified": true
+      }
+    ],
+    "warmMedianMs": 130.4040839895606
+  },
+  {
+    "helper": "after",
+    "rounds": [
+      {
+        "ms": 77.17558392323554,
+        "native": {
+          "observationMs": 0,
+          "windowsMs": 2.8,
+          "finalSettleMs": 0,
+          "actionMs": 35.1,
+          "guardMs": 6.7,
+          "sessionMs": 0.1,
+          "betweenSettleMs": 38.3
+        },
+        "verified": true
+      },
+      {
+        "ms": 97.63179090805352,
+        "native": {
+          "observationMs": 0,
+          "windowsMs": 1.1,
+          "finalSettleMs": 0,
+          "actionMs": 57.4,
+          "guardMs": 12.7,
+          "sessionMs": 0.1,
+          "betweenSettleMs": 38.2
+        },
+        "verified": true
+      },
+      {
+        "ms": 106.18958296254277,
+        "native": {
+          "observationMs": 0,
+          "windowsMs": 1.2,
+          "finalSettleMs": 0,
+          "actionMs": 67.1,
+          "guardMs": 7.8,
+          "sessionMs": 0.1,
+          "betweenSettleMs": 37.2
+        },
+        "verified": true
+      },
+      {
+        "ms": 95.47233302146196,
+        "native": {
+          "observationMs": 0,
+          "windowsMs": 1,
+          "finalSettleMs": 0,
+          "actionMs": 55.4,
+          "guardMs": 11.3,
+          "sessionMs": 0.1,
+          "betweenSettleMs": 38.4
+        },
+        "verified": true
+      },
+      {
+        "ms": 87.99662510864437,
+        "native": {
+          "observationMs": 0,
+          "windowsMs": 1,
+          "finalSettleMs": 0,
+          "actionMs": 47,
+          "guardMs": 6.3,
+          "sessionMs": 0.1,
+          "betweenSettleMs": 39.3
+        },
+        "verified": true
+      },
+      {
+        "ms": 91.53454191982746,
+        "native": {
+          "observationMs": 0,
+          "windowsMs": 0.9,
+          "finalSettleMs": 0,
+          "actionMs": 50,
+          "guardMs": 5.9,
+          "sessionMs": 0.1,
+          "betweenSettleMs": 37.6
+        },
+        "verified": true
+      }
+    ],
+    "warmMedianMs": 95.47233302146196
+  }
+]

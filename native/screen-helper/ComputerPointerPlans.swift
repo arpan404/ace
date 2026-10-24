@@ -55,6 +55,32 @@ func cuHitTest(nodes: [CUNode], point: CGPoint) -> Int? {
     return (acting.isEmpty ? containing : acting).min { area($0) < area($1) }?.id
 }
 
+/// How posted mouse and wheel events reach the chosen window.
+enum CUPointerDelivery: Equatable {
+    /// Every event names the chosen window and carries a window-local point. The window
+    /// under the person's pointer, including a different window of this app, is irrelevant.
+    case windowTargeted
+    /// Minimized, ordered out or without a window-server id: events have nowhere to land.
+    case unavailable
+}
+
+func cuPointerDelivery(onScreen: Bool, otherSpace: Bool, minimized: Bool, hasWindowNumber: Bool) -> CUPointerDelivery {
+    guard hasWindowNumber, !minimized else { return .unavailable }
+    return onScreen || otherSpace ? .windowTargeted : .unavailable
+}
+
+/// The window a window-targeted event is addressed to, with its frame in global points.
+struct CUPointerTarget: Equatable {
+    let window: CGWindowID
+    let frame: CGRect
+}
+
+/// A global point in a window's own coordinates: top-left origin, title bar included, the
+/// way AppKit reads an event's window location.
+func cuWindowPoint(_ point: CGPoint, in target: CUPointerTarget) -> CGPoint {
+    CGPoint(x: point.x - target.frame.minX, y: point.y - target.frame.minY)
+}
+
 /// How a click reaches the app.
 enum CUClickRoute: Equatable {
     case press, pressAncestor, open, showMenu, focus, selectRow, selectWord, selectLine, post
@@ -71,18 +97,19 @@ struct CUClickFacts {
     var role: String = ""
     var selectableRow: Bool = false
     var pressableAncestor: Bool = false
-    /// Whether posted events can land (the window is on the current screen).
-    var onScreen: Bool = true
+    /// Whether posted events can land (see `CUPointerDelivery`).
+    var pointerLands: Bool = true
 }
 
 /// Accessibility for plain clicks on an element the model named, real events otherwise. A
 /// point click presses through AX only when the element under the point is itself the
-/// pressable one; anything else gets a real click at that point, unless the window is off
-/// screen, where a real click cannot land and the nearest AX equivalent is the best try.
+/// pressable one; anything else gets a real click at that point, unless the window is
+/// minimized or hidden, where a real click cannot land and the nearest AX equivalent is the
+/// best try.
 func cuClickRoute(_ facts: CUClickFacts) -> CUClickRoute {
     if facts.modified || facts.button == .middle { return .post }
     let text = cuTextInputRoles.contains(facts.role)
-    let precise = !facts.byId && facts.onScreen
+    let precise = !facts.byId && facts.pointerLands
     if facts.button == .right { return facts.actions.contains("AXShowMenu") ? .showMenu : .post }
     switch facts.count {
     case 1:

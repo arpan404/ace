@@ -19,6 +19,7 @@ export { HelperCommandError } from "./helper.ts";
 export { screenToolkit } from "./mcp.ts";
 export { computerToolkit, type ComputerToolkitOptions } from "./computer/toolkit.ts";
 export { ComputerClient, ComputerError, type ComputerClientOptions } from "./computer/client.ts";
+export type { ComputerRequestTiming } from "./computer/client.ts";
 /** Shared with the simulator tools: one accessibility read is a tree or a find. */
 export { uiReadShape, uiReadRequest, perAction } from "./tool-schemas.ts";
 export type { Scheduler } from "./runtime.ts";
