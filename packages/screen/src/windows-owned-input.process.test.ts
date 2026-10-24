@@ -146,6 +146,27 @@ it.runIf(process.platform === "win32")(
           lines.on("line", onLine);
           send();
         });
+      const snapshot = async () => {
+        const { promise, resolve, reject } =
+          Promise.withResolvers<z.infer<typeof ForegroundLine>>();
+        const onLine = (line: string) => {
+          try {
+            const parsed = ForegroundLine.safeParse(JSON.parse(line));
+            if (parsed.success && parsed.data.which === "snapshot") resolve(parsed.data);
+          } catch {
+            // Startup and diagnostic lines share stdout; only accept schema-valid state.
+          }
+        };
+        const timer = setTimeout(() => reject(new Error("Diagnostic snapshot timed out")), 1_000);
+        lines.on("line", onLine);
+        stdin.write("snapshot\n");
+        try {
+          return await promise;
+        } finally {
+          clearTimeout(timer);
+          lines.removeListener("line", onLine);
+        }
+      };
       const failures: Error[] = [];
       let nativeStderr = "";
       helper = await Helper.open({
@@ -209,7 +230,27 @@ it.runIf(process.platform === "win32")(
       expect(await foreground("snapshot", started.main)).toMatchObject({ selectAllCount: 1 });
       const sentinel = "Hello \u4f60\u597d \ud83d\ude00";
       await helper.request({ op: "input", input: { kind: "text.type", text: sentinel } });
-      await expect.poll(async () => (await findByName("OwnedEdit")).value).toBe(sentinel);
+      let observedValue: string | undefined;
+      let readPending = false;
+      try {
+        await expect
+          .poll(async () => {
+            readPending = true;
+            try {
+              observedValue = (await findByName("OwnedEdit")).value;
+              return observedValue;
+            } finally {
+              readPending = false;
+            }
+          })
+          .toBe(sentinel);
+      } catch (error) {
+        const state = await snapshot().catch((failure: Error) => failure.message);
+        throw new Error(
+          `[DEBUG-win-unicode] ${JSON.stringify({ observedValue, readPending, state, nativeStderr })}`,
+          { cause: error },
+        );
+      }
       expect((await findByName("OwnedCount")).value).toBe("0");
       const button = await findByName("OwnedButton");
       const buttonAt = center(button.bounds);

@@ -574,8 +574,30 @@ The next comparison samples the same page before streaming to separate an
 unwatched rendering limit from capture/encoding contention. Setup's temporary
 JPEG capture is allowed to stop before that comparison.
 
-Oversized capture on drivers without video processing, Windows performance and
-installed desktop acceptance remain open. W14/W15 remain unfinished.
+[Repeat run 40136187877](https://github.com/arpan404/ace/actions/runs/40136187877),
+pinned to `5564779af`, keeps x64 fully green but **fails on ARM64**. The ARM64
+fixture acquires foreground, clears its edit with Ctrl+A/Backspace, then times out
+reading back Unicode text. Its browser suite passes 191/193 cases; software-video
+and preferred-codec sharpness fail at Chrome startup with `Browser.getVersion`
+timeouts. The earlier complete pass is not repeatable acceptance yet.
+
+That repeat also samples the unwatched page after setup capture has stopped:
+
+| Native host | Unwatched page | Streaming page | Median / p10 delivery |
+| ----------- | -------------- | -------------- | --------------------- |
+| x64         | 60.1 fps       | 59.8 fps       | 60 / 59 fps           |
+| ARM64       | 41.3 fps       | 41.3 fps       | 41 / 41 fps           |
+
+The x64 encode reaches 2560 x 1600; ARM64 remains at 1274 x 796. The optional
+baseline adds time before subscription, so its x64 improvement does not prove
+that setup JPEG capture caused the earlier slowdown. Machine conditions and
+browser warmup remain possible factors. The default benchmark timing and its
+55/45 requirements stay unchanged. A failure-only fixture snapshot will separate
+lost focus, actual Unicode delivery and delayed UIA readback on the next ARM64 run.
+
+Oversized capture on drivers without video processing, Windows performance,
+repeatable input/startup and installed desktop acceptance remain open.
+W14/W15 remain unfinished.
 
 Full source typechecking passed again after the daemon test updates. The full
 repository check completed before these fixes with **2,797 files passed, 9 failed
