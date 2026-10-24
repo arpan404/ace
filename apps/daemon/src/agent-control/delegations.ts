@@ -325,6 +325,19 @@ export class DelegationService {
     const id = CommandId.parse(controlCommandId(caller.threadId, requestId, "thread.message"));
     return messageArrival(this.deps.engine.messageFacts(threadId, id), restart);
   }
+  /**
+   * Load the model lists of accounts in `filter` that have never loaded, so a model name is
+   * matched against what each account really serves rather than an empty cache. Accounts that
+   * already loaded are left alone: this never re-runs discovery for a warm catalog.
+   */
+  async warmModels(filter: import("@ace/protocol").ModelFilter): Promise<boolean> {
+    await this.deps.modelsReady;
+    const cold = this.deps.models
+      .list({ ...filter, limit: 1 })
+      .instances.filter((instance) => instance.refreshedAt === undefined);
+    for (const instance of cold) await this.deps.models.refresh({ instance: instance.instance });
+    return cold.length > 0;
+  }
   async prepareModels(caller: McpAttribution, value: DelegationRequest) {
     const request = delegationRequest(value);
     this.admission.validate(caller, request);

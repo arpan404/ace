@@ -35,7 +35,9 @@ a loose name is then matched against that account's models alone. Without it the
 name becomes one catalog id across the provider, and the daemon picks a
 signed-in account with quota that serves that exact model. A named model the
 account lacks is refused with the reason, never swapped for the account's
-default; only the person's configured role model may stand in for it. A task for
+default or a role model from Settings; those fill only a task that names no
+model. A name is matched only after the accounts it could run on have loaded
+their model lists, and every page of the catalog is searched. A task for
 another machine is matched against that machine's catalog there. `thread_start`,
 `thread_fork` and `thread_control configure` take loose names the same way, the
 last two on the thread's own account. Use a

@@ -4,11 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { AccountRegistry, createInstance } from "@ace/accounts";
-import { ModelCatalog, openModelStorage } from "@ace/models";
+import { ModelCatalog, openModelStorage, type ModelCatalogApi } from "@ace/models";
 import {
   AgentControlOperation,
   CatalogModel,
   ThreadId,
+  type AccessModeOffer,
   type McpAttribution,
   type ProviderKind,
 } from "@ace/protocol";
@@ -67,7 +68,12 @@ type Served = readonly [
  * The default Claude and Codex logins plus added Claude accounts, each serving its own models.
  * An account `serves` leaves out runs the scripted default model.
  */
-async function harness(added: Record<string, string>, serves: Record<string, readonly Served[]>) {
+async function harness(
+  added: Record<string, string>,
+  serves: Record<string, readonly Served[]>,
+  /** What every account reports as its access modes, in place of what discovery found. */
+  accessModes?: AccessModeOffer[],
+) {
   const home = mkdtempSync(join(tmpdir(), "ace-account-reach-"));
   homes.push(home);
   const db = new DatabaseSync(":memory:");
@@ -92,7 +98,24 @@ async function harness(added: Record<string, string>, serves: Record<string, rea
         }),
       ),
   });
-  const h = setup({}, undefined, false, undefined, false, accounts, undefined, catalog);
+  // The catalog as the daemon reads it, optionally reporting other access modes per account.
+  const reported: ModelCatalogApi = accessModes
+    ? new Proxy(catalog, {
+        get(target, key) {
+          if (key === "list")
+            return (options: Parameters<ModelCatalog["list"]>[0]) => {
+              const page = target.list(options);
+              return {
+                ...page,
+                instances: page.instances.map((entry) => Object.assign({}, entry, { accessModes })),
+              };
+            };
+          const value: unknown = Reflect.get(target, key, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      })
+    : catalog;
+  const h = setup({}, undefined, false, undefined, false, accounts, undefined, reported);
   for (const [id, label] of Object.entries(added)) {
     await accounts.register(
       createInstance({ id, provider: "claude", label, homeDir: join(h.home, id) }),
@@ -124,7 +147,7 @@ async function harness(added: Record<string, string>, serves: Record<string, rea
     await catalog.close();
     db.close();
   };
-  return { h, run, delegate, childModel, close };
+  return { h, catalog, run, delegate, childModel, close };
 }
 
 // "346" serves Opus 5.5; "Work" serves Opus 4.8 and, as its default, Sonnet 5.5.
@@ -162,11 +185,16 @@ test("one catalog read lists every account an agent can delegate to", async () =
   }
 });
 
-test("sixty accounts with long labels still come back in one catalog read", async () => {
+test("sixty accounts with long labels and large native permission selectors fit one catalog read", async () => {
   const many = Object.fromEntries(
     Array.from({ length: 60 }, (_, index) => [`claude-${index}`, `${"label ".repeat(20)}${index}`]),
   );
-  const { h, run, close } = await harness(many, {});
+  // Each mode's native selector near its largest: sixty accounts of these alone exceed the budget.
+  const selectors = (["read-only", "ask", "auto-review", "full-access"] as const).map((mode) => ({
+    mode,
+    native: `${mode}:${"n".repeat(4000)}`,
+  }));
+  const { h, run, close } = await harness(many, {}, selectors);
   try {
     const parent = await h.parent();
     const page = await run(parent, { op: "agents.catalog", limit: 20 });
@@ -293,6 +321,56 @@ test("configuring a thread takes a loose model name on the thread's own account"
       model: "claude-opus-4-8",
       instanceId: "claude-work",
     });
+  } finally {
+    await close();
+  }
+});
+
+test("a loose name on an account whose model list never loaded is matched once it loads", async () => {
+  const { h, catalog, delegate, childModel, close } = await harness(added, serves);
+  try {
+    const parent = await h.parent();
+    await catalog.invalidate({ instance: "claude-work" });
+    const result = await delegate(parent, {
+      requestId: "cold-work",
+      role: "review-on-cold-account",
+      model: "Opus 4.8",
+      accountId: "Work",
+    });
+    expect(await childModel(result)).toEqual({
+      instance: "claude-work",
+      model: "claude-opus-4-8",
+    });
+  } finally {
+    await close();
+  }
+});
+
+test("a model on the last of thousands of catalog rows is still found by search and by name", async () => {
+  const many = Object.fromEntries(
+    Array.from({ length: 55 }, (_, index) => [`claude-${index}`, `Account ${index}`]),
+  );
+  const filler = Array.from({ length: 100 }, (_, index): Served => [
+    `filler-${index}`,
+    `Filler ${index}`,
+  ]);
+  const rows = Object.fromEntries(
+    Object.keys(many).map((id): [string, readonly Served[]] => [id, filler]),
+  );
+  rows["claude-54"] = [...filler.slice(1), ["needle-model", "Needle Model"]];
+  const { h, run, delegate, childModel, close } = await harness(many, rows);
+  try {
+    const parent = await h.parent();
+    const page = await run(parent, { op: "agents.catalog", query: "needle", limit: 20 });
+    expect((page.data as { models: { id: string }[] }).models.map((entry) => entry.id)).toEqual([
+      "needle-model",
+    ]);
+    const result = await delegate(parent, {
+      requestId: "needle",
+      role: "review-needle",
+      model: "needle",
+    });
+    expect(await childModel(result)).toEqual({ instance: "claude-54", model: "needle-model" });
   } finally {
     await close();
   }

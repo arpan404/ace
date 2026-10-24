@@ -2,7 +2,6 @@ import {
   AgentCatalogPage,
   type CatalogModel,
   type ModelFilter,
-  type ModelListResult,
   type AccessMode,
   type AgentCatalogInput,
   type McpAttribution,
@@ -10,6 +9,7 @@ import {
 import { withinJsonBudget } from "@ace/mcp-server";
 import { searchModels } from "@ace/models";
 import { callerThread } from "./authorization.ts";
+import { everyPage } from "./selection-defaults.ts";
 import type { z } from "zod";
 import type { DelegationDependencies } from "./delegations.ts";
 
@@ -18,13 +18,9 @@ import type { DelegationDependencies } from "./delegations.ts";
  * per model, naming every account that serves it, so accounts never crowd out other models.
  */
 function searched(deps: DelegationDependencies, filter: ModelFilter, query: string) {
-  const rows: CatalogModel[] = [];
-  let offset: number | undefined = 0;
-  for (let page = 0; offset !== undefined && page < 50; page++) {
-    const result: ModelListResult = deps.models.list({ ...filter, offset, limit: 100 });
-    rows.push(...result.models.filter((model) => !model.hidden && !model.deprecated));
-    offset = result.nextOffset;
-  }
+  const rows = everyPage((options) => deps.models.list(options), filter).filter(
+    (model) => !model.hidden && !model.deprecated,
+  );
   const byModel = new Map<string, CatalogModel & { accounts: string[] }>();
   for (const model of searchModels(rows, query)) {
     const key = `${model.provider}\u0000${model.id}`;
@@ -89,13 +85,14 @@ export function readAgentCatalog(
   const found = query ? searched(deps, filter, query) : undefined;
   const rows = found ? found.slice(input.offset, input.offset + input.limit) : page.models;
   const models = rows.map(({ raw: _raw, ...model }) => model);
-  // Reserve envelope space, including worst-case JSON string escaping. Models give way first
-  // (they page); then accounts' discovery errors; an account is left out only as a last resort.
+  // Reserve envelope space, including worst-case JSON string escaping. Accounts' discovery error
+  // details give way first, then models (they page on), and an account is left out only as a
+  // last resort.
   let accounts: typeof instances = instances;
   const fits = () =>
     Buffer.byteLength(JSON.stringify({ instances: accounts, models })) <= 180 * 1024;
-  while (models.length > 1 && !fits()) models.pop();
   if (!fits()) accounts = accounts.map(({ errorDetail: _detail, ...account }) => account);
+  while (models.length > 1 && !fits()) models.pop();
   let instancesOmitted = 0;
   while (accounts.length > 1 && !fits()) {
     accounts = accounts.slice(0, -1);

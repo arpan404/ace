@@ -1,6 +1,7 @@
 import {
   ProviderKind,
   type CatalogModel,
+  type ModelFilter,
   type ModelListOptions,
   type ModelListResult,
 } from "@ace/protocol";
@@ -24,22 +25,31 @@ type ListModels = (options: ModelListOptions) => ModelListResult;
 const named = (model: CatalogModel, name: string) =>
   model.id === name || model.nativeModelId === name || (model.aliases ?? []).includes(name);
 
-/** Every catalog model of one provider, on every account (or only `instance`), across pages. */
-function catalogue(list: ListModels, provider: ProviderKind, instance?: string): CatalogModel[] {
+/**
+ * The catalog rows one account serves. ACP catalog keys are opaque, so an ACP account is found
+ * by its source-qualified `instanceId`; every other account by its catalog instance.
+ */
+export function accountScope(provider: ProviderKind, account?: string): ModelFilter {
+  if (!account) return { provider };
+  return provider === "acp" ? { provider, instanceId: account } : { provider, instance: account };
+}
+
+/** Every catalog model of one provider, on every account (or only `account`), across all pages. */
+function catalogue(list: ListModels, provider: ProviderKind, account?: string): CatalogModel[] {
+  return everyPage(list, accountScope(provider, account));
+}
+
+/** Every row a filter lists, page by page until the catalog ends; never a fixed page cap. */
+export function everyPage(list: ListModels, filter: ModelFilter): CatalogModel[] {
   const found: CatalogModel[] = [];
-  let offset: number | undefined = 0;
-  // A provider's catalog is bounded (100 per page); ten pages covers every installed account.
-  for (let page = 0; offset !== undefined && page < 10; page++) {
-    const result: ModelListResult = list({
-      provider,
-      ...(instance ? { instance } : {}),
-      offset,
-      limit: 100,
-    });
+  let offset = 0;
+  for (;;) {
+    const result: ModelListResult = list({ ...filter, offset, limit: 100 });
     found.push(...result.models);
+    // A page that does not move forward ends the read rather than looping.
+    if (result.nextOffset === undefined || result.nextOffset <= offset) return found;
     offset = result.nextOffset;
   }
-  return found;
 }
 
 /** Every catalog model of one provider with this id, alias or native id, across pages. */
@@ -109,6 +119,16 @@ function nearestModel(
   throw modelElsewhere(home, name, options);
 }
 
+/** Whether the catalog already has `model` by id or alias where the selection will look. */
+export function knownModel(selection: OpenSelection, list: ListModels): boolean {
+  const model = selection.model;
+  if (!model || isDefaultSelection(model)) return true;
+  const providers = selection.provider ? [selection.provider] : ProviderKind.options;
+  return providers.some(
+    (provider) => matches(list, provider, model, selection.accountId).length > 0,
+  );
+}
+
 /**
  * Fill what the agent left out, from the model it named. A loosely written name becomes the
  * catalog id it means. The provider defaults to the caller's own, unless only another provider's
@@ -136,7 +156,8 @@ export function resolveSelection<T extends OpenSelection>(
     }
   }
   if (provider !== "acp" || !model || selection.acpAgentId) return { ...selection, provider };
-  const served = matches(list, "acp", model)[0];
+  // The ACP agent and installation come from the named account's own rows when there is one.
+  const served = matches(list, "acp", model, selection.accountId)[0];
   if (!served?.acpAgentId) return { ...selection, provider };
   return {
     ...selection,

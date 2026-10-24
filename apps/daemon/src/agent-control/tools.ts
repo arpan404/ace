@@ -18,7 +18,12 @@ import { settleThread, unsettleThread } from "./thread-settle.ts";
 import { findProjects } from "./projects.ts";
 import { queueControl } from "./queue-control.ts";
 import { createForks } from "./forks.ts";
-import { resolveSelection, type OpenSelection } from "./selection-defaults.ts";
+import {
+  accountScope,
+  knownModel,
+  resolveSelection,
+  type OpenSelection,
+} from "./selection-defaults.ts";
 import { conversationTool, type ConversationStartPort } from "./conversation-tools.ts";
 import { AgentControlError } from "./failure.ts";
 import {
@@ -143,23 +148,36 @@ export function createAgentControlPort(
       const callerProvider = store.getThread(caller.threadId)?.provider;
       /** An agent may leave the provider (and an ACP model's agent ids) for ace to resolve. */
       // The account comes first: a label becomes its id and fixes the provider, and a loose model
-      // name is then matched against that account's catalog alone.
-      const resolved = <T extends OpenSelection>(selection: T) => {
+      // name is then matched against that account's catalog alone. A name the cached catalogs
+      // don't know is matched again once the accounts in scope that never loaded have loaded.
+      const list = (options: import("@ace/protocol").ModelListOptions) =>
+        service.listModels(options);
+      const resolved = async <T extends OpenSelection>(selection: T) => {
         const account =
           selection.accountId && !selection.machine
             ? service.accountNamed(selection.provider, selection.accountId)
             : undefined;
-        return resolveSelection(
-          account
-            ? {
-                ...selection,
-                accountId: account.id,
-                provider: selection.provider ?? account.provider,
-              }
-            : selection,
-          callerProvider ?? "codex",
-          (options) => service.listModels(options),
-        );
+        const chosen: T = account
+          ? {
+              ...selection,
+              accountId: account.id,
+              provider: selection.provider ?? account.provider,
+            }
+          : selection;
+        const home = callerProvider ?? "codex";
+        let first: (T & { provider: import("@ace/protocol").ProviderKind }) | undefined;
+        try {
+          first = resolveSelection(chosen, home, list);
+          if (chosen.machine || knownModel(first, list)) return first;
+        } catch (error) {
+          // "Another provider has it" may only mean this account had not loaded yet.
+          if (!(error instanceof AgentControlError) || error.code !== "model_unavailable")
+            throw error;
+        }
+        const scope = chosen.provider ? accountScope(chosen.provider, chosen.accountId) : {};
+        if ((await service.warmModels(scope)) || !first)
+          return resolveSelection(chosen, home, list);
+        return first;
       };
       const machines = extensions.machines;
       if (
@@ -205,7 +223,7 @@ export function createAgentControlPort(
         store,
         service,
         caller,
-        operation.op === "thread.start" ? resolved(operation) : operation,
+        operation.op === "thread.start" ? await resolved(operation) : operation,
         signal,
         extensions.startConversation,
       );
@@ -265,7 +283,7 @@ export function createAgentControlPort(
             create(request, await check(request));
           const { op: _op, tasks, await: mode, timeoutSeconds, ...single } = operation;
           if (!tasks) {
-            const singleRequest = DelegationRequest.parse(resolved(single));
+            const singleRequest = DelegationRequest.parse(await resolved(single));
             checkNames([singleRequest]);
             const child = await delegateOne(singleRequest);
             if (operation.machine && (operation.waitMs !== undefined || operation.wait)) {
@@ -299,7 +317,9 @@ export function createAgentControlPort(
           // A runRole fills provider, model, effort and tier before the usual resolution; a
           // role's choice that cannot run is refused with the role named, never swapped silently.
           const filled = tasks.map((task) => roleTask(task, extensions.runRole));
-          const requests = filled.map(({ task }) => DelegationRequest.parse(resolved(task)));
+          const requests: DelegationRequest[] = [];
+          for (const { task } of filled)
+            requests.push(DelegationRequest.parse(await resolved(task)));
           checkNames(requests);
           const configured: (string | undefined)[] = [];
           for (const [index, request] of requests.entries())

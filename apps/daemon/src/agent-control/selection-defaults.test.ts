@@ -23,7 +23,12 @@ function model(provider: ProviderKind, id: string, acp?: Record<string, string>)
 /** A catalogue as the daemon pages it: filtered by provider, 100 per page. */
 function catalogue(models: CatalogModel[]) {
   return (options: ModelListOptions) => ({
-    models: models.filter((entry) => !options.provider || entry.provider === options.provider),
+    models: models.filter(
+      (entry) =>
+        (!options.provider || entry.provider === options.provider) &&
+        (!options.instance || entry.instance === options.instance) &&
+        (!options.instanceId || entry.instanceId === options.instanceId),
+    ),
     instances: [],
   });
 }
@@ -112,4 +117,39 @@ it("a child for another machine keeps its model name for that machine's catalog"
   expect(resolveSelection({ model: "opus 5.5", machine: "studio" }, "claude", list).model).toBe(
     "opus 5.5",
   );
+});
+
+it("a loose name on an ACP account is matched on that account's rows, which also name its agent", () => {
+  const approved = {
+    ...model("acp", "claude-opus-5-5", {
+      acpAgentId: "local:agent",
+      installationId: "approved",
+      instanceId: "approved:default",
+    }),
+    // Production keys ACP catalogs by an opaque digest, not by the account id.
+    instance: "acp-production-catalog-digest",
+    displayName: "Opus 5.5",
+  };
+  const other = {
+    ...model("acp", "claude-opus-5-5-other", {
+      acpAgentId: "local:other",
+      installationId: "other",
+      instanceId: "other:default",
+    }),
+    instance: "acp-other-digest",
+    displayName: "Opus 5.5",
+  };
+  const list = catalogue([other, approved]);
+  expect(
+    resolveSelection(
+      { provider: "acp", accountId: "approved:default", model: "opus 5.5" },
+      "claude",
+      list,
+    ),
+  ).toMatchObject({
+    model: "claude-opus-5-5",
+    acpAgentId: "local:agent",
+    installationId: "approved",
+    instanceId: "approved:default",
+  });
 });
