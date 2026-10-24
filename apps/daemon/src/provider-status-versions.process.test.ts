@@ -6,6 +6,8 @@ import { ProviderStatuses } from "./provider-status.ts";
 import { fakeCli } from "./provider-status-test-support.ts";
 import { fixture } from "./socket-test-support.ts";
 
+const codex = (rows: ProviderStatus[]) => rows.find((row) => row.provider === "codex");
+
 test("update information that arrives after startup reaches clients without running the CLIs again", async () => {
   const home = await fixture();
   const bin = join(home.home, "bin");
@@ -25,7 +27,6 @@ test("update information that arrives after startup reaches clients without runn
   );
   try {
     await statuses.firstCheck();
-    const codex = (rows: ProviderStatus[]) => rows.find((row) => row.provider === "codex");
     expect(codex(statuses.list())).toMatchObject({ installed: true, auth: "logged_in" });
     expect(codex(statuses.list())?.updateAvailable).toBeUndefined();
     const cliRuns = await readFile(join(bin, "calls"), "utf8");
