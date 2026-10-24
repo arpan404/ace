@@ -214,6 +214,7 @@ function runSeed(seed: number) {
   ];
   const selected = windows.map(() => new Map<string, ThreadListEntry>());
   let checks = 0;
+  let failed = 0;
   const check = (changed: ReadonlySet<string>, step: number) => {
     windows.forEach((options, index) => {
       const entries = selected[index];
@@ -224,6 +225,7 @@ function runSeed(seed: number) {
       // A row the window must show but cannot decode fails both reads alike.
       if (!full.ok || !live.ok) {
         expect(live.ok ? "read" : live.error, label).toBe(full.ok ? "read" : full.error);
+        failed++;
         return;
       }
       expect(
@@ -254,6 +256,14 @@ function runSeed(seed: number) {
       const id = rng.pick(ids);
       if (roll < 0.06) {
         changed.add(create(rng.pick(workspaces)));
+      } else if (roll < 0.075) {
+        // An id change, possible only with foreign keys off.
+        const moved = ThreadId.parse(`t-${seed}-${made++}`);
+        db.exec("PRAGMA foreign_keys=OFF");
+        db.prepare("UPDATE threads SET id = ? WHERE id = ?").run(moved, id);
+        db.exec("PRAGMA foreign_keys=ON");
+        ids.splice(ids.indexOf(id), 1, moved);
+        if (stateless.delete(id)) stateless.add(moved);
       } else if (roll < 0.09) {
         // A hard delete, made the way an external cleanup would.
         db.exec("PRAGMA foreign_keys=OFF");
@@ -307,5 +317,7 @@ function runSeed(seed: number) {
       );
     check(changed, step);
   }
-  expect(checks).toBeGreaterThan(1000);
+  // Most windows compare full payloads; the rest prove both reads fail alike.
+  expect(checks + failed).toBeGreaterThan(1000);
+  expect(checks).toBeGreaterThan(failed);
 }

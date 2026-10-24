@@ -147,6 +147,15 @@ test("a deleted thread is gone, and one recreated under the same id reads as new
   expect(store.getThread(id)?.title).toBe("Again");
 });
 
+test("a thread whose id changes is gone under the old id and found under the new one", () => {
+  const { db, store, id } = open();
+  db.exec("PRAGMA foreign_keys=OFF");
+  db.prepare("UPDATE threads SET id = 'moved-thread' WHERE id = ?").run(id);
+  db.exec("PRAGMA foreign_keys=ON");
+  expect(store.getThread(id)).toBeUndefined();
+  expect(store.getThread(ThreadId.parse("moved-thread"))?.title).toBe("First");
+});
+
 test("changing a returned thread never changes what the next reader sees", () => {
   const { store, id } = open();
   const mine = store.getThread(id);

@@ -21,6 +21,12 @@ export function migrateSidebarRevisions(db: DatabaseSync): void {
     CREATE TRIGGER IF NOT EXISTS sidebar_thread_update AFTER UPDATE ON threads BEGIN
       INSERT OR REPLACE INTO sidebar_thread_revisions(thread_id) VALUES (NEW.id);
     END;
+    -- A changed id is a delete of the old one (only possible with foreign keys off).
+    CREATE TRIGGER IF NOT EXISTS sidebar_thread_rekey AFTER UPDATE OF id ON threads
+    WHEN OLD.id IS NOT NEW.id BEGIN
+      DELETE FROM sidebar_thread_revisions WHERE thread_id = OLD.id;
+      UPDATE sidebar_thread_deletes SET count = count + 1 WHERE id = 1;
+    END;
     CREATE TRIGGER IF NOT EXISTS sidebar_thread_delete AFTER DELETE ON threads BEGIN
       DELETE FROM sidebar_thread_revisions WHERE thread_id = OLD.id;
       UPDATE sidebar_thread_deletes SET count = count + 1 WHERE id = 1;

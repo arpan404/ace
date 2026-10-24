@@ -43,7 +43,7 @@ export class ThreadCache {
   /** Reads of uncommitted rows in the store's open write transaction. */
   private pending: Map<string, Entry> | undefined;
   private readonly source: ThreadCacheSource;
-  constructor(source: ThreadCacheSource, maxEntries = 512, maxBytes = 32 * 1024 * 1024) {
+  constructor(source: ThreadCacheSource, maxEntries = 256, maxBytes = 16 * 1024 * 1024) {
     this.source = source;
     this.entries = new BoundedCache(maxEntries, maxBytes);
   }
