@@ -34,10 +34,25 @@ target is refused with `machine_not_linked`; the app offers Settings › Machine
 
 ### Authority
 
-These are the person's actions, not an agent's, so the target's `remote.agentAccess` does not
-apply. The target requires the calling device to hold both `operate` and `projects` (ADR 0063:
-remote admin does not imply projects). A device without them gets `machine_forbidden` with a
-next step: link again with "Projects" allowed. No agent tool can start a transfer.
+The person starts transfers from the app, and agents start them with the `transfer` tool (below).
+The target requires the calling device to hold both `operate` and `projects` (ADR 0063: remote
+admin does not imply projects). A device without them gets `machine_forbidden` with a next step:
+link again with "Projects" allowed. The target's `remote.agentAccess` does not apply to
+transfers; they are governed by the setting below.
+
+### Agents
+
+Agents carry work with one ace tool, `transfer`: `{ machine, project? , thread?, includeChanges? }`
+where `machine` is a name from `machines`, and either the calling thread's own project
+(default), a named project, or the calling thread itself (`thread: "self"`, which continues it
+there). It returns at once with the transfer id; the result is delivered like a background task,
+so the agent's tree is never done while a transfer it started is still running. `machines` shows
+whether each machine accepts transfers.
+
+`remote.agentTransfers` (boolean, default on), shown in Settings › Machines as "Agents can move
+projects and threads to other machines", is checked by the sending machine before an agent's
+transfer starts. Off refuses with `transfers_off` and a next step. The person's own transfers
+from the app are not affected. A read-only thread can't start one (ADR 0078's caller ceiling).
 
 ### How the code travels
 
@@ -96,6 +111,7 @@ handoff says so.
 
 ### UI
 
+- Settings › Machines: the `remote.agentTransfers` switch.
 - Thread menu: "Continue on…", project menu: "Open on…", each listing linked machines, with
   offline or not-allowed machines shown with the reason instead of hidden.
 - A single sentence strip while it runs ("Sending to Studio · 312 MB of 1.2 GB" with Cancel),
@@ -124,5 +140,5 @@ Two real daemons in temp homes, paired over TLS as `ace remote add` stores them,
 repositories and a local bare repository standing in for origin. Tests cover each method,
 uncommitted changes including deletions and binary files, reuse of an existing project,
 branch-name collision, resume after a dropped connection and after a sender restart, digest
-mismatch, cancel, a device without `projects`, a missing fleet link, and a thread continuation
+mismatch, cancel, a device without `projects`, a missing fleet link, an agent's transfer delivered as a background result and refused with the setting off, and a thread continuation
 whose new thread has the handoff and the provider fallback. UI tests run against the fake daemon.
