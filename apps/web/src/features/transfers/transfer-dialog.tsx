@@ -17,7 +17,7 @@ import { Switch } from "@/components/ui/switch.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useMachines, usePrimaryMachine, type Machine } from "@/lib/machines.ts";
 import type { TransferRequest } from "@/lib/transfer-opener.ts";
-import { fleetKeys, machineLinks } from "@/features/settings/index.ts";
+import { fleetKeys, machineLinks, settingKeys, useSetting } from "@/features/settings/index.ts";
 import { FolderChoice } from "./folder-choice.tsx";
 import { TransferLine } from "./transfer-line.tsx";
 import { transferMachines, type TransferMachine } from "./transfer-machines.ts";
@@ -40,7 +40,7 @@ const verb = (request: TransferRequest) => (request.kind === "thread" ? "Continu
 
 /**
  * "Continue on…" and "Open on…" (ADR 0099): which machine, then where and whether to bring
- * uncommitted changes, then the transfer's one line until it's done. Machines this one has
+ * uncommitted changes and ignored files, then the transfer's one line until it's done. Machines this one has
  * fleet links to are listed; offline or not-allowed ones show why, and none links to Settings ›
  * Machines. A transfer already running for this thread or project opens on its line.
  */
@@ -64,6 +64,8 @@ export function TransferDialog(props: {
       : { kind: "machines" },
   );
   const { start } = useTransferActions();
+  // This machine's "Bring ignored files", read here so the options step never waits for it.
+  const [ignoredByDefault] = useSetting(settingKeys.transferIgnoredFiles);
   const send = (machine: { hostId: string; name: string }, placement: Placement) => {
     setStep({ kind: "status", machine, placement, started: undefined });
     void start(request, placement).then((started) =>
@@ -93,6 +95,7 @@ export function TransferDialog(props: {
         <OptionsStep
           request={request}
           machine={step.machine}
+          ignoredByDefault={ignoredByDefault}
           onBack={() => setStep({ kind: "machines" })}
           onSend={(placement) => send(step.machine, placement)}
         />
@@ -173,6 +176,7 @@ function MachineStep(props: {
 function OptionsStep(props: {
   request: TransferRequest;
   machine: TransferMachine;
+  ignoredByDefault: boolean;
   onBack(): void;
   onSend(placement: Placement): void;
 }) {
@@ -182,9 +186,17 @@ function OptionsStep(props: {
   );
   const [parent, setParent] = useState<string>();
   const [changes, setChanges] = useState(true);
+  // Follows this machine's "Bring ignored files" until the person flips it here.
+  const [ignoredChoice, setIgnored] = useState<boolean>();
+  const ignored = ignoredChoice ?? props.ignoredByDefault;
   const action = `${verb(props.request)} on ${props.machine.name}`;
   const send = () =>
-    props.onSend({ hostId: props.machine.hostId, parent, includeChanges: changes });
+    props.onSend({
+      hostId: props.machine.hostId,
+      parent,
+      includeChanges: changes,
+      includeIgnored: ignored,
+    });
   return (
     <>
       <CommandStepRow onBack={props.onBack} closeLabel="Close">
@@ -196,6 +208,12 @@ function OptionsStep(props: {
             Bring uncommitted changes
           </label>
           <Switch id={`${id}-changes`} checked={changes} onCheckedChange={setChanges} />
+        </div>
+        <div className="flex h-11 items-center gap-3">
+          <label htmlFor={`${id}-ignored`} className="min-w-0 flex-1 truncate text-foreground">
+            Bring ignored files
+          </label>
+          <Switch id={`${id}-ignored`} checked={ignored} onCheckedChange={setIgnored} />
         </div>
         <FolderChoice machine={reached} name={props.machine.name} onParent={setParent} />
       </div>

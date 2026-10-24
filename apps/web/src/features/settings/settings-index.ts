@@ -335,6 +335,12 @@ const entries = [
     keywords: ["transfer", "continue on", "open on", "machines", "agents", "move", "fleet"],
   },
   {
+    id: "remote.transferIgnoredFiles",
+    page: "/settings/remote",
+    title: "Bring ignored files",
+    keywords: ["transfer", "gitignore", "ignored", ".env", "continue on", "open on", "machines"],
+  },
+  {
     id: "fleet.link",
     page: "/settings/remote",
     title: "Link machines",
