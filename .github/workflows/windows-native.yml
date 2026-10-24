@@ -215,6 +215,10 @@ jobs:
           node packages/workspace/build.ts || exit /b 1
           node -e "const a=require('./packages/workspace/dist/descriptor.node');if(typeof a.openRoot!=='function')throw new Error('descriptor.node missing openRoot');if(typeof a.statFd!=='function')throw new Error('descriptor.node missing statFd');console.log('descriptor.node exports ok: openRoot/statFd present')" || exit /b 1
 
+      - name: Prepare real Windows browser for streaming checks
+        timeout-minutes: 12
+        run: node packages/browser/scripts/prepare-windows-test.ts
+
       - name: Run bounded Windows-native Vitest suite
         timeout-minutes: 25
         env:
