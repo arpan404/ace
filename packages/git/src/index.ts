@@ -53,6 +53,7 @@ import { Repository } from "./repository.ts";
 import { restoreCheckpoint } from "./restore.ts";
 import { createWorktree, removeWorktree, type CreateWorktreeOptions } from "./worktrees.ts";
 import { GitError } from "./types.ts";
+import { GitTransfer } from "./transfer-service.ts";
 import {
   branchHead,
   branchRefs,
@@ -87,9 +88,19 @@ export type { MergeStart } from "./merge-conflicts.ts";
 export type { RevisionLineOptions } from "./revision-lines.ts";
 export type { BranchRefs, FetchBranchOptions, FetchPrHeadOptions } from "./remote-branches.ts";
 
+export { GitTransfer } from "./transfer-service.ts";
+export { normalizeRemoteUrl } from "./remote-url.ts";
+export { landingBranchName, machineSlug } from "./transfer-branch-name.ts";
+export type { LandingBranch } from "./transfer-branch-name.ts";
+export type { BundleCloneOptions } from "./transfer-clone.ts";
+export type { BundleRefs } from "./transfer-refs.ts";
+export type { CheckoutState } from "./transfer-checkout.ts";
+
 export class GitService {
   private readonly repository: Repository;
   private readonly maxPatchBytes: number;
+  /** Moving work to another machine (ADR 0099). */
+  readonly transfer: GitTransfer;
 
   constructor(options: GitOptions = {}) {
     this.repository = new Repository(
@@ -99,6 +110,7 @@ export class GitService {
       options.checkpointCounterCacheSize,
     );
     this.maxPatchBytes = options.maxPatchBytes ?? 1024 * 1024;
+    this.transfer = new GitTransfer(this.repository);
   }
 
   /** Protect a PR-controlled tree for every subsequent call, including nested paths. */
