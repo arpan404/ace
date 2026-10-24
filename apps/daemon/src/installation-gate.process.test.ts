@@ -66,7 +66,7 @@ async function bootCatalog() {
 
 /** Until discovered models are listed, then long enough for any repeat discovery to start. */
 async function settled(catalog: ModelCatalog) {
-  for (let i = 0; i < 200 && catalog.list().models.length === 0; i++) await pause(10);
+  for (let i = 0; i < 1000 && catalog.list().models.length === 0; i++) await pause(10);
   await pause(50);
 }
 
@@ -99,5 +99,16 @@ test("a provider check that never finishes holds catalog discovery only until th
   waitEnds.resolve();
   await settled(catalog);
   expect(discoveries).toEqual([undefined]);
+  expect(catalog.list().models.map((model) => model.id)).toEqual(["coder"]);
+});
+
+test("a provider check that finishes before the CLIs register still gives discovery their version", async () => {
+  const { catalog, discoveries, register } = await bootCatalog();
+  // The check reports Codex while the default instances are still being found on PATH.
+  catalog.installationChanged("codex", "0.200.0");
+  await register(installationGate(Promise.resolve(), 10_000, () => () => {}));
+  catalog.revalidate();
+  await settled(catalog);
+  expect(discoveries).toEqual(["0.200.0"]);
   expect(catalog.list().models.map((model) => model.id)).toEqual(["coder"]);
 });

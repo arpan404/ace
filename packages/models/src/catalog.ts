@@ -163,6 +163,8 @@ export class ModelCatalog implements ModelCatalogApi {
   #closing: Promise<void> | undefined;
   #active = 0;
   #closed = false;
+  /** Latest reported installation version per `runtime:provider`. */
+  readonly #installations = new Map<string, string>();
   #connectionsCheckedAt: number | undefined;
   constructor(options: CatalogOptions) {
     this.#options = options;
@@ -478,6 +480,8 @@ export class ModelCatalog implements ModelCatalogApi {
     version: string,
     runtime: "cli" | "cursor-sdk" = "cli",
   ): void {
+    // Kept for instances that register after the provider check reported this version.
+    this.#installations.set(`${runtime}:${provider}`, version);
     for (const state of this.#select({ provider })) {
       if ((state.config.backend === "cursor-sdk" ? "cursor-sdk" : "cli") !== runtime) continue;
       if (state.config.installationVersion === version) continue;
@@ -502,7 +506,14 @@ export class ModelCatalog implements ModelCatalogApi {
   }
   registerInstance(input: InstanceInput, admit?: () => Promise<void>): void {
     if (this.#closed) throw new Error("Catalog closed");
-    const config = ModelInstance.parse(input);
+    const parsed = ModelInstance.parse(input);
+    const installed = this.#installations.get(
+      `${parsed.backend === "cursor-sdk" ? "cursor-sdk" : "cli"}:${parsed.provider}`,
+    );
+    const config =
+      parsed.installationVersion === undefined && installed !== undefined
+        ? { ...parsed, installationVersion: installed }
+        : parsed;
     if (this.#removals.has(config.id)) throw new Error("Instance removal is still draining");
     const old = this.#states.get(config.id);
     if (!old && this.#states.size >= 64) throw new Error("Instance limit reached");
