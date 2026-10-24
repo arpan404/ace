@@ -382,6 +382,12 @@ export class BrowserLive {
       ) {
         watch.subscribed = false;
         this.#restart(watch);
+        // Another tab or engine shows now: it lays out at the phone's size too.
+        if (
+          !state.closed &&
+          (previous.backend !== state.backend || previous.activeTabId !== state.activeTabId)
+        )
+          this.#resize(watch);
         if (!state.closed) this.#subscribe(watch);
       } else this.#putView(watch);
       if (state.tabs) {
