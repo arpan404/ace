@@ -78,15 +78,44 @@ don't need it until one connects. Otherwise the worker starts on the first call 
 it (a client connecting, a registration, presence, a feed or snooze) and replays the log
 from its durable cursor before it answers.
 
-Delivery isn't polled. After each call the worker reports its earliest deadline (a coalesced
-alert or a retry) and whether it is idle, and the daemon keeps one timer at that deadline.
-Work still due after a run waits a second, so a full queue doesn't spin. Agent notices wake
-delivery through the notice item written with their intent.
+Delivery isn't polled. After each call, and as soon as it starts, the worker reports its
+earliest deadline (a coalesced alert or a retry) and whether it is idle. The daemon keeps one
+timer at that deadline. Work still due after a run waits a second, so a full queue doesn't
+spin. A worker that restarts after a crash reports its saved deadline, and the daemon replays
+and runs delivery again. Agent notices wake delivery through the notice item written with
+their intent.
 
 An idle worker (nothing queued, no presence, no device that needs it offline, no client
-connected) stops after a quiet minute. While it is stopped no device can take an alert, so
-a worker that starts after sleeping replays older events without alerting on them. It still
-alerts on events young enough that a running worker would be retrying them when the device
-connected: the coalescing window plus every retry at its longest jitter. Agent notices
-queued before that point are acknowledged unsent. Revocations replay from the device store
-on each start.
+connected) stops after a quiet minute. Before it stops it records a sleep boundary in its
+database: the cursor and the time. When the daemon starts without a worker, it records the
+log head at startup as the boundary on the first start. Only events after a recorded boundary
+count as slept through. A crash records nothing, so whatever lies between the durable cursor
+and the head after a crash replays like any downtime: pending alerts live for up to 24 hours
+and are delivered on recovery, as they always were.
+
+Within a sleep, a woken worker updates state from the events it missed but doesn't alert on
+those older than the coalescing window plus every retry at its longest jitter (about 25
+seconds). Newer ones alert as usual. Agent notices queued during the sleep and older than
+that are acknowledged unsent; those queued before it began are delivered. The boundary is
+cleared once the woken worker's replay reaches the head of the log, and revocations replay
+from the device store on each start. This cutoff is not equivalent to a running worker's
+behaviour in general. It holds only for the sleep window, where no device could take an
+alert, and catch-up below covers threads that are still waiting.
+
+## Catch-up for desktop and web (2026-10-24)
+
+A desktop or web device that was away (app quit, crash, sleep, network drop) gets one
+`catch_up` alert when a socket for it connects again: the threads that need the person right
+now that the device hasn't been told about in this waiting episode, longest-waiting first,
+up to 100. The title counts them ("2 threads need you"), `threadIds` lists them and
+`threadId` is the first. A waiting episode is the thread's generation: the event that moved
+it into needs-you. A ledger records the episode each device was told about, from a delivered
+needs-you alert or a delivered catch-up. So reconnecting again for the same wait shows
+nothing, and a thread answered before the device returns isn't named.
+
+Snoozed, archived and deleted threads are left out, and so are threads with an alert still on
+its way (a coalescing alert, or a job for this device): those arrive on their own. Nothing is
+sent when no thread qualifies, while an earlier catch-up for the device is still queued, or to
+a device seen for the first time. Phones keep their inbox feed instead. Desktop shows the
+alert as one plain notification that opens the first thread; the web app shows a toast, or a
+browser notification when the tab is hidden, under its needs-you toggle.
