@@ -40,10 +40,11 @@ function budget(
 ): ModelLoadBudget {
   return {
     async wait(work: Promise<unknown>): Promise<boolean> {
-      signal?.throwIfAborted();
       const done = work.then(() => true as const);
-      // Work still running when the wait ends must not surface later as an unhandled failure.
+      // Work whose wait ends early (cancelled, or past the deadline) must not surface later as an
+      // unhandled failure; handled before anything here can return.
       done.catch(() => {});
+      signal?.throwIfAborted();
       if (!signal) return Promise.race([done, expired]);
       let stop: (() => void) | undefined;
       const aborted = new Promise<never>((_, reject) => {

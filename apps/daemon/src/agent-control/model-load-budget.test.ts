@@ -64,12 +64,26 @@ test("work that outlives its call keeps the call's deadline but not its cancella
   expect(waiting).toEqual({ value: false });
 });
 
-test("an ended budget stops its timer", () => {
+test("an ended budget stops its timer, while one still running expires", async () => {
   const clock = new ManualClock();
-  let fired = false;
-  const budget = modelLoadBudget(clock);
-  void budget.wait(never).then(() => (fired = true));
-  budget.end();
+  const ended = modelLoadBudget(clock);
+  const running = modelLoadBudget(clock);
+  const afterEnd = watch(ended.wait(never));
+  const stillRunning = watch(running.wait(never));
+  ended.end();
   clock.advance(clock.now() + 20_000);
-  expect(fired).toBe(false);
+  await turn();
+  expect(afterEnd).toEqual({});
+  expect(stillRunning).toEqual({ value: false });
+});
+
+test("a wait on an already cancelled operation still owns the failure of the work it was given", async () => {
+  const abort = new AbortController();
+  abort.abort(new Error("caller left"));
+  const budget = modelLoadBudget(new ManualClock(), abort.signal);
+  // Vitest fails the run on an unhandled rejection, so the catalog's failure must be handled.
+  await expect(budget.wait(Promise.reject(new Error("catalog closed")))).rejects.toThrow(
+    "caller left",
+  );
+  await turn();
 });

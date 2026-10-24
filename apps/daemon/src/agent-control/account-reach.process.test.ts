@@ -474,15 +474,14 @@ test("a stalled discovery delays a request by one wait cap in all, and cancellin
     const parent = await h.parent();
     stall.on = true;
     await catalog.invalidate({ instance: "slow-claude" });
-    const progress = { settled: false };
-    const capped = delegate(parent, {
-      requestId: "capped",
-      role: "review-capped",
-      model: "opus 5.5",
-      accountId: "Slow",
-    }).finally(() => {
-      progress.settled = true;
-    });
+    const { progress, work: capped } = tracked(
+      delegate(parent, {
+        requestId: "capped",
+        role: "review-capped",
+        model: "opus 5.5",
+        accountId: "Slow",
+      }),
+    );
     // Discovery never finishes, so only the cap ends the wait: twenty seconds for the whole call,
     // shared by matching the name and preparing the launch, so the clock passes it only once.
     const started = h.clock.now();
@@ -517,9 +516,12 @@ async function settle(done: { settled: boolean }) {
   for (let step = 0; !done.settled && step < 50; step++)
     await new Promise((resolve) => setTimeout(resolve, 10));
 }
+/** A call whose settling the test watches; its rejection is handled until the test asserts it. */
 function tracked<T>(work: Promise<T>) {
   const progress = { settled: false };
-  return { progress, work: work.finally(() => (progress.settled = true)) };
+  const watched = work.finally(() => (progress.settled = true));
+  watched.catch(() => {});
+  return { progress, work: watched };
 }
 
 test("each thread_start call gets its own twenty seconds, even after an earlier call used its own up", async () => {

@@ -415,7 +415,7 @@ export class DelegationService {
         !page.models.length ||
         page.instances.some((instance) => instance.refreshedAt === undefined)
       )
-        await catalog.refresh(filter);
+        await budget.wait(catalog.refresh(filter));
     }
     return this.deps.configuredModel?.(caller, request);
   }
