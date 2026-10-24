@@ -220,6 +220,7 @@ jobs:
       # input, and UIA tests stay ignored (default cargo test behavior), and this
       # step captures no screenshots and moves no user pointer.
       - name: Build + test native screen helper (Rust)
+        id: screen-build
         timeout-minutes: 15
         shell: cmd
         env:
@@ -246,13 +247,18 @@ jobs:
         timeout-minutes: 3
         env:
           ACE_WINDOWS_SCREEN_HELPER: ${{ github.workspace }}\native\screen-helper-windows\target\${{ matrix.rust_target }}\debug\ace-screen-helper-windows.exe
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TMPDIR: ${{ runner.temp }}
         run: node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-screen.config.ts
 
       - name: Prepare real Windows browser for streaming checks
+        if: ${{ !cancelled() && steps.screen-build.outcome == 'success' }}
         timeout-minutes: 12
         run: node packages/browser/scripts/prepare-windows-test.ts
 
       - name: Run bounded Windows-native Vitest suite
+        if: ${{ !cancelled() && steps.screen-build.outcome == 'success' }}
         timeout-minutes: 25
         env:
           TEMP: ${{ runner.temp }}
