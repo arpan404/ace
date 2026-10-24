@@ -170,7 +170,13 @@ export function stateFooter(state: ComputerState, includeMenuBar: boolean): stri
   if (includeMenuBar && state.menuBar.length) lines.push(`Menu bar: ${state.menuBar.join(", ")}`);
   const picture = screenshotNote(state);
   if (picture) lines.push(picture);
-  if (!state.screenLocked && state.window && !state.window.onScreen && state.nodes.length < 6)
+  if (
+    !state.searchFiltered &&
+    !state.screenLocked &&
+    state.window &&
+    !state.window.onScreen &&
+    state.nodes.length < 6
+  )
     lines.push(
       "This window shows almost no accessible content while it is off screen. Observe again after it loads, or try a screenshot. Activating it would interrupt the person.",
     );

@@ -165,7 +165,8 @@ import ApplicationServices
         let windows = try session.chooseWindow(request["window"], deadline: cuNow() + 1_500_000_000)
         let chosen = cuNow()
         var result = await session.observation(windows: windows, screenshot: request.bool("screenshot") ?? false, outline: request.bool("outline") ?? true,
-                                               marks: request.bool("marks") ?? true, deadline: cuNow() + 4_000_000_000)
+                                               marks: request.bool("marks") ?? true, deadline: cuNow() + 4_000_000_000,
+                                               find: request.int("findFormat") == 1 ? request.string("find") : nil)
         try check.check()
         if launched { result["launched"] = true }
         if cuTimingsEnabled, var timings = result["timings"] as? CUObject {

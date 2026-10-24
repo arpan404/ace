@@ -23,6 +23,7 @@ const phaseNames = new Set([
   "screenshotMs",
   "events",
   "visited",
+  "returned",
 ]);
 
 const duration = (start: number, finish: number) => Math.max(0, finish - start);

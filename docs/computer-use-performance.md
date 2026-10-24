@@ -8,6 +8,8 @@ in each JSON file (10–17 for the action runs: other agents were busy on the sa
 The [2026-10-23 action-overhead follow-up](perf/computer-use/speed-2026-10-23.md)
 records the later conflict-query, semantic-edit and explicit-wait optimizations,
 with duration-only request diagnostics and fresh before/after measurements.
+The [native search follow-up](perf/computer-use/search-2026-10-23.md) measures
+candidate filtering before transport, including freshness and broad-query limits.
 
 ## What changed
 

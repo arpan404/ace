@@ -60,6 +60,8 @@ export const ComputerState = z.looseObject({
   launched: z.boolean().optional(),
   screenLocked: z.boolean().optional(),
   sessionState: z.enum(["active", "locked", "unavailable"]).optional(),
+  /** Nodes may be only conservative search candidates and their ancestors. */
+  searchFiltered: z.boolean().optional(),
   screenshot: z
     .looseObject({ jpeg: z.string(), width: z.number().int(), height: z.number().int() })
     .optional(),

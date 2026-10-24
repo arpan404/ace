@@ -9,7 +9,7 @@ func cuMs(_ nanoseconds: UInt64) -> Double { (Double(nanoseconds) / 100_000).rou
 extension CUAppSession {
     /// The observation the model gets: app, windows, the chosen window's outline (unless
     /// `outline` is false), focus, menu bar and optionally a screenshot tagged with ids.
-    func observation(windows: [CUWindow], screenshot: Bool, outline: Bool, marks: Bool, deadline: UInt64) async -> CUObject {
+    func observation(windows: [CUWindow], screenshot: Bool, outline: Bool, marks: Bool, deadline: UInt64, find: String? = nil) async -> CUObject {
         var tree = CUTree()
         let started = cuNow()
         // The app just failed to answer: every further AX call would wait out its timeout too.
@@ -27,17 +27,19 @@ extension CUAppSession {
             }
         }
         let walked = cuNow()
-        var result = describe(windows: windows, tree: tree)
+        let nodes = outline && !notResponding ? (find.map { searchCandidates(query: $0) } ?? tree.nodes) : tree.nodes
+        var result = describe(windows: windows, tree: tree, nodes: nodes)
+        if find != nil { result["searchFiltered"] = true }
         let described = cuNow()
         // Without a fresh walk the ids on screen could name elements that changed; no tags then.
         if screenshot { await attachScreenshot(to: &result, marks: marks && outline) }
         if cuTimingsEnabled {
-            result["timings"] = ["walkMs": cuMs(walked - started), "events": Int(settler.events), "visited": tree.visited, "fetchMs": cuMs(tree.fetchNs), "actionsMs": cuMs(tree.actionNs), "describeMs": cuMs(described - walked), "screenshotMs": cuMs(cuNow() - described)]
+            result["timings"] = ["walkMs": cuMs(walked - started), "events": Int(settler.events), "visited": tree.visited, "returned": nodes.count, "fetchMs": cuMs(tree.fetchNs), "actionsMs": cuMs(tree.actionNs), "describeMs": cuMs(described - walked), "screenshotMs": cuMs(cuNow() - described)]
         }
         return result
     }
 
-    private func describe(windows: [CUWindow], tree: CUTree) -> CUObject {
+    private func describe(windows: [CUWindow], tree: CUTree, nodes: [CUNode]) -> CUObject {
         var result: CUObject = [
             "app": ["name": name, "bundleId": app.bundleIdentifier ?? "", "pid": Int(pid), "active": app.isActive, "hidden": app.isHidden],
             "windows": windows.map { item -> CUObject in
@@ -47,7 +49,7 @@ extension CUAppSession {
                 if let window, CFEqual(item.element, window.element) { entry["current"] = true }
                 return entry
             },
-            "nodes": tree.nodes.map { $0.json(origin: .zero) },
+            "nodes": nodes.map { $0.json(origin: .zero) },
             "truncated": tree.truncated,
             "screenLocked": cuSessionStatus() == .locked,
             "sessionState": cuSessionStatus().rawValue,

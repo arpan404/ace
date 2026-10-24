@@ -159,6 +159,7 @@ export function computerToolkit(
           ...(window !== undefined ? { window } : {}),
           screenshot: pictureOnly || !!screenshot,
           ...(pictureOnly ? { outline: false } : {}),
+          ...(!pictureOnly && find ? { find, findFormat: 1 } : {}),
         }),
       );
       if (pictureOnly) {

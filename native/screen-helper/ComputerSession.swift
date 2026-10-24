@@ -16,6 +16,7 @@ import ApplicationServices
     }
     private(set) var lastNodes: [CUNode] = []
     private var lastTree: CUTree?
+    private var searchIndex: CUOutlineSearchIndex?
     private var lastStamp: CUWalkStamp?
     private var nodeIndex: [Int: Int] = [:]
     /// The latest screenshot of the chosen window; pixel coordinates refer to it.
@@ -241,6 +242,7 @@ import ApplicationServices
         if !walker.tree.notResponding { for menu in cuOpenMenus(element) { walker.walk(menu, depth: 0) } }
         registry.prune()
         lastNodes = walker.tree.nodes
+        searchIndex = nil
         lastTree = walker.tree
         lastStamp = walker.tree.notResponding || walker.tree.truncated ? nil : stamp(focused: walker.focusedElement)
         nodeIndex = Dictionary(lastNodes.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -262,6 +264,14 @@ import ApplicationServices
             return lastTree
         }
         return walk(deadline: deadline)
+    }
+
+    /// Uses exactly the latest walk. The existing walk stamp controls freshness;
+    /// every full walk, including a partial one, drops the previous search index.
+    func searchCandidates(query: String) -> [CUNode] {
+        guard CUOutlineSearchIndex.supports(query) else { return lastNodes }
+        if searchIndex == nil { searchIndex = CUOutlineSearchIndex(nodes: lastNodes) }
+        return searchIndex?.candidates(query: query) ?? lastNodes
     }
 
     /// A fresh bounded walk of the current window, for `wait_for` and `when` conditions.
