@@ -20,7 +20,7 @@ export function NewThreadIn(props: { onBack: () => void; close(): void }) {
         label: project.name,
         icon: FolderSimpleIcon,
       })),
-      { id: chatChoice, label: "No project", icon: ChatCircleIcon },
+      { id: chatChoice, label: "Chat", detail: "no project", icon: ChatCircleIcon },
     ],
     [directory.projects],
   );

@@ -744,7 +744,7 @@ function PreparationPage(props: {
             the composer high on the page, and the project's open work to start from below it. */}
         <div className={cn(readingColumn, "flex flex-col pt-[clamp(1rem,22vh,12rem)]")}>
           <h2 className="mb-6 px-1 text-center text-2xl leading-tight font-normal tracking-title text-balance break-words text-muted-foreground">
-            {props.chat ? "What should we work on" : "What should we build in"}{" "}
+            {props.chat ? "What should we do in" : "What should we build in"}{" "}
             <ProjectPicker
               projects={projects}
               projectName={name}
@@ -812,7 +812,7 @@ function PreparationPage(props: {
               onSubmit={send}
               otherSend={{ shortcut: "startInBackground", hint: "starts it without opening" }}
               autoFocus
-              placeholder="Describe a task"
+              placeholder={props.chat ? "Ask anything" : "Describe a task"}
               // Nothing renders below the composer. Its one strip above holds the project and
               // where the thread runs; a notice takes the place of where it runs while there is
               // one. Sign-in decides for itself whether it shows, so the row steps aside for it

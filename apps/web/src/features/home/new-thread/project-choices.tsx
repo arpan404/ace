@@ -35,7 +35,7 @@ export interface Choice {
 /** A project to pick, a chat with no project, or the typed folder to create and add. */
 type Item = Choice | { chat: true } | { create: NewFolder };
 
-const chatLabel = "No project";
+const chatLabel = "Chat";
 
 export function ProjectChoices(props: {
   choices: Choice[];
@@ -66,7 +66,7 @@ export function ProjectChoices(props: {
       ? folder
       : undefined;
   const search = query.trim().toLocaleLowerCase();
-  const chat = !search || `${chatLabel}\nchat`.toLocaleLowerCase().includes(search);
+  const chat = !search || `${chatLabel}\nno project`.toLocaleLowerCase().includes(search);
   const groups: { value: string; items: Item[] }[] = [
     ...(chat ? [{ value: "Chat", items: [{ chat: true as const }] }] : []),
     { value: "Projects", items: matches },
@@ -119,7 +119,7 @@ export function ProjectChoices(props: {
                     <CommandItem
                       key="chat"
                       value={item}
-                      aria-label={chatLabel}
+                      aria-label="Chat, no project"
                       aria-selected={props.project === chatChoice}
                       onClick={() => {
                         props.onProject(chatChoice);
@@ -128,7 +128,10 @@ export function ProjectChoices(props: {
                       className="h-auto min-h-9 text-ui"
                     >
                       <ChatCircleIcon aria-hidden size={16} />
-                      <span className="min-w-0 flex-1 truncate">{chatLabel}</span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {chatLabel}
+                        <span className="ml-2 text-subtle-foreground">no project</span>
+                      </span>
                       {props.project === chatChoice && <CheckIcon aria-hidden size={14} />}
                     </CommandItem>
                   ) : "create" in item ? (
