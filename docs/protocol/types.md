@@ -1401,7 +1401,6 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| accessModes | no | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/AccessModeOffer.json"}} |
 | acpAgentId | no | string | {"minLength":1,"maxLength":256} |
 | installationId | no | string | {"minLength":1,"maxLength":256} |
 | instanceId | no | string | {"minLength":1,"maxLength":256} |
@@ -1426,16 +1425,17 @@ Example:
 
 ```json
 {
-  "accessModes": [],
   "acpAgentId": "example",
   "allowedAccessModes": [],
   "auth": "logged_in",
   "enabled": true,
   "error": "persistence_failed",
+  "installationId": "example",
   "installed": true,
   "instance": "example",
   "launchOptions": [],
-  "provider": "claude",
+  "provider": "opencode",
+  "refreshedAt": 5,
   "refreshing": true,
   "stale": false
 }
@@ -1485,6 +1485,7 @@ Example:
 | deprecated | yes | boolean |  |
 | isNew | no | boolean |  |
 | free | no | boolean |  |
+| accounts | no | array | {"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":256}} |
 
 Example:
 
@@ -1523,6 +1524,7 @@ Example:
 | models | yes | array | {"maxItems":20,"items":{"$ref":"https://ace.local/protocol/v1/AgentCatalogModel.json"}} |
 | instances | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/AgentCatalogInstance.json"}} |
 | nextOffset | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| instancesOmitted | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | caller | yes | object | {"properties":{"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"access":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},{"type":"null"}]}},"required":["threadId","access"]} |
 
 Example:

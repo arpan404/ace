@@ -30,8 +30,15 @@ runnable model, searching the named provider, else the caller's, else every
 provider. A family name without a version means its newest current model; a
 name that fits different models equally is refused with the ids to choose from;
 a model made by its provider ranks before the same model through a gateway.
-`accountId` takes an account id or its label. Without it the daemon picks a
-signed-in account with quota that serves the model. Use a
+`accountId` takes an account id or its label; the account is resolved first, and
+a loose name is then matched against that account's models alone. Without it the
+name becomes one catalog id across the provider, and the daemon picks a
+signed-in account with quota that serves that exact model. A named model the
+account lacks is refused with the reason, never swapped for the account's
+default; only the person's configured role model may stand in for it. A task for
+another machine is matched against that machine's catalog there. `thread_start`,
+`thread_fork` and `thread_control configure` take loose names the same way, the
+last two on the thread's own account. Use a
 stable `requestId` for retries.
 
 ```json

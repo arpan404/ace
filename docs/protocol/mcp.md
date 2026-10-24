@@ -412,7 +412,7 @@ Example:
 
 ## models
 
-Models a child can run on, with their efforts and the accounts that serve each, plus every account with its login state and the access modes a child may take. With query, the nearest models to a name across all providers and accounts. Pass a model's id to delegate. Page with offset.
+Models a child can run on, with their efforts and the accounts that serve each, plus every account with its login state and the access modes a child may take. With query, the nearest models to a name across all providers and accounts, nearest first. Pass a model's id to delegate. Page with offset.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -613,7 +613,7 @@ Required capability: thread_control. Timeout: 630000 ms.
 | project | no | string | {"description":"Another project on this machine: its name, folder path or id from projects_find. Default: this project.","minLength":1,"maxLength":4096} |
 | workspace | no | [AgentWorkspace.json](schema/AgentWorkspace.json) | {"default":{"kind":"project"},"description":"Where it works. Default: the project's checkout; new_worktree starts a Git worktree from base."} |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) | {"description":"Default: yours."} |
-| model | no | string | {"description":"A model id from `models`.","minLength":1,"maxLength":256} |
+| model | no | string | {"description":"A model id from `models`, or its name as written (\"opus 5.5\").","minLength":1,"maxLength":256} |
 | effort | no | string | {"description":"Reasoning effort, such as high.","minLength":1,"maxLength":64} |
 | access | no | [AccessRequest.json](schema/AccessRequest.json) | {"description":"Default inherit; never broader than yours."} |
 
@@ -669,7 +669,7 @@ Required capability: thread_control. Timeout: 630000 ms.
 | text | yes | string | {"minLength":1,"maxLength":262144,"description":"The fork's first message: the other approach, standing on its own."} |
 | title | no | string | {"description":"Its sidebar title.","minLength":1,"maxLength":256} |
 | runId | no | string | {"description":"Fork after this finished run. Default: the latest finished one.","minLength":1,"maxLength":128} |
-| model | no | string | {"description":"Another model of the same provider, from `models`. Default: the thread's.","minLength":1,"maxLength":256} |
+| model | no | string | {"description":"Another model of the same provider and account: an id from `models` or its name (\"opus 5.5\"). Default: the thread's.","minLength":1,"maxLength":256} |
 | effort | no | string | {"description":"Reasoning effort, with model.","minLength":1,"maxLength":64} |
 
 Example:
@@ -922,7 +922,7 @@ Semantic rule: configure needs requestId and model; interrupt needs requestId; h
 | requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
 | title | no | string | {"description":"rename: the new title.","minLength":1,"maxLength":256} |
 | onlyIfProvisional | no | boolean | {"description":"rename: only replace a title ace generated, never one the person chose."} |
-| model | no | string | {"description":"configure: a model id from `models`.","minLength":1,"maxLength":256} |
+| model | no | string | {"description":"configure: a model id from `models`, or its name (\"opus 5.5\") on the thread's account.","minLength":1,"maxLength":256} |
 | effort | no | string | {"description":"configure: reasoning effort.","minLength":1,"maxLength":64} |
 | serviceTier | no | ["default","priority","flex"] | {"description":"configure."} |
 | branch | no | string | {"description":"handoff: the new branch name.","minLength":1,"maxLength":256} |
