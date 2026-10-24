@@ -12,6 +12,12 @@
             "$ref": "https://ace.local/protocol/v1/AccessRequest.json",
             "description": "The child's access mode. Default inherit (yours); never broader than yours."
           },
+          "accountId": {
+            "description": "An account's id or label, from `models` or your brief. Default: ace picks a signed-in account with quota that serves the model.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
           "effort": {
             "description": "Reasoning effort, such as low, medium, high or xhigh. Default inherit: yours on the same model, else the model's default.",
             "maxLength": 64,
@@ -23,7 +29,7 @@
             "description": "Run on this paired machine (a name from `machines`). Requires project."
           },
           "model": {
-            "description": "A model id from `models`. Default: the provider's default model. ace picks the account and instance that serve it.",
+            "description": "A model id, or its name as the person wrote it (\"opus 5.5\", \"muse spark\"): ace finds the nearest model across providers and accounts. Default: the provider's default model.",
             "maxLength": 256,
             "minLength": 1,
             "type": "string"

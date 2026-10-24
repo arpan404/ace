@@ -50,7 +50,15 @@ const DelegateTask = z.strictObject({
     .max(256)
     .optional()
     .describe(
-      "A model id from `models`. Default: the provider's default model. ace picks the account and instance that serve it.",
+      'A model id, or its name as the person wrote it ("opus 5.5", "muse spark"): ace finds the nearest model across providers and accounts. Default: the provider\'s default model.',
+    ),
+  accountId: z
+    .string()
+    .min(1)
+    .max(256)
+    .optional()
+    .describe(
+      "An account's id or label, from `models` or your brief. Default: ace picks a signed-in account with quota that serves the model.",
     ),
   effort: z
     .string()
@@ -204,8 +212,8 @@ const machines = controlTool({
 });
 
 const CatalogPage = z.looseObject({
-  models: z.array(z.looseObject({ id: z.string() })),
-  instances: z.array(z.looseObject({ provider: z.string() })),
+  models: z.array(z.looseObject({ id: z.string(), provider: z.string(), instance: z.string() })),
+  instances: z.array(z.looseObject({ provider: z.string(), instance: z.string() })),
 });
 const models = controlTool({
   ...agents,
@@ -214,16 +222,23 @@ const models = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Models a child can run on, with their efforts, and the installed providers with their login state and the access modes a child may take. Pass a model's id to delegate. Page with offset.",
+    "Models a child can run on, with their efforts and the accounts that serve each, plus every account with its login state and the access modes a child may take. With query, the nearest models to a name across all providers and accounts. Pass a model's id to delegate. Page with offset.",
   input: z.strictObject({
     provider: ProviderKind.optional().describe("Only this provider's models."),
+    query: z
+      .string()
+      .min(1)
+      .max(256)
+      .optional()
+      .describe('A model name as the person wrote it, such as "opus 5.5" or "gpt 6.1 sol".'),
     offset: z.number().int().min(0).max(40_960).default(0).describe("From nextOffset."),
   }),
   output: controlResult(z.unknown()),
-  async run({ provider, offset }, control) {
+  async run({ provider, query, offset }, control) {
     const result = await control.run({
       op: "agents.catalog",
       ...(provider ? { provider } : {}),
+      ...(query ? { query } : {}),
       offset,
       limit: 20,
     });
@@ -235,9 +250,17 @@ const models = controlTool({
 const pick = (value: Record<string, unknown>, keys: readonly string[]) =>
   Object.fromEntries(keys.flatMap((key) => (value[key] === undefined ? [] : [[key, value[key]]])));
 /** The catalog fields a model chooses by; native selectors and refresh state stay in ace. */
-function compactCatalog(page: z.infer<typeof CatalogPage>) {
-  return {
-    models: page.models.map((model) => ({
+/** One entry per model, naming the accounts that serve it, in the catalog's order. */
+function compactModels(rows: z.infer<typeof CatalogPage>["models"]) {
+  const byModel = new Map<string, Record<string, unknown> & { accounts: string[] }>();
+  for (const model of rows) {
+    const key = `${model.provider}\u0000${model.id}`;
+    const entry = byModel.get(key);
+    if (entry) {
+      if (!entry.accounts.includes(model.instance)) entry.accounts.push(model.instance);
+      continue;
+    }
+    byModel.set(key, {
       ...pick(model, ["id", "displayName", "provider", "defaultEffort", "isDefault"]),
       ...(Array.isArray(model["efforts"])
         ? {
@@ -246,10 +269,25 @@ function compactCatalog(page: z.infer<typeof CatalogPage>) {
             ),
           }
         : {}),
+      accounts: [model.instance],
+    });
+  }
+  return [...byModel.values()];
+}
+function compactCatalog(page: z.infer<typeof CatalogPage>) {
+  return {
+    models: compactModels(page.models),
+    accounts: page.instances.map((instance) => ({
+      accountId: instance.instance,
+      ...pick(instance, [
+        "provider",
+        "accountLabel",
+        "installed",
+        "auth",
+        "availability",
+        "allowedAccessModes",
+      ]),
     })),
-    providers: page.instances.map((instance) =>
-      pick(instance, ["provider", "accountLabel", "installed", "auth", "allowedAccessModes"]),
-    ),
     ...pick(page, ["nextOffset", "caller"]),
   };
 }

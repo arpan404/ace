@@ -438,6 +438,26 @@ export class DelegationService {
       return child;
     });
   }
+  /**
+   * The account an agent named, by its id or by the label the person gave it ("Work"), on this
+   * provider. A label two accounts share, or no account at all, is left as given to be refused.
+   */
+  accountNamed(provider: string, name: string): string {
+    try {
+      const accounts = this.deps.accounts?.list() ?? [];
+      if (accounts.some((entry) => entry.instance.id === name)) return name;
+      const wanted = name.trim().toLowerCase();
+      const labelled = accounts.filter(
+        (entry) =>
+          (entry.instance.provider === provider || accountProvider(entry.instance) === provider) &&
+          entry.instance.label.trim().toLowerCase() === wanted,
+      );
+      return labelled.length === 1 && labelled[0] ? labelled[0].instance.id : name;
+    } catch {
+      // Account homes are still being validated: the id is checked again at admission.
+      return name;
+    }
+  }
   /** The name the person gave an account ("Work"), for what an agent tells them. */
   accountLabel(id: string | undefined): string | undefined {
     if (!id) return undefined;

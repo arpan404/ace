@@ -38,11 +38,6 @@
       "maxItems": 20,
       "type": "array"
     },
-    "nextInstanceOffset": {
-      "maximum": 9007199254740991,
-      "minimum": 0,
-      "type": "integer"
-    },
     "nextOffset": {
       "maximum": 9007199254740991,
       "minimum": 0,

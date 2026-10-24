@@ -4,6 +4,8 @@ import {
   type ModelListOptions,
   type ModelListResult,
 } from "@ace/protocol";
+import { isDefaultSelection, resolveModelName } from "@ace/models";
+import { AgentControlError } from "./failure.ts";
 
 /** What an agent may leave out of a selection: the provider and ACP agent identity. */
 export interface OpenSelection {
@@ -12,35 +14,112 @@ export interface OpenSelection {
   acpAgentId?: string | undefined;
   installationId?: string | undefined;
   instanceId?: string | undefined;
+  /** Another machine resolves the model against its own catalog. */
+  machine?: string | undefined;
 }
 type ListModels = (options: ModelListOptions) => ModelListResult;
 
 const named = (model: CatalogModel, name: string) =>
   model.id === name || model.nativeModelId === name || (model.aliases ?? []).includes(name);
 
-/** Every catalog model of one provider with this id, alias or native id, across pages. */
-function matches(list: ListModels, provider: ProviderKind, name: string): CatalogModel[] {
+/** Every catalog model of one provider, on every account, across pages. */
+function catalogue(list: ListModels, provider: ProviderKind): CatalogModel[] {
   const found: CatalogModel[] = [];
   let offset: number | undefined = 0;
   // A provider's catalog is bounded (100 per page); ten pages covers every installed account.
   for (let page = 0; offset !== undefined && page < 10; page++) {
     const result: ModelListResult = list({ provider, offset, limit: 100 });
-    found.push(...result.models.filter((model) => named(model, name)));
+    found.push(...result.models);
     offset = result.nextOffset;
   }
   return found;
 }
 
+/** Every catalog model of one provider with this id, alias or native id, across pages. */
+function matches(list: ListModels, provider: ProviderKind, name: string): CatalogModel[] {
+  return catalogue(list, provider).filter((model) => named(model, name));
+}
+
+/** Models a child can run: hidden and deprecated ones are refused at launch anyway. */
+function runnable(list: ListModels, providers: readonly ProviderKind[]): CatalogModel[] {
+  return providers.flatMap((provider) =>
+    catalogue(list, provider).filter((model) => !model.hidden && !model.deprecated),
+  );
+}
+
+const listed = (models: readonly CatalogModel[]) =>
+  models
+    .slice(0, 8)
+    .map((model) => `${model.id} (${model.provider})`)
+    .join(", ");
+
+function ambiguous(name: string, options: readonly CatalogModel[]): AgentControlError {
+  return new AgentControlError(
+    "invalid_arguments",
+    "model_ambiguous",
+    undefined,
+    `"${name}" fits several models: ${listed(options)}. Pass one of these ids as model.`,
+  );
+}
+
 /**
- * Fill what the agent left out, from the model it named. The provider defaults to the caller's
- * own, unless only another provider's catalog has the model. An ACP model also names the agent,
- * installation and instance that serve it, so an agent never passes those ids itself.
+ * The catalog model a loosely written name means ("opus 5.5", "muse spark", "gpt 6.1 sol"),
+ * when no catalog id or alias equals it. Searches the named provider, else the caller's, else
+ * every provider. Undefined leaves the name as given, for the launch path's own refusal.
+ */
+function nearestModel(
+  selection: OpenSelection,
+  callerProvider: ProviderKind,
+  list: ListModels,
+): CatalogModel | undefined {
+  const name = selection.model;
+  if (!name || isDefaultSelection(name) || selection.machine) return undefined;
+  const home = selection.provider ?? callerProvider;
+  if (matches(list, home, name).length) return undefined;
+  const others = ProviderKind.options.filter((kind) => kind !== home);
+  if (!selection.provider) {
+    const exact = others.filter((kind) => matches(list, kind, name).length > 0);
+    if (exact.length === 1) return undefined;
+    if (exact.length > 1)
+      throw ambiguous(
+        name,
+        exact.flatMap((kind) => matches(list, kind, name).slice(0, 1)),
+      );
+  }
+  const near = resolveModelName(runnable(list, [home]), name);
+  if (near.kind === "match") return near.model;
+  if (near.kind === "ambiguous") throw ambiguous(name, near.options);
+  const elsewhere = resolveModelName(runnable(list, others), name);
+  if (!selection.provider) {
+    if (elsewhere.kind === "match") return elsewhere.model;
+    if (elsewhere.kind === "ambiguous") throw ambiguous(name, elsewhere.options);
+    return undefined;
+  }
+  if (elsewhere.kind === "none") return undefined;
+  const options = elsewhere.kind === "match" ? [elsewhere.model] : elsewhere.options;
+  throw new AgentControlError(
+    "model_unavailable",
+    "model_on_other_provider",
+    undefined,
+    `No ${home} model fits "${name}". Other providers have ${listed(options)}; pass that provider, or omit provider.`,
+  );
+}
+
+/**
+ * Fill what the agent left out, from the model it named. A loosely written name becomes the
+ * catalog id it means. The provider defaults to the caller's own, unless only another provider's
+ * catalog has the model. An ACP model also names the agent, installation and instance that serve
+ * it, so an agent never passes those ids itself.
  */
 export function resolveSelection<T extends OpenSelection>(
-  selection: T,
+  given: T,
   callerProvider: ProviderKind,
   list: ListModels,
 ): T & { provider: ProviderKind } {
+  const nearest = nearestModel(given, callerProvider, list);
+  const selection: T = nearest
+    ? { ...given, provider: nearest.provider, model: nearest.id }
+    : given;
   const model = selection.model;
   let provider = selection.provider;
   if (!provider) {
