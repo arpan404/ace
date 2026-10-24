@@ -7,7 +7,8 @@ import {
   stageTerminalGuardian,
 } from "./terminal-assets.ts";
 import { readFile, cp } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { assertAsciiScripts } from "./ascii-output.ts";
 export { stageNativeFiles } from "./native-assets.ts";
 export { createReleaseArchive, validateReleaseArchive, releaseFiles } from "./archive.ts";
 export { createNpxPackage } from "./npx-package.ts";
@@ -172,6 +173,7 @@ export async function bundleDaemon(
     recursive: true,
   });
   if (!daemon.metafile) throw new Error("Bundle metadata is required");
+  const scripts = Object.keys(daemon.metafile.outputs);
   const inputs = new Set(Object.keys(daemon.metafile.inputs));
   const runtimeManifests = await stageRuntimePackages(repo, root, target);
   for (const manifest of runtimeManifests) inputs.add(manifest);
@@ -225,6 +227,9 @@ export async function bundleDaemon(
     });
     if (!helper.metafile) throw new Error("Bundle metadata is required");
     for (const input of Object.keys(helper.metafile.inputs)) inputs.add(input);
+    scripts.push(...Object.keys(helper.metafile.outputs));
   }
+  // esbuild reports output paths relative to the working directory.
+  await assertAsciiScripts(scripts.map((path) => resolve(path)));
   return [...inputs];
 }

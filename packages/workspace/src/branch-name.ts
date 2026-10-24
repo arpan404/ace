@@ -33,7 +33,7 @@ export function generatedBranchSlug(reply: string): string | undefined {
   const cleaned = line
     .replace(/^branch\s*:\s*/i, "")
     .replace(/^title\s*:\s*/i, "")
-    .replace(/^["'`“”‘’]+|["'`“”‘’]+$/g, "")
+    .replace(/^["'`\u201C\u201D\u2018\u2019]+|["'`\u201C\u201D\u2018\u2019]+$/g, "")
     .replace(/[.!,?;:]+$/, "")
     .trim()
     .replace(/^ace\//i, "");
