@@ -123,6 +123,27 @@ test("the same model through two upstream routes is ambiguous, never a silent pi
     "azure/gpt-6.1-sol",
     "openai/gpt-6.1-sol",
   ]);
-  // One route still resolves a family name to its newest version.
-  expect(resolveModelName([routes[0] as CatalogModel], "gpt 6.1 sol").kind).toBe("match");
+});
+
+test("versions of one family through one route still resolve to the newest", () => {
+  const versions = [
+    row("opencode", "anthropic/claude-opus-5-5", "Opus 5.5", {
+      family: "claude-opus",
+      nativeProviderId: "anthropic",
+    }),
+    row("opencode", "anthropic/claude-opus-4-8", "Opus 4.8", {
+      family: "claude-opus",
+      nativeProviderId: "anthropic",
+      tier: "legacy",
+    }),
+  ];
+  expect(resolveModelName(versions, "opus")).toMatchObject({
+    kind: "match",
+    model: { id: "anthropic/claude-opus-5-5" },
+  });
+  const another = row("opencode", "vertex/claude-opus-5-5", "Opus 5.5", {
+    family: "claude-opus",
+    nativeProviderId: "vertex",
+  });
+  expect(resolveModelName([...versions, another], "opus").kind).toBe("ambiguous");
 });

@@ -41,6 +41,7 @@ import { readAgentCatalog } from "./catalog.ts";
 import { recoverLocalUsage } from "./local-usage-recovery.ts";
 import { AcpIdentity as importAcpIdentitySchema } from "@ace/protocol";
 import { accountModelName, delegationEffort, selectedDelegationModel } from "./models.ts";
+import { modelLoadBudget, type ModelLoadBudget } from "./model-load-budget.ts";
 import { ConversationJournal } from "./conversation-journal.ts";
 import {
   executionModelId,
@@ -48,9 +49,6 @@ import {
   isDefaultSelection,
   selectionModelFilter,
 } from "@ace/models";
-
-/** Longest a request waits for accounts' model lists to load before matching what loaded. */
-export const modelLoadWaitMs = 20_000;
 
 export interface DelegationDependencies {
   store: Store;
@@ -75,11 +73,11 @@ export class DelegationService {
   readonly policy: DelegationPolicy;
   readonly conversations: ConversationJournal;
   private senders: MessageSenders;
-  /** Each request's one deadline for model lists to load, keyed by the request's signal. */
-  private loadDeadlines = new WeakMap<AbortSignal, Promise<void>>();
   private launches: LaunchQueue;
   private admission: DelegationAdmission;
   private deps: DelegationDependencies;
+  /** ace's model lists finished starting: no operation waits on readiness after this. */
+  private ready = false;
   private unsubscribe: () => void;
   private cancelTimer: (() => void) | undefined;
   private closed = false;
@@ -91,6 +89,10 @@ export class DelegationService {
   readonly monitor: AgentMonitor;
   constructor(deps: DelegationDependencies) {
     this.deps = deps;
+    void Promise.resolve(deps.modelsReady).then(
+      () => (this.ready = true),
+      () => {},
+    );
     this.policy = DelegationPolicy.parse(deps.policy ?? {});
     this.journal = new DelegationJournal(deps.store, deps.journalCapacity);
     this.conversations = new ConversationJournal(deps.store);
@@ -330,44 +332,55 @@ export class DelegationService {
     const id = CommandId.parse(controlCommandId(caller.threadId, requestId, "thread.message"));
     return messageArrival(this.deps.engine.messageFacts(threadId, id), restart);
   }
+  /** A new operation's budget for waiting on model lists, ending early if `signal` aborts. */
+  loadBudget(signal?: AbortSignal): ModelLoadBudget {
+    return modelLoadBudget(this.deps.clock, signal);
+  }
   /**
    * Load the model lists of accounts in `filter` that have never loaded (or loaded empty and are
    * due for discovery), so a model name is matched against what each account really serves. A
    * discovery already running is shared, and one that failed keeps its retry pause, so an
-   * uninstalled provider is not probed on every request. The wait is capped and ends with the
-   * request: slow discovery keeps running in the background and the request matches what loaded.
+   * uninstalled provider is not probed on every request. The wait comes out of the operation's
+   * budget; slow discovery keeps running in the background and the operation matches what loaded.
    */
   async warmModels(
     filter: import("@ace/protocol").ModelFilter,
-    signal?: AbortSignal,
+    budget: ModelLoadBudget,
   ): Promise<void> {
-    await this.deps.modelsReady;
+    await this.modelsReady(budget);
     const load = this.deps.models.loadMissing?.(filter);
-    if (!load) return;
-    // A load still running when the wait ends must not surface later as an unhandled failure.
-    load.catch(() => {});
-    await Promise.race([load, this.loadDeadline(signal)]);
-    signal?.throwIfAborted();
+    if (load) await budget.wait(load);
+  }
+  /** ace's model lists are ready, within the operation's budget; refused clearly if not. */
+  private async modelsReady(budget: ModelLoadBudget): Promise<void> {
+    if (this.ready || (await budget.wait(Promise.resolve(this.deps.modelsReady)))) return;
+    throw new AgentControlError(
+      "admission_closed",
+      "models_loading",
+      undefined,
+      "ace is still loading model lists after starting; try again in a moment.",
+    );
   }
   /**
-   * When a request stops waiting for model lists: the cap after its first wait began, or when
-   * it is cancelled. Every wait in one request (matching a name, then preparing the launch)
-   * shares this one deadline, so a stalled account delays the request once, not per step.
+   * Check a request and load the model lists its accounts need, waiting within `budget` (the
+   * operation's own; a request with none gets a fresh one, which cannot be cancelled).
    */
-  private loadDeadline(signal?: AbortSignal): Promise<void> {
-    const existing = signal && this.loadDeadlines.get(signal);
-    if (existing) return existing;
-    const deadline = new Promise<void>((resolve) => {
-      this.deps.clock.setTimer(resolve, modelLoadWaitMs);
-      signal?.addEventListener("abort", () => resolve(), { once: true });
-    });
-    if (signal) this.loadDeadlines.set(signal, deadline);
-    return deadline;
+  async prepareModels(caller: McpAttribution, value: DelegationRequest, budget?: ModelLoadBudget) {
+    const used = budget ?? this.loadBudget();
+    try {
+      return await this.prepareWithin(caller, value, used);
+    } finally {
+      if (!budget) used.end();
+    }
   }
-  async prepareModels(caller: McpAttribution, value: DelegationRequest, signal?: AbortSignal) {
+  private async prepareWithin(
+    caller: McpAttribution,
+    value: DelegationRequest,
+    budget: ModelLoadBudget,
+  ) {
     const request = delegationRequest(value);
     this.admission.validate(caller, request);
-    await this.deps.modelsReady;
+    await this.modelsReady(budget);
     const account = request.accountId ? this.deps.accounts?.get(request.accountId) : undefined;
     // An added Antigravity account is stored as an ACP account but belongs to Antigravity.
     if (
@@ -395,7 +408,7 @@ export class DelegationService {
     };
     // Auto-selection can choose an account whose catalog is still cold. Loading it keeps a failed
     // discovery's retry pause; only the person's explicit refresh forces one.
-    if (catalog.loadMissing) await this.warmModels(filter, signal);
+    if (catalog.loadMissing) await this.warmModels(filter, budget);
     else {
       const page = catalog.list(filter);
       if (
@@ -588,14 +601,20 @@ export class DelegationService {
       throw new Error("Forbidden configuration");
     const thread = this.deps.store.getThread(operation.threadId);
     if (!thread) throw new Error("Thread missing");
-    const selection = await this.threadSelection(
-      caller,
-      thread,
-      operation.requestId,
-      operation.model,
-      operation.options,
-      signal,
-    );
+    const budget = this.loadBudget(signal);
+    let selection;
+    try {
+      selection = await this.threadSelection(
+        caller,
+        thread,
+        operation.requestId,
+        operation.model,
+        operation.options,
+        budget,
+      );
+    } finally {
+      budget.end();
+    }
     signal.throwIfAborted();
     const command = Command.parse({
       id: controlCommandId(caller.threadId, operation.requestId, operation.op),
@@ -617,7 +636,7 @@ export class DelegationService {
     requestId: string,
     model: string,
     launch: { effort?: string | undefined; serviceTier?: string | undefined } = {},
-    signal?: AbortSignal,
+    budget?: ModelLoadBudget,
   ) {
     const identity = thread.provider === "acp" ? importAcpIdentitySchema.parse(thread) : undefined;
     const request = DelegationRequest.parse({
@@ -631,7 +650,7 @@ export class DelegationService {
       role: "configuration",
       task: "configure",
     });
-    await this.prepareModels(caller, request, signal);
+    await this.prepareModels(caller, request, budget);
     const filter = selectionModelFilter(thread.provider, thread.execution?.instanceId, identity);
     // A loosely written name ("opus 5.5") means the model it fits on the thread's own account.
     if (filter) {

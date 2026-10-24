@@ -26,6 +26,7 @@ import {
 } from "./selection-defaults.ts";
 import { conversationTool, type ConversationStartPort } from "./conversation-tools.ts";
 import { AgentControlError } from "./failure.ts";
+import type { ModelLoadBudget } from "./model-load-budget.ts";
 import {
   batchDuplicateRoleProblem,
   internalRole,
@@ -95,6 +96,7 @@ export interface AgentControlExtensions {
     caller: McpAttribution,
     request: import("@ace/protocol").DelegationRequest,
     signal: AbortSignal,
+    budget?: ModelLoadBudget,
   ): Promise<import("@ace/protocol").DelegationRecord>;
   /** Canonical client thread/Forge owners register here without expanding agent authority. */
   thread?(
@@ -153,6 +155,9 @@ export function createAgentControlPort(
       // a cold account's closer match is never lost to a warm account's weaker one.
       const list = (options: import("@ace/protocol").ModelListOptions) =>
         service.listModels(options);
+      // This call's one budget for waiting on model lists, made when a step first needs it.
+      let budget: ModelLoadBudget | undefined;
+      const loadBudget = () => (budget ??= service.loadBudget(signal));
       const resolved = async <T extends OpenSelection>(selection: T) => {
         const account =
           selection.accountId && !selection.machine
@@ -168,7 +173,7 @@ export function createAgentControlPort(
         if (!chosen.machine && !knownModel(chosen, list))
           await service.warmModels(
             chosen.provider ? accountScope(chosen.provider, chosen.accountId) : {},
-            signal,
+            loadBudget(),
           );
         const result = resolveSelection(chosen, callerProvider ?? "codex", list);
         // An ACP agent's own login is not in the account list: its source-qualified identity
@@ -225,6 +230,7 @@ export function createAgentControlPort(
         operation.op === "thread.start" ? await resolved(operation) : operation,
         signal,
         extensions.startConversation,
+        operation.op === "thread.start" ? loadBudget() : undefined,
       );
       if (conversation) return conversation;
       switch (operation.op) {
@@ -264,7 +270,7 @@ export function createAgentControlPort(
             if (request.workspace && extensions.delegateWorkspace) return undefined;
             if (request.workspace?.kind && request.workspace.kind !== "project")
               throw new Error("Workspace owner unavailable");
-            const configured = await service.prepareModels(caller, request, signal);
+            const configured = await service.prepareModels(caller, request, loadBudget());
             signal.throwIfAborted();
             return configured;
           };
@@ -275,7 +281,7 @@ export function createAgentControlPort(
             if (request.machine && machines)
               return { childId: await machines.delegate(caller, request, signal) };
             if (request.workspace && extensions.delegateWorkspace)
-              return extensions.delegateWorkspace(caller, request, signal);
+              return extensions.delegateWorkspace(caller, request, signal, loadBudget());
             return service.delegate(caller, request, configured);
           };
           const delegateOne = async (request: DelegationRequest) =>
@@ -346,7 +352,7 @@ export function createAgentControlPort(
             wait: false,
             estimatedLoad: 0,
           };
-          const configured = await service.prepareModels(caller, request, signal);
+          const configured = await service.prepareModels(caller, request, loadBudget());
           signal.throwIfAborted();
           const child = service.prepare(caller, request, configured);
           return { ok: true, data: { threadId: child.childId } };
@@ -534,7 +540,7 @@ export function createAgentControlPort(
         case "queue.reorder":
           return queueControl(service, caller, operation);
         case "thread.fork":
-          return forks.fork(caller, operation);
+          return forks.fork(caller, operation, signal);
         case "thread.merge":
           return forks.merge(caller, operation);
         case "automation.manage":

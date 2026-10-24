@@ -18,7 +18,10 @@ import { createAgentControlPort } from "@ace/daemon";
 import { mcpAwareness } from "../mcp-awareness.ts";
 import { scriptedEfforts, scriptedModelInstance } from "../testing/models.ts";
 import { setup } from "./test-support.ts";
-import { modelLoadWaitMs } from "./delegations.ts";
+import { randomUUID } from "node:crypto";
+import { WorkspaceRuntime } from "../workspace-runtime.ts";
+import { createConversationStarts } from "./conversations.ts";
+import { DelegationService } from "./delegations.ts";
 
 const signal = () => new AbortController().signal;
 const homes: string[] = [];
@@ -480,13 +483,15 @@ test("a stalled discovery delays a request by one wait cap in all, and cancellin
     }).finally(() => {
       progress.settled = true;
     });
-    // Discovery never finishes, so only the cap ends the wait. One cap covers the whole request:
-    // matching the name and preparing the launch share it, so the clock moves past it once.
+    // Discovery never finishes, so only the cap ends the wait: twenty seconds for the whole call,
+    // shared by matching the name and preparing the launch, so the clock passes it only once.
     const started = h.clock.now();
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    h.clock.advance(started + modelLoadWaitMs);
-    for (let step = 0; !progress.settled && step < 100; step++)
-      await new Promise((resolve) => setTimeout(resolve, 10));
+    await settle(progress);
+    h.clock.advance(started + 19_999);
+    await settle(progress);
+    expect(progress.settled).toBe(false);
+    h.clock.advance(started + 20_000);
+    await settle(progress);
     expect(progress.settled).toBe(true);
     await expect(capped).rejects.toThrow(/requested model opus 5.5 is unavailable/);
     expect(stall.held.length).toBeGreaterThan(0);
@@ -498,8 +503,158 @@ test("a stalled discovery delays a request by one wait cap in all, and cancellin
       abort.signal,
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
-    abort.abort();
-    await expect(cancelled).rejects.toThrow();
+    abort.abort(new Error("The agent cancelled the call"));
+    await expect(cancelled).rejects.toThrow("The agent cancelled the call");
+  } finally {
+    stall.on = false;
+    for (const release of stall.held.splice(0)) release();
+    await close();
+  }
+});
+
+/** Real time for promises to run, without moving the injected clock, until `done` or a bound. */
+async function settle(done: { settled: boolean }) {
+  for (let step = 0; !done.settled && step < 50; step++)
+    await new Promise((resolve) => setTimeout(resolve, 10));
+}
+function tracked<T>(work: Promise<T>) {
+  const progress = { settled: false };
+  return { progress, work: work.finally(() => (progress.settled = true)) };
+}
+
+test("each thread_start call gets its own twenty seconds, even after an earlier call used its own up", async () => {
+  const { h, catalog, stall, close } = await harness({ "slow-claude": "Slow" }, {});
+  const runtime = new WorkspaceRuntime(h.store, join(h.home, "owned"), h.clock.now);
+  try {
+    const parent = await h.parent();
+    stall.on = true;
+    await catalog.invalidate({ instance: "slow-claude" });
+    const lifetime = new AbortController();
+    const port = createAgentControlPort(h.store, h.service, {
+      startConversation: createConversationStarts(
+        { store: h.store, services: { workspaceActions: runtime }, signal: lifetime.signal },
+        h.service,
+        h.service.conversations,
+      ),
+    });
+    const start = (requestId: string) =>
+      tracked(
+        port.execute(
+          parent,
+          AgentControlOperation.parse({
+            op: "thread.start",
+            requestId,
+            title: `Review checkout flow ${requestId}`,
+            text: "Review the change",
+            workspace: { kind: "project" },
+            provider: "claude",
+            model: "opus 5.5",
+            accountId: "Slow",
+          }),
+          signal(),
+        ),
+      );
+    for (const requestId of ["first", "second"]) {
+      const started = h.clock.now();
+      const call = start(requestId);
+      await settle(call.progress);
+      h.clock.advance(started + 19_999);
+      await settle(call.progress);
+      expect(call.progress.settled).toBe(false);
+      h.clock.advance(started + 20_000);
+      await settle(call.progress);
+      await expect(call.work).rejects.toThrow(/requested model opus 5.5 is unavailable/);
+    }
+  } finally {
+    stall.on = false;
+    for (const release of stall.held.splice(0)) release();
+    await close();
+  }
+});
+
+test("while ace is still starting, a delegation waits at most twenty seconds and then says so", async () => {
+  const { h, catalog, close } = await harness(added, serves);
+  const starting = new DelegationService({
+    store: h.store,
+    engine: h.engine,
+    clock: h.clock,
+    id: randomUUID,
+    models: catalog,
+    modelsReady: new Promise(() => {}),
+    onError: () => {},
+  });
+  try {
+    const parent = await h.parent();
+    const started = h.clock.now();
+    const call = tracked(
+      createAgentControlPort(h.store, starting).execute(
+        parent,
+        AgentControlOperation.parse({
+          op: "delegate_task",
+          tasks: [
+            {
+              requestId: "while-starting",
+              task: "Review the change",
+              role: "review-while-starting",
+              provider: "claude",
+              model: "opus 4.8",
+            },
+          ],
+        }),
+        signal(),
+      ),
+    );
+    await settle(call.progress);
+    h.clock.advance(started + 19_999);
+    await settle(call.progress);
+    expect(call.progress.settled).toBe(false);
+    h.clock.advance(started + 20_000);
+    await settle(call.progress);
+    await expect(call.work).rejects.toThrow(/models_loading/);
+  } finally {
+    starting.close();
+    await close();
+  }
+});
+
+test("a fork cancelled while its new model's list loads starts no fork", async () => {
+  const { h, catalog, stall, delegate, childModel, close } = await harness(
+    { "slow-claude": "Slow" },
+    {},
+  );
+  try {
+    const parent = await h.parent();
+    const result = await delegate(parent, {
+      requestId: "to-fork",
+      role: "review-to-fork",
+      accountId: "Slow",
+    });
+    await childModel(result);
+    const [childId] = (result.data as { threadIds: string[] }).threadIds;
+    await h.complete(ThreadId.parse(childId), "Reviewed");
+    stall.on = true;
+    await catalog.invalidate({ instance: "slow-claude" });
+    const before = h.store.listThreads().length;
+    const abort = new AbortController();
+    const fork = createAgentControlPort(h.store, h.service).execute(
+      parent,
+      AgentControlOperation.parse({
+        op: "thread.fork",
+        threadId: childId,
+        requestId: "fork-cancelled",
+        text: "Try another approach",
+        model: "Scripted Model",
+      }),
+      abort.signal,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    abort.abort(new Error("The agent cancelled the fork"));
+    await expect(fork).rejects.toThrow("The agent cancelled the fork");
+    // Discovery finishing later still starts nothing.
+    stall.on = false;
+    for (const release of stall.held.splice(0)) release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(h.store.listThreads()).toHaveLength(before);
   } finally {
     stall.on = false;
     for (const release of stall.held.splice(0)) release();

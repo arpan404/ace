@@ -41,8 +41,10 @@ account it could run on has loaded its model list, so a cold account's closer
 match is never lost to a loaded account's weaker one. Loading shares a discovery
 already running and keeps a failed one's retry pause, so a provider that is not
 installed is not probed on every request; an account that loaded an empty list
-and is rediscovering is waited for too. A request waits at most 20 seconds in all
-for loading, however many steps wait on it, and cancelling it ends the wait; slow discovery keeps running in the
+and is rediscovering is waited for too. Each tool call waits at most 20 seconds in
+all for ace to finish starting and for lists to load, however many steps wait on
+it; a call still waiting on startup is refused with `admission_closed`.
+Cancelling the call ends the wait (a cancelled fork starts nothing); slow discovery keeps running in the
 background. Every page of the catalog is searched. The same model through two
 upstream routes (OpenCode's `openai/…` and `azure/…`) is refused as ambiguous,
 since the route decides who runs and bills it.
