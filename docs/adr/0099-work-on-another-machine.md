@@ -42,7 +42,8 @@ transfers; they are governed by the setting below.
 
 ### Agents
 
-Agents carry work with one ace tool, `transfer`: `{ machine, project? , thread?, includeChanges? }`
+Agents carry work with one ace tool, `transfer`:
+`{ machine, project?, thread?, includeChanges?, includeIgnored? }`
 where `machine` is a name from `machines`, and either the calling thread's own project
 (default), a named project, or the calling thread itself (`thread: "self"`, which continues it
 there). It returns at once with the transfer id; the result is delivered like a background task,
@@ -73,7 +74,51 @@ Uncommitted changes (method 1 and 2, when `includeChanges`) are captured without
 sender's checkout or index: a temporary index file, `git add -A` into it, `write-tree` and
 `commit-tree` on top of HEAD, put in the bundle under `refs/ace/transfer/<id>`. The target
 applies that commit's diff against HEAD to its checkout and leaves it uncommitted, then deletes
-the ref. Ignored files are not sent; that is what `.gitignore` asks for.
+the ref.
+
+### Ignored files
+
+Files Git ignores are usually the ones a checkout needs to run but must never commit: `.env`,
+local config, editor settings. Leaving them behind made a moved project fail on its first run.
+So the git methods (1 and 2) send them too, unless the transfer says not to.
+
+- `remote.transferIgnoredFiles` (boolean, default on), shown in Settings › Machines as "Bring
+  ignored files" with one line: "Local files Git ignores, such as .env and local config, go too.
+  Dependency folders are rebuilt there instead." It is the sending machine's default.
+  `workspace.transfer`, `thread.continueOn` and the agents' `transfer` tool take an optional
+  `includeIgnored` that overrides it; the options step has a "Bring ignored files" switch beside
+  "Bring uncommitted changes", starting at the setting.
+- What goes: the paths `git ls-files --others --ignored --exclude-standard --directory` lists, a
+  wholly ignored folder once, packed with the folder archive (`@ace/files` `packFiles`: links kept
+  and never leaving the folder, sockets and devices skipped, modes kept). Folders that are
+  platform-specific or rebuilt stay, wherever they sit: `node_modules`, `.venv`, `venv`,
+  `__pycache__`, `.pnpm-store`, `.yarn/cache`, `.gradle`, `.next`, `.turbo`, `.cache`, `target`.
+  So do nested Git repositories (a folder holding `.git`). The list is one pure module,
+  `apps/daemon/src/transfers/ignored-files.ts`. The archive method (3) already copies the whole
+  folder and is unchanged.
+- How it travels: a second payload in the same transfer, uploaded after the code to
+  `PUT /v1/transfers/chunk?…&part=ignored`, resumed from the target's `ignoredOffset` like the
+  first. `commit` carries its size, SHA-256 and file count as `ignored`. A target answers with
+  `ignoredOffset` only when it takes ignored files, and the sender sends none to one that
+  doesn't, so older machines keep working. The 20 GiB cap counts both payloads.
+- Securely:
+  - The bytes take only the pinned-TLS fleet link, never the client or a relay.
+  - Both payloads wait as mode 0600 files in the daemon's data directory (`transfers/`, mode 0700) and are deleted after import, on cancel, on failure, and at startup when no unsettled
+    transfer owns them.
+  - Names and contents never reach logs, `transfer.progress`, transfer rows, errors or the
+    handoff. The sender's `Transfer.ignoredFiles` holds only a file count and a byte total; the
+    result holds only `ignoredSkipped`. Failures say "The files Git ignores couldn't be read"
+    without naming one.
+  - The target checks the archive's SHA-256 before anything is written; a mismatch fails the
+    transfer with `transfer_corrupt`.
+  - The target places them once the checkout and its uncommitted changes are there (in the new
+    thread's worktree when it has one), with `mergeArchive`: every write goes through
+    descriptors opened from the landed folder without following links; an existing file or
+    link is never replaced (a reused project keeps its own `.env`; the done line says how many
+    were kept, "kept its own copy of 1 ignored file"); a member whose parent there is not a
+    folder is skipped; nothing is ever written into a `.git` folder, whatever the sender sent.
+    Modes are kept, so a 0600 file stays 0600 (set-id bits and group or other write bits are
+    dropped, as for any unpacked archive).
 
 ### Where it lands
 
@@ -127,9 +172,10 @@ would refuse; for it the check is skipped and the handoff is captured when the u
 
 ### UI
 
-- Settings › Machines: the `remote.agentTransfers` switch.
+- Settings › Machines: the `remote.agentTransfers` and `remote.transferIgnoredFiles` switches.
 - Thread menu: "Continue on…", project menu: "Open on…", each listing linked machines, with
-  offline or not-allowed machines shown with the reason instead of hidden.
+  offline or not-allowed machines shown with the reason instead of hidden. The options step has
+  "Bring uncommitted changes" and "Bring ignored files".
 - A single sentence strip while it runs ("Sending to Studio · 312 MB of 1.2 GB" with Cancel),
   and "Continued on Studio" with Open when done. Open switches to that machine's thread or
   project when the app is connected to it.
@@ -157,4 +203,8 @@ repositories and a local bare repository standing in for origin. Tests cover eac
 uncommitted changes including deletions and binary files, reuse of an existing project,
 branch-name collision, resume after a dropped connection and after a sender restart, digest
 mismatch, cancel, a device without `projects`, a missing fleet link, an agent's transfer delivered as a background result and refused with the setting off, and a thread continuation
-whose new thread has the handoff and the provider fallback. UI tests run against the fake daemon.
+whose new thread has the handoff and the provider fallback. For ignored files: `.env` and ignored
+local config arrive with their modes while `node_modules` does not; none go with the setting off
+or `includeIgnored: false`; a reused project keeps its `.env`; no ignored file's name appears in
+pushes, rows or logs; both payloads are gone after completion, after cancel and after a restart.
+UI tests run against the fake daemon.

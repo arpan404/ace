@@ -227,9 +227,7 @@ const transfer = controlTool({
     includeIgnored: z
       .boolean()
       .optional()
-      .describe(
-        "Send files Git ignores, such as .env; dependency folders never go. Default: this machine's setting.",
-      ),
+      .describe("Send ignored files like .env. Default: setting."),
   }),
   output: controlResult(z.looseObject({ transferId: z.string() })),
   run: (input, control) => control.run({ op: "transfer", ...input }),

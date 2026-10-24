@@ -7,6 +7,10 @@
       "description": "Send uncommitted changes. Default true.",
       "type": "boolean"
     },
+    "includeIgnored": {
+      "description": "Send ignored files like .env. Default: setting.",
+      "type": "boolean"
+    },
     "machine": {
       "description": "A machine from `machines` whose transfers is true.",
       "pattern": "^[a-zA-Z0-9_.-]{1,64}$",
