@@ -75,6 +75,8 @@ export class DelegationService {
   readonly policy: DelegationPolicy;
   readonly conversations: ConversationJournal;
   private senders: MessageSenders;
+  /** Each request's one deadline for model lists to load, keyed by the request's signal. */
+  private loadDeadlines = new WeakMap<AbortSignal, Promise<void>>();
   private launches: LaunchQueue;
   private admission: DelegationAdmission;
   private deps: DelegationDependencies;
@@ -344,28 +346,23 @@ export class DelegationService {
     if (!load) return;
     // A load still running when the wait ends must not surface later as an unhandled failure.
     load.catch(() => {});
-    let cancel: (() => void) | undefined;
-    let stop: (() => void) | undefined;
-    const waits: Promise<unknown>[] = [
-      load,
-      new Promise<void>((resolve) => {
-        cancel = this.deps.clock.setTimer(resolve, modelLoadWaitMs);
-      }),
-    ];
-    if (signal)
-      waits.push(
-        new Promise<void>((resolve) => {
-          stop = () => resolve();
-          signal.addEventListener("abort", stop, { once: true });
-        }),
-      );
-    try {
-      await Promise.race(waits);
-    } finally {
-      cancel?.();
-      if (signal && stop) signal.removeEventListener("abort", stop);
-    }
+    await Promise.race([load, this.loadDeadline(signal)]);
     signal?.throwIfAborted();
+  }
+  /**
+   * When a request stops waiting for model lists: the cap after its first wait began, or when
+   * it is cancelled. Every wait in one request (matching a name, then preparing the launch)
+   * shares this one deadline, so a stalled account delays the request once, not per step.
+   */
+  private loadDeadline(signal?: AbortSignal): Promise<void> {
+    const existing = signal && this.loadDeadlines.get(signal);
+    if (existing) return existing;
+    const deadline = new Promise<void>((resolve) => {
+      this.deps.clock.setTimer(resolve, modelLoadWaitMs);
+      signal?.addEventListener("abort", () => resolve(), { once: true });
+    });
+    if (signal) this.loadDeadlines.set(signal, deadline);
+    return deadline;
   }
   async prepareModels(caller: McpAttribution, value: DelegationRequest, signal?: AbortSignal) {
     const request = delegationRequest(value);
@@ -597,6 +594,7 @@ export class DelegationService {
       operation.requestId,
       operation.model,
       operation.options,
+      signal,
     );
     signal.throwIfAborted();
     const command = Command.parse({
@@ -619,6 +617,7 @@ export class DelegationService {
     requestId: string,
     model: string,
     launch: { effort?: string | undefined; serviceTier?: string | undefined } = {},
+    signal?: AbortSignal,
   ) {
     const identity = thread.provider === "acp" ? importAcpIdentitySchema.parse(thread) : undefined;
     const request = DelegationRequest.parse({
@@ -632,7 +631,7 @@ export class DelegationService {
       role: "configuration",
       task: "configure",
     });
-    await this.prepareModels(caller, request);
+    await this.prepareModels(caller, request, signal);
     const filter = selectionModelFilter(thread.provider, thread.execution?.instanceId, identity);
     // A loosely written name ("opus 5.5") means the model it fits on the thread's own account.
     if (filter) {

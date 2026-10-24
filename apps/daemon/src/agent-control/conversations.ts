@@ -79,7 +79,7 @@ export function createConversationStarts(
       wait: false,
       estimatedLoad: 0,
     };
-    const configured = await service.prepareModels(caller, request);
+    const configured = await service.prepareModels(caller, request, context.signal);
     context.signal.throwIfAborted();
     const reservation = service.reserve(caller, request, "owner", configured);
     const watched = service.watchReservation(reservation);

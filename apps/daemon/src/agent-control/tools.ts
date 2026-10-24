@@ -346,7 +346,7 @@ export function createAgentControlPort(
             wait: false,
             estimatedLoad: 0,
           };
-          const configured = await service.prepareModels(caller, request);
+          const configured = await service.prepareModels(caller, request, signal);
           signal.throwIfAborted();
           const child = service.prepare(caller, request, configured);
           return { ok: true, data: { threadId: child.childId } };

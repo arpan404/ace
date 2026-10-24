@@ -465,7 +465,7 @@ test("an account that loaded empty and is rediscovering is waited for before a n
   }
 });
 
-test("a stalled discovery delays a request by at most the wait cap, and cancelling ends the wait", async () => {
+test("a stalled discovery delays a request by one wait cap in all, and cancelling ends the wait", async () => {
   const { h, catalog, stall, delegate, close } = await harness({ "slow-claude": "Slow" }, {});
   try {
     const parent = await h.parent();
@@ -480,11 +480,14 @@ test("a stalled discovery delays a request by at most the wait cap, and cancelli
     }).finally(() => {
       progress.settled = true;
     });
-    // Discovery never finishes, so only the cap can end each wait for it.
-    for (let step = 0; !progress.settled && step < 100; step++) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-      h.clock.advance(h.clock.now() + modelLoadWaitMs);
-    }
+    // Discovery never finishes, so only the cap ends the wait. One cap covers the whole request:
+    // matching the name and preparing the launch share it, so the clock moves past it once.
+    const started = h.clock.now();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    h.clock.advance(started + modelLoadWaitMs);
+    for (let step = 0; !progress.settled && step < 100; step++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(progress.settled).toBe(true);
     await expect(capped).rejects.toThrow(/requested model opus 5.5 is unavailable/);
     expect(stall.held.length).toBeGreaterThan(0);
 

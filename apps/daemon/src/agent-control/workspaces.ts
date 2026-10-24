@@ -60,7 +60,7 @@ export function createWorkspaceDelegations(
     { identity: string; work: Promise<import("@ace/protocol").DelegationRecord> }
   >();
   async function create(caller: McpAttribution, request: DelegationRequest, signal: AbortSignal) {
-    const configured = await service.prepareModels(caller, request);
+    const configured = await service.prepareModels(caller, request, signal);
     signal.throwIfAborted();
     const receipt = service.journal.receipt(caller.threadId, request.requestId);
     if (receipt) {
