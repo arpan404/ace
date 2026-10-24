@@ -89,6 +89,15 @@ export class IncomingRows {
       .all()
       .map((raw) => decode(Row.parse(raw)));
   }
+  /** Transfers whose files are still wanted: receiving, cloning or importing. */
+  live(): string[] {
+    return this.store
+      .statement(
+        "SELECT transfer_id FROM transfer_incoming WHERE state IN ('receiving','cloning','importing') LIMIT 1024",
+      )
+      .all()
+      .map((row) => String(row["transfer_id"]));
+  }
   /** Settled rows older than `before`, for retention. */
   expired(before: number): IncomingRecord[] {
     return this.store

@@ -53,6 +53,7 @@
     "remote.transport",
     "remote.agentAccess",
     "remote.agentTransfers",
+    "remote.transferIgnoredFiles",
     "remote.hostedPairingLink",
     "remote.relayUrl",
     "automations.enabled",

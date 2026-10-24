@@ -20,7 +20,7 @@ export async function daemonFixture(
       ...environment,
       ACE_HOME: join(h.home, "daemon"),
       ACE_PORT: "0",
-      ACE_LOG_LEVEL: "silent",
+      ACE_LOG_LEVEL: environment["ACE_LOG_LEVEL"] ?? "silent",
     }),
     engine: { registry: h.registry, clock: h.clock },
     ...(agentControl ? { agentControl } : {}),

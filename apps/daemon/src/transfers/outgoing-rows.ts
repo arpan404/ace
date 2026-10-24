@@ -22,6 +22,16 @@ export const TransferPlan = z.object({
   file: z.object({ path: z.string(), bytes: z.number(), sha256: z.string() }).optional(),
   /** The bundle holds only what origin lacks. */
   incremental: z.boolean().optional(),
+  /**
+   * Files Git ignores, packed once the target says it takes them: the archive, or `files: 0`
+   * when there were none to send. The names are never kept here.
+   */
+  ignored: z
+    .union([
+      z.object({ files: z.number(), path: z.string(), bytes: z.number(), sha256: z.string() }),
+      z.object({ files: z.literal(0) }),
+    ])
+    .optional(),
 });
 export type TransferPlan = z.infer<typeof TransferPlan>;
 
@@ -31,6 +41,8 @@ export const TransferRequest = z.object({
   profile: z.string(),
   parent: z.string().optional(),
   includeChanges: z.boolean(),
+  /** Send files Git ignores too; rows from before this existed send none. */
+  includeIgnored: z.boolean().default(false),
   provider: ProviderKind.optional(),
   model: z.string().optional(),
   /** A continuation: the new thread there, as the source thread's settings give it. */

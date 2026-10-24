@@ -79,6 +79,7 @@ export function AccessRows(props: { remote: readonly Machine[] }) {
     settingKeys.agentTransfers,
     "Agents can move projects and threads to other machines",
   );
+  const ignored = useSettingControl(settingKeys.transferIgnoredFiles, "Bring ignored files");
   // "local" is remote access off; the choice shows the network it would open on.
   const selected = transport.value === "local" ? "lan" : transport.value;
   return (
@@ -186,6 +187,22 @@ export function AccessRows(props: { remote: readonly Machine[] }) {
             checked={transfers.value}
             disabled={transfers.offline || transfers.pending}
             onCheckedChange={(on) => void transfers.set(on)}
+          />
+        </DaemonSlot>
+      </SettingRow>
+      <SettingRow
+        id="remote.transferIgnoredFiles"
+        title="Bring ignored files"
+        description="Local files Git ignores, such as .env and local config, go too. Dependency folders are rebuilt there instead."
+        htmlFor={`${id}-ignored`}
+        inline
+      >
+        <DaemonSlot control={ignored}>
+          <Switch
+            id={`${id}-ignored`}
+            checked={ignored.value}
+            disabled={ignored.offline || ignored.pending}
+            onCheckedChange={(on) => void ignored.set(on)}
           />
         </DaemonSlot>
       </SettingRow>

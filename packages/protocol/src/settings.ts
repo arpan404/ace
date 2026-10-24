@@ -123,6 +123,11 @@ export const SettingsValues = z.object({
    */
   "remote.agentTransfers": z.boolean(),
   /**
+   * Whether transfers from this machine also carry files Git ignores, such as `.env`, by
+   * default (ADR 0099). Dependency and cache folders never travel; they are rebuilt there.
+   */
+  "remote.transferIgnoredFiles": z.boolean(),
+  /**
    * Whether pairing links open ace's hosted web app (https://app.acehq.dev) instead of the web
    * app this daemon serves over LAN or Tailscale. Off by default: the daemon's own web app always
    * matches its version; the hosted one may not.

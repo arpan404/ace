@@ -8,7 +8,8 @@ import { TransferMethod } from "./transfers.ts";
  * Daemon-to-daemon calls that carry a project or thread to another of the person's machines
  * (ADR 0099). The sending daemon calls `POST /v1/transfers` on the target's paired-device TLS
  * listener with its own device token, and uploads the bundle or archive to
- * `PUT /v1/transfers/chunk` in pieces acknowledged by offset. Nothing here carries a credential.
+ * `PUT /v1/transfers/chunk` in pieces acknowledged by offset (`part=ignored` for the archive of
+ * files Git ignores). Nothing here carries a credential.
  */
 
 /** The largest piece one chunk upload carries. */
@@ -72,6 +73,17 @@ export const TransferCommit = z.strictObject({
   /** Uncommitted changes, as a commit in the bundle under this ref. */
   changes: z.object({ ref: refName, commit }).optional(),
   thread: TransferThread.optional(),
+  /**
+   * Files Git ignores, uploaded as their own folder archive (`part=ignored`), placed after the
+   * checkout lands. Sent only to a target that answers with `ignoredOffset`.
+   */
+  ignored: z
+    .object({
+      bytes: z.number().int().positive().max(maxTransferBytes),
+      sha256,
+      files: z.number().int().nonnegative(),
+    })
+    .optional(),
 });
 export type TransferCommit = z.infer<typeof TransferCommit>;
 
@@ -113,6 +125,11 @@ export const IncomingTransfer = z.object({
   /** Bytes of the upload the target holds. */
   offset: z.number().int().nonnegative(),
   /**
+   * Bytes of the ignored files' upload the target holds. Present when the target takes ignored
+   * files at all; a sender never sends them to a target that leaves it out.
+   */
+  ignoredOffset: z.number().int().nonnegative().optional(),
+  /**
    * method remote, once ready: the target has origin's history, so the bundle only needs what
    * origin lacks. False: it couldn't clone origin; send a full bundle instead.
    */
@@ -123,6 +140,7 @@ export const IncomingTransfer = z.object({
       path: z.string().min(1).max(4096),
       branch: z.string().max(1024).optional(),
       threadId: ThreadId.optional(),
+      ignoredSkipped: z.number().int().nonnegative().optional(),
     })
     .optional(),
   error: z.object({ code: z.string().min(1).max(64), message: z.string().max(512) }).optional(),

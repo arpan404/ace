@@ -1190,12 +1190,14 @@ Example:
 | hostId | yes | [HostId.json](schema/HostId.json) |  |
 | parent | no | string | {"minLength":1,"maxLength":4096} |
 | includeChanges | no | boolean | {"default":true} |
+| includeIgnored | no | boolean |  |
 
 Example:
 
 ```json
 {
   "hostId": "example",
+  "includeIgnored": false,
   "type": "workspace.transfer",
   "workspaceId": "example"
 }
@@ -1210,6 +1212,7 @@ Example:
 | hostId | yes | [HostId.json](schema/HostId.json) |  |
 | parent | no | string | {"minLength":1,"maxLength":4096} |
 | includeChanges | no | boolean | {"default":true} |
+| includeIgnored | no | boolean |  |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
 | model | no | string | {"minLength":1,"maxLength":256} |
 
@@ -1219,8 +1222,9 @@ Example:
 {
   "hostId": "example",
   "includeChanges": false,
+  "includeIgnored": true,
+  "model": "example",
   "parent": "example",
-  "provider": "opencode",
   "threadId": "example",
   "type": "thread.continueOn"
 }

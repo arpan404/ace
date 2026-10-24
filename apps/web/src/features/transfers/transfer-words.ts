@@ -27,11 +27,15 @@ export function runningWords(transfer: Transfer): string {
   }
 }
 
-/** Done: where the work is now. */
-export function doneWords(transfer: Pick<Transfer, "kind" | "target">): string {
-  return transfer.kind === "thread"
-    ? `Continued on ${transfer.target.name}`
-    : `Opened on ${transfer.target.name}`;
+/** Done: where the work is now, and how many ignored files that project already had. */
+export function doneWords(transfer: Pick<Transfer, "kind" | "target" | "result">): string {
+  const done =
+    transfer.kind === "thread"
+      ? `Continued on ${transfer.target.name}`
+      : `Opened on ${transfer.target.name}`;
+  const kept = transfer.result?.ignoredSkipped ?? 0;
+  if (!kept) return done;
+  return `${done} · kept its own copy of ${kept} ignored ${kept === 1 ? "file" : "files"}`;
 }
 
 /** A refused command's code, in words a person acts on. */

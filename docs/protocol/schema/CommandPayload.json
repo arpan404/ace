@@ -1277,6 +1277,9 @@
           "default": true,
           "type": "boolean"
         },
+        "includeIgnored": {
+          "type": "boolean"
+        },
         "parent": {
           "maxLength": 4096,
           "minLength": 1,
@@ -1304,6 +1307,9 @@
         },
         "includeChanges": {
           "default": true,
+          "type": "boolean"
+        },
+        "includeIgnored": {
           "type": "boolean"
         },
         "model": {

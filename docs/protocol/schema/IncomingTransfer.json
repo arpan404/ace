@@ -23,6 +23,11 @@
     "hasOrigin": {
       "type": "boolean"
     },
+    "ignoredOffset": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "method": {
       "$ref": "https://ace.local/protocol/v1/TransferMethod.json"
     },
@@ -36,6 +41,11 @@
         "branch": {
           "maxLength": 1024,
           "type": "string"
+        },
+        "ignoredSkipped": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
         },
         "path": {
           "maxLength": 4096,

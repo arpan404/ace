@@ -48,6 +48,8 @@ export interface TransferPorts {
   name(): string;
   broadcast(message: ServerMessage): void;
   links(): readonly FleetLink[];
+  /** `remote.transferIgnoredFiles`, for a transfer that doesn't say. */
+  ignoredByDefault(): boolean;
   peer(hostId: string): TransferPeer | undefined;
   project(id: string): { name: string } | undefined;
   thread(
@@ -63,6 +65,8 @@ type Changes = Partial<z.input<typeof Transfer>>;
 
 /** Bytes each fake transfer moves: enough for several "Sending" steps. */
 const fakeSize = 1_200_000_000;
+/** What the fake's ignored files come to when they travel: counts only, never names. */
+const fakeIgnored = { files: 3, bytes: 4096 };
 const steps = 4;
 
 export class FakeTransfers {
@@ -145,9 +149,19 @@ export class FakeTransfers {
       transfer = this.update(transfer, changes);
       return true;
     };
-    if (!(await step({ phase: "sending", method: "bundle", totalBytes: fakeSize }))) return;
+    const ignored = payload.includeIgnored ?? this.ports.ignoredByDefault();
+    const total = fakeSize + (ignored ? fakeIgnored.bytes : 0);
+    if (
+      !(await step({
+        phase: "sending",
+        method: "bundle",
+        totalBytes: total,
+        ...(ignored ? { ignoredFiles: fakeIgnored } : {}),
+      }))
+    )
+      return;
     for (let index = 1; index <= steps; index++)
-      if (!(await step({ sentBytes: Math.round((fakeSize * index) / steps) }))) return;
+      if (!(await step({ sentBytes: Math.round((total * index) / steps) }))) return;
     if (!(await step({ phase: "importing" }))) return;
     const failure = this.failWith;
     const peer = this.ports.peer(payload.hostId);

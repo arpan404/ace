@@ -248,3 +248,40 @@ test("Open on… sends a project to a linked machine from the project's menu", a
   const view = build.snapshot({ kind: "threads" });
   expect(view?.kind === "threads" ? Object.keys(view.threads) : []).toEqual([]);
 }, 30_000);
+
+/** The options step for continuing the thread on the build server. */
+async function optionsForBuild() {
+  const dialog = await continueOn();
+  await userEvent.click(await within(dialog).findByRole("option", { name: "Build server" }));
+  return dialog;
+}
+
+test("ignored files come along by default, and turning them off sends none", async () => {
+  const { app, finish } = linkedMachines();
+  await app.open("/t/thread-forecast");
+  const dialog = await optionsForBuild();
+  const ignored = within(dialog).getByRole("switch", { name: "Bring ignored files" });
+  expect(ignored.getAttribute("aria-checked")).toBe("true");
+  await userEvent.click(ignored);
+  await userEvent.click(within(dialog).getByRole("button", { name: "Continue on Build server" }));
+  await finish();
+  expect(await within(dialog).findByText("Continued on Build server")).toBeTruthy();
+  expect(app.daemon.transfers.list()[0]).toMatchObject({ phase: "completed" });
+  expect(app.daemon.transfers.list()[0]?.ignoredFiles).toBeUndefined();
+}, 30_000);
+
+test("with Bring ignored files off in Settings, the toggle starts off and can still bring them", async () => {
+  const { app, finish } = linkedMachines();
+  app.daemon.services.settings.write("remote.transferIgnoredFiles", false);
+  await app.open("/t/thread-forecast");
+  const dialog = await optionsForBuild();
+  const ignored = await within(dialog).findByRole("switch", {
+    name: "Bring ignored files",
+    checked: false,
+  });
+  await userEvent.click(ignored);
+  await userEvent.click(within(dialog).getByRole("button", { name: "Continue on Build server" }));
+  await finish();
+  expect(await within(dialog).findByText("Continued on Build server")).toBeTruthy();
+  expect(app.daemon.transfers.list()[0]?.ignoredFiles).toMatchObject({ files: 3 });
+}, 30_000);

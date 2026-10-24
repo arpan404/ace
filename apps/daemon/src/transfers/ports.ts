@@ -1,5 +1,5 @@
 import type { GitTransfer } from "@ace/git";
-import type { measureFolder, packFolder, unpackArchive } from "@ace/files";
+import type { measureFolder, mergeArchive, packFiles, packFolder, unpackArchive } from "@ace/files";
 
 /**
  * What transfers need from Git and from the folder archive owner (ADR 0099): `@ace/git`'s
@@ -8,6 +8,7 @@ import type { measureFolder, packFolder, unpackArchive } from "@ace/files";
 export type TransferGit = Pick<
   GitTransfer,
   | "transferOrigin"
+  | "ignoredPaths"
   | "bundleRefs"
   | "captureChanges"
   | "createBundle"
@@ -27,7 +28,9 @@ export type TransferGit = Pick<
 export interface TransferArchive {
   measureFolder: typeof measureFolder;
   packFolder: typeof packFolder;
+  packFiles: typeof packFiles;
   unpackArchive: typeof unpackArchive;
+  mergeArchive: typeof mergeArchive;
 }
 
 /** A transfer stopped, in words a person acts on. */

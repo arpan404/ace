@@ -224,6 +224,10 @@ const transfer = controlTool({
       .optional()
       .describe("Continue this thread there; the person sends its next message there."),
     includeChanges: z.boolean().optional().describe("Send uncommitted changes. Default true."),
+    includeIgnored: z
+      .boolean()
+      .optional()
+      .describe("Send ignored files like .env. Default: setting."),
   }),
   output: controlResult(z.looseObject({ transferId: z.string() })),
   run: (input, control) => control.run({ op: "transfer", ...input }),

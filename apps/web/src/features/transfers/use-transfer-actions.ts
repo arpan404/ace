@@ -9,6 +9,8 @@ export interface Placement {
   hostId: string;
   parent?: string | undefined;
   includeChanges: boolean;
+  /** Omitted: the sending machine's "Bring ignored files" setting. */
+  includeIgnored?: boolean | undefined;
 }
 
 /** A refusal before anything started: its code (the receipt's error), never thrown. */
@@ -23,6 +25,9 @@ export function useTransferActions() {
         hostId: HostId.parse(placement.hostId),
         ...(placement.parent ? { parent: placement.parent } : {}),
         includeChanges: placement.includeChanges,
+        ...(placement.includeIgnored === undefined
+          ? {}
+          : { includeIgnored: placement.includeIgnored }),
       };
       let result: CommandResult;
       try {

@@ -2,6 +2,7 @@ import { validateCloneUrl, type ProjectGitPolicy } from "@ace/git";
 import { join } from "node:path";
 import {
   WorkspaceId,
+  maxTransferBytes,
   transferChunkBytes,
   type Device,
   type IncomingTransfer,
@@ -11,7 +12,15 @@ import {
 } from "@ace/protocol";
 import { TargetRefusal } from "../machines/target-refusal.ts";
 import { IncomingRows, type IncomingRecord } from "./incoming-rows.ts";
-import { appendAt, ensureDirectory, fileBytes, fileDigest, removeQuietly } from "./files.ts";
+import {
+  appendAt,
+  ensureDirectory,
+  fileBytes,
+  fileDigest,
+  removeQuietly,
+  removeStray,
+} from "./files.ts";
+import { neverPlaced } from "./ignored-files.ts";
 import {
   NeedsFullBundle,
   landTransfer,
@@ -68,6 +77,9 @@ export class IncomingTransfers {
       await this.rollback(record);
       this.import(this.rows.get(record.transferId) ?? record);
     }
+    // Files a crash left behind for transfers that are settled or gone.
+    const live = this.rows.live().map((transferId) => `${transferId}.`);
+    await removeStray(this.deps.directory, (name) => live.some((id) => name.startsWith(id)));
     await this.sweep();
   }
   /** Stops importing; a restart rolls back what an import made and runs it again. */
@@ -79,12 +91,23 @@ export class IncomingTransfers {
   private file(transferId: string) {
     return join(this.deps.directory, `${transferId}.part`);
   }
+  /** The archive of files Git ignores, uploaded beside the code (`part=ignored`). */
+  private ignoredFile(transferId: string) {
+    return join(this.deps.directory, `${transferId}.ignored.part`);
+  }
+  private async removeFiles(transferId: string) {
+    await removeQuietly(this.file(transferId));
+    await removeQuietly(this.ignoredFile(transferId));
+  }
   async view(record: IncomingRecord): Promise<IncomingTransfer> {
+    const receiving = record.state === "receiving";
     return {
       transferId: record.transferId,
       state: record.state,
       method: record.method,
-      offset: record.state === "receiving" ? await fileBytes(this.file(record.transferId)) : 0,
+      offset: receiving ? await fileBytes(this.file(record.transferId)) : 0,
+      // Always present: this machine takes ignored files.
+      ignoredOffset: receiving ? await fileBytes(this.ignoredFile(record.transferId)) : 0,
       ...(record.hasOrigin === undefined ? {} : { hasOrigin: record.hasOrigin }),
       ...(record.result ? { result: record.result } : {}),
       ...(record.error ? { error: record.error } : {}),
@@ -151,13 +174,20 @@ export class IncomingTransfers {
     return undefined;
   }
   /** One piece of the upload at `offset`; out of order answers what is held, unchanged. */
-  async chunk(device: Device, transferId: string, offset: number, data: Buffer) {
+  async chunk(
+    device: Device,
+    transferId: string,
+    offset: number,
+    data: Buffer,
+    part: "code" | "ignored" = "code",
+  ) {
     const record = this.owned(device, transferId);
     if (data.length > transferChunkBytes) throw new TargetRefusal("invalid", "Chunk too large.");
     if (record.state !== "receiving")
       throw new TargetRefusal("invalid", "This transfer isn't receiving bytes.");
+    const file = part === "ignored" ? this.ignoredFile(transferId) : this.file(transferId);
     const previous = this.writes.get(transferId) ?? Promise.resolve();
-    const write = previous.then(() => appendAt(this.file(transferId), offset, data));
+    const write = previous.then(() => appendAt(file, offset, data));
     this.writes.set(
       transferId,
       write.catch(() => undefined),
@@ -173,7 +203,7 @@ export class IncomingTransfers {
       if (bytes !== call.file.bytes)
         throw new TargetRefusal("invalid", `Holding ${bytes} of ${call.file.bytes} bytes.`);
       if ((await fileDigest(file)) !== call.file.sha256) {
-        await removeQuietly(file);
+        await this.removeFiles(call.transferId);
         this.settle(record.transferId, "failed", {
           code: "transfer_corrupt",
           message: "The file arrived damaged. Start the transfer again.",
@@ -182,6 +212,23 @@ export class IncomingTransfers {
       }
     } else if (record.method !== "remote")
       throw new TargetRefusal("invalid", "This method needs a file.");
+    if (call.ignored) {
+      if ((call.file?.bytes ?? 0) + call.ignored.bytes > maxTransferBytes)
+        throw new TargetRefusal("invalid", "The transfer is larger than a transfer may be.");
+      const ignored = this.ignoredFile(call.transferId);
+      const bytes = await fileBytes(ignored);
+      if (bytes !== call.ignored.bytes)
+        throw new TargetRefusal("invalid", `Holding ${bytes} of ${call.ignored.bytes} bytes.`);
+      // Checked before anything is written; the names inside are never read until it matches.
+      if ((await fileDigest(ignored)) !== call.ignored.sha256) {
+        await this.removeFiles(call.transferId);
+        this.settle(record.transferId, "failed", {
+          code: "transfer_corrupt",
+          message: "The file arrived damaged. Start the transfer again.",
+        });
+        return this.view(this.owned(device, call.transferId));
+      }
+    }
     this.rows.update(call.transferId, { state: "importing", commit: call }, this.deps.now());
     const importing = this.owned(device, call.transferId);
     this.import(importing);
@@ -196,6 +243,8 @@ export class IncomingTransfers {
   private async run(record: IncomingRecord, signal: AbortSignal): Promise<void> {
     const file = this.file(record.transferId);
     const hasFile = Boolean(record.commit?.file);
+    const ignored = record.commit?.ignored ? this.ignoredFile(record.transferId) : undefined;
+    let ignoredSkipped = 0;
     const mine: string[] = [];
     try {
       const result = await landTransfer(
@@ -211,6 +260,18 @@ export class IncomingTransfers {
             this.rows.update(record.transferId, change, this.deps.now());
           },
           attempt: String(this.deps.now()),
+          // Ignored files go in once the checkout is there, never over a file it already has.
+          ...(ignored
+            ? {
+                landed: async (path: string) => {
+                  const merged = await this.deps.archive.mergeArchive(ignored, path, {
+                    signal,
+                    exclude: neverPlaced,
+                  });
+                  ignoredSkipped += merged.skipped;
+                },
+              }
+            : {}),
         },
         record,
         hasFile ? file : undefined,
@@ -219,10 +280,15 @@ export class IncomingTransfers {
       if (this.rows.get(record.transferId)?.state !== "importing") return;
       this.rows.update(
         record.transferId,
-        { state: "completed", result, createdPath: undefined, registeredId: undefined },
+        {
+          state: "completed",
+          result: { ...result, ...(ignored ? { ignoredSkipped } : {}) },
+          createdPath: undefined,
+          registeredId: undefined,
+        },
         this.deps.now(),
       );
-      await removeQuietly(file);
+      await this.removeFiles(record.transferId);
     } catch (error) {
       // Shutting down: the row stays importing, and the next start rolls back and retries.
       if (this.closed) return;
@@ -239,7 +305,7 @@ export class IncomingTransfers {
         );
         return;
       }
-      await removeQuietly(file);
+      await this.removeFiles(record.transferId);
       this.settle(record.transferId, "failed", failure(error));
     } finally {
       for (const path of mine) this.held.delete(path);
@@ -273,13 +339,13 @@ export class IncomingTransfers {
     this.running.get(transferId)?.abort();
     await this.writes.get(transferId);
     if (!this.running.has(transferId)) await this.rollback(record);
-    await removeQuietly(this.file(transferId));
+    await this.removeFiles(transferId);
     return this.view(this.owned(device, transferId));
   }
   /** Settled rows and their files go after 24 hours. */
   private async sweep(): Promise<void> {
     for (const record of this.rows.expired(this.deps.now() - retentionMs)) {
-      await removeQuietly(this.file(record.transferId));
+      await this.removeFiles(record.transferId);
       this.rows.delete(record.transferId);
     }
   }

@@ -58,79 +58,129 @@ async function listNames(directory: PinnedDirectory, path: string, relative: str
   return names.toSorted();
 }
 
-/** Deterministic preorder of a whole folder. Links are read as text and never followed. */
-export async function walkFolder(root: string, signal?: AbortSignal): Promise<FolderWalk> {
-  const canonical = await realpath(root);
-  let skipped = 0;
-  async function inside(path: string, target: string): Promise<boolean> {
+/** Decides, before a member is stored, that it and everything under it stays out. */
+export type FolderPrune = (member: {
+  path: string;
+  kind: FolderMember["kind"];
+  /** A directory's entry names. */
+  names?: readonly string[];
+}) => boolean;
+
+/**
+ * Reads members under one canonical root through pinned descriptors. Links are read as text,
+ * never followed, and skipped when they leave the root; sockets, FIFOs and devices are skipped.
+ */
+export class FolderReader {
+  readonly canonical: string;
+  private readonly signal: AbortSignal | undefined;
+  private readonly prune: FolderPrune | undefined;
+  skipped = 0;
+  constructor(canonical: string, signal?: AbortSignal, prune?: FolderPrune) {
+    this.canonical = canonical;
+    this.signal = signal;
+    this.prune = prune;
+  }
+  private async inside(path: string, target: string): Promise<boolean> {
     const route = linkRoute(path, target);
     if (!route) return false;
-    for (const directory of route) if (await isLink(join(canonical, directory))) return false;
+    for (const directory of route) if (await isLink(join(this.canonical, directory))) return false;
     return true;
   }
-  async function* descend(
+  /** The member `name` of `directory`, at folder-relative `path`; none when it is skipped. */
+  async member(
     directory: PinnedDirectory,
-    relative: string,
-  ): AsyncGenerator<FolderMember> {
-    const names = await listNames(directory, join(canonical, relative), relative);
-    for (const name of names) {
-      checkAborted(signal);
-      const path = relative ? `${relative}/${name}` : name;
-      let info;
-      try {
-        info = directory.metadata(name);
-      } catch (error) {
-        if (vanished(error)) continue;
-        throw error;
+    name: string,
+    path: string,
+  ): Promise<FolderMember | undefined> {
+    checkAborted(this.signal);
+    let info;
+    try {
+      info = directory.metadata(name);
+    } catch (error) {
+      if (vanished(error)) return undefined;
+      throw error;
+    }
+    const kind = KIND.get(info.mode & TYPE);
+    if (!kind) {
+      this.skipped++;
+      return undefined;
+    }
+    const member: FolderMember = {
+      path,
+      name,
+      parent: directory,
+      kind,
+      size: kind === "file" ? info.size : 0,
+      mode: info.mode & 0o7777,
+      mtime: info.mtime,
+      dev: info.dev,
+      ino: info.ino,
+    };
+    if (kind === "symlink") {
+      const target = await readlink(join(this.canonical, path));
+      const after = directory.metadata(name);
+      if (after.ino !== info.ino || after.dev !== info.dev)
+        throw new FolderArchiveError("CHANGED", "Link changed while reading", path);
+      if (!(await this.inside(path, target))) {
+        this.skipped++;
+        return undefined;
       }
-      const kind = KIND.get(info.mode & TYPE);
-      if (!kind) {
-        skipped++;
+      member.link = target;
+    }
+    return member;
+  }
+  /** Opens the directory member just read, checking it is still the same inode. */
+  open(member: FolderMember): PinnedDirectory {
+    const child = member.parent.child(member.name);
+    const opened = child.stat();
+    if (opened.ino !== member.ino || opened.dev !== member.dev) {
+      child.closeSync();
+      throw new FolderArchiveError("CHANGED", "Folder changed", member.path);
+    }
+    return child;
+  }
+  /** Whether the prune rule keeps `member` out; a directory is judged with its entry names. */
+  async pruned(member: FolderMember, child?: PinnedDirectory): Promise<boolean> {
+    if (!this.prune) return false;
+    const names =
+      child && member.kind === "directory"
+        ? await listNames(child, join(this.canonical, member.path), member.path)
+        : undefined;
+    return this.prune({ path: member.path, kind: member.kind, ...(names ? { names } : {}) });
+  }
+  /** Every member under `directory` (at `relative`), in sorted preorder. */
+  async *descend(directory: PinnedDirectory, relative: string): AsyncGenerator<FolderMember> {
+    const names = await listNames(directory, join(this.canonical, relative), relative);
+    for (const name of names) {
+      const path = relative ? `${relative}/${name}` : name;
+      const member = await this.member(directory, name, path);
+      if (!member) continue;
+      if (member.kind !== "directory") {
+        if (!(await this.pruned(member))) yield member;
         continue;
       }
-      const member: FolderMember = {
-        path,
-        name,
-        parent: directory,
-        kind,
-        size: kind === "file" ? info.size : 0,
-        mode: info.mode & 0o7777,
-        mtime: info.mtime,
-        dev: info.dev,
-        ino: info.ino,
-      };
-      if (kind === "symlink") {
-        const target = await readlink(join(canonical, path));
-        const after = directory.metadata(name);
-        if (after.ino !== info.ino || after.dev !== info.dev)
-          throw new FolderArchiveError("CHANGED", "Link changed while reading", path);
-        if (!(await inside(path, target))) {
-          skipped++;
-          continue;
-        }
-        member.link = target;
-      }
-      yield member;
-      if (kind === "directory") {
-        const child = directory.child(name);
-        try {
-          const opened = child.stat();
-          if (opened.ino !== info.ino || opened.dev !== info.dev)
-            throw new FolderArchiveError("CHANGED", "Folder changed", path);
-          yield* descend(child, path);
-        } finally {
-          child.closeSync();
-        }
+      const child = this.open(member);
+      try {
+        if (await this.pruned(member, child)) continue;
+        yield member;
+        yield* this.descend(child, path);
+      } finally {
+        child.closeSync();
       }
     }
   }
+}
+
+/** Deterministic preorder of a whole folder. Links are read as text and never followed. */
+export async function walkFolder(root: string, signal?: AbortSignal): Promise<FolderWalk> {
+  const reader = new FolderReader(await realpath(root), signal);
   async function* members(): AsyncGenerator<FolderMember> {
-    const top = PinnedDirectory.open(canonical);
+    const top = PinnedDirectory.open(reader.canonical);
     try {
-      yield* descend(top, "");
+      yield* reader.descend(top, "");
     } finally {
       top.closeSync();
     }
   }
-  return { members: members(), skipped: () => skipped };
+  return { members: members(), skipped: () => reader.skipped };
 }

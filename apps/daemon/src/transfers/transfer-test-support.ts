@@ -187,6 +187,8 @@ export async function transferMachines(
     cloneTimeoutMs?: number;
     /** Wraps the source's transfer transport, e.g. to drop a connection. */
     transport?: (inner: TransferTransport) => TransferTransport;
+    /** Both daemons write their info logs, for tests that read them. */
+    logs?: boolean;
   } = {},
 ) {
   const sourceRoot = await realpath(await mkdtemp(join(tmpdir(), "ace-transfer-source-")));
@@ -195,13 +197,14 @@ export async function transferMachines(
     await rm(sourceRoot, { recursive: true, force: true });
     await rm(targetRoot, { recursive: true, force: true });
   });
+  const logLevel = options.logs ? { ACE_LOG_LEVEL: "info" } : {};
   const target = await daemonFixture(
     undefined,
     {
       projects: projects(targetRoot),
       transfers: options.cloneTimeoutMs ? { cloneTimeoutMs: options.cloneTimeoutMs } : {},
     },
-    { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1" },
+    { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1", ...logLevel },
   );
   cleanup.push(() => target.daemon.close());
   const transport = options.transport ? options.transport(transferTransport) : transferTransport;
@@ -209,7 +212,7 @@ export async function transferMachines(
     projects: projects(sourceRoot),
     transfers: { transport, sleep: quickSleep, offlineMs: 5_000 },
   };
-  let source: Side = await daemonFixture(undefined, sourceOptions);
+  let source: Side = await daemonFixture(undefined, sourceOptions, logLevel);
   cleanup.push(() => source.daemon.close());
   const { remoteUrl, fingerprint } = target.daemon;
   if (!remoteUrl || !fingerprint) throw new Error("Target is not listening for paired devices");

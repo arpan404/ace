@@ -59,6 +59,8 @@ export interface LandingDeps {
   made(change: { createdPath?: string; registeredId?: string }): void;
   /** Distinct per attempt, so a retried import never reuses an earlier attempt's receipt. */
   attempt: string;
+  /** Runs in the final checkout once the branch and changes are there (ignored files). */
+  landed?: ((path: string) => Promise<void>) | undefined;
 }
 
 /** The remote method needs origin's history there; asking for a full bundle instead. */
@@ -199,6 +201,7 @@ async function place(
   const changes = commit.changes;
   const apply = async (path: string) => {
     if (changes) await git.applyChanges(path, changes.commit);
+    await deps.landed?.(path);
   };
   let path = project.path;
   let threadId: string | undefined;

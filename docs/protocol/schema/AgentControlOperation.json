@@ -178,6 +178,9 @@
         "includeChanges": {
           "type": "boolean"
         },
+        "includeIgnored": {
+          "type": "boolean"
+        },
         "machine": {
           "$ref": "https://ace.local/protocol/v1/MachineName.json"
         },

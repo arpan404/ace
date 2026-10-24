@@ -567,14 +567,13 @@ Example:
 {
   "transfer": {
     "commandId": "example",
+    "ignoredFiles": {
+      "bytes": 0,
+      "files": 5
+    },
     "kind": "thread",
     "method": "archive",
     "phase": "starting",
-    "result": {
-      "path": "example",
-      "threadId": "example",
-      "workspaceId": "example"
-    },
     "sentBytes": 0,
     "startedAt": 7,
     "target": {
@@ -583,7 +582,7 @@ Example:
     },
     "threadId": "example",
     "transferId": "example",
-    "updatedAt": 7,
+    "updatedAt": 8,
     "workspaceId": "example"
   },
   "type": "transfer.progress"

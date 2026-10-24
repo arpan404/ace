@@ -272,6 +272,7 @@ export class FakeDaemon implements Host {
           if (connection.authenticated) connection.push(message);
       },
       links: () => this.services.fleet.links(),
+      ignoredByDefault: () => this.services.settings.get("remote.transferIgnoredFiles") !== false,
       peer: (hostId) => this.peers.get(hostId),
       project: (id) => this.projects.get(id),
       thread: (id) => {

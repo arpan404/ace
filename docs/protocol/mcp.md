@@ -424,11 +424,13 @@ Required capability: agents. Timeout: 630000 ms.
 | project | no | string | {"description":"A project on this machine, by id or name. Default: this thread's.","minLength":1,"maxLength":256} |
 | thread | no | `"self"` | {"description":"Continue this thread there; the person sends its next message there."} |
 | includeChanges | no | boolean | {"description":"Send uncommitted changes. Default true."} |
+| includeIgnored | no | boolean | {"description":"Send ignored files like .env. Default: setting."} |
 
 Example:
 
 ```json
 {
+  "includeIgnored": true,
   "machine": "PNgdRfaTasLnIVrkYf9tiEPHNcFsjRjRPL3Fys_PEnXFyNXRY0U.Aptjx-4xmHcw"
 }
 ```
