@@ -228,10 +228,11 @@ export class TurnTree {
           needsYou: agent.status.state === "blocked" && agent.status.on === "human",
         };
       }
+      // A child queued for its parent's run slot keeps the turn open, but isn't working yet.
       if (agent && !root && isRunning(agent))
         next = {
           turn: ownerTurn(id),
-          agent: true,
+          agent: !(agent.status.state === "blocked" && agent.status.on === "queue"),
           needsYou: agent.status.state === "blocked" && agent.status.on === "human",
         };
     } else if (key.startsWith("task:")) {

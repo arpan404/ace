@@ -166,9 +166,16 @@ export const TransitionCommands = [
 export const DelegatedBy = ThreadId.meta({
   description: "The thread whose agent delegated this one through ace.",
 });
+/**
+ * A delegated child admitted while its parent's run slots were full: what it was asked, kept on
+ * the thread so it reads as queued with its task until a slot frees and it starts.
+ */
+export const QueuedLaunch = z.object({ text: z.string() });
+export type QueuedLaunch = z.infer<typeof QueuedLaunch>;
 export const ThreadTransitionView = z.object({
   lineage: ThreadLineage.optional(),
   delegatedBy: DelegatedBy.optional(),
+  queuedLaunch: QueuedLaunch.optional(),
   execution: ExecutionSelection.optional(),
   switch: ThreadSwitch.optional(),
 });

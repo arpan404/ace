@@ -33,6 +33,9 @@ import {
   watchedState,
 } from "./watch-view.ts";
 
+/** What a queued child's step says, for a model reading agents_status or wait. */
+const queuedStep = "queued: starts when a running agent finishes";
+
 export interface MonitorDependencies {
   store: Store;
   journal: DelegationJournal;
@@ -143,6 +146,7 @@ export class AgentMonitor {
     const now = this.deps.clock.now();
     const counts: Record<WatchedState, number> = {
       working: 0,
+      queued: 0,
       needs_you: 0,
       done: 0,
       failed: 0,
@@ -155,7 +159,12 @@ export class AgentMonitor {
       const state = this.state(thread.id);
       counts[state]++;
       const needs = state === "needs_you" ? this.needs(thread) : [];
-      const step = state === "working" || state === "needs_you" ? this.step(thread) : undefined;
+      const step =
+        state === "queued"
+          ? queuedStep
+          : state === "working" || state === "needs_you"
+            ? this.step(thread)
+            : undefined;
       const last = state === "working" ? this.lastOutput(thread, 100) : undefined;
       children.push({
         id: thread.id,
@@ -282,7 +291,7 @@ export class AgentMonitor {
       return { view: { ...base, result: outcome.result, truncated: outcome.truncated }, outcome };
     }
     const needs = state === "needs_you" ? this.needs(thread) : [];
-    const step = this.step(thread);
+    const step = state === "queued" ? queuedStep : this.step(thread);
     const last = this.lastOutput(thread, 160);
     return {
       view: {

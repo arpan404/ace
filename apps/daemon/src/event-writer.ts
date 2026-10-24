@@ -128,6 +128,7 @@ export class EventWriter {
             JSON.stringify({
               lineage: thread.lineage,
               delegatedBy: thread.delegatedBy,
+              queuedLaunch: thread.queuedLaunch,
               execution: thread.execution,
               switch: thread.switch,
             }),

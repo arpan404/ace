@@ -11,7 +11,7 @@ export function externalAgentStatus(status: ThreadStatus, threadId: ThreadId): A
     case "waiting":
       return {
         state: "blocked",
-        on: status.on === "queue" ? "subagents" : status.on,
+        on: status.on,
         refs: [threadId],
       };
     case "limited":
