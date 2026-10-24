@@ -50,9 +50,9 @@ struct InboxStack<Destination: View>: View {
     var body: some View {
         // The list beside the open page in a regular window, a stack in a compact one.
         if pulls {
-            InboxSplit(path: $path, empty: "No pull request open") { root } page: { page($0) }
+            InboxSplit(path: $path, empty: "No pull request open", showing: tab == .pulls) { root } page: { page($0) }
         } else {
-            InboxSplit(path: $path, empty: "No thread open") { root.inboxCommands(commands) } page: { page($0) }
+            InboxSplit(path: $path, empty: "No thread open", showing: tab != .pulls) { root.inboxCommands(commands) } page: { page($0) }
         }
     }
 

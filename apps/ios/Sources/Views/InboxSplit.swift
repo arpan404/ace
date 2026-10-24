@@ -9,6 +9,8 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     @Binding var path: [InboxRoute]
     /// What the detail column says while nothing is open.
     let empty: String
+    /// This tab is the one showing; only it places the window's tab bar.
+    let showing: Bool
     @ViewBuilder let list: () -> Sidebar
     @ViewBuilder let page: (InboxRoute) -> Page
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -54,7 +56,9 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
         // Beside the list there is no tab bar at all, nor room kept for one.
         .toolbarVisibility(ThreadColumns.sidebarHoldsTabs(sizeClass) ? .hidden : .automatic, for: .tabBar)
         // The tab bar controller itself follows the same rule, or its first layout keeps room for it.
-        .background { TabBarPlace(hidden: !ThreadColumns.showsTabBar(sizeClass, path: path)).frame(width: 0, height: 0) }
+        .background {
+            if showing { TabBarPlace(hidden: !ThreadColumns.showsTabBar(sizeClass, path: path)).frame(width: 0, height: 0) }
+        }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .onGeometryChange(for: CGFloat.self) { proxy in
             if #available(iOS 26, *) { proxy.containerCornerInsets.topLeading.width } else { 0 }
