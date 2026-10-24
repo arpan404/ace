@@ -51,6 +51,7 @@ import {
   type SubscriptionScope,
   type ThreadListView,
   type ServerMessage,
+  FleetLink,
 } from "@ace/protocol";
 import { Connection, matches, type Host, type Wire } from "./connection.ts";
 import { CommandFlights } from "./command-status.ts";
@@ -59,6 +60,7 @@ import { FakeAccess } from "./access.ts";
 import { FakeScreen } from "./screen.ts";
 import { FakeAppDevices } from "./app-devices.ts";
 import { FakeReviewDesk } from "./review-desk.ts";
+import { FakeTransfers, transferPeer, type TransferPeer } from "./transfers.ts";
 import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
@@ -140,6 +142,9 @@ export class FakeDaemon implements Host {
   readonly appDevices: FakeAppDevices;
   readonly screen: FakeScreen;
   readonly commandFlights = new CommandFlights();
+  /** Transfers to other fake machines (ADR 0099); `linkTo` makes a machine reachable. */
+  readonly transfers: FakeTransfers;
+  private peers = new Map<string, TransferPeer>();
   constructor(options: FakeDaemonOptions) {
     this.options = options;
     this.worktreeCreations = new FakeWorktreeCreations(
@@ -258,6 +263,34 @@ export class FakeDaemon implements Host {
       },
     });
     Object.assign(this.services, options.catalog);
+    this.transfers = new FakeTransfers({
+      clock: options.clock,
+      hostId: () => this.hostId,
+      name: () => this.displayName,
+      broadcast: (message) => {
+        for (const connection of this.connections)
+          if (connection.authenticated) connection.push(message);
+      },
+      links: () => this.services.fleet.links(),
+      peer: (hostId) => this.peers.get(hostId),
+      project: (id) => this.projects.get(id),
+      thread: (id) => {
+        const thread = this.threads.get(id)?.view.thread;
+        const state = thread?.status.state;
+        return (
+          thread && {
+            ...thread,
+            busy: state === "working" || state === "needs_you" || state === "waiting",
+          }
+        );
+      },
+      continued: (id, on) => {
+        const host = this.thread(id);
+        const changes = { details: { ...host.view.thread.details, continuedOn: on } };
+        this.append(host, [{ type: "thread.client.updated", changes }], options.clock());
+      },
+      ...(options.projectScheduler ? { schedule: options.projectScheduler } : {}),
+    });
     this.servicesWire = new FakeServicesWire(
       {
         now: options.clock,
@@ -839,7 +872,28 @@ export class FakeDaemon implements Host {
       if (refusal !== "silent") connection.push(refusal);
       return true;
     }
+    if (this.transfers.handle(message, connection.push)) return true;
     return this.services.handle(message, connection.push, connection.deviceId);
+  }
+  /**
+   * Link this machine to `other` (as Settings › Machines would) so it can send work there.
+   * `link` overrides the stored link: `{ status: "offline" }`, `{ projects: false }`.
+   */
+  linkTo(other: FakeDaemon, link: Partial<FleetLink> = {}): void {
+    this.services.fleet.seed(
+      FleetLink.parse({
+        hostId: other.hostId,
+        profile: other.hostId,
+        name: other.displayName,
+        origin: `https://${other.hostId}.local:5870/`,
+        deviceId: `fleet-device-${other.hostId}`,
+        status: "online",
+        access: "operate",
+        projects: true,
+        ...link,
+      }),
+    );
+    this.peers.set(other.hostId, transferPeer(other));
   }
   release(connection: Connection): void {
     this.connections.delete(connection);
@@ -919,6 +973,10 @@ export class FakeDaemon implements Host {
     }
     if (!this.canManageProjects(command.deviceId))
       return Promise.resolve({ commandId: command.id, ok: false, error: "forbidden" });
+    if (p.type === "workspace.transfer" || p.type === "thread.continueOn")
+      return Promise.resolve(
+        this.receipts.get(command.id)?.result ?? this.transfers.start({ ...command, payload: p }),
+      );
     if (command.payload.type !== "workspace.clone" && command.payload.type !== "workspace.publish")
       return Promise.resolve(this.command(command));
     return projectIntent(command, {

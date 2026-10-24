@@ -12857,6 +12857,7 @@ Example:
 | deviceId | yes | [DeviceId.json](schema/DeviceId.json) |  |
 | status | yes | ["online","offline","refused"] |  |
 | access | no | ["read","operate"] |  |
+| projects | no | boolean |  |
 
 Example:
 

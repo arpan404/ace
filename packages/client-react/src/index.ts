@@ -34,3 +34,4 @@ export {
 } from "./sidebar.ts";
 export type { SidebarKey } from "./sidebar.ts";
 export { useConnectionState, useIntent, useIntentSender, usePendingSends } from "./intents.ts";
+export { transferStore, useProjectTransfer, useThreadTransfer, useTransfers } from "./transfers.ts";

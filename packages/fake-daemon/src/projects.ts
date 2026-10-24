@@ -290,6 +290,27 @@ export class FakeProjects {
       });
     return { ok: true, workspace: project, inspection: this.inspection(path) };
   }
+  /**
+   * A project another machine sent here (ADR 0099): the project of that name when there is one,
+   * else a new Git checkout in `parent` (or the home), with `-2`, `-3`… when the name is taken.
+   */
+  receive(name: string, parent?: string): { workspaceId: string; path: string } {
+    this.seed();
+    const known = [...this.projects.values()].find((project) => project.name === name);
+    if (known) return { workspaceId: known.id, path: known.path };
+    const base = `${(parent ?? this.home).replace(/\/+$/, "")}/${name}`;
+    let path = base;
+    for (let n = 2; this.directories.get(path)?.empty === false; n++) path = `${base}-${n}`;
+    this.makeFolders(path);
+    this.directories.set(path, {
+      empty: false,
+      git: true,
+      initialBranch: "main",
+      modifiedAt: this.context.now(),
+    });
+    const result = this.register(path, name);
+    return { workspaceId: result.workspace.id, path };
+  }
   /** `mkdir -p` on the fake host: each missing folder on the way, empty. */
   private makeFolders(path: string): void {
     const names = path.split("/").filter(Boolean);
