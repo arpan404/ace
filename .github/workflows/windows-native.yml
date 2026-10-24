@@ -19,6 +19,9 @@ on:
       - scripts/test-home-setup.ts
       - scripts/test-failure-reporter.ts
       - packages/workspace/**
+      - native/screen-helper-windows/**
+      - packages/screen/**
+      - packages/browser/**
       - packages/provider-kit/src/windows*
       - packages/provider-kit/src/process-windows*
       - packages/terminal/**
@@ -51,12 +54,14 @@ jobs:
             node_arch: x64
             bun_cpu: x64
             msvc_arch: x64
+            rust_target: x86_64-pc-windows-msvc
             node_subdir: win-x64
           - os: windows-11-arm
             arch: arm64
             node_arch: arm64
             bun_cpu: arm64
             msvc_arch: arm64
+            rust_target: aarch64-pc-windows-msvc
             node_subdir: win-arm64
     defaults:
       run:
@@ -220,6 +225,30 @@ jobs:
           $ErrorActionPreference = "Stop"
           node -p "JSON.stringify({ nativeNodeArch: process.arch, platform: process.platform, version: process.version })"
           node node_modules/vitest/vitest.mjs run --config scripts/vitest-windows-native.config.ts
+
+      # Native build/protocol/core-test gate only. Does NOT prove GUI capture,
+      # screenshots, UIA traversal, or real input injection: #[ignore] interactive,
+      # input, and UIA tests stay ignored (default cargo test behavior), and this
+      # step captures no screenshots and moves no user pointer.
+      - name: Build + test native screen helper (Rust)
+        timeout-minutes: 15
+        shell: cmd
+        env:
+          VS_DEVCMD: ${{ steps.msvc.outputs.vs-devcmd }}
+          MSVC_ARCH: ${{ matrix.msvc_arch }}
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          @echo off
+          setlocal
+          call "%VS_DEVCMD%" -arch=%MSVC_ARCH% -host_arch=%MSVC_ARCH% || exit /b 1
+          where cl || exit /b 1
+          where rustup || (echo "::error::rustup not found on runner; failing closed — install Rust via rustup on the image" && exit /b 1)
+          where cargo || exit /b 1
+          rustup toolchain install stable --profile minimal --no-self-update || exit /b 1
+          rustup target add %RUST_TARGET% --toolchain stable || exit /b 1
+          rustup default stable || exit /b 1
+          cargo build --locked --manifest-path native\screen-helper-windows\Cargo.toml --target %RUST_TARGET% || exit /b 1
+          cargo test --locked --manifest-path native\screen-helper-windows\Cargo.toml --target %RUST_TARGET% || exit /b 1
 
       - name: Observe bounded stdin search performance
         run: node packages/workspace/bench/ripgrep-input.ts
