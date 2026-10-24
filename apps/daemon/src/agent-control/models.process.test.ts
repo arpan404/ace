@@ -238,7 +238,10 @@ test("the person's role model fills an open choice but never replaces a model th
     expect(f.contexts.get(child.childId)?.model).toBe("claude-opus-5-5");
     const before = f.store.listThreads();
     expect(() => f.service.delegate(parent, greeting("named", "missing-model"), "opus")).toThrow(
-      /requested model missing-model is unavailable there\. Settings → Roles names claude-opus-5-5 for claude/,
+      expect.objectContaining({
+        message: expect.stringContaining("requested model missing-model is unavailable there"),
+        publicDetail: expect.stringContaining("Settings → Roles names claude-opus-5-5 for claude"),
+      }),
     );
     expect(f.store.listThreads()).toEqual(before);
   } finally {

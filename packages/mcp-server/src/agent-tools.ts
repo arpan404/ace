@@ -42,24 +42,10 @@ const DelegateTask = z.strictObject({
   role: DelegationRole,
   runRole: RunRole.optional().describe("Run as a role from your Roles line."),
   provider: ProviderKind.optional().describe(
-    "Provider that runs the child. Default: yours, or the one whose catalog has `model`.",
+    "Provider that runs the child. Default: yours, or the one serving `model`.",
   ),
-  model: z
-    .string()
-    .min(1)
-    .max(256)
-    .optional()
-    .describe(
-      'A model id, or its name as the person wrote it ("opus 5.5", "muse spark"): ace finds the nearest model across providers and accounts. Default: the provider\'s default model.',
-    ),
-  accountId: z
-    .string()
-    .min(1)
-    .max(256)
-    .optional()
-    .describe(
-      "An account's id or label, from `models` or your brief. Default: ace picks a signed-in account with quota that serves the model.",
-    ),
+  model: z.string().min(1).max(256).optional().describe('Model id or name ("opus 5.5").'),
+  accountId: z.string().min(1).max(256).optional().describe("Account id or label."),
   effort: z
     .string()
     .min(1)

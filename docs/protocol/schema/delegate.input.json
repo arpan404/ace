@@ -13,7 +13,7 @@
             "description": "The child's access mode. Default inherit (yours); never broader than yours."
           },
           "accountId": {
-            "description": "An account's id or label, from `models` or your brief. Default: ace picks a signed-in account with quota that serves the model.",
+            "description": "Account id or label.",
             "maxLength": 256,
             "minLength": 1,
             "type": "string"
@@ -29,7 +29,7 @@
             "description": "Run on this paired machine (a name from `machines`). Requires project."
           },
           "model": {
-            "description": "A model id, or its name as the person wrote it (\"opus 5.5\", \"muse spark\"): ace finds the nearest model across providers and accounts. Default: the provider's default model.",
+            "description": "Model id or name (\"opus 5.5\").",
             "maxLength": 256,
             "minLength": 1,
             "type": "string"
@@ -42,7 +42,7 @@
           },
           "provider": {
             "$ref": "https://ace.local/protocol/v1/ProviderKind.json",
-            "description": "Provider that runs the child. Default: yours, or the one whose catalog has `model`."
+            "description": "Provider that runs the child. Default: yours, or the one serving `model`."
           },
           "requestId": {
             "description": "Any stable id; repeating a call with it runs once.",

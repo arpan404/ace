@@ -30,9 +30,9 @@ const accounts = (models: readonly CatalogModel[]) =>
 export function ambiguousModel(name: string, options: readonly CatalogModel[]): AgentControlError {
   return new AgentControlError(
     "invalid_arguments",
-    "model_ambiguous",
+    `model_ambiguous: ${name}`,
     undefined,
-    `"${name}" fits several models: ${listed(options)}. Pass one of these ids as model.`,
+    `That name fits several models: ${listed(options)}. Pass one of these ids as model.`,
   );
 }
 
@@ -40,9 +40,9 @@ export function ambiguousModel(name: string, options: readonly CatalogModel[]): 
 export function ambiguousLogin(model: string, rows: readonly CatalogModel[]): AgentControlError {
   return new AgentControlError(
     "invalid_arguments",
-    "model_ambiguous",
+    `login_ambiguous: ${model}`,
     undefined,
-    `${model} is served by several ACP logins: ${accounts(rows)}. Pass one as accountId.`,
+    `That model is served by several ACP logins: ${accounts(rows)}. Pass one as accountId.`,
   );
 }
 
@@ -54,9 +54,9 @@ export function modelElsewhere(
 ): AgentControlError {
   return new AgentControlError(
     "model_unavailable",
-    "model_on_other_provider",
+    `model_on_other_provider: ${name}`,
     undefined,
-    `No ${provider} model fits "${name}". Other providers have ${listed(options)}; pass that provider, or omit provider.`,
+    `No ${provider} model fits that name. Other providers have ${listed(options)}; pass that provider, or omit provider.`,
   );
 }
 
@@ -129,8 +129,13 @@ export function selectedDelegationModel(
       (parent.provider === request.provider ? find(parent.execution?.model) : undefined));
   if (!chosen && named) {
     const role = find(configured);
-    const detail = `Cannot delegate to ${target}: requested model ${request.model} is unavailable there.${role ? ` Settings → Roles names ${role.id} for ${request.provider}; pass that model to use it.` : ""} Choose a model from \`models\` or another account.`;
-    throw new AgentControlError("model_unavailable", detail, undefined, detail);
+    // What the agent reads names only catalog ids, never the text it sent.
+    throw new AgentControlError(
+      "model_unavailable",
+      `Cannot delegate to ${target}: requested model ${request.model} is unavailable there.`,
+      undefined,
+      `This account does not serve that model. Call models and pass a listed id, or another accountId.${role ? ` Settings → Roles names ${role.id} for ${request.provider}.` : ""}`,
+    );
   }
   if (!chosen)
     throw new AgentControlError(
