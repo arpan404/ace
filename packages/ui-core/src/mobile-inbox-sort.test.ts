@@ -71,15 +71,17 @@ test("sorted newest first, threads stay where they started whatever their state,
   ]);
 });
 
+const placedAt = (id: string, listOrder: number | undefined, createdAt = 0) =>
+  on(
+    "mac",
+    entry(id, { state: "done" }, now, {
+      createdAt,
+      ...(listOrder === undefined ? {} : { listOrder }),
+    }),
+  );
+
 test("sorted by hand, threads keep the person's places, fractions and negatives included", () => {
-  const placed = (id: string, listOrder: number | undefined, createdAt = 0) =>
-    on(
-      "mac",
-      entry(id, { state: "done" }, now, {
-        createdAt,
-        ...(listOrder === undefined ? {} : { listOrder }),
-      }),
-    );
+  const placed = placedAt;
   const result = sections(
     [
       placed("bottom", -2.5),

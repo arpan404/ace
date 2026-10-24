@@ -228,9 +228,9 @@ function ordered(value: number): string {
   const high = view.getUint32(0);
   const low = view.getUint32(4);
   const negative = high >>> 31 === 1;
-  const hex = (word: number) => (word >>> 0).toString(16).padStart(8, "0");
   return negative ? hex(~high) + hex(~low) : hex(high ^ 0x80000000) + hex(low);
 }
+const hex = (word: number) => (word >>> 0).toString(16).padStart(8, "0");
 
 /**
  * Where a row sorts in the Threads list (sorting by creation or by hand), compared as
