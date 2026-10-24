@@ -9,6 +9,7 @@ import { ProviderKind } from "./provider.ts";
 import { BackgroundTaskId, InteractionId, RunId, ThreadId, Timestamp } from "./ids.ts";
 import { ForgeRepository, LinkedPullRequest } from "./forge.ts";
 import { WorktreeBaseRecord } from "./worktree-base.ts";
+import { ThreadContinuedOn } from "./transfers.ts";
 
 export const TurnOptions = ExecutionOptions;
 export type TurnOptions = z.infer<typeof TurnOptions>;
@@ -124,6 +125,10 @@ export const ThreadDetails = z.object({
     })
     .nullable()
     .optional(),
+  /** This thread was continued on another machine (ADR 0099). */
+  continuedOn: ThreadContinuedOn.optional(),
+  /** This thread continues one from another machine (ADR 0099). */
+  continuedFrom: ThreadContinuedOn.optional(),
   machine: z
     .object({
       host: z.string().min(1).max(256),
