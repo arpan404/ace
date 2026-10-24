@@ -14,6 +14,7 @@ import type { MetadataEvent } from "./metadata.ts";
 import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 import { InteractionTracking, trackingTables } from "./tracking.ts";
 import { NotificationInbox, inboxTables } from "./inbox.ts";
+import { SleepBoundary, sleepTables, type Boundary } from "./sleep-boundary.ts";
 
 const Job = z.object({
   id: z.number().int(),
@@ -95,14 +96,24 @@ export class NotificationDatabase {
   private statements = new Map<string, StatementSync>();
   private windowMs: number;
   private alertsFrom: number;
+  readonly sleep: SleepBoundary;
   private tracking: InteractionTracking;
   readonly inbox: NotificationInbox;
-  /** Events before `alertsFrom` update state but raise no alerts (see `deliverableFor`). */
-  constructor(path: string, windowMs = 5000, alertsFrom = 0) {
+  /**
+   * Events after the sleep boundary and before `alertsFrom` update state but raise no alerts
+   * (see `deliverableFor`). `sleptAfter` records a boundary this start adds: the daemon ran
+   * without a worker from that point.
+   */
+  constructor(
+    path: string,
+    windowMs = 5000,
+    wake: { alertsFrom?: number; sleptAfter?: Boundary } = {},
+  ) {
     if (!Number.isSafeInteger(windowMs) || windowMs < 0)
       throw new Error("Invalid coalescing window");
     this.windowMs = windowMs;
-    this.alertsFrom = alertsFrom;
+    this.alertsFrom = wake.alertsFrom ?? 0;
+    this.sleep = new SleepBoundary((sql) => this.statement(sql));
     this.tracking = new InteractionTracking((sql) => this.statement(sql));
     this.inbox = new NotificationInbox((sql) => this.statement(sql));
     this.db = new DatabaseSync(path);
@@ -124,6 +135,8 @@ export class NotificationDatabase {
       );
     }
     this.db.exec(inboxTables);
+    this.db.exec(sleepTables);
+    if (wake.sleptAfter) this.sleep.mark(wake.sleptAfter);
   }
   private statement(sql: string): StatementSync {
     let value = this.statements.get(sql);
@@ -160,6 +173,7 @@ export class NotificationDatabase {
     this.transaction(() => {
       let cursor = this.cursor();
       if (coverage && coverage.afterSeq > cursor) throw new Error(replayGap);
+      const slept = this.sleep.get();
       for (const event of events) {
         if (event.seq <= cursor) continue;
         if (!coverage && event.seq !== cursor + 1) throw new Error(replayGap);
@@ -197,7 +211,10 @@ export class NotificationDatabase {
           this.windowMs,
           this.tracking.track(event),
         );
-        const pending = advanced && advanced.at >= this.alertsFrom ? advanced : undefined;
+        // Only what happened during a deliberate sleep may go unannounced.
+        const quiet =
+          slept !== undefined && event.seq > slept.seq && (advanced?.at ?? 0) < this.alertsFrom;
+        const pending = quiet ? undefined : advanced;
         // State is compact and bounded independently of transcript length.
         this.statement("UPDATE threads SET body=? WHERE id=?").run(
           JSON.stringify(CompactThread.parse(state)),

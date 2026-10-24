@@ -31,8 +31,13 @@ export interface NotificationOptions {
   jitter: () => number;
   transport: NotificationTransport;
   windowMs?: number;
-  /** Events before this time raise no alerts: they happened while no device could take one. */
+  /**
+   * Events after the sleep boundary and before this time raise no alerts: they happened while
+   * the worker was stopped on purpose, so no device could take one.
+   */
   alertsFrom?: number;
+  /** A sleep boundary to add on open: the daemon ran without a worker from this point. */
+  sleptAfter?: { seq: number; at: number } | undefined;
   preview?: (thread: ThreadId) => string | undefined;
   onError?: (error: unknown) => void;
 }
@@ -53,7 +58,10 @@ export class NotificationService {
   private closed = false;
   constructor(options: NotificationOptions) {
     this.options = options;
-    this.database = new NotificationDatabase(options.path, options.windowMs, options.alertsFrom);
+    this.database = new NotificationDatabase(options.path, options.windowMs, {
+      ...(options.alertsFrom === undefined ? {} : { alertsFrom: options.alertsFrom }),
+      ...(options.sleptAfter ? { sleptAfter: options.sleptAfter } : {}),
+    });
   }
   state(): NotificationState {
     return {
@@ -67,6 +75,14 @@ export class NotificationService {
   }
   cursor(): number {
     return this.database.cursor();
+  }
+  /** Records a deliberate stop at the current cursor, before the worker closes. */
+  sleep(): void {
+    this.database.sleep.mark({ seq: this.database.cursor(), at: this.options.now() });
+  }
+  /** Replay has caught up after a wake. Returns when the sleep began, if one was recorded. */
+  woke(): number | undefined {
+    return this.database.sleep.clear()?.at;
   }
   ingest(events: readonly Event[], coverage?: { afterSeq: number; throughSeq: number }): void {
     const first = events[0],

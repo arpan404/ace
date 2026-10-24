@@ -18,6 +18,8 @@ export const WorkerCall = z.discriminatedUnion("method", [
   z.object({ method: z.literal("notify"), notification: Notification }),
   z.object({ method: z.literal("drain") }),
   z.object({ method: z.literal("close") }),
+  z.object({ method: z.literal("sleep") }),
+  z.object({ method: z.literal("woke") }),
   z.object({
     method: z.literal("ingest"),
     events: z.array(MetadataEvent).max(256),
@@ -86,4 +88,5 @@ export const WorkerConfig = z.object({
   path: z.string().max(4096),
   windowMs: seq.default(5000),
   alertsFrom: seq.default(0),
+  sleptAfter: z.object({ seq, at: seq }).optional(),
 });

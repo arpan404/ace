@@ -62,6 +62,12 @@ port.on("message", (input: unknown) => {
         case "cursor":
           value = service.cursor();
           break;
+        case "sleep":
+          service.sleep();
+          break;
+        case "woke":
+          value = service.woke();
+          break;
         case "ingest":
           service.ingestMetadata(call.events, call);
           break;
@@ -112,5 +118,7 @@ port.on("message", (input: unknown) => {
   })();
 });
 
-// Publish readiness only after SQLite is open and the RPC handler is installed.
+// Publish readiness only after SQLite is open and the RPC handler is installed. A restarted
+// worker reports its saved deadline at once: the parent's last report died with the old one.
 port.postMessage({ type: "ready" });
+report();

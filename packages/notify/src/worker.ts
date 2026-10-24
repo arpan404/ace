@@ -35,6 +35,10 @@ type WorkerOptionsInput = {
   transport: NotificationTransport;
   /** Called when the worker's next delivery deadline or idleness changes. */
   onState?: (state: NotificationState) => void;
+  /** Called when a replacement worker is ready after a crash; replay may be behind. */
+  onRestart?: () => void;
+  /** A sleep boundary to add on open (see `NotificationOptions.sleptAfter`). */
+  sleptAfter?: { seq: number; at: number };
   signal?: AbortSignal;
   spawn?: (entry: URL, options: WorkerOptions) => Worker;
   schedule?: (delayMs: number, restart: () => void) => () => void;
@@ -65,6 +69,9 @@ export class NotificationWorker {
   private options: WorkerOptionsInput;
   private cancelRestart: (() => void) | undefined;
   private retry = 0;
+  private starts = 0;
+  /** Whether the current worker replaced one that failed. */
+  private restarted = false;
   private opened = false;
   constructor(options: WorkerOptionsInput) {
     this.options = options;
@@ -88,6 +95,7 @@ export class NotificationWorker {
   }
   private start(): Worker {
     const options = this.options;
+    this.restarted = this.starts++ > 0;
     this.failed = undefined;
     this.opened = false;
     this.ready = new Promise((resolve, reject) => {
@@ -120,8 +128,10 @@ export class NotificationWorker {
       }
       const message = parsed.data;
       if (message.type === "ready") {
+        const restarted = this.restarted;
         this.opened = true;
         this.readyResolve();
+        if (restarted) options.onRestart?.();
       } else if (message.type === "result") {
         const waiter = this.pending.get(message.id);
         this.pending.delete(message.id);
@@ -259,6 +269,15 @@ export class NotificationWorker {
           reject(error);
         });
     });
+  }
+  /** Records a deliberate stop at the worker's cursor; call before `close` when sleeping. */
+  async sleep(): Promise<void> {
+    await this.call({ method: "sleep" });
+  }
+  /** Replay has caught up after a wake. Resolves to when the sleep began, if one was recorded. */
+  async woke(): Promise<number | undefined> {
+    const value = await this.call({ method: "woke" });
+    return typeof value === "number" ? value : undefined;
   }
   async cursor(signal?: AbortSignal): Promise<number> {
     const value = await this.call({ method: "cursor" }, signal);
