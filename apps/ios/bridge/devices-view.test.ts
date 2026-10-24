@@ -155,7 +155,7 @@ test("the agent's newest action reads as a caption at the point it landed, with 
   });
 });
 
-test("an iPhone offers the side buttons ace can press and a frame with its island upright", () => {
+test("an iPhone offers the side buttons ace can press and a frame shaped like its own model", () => {
   const device = view([live()]).device;
 
   expect(device?.buttons.map((button) => button.key)).toEqual([
@@ -164,8 +164,15 @@ test("an iPhone offers the side buttons ace can press and a frame with its islan
     "volumeDown",
     "power",
   ]);
-  expect(device?.frame.portrait.cutout.kind).toBe("island");
-  expect(device?.frame.landscape.cutout.kind).toBe("none");
+  // The iPhone 17 Pro's own screen, until its first picture, with its display's 62pt corners.
+  expect(device?.screen).toEqual({ width: 402, height: 874 });
+  expect((device?.frame.portrait.screenRadius ?? 0) * 402).toBeCloseTo(62, 5);
+  // On its side the frame is the same hardware turned: corners as round, borders as thin.
+  expect((device?.frame.landscape.screenRadius ?? 0) * 874).toBeCloseTo(62, 5);
+  expect((device?.frame.landscape.bezel.top ?? 0) * 874).toBeCloseTo(
+    (device?.frame.portrait.bezel.left ?? 0) * 402,
+    5,
+  );
 });
 
 test("a channel that closed says so, and missing tools are a setup note", () => {
@@ -193,4 +200,72 @@ test("a channel that closed says so, and missing tools are a setup note", () => 
   expect(shown.toolsMissing).toBe(true);
   expect(shown.notes[0]?.message).toBe("A device tool is missing on this machine.");
   expect(shown.device).toBeNull();
+});
+
+test("a channel that never opened says it can't reach the devices instead of loading forever", () => {
+  const input = {
+    snapshot: { connected: false, inventoryLoaded: false, devices: [], states: [], issues: [] },
+    closed: false,
+    threadId: "thread-1",
+    deviceId: undefined,
+    query: "",
+    platform: "all" as const,
+    now: 0,
+    agent: () => undefined,
+    previous: new Map(),
+  };
+  // Still opening: the screen waits.
+  expect(phoneDevicesView(input).offline).toBeNull();
+  // The open ran out of time: one sentence, and no Reconnect needed since ace keeps trying.
+  expect(phoneDevicesView({ ...input, unreachable: true }).offline).toEqual({
+    message: "Can't reach this machine's simulators and emulators.",
+    hint: "ace keeps trying.",
+  });
+});
+
+test("a channel that opened but never answered its first reads says so instead of loading forever", () => {
+  const input = {
+    snapshot: { connected: true, inventoryLoaded: false, devices: [], states: [], issues: [] },
+    closed: false,
+    threadId: "thread-1",
+    deviceId: undefined,
+    query: "",
+    platform: "all" as const,
+    now: 0,
+    agent: () => undefined,
+    previous: new Map(),
+  };
+  expect(phoneDevicesView(input).offline).toBeNull();
+  expect(phoneDevicesView({ ...input, unreachable: true }).offline).toEqual({
+    message: "Can't read this machine's simulators and emulators.",
+    hint: "ace keeps trying.",
+  });
+});
+
+test("a machine that refuses this phone's device list says why instead of loading", () => {
+  const refused = {
+    message: "Administrator scope is required for device access",
+    hint: "Pair again.",
+  };
+  const shown = phoneDevicesView({
+    snapshot: {
+      connected: true,
+      inventoryLoaded: false,
+      devices: [],
+      states: [],
+      issues: [],
+    },
+    closed: false,
+    refused,
+    threadId: "thread-1",
+    deviceId: undefined,
+    query: "",
+    platform: "all",
+    now: 0,
+    agent: () => undefined,
+    previous: new Map(),
+  });
+
+  expect(shown.offline).toEqual(refused);
+  expect(view([], { refused }).offline).toBeNull();
 });

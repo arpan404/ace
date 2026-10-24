@@ -13,30 +13,34 @@ struct PairingView: View {
 
     var body: some View {
         Form {
-            Section {
-                Button { scanning = true } label: { Label("Scan pairing QR code", systemImage: "qrcode.viewfinder") }
-                    .accessibilityIdentifier("pairing.scan")
-            } footer: {
-                Text("On your computer, run `ace pair` or open Settings › Machines and devices and create a pairing link.")
-            }
-            Section("Or paste the link") {
-                TextField("https://…/pair#…", text: $pasted, axis: .vertical)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                    .privacySensitive().lineLimit(1...4)
-                    .aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .accessibilityIdentifier("pairing.link")
-                PasteButton(payloadType: String.self) { values in
-                    Task { @MainActor in if let value = values.first { pasted = value; accept(value) } }
+            Group {
+                Section {
+                    Button { scanning = true } label: { Label("Scan pairing QR code", systemImage: "qrcode.viewfinder") }
+                        .accessibilityIdentifier("pairing.scan")
+                } footer: {
+                    Text("On your computer, run `ace pair` or open Settings › Machines and devices and create a pairing link.")
                 }
-                Button("Continue") { accept(pasted) }
-                    .disabled(pasted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityIdentifier("pairing.continue")
+                Section {
+                    TextField("https://…/pair#…", text: $pasted, axis: .vertical)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                        .privacySensitive().lineLimit(1...4)
+                        .aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .accessibilityIdentifier("pairing.link")
+                    PasteButton(payloadType: String.self) { values in
+                        Task { @MainActor in if let value = values.first { pasted = value; accept(value) } }
+                    }
+                    Button("Continue") { accept(pasted) }
+                        .disabled(pasted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityIdentifier("pairing.continue")
+                } header: { InsetHeader("Or paste the link") }
+                if let entryError {
+                    Section { Text(entryError).foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("pairing.entryError") }
+                }
             }
-            if let entryError {
-                Section { Text(entryError).foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("pairing.entryError") }
-            }
+            .insetRowBackground()
         }
-        .navigationTitle("Pair a computer")
+        .insetGroupedList()
+        .navigationTitle("Pair a machine")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $link) { link in
             ConfirmPairingView(link: link, machines: machines) {
@@ -79,34 +83,38 @@ struct ConfirmPairingView: View {
 
     var body: some View {
         Form {
-            Section {
-                LabeledContent("Address", value: link.displayHost)
-                LabeledContent("Access", value: link.accessSummary)
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                    Text("Fingerprint").aceFont(AceTheme.Typography.label, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                    Text(link.fingerprintGroups).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.foreground).textSelection(.enabled)
-                        .accessibilityIdentifier("pairing.fingerprint")
+            Group {
+                Section {
+                    LabeledContent("Address", value: link.displayHost)
+                    LabeledContent("Access", value: link.accessSummary)
+                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                        Text("Fingerprint").aceFont(AceTheme.Typography.label, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        Text(link.fingerprintGroups).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
+                            .foregroundStyle(AceTheme.Colours.foreground).textSelection(.enabled)
+                            .accessibilityIdentifier("pairing.fingerprint")
+                    }
+                } header: { InsetHeader("Computer") } footer: {
+                    Text("Check that the fingerprint matches the link on your computer. ace only talks to the computer holding this key.")
                 }
-            } header: { Text("Computer") } footer: {
-                Text("Check that the fingerprint matches the link on your computer. ace only talks to the computer holding this key.")
-            }
-            Section("This phone's name") {
-                TextField("My phone", text: $name).textInputAutocapitalization(.words).accessibilityIdentifier("pairing.name")
-            }
-            if let failure {
-                Section { Text(failure.message).foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("pairing.error") }
-            }
-            Section {
-                Button {
-                    Task { await pair() }
-                } label: {
-                    HStack { Text(pairing ? "Pairing…" : "Pair this phone"); if pairing { Spacer(); ProgressView() } }
+                Section {
+                    TextField("My phone", text: $name).textInputAutocapitalization(.words).accessibilityIdentifier("pairing.name")
+                } header: { InsetHeader("This phone's name") }
+                if let failure {
+                    Section { Text(failure.message).foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("pairing.error") }
                 }
-                .disabled(pairing || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityIdentifier("pairing.confirm")
+                Section {
+                    Button {
+                        Task { await pair() }
+                    } label: {
+                        HStack { Text(pairing ? "Pairing…" : "Pair this phone"); if pairing { Spacer(); ProgressView() } }
+                    }
+                    .disabled(pairing || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("pairing.confirm")
+                }
             }
+            .insetRowBackground()
         }
+        .insetGroupedList()
         .navigationTitle("Confirm computer")
         .navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(pairing)

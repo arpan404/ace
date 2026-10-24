@@ -2,11 +2,12 @@ import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { useItem } from "@ace/client-react";
 import { mayBeSystemInput } from "@ace/ui-core";
 import { memo, Suspense } from "react";
-import { usageWarning } from "../lib/usage-warning.ts";
+import { usageWarning } from "@ace/ui-core";
 import { DeferredEvent } from "./deferred-review.ts";
 import type { Block } from "../transcript/blocks.ts";
 import { TurnEnd } from "../transcript/turn-end.tsx";
 import { ChangedFiles } from "./changed-files.tsx";
+import { ForkedDivider } from "./forked-divider.tsx";
 import { AssistantMessage } from "./messages.tsx";
 import { QuestionBlock } from "./question-block.tsx";
 import { StartedThreadCard } from "./started-thread-card.tsx";
@@ -47,6 +48,8 @@ const BlockContent = memo(function BlockContent(props: {
       return <QuestionBlock threadId={threadId} interactionId={block.interactionId} />;
     case "started":
       return <StartedThreadCard threadId={threadId} itemId={block.itemId} />;
+    case "forked":
+      return <ForkedDivider sourceThreadId={block.threadId} />;
     case "item":
     case "event":
       return <Event threadId={threadId} itemId={block.itemId} />;

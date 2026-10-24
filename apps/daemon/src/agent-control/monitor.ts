@@ -33,6 +33,9 @@ import {
   watchedState,
 } from "./watch-view.ts";
 
+/** What a queued child's step says, for a model reading agents_status or wait. */
+const queuedStep = "queued: starts when a running agent finishes";
+
 export interface MonitorDependencies {
   store: Store;
   journal: DelegationJournal;
@@ -40,6 +43,8 @@ export interface MonitorDependencies {
   authorize(caller: McpAttribution, target: ThreadId, write: boolean): boolean;
   /** Hands a result read inside the tool call to the parent, so no wake repeats it. */
   delivered(caller: McpAttribution, outcome: DelegationOutcome): void;
+  /** A resume of the thread is in flight, so its paused queue is about to move. */
+  resuming?(id: ThreadId): boolean;
 }
 /** Children that run on other paired machines (ADR 0078), observed by their own poller. */
 export interface RemoteChildren {
@@ -141,6 +146,7 @@ export class AgentMonitor {
     const now = this.deps.clock.now();
     const counts: Record<WatchedState, number> = {
       working: 0,
+      queued: 0,
       needs_you: 0,
       done: 0,
       failed: 0,
@@ -153,7 +159,12 @@ export class AgentMonitor {
       const state = this.state(thread.id);
       counts[state]++;
       const needs = state === "needs_you" ? this.needs(thread) : [];
-      const step = state === "working" || state === "needs_you" ? this.step(thread) : undefined;
+      const step =
+        state === "queued"
+          ? queuedStep
+          : state === "working" || state === "needs_you"
+            ? this.step(thread)
+            : undefined;
       const last = state === "working" ? this.lastOutput(thread, 100) : undefined;
       children.push({
         id: thread.id,
@@ -167,6 +178,8 @@ export class AgentMonitor {
         ),
         ...(needs[0] ? { needs: needs.length, ask: clip(needs[0].prompt, 100) } : {}),
         ...(last ? { last } : {}),
+        ...(thread.queue?.pendingCount ? { queued: thread.queue.pendingCount } : {}),
+        ...(edge.messageNotice ? { notice: edge.messageNotice.text } : {}),
       });
     }
     for (const child of this.remote?.children(caller) ?? []) {
@@ -223,6 +236,7 @@ export class AgentMonitor {
       record,
       pending,
       !!root && ["idle", "blocked", "interrupted"].includes(root.status.state),
+      this.deps.resuming?.(id) ?? false,
     );
   }
   /** Reads every watched thread, then hands settled results to the parent exactly once. */
@@ -277,7 +291,7 @@ export class AgentMonitor {
       return { view: { ...base, result: outcome.result, truncated: outcome.truncated }, outcome };
     }
     const needs = state === "needs_you" ? this.needs(thread) : [];
-    const step = this.step(thread);
+    const step = state === "queued" ? queuedStep : this.step(thread);
     const last = this.lastOutput(thread, 160);
     return {
       view: {
@@ -289,7 +303,11 @@ export class AgentMonitor {
     };
   }
   private step(thread: Thread): string | undefined {
-    const held = heldFor(thread, this.deps.journal.get(thread.id));
+    const held = heldFor(
+      thread,
+      this.deps.journal.get(thread.id),
+      this.deps.resuming?.(thread.id) ?? false,
+    );
     if (held) return holdStep(held);
     const root = thread.rootAgentId && this.deps.store.getMcpAgent(thread.id, thread.rootAgentId);
     return root ? agentStep(root.status) : undefined;

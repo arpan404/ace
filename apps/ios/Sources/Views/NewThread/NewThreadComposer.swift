@@ -3,6 +3,10 @@ import SwiftUI
 @MainActor enum NewThreadStyle {
     static let hero = AceTheme.TypeStyle(size: 28, lineHeight: 34, weight: 500, tracking: -0.56)
     static let chip = AceTheme.TypeStyle(size: 14.5, lineHeight: 19, weight: 500, tracking: 0)
+    /// The quiet ⌄ after the hero question that says it opens a picker.
+    static var disclosure: Text {
+        Text(" \(Image(systemName: "chevron.down"))").font(.title3.weight(.semibold)).foregroundStyle(AceTheme.Colours.mutedForeground)
+    }
 }
 
 /// "⑂ New worktree ⌄" and "From main ⌄": where the thread works, as chips over the composer.
@@ -55,12 +59,12 @@ struct NewThreadWorktreeChips: View {
         .foregroundStyle(AceTheme.Colours.foreground)
         .padding(.horizontal, AceTheme.Spacing.md + AceTheme.Spacing.xxs)
         .frame(minHeight: 38)
-        .background(AceTheme.Colours.fill, in: Capsule())
-        .contentShape(Capsule())
+        .background(AceTheme.Colours.fill, in: AceShape.capsule)
+        .contentShape(AceShape.capsule)
     }
 }
 
-/// The first message: its files, the words, then + · provider mark and model ⌄ · send.
+/// The first message: its files, the words, then + · access · the model and its effort · send.
 struct NewThreadComposer: View {
     let drafts: NewThreadDraftModel
     let client: ClientModel?
@@ -71,7 +75,11 @@ struct NewThreadComposer: View {
     let blocker: String?
     @Binding var attachProblem: String?
     let chooseModel: () -> Void
+    /// Opens effort and speed for the first turn.
+    let chooseTune: () -> Void
     let send: () -> Void
+    @State private var focused = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var draft: NewThreadDraft { drafts.draft }
 
     var body: some View {
@@ -84,9 +92,12 @@ struct NewThreadComposer: View {
                     .padding(.horizontal, AceTheme.Spacing.md)
                 }
             }
-            // The thread composer's text view: it wraps and grows to five lines, then scrolls.
+            // The thread composer's text view: a few lines tall while focused, and it grows to five
+            // lines, then scrolls.
             NativeTextInput(text: Binding(get: { draft.text }, set: { text in drafts.edit { $0.text = text } }), inputBegan: {},
-                            submit: { if blocker == nil && !sending { send() } }, identifier: "newThread.message", focusOnAppear: true)
+                            submit: { if blocker == nil && !sending { send() } }, card: true, focused: focused,
+                            onFocus: { focus, duration in withAnimation(reduceMotion ? nil : .spring(duration: duration, bounce: 0)) { focused = focus } },
+                            identifier: "newThread.message", focusOnAppear: true)
                 .overlay(alignment: .topLeading) {
                     if draft.text.isEmpty {
                         Text("Describe a task").aceFont(AceTheme.Typography.body, relativeTo: .body)
@@ -106,29 +117,39 @@ struct NewThreadComposer: View {
                     Image(systemName: "plus").font(.title3).foregroundStyle(AceTheme.Colours.foreground)
                 }
                 .disabled(draft.projectId == nil || client?.canOperate != true)
-                Button(action: chooseModel) { modelLabel }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Model").accessibilityValue(choice.model?.label ?? "Choose model")
-                    .accessibilityIdentifier("newThread.agent")
+                accessChip
                 Spacer(minLength: AceTheme.Spacing.sm)
+                ModelEffortChip(provider: choice.agent?.provider, model: modelName, effort: tune,
+                                loading: agentsState != "ready" && agentsState != "failed",
+                                modelID: "newThread.agent", effortID: "newThread.tune",
+                                openModel: chooseModel, openEffort: chooseTune)
                 ComposerActionButton(saving: sending, disabled: blocker != nil || sending, label: "Start thread", action: send)
                     .accessibilityHint(blocker ?? "").accessibilityIdentifier("newThread.start")
             }
             .padding(.horizontal, AceTheme.Spacing.sm)
         }
     }
-    private var modelLabel: some View {
-        HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
-            if let agent = choice.agent { ProviderMark(provider: agent.provider, size: 16) }
-            if agentsState != "ready" && agentsState != "failed" { ProgressView().controlSize(.mini) }
-            Text(choice.model?.label ?? (agentsState == "failed" ? "Couldn't read agents" : "Choose model"))
-                .lineLimit(1).truncationMode(.middle)
-            Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+    private var modelName: String { choice.model?.label ?? (agentsState == "failed" ? "Couldn't read agents" : "Choose model") }
+    private var tune: String? {
+        guard let model = choice.model else { return nil }
+        let speeds = model.speeds ?? []
+        let effort = model.efforts.first { $0.id == choice.effort }
+        let speedID = draft.speed ?? model.defaultSpeed ?? "standard"
+        let speed = speeds.first { $0.speed == speedID && $0.speed != "standard" }
+        return TuneSummary.text(effort: effort.map { short($0.label) }, speed: speed?.label,
+                                hasLevels: model.efforts.count > 1, hasSpeeds: speeds.count > 1)
+    }
+    /// "Medium" reads "Med" on the chip, as the thread composer's does.
+    private func short(_ label: String) -> String { label == "Medium" ? "Med" : label }
+    /// Access for the chosen agent (`newThreadAccess` in `@ace/ui-core`), with what each mode does.
+    @ViewBuilder private var accessChip: some View {
+        if let access = client?.compose.access, access.provider == choice.agent?.provider,
+           !access.choices.isEmpty || access.state == "loading" {
+            AccessChip(label: access.choices.first { $0.mode == access.selected }?.label ?? "Access", selected: access.selected,
+                       items: access.choices.map { AccessItem(mode: $0.mode, label: $0.label, description: $0.description, attention: $0.attention) },
+                       note: access.problem ?? access.stricter, loading: access.choices.isEmpty,
+                       identifier: "newThread.access") { mode in drafts.edit { $0.access = mode } }
         }
-        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-        .foregroundStyle(AceTheme.Colours.mutedForeground)
-        .frame(minHeight: AceTheme.Dimensions.touchTarget)
-        .contentShape(Rectangle())
     }
 }
 

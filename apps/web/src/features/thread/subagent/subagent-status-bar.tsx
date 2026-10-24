@@ -5,7 +5,7 @@ import { ArrowBendLeftUpIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
-import type { GlyphState } from "@/components/status-glyph-state.ts";
+import type { GlyphState } from "@ace/ui-core";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { controlDivider } from "@/components/ui/rules.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";

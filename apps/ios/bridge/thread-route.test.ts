@@ -43,7 +43,6 @@ test("closing a log or lane after leaving the thread raises no error for the inb
   session.dispose();
   routeThreadAction(undefined, 1, { type: "steps.close", ordinal: 0 }, put);
   routeThreadAction(undefined, undefined, { type: "lane.close" }, put);
-  routeThreadAction(undefined, 1, { type: "loadOlder" }, put);
   // A send submitted on the closed screen answers on its own admission, after the releases.
   routeThreadAction(undefined, 1, { type: "stop", requestId: "late-stop" }, put);
   const refused = await until(() => latest("admission", "late-stop"), "the refused stop");

@@ -1,10 +1,11 @@
 import { host } from "./polyfills.ts";
 import { ClientCore, type Lease, type ThreadSource } from "@ace/client";
 import { z } from "zod";
-import { DeviceId, HostId } from "@ace/protocol";
+import { DeviceId, HostId, SettingsValues } from "@ace/protocol";
 import { agentName } from "@ace/ui-core";
 import { call, scheduler } from "./host.ts";
 import { PatchPump, followThread } from "./patches.ts";
+import { LedgerShelf } from "./native-ledger.ts";
 import { followInbox, inboxAction, makeActivityGeneration } from "./inbox.ts";
 import { ArchiveBrowser } from "./archive.ts";
 import { dispatchCommand } from "./commands.ts";
@@ -21,11 +22,14 @@ import { ComposeActions } from "./compose-actions.ts";
 import { CheckoutFiles } from "./checkout-files.ts";
 import { followFileChanges } from "./checkout-request.ts";
 import { NativeServices, NativeServiceAction } from "./native-services.ts";
+import { NativeReads } from "./native-reads.ts";
+import { ForgeService } from "./forge-service.ts";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { BrowserLive } from "./browser-live.ts";
 import { nativeChunks } from "./thread-attachments.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
+import { nativeReadSnapshots } from "./read-snapshots.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -33,9 +37,12 @@ const Config = z.object({
   itemLimit: z.number().int().min(200).max(2200),
   /** A paired machine: each socket attempt exchanges the Keychain token for a fresh ticket. */
   paired: z.strictObject({ secretKey: z.string().min(1).max(1024) }).optional(),
+  /** The sort the inbox checkpoint was drawn in, so the live list opens in the same order. */
+  inboxSort: SettingsValues.shape["threads.sortBy"].optional().catch(undefined),
 });
 const Action = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("open"), threadId: z.string().min(1) }),
+  /** `warm`: native kept its copy of the thread from an earlier visit (`native-ledger.ts`). */
+  z.object({ type: z.literal("open"), threadId: z.string().min(1), warm: z.boolean().optional() }),
   z.object({ type: z.literal("back") }),
   z.object({ type: z.literal("network"), online: z.boolean() }),
   z.object({
@@ -44,6 +51,7 @@ const Action = z.discriminatedUnion("type", [
     requestId: z.string().min(1).max(64),
   }),
   z.object({ type: z.literal("retry") }),
+  z.object({ type: z.literal("wake") }),
   z.object({ type: z.literal("machine.refresh") }),
   /** `epoch`: the navigation generation the action was sent for (`thread-route.ts`). */
   z.object({
@@ -71,8 +79,6 @@ let lease: Lease<ThreadSource> | undefined;
 let stopThread: (() => void) | undefined;
 let session: ThreadSession | undefined;
 let epoch = 0;
-let itemLimit = 200;
-let historyAbort: AbortController | undefined;
 let machine: MachineProviders | undefined;
 let archive: ArchiveBrowser | undefined;
 let compose: ComposeActions | undefined;
@@ -82,6 +88,11 @@ let browser: BrowserLive | undefined;
 let devices: NativeDevices | undefined;
 let screen: NativeScreen | undefined;
 const pump = new PatchPump();
+/**
+ * Native keeps the open thread and the last six it showed (`ThreadShelf.swift`); ledgers past
+ * 4 Mi UTF-16 units go too, the oldest first.
+ */
+const ledgers = new LedgerShelf(7, 4 * 1024 * 1024);
 const trust = new TrustMonitor();
 const sheets = new Sheets(pump, preview);
 let openThreadId: string | undefined;
@@ -98,7 +109,6 @@ function error(): void {
 }
 async function start(json: string): Promise<void> {
   const config = Config.parse(JSON.parse(json));
-  itemLimit = config.itemLimit;
   const paired = config.paired;
   client = new ClientCore({
     deviceId: config.deviceId,
@@ -114,21 +124,23 @@ async function start(json: string): Promise<void> {
     storage: {
       load: async () => (await call("storage.load")) || null,
       save: async (value) => {
-        await call("storage.save", value);
+        await call("storage.save", null, value);
       },
       hostBinding: {
         load: async () => (await call("storage.host.load")) || null,
         save: async (value) => {
-          await call("storage.host.save", value);
+          await call("storage.host.save", null, value);
         },
       },
       records: {
         load: async () => z.array(z.string()).parse(JSON.parse(await call("storage.records"))),
         write: async (id, value) => {
-          await call("storage.write", { id, value });
+          await call("storage.write", { id }, value ?? undefined);
         },
       },
     },
+    // The inbox and opened threads paint from what this phone read last time (ADR 0030).
+    readSnapshots: nativeReadSnapshots(call),
     scheduler,
     id: () => host.uuid(),
     random: () => host.random(),
@@ -151,11 +163,25 @@ async function start(json: string): Promise<void> {
     pump,
     { now: () => host.now(), set: scheduler.set },
     activityGeneration,
+    // What the phone draws first at its next launch, before this runtime starts.
+    (checkpoint) => void call("inbox.checkpoint", null, checkpoint).catch(() => {}),
+    config.inboxSort,
   );
   followMachine(client, pump, trust);
   machine = new MachineProviders(client, pump);
   archive = new ArchiveBrowser(client, pump);
-  compose = new ComposeActions(client, pump, preview, () => host.now());
+  const reads = new NativeReads(client, pump, {
+    now: () => host.now(),
+    schedule: scheduler.set,
+    storage: {
+      load: () => call("storage.reads.load"),
+      save: async (text) => {
+        await call("storage.reads.save", null, text);
+      },
+    },
+  });
+  void reads.restore();
+  compose = new ComposeActions(client, pump, preview, () => host.now(), nativeChunks, reads);
   const featureConfig = {
     deviceId: config.deviceId,
     hostId: config.hostId,
@@ -182,7 +208,20 @@ async function start(json: string): Promise<void> {
     search.complete(workspaceId, query, limit),
   );
   followFileChanges(client, pump);
-  services = new NativeServices(client, pump, devices, screen, files);
+  services = new NativeServices(
+    client,
+    pump,
+    devices,
+    screen,
+    files,
+    new ForgeService(
+      client,
+      preview,
+      () => host.now(),
+      () => reads.stamp("forge"),
+    ),
+    reads,
+  );
   terminal = new NativeTerminal(client, pump);
   browser = new BrowserLive(client, pump, preview, scheduler.set, {
     agentName: (threadId, agentId) =>
@@ -193,45 +232,6 @@ async function start(json: string): Promise<void> {
     read: nativeChunks,
   });
   await client.start();
-}
-async function hydrate(
-  owner: ClientCore,
-  store: ThreadSource,
-  id: string,
-  generation: number,
-  signal: AbortSignal,
-): Promise<void> {
-  // Snapshots always cap at 200. Exercise the SDK's paged history admission and delta journal.
-  await new Promise<void>((resolve) => {
-    if (store.thread || store.error) {
-      resolve();
-      return;
-    }
-    const cancelled = () => {
-      stop();
-      resolve();
-    };
-    const stop = store.observe(() => {
-      if (store.thread || store.error) {
-        stop();
-        signal.removeEventListener("abort", cancelled);
-        resolve();
-      }
-    });
-    signal.addEventListener("abort", cancelled, { once: true });
-    if (signal.aborted) cancelled();
-  });
-  while (store.itemsBefore != null && store.order.length < itemLimit) {
-    if (generation !== epoch || signal.aborted) return;
-    await owner.loadOlder(id, Math.min(200, itemLimit - store.order.length), { signal });
-  }
-  if (generation === epoch)
-    pump.put("thread:ready", () => ({
-      type: "thread.ready",
-      threadId: id,
-      epoch: generation,
-      count: store.order.length,
-    }));
 }
 function action(json: string): void {
   try {
@@ -277,38 +277,26 @@ function action(json: string): void {
     switch (value.type) {
       case "open":
         services?.transcript.close();
-        historyAbort?.abort();
-        historyAbort = new AbortController();
         stopThread?.();
         sheets.close();
         lease?.release();
         openThreadId = value.threadId;
         lease = client.thread(value.threadId);
         session?.dispose();
-        stopThread = followThread(lease.store, value.threadId, ++epoch, pump);
-        session = new ThreadSession(
-          client,
-          lease.store,
-          value.threadId,
-          epoch,
-          pump,
-          undefined,
-          itemLimit,
-        );
+        {
+          const ledger = ledgers.open(value.threadId, value.warm ?? false);
+          pump.bind(ledger, ++epoch);
+          stopThread = followThread(lease.store, value.threadId, epoch, pump, ledger);
+        }
+        session = new ThreadSession(client, lease.store, value.threadId, epoch, pump);
         browser?.close();
         browser?.probe(value.threadId, epoch);
-        if (itemLimit > 200) {
-          const generation = epoch;
-          const signal = historyAbort.signal;
-          void hydrate(client, lease.store, value.threadId, generation, signal).catch(() => {
-            if (generation === epoch && !signal.aborted) error();
-          });
-        }
         break;
       case "back":
         services?.transcript.close();
         epoch++;
-        historyAbort?.abort();
+        pump.bind(undefined, epoch);
+        ledgers.trim();
         session?.dispose();
         session = undefined;
         stopThread?.();
@@ -323,6 +311,9 @@ function action(json: string): void {
         break;
       case "retry":
         client.reconnectNow();
+        break;
+      case "wake":
+        client.wake();
         break;
       case "machine.refresh":
         machine?.refresh();

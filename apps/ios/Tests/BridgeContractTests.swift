@@ -104,7 +104,9 @@ import SQLite3
         #expect(model.error == nil)
         #expect(model.largestFrame <= 32768)
     }
-    @Test func theSharedClientStreamsTwoThousandItemsAndKeepsALiveChildWorking() async throws {
+    /// The live tail is the daemon's latest 200 items, never the whole history: older rows open
+    /// in the reading window beside it (`TranscriptReading`).
+    @Test func theSharedClientStreamsTheLatestItemsAndKeepsALiveChildWorking() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let model = ClientModel(now: { 0 })
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
@@ -112,12 +114,13 @@ import SQLite3
         try await until { model.connection == "ready" && model.inbox["ios-tree"] != nil }
         #expect(model.inbox["ios-tree"]?.state == "working")
         model.open("ios-stream")
-        try await until { (model.thread?.items.count ?? 0) >= 2000 && model.thread?.loaded == true }
+        try await until { (model.thread?.items.count ?? 0) >= 200 && model.thread?.loaded == true }
         let text = model.thread?.items.values.first { !$0.row.complete }?.row.text
         try await until { model.thread?.items.values.first { !$0.row.complete }?.row.text != text }
         #expect(model.error == nil)
         #expect(model.largestFrame <= 32768)
-        #expect((model.thread?.order.count ?? 0) >= 2000)
+        #expect((model.thread?.order.count ?? 0) >= 200)
+        #expect((model.thread?.order.count ?? 0) <= 2200)
     }
     /// The stream thread's turn never ends, so the daemon holds a queued follow-up in its queue,
     /// outside the transcript, until that turn ends, as the real daemon does.
@@ -178,6 +181,21 @@ import SQLite3
         model.approve(approval, option: deny)
         try await until { model.thread?.interactions[approval.id]?.state == "resolved" }
         #expect(model.thread?.approvals.isEmpty == true)
+    }
+    @Test func aMachineThatAdoptsAWarmRuntimeConnectsAndListsItsThreads() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let warmup = RuntimeWarmup()
+        warmup.prepare(1)
+        // The bundle evaluates before the machine is known; the machine then adopts it.
+        try await Task.sleep(for: .milliseconds(300))
+        let model = ClientModel(now: { 0 }, makeRuntime: warmup.makeRuntime)
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        await model.connect(target: try target(), directory: root)
+        try await until("warm runtime ready") { model.connection == "ready" && model.inbox["ios-tree"] != nil }
+        #expect(model.inbox["ios-tree"]?.state == "working")
+        #expect(model.error == nil)
+        // Its outbox database is the machine's own: the warm runtime was bound before any host call.
+        #expect(database(in: root) != root)
     }
     private func target() throws -> ConnectionTarget {
         ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:\(SpikeFixture.port)")), hostId: "ios-spike-host", deviceId: "ios-contract-device", pin: nil,

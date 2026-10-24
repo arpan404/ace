@@ -33,8 +33,11 @@ loopback port 9841, invokes no provider CLIs and spends no provider quota. It se
 2,000 items, streams 20 deltas per second, opens a shell approval and keeps a child
 working after its root finishes. Restart the fixture before independent screenshot
 or performance runs. Contract sends deliberately add inputs to its history. The
-streaming thread's turn never ends, so a queued follow-up waits in the daemon queue,
+streaming thread's turn never ends (`ACE_IOS_SPIKE_STREAMED=650000` starts it as if it had
+streamed that many deltas, about nine hours, to check that a long-running thread opens at once), so a queued follow-up waits in the daemon queue,
 outside the transcript, as it would on a real daemon; `GET /queue?thread=ID` lists it.
+`ACE_IOS_SPIKE_HISTORY=8000` seeds the streaming thread with that many history messages
+instead of 1,999, so reading far back slides the 400-item history window past its bound.
 
 XcodeGen output, generated `Resources/client.js`, build products and xcresult bundles
 are ignored. Run `generate` before opening Xcode. The Swift theme is committed;
@@ -65,14 +68,95 @@ Callback cadence does not establish GPU presentation FPS. Save metrics before th
 next app launch, which starts a new window. XCTest attachment exports preserve the
 simulator screenshots.
 
+## Performance budgets
+
+Budgets fail tests when the app gets slower. Two suites hold them:
+
+- `AceTests/MainThreadBudgetTests`, in-process, in Debug or Perf: one streaming text edit
+  to a 2,000-item thread (budget 100 µs, measured 11 µs in Debug), one new item at its end
+  (150 µs, measured 12; 5,780 when every new item re-sorted the thread), one inbox row
+  changing among 500 rows and moving between its sections (1,000 µs, measured 174), and
+  decoding a full 32-patch frame (1,500 µs, measured 211). Outside the timed part each checks
+  the result: the text streamed, every row's status and section, every decoded row.
+- `AceUITests/PerformanceBudgetUITests`, the app against the fixture, built with the
+  `AcePerf` scheme. Its `Perf` configuration is Release optimisation with the loopback
+  fixture compiled in (`ACE_FIXTURE`); archives build Release, which has none. Each test
+  reports Xcode metrics through `measure(metrics:)` (launch, CPU, memory, scroll
+  deceleration, the `thread.open` signpost) and fails when the app's own numbers pass a
+  budget in `PerfBudget`. The app publishes those numbers with `--perf-probe`
+  (`Sources/Spike/PerfProbe.swift`, fixture builds only) as one hidden accessibility value.
+  Before measuring, the tests check their workload: the fixture's `/health` must report the
+  seed below (`streamed`, `busy`), the app must hold every busy row, and streaming must reach
+  the app's rows while it is measured.
+- `AceUITests/DisclosureBudgetUITests`, same scheme, against the fixture's `ios-log-long` thread
+  (six finished turns of 80 steps): opening a "Worked for" log the first time and again, a group
+  of about 60 steps, a step's diff, a thought, and a thought read in full. The app times each from
+  the tap to its content laid out, with the bridge traffic the open caused
+  (`Sources/Models/DisclosureTrace.swift`, a `disclosure.open` signpost and one `perf` line).
+
+Run the UI budgets with two fixtures, the second for the busy inbox:
+
+```sh
+ACE_IOS_SPIKE_PORT=9882 ACE_IOS_SPIKE_STREAMED=650000 ACE_IOS_SPIKE_HISTORY=8000 bun run spike:daemon
+ACE_IOS_SPIKE_PORT=9883 ACE_IOS_SPIKE_INBOX=300 bun run spike:daemon
+xcodebuild build-for-testing -project Ace.xcodeproj -scheme AcePerf -configuration Perf \
+  -destination 'platform=iOS Simulator,id=YOUR_SIMULATOR_UDID' -derivedDataPath .build/DerivedData -jobs 4
+TEST_RUNNER_ACE_IOS_SPIKE_PORT=9882 TEST_RUNNER_ACE_IOS_SPIKE_BUSY_PORT=9883 \
+  xcodebuild test-without-building -project Ace.xcodeproj -scheme AcePerf -configuration Perf \
+  -destination 'platform=iOS Simulator,id=YOUR_SIMULATOR_UDID' -derivedDataPath .build/DerivedData \
+  -parallel-testing-enabled NO -only-testing:AceUITests/PerformanceBudgetUITests \
+  -only-testing:AceUITests/DisclosureBudgetUITests
+```
+
+Medians on the iOS 26 simulator (Perf, 2026-10-22; the last five rows 2026-10-23), with the budget
+in brackets:
+
+| Flow                                                                                                                                | Measured                                                                                             | Budget                 |
+| ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------- |
+| Launch to inbox rows on screen (XCUITest launch)                                                                                    | 1,157 ms                                                                                             | 1,700 ms               |
+| Busy inbox (300 threads, one changing every 200 ms), per 5 s                                                                        | 50 patches, 614 KB, 15 ms main thread                                                                | 400, 800 KB, 40 ms     |
+| Open the long live thread (650,000 streamed deltas) cold: ready, first rows                                                         | 317 ms, 387 ms                                                                                       | 700, 800 ms            |
+| Reopen it (kept copy): ready                                                                                                        | 280 ms                                                                                               | 500 ms                 |
+| Streaming 20 deltas a second into it, per 5 s                                                                                       | 5.4 ms main thread, 95 ms script, 7.4 KB                                                             | 30 ms, 250 ms, 40 KB   |
+| Footprint over a minute of streaming                                                                                                | flat (−1 MiB)                                                                                        | +8 MiB                 |
+| Scrolling its transcript: late-frame time during the swipes only                                                                    | 17.8 ms per s                                                                                        | 60 ms per s            |
+| Reading it 25 pages back and 5 forward (8,000 items, 400-item window): main thread per page, late frames per page, footprint growth | 4.6 ms, 252 ms, +24 MiB (58 ms, 362 ms, +60 MiB when each page replaced the whole 2,000-item window) | 25 ms, 600 ms, +50 MiB |
+| Agents and Changes sheets, asked to rows applied                                                                                    | 140, 128 ms                                                                                          | 350 ms                 |
+| Model sheet, tap to shown (mostly XCUITest waiting)                                                                                 | 1,940 ms                                                                                             | 3,000 ms               |
+| Typing 33 characters with the long thread behind (XCUITest's own pace)                                                              | 830 ms                                                                                               | 1,800 ms               |
+| Open a finished "Worked for" log (80 steps), tap to rows; its steps read ahead                                                      | 48 ms, 3.9 KB                                                                                        | 150 ms                 |
+| Open it again: shown, patches                                                                                                       | 26 ms, 1                                                                                             | 120 ms, 2              |
+| Open a group of about 60 steps                                                                                                      | 28 ms                                                                                                | 120 ms                 |
+| Open a step's diff, a thought                                                                                                       | 24, 21 ms                                                                                            | 120 ms                 |
+| Read a long thought in full (the sheet, its text at once)                                                                           | 273 ms                                                                                               | 600 ms                 |
+
+Budgets sit 1.5 to 5 times above the medians so a busy Mac doesn't fail them and a real
+regression does. Lower one when the app gets faster; never raise one without a measured reason.
+The simulator's display-link callbacks are not GPU frames: real-device frame rate is still owed.
+
+Known bug: with 1,000 or more seeded deltas the open thread's streaming row stops updating on
+screen after the open; only cursor patches arrive. The streaming test expects that failure
+(`Workload.longStreamFreezes`) and fails once it is fixed, so the expectation gets removed; until
+then the streaming numbers above measure cursor traffic, not text.
+
+For long runs and Instruments sessions, fixture builds take `--spike-open ID` (open a thread
+once its row is listed) and `--spike-items 200` (the paired app's 200-item window). Launch with
+`-ace-frame-trace` to log late frames while a thread is open; the sampler never runs otherwise.
+
 ## Ownership and bounds
 
 - `bridge/` imports only package public exports. `ClientCore` owns protocol decoding,
   reconnect, snapshot/replay, history admission and the durable outbox. Its pending-send
   states and canonical daemon statuses drive the native UI.
+- The bridge reaches the platform only through the host contract (`@ace/native-host`,
+  [ADR 0096](../../docs/adr/0096-native-host-contract.md)): `HostContract.swift` and
+  `NativeHost.swift` implement it, and bridge tests run on its Node host. Launch with
+  `-ace-host-trace` to log the time each host function and the script take.
 - `Sources/Bridge/` owns a VM and run loop. Swift callbacks return to that thread;
   SwiftUI receives decoded, owned data. A single acknowledged frame carries at most
-  32 patches and 32 KiB. Pending changes retain keys and readers, not transcript copies.
+  32 patches and 32 KiB. A backlog of a full frame, or a fragmented patch, goes frame after
+  frame; fewer changes wait 8 ms so streaming deltas share a frame. Pending changes retain
+  keys and readers, not transcript copies.
   Oversized updates use acknowledged base64 fragments carrying up to 18 KiB UTF-8.
   Native assembly holds one patch, with a 512 MiB UTF-8 allowance covering the SDK's
   64 MiB UTF-16 reassembly budget and DTO identity duplication. The 2 MiB socket
@@ -87,10 +171,16 @@ simulator screenshots.
   use WAL with FULL synchronous commits before resolving JS promises. The database path
   includes daemon/device identity; its immutable host binding rejects another daemon.
 - Native item models preserve identity across deltas. Membership and position updates
-  change the order separately. The SDK bounds the spike window to 2,200 items and text
-  to 8,192 code units. Snapshots remain capped at 200; the spike calls the SDK's history
-  paging API to admit the rest.
+  change the order separately. The live tail is the daemon's 200-item snapshot (the SDK
+  bounds the spike's store to 2,200 items and text to 8,192 code units). Older history opens
+  in the shared bounded window beside it (`bridge/native-transcript.ts`, ADR 0062 "Phone
+  client"), whose rows arrive as `reading:` patches into a second thread model. Rows keep
+  their sort numbers while older pages land above them (`bridge/anchored-positions.ts`).
 - Composer drafts clear after `ClientCore.enqueue()` confirms local persistence.
+  Unsent words are kept per machine and thread in `thread-drafts.json` (`ThreadDrafts`, the
+  web's limits: 50 drafts, 100,000 characters), saved once typing pauses and at once when the
+  composer empties, so leaving a thread or a relaunch gives them back and a sent message never
+  returns. `--spike` launches start without them unless `--spike-keep-state` is passed.
   Failure preserves the input. Approval controls recover through correlated
   admission/receipt results; canonical interaction updates close the card.
 - Large-approval contracts use 300 distinct action IDs over 32 KiB, real SDK
@@ -118,21 +208,43 @@ only, and the bridge builds `thread.send`, `thread.interrupt`, `interaction.reso
 the shared Allow once / Always allow / Deny verbs by option index, so large option sets are
 sent once with exact canonical ids.
 
+A work log reaches Swift as the web draws it (`bridge/work-log.ts`, over the shared
+`@ace/ui-core/work-log-reading`): sentence groups with their icon and failures, the live group
+titled by its step in flight, thoughts with their time, background commands as one group, ace's
+audits folded away. Each step's own line (glyph, verb, target, stat, note, bounded detail from
+`bridge/step-detail.ts`) travels on its item row, so streaming touches that row alone. Turn
+endings and changed-file chips come from `bridge/turn-ending.ts`.
+
+Message rows follow the web's (`bridge/thread-messages.ts`): item rows carry the person's
+bubble (`bubbleContent`: word, code and mention runs, the long fold, Steer or Queued) and a
+thought's header (`thoughtLabel`); event blocks carry the web's own event decision
+(`eventView`: system rows, errors with ×N and Details, refusals, Not sent, notices, the handoff
+divider), re-read when the order around them changes; answer blocks say whether they still
+stream. A truncated finished answer reads its whole text in place (`native.message`).
+
 SwiftUI renders blocks with native Markdown (`Models/Markdown.swift`, SF Mono code blocks),
-collapsible work logs, inline subagent rows (a delegated child thread pushes; a native
-subagent's lane opens a sheet), question and approval cards above the composer, a model
-sheet and the header menu (Stop all agents, Snooze, Archive). The fixture's thread scenarios
+work logs on a step rail, inline subagent rows worded as the web's (`@ace/ui-core`
+subagent-row: meta, live detail, elapsed; a delegated child thread pushes, a native
+subagent's lane opens a sheet), question and approval cards on the strip above the composer
+(words typed while a question waits answer it through the shared `composerReply`), a model
+sheet and a quiet header: back, title and the ⋯ menu (Agent tree, Stop all agents, Snooze,
+Archive). Rows keep the web's 8/16/24 rhythm (`@ace/ui-core` row-room). The fixture's thread scenarios
 live in `scripts/thread-scenarios.ts`. `ACE_IOS_SPIKE_PORT` moves the fixture, and the app's
 `--spike-port N` argument and `TEST_RUNNER_ACE_IOS_SPIKE_PORT` for tests follow it. TS bridge
 behavior tests run with `bunx vitest run apps/ios/bridge/thread-*.test.ts` (shared harness in
 `bridge/thread-harness.ts`).
 
 Plan reviews, MCP forms and browser requests answer on their own cards
-(`bridge/thread-requests.ts`, validated with the shared `@ace/ui-core` form rules). An opened
-settled "Worked for" log reads its turn's full steps (`turn.steps` through the SDK's bounded
-`TurnStepsCache`), sent in 25-step page patches. While the log is open, a change to one of the
-turn's own items reads the turn's summary (`turns.page`) and holds the turn with its `endSeq`, so
-the cache reads it again only when its copy is older, as the web does. The effort and speed chip follows the web's
+(`bridge/thread-requests.ts`, validated with the shared `@ace/ui-core` form rules). A settled
+"Worked for" head that stays on screen 300 ms, or is tapped, reads its turn's full steps
+(`turn.steps` through the SDK's bounded `TurnStepsCache`), sent in 25-step page patches, its groups
+in the steps header, so the log opens on rows rather than a read. The bridge remembers what it sent
+for the last eight turns: opening one again, or scrolling back to it, sends only what changed, and
+a turn pushed past that bound is released in Swift too (`thread.stepsReleased`). While a head is in
+view, a change to one of the turn's own items reads the turn's summary (`turns.page`) and holds
+the turn with its `endSeq`, so the cache reads it again only when its copy is older, as the web
+does. Opening anything in place leaves the tapped row where it is: the feed stops following the
+end unless the end is still in view. The effort and speed chip follows the web's
 capability rules (`threadTuning`, `followUpTurnOptions` in `@ace/ui-core`); a pick goes with the next
 message only. Photos and files are staged natively (`Sources/Bridge/AttachmentStaging.swift`,
 hashed with CryptoKit); the bridge checks the shared limits and what the agent reads, then uploads
@@ -144,7 +256,13 @@ copies go once the start is saved, or when a file is removed or another project 
 Thread actions carry their navigation generation (`bridge/thread-route.ts`): a log or lane released
 after its thread was left is dropped, and a submitted action is refused on its own admission.
 A native subagent's lane sheet groups its own blocks (`createBlockReader(agentId)`). Going back from
-a child keeps the parent's last transcript (`ThreadTrail`) until the reopened session's first block.
+a child, or opening any of the last six threads shown, draws the kept copy at once
+(`ThreadShelf`), as the web keeps its thread stores warm. The bridge keeps a ledger of what native
+confirmed for each kept thread (`bridge/native-ledger.ts`); reopening one, or a fresh snapshot while
+it is open, sends only the patches that differ and removes what the thread no longer has. A
+thread the bridge no longer remembers resets as before. `Sources/Models/ThreadOpenTrace.swift`
+times each open (signposts and one `perf` log line: ready, first rows, settled, frames, bytes,
+main-thread and JavaScript time, hops across the bridge, footprint) and samples late frames.
 Request threads live in `scripts/request-scenarios.ts`; `POST /review/fresh {"scenario": …}` seeds a
 new one per contract test, so suites pass in any order.
 
@@ -163,6 +281,23 @@ come from `@ace/ui-core/mobile`, which Android also uses. Swift filters by searc
 maps token keys to theme colours and draws the rows. Archive, unarchive (Undo), snooze
 presets and wake go through the SDK's durable outbox. `InboxContractTests` and
 `InboxUITests` exercise the inbox against the fixture.
+
+## Pull requests and Issues
+
+The second tab (Pulls) holds the web's Pull requests and Issues pages for one machine and
+project at a time: a segmented switch between them, the project and Filters chips (state with
+GitHub's counts, involvement, sort, drafts, review, checks, author, labels), and the system
+search field. `bridge/forge-service.ts` answers native service calls (`forge.pulls`,
+`forge.issues`, `forge.pull`, `forge.issue`, `forge.merge`, `forge.auto-merge`,
+`forge.projects`) through the daemon's forge reads, the person's own `gh`. Searches, groups,
+next steps, merge gates, the primary control and the marks' words and tones come from
+`@ace/ui-core` (`forge-lists`, `pr-readiness`, `pr-row-steps`, `pr-gates`,
+`pr-primary-action`, `forge-marks`), the same modules the web pages use. List pages are kept
+half a minute; pull to refresh reads again. Merge and auto-merge go through the PR's linked
+thread when there is one, else its project (`forge.hosted.*`), pinned to the head shown and
+confirmed first. Start thread on an issue opens New thread with the issue written in and
+linked (`thread.create`'s `issue`). Linked threads open on the Threads tab. Bridge behaviour is
+covered by `bridge/forge-service.test.ts` on the fake daemon.
 
 ## Several machines
 
@@ -259,11 +394,13 @@ New thread: machine (when several are paired), project, an optional new worktree
 then the first message with any photos or files. The bridge (`bridge/new-thread.ts`) reads
 projects (`workspaces.list`, recent first by thread activity via `newThreadProjects`), the
 machine's agents (`providers.request` readiness, `accounts.list` and the paged `models.list`
-reader shared with the web), and judges each with `newThreadAgents`: one that isn't installed,
-is signed out or needs attention stays listed, disabled, with its reason. The agent picker groups
-models by agent and leads with the model in use (else the account's default); the rest of a long
-list waits behind More models (`newThreadModelList`). Swift tells the bridge what the draft has
-chosen (`choice`), so ordering and access follow it.
+reader shared with the web), and judges each with `newThreadAgents`. The model picker
+(`Sources/Views/ModelPicker`, shared with the thread's model sheet) shows a row of providers and
+the shown one's models below, headed by account when there are several. A CLI that isn't
+installed is left out (`newThreadPickerAgents`); one that is signed out or needs attention shows
+its reason in one line. Models keep one order, each account's default first, and the rest of a
+long list waits behind More models (`newThreadModelList`). Swift tells the bridge what the draft
+has chosen (`choice`), so the lead and access follow it.
 
 - **Speed** offers the tiers the model lists and goes out as `serviceTier`
   (`selectNewThreadAgent`). **Access** (`bridge/new-thread-access.ts`) reads the daemon's
@@ -344,6 +481,11 @@ leave the link; the code goes in the `/v1/pair` POST body.
   and drops archive and snooze for that machine's rows. `ClientModel` submits no commands
   for that machine; the others are unaffected.
   `NWPathMonitor` reports network changes to the SDK, which owns reconnect.
+- Back from the background, every machine's runtime calls the SDK's `wake()`: a ready socket
+  must answer a ping within five seconds or is replaced, and a reconnect waiting out its backoff
+  runs at once. Screens that read through native services (Files, pull requests and issues,
+  Usage, Automations, Prompts, terminal and others) read again each time their machine's
+  connection becomes ready (`readWhenConnected`, counted by `ClientModel.readyCount`).
 
 `bun run e2e:pairing` starts a real daemon with its LAN TLS listener advertised on
 loopback, plus a redirect trap that holds the daemon's own key. It writes
@@ -482,9 +624,10 @@ The paired app opens the latest 200 items instead of eagerly hydrating a 2,200-i
 benchmark window. The initial items and block layout complete before the transcript appears;
 a compact message skeleton fills the loading interval. Live work groups are independent
 list rows, and reopening a parent holds its last readable snapshot until the replacement
-is ready. Reading older content pauses tail following; Jump to latest resumes it. Conversation history
-uses separate bounded SDK windows and keeps page controls reachable below the content, so
-long conversations remain readable after the live cache is full. Historical full messages
+is ready. Reading older content pauses tail following; Scroll to end resumes it. Older history
+pages into one bounded window beside the live tail as the person scrolls up, and a search hit
+opens its thread at the hit in that window, so long conversations stay readable and memory
+stays flat however far back they go. Historical full messages
 and media resolve their authenticated item without replacing the live tail.
 
 Projects > Add project also has New project and Clone repository. Their protected local

@@ -17,6 +17,8 @@ export function PrDescription(props: {
   extensions?: PrWorkspaceExtensions | undefined;
   onOpen(number: number): void;
   onEdit: (() => void) | undefined;
+  /** Saves the description with one task box ticked, when the viewer may edit it. */
+  onTasks?: ((body: string) => Promise<boolean>) | undefined;
 }) {
   const body = props.context.detail.body;
   const [expanded, setExpanded] = useState(false);
@@ -60,13 +62,15 @@ export function PrDescription(props: {
             ref={box}
             className={cn(
               !expanded &&
-                "line-clamp-4 [&_*]:my-0 [&_h1,&_h2,&_h3,&_h4]:text-ui [&_h1,&_h2,&_h3,&_h4]:font-medium",
+                // Images and other blocks escape a line clamp: the height cap keeps them a preview.
+                "line-clamp-4 max-h-48 overflow-hidden [&_*]:my-0 [&_h1,&_h2,&_h3,&_h4]:text-ui [&_h1,&_h2,&_h3,&_h4]:font-medium",
             )}
           >
             <PrMarkdown
               context={props.context}
               extensions={props.extensions}
               onOpen={props.onOpen}
+              tasks={props.onTasks}
               text={body}
             />
           </div>

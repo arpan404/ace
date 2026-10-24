@@ -7,15 +7,23 @@ import { oversizedScenario, approvalRetryScenario } from "./review-scenarios.ts"
 import { manyActions, snapshotFrames } from "./many-actions.ts";
 import { LostReceipt } from "./lost-receipt.ts";
 import { threadScenarios } from "./thread-scenarios.ts";
+import { waitingScenario } from "./waiting-scenario.ts";
 import { RequestScenario, requestScenarios, seedRequest } from "./request-scenarios.ts";
 import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
-import { seedArchive } from "./archive-scenario.ts";
+import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
-import { seedNativeMedia } from "./media-scenario.ts";
+import { seedMessageAttachments, seedNativeMedia } from "./media-scenario.ts";
 import { answerScreenshot, browserControl, realVideo, seedBrowser } from "./spike-browser.ts";
-import { featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
+import { devicesControl, featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
 import { seedFiles } from "./files-scenario.ts";
+import { seedWorkLogs } from "./worklog-scenario.ts";
+import { seedLongSteps } from "./long-steps-scenario.ts";
+import { seedMessages } from "./message-scenario.ts";
+import { seedReading } from "./reading-scenario.ts";
+import { seedGoal } from "./goal-scenario.ts";
+import { busyInbox } from "./busy-inbox-scenario.ts";
+import { seedSettled } from "./settled-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
 const port = z.coerce
@@ -54,9 +62,13 @@ daemon.createThread({
   live: { model: "gpt-6.1 · high", subagentCount: 0, backgroundTaskCount: 0 },
 });
 daemon.apply("ios-stream", [facts.rootAgent("codex"), facts.turn("root")]);
-for (let start = 0; start < 1999; start += 100) {
+// `ACE_IOS_SPIKE_HISTORY=8000` seeds that many history messages instead of 1,999, so reading far
+// back pages past the history window's bound and evicts.
+const historyEnv = Number(process.env.ACE_IOS_SPIKE_HISTORY ?? 1999);
+const history = Number.isSafeInteger(historyEnv) && historyEnv > 0 ? historyEnv : 1999;
+for (let start = 0; start < history; start += 100) {
   const batch: Fact[] = [];
-  for (let i = start; i < Math.min(start + 100, 1999); i++)
+  for (let i = start; i < Math.min(start + 100, history); i++)
     batch.push(
       facts.message(
         "root",
@@ -76,6 +88,21 @@ daemon.apply("ios-stream", [
     false,
   ),
 ]);
+// `ACE_IOS_SPIKE_STREAMED=650000` starts the streaming thread as if it had already streamed that
+// many deltas (about nine hours at 20 a second), in one append, to check that a thread that has
+// run for hours opens as fast as a new one.
+const streamed = Number(process.env.ACE_IOS_SPIKE_STREAMED ?? 0);
+if (Number.isSafeInteger(streamed) && streamed > 0)
+  daemon.apply("ios-stream", [
+    facts.stream(
+      "root",
+      "stream",
+      Array.from(
+        { length: streamed },
+        (_, i) => ` Next step ${i + 1}: wire the safe kill-all filters.`,
+      ).join(""),
+    ),
+  ]);
 daemon.createThread({
   hasSentMessage: true,
   id: "ios-done",
@@ -103,13 +130,6 @@ daemon.createThread({
   provider: "codex",
   details: details("feat/process-owner"),
 });
-daemon.apply("ios-tree", [
-  facts.rootAgent("codex"),
-  facts.turn("root"),
-  facts.subagent("codex", "reviewer", "Reviewer", "spawn"),
-  facts.turn("reviewer", "spawn"),
-  facts.endTurn("root"),
-]);
 seedSheets(daemon);
 daemon.createThread({
   hasSentMessage: true,
@@ -137,18 +157,32 @@ daemon.command({
 });
 
 threadScenarios(daemon, details);
+waitingScenario(daemon, details);
+seedGoal(daemon, details);
 seedArchive(daemon, Date.now(), Number(process.env.ACE_IOS_SPIKE_NAP_MS ?? 90_000));
+const busy = Number(process.env.ACE_IOS_SPIKE_INBOX ?? 0);
+const busyTimer =
+  busy > 0
+    ? busyInbox(daemon, details, busy, Number(process.env.ACE_IOS_SPIKE_INBOX_MS ?? 200))
+    : undefined;
+seedSettled(daemon, details, Number(process.env.ACE_IOS_SPIKE_SETTLED ?? 0));
 seedProjects(daemon);
 seedNativeMedia(daemon);
+seedMessageAttachments(daemon);
 seedBrowser(daemon, details);
 seedFiles(daemon, details);
+seedWorkLogs(daemon);
+seedLongSteps(daemon);
+seedMessages(daemon, details);
+seedReading(daemon, details);
 requestScenarios(daemon, details);
 spikeDevices(daemon, details);
 let fresh = 0;
+let naps = 0;
 
 const connections = new Map<ServerWebSocket<undefined>, ReturnType<FakeDaemon["connect"]>>();
 let online = true;
-let deltas = 0;
+let deltas = streamed > 0 ? streamed : 0;
 let commands = 0;
 let snapshots = 0;
 let replays = 0;
@@ -225,6 +259,15 @@ const server = Bun.serve<undefined>({
       seedRequest(daemon, scenario, threadId, details);
       return Response.json({ threadId });
     }
+    // Restarts ios-nap's snooze from now, so the offline-snooze test never depends on how long
+    // the fixture has been running.
+    if (path === "/review/nap" && request.method === "POST") {
+      const { ms } = z
+        .object({ ms: z.number().int().min(1000).max(600_000) })
+        .parse(await request.json());
+      snoozeNap(daemon, Date.now() + ms, `ios-spike-nap-${++naps}`);
+      return Response.json({ ok: true });
+    }
     if (path === "/review/notify" && request.method === "POST") {
       const input = z
         .object({ threadId: ThreadId, id: z.string().min(1).max(64).optional() })
@@ -242,9 +285,15 @@ const server = Bun.serve<undefined>({
     }
     const browserReply = await browserControl(daemon, request);
     if (browserReply) return browserReply;
+    const devicesReply = devicesControl(daemon, request);
+    if (devicesReply) return devicesReply;
     if (path === "/health")
       return Response.json({
         head: daemon.head,
+        // The seed, so performance tests can refuse a fixture without their workload.
+        streamed: Number.isSafeInteger(streamed) && streamed > 0 ? streamed : 0,
+        busy: Number.isSafeInteger(busy) && busy > 0 ? busy : 0,
+        history,
         deltas,
         commands,
         snapshots,
@@ -320,6 +369,7 @@ const timer = setInterval(() => {
 }, 50);
 process.on("SIGINT", () => {
   clearInterval(timer);
+  clearInterval(busyTimer);
   server.stop(true);
 });
 console.log(

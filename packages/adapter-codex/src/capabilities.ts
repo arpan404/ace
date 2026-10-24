@@ -25,6 +25,8 @@ export function codexCapabilities(cli: DiscoveryResult): Capabilities {
     forkSubagents: supported,
     sessionOptions: supported,
     forkPoints: supported ? ["turn", "end"] : [],
+    // A native fork reads the source's turns into the new thread (ADR 0051).
+    forkTranscript: supported,
     subagentTranscripts: supported,
     backgroundTaskControl: supported,
     goals: supported,

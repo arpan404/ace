@@ -6,6 +6,7 @@ import {
   subagentGroupCounts,
   subagentGroupStatus,
   subagentGroupTitle,
+  subagentSpan,
   subagentTerminal,
   type SubagentGroupStatus,
   type SubagentState,
@@ -109,9 +110,7 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
         </ul>
       </section>
     );
-  const startedAt = Math.min(...entries.map((entry) => entry.startedAt));
-  const ends = entries.flatMap((entry) => (entry.endedAt === undefined ? [] : [entry.endedAt]));
-  const endedAt = !running && ends.length === entries.length ? Math.max(...ends) : undefined;
+  const { startedAt, endedAt } = subagentSpan(entries);
   const status = subagentGroupStatus(states);
   return (
     <section aria-label={title} data-group-status={status}>

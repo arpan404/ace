@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrAttention } from "./pr-attention.tsx";
 import { PrPeople } from "./pr-people.tsx";
@@ -6,8 +7,6 @@ import { PrDescription } from "./pr-description.tsx";
 import { PrStackSummary } from "./pr-stack-summary.tsx";
 import { PrChecks } from "./pr-checks.tsx";
 import { PrComments } from "./pr-comments.tsx";
-import { composerClearance } from "./pr-composer.tsx";
-import { cn } from "@/lib/cn.ts";
 
 /**
  * The Summary tab, top to bottom: what needs attention, reviewers and labels, the biggest
@@ -29,11 +28,15 @@ export function PrSummary(props: {
   onRequestReview: (() => void) | undefined;
   /** Opens the details editor, when GitHub lets this account edit them. */
   onEdit: (() => void) | undefined;
+  /** The milestone, linked issues, lock and branch, under the reviewers. */
+  details?: ReactNode;
+  /** Saves the description with one task box ticked, when the viewer may edit it. */
+  onTasks?: ((body: string) => Promise<boolean>) | undefined;
 }) {
   const { context } = props;
   const { detail } = context;
   return (
-    <div className={cn("space-y-3 px-[var(--forge-gutter,1rem)] pt-2", composerClearance)}>
+    <div className="space-y-3 px-[var(--forge-gutter,1rem)] pt-2 pb-10">
       <PrAttention
         workspaceId={context.workspaceId}
         detail={detail}
@@ -46,6 +49,7 @@ export function PrSummary(props: {
         onRequestReview={props.onRequestReview}
         onEdit={props.onEdit}
       />
+      {props.details}
       <PrChangesGlance
         workspaceId={context.workspaceId}
         detail={detail}
@@ -56,6 +60,7 @@ export function PrSummary(props: {
         extensions={props.extensions}
         onOpen={props.onOpen}
         onEdit={props.onEdit}
+        onTasks={props.onTasks}
       />
       {props.stack && (
         <PrStackSummary

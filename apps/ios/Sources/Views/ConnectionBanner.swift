@@ -7,7 +7,7 @@ struct InboxConnectionBanner: View {
     let retry: () -> Void
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
-            if waiting { ProgressView().controlSize(.mini) } else { Image(systemName: "wifi.slash") }
+            if waiting { ProgressView().controlSize(.mini) } else { AceIcon(.wifiSlash, size: 14, relativeTo: .caption) }
             Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
             Spacer(minLength: AceTheme.Spacing.sm)
             if !waiting { Button("Retry", action: retry).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).buttonStyle(.borderless) }

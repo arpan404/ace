@@ -638,6 +638,14 @@ const server = createServer(async (req, res) => {
           .end(JSON.stringify({ message: "Invalid input ID" }));
         return;
       }
+      // The server turns the prompt down before storing anything.
+      if (fault.promptRefused) {
+        fault.promptRefused = false;
+        res
+          .writeHead(422, { "content-type": "application/json" })
+          .end(JSON.stringify({ message: "Unsupported part" }));
+        return;
+      }
       if (fault.promptInvisible) {
         fault.promptInvisible = false;
         res.destroy();
@@ -675,6 +683,14 @@ const server = createServer(async (req, res) => {
             directory,
           );
         publish("session.execution.succeeded", { sessionID: id }, directory);
+      }
+      // The prompt was stored, then the server failed while answering.
+      if (fault.promptServerError) {
+        fault.promptServerError = false;
+        res
+          .writeHead(502, { "content-type": "application/json" })
+          .end(JSON.stringify({ message: "Bad gateway" }));
+        return;
       }
       if (fault.holdPrompt) {
         fault.holdPrompt = false;

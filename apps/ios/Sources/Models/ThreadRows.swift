@@ -3,6 +3,8 @@ import Foundation
 /// A step's one line, worded by the shared work-log rules in the bridge.
 struct StepLine: Codable, Sendable, Equatable {
     let icon: String
+    /// What the row's glyph shows (`@ace/ui-core` `stepGlyphKind`).
+    var glyph: String? = nil
     let verb: String
     let target: String
     let note: String
@@ -15,24 +17,50 @@ struct StepLine: Codable, Sendable, Equatable {
     var browser: Bool? = nil
     /// `device:<id>` or `computer`: where tapping the step goes; empty or nil for nowhere.
     var opens: String? = nil
+    /// Waits on an approval nobody has answered: the row steps aside for the composer's request.
+    var awaiting: Bool? = nil
+    /// The row opens to its output, diff or reasoning.
+    var expandable: Bool? = nil
+    /// What the opened row shows, bounded by the bridge.
+    var detail: StepDetail? = nil
 }
+/// An opened step: a command's output tail, compact diffs, a search's matches, a failure.
+struct StepDetail: Codable, Sendable, Equatable {
+    struct Diff: Codable, Sendable, Equatable {
+        struct Line: Codable, Sendable, Equatable {
+            /// `add`, `del`, `context` or `hunk`.
+            let kind: String
+            let text: String
+        }
+        let path: String
+        /// `create`, `delete`, `move`; empty for an update.
+        let kind: String
+        let lines: [Line]
+        let more: Int
+    }
+    let output: String
+    let outputTruncated: Bool
+    let text: String
+    let diffs: [Diff]
+}
+/// One image or file of a message (`bridge/thread-rows.ts`). `ref` names it to
+/// `native.attachment`; `thumbnail` says a preview can be read, `opens` that the file can.
+/// The newer fields are optional so a row kept by an older build still decodes.
 struct AttachmentLine: Codable, Sendable, Equatable, Hashable {
     let kind: String
     let name: String
+    var ref: String? = nil
+    var mimeType: String? = nil
+    var bytes: Int? = nil
+    var width: Double? = nil
+    var height: Double? = nil
+    var thumbnail: Bool? = nil
+    var opens: Bool? = nil
 }
 
 /// One transcript block as `@ace/ui-core` groups it. Items are referenced by id; their rows
 /// stream separately, so a delta never rebuilds a block.
 struct BlockRow: Codable, Sendable, Equatable {
-    struct WorkGroup: Codable, Sendable, Equatable, Identifiable {
-        let id: String
-        let items: [String]
-        let single: Bool
-        let label: String
-        let icon: String
-        let running: Bool
-        let active: String
-    }
     struct Work: Codable, Sendable, Equatable {
         let label: String
         let counts: String
@@ -55,18 +83,55 @@ struct BlockRow: Codable, Sendable, Equatable {
             let provider: String
             let model: String
             let result: String
+            /// "Opus 4.7 · High", "Delegated · GPT-5.5"; empty when none is known.
+            var meta: String = ""
+            /// The paired machine it runs on, when that is another one.
+            var machine: String = ""
+            /// Its second line: what it does now, waits on, failed with or found.
+            var detail: String = ""
+            /// "live", "result", "human", "failed" or empty.
+            var detailKind: String = ""
+            /// Ticks from here while it runs and the facts are fresh (ms since 1970).
+            var since: Double? = nil
+            /// How long it ran, once settled; empty when not shown.
+            var elapsed: String = ""
+        }
+        /// One part of the status line, in its status colour: "2 working".
+        struct Count: Codable, Sendable, Equatable { let text: String; let token: String }
+        /// The group's lead: each provider once, at most three, past three two and "+N".
+        struct Lead: Codable, Sendable, Equatable {
+            let providers: [String]
+            let more: Int
+            let label: String
         }
         let status: String
         let entries: [Entry]
+        var counts: [Count]? = nil
+        /// "3 subagents".
+        var title: String = ""
+        /// The group's worst child, as a status palette key.
+        var token: String = ""
+        /// Its facts are stale while it ran: "Last seen: " leads the counts.
+        var stale: Bool = false
+        var lead: Lead? = nil
+        var since: Double? = nil
+        var elapsed: String = ""
     }
-    struct Ending: Codable, Sendable, Equatable {
-        let label: String
-        let automatic: Bool
-        let error: String
+    /// A question where the agent asked it: "Codex is asking · title" while it waits.
+    struct Question: Codable, Sendable, Equatable {
+        let asking: Bool
+        let asker: String
+        let title: String
+        let answer: String
+        let outcome: String
     }
     struct Started: Codable, Sendable, Equatable {
         let threadId: String
         let title: String
+        /// "New thread" or "Fork".
+        var label: String = ""
+        var provider: String = ""
+        var model: String = ""
     }
     let index: Int?
     let kind: String
@@ -77,9 +142,59 @@ struct BlockRow: Codable, Sendable, Equatable {
     let agents: Agents?
     let ending: Ending?
     let started: Started?
+    var question: Question? = nil
+    /// The room it asks for above and below itself: 8, 16 or 24 (`@ace/ui-core` row-room).
+    var room: Room? = nil
+    struct Room: Codable, Sendable, Equatable { let before: Double; let after: Double }
     /// A settled work head's root turn, whose full steps open on demand.
     var ordinal: Int? = nil
-    var groups: [WorkGroup]? = nil
+    /// The work log's rows, as the web groups them (`bridge/work-log.ts`).
+    var log: [LogRow]? = nil
+    /// ace's own steps, worded with what earlier steps of the log said about them.
+    var aceSteps: [AceStep]? = nil
+    /// Failed steps a later step ran again with success.
+    var retried: [String]? = nil
+    var thoughts: [Thought]? = nil
+    var files: Files? = nil
+    /// The log's calls that left a command running in the background (`bridge/background-rows.ts`).
+    var background: [Background]? = nil
+    /// An answer block: its text still arrives while its turn runs.
+    var streaming: Bool? = nil
+    /// An event block's one row as the web decides it (`@ace/ui-core` `eventView`); nil for the
+    /// person's own bubble.
+    var event: EventRow? = nil
+    struct Background: Codable, Sendable, Equatable {
+        let itemId: String
+        let taskId: String
+        /// "Running in background", "Finished", "Stopped".
+        let label: String
+        let command: String
+        let running: Bool
+        var status: String? = nil
+        let stoppable: Bool
+        /// Ms since 1970.
+        let startedAt: Double
+        let endedAt: Double?
+    }
+}
+
+/// Something that happened to the thread rather than in the conversation, flattened by the bridge
+/// (`bridge/thread-messages.ts`). `kind` picks the row: "event" and "system" (a muted row with its
+/// time, opening `note` and `detail`), "error", "refusal", "notSent", "notice", "quiet",
+/// "handoff", "user", "none"; others draw the item as it is.
+struct EventRow: Codable, Sendable, Equatable {
+    let kind: String
+    let icon: String
+    let provider: String
+    let text: String
+    let note: String
+    let detail: String
+    /// The detail is what the model was sent: monospaced.
+    let mono: Bool
+    /// Ms since 1970; 0 when the row shows no time.
+    let at: Double
+    /// How many identical rows this one stands for.
+    let count: Int
 }
 
 /// The composer's canonical choices: delivery while busy, the alternate, and Stop.
@@ -114,6 +229,25 @@ struct ModelOption: Codable, Sendable, Equatable, Identifiable {
     let label: String
     let detail: String
     let current: Bool
+}
+
+/// The open thread's model sheet (`thread.models`): its provider's models, the one in use marked,
+/// the ids starred among them in the order they were starred, and why the last star didn't save.
+struct ThreadModels: Decodable, Sendable, Equatable {
+    var state = "idle"
+    var models: [ModelOption] = []
+    var favorites: [String] = []
+    var starProblem: String? = nil
+
+    init() {}
+    private enum Keys: String, CodingKey { case state, models, favorites, starProblem }
+    init(from decoder: any Decoder) throws {
+        let box = try decoder.container(keyedBy: Keys.self)
+        state = try box.decode(String.self, forKey: .state)
+        models = try box.decode([ModelOption].self, forKey: .models)
+        favorites = try box.decodeIfPresent([String].self, forKey: .favorites) ?? []
+        starProblem = try box.decodeIfPresent(String.self, forKey: .starProblem)
+    }
 }
 
 extension ApprovalRow {

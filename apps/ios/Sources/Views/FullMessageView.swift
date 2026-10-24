@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// A message or thought longer than its row, read whole (`native.message`).
 struct FullMessageView: View {
     let model: ClientModel
     let threadId: String
@@ -12,15 +13,20 @@ struct FullMessageView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
-                    if let text { MarkdownView(text: text) }
-                    else if problem == nil { ProgressView("Reading full message…") }
+                    // The row's own text shows at once; the whole text replaces it when it arrives.
+                    MarkdownView(text: text ?? item.text).onAppear { DisclosureTrace.shared.shown(item.id) }
+                    if text == nil && problem == nil {
+                        Text("Reading the rest…").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                            .foregroundStyle(AceTheme.Colours.subtleForeground)
+                            .accessibilityAddTraits(.updatesFrequently)
+                    }
                     ServiceProblem(message: problem)
                     if problem != nil { Button("Retry") { Task { await read() } } }
-                }.padding(AceTheme.Spacing.lg).frame(maxWidth: .infinity, alignment: .leading)
+                }.padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.lg).frame(maxWidth: .infinity, alignment: .leading)
             }
             .navigationTitle(item.type == "reasoning" ? "Thought" : "Message").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-        }.task { await read() }
+        }.readWhenConnected(model) { await read() }
     }
     private func read() async {
         problem = nil

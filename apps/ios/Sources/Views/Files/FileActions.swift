@@ -27,6 +27,16 @@ enum FilePrompt: Identifiable, Equatable {
         }
     }
     var isDelete: Bool { if case .delete = self { true } else { false } }
+    /// The sentence a refusal starts with: its own verb, and for something new the name typed.
+    func failure(typed: String) -> String {
+        switch self {
+        case .create: "Couldn't create \(FileActions.name(typed))."
+        case .mkdir: "Couldn't create the folder \(FileActions.name(typed))."
+        case .rename(let path): "Couldn't rename \(FileActions.name(path))."
+        case .move(let path): "Couldn't move \(FileActions.name(path))."
+        case .delete(let path): "Couldn't delete \(FileActions.name(path))."
+        }
+    }
     /// What the text field starts with: the folder to add to, or the path being changed.
     var start: String {
         switch self {
@@ -90,7 +100,7 @@ struct FileStrip: Equatable {
                 } else { strip = nil }
                 changed(prompt, change)
             } catch {
-                strip = FileStrip(message: "Couldn't \(prompt.title.lowercased()) \(Self.name(prompt.start)). \(error.localizedDescription)")
+                strip = FileStrip(message: "\(prompt.failure(typed: value)) \(error.localizedDescription)")
             }
         }
     }
@@ -108,7 +118,7 @@ struct FileStrip: Equatable {
         }
     }
 
-    static func name(_ path: String) -> String {
+    nonisolated static func name(_ path: String) -> String {
         let clean = path.hasSuffix("/") ? String(path.dropLast()) : path
         return clean.split(separator: "/").last.map(String.init) ?? clean
     }

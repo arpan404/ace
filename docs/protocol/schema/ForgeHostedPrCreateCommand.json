@@ -1,0 +1,81 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeHostedPrCreateCommand.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "assignees": {
+      "default": [],
+      "items": {
+        "maxLength": 100,
+        "pattern": "^[\\w-]+$",
+        "type": "string"
+      },
+      "maxItems": 10,
+      "type": "array"
+    },
+    "base": {
+      "$ref": "https://ace.local/protocol/v1/ForgeBranchName.json"
+    },
+    "body": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "draft": {
+      "default": false,
+      "type": "boolean"
+    },
+    "head": {
+      "$ref": "https://ace.local/protocol/v1/ForgeCompareHead.json"
+    },
+    "labels": {
+      "default": [],
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "milestone": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "repository": {
+      "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+    },
+    "reviewers": {
+      "default": [],
+      "items": {
+        "maxLength": 100,
+        "pattern": "^[\\w-]+$",
+        "type": "string"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "title": {
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "\\S",
+      "type": "string"
+    },
+    "type": {
+      "const": "forge.hosted.pr.create",
+      "type": "string"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "type",
+    "workspaceId",
+    "repository",
+    "base",
+    "head",
+    "title",
+    "body"
+  ],
+  "type": "object"
+}

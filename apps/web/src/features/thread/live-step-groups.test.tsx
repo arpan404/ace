@@ -122,3 +122,44 @@ test("a step the reader opened stays open when the next step joins it into a gro
       .getAttribute("aria-expanded"),
   ).toBe("true");
 });
+
+const reasoning = (item: string, complete: boolean) => ({
+  type: "item.upsert" as const,
+  agent: "root",
+  item,
+  draft: { type: "reasoning" as const, complete, text: "" },
+});
+const shell = (item: string, command: string) =>
+  facts.tool("root", item, { kind: "shell", title: command, detail: { kind: "shell", command } });
+
+test("a thought with no words between calls leaves the step's row in place and titles the group", async () => {
+  const app = harness();
+  app.daemon.createThread({ id: "thinks", workspaceId: "ace", title: "Thinks", provider: "codex" });
+  app.daemon.apply("thinks", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Build it"),
+    shell("lint", "bun run lint"),
+    facts.toolDone("root", "lint"),
+  ]);
+  await app.open("/t/thinks");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const step = await within(feed).findByRole("button", { name: /bun run lint/ });
+  act(() => app.daemon.apply("thinks", [reasoning("first", false)]));
+  // The same row, not a group of one step and a thought that is drawn and taken away again.
+  expect(within(feed).getByRole("button", { name: /bun run lint/ })).toBe(step);
+  expect(within(feed).queryByRole("button", { name: /Thinking/ })).toBeNull();
+
+  act(() =>
+    app.daemon.apply("thinks", [
+      reasoning("first", true),
+      shell("build", "bun run build"),
+      facts.toolDone("root", "build"),
+      reasoning("second", false),
+    ]),
+  );
+  // Thinking titles the group; the thought is no step of it.
+  expect(await within(feed).findByRole("button", { name: /Thinking.*2 steps/ })).toBeTruthy();
+  act(() => app.daemon.apply("thinks", [reasoning("second", true)]));
+  expect(await within(feed).findByRole("button", { name: "Ran 2 commands" })).toBeTruthy();
+});

@@ -1,7 +1,7 @@
 import type { OffshiftCriterionRow, OffshiftStepRow, OffshiftSummary } from "@ace/ui-core";
 import { formatCount } from "@ace/ui-core";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
-import { threadGlyph, type GlyphState } from "@/components/status-glyph-state.ts";
+import { threadGlyph, type GlyphState } from "@ace/ui-core";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
 

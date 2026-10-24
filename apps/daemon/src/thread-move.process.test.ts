@@ -326,3 +326,33 @@ test("a move reconciles a dead provider and exited terminal before testing live 
     await f.close();
   }
 });
+
+test("a chat's thread moves to a project and back, but no other thread moves into the chat", async () => {
+  const f = await world();
+  try {
+    const folder = join(f.home, "chats", "chat-1");
+    await mkdir(folder, { recursive: true });
+    const chat = new ProjectStorage(f.store, f.clock.now).registerChat(folder, "Chat");
+    const created = await f.command({
+      type: "thread.create",
+      workspaceId: chat.id,
+      provider: "codex",
+      input: [{ type: "text", text: "Hi" }],
+    });
+    if (created.type !== "commandResult" || !created.threadId) throw new Error("No chat thread");
+    const chatThread = created.threadId;
+    await f.engine.flush();
+    expect(
+      await f.command({ type: "thread.move", threadId: f.id, workspaceId: chat.id }),
+    ).toMatchObject({ ok: false, error: "chat_project" });
+    expect(
+      await f.command({ type: "thread.move", threadId: chatThread, workspaceId: f.target }),
+    ).toMatchObject({ ok: true });
+    expect(
+      await f.command({ type: "thread.move", threadId: chatThread, workspaceId: chat.id }),
+    ).toMatchObject({ ok: true });
+    expect(f.store.getThread(chatThread)?.workspaceId).toBe(chat.id);
+  } finally {
+    await f.close();
+  }
+});

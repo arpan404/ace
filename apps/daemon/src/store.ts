@@ -56,11 +56,13 @@ import {
   ThreadId,
   type ItemId,
   type ThreadView,
+  type ProjectKind,
   WorkspaceId,
   WorkspaceFileChange,
 } from "@ace/protocol";
 import { McpData } from "./mcp-data.ts";
 import { Devices } from "./devices.ts";
+import { SqlitePairingCodes } from "./pairing-codes.ts";
 import { migrate } from "./migrations.ts";
 import { StatusStore } from "./status-store.ts";
 import { UsageReplay } from "./usage-replay.ts";
@@ -86,6 +88,8 @@ type Listener = (events: Event[]) => void;
 const streamingRefreshPasses = 20;
 export class Store {
   readonly devices: Devices;
+  /** Pairing links waiting to be redeemed; they outlive a restart until they expire. */
+  readonly pairingCodes: SqlitePairingCodes;
   readonly workspaceReservations: WorkspaceReservations;
   private readonly db: DatabaseSync;
   private readonly usageReplay: UsageReplay;
@@ -246,6 +250,7 @@ export class Store {
         id: options.id ?? this.nextId,
         randomBytes: options.randomBytes ?? systemCredentials.randomBytes,
       });
+      this.pairingCodes = new SqlitePairingCodes(this.db);
       this.mcp = new McpData(this.db, (id) => this.getThread(id));
       this.searchReplay = new SearchReplay(this.db, this.history);
       this.search = new SearchIndex(this.db, {
@@ -738,11 +743,17 @@ export class Store {
       this.deferredAfter = Math.max(this.deferredAfter, through);
     this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   }
-  getWorkspace(
-    id: WorkspaceId,
-  ): { path: string; name: string; icon?: string | null; defaultIcon?: string | null } | undefined {
+  getWorkspace(id: WorkspaceId):
+    | {
+        path: string;
+        name: string;
+        icon?: string | null;
+        defaultIcon?: string | null;
+        kind?: ProjectKind;
+      }
+    | undefined {
     const row = this.statement(
-      "SELECT id,path,name,(SELECT icon FROM workspace_metadata WHERE workspace_id=workspaces.id) AS icon,(SELECT default_icon FROM workspace_metadata WHERE workspace_id=workspaces.id) AS defaultIcon FROM workspaces WHERE id=?",
+      "SELECT w.id,w.path,w.name,m.icon,m.default_icon AS defaultIcon,m.kind FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id WHERE w.id=?",
     ).get(id);
     if (!row) return undefined;
     const project = decodeProjectRow(row);
@@ -751,6 +762,7 @@ export class Store {
       name: project.name,
       ...(project.icon === undefined ? {} : { icon: project.icon }),
       ...(project.defaultIcon === undefined ? {} : { defaultIcon: project.defaultIcon }),
+      ...(project.kind ? { kind: project.kind } : {}),
     };
   }
   executionWorkspace(id: ThreadId) {

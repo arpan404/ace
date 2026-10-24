@@ -4,7 +4,7 @@ import { useId, useState, type Ref } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { MessageReferences } from "./message-references.tsx";
-import { bubbleSegments, foldedLines, isLongMessage } from "./bubble-segments.ts";
+import { bubbleSegments, foldedLines, isLongMessage } from "@ace/ui-core";
 
 /** Prose lines are `text-prose`'s 1.6; the fold keeps `foldedLines` of them, the last fading. */
 const foldStyle = {

@@ -273,6 +273,12 @@ export interface BrowserBackendPage {
    */
   resize(width: number, height: number, devicePixelRatio?: number): Promise<void>;
   /**
+   * Size the page for a person on a touch screen elsewhere (a phone): a mobile layout at that
+   * size, kept by the backend over its own sizing until the next `resize`. Absent: `resize`,
+   * then `emulate` with the mobile flag where the backend has it.
+   */
+  touchResize?(width: number, height: number, devicePixelRatio?: number): Promise<void>;
+  /**
    * Window pixels per CSS pixel in this page's screencast frames beyond the browser's own scale
    * (1 when the page renders at that scale). Absent: always 1.
    */

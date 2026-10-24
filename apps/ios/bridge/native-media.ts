@@ -1,6 +1,6 @@
 import { attachmentBytes, type ClientCore } from "@ace/client";
 import { designTokens } from "@ace/design-tokens";
-import { resolveHtmlMode, visualizationWindow, type HtmlTheme } from "@ace/html";
+import { resolveHtmlMode, visualizationDocument, type HtmlTheme } from "@ace/html";
 import { ItemId, ThreadId } from "@ace/protocol";
 import { z } from "zod";
 
@@ -20,7 +20,13 @@ export async function readNativeMedia(
   request: z.infer<typeof NativeMediaRequest>,
   signal: AbortSignal,
 ) {
-  const item = await readNativeItem(owner, request.threadId, request.itemId, signal);
+  // Another thread's item, or one the daemon refuses, is simply not this thread's media.
+  const item = await readNativeItem(owner, request.threadId, request.itemId, signal).catch(
+    (error: unknown) => {
+      if (signal.aborted) throw error;
+      return undefined;
+    },
+  );
   if (!item || (item.type !== "html" && item.type !== "image"))
     throw new Error("Media unavailable");
   const attachment = item.type === "html" ? item.visualization.document : item.image.attachment;
@@ -44,12 +50,12 @@ export async function readNativeMedia(
     };
     return {
       kind: "html",
-      // WKWebView uses a 980px desktop layout viewport without a viewport
-      // meta, shrinking canvas content to ~one-third size. The shared
-      // visualizationWindow wrapper is trusted web output; add the mobile
-      // viewport here at the native boundary without touching CSP,
-      // sandbox, or nested authored HTML.
-      document: visualizationWindow(
+      // The page's own sandboxed frame inside the trusted outer document, which reports the
+      // page's content height through its title so the transcript can size it inline. WKWebView
+      // uses a 980px desktop layout viewport without a viewport meta, shrinking content to about
+      // a third; the viewport is added here at the native boundary without touching CSP, sandbox
+      // or the authored HTML.
+      document: visualizationDocument(
         html,
         theme,
         resolveHtmlMode(html, item.visualization.mode),

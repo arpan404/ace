@@ -105,11 +105,11 @@ struct DevicesScreen: View {
 
     private var menu: some View {
         Menu {
-            Button("Refresh", systemImage: "arrow.clockwise") { Task { await refresh() } }
+            Button("Refresh", ace: .arrowClockwise) { Task { await refresh() } }
             if model.canOperate, view?.enabled == true {
-                Button("Turn off devices…", systemImage: "nosign", role: .destructive) { disabling = true }
+                Button("Turn off devices…", ace: .prohibit, role: .destructive) { disabling = true }
             }
-        } label: { Label("Devices options", systemImage: "ellipsis") }
+        } label: { Label("Devices options", ace: .dotsThree) }
         .accessibilityIdentifier("devices.menu")
     }
 
@@ -149,16 +149,15 @@ struct DevicesRouteView: View {
     }
 }
 
-/// A device's symbol for its kind.
-enum DeviceSymbol {
-    static func of(_ kind: String) -> String {
+/// A device's icon for its kind.
+enum DeviceIcon {
+    static func of(_ kind: String) -> AceIcon.Name {
         switch kind {
-        case "ipad", "android-tablet": "ipad"
-        case "watch": "applewatch"
-        case "tv": "appletv"
-        case "vision": "visionpro"
-        case "android-phone": "smartphone"
-        default: "iphone"
+        case "ipad", "android-tablet": .deviceTablet
+        case "watch": .watch
+        case "tv": .television
+        case "vision": .virtualReality
+        default: .deviceMobile
         }
     }
 }
@@ -168,7 +167,7 @@ struct DeviceRow: View {
     let tile: DeviceTile
     var body: some View {
         HStack(spacing: AceTheme.Spacing.md) {
-            Image(systemName: DeviceSymbol.of(tile.kind)).font(.system(size: 21))
+            AceIcon(DeviceIcon.of(tile.kind), size: 21)
                 .foregroundStyle(AceTheme.Colours.foreground).frame(width: 28).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(tile.name).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
@@ -178,7 +177,7 @@ struct DeviceRow: View {
                     .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
             }
             Spacer(minLength: AceTheme.Spacing.sm)
-            Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
+            AceIcon(.caretRight, size: 14, relativeTo: .footnote)
                 .foregroundStyle(AceTheme.Colours.decoration).accessibilityHidden(true)
         }
         .frame(minHeight: 60)

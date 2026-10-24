@@ -27,11 +27,15 @@ export function watchedState(
   record: DelegationRecord | undefined,
   descendantsPending: boolean,
   rootIdle: boolean,
+  /** A resume of this thread is in flight (ace's restart continuation or the person's Resume). */
+  resuming = false,
 ): WatchedState {
   if (thread.status.state === "needs_you") return "needs_you";
   // A queue held for the person (left by a restart, an uncertain delivery or a pause) never
   // moves by itself, so a wait on it returns instead of blocking until it times out.
-  if (heldFor(thread, record)) return "needs_you";
+  if (heldFor(thread, record, resuming)) return "needs_you";
+  // Queued past its parent's run slots: it has not started, and still keeps its parent open.
+  if (record?.phase === "created" && thread.queuedLaunch) return "queued";
   if (record) {
     const view = agentTaskView(thread, record, descendantsPending, rootIdle);
     if (view.state === "waiting_on_human") return "needs_you";
@@ -49,8 +53,15 @@ export function watchedState(
 }
 
 /** Why the thread's queue waits on the person, when it is held and not being stopped. */
-export function heldFor(thread: Thread, record: DelegationRecord | undefined): string | undefined {
-  if (thread.status.state !== "waiting" || record?.phase === "cancelling") return undefined;
+export function heldFor(
+  thread: Thread,
+  record: DelegationRecord | undefined,
+  resuming = false,
+): string | undefined {
+  // A queue still paused while its resume is in flight is about to move: that is work, not a
+  // hold for the person.
+  if (thread.status.state !== "waiting" || record?.phase === "cancelling" || resuming)
+    return undefined;
   return threadAttention(thread);
 }
 

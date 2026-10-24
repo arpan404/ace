@@ -31,6 +31,8 @@ export class ClaudeState {
   retryOn: "rate_limit" | "network" | "upstream" | undefined;
   rateBlocks = new Set<string>();
   errors = new Map<Key, AgentError>();
+  /** The root's last failure, until a turn of the model's own replaces it. */
+  rootFailure: AgentError | undefined;
   runTrigger: RunTrigger = "unknown";
   wakeUntil: number | undefined;
   active = new Set<Key>();

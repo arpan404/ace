@@ -48,7 +48,7 @@ struct RecentlyDeletedView: View {
         .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
             if let problem { FilesStripView(message: problem, dismiss: { self.problem = nil }) }
         }
-        .task { await load(after: nil) }
+        .readWhenConnected(model) { await load(after: nil) }
         .refreshable { entries = []; await load(after: nil) }
     }
 

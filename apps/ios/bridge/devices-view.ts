@@ -2,13 +2,13 @@ import type { DeviceClientSnapshot } from "@ace/client/devices";
 import type { DeviceState } from "@ace/protocol";
 import {
   activityCaption,
-  defaultScreens,
   deviceButtons,
   deviceCatalog,
   deviceControls,
   deviceKind,
   deviceProblem,
   deviceRows,
+  deviceScreen,
   frameGeometry,
   type DeviceProblem,
   type DeviceRow,
@@ -40,6 +40,11 @@ export interface DevicesViewInput {
   >;
   /** The channel was up and closed since. */
   closed: boolean;
+  /** The channel never opened, or never answered its first reads, in their time: the screen
+   * says so while ace keeps trying. */
+  unreachable?: boolean;
+  /** The machine answered the first reads with a refusal (no administrator access, say). */
+  refused?: DeviceProblem | undefined;
   threadId: string | undefined;
   /** The device whose screen is open. */
   deviceId: string | undefined;
@@ -188,7 +193,7 @@ function screen(
     };
   const controls = deviceControls(device, state, input.now);
   const kind = deviceKind(row);
-  const upright = defaultScreens[kind];
+  const upright = deviceScreen(kind, row.name);
   const portrait = {
     width: Math.min(upright.width, upright.height),
     height: Math.max(upright.width, upright.height),
@@ -255,7 +260,14 @@ export function phoneDevicesView(input: DevicesViewInput): PhoneDevicesView {
     .map((row) => tile(input, row, states.get(row.id)));
   const selected = input.deviceId ? rows.find((row) => row.id === input.deviceId) : undefined;
   const offline: DeviceProblem | null = snapshot.connected
-    ? null
+    ? !snapshot.inventoryLoaded && input.refused
+      ? input.refused
+      : input.unreachable && !snapshot.inventoryLoaded
+        ? {
+            message: "Can't read this machine's simulators and emulators.",
+            hint: "ace keeps trying.",
+          }
+        : null
     : snapshot.error
       ? deviceProblem({
           code: snapshot.error.code,
@@ -268,7 +280,12 @@ export function phoneDevicesView(input: DevicesViewInput): PhoneDevicesView {
             message: "Lost the connection to this machine's simulators and emulators.",
             hint: "Reconnect to see them again.",
           }
-        : null;
+        : input.unreachable
+          ? {
+              message: "Can't reach this machine's simulators and emulators.",
+              hint: "ace keeps trying.",
+            }
+          : null;
   return {
     connected: snapshot.connected,
     loading: !snapshot.inventoryLoaded,

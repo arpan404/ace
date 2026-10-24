@@ -15,23 +15,24 @@ final class DurableStore {
     }
     deinit { sqlite3_close(db) }
 
-    func perform(_ operation: String, input: Data) throws -> String {
-        switch operation {
+    func perform(_ request: HostRequest) throws -> String {
+        switch request.operation {
         case "storage.records":
             let values = try query("SELECT value FROM records ORDER BY id")
             return String(decoding: try JSONEncoder().encode(values), as: UTF8.self)
         case "storage.write":
-            let value = try JSONDecoder().decode(RecordWrite.self, from: input)
-            guard value.id.utf8.count <= 256, (value.value?.utf8.count ?? 0) <= 1_048_576 else { throw HostError.storage }
+            // No body deletes the record.
+            let id = try JSONDecoder().decode(RecordId.self, from: request.input).id
+            guard id.utf8.count <= 256, (request.body?.utf8.count ?? 0) <= 1_048_576 else { throw HostError.storage }
             try transaction {
-                if let text = value.value {
-                    try write("INSERT INTO records(id,value) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value", [value.id, text])
-                } else { try write("DELETE FROM records WHERE id=?", [value.id]) }
+                if let text = request.body {
+                    try write("INSERT INTO records(id,value) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value", [id, text])
+                } else { try write("DELETE FROM records WHERE id=?", [id]) }
             }
             return ""
         case "storage.host.load": return try query("SELECT value FROM metadata WHERE id='host'").first ?? ""
         case "storage.host.save":
-            let host = try JSONDecoder().decode(String.self, from: input)
+            let host = try request.requireBody()
             try transaction {
                 let existing = try query("SELECT value FROM metadata WHERE id='host'").first
                 guard existing == nil || existing == host else { throw HostError.identity }
@@ -40,8 +41,15 @@ final class DurableStore {
             return ""
         case "storage.load": return try query("SELECT value FROM metadata WHERE id='legacy'").first ?? ""
         case "storage.save":
-            let value = try JSONDecoder().decode(String.self, from: input)
+            let value = try request.requireBody()
             try transaction { try write("INSERT OR REPLACE INTO metadata(id,value) VALUES ('legacy',?)", [value]) }
+            return ""
+        // The bridge's kept reads (`bridge/read-cache.ts`): a cache, so a plain replace.
+        case "storage.reads.load": return try query("SELECT value FROM metadata WHERE id='reads'").first ?? ""
+        case "storage.reads.save":
+            let value = try request.requireBody()
+            guard value.utf8.count <= 8 * 1_048_576 else { throw HostError.storage }
+            try transaction { try write("INSERT OR REPLACE INTO metadata(id,value) VALUES ('reads',?)", [value]) }
             return ""
         default: throw HostError.unsupported
         }
@@ -76,5 +84,5 @@ final class DurableStore {
         }
     }
 }
-struct RecordWrite: Codable { let id: String; let value: String? }
+private struct RecordId: Decodable { let id: String }
 enum HostError: Error { case storage, identity, unsupported, encoding, entropy, transport }

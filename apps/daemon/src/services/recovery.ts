@@ -13,11 +13,13 @@ import { browserTabContext, browserTabReader } from "../browser-tab-context.ts";
 import { toolAttachment } from "../tool-result-content.ts";
 /** Trusted integration ports reuse settings, quota and migration owners. */
 export function recoveryPorts(
-  context: Pick<ServiceContext, "services" | "store" | "now">,
+  context: Pick<ServiceContext, "services" | "store" | "now" | "maintenance">,
   metadata: (id: ThreadId) => ReturnType<EngineRepository["session"]>,
 ): RecoveryPorts {
-  const { services, store, now } = context;
+  const { services, store, now, maintenance } = context;
   return {
+    // Turns ace starts by itself honour the maintenance barrier (ADR 0041).
+    admits: () => maintenance?.admit() ?? true,
     async preferences(id) {
       const thread = id ? store.getThread(id) : undefined;
       const workspace = thread ? store.getWorkspacePath(thread.workspaceId) : undefined;

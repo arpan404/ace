@@ -315,3 +315,18 @@ test("a vanished saved default stays unavailable until the person picks its reco
   );
   expect(within(models).queryByRole("button", { name: /Unavailable/ })).toBeNull();
 });
+
+test("a failed update reads as an update failure and keeps the CLI among installed providers", async () => {
+  const app = harness();
+  app.daemon.services.providerInstalls.autoComplete = false;
+  app.daemon.services.providerInstalls.scenarios.codex = "failure";
+  await app.open("/settings/providers");
+  await userEvent.click(within(await rowOf("Codex")).getByRole("button", { name: "Update" }));
+  await within(await rowOf("Codex")).findByRole("progressbar");
+  app.daemon.services.providerInstalls.complete("fake-install-1");
+  const row = await rowOf("Codex");
+  expect(await within(row).findByText("Update failed")).toBeTruthy();
+  expect(within(row).queryByText("Install failed")).toBeNull();
+  expect(within(row).getByRole("button", { name: "Retry" })).toBeTruthy();
+  expect(within(await section()).getByRole("group", { name: "Codex" })).toBeTruthy();
+}, 30_000);

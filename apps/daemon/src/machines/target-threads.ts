@@ -3,9 +3,11 @@ import { isAgentProse } from "@ace/projection";
 import { z } from "zod";
 import {
   Command,
+  CommandId,
   ThreadId,
   type CommandResult,
   type Device,
+  type Event,
   type MachineCall,
   type MachineCallOrigin,
   type MachinePendingRequest,
@@ -27,6 +29,8 @@ import {
   settledStates,
   watchedState,
 } from "../agent-control/watch-view.ts";
+import { messageArrival } from "../agent-control/message-arrival.ts";
+import { deliveryNotice, noticeText } from "../agent-control/message-notices.ts";
 import { TargetRefusal } from "./target-refusal.ts";
 
 export interface TargetThreadDeps {
@@ -45,12 +49,65 @@ const Owner = z.object({ device_id: z.string(), kind: z.enum(["delegate", "brows
  */
 export class TargetThreads {
   private deps: TargetThreadDeps;
+  private unsubscribe: () => void;
   constructor(deps: TargetThreadDeps) {
     this.deps = deps;
     deps.store.atomic((db) =>
       db.exec(`CREATE TABLE IF NOT EXISTS machine_threads (
         thread_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, kind TEXT NOT NULL,
-        origin_host TEXT NOT NULL, origin_thread TEXT NOT NULL, created_at INTEGER NOT NULL)`),
+        origin_host TEXT NOT NULL, origin_thread TEXT NOT NULL, created_at INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS machine_thread_notices (
+        thread_id TEXT PRIMARY KEY, command_id TEXT NOT NULL, code TEXT NOT NULL,
+        text TEXT NOT NULL)`),
+    );
+    this.unsubscribe = deps.store.subscribe((events) => {
+      for (const event of events) this.observe(event);
+    });
+  }
+  close() {
+    this.unsubscribe();
+  }
+  /**
+   * A message from the other machine's parent that didn't go in as sent. Kept so that machine's
+   * agents_status and parent hear of it through `view`, as they would for a local child.
+   */
+  private observe(event: Event) {
+    const notice = deliveryNotice(event);
+    const engine = this.deps.engine();
+    if (!notice || !engine || !this.owner(event.threadId)) return;
+    if (!engine.messageFacts(event.threadId, CommandId.parse(notice.commandId)).fromParent) return;
+    const title = this.deps.store.getThread(event.threadId)?.title ?? "the child";
+    this.deps.store.atomic((db) =>
+      db
+        .prepare("INSERT OR REPLACE INTO machine_thread_notices VALUES (?,?,?,?)")
+        .run(
+          event.threadId,
+          notice.commandId,
+          notice.code,
+          noticeText(notice, title, event.threadId),
+        ),
+    );
+  }
+  /** The kept notice, until the message it is about has been delivered. */
+  private notice(threadId: ThreadId) {
+    const row = this.deps.store.atomic((db) =>
+      db
+        .prepare("SELECT command_id,code,text FROM machine_thread_notices WHERE thread_id=?")
+        .get(threadId),
+    );
+    const engine = this.deps.engine();
+    if (!row || !engine) return undefined;
+    const kept = z
+      .object({ command_id: z.string(), code: z.string(), text: z.string() })
+      .parse(row);
+    if (engine.inputFate(threadId, CommandId.parse(kept.command_id)).state === "delivered")
+      return undefined;
+    return { text: kept.text.slice(0, 400), commandId: kept.command_id, code: kept.code };
+  }
+  /** The parent's new message supersedes what it was told about an earlier one. */
+  private forgetNotice(threadId: ThreadId) {
+    this.deps.store.atomic((db) =>
+      db.prepare("DELETE FROM machine_thread_notices WHERE thread_id=?").run(threadId),
     );
   }
   owner(threadId: string): z.infer<typeof Owner> | undefined {
@@ -175,6 +232,65 @@ export class TargetThreads {
     );
     return { ok: result.ok };
   }
+  /**
+   * The parent agent's follow-up for a thread it delegated here, as a local parent's: steer joins
+   * a running turn where the provider steers, queue waits for the turn to end, restart stops the
+   * thread first and puts this message ahead of anything queued. Keyed by requestId, so a retry
+   * sends it once. The answer says how it arrives; one that never will is refused with why.
+   */
+  message(device: Device, call: Extract<MachineCall, { op: "message" }>) {
+    const engine = this.deps.engine();
+    if (!engine) throw new TargetRefusal("unavailable", "Agents are starting on this machine.");
+    const key = createHash("sha256")
+      .update(JSON.stringify([device.id, call.threadId, call.requestId]))
+      .digest("hex")
+      .slice(0, 32);
+    const run = (id: string, payload: unknown): CommandResult => {
+      const command = Command.parse({ id, deviceId: device.id, payload });
+      return this.deps.store.recordCommand(command.id, command.deviceId, () =>
+        engine.internalHandler.handle(command, commandContext(this.deps.store)),
+      );
+    };
+    const restart = call.delivery === "restart";
+    if (restart) {
+      // A cascading stop: what this thread delegated here stops with it, as in a local restart.
+      const stopped = run(`machine-restart:${key}`, {
+        type: "thread.interrupt",
+        threadId: call.threadId,
+        cascade: true,
+      });
+      if (!stopped.ok)
+        throw new TargetRefusal("unavailable", `This machine could not stop it: ${stopped.error}`);
+    }
+    const id = CommandId.parse(`machine-message:${key}`);
+    const sent = run(id, {
+      type: "thread.send",
+      threadId: call.threadId,
+      input: [{ type: "text", text: call.text }],
+      delivery: restart ? "queue" : call.delivery,
+      trigger: "parent_agent",
+    });
+    if (!sent.ok)
+      throw new TargetRefusal(
+        "unavailable",
+        `This machine did not take the message: ${sent.error}`,
+      );
+    this.forgetNotice(call.threadId);
+    const queue = engine.queue(call.threadId);
+    if (restart && queue.messages[0]?.id !== id) {
+      const moved = run(`machine-restart-first:${key}`, {
+        type: "queue.move",
+        threadId: call.threadId,
+        messageId: id,
+        after: null,
+        expectedRevision: queue.revision,
+      });
+      if (!moved.ok) throw new TargetRefusal("unavailable", "The restart message lost its place.");
+    }
+    const reading = messageArrival(engine.messageFacts(call.threadId, id), restart);
+    if (!reading.ok) throw new TargetRefusal("invalid", reading.hint);
+    return { arrival: reading.arrival };
+  }
   /** The person's answer from another device goes through this machine's own consent owners. */
   respond(device: Device, call: Extract<MachineCall, { op: "respond" }>) {
     const engine = this.deps.engine();
@@ -213,6 +329,7 @@ export class TargetThreads {
     const root = thread.rootAgentId && store.getMcpAgent(thread.id, thread.rootAgentId);
     const rootIdle = !!root && ["idle", "blocked", "interrupted"].includes(root.status.state);
     const state = watchedState(thread, undefined, false, rootIdle);
+    const notice = this.notice(threadId);
     const settled = settledStates.has(state);
     const base = {
       threadId,
@@ -224,6 +341,7 @@ export class TargetThreads {
       ),
       status: thread.status,
       requests: this.requests(thread),
+      ...(notice ? { notice } : {}),
     };
     if (settled) {
       const outcome = threadOutcome(store, thread, state === "cancelled");

@@ -31,7 +31,6 @@ export interface ScreenActions {
   merge?: (() => void) | undefined;
   attachments(): void;
   find(): void;
-  turns(): void;
 }
 
 /**

@@ -1,0 +1,23 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgePerson.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "avatarUrl": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "login": {
+      "maxLength": 100,
+      "minLength": 1,
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 256,
+      "type": "string"
+    }
+  },
+  "required": [
+    "login"
+  ],
+  "type": "object"
+}

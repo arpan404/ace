@@ -27,10 +27,8 @@ Example:
 
 ```json
 {
-  "height": 83,
   "html": "example",
-  "mode": "interactive",
-  "title": "_"
+  "title": "u"
 }
 ```
 
@@ -72,8 +70,9 @@ Example:
 
 ```json
 {
-  "alt": "{",
-  "data": "agWBO",
+  "alt": "p",
+  "data": "2y==",
+  "mimeType": "image/png",
   "path": "example"
 }
 ```
@@ -157,9 +156,17 @@ Example:
 {
   "tasks": [
     {
-      "requestId": "M75XK",
+      "model": "example",
+      "project": "example",
+      "provider": "antigravity",
+      "requestId": "r",
       "role": "example",
-      "task": "example"
+      "runRole": "build",
+      "task": "example",
+      "workspace": {
+        "kind": "existing_worktree",
+        "path": "example"
+      }
     }
   ]
 }
@@ -174,15 +181,13 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"threadIds":{"type":"array","items":{"type":"string"}},"wait":{"type":"object","properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false}},"required":["threadIds"],"additionalProperties":{}} |
+| data | no | object | {"properties":{"threadIds":{"type":"array","items":{"type":"string"}},"wait":{"type":"object","properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","queued","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false}},"required":["threadIds"],"additionalProperties":{}} |
 
 Example:
 
 ```json
 {
-  "data": {
-    "threadIds": []
-  },
+  "code": "not_ready",
   "hint": "example",
   "ok": false
 }
@@ -223,25 +228,21 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false} |
+| data | no | object | {"properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","queued","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false} |
 
 Example:
 
 ```json
 {
-  "data": {
-    "mode": "any",
-    "status": "needs_you",
-    "threads": []
-  },
+  "code": "not_found",
   "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
 ## agents_status
 
-Your delegated children, on this machine or others. Without threadId: a compact snapshot of every child and its descendants (state, current step, elapsed seconds, what waits on the person, last output line). With threadId: that child's state and, once it has settled, its result. To block until children settle, call wait instead.
+Your delegated children, on this machine or others. Without threadId: a compact snapshot of every child and its descendants (state, current step, elapsed seconds, what waits on the person, queued messages, last output line). With threadId: that child's state and, once it has settled, its result. To block until children settle, call wait instead.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -256,9 +257,7 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{
-  "threadId": "example"
-}
+{}
 ```
 
 ## agents_status.output
@@ -270,19 +269,20 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | union | {"anyOf":[{"type":"object","properties":{"children":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"parent":{"type":"string","minLength":1},"role":{"type":"string","maxLength":40},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"step":{"type":"string","maxLength":60},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"ask":{"type":"string","maxLength":100},"last":{"type":"string","maxLength":100},"machine":{"type":"string","maxLength":64}},"required":["id","role","state","elapsedSeconds"],"additionalProperties":false}},"counts":{"type":"object","properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","needs_you","done","failed","cancelled"],"additionalProperties":false}},"required":["children","counts"],"additionalProperties":false},{"type":"object","properties":{"threadId":{"type":"string"},"state":{"type":"string"},"outcome":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","enum":["completed","failed","cancelled"]},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"before":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["threadId","outcome","result","truncated","before"],"additionalProperties":false}},"required":["threadId","state"],"additionalProperties":{}}]} |
+| data | no | union | {"anyOf":[{"type":"object","properties":{"children":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"parent":{"type":"string","minLength":1},"role":{"type":"string","maxLength":40},"state":{"type":"string","enum":["working","queued","needs_you","done","failed","cancelled"]},"step":{"type":"string","maxLength":60},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"ask":{"type":"string","maxLength":100},"last":{"type":"string","maxLength":100},"queued":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"notice":{"type":"string","maxLength":400},"machine":{"type":"string","maxLength":64}},"required":["id","role","state","elapsedSeconds"],"additionalProperties":false}},"counts":{"type":"object","properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","needs_you","done","failed","cancelled"],"additionalProperties":false}},"required":["children","counts"],"additionalProperties":false},{"type":"object","properties":{"threadId":{"type":"string"},"state":{"type":"string"},"outcome":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","enum":["completed","failed","cancelled"]},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"before":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["threadId","outcome","result","truncated","before"],"additionalProperties":false}},"required":["threadId","state"],"additionalProperties":{}}]} |
 
 Example:
 
 ```json
 {
+  "hint": "example",
   "ok": true
 }
 ```
 
 ## agent_message
 
-Send follow-up work to a child or a thread you started, or with full access to any of the person's threads; it keeps its permissions. delivery queue (default) waits for its current turn to end, steer injects now, restart interrupts its tree and replaces queued input with this text.
+Send follow-up work to a child (on any machine) or a thread you started, or with full access to any of the person's threads; it keeps its permissions. steer joins its running turn at the next tool boundary (on Cursor it restarts that turn with the message), queue waits for the turn to end, restart interrupts its tree and replaces queued input. arrival says which applied.
 
 Required capability: agents. Timeout: 630000 ms.
 
@@ -295,14 +295,13 @@ Required capability: agents. Timeout: 630000 ms.
 | threadId | yes | string | {"minLength":1,"description":"A child's or owned thread's id; with full access, any of the person's threads."} |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
 | text | yes | string | {"minLength":1,"maxLength":262144,"description":"The message, standing on its own."} |
-| delivery | no | ["queue","steer","restart"] | {"default":"queue","description":"queue (default), steer, or restart."} |
+| delivery | no | ["queue","steer","restart"] | {"description":"Default: steer for your children, queue for other threads."} |
 
 Example:
 
 ```json
 {
-  "delivery": "restart",
-  "requestId": "tq",
+  "requestId": "944ViXFDX",
   "text": "example",
   "threadId": "example"
 }
@@ -317,11 +316,13 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
+| data | no | object | {"properties":{"arrival":{"type":"string","enum":["starting","steering","restarting","queued","held","delivered"]}},"required":["arrival"],"additionalProperties":{}} |
 
 Example:
 
 ```json
 {
+  "code": "limit",
   "ok": true
 }
 ```
@@ -345,7 +346,7 @@ Example:
 
 ```json
 {
-  "requestId": "e",
+  "requestId": "1FKQ-T2ELW8",
   "threadId": "example"
 }
 ```
@@ -364,7 +365,7 @@ Example:
 
 ```json
 {
-  "code": "not_ready",
+  "hint": "example",
   "ok": false
 }
 ```
@@ -402,7 +403,6 @@ Example:
 
 ```json
 {
-  "code": "unsupported",
   "hint": "example",
   "ok": true
 }
@@ -426,7 +426,10 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{}
+{
+  "offset": 7,
+  "provider": "opencode"
+}
 ```
 
 ## models.output
@@ -444,9 +447,6 @@ Example:
 
 ```json
 {
-  "code": "invalid",
-  "data": null,
-  "hint": "example",
   "ok": true
 }
 ```
@@ -474,7 +474,9 @@ Semantic rule: With threadId, query must not be empty.
 Example:
 
 ```json
-{}
+{
+  "cursor": "example"
+}
 ```
 
 ## threads_find.output
@@ -492,12 +494,12 @@ Example:
 
 ```json
 {
-  "code": "invalid",
+  "code": "forbidden",
   "data": {
+    "cursor": null,
     "hits": []
   },
-  "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -519,9 +521,7 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{
-  "limit": 7
-}
+{}
 ```
 
 ## projects_find.output
@@ -539,8 +539,8 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
-  "ok": true
+  "hint": "example",
+  "ok": false
 }
 ```
 
@@ -567,9 +567,8 @@ Example:
 
 ```json
 {
-  "limit": 9,
-  "offset": 3,
-  "threadId": "example"
+  "before": 9,
+  "offset": 5
 }
 ```
 
@@ -588,8 +587,8 @@ Example:
 
 ```json
 {
-  "code": "invalid",
-  "ok": false
+  "hint": "example",
+  "ok": true
 }
 ```
 
@@ -619,13 +618,13 @@ Example:
 
 ```json
 {
-  "access": "full-access",
-  "effort": "example",
-  "model": "example",
-  "provider": "acp",
-  "requestId": "WX",
+  "requestId": "1RPMJ1Cd",
   "text": "example",
-  "title": "example"
+  "title": "example",
+  "workspace": {
+    "kind": "existing_worktree",
+    "path": "example"
+  }
 }
 ```
 
@@ -644,7 +643,9 @@ Example:
 
 ```json
 {
-  "ok": true
+  "data": null,
+  "hint": "example",
+  "ok": false
 }
 ```
 
@@ -672,10 +673,10 @@ Example:
 
 ```json
 {
-  "requestId": "0qFNWVS91R",
-  "runId": "example",
+  "model": "example",
+  "requestId": "SSA",
   "text": "example",
-  "threadId": "example"
+  "title": "example"
 }
 ```
 
@@ -694,8 +695,8 @@ Example:
 
 ```json
 {
+  "code": "not_ready",
   "data": null,
-  "hint": "example",
   "ok": false
 }
 ```
@@ -721,7 +722,10 @@ Example:
 
 ```json
 {
-  "requestId": ".Z9W8a0",
+  "itemIds": [
+    "example"
+  ],
+  "requestId": ".x7477M0h8m",
   "summary": "example",
   "threadId": "example"
 }
@@ -772,9 +776,9 @@ Example:
 
 ```json
 {
-  "action": "cancel",
+  "action": "steer",
   "entryId": "example",
-  "requestId": "XNaVyXt9",
+  "requestId": "kGRyjv8Vd",
   "threadId": "example"
 }
 ```
@@ -793,8 +797,8 @@ Example:
 
 ```json
 {
-  "code": "limit",
-  "ok": false
+  "hint": "example",
+  "ok": true
 }
 ```
 
@@ -823,7 +827,7 @@ Example:
 {
   "answers": {},
   "interactionId": "example",
-  "requestId": "R9wRfi6jt79",
+  "requestId": "WpFyZet",
   "threadId": "example"
 }
 ```
@@ -842,7 +846,7 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
+  "hint": "example",
   "ok": false
 }
 ```
@@ -871,7 +875,7 @@ Example:
 
 ```json
 {
-  "number": 4
+  "number": 7
 }
 ```
 
@@ -890,6 +894,8 @@ Example:
 
 ```json
 {
+  "code": "unavailable",
+  "data": null,
   "ok": false
 }
 ```
@@ -926,9 +932,8 @@ Example:
 ```json
 {
   "action": "rename",
-  "previewId": "example",
-  "threadId": "example",
-  "title": "example"
+  "serviceTier": "default",
+  "until": null
 }
 ```
 
@@ -947,9 +952,9 @@ Example:
 
 ```json
 {
-  "code": "not_ready",
+  "data": null,
   "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -989,24 +994,31 @@ Example:
 ```json
 {
   "action": "playbooks",
-  "endpoint": "example",
+  "criteria": [
+    {
+      "description": "example",
+      "id": "p_40jB",
+      "independent": true,
+      "requiredKinds": [
+        "human"
+      ]
+    }
+  ],
   "evidence": [
     {
       "action": "example",
       "artifact": "example",
-      "criterionId": "3E",
-      "kind": "human",
+      "criterionId": "OSsDSRz7KP",
+      "kind": "ui",
       "note": "example",
       "result": "pass",
       "revision": "example"
     }
   ],
   "note": "example",
-  "outcome": "example",
-  "phase": "review",
-  "requestId": "LqLuP",
-  "runOwner": "example",
-  "stepId": "mRQrLL"
+  "requestId": "q7",
+  "state": "done",
+  "version": 3
 }
 ```
 
@@ -1025,11 +1037,8 @@ Example:
 
 ```json
 {
-  "data": {
-    "playbooks": []
-  },
   "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1053,11 +1062,7 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{
-  "automationId": "example",
-  "before": 6,
-  "limit": 3
-}
+{}
 ```
 
 ## automations_list.output
@@ -1075,8 +1080,9 @@ Example:
 
 ```json
 {
+  "code": "invalid",
   "hint": "example",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1105,6 +1111,10 @@ Example:
 {
   "id": "example",
   "prompt": "example",
+  "schedule": {
+    "expression": "example",
+    "kind": "cron"
+  },
   "title": "example"
 }
 ```
@@ -1124,13 +1134,14 @@ Example:
 
 ```json
 {
+  "data": null,
   "ok": true
 }
 ```
 
 ## automation_run
 
-Run a saved automation now: its message arrives in this thread, after any turn already going. The run and its answer appear in automations_list {runs: true}.
+Run a saved automation now (action run, the default): its message arrives in this thread, after any turn already going, and the run appears in automations_list {runs: true}. action pause skips a run waiting to start and stops one still going; resume picks its schedule up from now.
 
 Required capability: automations. Timeout: 630000 ms.
 
@@ -1138,18 +1149,21 @@ Required capability: automations. Timeout: 630000 ms.
 
 [JSON Schema](schema/automation_run.input.json), input validation.
 
+Semantic rule: run needs requestId.
+
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | id | yes | string | {"minLength":1,"maxLength":256,"description":"The automation's id, as you named it in automation_put."} |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
-| variables | no | [TriggerVariables.json](schema/TriggerVariables.json) | {"default":{},"description":"Values for {{name}} placeholders in its prompt."} |
+| action | no | ["run","pause","resume"] | {"default":"run"} |
+| requestId | no | string | {"description":"run: any stable id; repeats run once.","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| variables | no | [TriggerVariables.json](schema/TriggerVariables.json) | {"default":{},"description":"run: values for {{name}} placeholders in its prompt."} |
 
 Example:
 
 ```json
 {
   "id": "example",
-  "requestId": "CHEKGVsLn"
+  "requestId": "PUx-nsQXh"
 }
 ```
 
@@ -1168,51 +1182,8 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": false
-}
-```
-
-## automation_pause
-
-Pause an automation (paused: true) or resume it (paused: false). Pausing skips a run waiting to start and stops one still going in this thread; resuming picks the schedule up from now.
-
-Required capability: automations. Timeout: 630000 ms.
-
-## automation_pause.input
-
-[JSON Schema](schema/automation_pause.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| id | yes | string | {"minLength":1,"maxLength":256,"description":"The automation's id, as you named it in automation_put."} |
-| paused | no | boolean | {"default":true,"description":"true pauses it; false resumes it."} |
-
-Example:
-
-```json
-{
-  "id": "example",
-  "paused": true
-}
-```
-
-## automation_pause.output
-
-[JSON Schema](schema/automation_pause.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-
-Example:
-
-```json
-{
-  "hint": "example",
-  "ok": false
+  "code": "forbidden",
+  "ok": true
 }
 ```
 
@@ -1252,6 +1223,8 @@ Example:
 
 ```json
 {
+  "code": "invalid",
+  "hint": "example",
   "ok": false
 }
 ```
@@ -1279,7 +1252,9 @@ Example:
 
 ```json
 {
-  "sourceThreadId": "example"
+  "offset": 5,
+  "sourceThreadId": "example",
+  "streamId": "example"
 }
 ```
 
@@ -1302,8 +1277,10 @@ Example:
 
 ```json
 {
-  "bytes": "example",
-  "itemsBefore": null
+  "eof": false,
+  "itemsBefore": null,
+  "nextOffset": 3,
+  "threadId": "example"
 }
 ```
 
@@ -1344,13 +1321,12 @@ Example:
 
 ```json
 {
-  "recent": [],
-  "status": {
-    "access": "read-only",
-    "agentId": "example",
-    "groups": [],
-    "threadId": "example"
-  }
+  "changes": null,
+  "diagnostics": {
+    "blocking": [],
+    "failures": []
+  },
+  "notes": []
 }
 ```
 
@@ -1390,7 +1366,7 @@ Example:
 ```json
 {
   "noteId": "example",
-  "notes": 4
+  "notes": 9
 }
 ```
 
@@ -1428,7 +1404,7 @@ Example:
 
 ```json
 {
-  "retired": false
+  "retired": true
 }
 ```
 
@@ -1471,8 +1447,9 @@ Example:
 
 ```json
 {
+  "answer": [],
   "askId": "example",
-  "status": "pending"
+  "status": "declined"
 }
 ```
 
@@ -1496,7 +1473,7 @@ Example:
 
 ```json
 {
-  "limit": 9,
+  "limit": 4,
   "query": "example"
 }
 ```
@@ -1555,6 +1532,7 @@ Example:
 
 ```json
 {
-  "content": []
+  "content": [],
+  "isError": false
 }
 ```

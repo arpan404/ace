@@ -16,7 +16,15 @@ export const WaitInput = {
   mode: WaitMode.default("all"),
   timeoutSeconds: WaitTimeoutSeconds.default(120),
 };
-export const WatchedState = z.enum(["working", "needs_you", "done", "failed", "cancelled"]);
+/** `queued`: delegated past its parent's run slots, it starts when a running sibling finishes. */
+export const WatchedState = z.enum([
+  "working",
+  "queued",
+  "needs_you",
+  "done",
+  "failed",
+  "cancelled",
+]);
 export type WatchedState = z.infer<typeof WatchedState>;
 export const WatchedRequest = z.object({
   interactionId: InteractionId,
@@ -73,6 +81,10 @@ export const MonitoredChild = z.object({
   needs: z.number().int().positive().optional(),
   ask: z.string().max(100).optional(),
   last: z.string().max(100).optional(),
+  /** Messages waiting in its queue, a parent's included: they have not reached it yet. */
+  queued: z.number().int().positive().optional(),
+  /** A message to it that failed or was kept back after it was accepted, and what ace did. */
+  notice: z.string().max(400).optional(),
   machine: z.string().max(64).optional(),
 });
 export type MonitoredChild = z.infer<typeof MonitoredChild>;

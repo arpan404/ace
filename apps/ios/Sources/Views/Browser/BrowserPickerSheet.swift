@@ -49,7 +49,7 @@ struct BrowserPickerSheet: View {
                                     Text(option.element.label.isEmpty ? option.element.value : option.element.label)
                                         .foregroundStyle(option.element.disabled == true ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                                     Spacer()
-                                    if option.element.value == picker.value { Image(systemName: "checkmark").foregroundStyle(AceTheme.Colours.accent) }
+                                    if option.element.value == picker.value { AceIcon(.check).foregroundStyle(AceTheme.Colours.accent) }
                                 }
                             }
                             .disabled(option.element.disabled == true)

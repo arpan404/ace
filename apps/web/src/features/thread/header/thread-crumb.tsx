@@ -6,16 +6,18 @@ import { useProjectName } from "@/lib/projects.ts";
 
 /**
  * Where a thread sits, before its title in the header: its project's badge and name, or, for a
- * thread that came out of another (a fork, or a child ace delegated), that parent thread as a link.
+ * child ace delegated, the parent thread as a link. A fork is a thread of its own: it names its
+ * project, and its transcript says where it was forked from.
  */
 export function ThreadCrumb(props: { threadId: string }) {
   const meta = useThreadMeta(props.threadId);
-  const parent = meta?.lineage?.parentThreadId ?? meta?.delegatedBy;
+  const parent = meta?.delegatedBy;
   if (parent) return <ParentCrumb threadId={parent} />;
   return meta ? <ProjectCrumb workspaceId={meta.workspaceId} /> : null;
 }
 
-function ProjectCrumb(props: { workspaceId: string }) {
+/** A thread's project, before its title: its badge and name. */
+export function ProjectCrumb(props: { workspaceId: string }) {
   const name = useProjectName()(props.workspaceId);
   return (
     <>

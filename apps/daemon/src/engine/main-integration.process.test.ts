@@ -82,7 +82,7 @@ test("provider settlement fires at its deadline before the next core deadline", 
   expect(h.errors).toEqual([]);
 });
 
-test("restart holds interrupted provider work until explicit native resume without replaying original input", async () => {
+test("restart continues interrupted provider work natively without replaying original input", async () => {
   const frames = scriptFrames();
   const h = await harness(
     [
@@ -108,30 +108,17 @@ test("restart holds interrupted provider work until explicit native resume witho
     store.close();
   });
   await engine.flush();
-  expect(store.getThread(id)?.status).toEqual({ state: "waiting", on: "queue" });
   expect(
     Object.values(store.snapshotThread(id).items).some(
       (item) => item.type === "notice" && item.text.includes("uncertain"),
     ),
   ).toBe(true);
   expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
-  // Resume via the recovered handler, not the crashed engine.
-  const resume = Command.parse({
-    id: "resume-native",
-    deviceId: "device",
-    payload: {
-      type: "thread.resume",
-      threadId: id,
-      expectedRevision: engine.queue(id).revision,
-    },
-  });
-  expect(
-    store.recordCommand(resume.id, resume.deviceId, () => engine.handler.handle(resume, store)).ok,
-  ).toBe(true);
-  await engine.flush();
+  // The recovered engine continues natively by itself, never replaying the original input.
   expect(
     Object.values(store.snapshotThread(id).runs).some((run) => run.trigger === "restart"),
   ).toBe(true);
+  expect(store.getThread(id)?.status.state).toBe("done");
   const value = Command.parse({
     id: "recovered-send",
     deviceId: "device",

@@ -147,7 +147,7 @@ export class FakeProjects {
       this.projects.set(id, project);
       this.directories.set(project.path, {
         empty: false,
-        git: true,
+        git: project.kind !== "chat",
         modifiedAt: thread.createdAt,
         initialBranch: thread.details?.baseBranch ?? "main",
       });
@@ -349,6 +349,20 @@ export class FakeProjects {
           modifiedAt: this.context.now(),
         });
         return this.register(path, p.name, p.icon);
+      }
+      if (p.type === "workspace.chat.create") {
+        const id = this.allocateId();
+        const path = `/fake/chats/${id}`;
+        this.directories.set(path, {
+          empty: true,
+          git: false,
+          initialBranch: "main",
+          modifiedAt: this.context.now(),
+        });
+        const workspace = Project.parse({ id, name: "Chat", path, kind: "chat" });
+        this.projects.set(id, workspace);
+        this.emit({ type: "workspace.changed", workspaceId: id, change: "added", workspace });
+        return { ok: true, workspace };
       }
       const project = this.projects.get(p.workspaceId);
       if (!project) throw new Error("workspace_not_found");

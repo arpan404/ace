@@ -1,6 +1,5 @@
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
-import { NavRow } from "@/components/nav-row.tsx";
-import { GitPullRequestIcon } from "@phosphor-icons/react";
+import { ForgeButton } from "@/components/forge-button.tsx";
 import { AddAccountHost } from "@/features/account-management/index.ts";
 import { useConnectionState } from "@ace/client-react";
 import { Outlet, useRouter, useRouterState } from "@tanstack/react-router";
@@ -122,27 +121,28 @@ export function AppShell() {
 /** The thread list in the sidebar's body, composed independently of shell controls. */
 const threads = <ThreadsSidebar />;
 
-/** The sidebar's Pull requests row and its needs-you dot, loaded after the first paint. */
-const PullRequestsRow = deferredComponent(() =>
-  import("@/features/forge-pages/index.ts").then((m) => m.PullRequestsNavRow),
+/** The sidebar's GitHub button with its counts, loaded after the first paint. */
+const ForgeButtonWithCounts = deferredComponent(() =>
+  import("@/features/forge-pages/index.ts").then((m) => m.ForgeNavButton),
 );
-const pullRequests = (active: boolean) => {
-  // Until its code (and the list it reads) arrives, the row shows without its dot.
-  const plain = (
-    <NavRow to="/pulls" icon={GitPullRequestIcon} label="Pull requests" active={active} />
-  );
+
+/** The GitHub button beside Settings, lit while Inbox, Pull requests or Issues is open. */
+function ForgeNav(props: { forgeOpen: boolean }) {
+  // Until its code (and the lists it reads) arrives, the button shows without counts.
+  const plain = <ForgeButton to="/pulls" active={props.forgeOpen} />;
   return (
-    <LocalBoundary label="pull requests row" fallback={plain}>
+    <LocalBoundary label="GitHub button" fallback={plain}>
       <Suspense fallback={plain}>
-        <PullRequestsRow.Component active={active} />
+        <ForgeButtonWithCounts.Component active={props.forgeOpen} />
       </Suspense>
     </LocalBoundary>
   );
-};
+}
+const forgeNav = (forgeOpen: boolean) => <ForgeNav forgeOpen={forgeOpen} />;
 
-/** The sidebar with what other slices own: the thread list and the Pull requests row. */
+/** The sidebar with what other slices own: the thread list and the GitHub button. */
 function ShellSidebar() {
-  return <AppSidebar threads={threads} pages={pullRequests} />;
+  return <AppSidebar threads={threads} forge={forgeNav} />;
 }
 
 function ShellHotkeys() {

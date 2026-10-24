@@ -1,6 +1,6 @@
 import { ForgePrWorkspace } from "./forge-worktree.ts";
 import { ForgeIssueRef } from "./forge-issues.ts";
-import { ProjectIcon } from "./projects.ts";
+import { ProjectIcon, ProjectKind } from "./projects.ts";
 import { MachineIcon } from "./host-identity.ts";
 import { WorktreeCreationProgress } from "./worktree-creation.ts";
 import { ExecutionOptions } from "./thread-transitions.ts";
@@ -97,6 +97,8 @@ export const ThreadDetails = z.object({
       path: z.string().max(4096),
       icon: ProjectIcon.nullable().optional(),
       defaultIcon: ProjectIcon.nullable().optional(),
+      /** `chat` when the thread is a chat started with no project (ADR 0099). */
+      kind: ProjectKind.optional(),
     })
     .optional(),
   mode: z.enum(["local", "worktree"]).optional(),

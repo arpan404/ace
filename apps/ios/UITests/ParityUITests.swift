@@ -3,13 +3,13 @@ import XCTest
 @MainActor final class ParityUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
 
-    func testTaskEntryIsTheDetachedComposeButtonAndOpensTheNativeDraft() {
+    func testTaskEntryIsTheBottomToolbarComposeButtonAndOpensTheNativeDraft() {
         let app = launch()
         let start = app.newThreadButton
         XCTAssertTrue(start.waitForExistence(timeout: 30))
         let filter = app.buttons["inbox.projects"]
         XCTAssertTrue(filter.exists)
-        // The project filter sits under the header; compose is the tab bar's detached button.
+        // The project chip sits under the header; New thread is the tab bar's round trailing button.
         XCTAssertLessThan(filter.frame.maxY, app.frame.midY)
         XCTAssertGreaterThan(start.frame.minY, app.frame.midY)
         XCTAssertGreaterThan(start.frame.midX, app.frame.midX)
@@ -62,21 +62,21 @@ import XCTest
         capture("terminal")
     }
 
-    func testPublishedCanvasRunsItsInteractionInTheNativeSandbox() {
+    func testPublishedCanvasDrawsInlineAndOpensFullScreenInTheNativeSandbox() {
         let app = launch()
-        let row = app.buttons["thread.ios-media"]
-        XCTAssertTrue(row.waitForExistence(timeout: 30)); row.tap()
-        let canvas = app.buttons["Interactive counter"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 20)); canvas.tap()
-        let next = app.webViews.buttons["Next"]
-        XCTAssertTrue(next.waitForExistence(timeout: 25))
-        XCTAssertGreaterThanOrEqual(next.frame.height, 29); next.tap()
-        XCTAssertTrue(app.webViews.staticTexts["Step 2"].waitForExistence(timeout: 10))
+        app.revealRow("thread.ios-media").tap()
+        // The page draws inline in the transcript, in a sandboxed frame XCUITest can't see into;
+        // it's checked as a loaded web view, then opened full screen, not a refusal.
+        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 25))
+        let full = app.buttons["Open Interactive counter full screen"]
+        XCTAssertTrue(full.waitForExistence(timeout: 20)); full.tap()
+        sleep(2)
+        XCTAssertFalse(app.staticTexts["Couldn't open media"].exists)
         capture("canvas")
     }
     func testPublishedImageOpensAsNativePixels() {
         let app = launch()
-        XCTAssertTrue(app.buttons["thread.ios-media"].waitForExistence(timeout: 30)); app.buttons["thread.ios-media"].tap()
+        app.revealRow("thread.ios-media").tap()
         let image = app.buttons["Orange fixture image"]
         XCTAssertTrue(image.waitForExistence(timeout: 20)); image.tap()
         XCTAssertTrue(app.images["Orange fixture image"].waitForExistence(timeout: 20))

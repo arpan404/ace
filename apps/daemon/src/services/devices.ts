@@ -15,6 +15,7 @@ import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { mkdir, realpath } from "node:fs/promises";
 import type { ServiceContext } from "./types.ts";
+import { deviceAccessRefused, devicesUnavailable } from "./device-refusals.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 export async function startDevices(context: ServiceContext): Promise<void> {
@@ -162,18 +163,8 @@ export function createDevicesSession(context: SocketContext): SocketService {
       if (message.type !== "devices.request") return false;
       const refuse = (error: import("@ace/protocol").DeviceFailure) =>
         context.send({ type: "devices.result", requestId: message.requestId, ok: false, error });
-      if (!context.authorize("admin"))
-        refuse({
-          code: "permission_denied",
-          message: "Administrator scope is required for device access",
-          hint: "Connect with an administrator device credential to use Devices.",
-        });
-      else if (!channel)
-        refuse({
-          code: "not_supported",
-          message: "Devices service is unavailable on this daemon",
-          hint: "Check the daemon's device service and reconnect.",
-        });
+      if (!context.authorize("admin")) refuse(deviceAccessRefused);
+      else if (!channel) refuse(devicesUnavailable);
       else {
         const task = channel
           .request(message)

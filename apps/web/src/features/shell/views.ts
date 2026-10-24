@@ -37,12 +37,12 @@ export const menuViews: readonly MenuView[] = [
   },
 ];
 
-/** Pull requests (Issues is a tab of it): a quiet row over the profile, not in its menu. */
+/** Pull requests (Inbox and Issues are tabs of it): a quiet row over the profile, not in its menu. */
 const forgeView: View = {
   id: "forge",
   label: "Pull requests",
   to: "/pulls",
-  matches: ["/pulls", "/issues"],
+  matches: ["/pulls", "/issues", "/inbox"],
   shortcut: "goPullRequests",
 };
 

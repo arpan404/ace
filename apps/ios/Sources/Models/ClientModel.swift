@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import CryptoKit
+import QuartzCore
 
 @MainActor @Observable final class ItemModel: Identifiable {
     let id: String
@@ -11,29 +12,55 @@ import CryptoKit
     let id: String
     var epoch = 0
     var metadata: ThreadRow?
+    /// Whether `metadata` came from this visit. A reopened thread keeps its last metadata for
+    /// the title, but not its word on status until the current snapshot arrives.
+    var metadataCurrent = false
     var items: [String: ItemModel] = [:]
     var order: [String] = []
     var interactions: [String: ApprovalRow] = [:]
     var cursor = 0
     var loaded = false
     let screen = ThreadScreenModel()
-    /// What this thread last showed, kept on screen while its reopened session catches up.
-    var placeholder: ThreadModel?
+    /// Which folds are open; shared with the history pages of the same thread.
+    @ObservationIgnored var disclosures = Disclosures()
     @ObservationIgnored var positions: [String: Int] = [:]
     init(id: String) { self.id = id }
     var approvals: [ApprovalRow] { interactions.values.filter { $0.state == "pending" }.sorted { $0.id < $1.id } }
+    /// Rebuilds the order from every position.
+    func reorder() {
+        order = positions.keys.filter { items[$0] != nil }.sorted { (positions[$0] ?? 0) < (positions[$1] ?? 0) }
+    }
+    /// Places new items, each already positioned. Items that all land after the last one shown,
+    /// as streaming adds them, join the end without sorting the rest; anything else reorders.
+    func place(_ added: [String]) {
+        let landed = added.compactMap { id in positions[id].map { (id, $0) } }.sorted { $0.1 < $1.1 }
+        let last = order.last.flatMap { positions[$0] } ?? Int.min
+        if let first = landed.first, first.1 <= last { reorder(); return }
+        order.append(contentsOf: landed.map(\.0))
+    }
 }
 
 @MainActor @Observable final class ClientModel {
     private(set) var hostId: String?
     @ObservationIgnored let liveActivity: ThreadLiveActivity
-    var inbox: [String: ThreadRow] = [:]
+    let inbox = InboxRowStore()
     var pending: [String: PendingRow] = [:]
     var connection = "connecting"
     /// Why the SDK's connection isn't ready (unreachable, revoked, pin mismatch), for a person.
     var problem: ProblemNotice?
     var error: String?
     var thread: ThreadModel?
+    /// The history window's rows (`TranscriptReading`), beside the live thread: its patches carry
+    /// the reading view's negative epoch.
+    @ObservationIgnored var reading: ThreadModel?
+    /// Around each frame that moves the reading rows, so the feed keeps the reader's place.
+    @ObservationIgnored var readingWillMove: (() -> Void)?
+    @ObservationIgnored var readingMoved: (() -> Void)?
+    /// A requested page's reading patches, held until the bridge says the read settled, so a
+    /// page lands as one change rather than one per frame. Nil while nothing is requested.
+    @ObservationIgnored private var readingHeld: [BridgePatch]?
+    /// An item a search hit asked to show once its thread is open.
+    var focusOnOpen: ThreadFocus?
     var inboxLoaded = false
     var inboxLayout = InboxLayout.empty
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
@@ -56,19 +83,23 @@ import CryptoKit
     /// The open thread's live browser view (`Sources/Browser`, `bridge/browser-live.ts`).
     let browser = BrowserLiveModel()
     let devices = DevicesModel()
+    /// The daemon reads the bridge keeps, for each screen's first frame (`ReadMirror`).
+    let reads = ReadMirror()
     @ObservationIgnored private var generation = 0
     /// Confirmation fence: the newest activity generation the bridge has reported, on any
     /// connection or inbox row. Older confirmed rows read as unconfirmed until their snapshot
     /// returns, even when PatchPump delivers the connection and row frames separately.
     @ObservationIgnored private var activityGeneration = 0
-    /// Threads left for a child, so going back shows them until their replacement snapshot is ready.
-    @ObservationIgnored private var trail = ThreadTrail()
+    /// Threads shown recently, kept whole so reopening one paints at once (`ThreadShelf`).
+    @ObservationIgnored private var shelf = ThreadShelf()
     @ObservationIgnored private var runtime: (any ClientSession)?
     @ObservationIgnored private let makeRuntime: ClientSessionFactory
     @ObservationIgnored private var connectionEpoch = 0
     @ObservationIgnored private var shutdown: Task<Void, Never>?
     @ObservationIgnored private var frames = BridgeFrames()
     @ObservationIgnored let admissions = CommandAdmissions()
+    /// Goal changes waiting on the daemon's receipt, apart from the screen-wide error.
+    @ObservationIgnored let receipts = CommandReceipts()
     @ObservationIgnored let services = NativeServiceCalls()
     @ObservationIgnored var approvalRequests: [String: String] = [:]
     @ObservationIgnored let now: () -> Double
@@ -85,54 +116,143 @@ import CryptoKit
         let epoch = connectionEpoch
         let closing = retireRuntime()
         hostId = target.hostId
-        inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset()
+        inbox.removeAll(); pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset()
         inboxLayout = .empty
         machineStatus = nil; providers = nil
         connection = "connecting"; error = nil; problem = nil
         activityGeneration = 0
         frames = BridgeFrames(); generation = 0
+        // The last known inbox, unconfirmed, in the first frame; the runtime replaces it in place.
+        let restoring = LaunchTrace.begin("inbox.restore", target.hostId)
+        let database = Self.database(hostId: target.hostId, deviceId: target.deviceId, in: directory)
+        apply(InboxCheckpoint.read(database: database))
+        restoring.end()
         await closing?.value
         guard connectionEpoch == epoch, !Task.isCancelled else { return }
         shutdown = nil
-        let runtime = makeRuntime(target, Self.database(hostId: target.hostId, deviceId: target.deviceId, in: directory), { [weak self] data in
-            Task { @MainActor in
-                guard let self, self.connectionEpoch == epoch else { return }
-                let accepted = self.receive(data)
-                self.runtime?.acknowledge(accepted: accepted)
+        // Frames are decoded off both the main thread and the script's; the main thread applies them.
+        let decoder = FrameDecoder()
+        let runtime = makeRuntime(target, database, { [weak self] data in
+            decoder.decode(data) { patches in
+                Task { @MainActor in
+                    guard let self, self.connectionEpoch == epoch else { return }
+                    let accepted = self.accept(patches, bytes: data.count)
+                    self.runtime?.acknowledge(accepted: accepted)
+                }
             }
         }, { [weak self] message in Task { @MainActor in
             guard let self, self.connectionEpoch == epoch else { return }
             self.error = message
         } })
         self.runtime = runtime
-        runtime.start(itemLimit: itemLimit)
+        // The restored inbox's sort, so the live list opens in the order already on screen.
+        runtime.start(itemLimit: itemLimit, inboxSort: inboxLayout.sortBy)
     }
     /// Outbox and cached views are bound to one host and device identity.
     nonisolated static func database(hostId: String, deviceId: String, in directory: URL) -> URL {
         let scope = SHA256.hash(data: Data("\(hostId)\u{0}\(deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
         return directory.appendingPathComponent(scope + ".sqlite")
     }
+    /// Decodes and applies one frame on the main thread, as tests deliver them.
     @discardableResult func receive(_ data: Data) -> Bool {
-        largestFrame = max(largestFrame, data.count)
-        guard let patches = try? frames.decode(data) else {
+        accept(try? frames.decode(data), bytes: data.count)
+    }
+    /// Applies one decoded frame; nil is a frame that could not be read.
+    func accept(_ patches: [BridgePatch]?, bytes: Int) -> Bool {
+        let began = CACurrentMediaTime()
+        let patchesBefore = patchCount, updatesBefore = streamedUpdates
+        let signpost = ThreadOpenTrace.signposter.beginInterval("bridge.frame")
+        defer {
+            ThreadOpenTrace.signposter.endInterval("bridge.frame", signpost)
+            ThreadOpenTrace.shared.frame(bytes: bytes, patches: patchCount - patchesBefore, rowUpdates: streamedUpdates - updatesBefore,
+                                         inboxRows: inbox.count, seconds: CACurrentMediaTime() - began)
+            DisclosureTrace.shared.frame(bytes: bytes, patches: patchCount - patchesBefore, seconds: CACurrentMediaTime() - began)
+        }
+        largestFrame = max(largestFrame, bytes)
+        if patchCount == 0 { LaunchTrace.mark("bridge.firstFrame") }
+        guard let patches else {
             error = "Could not read a client update"
             return false
         }
+        // An edit made against text this model no longer shows turns the whole frame down, before
+        // anything applies; the bridge then sends that row whole.
+        guard let edited = HostTrace.measure("main.edits", { resolveTextEdits(patches) }) else { return false }
+        HostTrace.measure("main.apply") { apply(edited) }
+        return true
+    }
+    /// `patches` with each streaming text edit for the open thread turned into its whole row, or
+    /// nil when one was made against text other than the row shown.
+    private func resolveTextEdits(_ patches: [BridgePatch]) -> [BridgePatch]? {
+        var texts: [String: String] = [:]
+        var resolved: [BridgePatch] = []
+        resolved.reserveCapacity(patches.count)
+        for patch in patches {
+            guard case .itemText(let id, let epoch, let itemId, let edit, var row) = patch else { resolved.append(patch); continue }
+            // Another thread's or an older generation's edit is dropped like its whole row would be.
+            guard let thread, thread.id == id, thread.epoch == epoch else { continue }
+            guard let shown = texts[itemId] ?? thread.items[itemId]?.row.text, let text = edit.applied(to: shown) else { return nil }
+            texts[itemId] = text
+            row.text = text
+            resolved.append(.item(id, epoch, itemId, row))
+        }
+        return resolved
+    }
+    /// The thread a patch's scope names: the open thread, or the reading rows beside it.
+    private func scoped(_ id: String, _ epoch: Int) -> ThreadModel? {
+        if let thread, thread.id == id, thread.epoch == epoch { return thread }
+        if let reading, reading.id == id, reading.epoch == epoch { return reading }
+        return nil
+    }
+    /// Hold the reading rows from here until the page asked for settles.
+    func holdReading() { if readingHeld == nil { readingHeld = [] } }
+    /// Apply what was held now: the read failed or was cancelled, so no settle will come.
+    func releaseReading() {
+        guard let held = readingHeld else { return }
+        readingHeld = nil
+        if !held.isEmpty { apply(held) }
+    }
+    /// The reading view ended: what it held goes with it.
+    func dropReading() { readingHeld = nil; reading = nil }
+    private func apply(_ patches: [BridgePatch]) {
         var reorder = false
+        var added: [String] = []
+        var readingReorder = false
+        var readingAdded: [String] = []
+        var readingMoving: Double?
+        /// The reading rows are about to move: the feed notes where the reader is, once a frame.
+        func moving(_ model: ThreadModel) {
+            guard model === reading, readingMoving == nil else { return }
+            readingMoving = CACurrentMediaTime()
+            readingWillMove?()
+        }
         var activityChanged = false
         for patch in patches {
             patchCount += 1
+            if readingHeld != nil, let reading, let scope = patch.threadScope, scope.thread == reading.id, scope.epoch == reading.epoch {
+                if case .readingSettled = patch { releaseReading() } else { readingHeld?.append(patch) }
+                continue
+            }
             switch patch {
-            case .service(let reply): services.receive(reply)
+            case .service(let reply):
+                if reply.ok, let cache = reply.cache, let value = reply.value { reads.store(key: cache.key, family: cache.family, value: value) }
+                services.receive(reply)
+            case .serviceCache(let cache, let value): reads.store(key: cache.key, family: cache.family, value: value)
+            case .serviceEvict(let key): reads.remove(key)
+            case .serviceGenerations(let generations): reads.update(generations: generations)
+            case .readingSettled: break // Only a held page waits for it.
             case .terminal(let patch):
                 if let offset = terminal.receive(patch) { action(["type": "terminal.credit", "id": patch.id, "offset": offset]) }
             case .fragment: break // BridgeFrames only returns complete patches.
-            case .inboxReset: inbox.removeAll(keepingCapacity: true); inboxLoaded = true; activityChanged = true
+            case .itemText: break // `resolveTextEdits` turns these into whole rows first.
+            case .inboxReset(let ids):
+                LaunchTrace.mark("inbox.reset", "\(inbox.count) rows held")
+                resetInbox(keeping: ids); inboxLoaded = true; activityChanged = true
             case .inbox(let id, let row):
                 if let generation = row?.generation, generation > activityGeneration {
                     activityGeneration = generation
                     normalizeGenerations()
                 }
+                if inbox.isEmpty, row != nil { LaunchTrace.mark("inbox.firstRow", row?.confirmed == true ? "confirmed" : "unconfirmed") }
                 if let current = row {
                     // Missing generations (old payloads) never confirm.
                     inbox[id] = ThreadLiveActivity.effectiveRow(current, latestGeneration: activityGeneration)
@@ -142,6 +262,7 @@ import CryptoKit
                 activityChanged = true
             case .inboxSections(let layout): if inboxLayout != layout { inboxLayout = layout }
             case .connection(let state, let generation):
+                if state != connection { LaunchTrace.mark("connection", state) }
                 connection = state
                 if let generation, generation > activityGeneration {
                     activityGeneration = generation
@@ -157,6 +278,11 @@ import CryptoKit
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
             case .notification(let patch): notificationSink?(patch)
+            case .receipt(let id, let ok, let message) where receipts.tracks(id):
+                // A goal change answers on its own sheet, never as the screen-wide error.
+                receipts.resolve(id, refused: ok ? nil : (message.isEmpty ? "Your computer refused that change." : message))
+            case .admission(let id, let ok, let message) where receipts.tracks(id):
+                if !ok { receipts.resolve(id, refused: message.isEmpty ? CommandReceipts.unsent : message) }
             case .receipt(let id, let ok, let message):
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
                     if ok { approvalSubmissions[interactionId]?.phase = .waiting }
@@ -172,39 +298,62 @@ import CryptoKit
                 }
                 if !ok { error = message }
             case .threadReset(let id, let epoch):
-                guard let thread, thread.id == id, epoch == thread.epoch else { continue }
-                thread.epoch = epoch
-                thread.items.removeAll(keepingCapacity: true)
-                thread.positions.removeAll(keepingCapacity: true)
-                thread.order = []
-                thread.interactions = [:]
-                thread.loaded = false
-                thread.screen.reset()
+                guard let target = scoped(id, epoch) else { continue }
+                moving(target)
+                target.items.removeAll(keepingCapacity: true)
+                target.positions.removeAll(keepingCapacity: true)
+                target.order = []
+                target.interactions = [:]
+                // The reading rows are shown from their first frame; only the live thread waits.
+                target.loaded = target === reading
+                target.screen.reset()
             case .position(let id, let epoch, let itemId, let index):
-                guard let thread, thread.id == id, thread.epoch == epoch else { continue }
-                thread.positions[itemId] = index
-                reorder = true
+                guard let target = scoped(id, epoch) else { continue }
+                moving(target)
+                target.positions[itemId] = index
+                if target === reading { readingReorder = true } else { reorder = true }
             case .item(let id, let epoch, let itemId, let row):
-                guard let thread, thread.id == id, thread.epoch == epoch else { continue }
+                guard let target = scoped(id, epoch) else { continue }
+                let live = target !== reading
                 if let row {
-                    if let item = thread.items[itemId] { item.row = row; streamedUpdates += 1 }
-                    else { thread.items[itemId] = ItemModel(row); reorder = true }
-                    if let index = row.index, thread.positions[itemId] != index { thread.positions[itemId] = index; reorder = true }
-                } else { thread.items.removeValue(forKey: itemId); thread.positions.removeValue(forKey: itemId); reorder = true }
-            case .metadata(let id, let epoch, let row): if thread?.id == id, thread?.epoch == epoch { thread?.metadata = row }
+                    if let item = target.items[itemId] { item.row = row; if live { streamedUpdates += 1 } }
+                    else {
+                        moving(target)
+                        target.items[itemId] = ItemModel(row)
+                        if let index = row.index { target.positions[itemId] = index }
+                        if live { added.append(itemId) } else { readingAdded.append(itemId) }
+                        break
+                    }
+                    if let index = row.index, target.positions[itemId] != index {
+                        moving(target)
+                        target.positions[itemId] = index
+                        if live { reorder = true } else { readingReorder = true }
+                    }
+                } else {
+                    // Only a row this model holds can leave it.
+                    guard target.items[itemId] != nil else { break }
+                    moving(target)
+                    target.items.removeValue(forKey: itemId); target.positions.removeValue(forKey: itemId)
+                    if live { reorder = true } else { readingReorder = true }
+                }
+            case .metadata(let id, let epoch, let row):
+                if let target = scoped(id, epoch) { target.metadata = row; target.metadataCurrent = true }
             case .interaction(let id, let epoch, let interactionId, let row):
-                if thread?.id == id, thread?.epoch == epoch {
-                    thread?.interactions[interactionId] = row
-                    if row?.state != "pending", let submission = approvalSubmissions.removeValue(forKey: interactionId) { approvalRequests[submission.requestId] = nil }
-                }
-            case .cursor(let id, let epoch, let cursor): if thread?.id == id, thread?.epoch == epoch { thread?.cursor = cursor }
-            case .ready(let id, let epoch, _): if thread?.id == id, thread?.epoch == epoch { thread?.loaded = true; thread?.placeholder = nil }
+                guard let target = scoped(id, epoch) else { continue }
+                target.interactions[interactionId] = row
+                if target !== reading, row?.state != "pending", let submission = approvalSubmissions.removeValue(forKey: interactionId) { approvalRequests[submission.requestId] = nil }
+            case .cursor(let id, let epoch, let cursor): scoped(id, epoch)?.cursor = cursor
+            case .ready(let id, let epoch, _):
+                if thread?.id == id, thread?.epoch == epoch { thread?.loaded = true; ThreadOpenTrace.shared.ready(id) }
             case .block, .blockPosition, .controls, .history, .models, .queue:
-                if let thread, let scope = patch.screenScope, scope.thread == thread.id, scope.epoch == thread.epoch {
-                    thread.screen.apply(patch)
+                if let scope = patch.screenScope, let target = scoped(scope.thread, scope.epoch) {
+                    if target === reading, target.screen.moves(patch) { moving(target) }
+                    target.screen.apply(patch)
                 }
-            case .agents(let id, let epoch, let sheet): if thread?.id == id, thread?.epoch == epoch { sheets.agents = sheet }
-            case .changesSummary(let id, let epoch, let summary): if thread?.id == id, thread?.epoch == epoch { sheets.changes = summary }
+            case .agents(let id, let epoch, let sheet):
+                if thread?.id == id, thread?.epoch == epoch { sheets.agents = sheet; ThreadOpenTrace.shared.sheetFilled("agents") }
+            case .changesSummary(let id, let epoch, let summary):
+                if thread?.id == id, thread?.epoch == epoch { sheets.changes = summary; ThreadOpenTrace.shared.sheetFilled("changes") }
             case .changesFile(let id, let epoch, let path, let diff):
                 if thread?.id == id, thread?.epoch == epoch { sheets.file = .init(path: path, diff: diff) }
             case .gitResult(let id, let ok, let message): sheets.outcomes[id] = GitOutcome(ok: ok, message: message)
@@ -219,26 +368,51 @@ import CryptoKit
             }
         }
         thread?.screen.commit()
-        if activityChanged, let hostId { liveActivity.update(rows: inbox, hostId: hostId, online: connection == "ready") }
-        if reorder, let thread {
-            thread.order = thread.positions.keys.filter { thread.items[$0] != nil }.sorted {
-                (thread.positions[$0] ?? 0) < (thread.positions[$1] ?? 0)
-            }
+        if let reading {
+            reading.screen.commit()
+            if readingReorder { reading.reorder() } else if !readingAdded.isEmpty { reading.place(readingAdded) }
         }
-        return true
+        if let readingMoving {
+            readingMoved?()
+            ThreadOpenTrace.readingFrame(started: readingMoving)
+        }
+        if activityChanged, let hostId { liveActivity.update(row: { self.inbox[$0] }, hostId: hostId, online: connection == "ready") }
+        if let thread {
+            if reorder { thread.reorder() } else if !added.isEmpty { thread.place(added) }
+        }
+    }
+    /// A new list keeps the rows it names until each fresh copy lands, so the inbox never blanks
+    /// or jumps to the top while the rest arrive; it drops every other row. A kept row is no
+    /// longer confirmed: only its fresh copy may say it is current again.
+    private func resetInbox(keeping ids: [String]?) {
+        guard let ids else { inbox.removeAll(); return }
+        let listed = Set(ids)
+        for id in inbox.ids {
+            if !listed.contains(id) { inbox[id] = nil }
+            else if var held = inbox[id], held.confirmed != nil { held.confirmed = nil; inbox[id] = held }
+        }
     }
     func open(_ id: String) {
         generation += 1
         sheets.reset()
         browser.close(streams: runtime?.browserStreams)
-        let opened = ThreadModel(id: id)
+        // A thread shown recently comes back whole, folds and open groups as they were left.
+        let kept = thread?.id == id ? thread : shelf.take(id)
+        if let current = thread, current.id != id { shelf.keep(current) }
+        let opened = kept ?? ThreadModel(id: id)
         opened.epoch = generation
-        opened.placeholder = trail.reopen(id, leaving: thread)
+        opened.metadataCurrent = false
+        if kept != nil { opened.screen.revisit() }
+        ThreadOpenTrace.shared.open(id, warm: kept != nil)
+        ThreadOpenTrace.shared.showing(true)
         thread = opened
-        action(["type": "open", "threadId": id])
+        action(["type": "open", "threadId": id, "warm": kept != nil])
     }
     func back() {
-        generation += 1; action(["type": "back"]); thread = nil; trail.clear(); sheets.reset()
+        generation += 1; action(["type": "back"])
+        if let thread { shelf.keep(thread) }
+        thread = nil; sheets.reset()
+        ThreadOpenTrace.shared.showing(false)
         browser.close(streams: runtime?.browserStreams)
     }
     /// Where this runtime's sockets deliver browser pictures (`ClientModel+Browser.swift`).
@@ -246,7 +420,10 @@ import CryptoKit
     /// The runtime the live browser's acknowledgements go to, straight from its decoding queue.
     var browserSession: (any ClientSession)? { runtime }
     /// A sheet action for the open thread (`bridge/sheets.ts`).
-    @discardableResult func sheet(_ value: [String: Any]) -> Bool { action(["type": "sheet", "action": value]) }
+    @discardableResult func sheet(_ value: [String: Any]) -> Bool {
+        if value["open"] as? Bool == true, let kind = value["kind"] as? String { ThreadOpenTrace.shared.sheetAsked(kind) }
+        return action(["type": "sheet", "action": value])
+    }
     /// Durable stop through the SDK's outbox: true once admitted on this device. `agentId` nil
     /// stops the whole tree; otherwise that agent and everything under it.
     func interrupt(agentId: String?) async -> Bool {
@@ -263,6 +440,8 @@ import CryptoKit
     }
     func network(_ online: Bool) { action(["type": "network", "online": online]) }
     func retry() { action(["type": "retry"]) }
+    /// The app is in front again: the SDK checks the socket now and skips a waiting backoff.
+    func wake() { action(["type": "wake"]) }
     /// Ask the computer for its CLIs and usage; runs on the next ready connection if offline.
     func refreshMachine() { action(["type": "machine.refresh"]) }
     func send(_ text: String, delivery: String) async -> Bool {
@@ -317,7 +496,8 @@ import CryptoKit
     /// Drop held confirmations when leaving ready: a cached done row stays cached, but never
     /// confirmed, until its sidebar snapshot returns. Only a fresh inbox row may set it again.
     private func invalidateConfirmations() {
-        for (id, row) in inbox where row.confirmed == true {
+        for id in inbox.ids {
+            guard let row = inbox[id], row.confirmed == true else { continue }
             var cleared = row
             cleared.confirmed = nil
             inbox[id] = cleared
@@ -327,7 +507,8 @@ import CryptoKit
     /// before the row frames that invalidate it, so older confirmed rows never finish.
     /// One rule lives in `ThreadLiveActivity.effectiveRow`; the authority value stays here.
     private func normalizeGenerations() {
-        for (id, row) in inbox {
+        for id in inbox.ids {
+            guard let row = inbox[id] else { continue }
             let effective = ThreadLiveActivity.effectiveRow(row, latestGeneration: activityGeneration)
             if effective.confirmed != row.confirmed { inbox[id] = effective }
         }
@@ -337,9 +518,10 @@ import CryptoKit
         // The next runtime restarts the bridge fence at zero: explicit reset so counter
         // rows from a replaced runtime can never stay Syncing forever against an old max.
         activityGeneration = 0
-        if let hostId { liveActivity.update(rows: inbox, hostId: hostId, online: false) }
+        if let hostId { liveActivity.update(row: { self.inbox[$0] }, hostId: hostId, online: false) }
         services.cancel()
         admissions.cancel()
+        receipts.cancel()
         approvalSubmissions = [:]; approvalRequests = [:]
         browser.close(streams: runtime?.browserStreams)
         guard let runtime else { return shutdown }

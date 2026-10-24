@@ -5,6 +5,7 @@ struct RootView: View {
     @Bindable var machines: MachinesModel
     @Bindable var lock: AppLock
     @Environment(\.scenePhase) private var phase
+    @State private var backgrounded = false
 
     var body: some View {
         ZStack {
@@ -18,8 +19,13 @@ struct RootView: View {
         }
         .onChange(of: machines.machines.isEmpty) { _, empty in if !empty { lock.enable() } }
         .onChange(of: phase) { _, phase in
-            if phase == .background { lock.didEnterBackground(); machines.inbox.recordSeen() }
-            if phase == .active { lock.didBecomeActive() }
+            LaunchTrace.mark("scene", "\(phase)")
+            if phase == .background { lock.didEnterBackground(); machines.inbox.recordSeen(); backgrounded = true }
+            if phase == .active {
+                lock.didBecomeActive()
+                // Inactive sits between background and active, so the visit is remembered.
+                if backgrounded { backgrounded = false; machines.wake() }
+            }
         }
     }
     @ViewBuilder private var content: some View {
@@ -33,7 +39,9 @@ struct RootView: View {
                         .frame(maxHeight: 260)
                     PairingView(machines: machines)
                 }
+                .background(AceTheme.Colours.background)
             }
+            .tint(AceTheme.Colours.foreground)
         } else {
             InboxView(inbox: machines.inbox, machines: machines, lock: lock)
         }
@@ -52,7 +60,7 @@ struct LockView: View {
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
             }
             Button("Unlock") { Task { await lock.unlock() } }
-                .buttonStyle(.borderedProminent).disabled(lock.authenticating)
+                .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).disabled(lock.authenticating)
                 .accessibilityIdentifier("lock.unlock")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

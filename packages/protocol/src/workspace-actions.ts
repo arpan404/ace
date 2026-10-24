@@ -9,6 +9,7 @@ import { ForgePrWorktree } from "./forge-worktree.ts";
 import { ForgeHostedReviewCommand } from "./forge-review.ts";
 import { ForgeHostedChecksCommand } from "./forge-checks.ts";
 import { ForgeHostedMergeCommand, ForgeHostedMergeStateCommand } from "./forge-hosted-merge.ts";
+import { ForgeHostedPrCreateCommand } from "./forge-new-pr.ts";
 import { Project } from "./projects.ts";
 import { z } from "zod";
 import { ThreadId, WorkspaceId } from "./ids.ts";
@@ -178,6 +179,7 @@ export const WorkspaceCommands = [
   ForgeHostedChecksCommand,
   ForgeHostedMergeCommand,
   ForgeHostedMergeStateCommand,
+  ForgeHostedPrCreateCommand,
   z.object({ type: z.literal("thread.move"), threadId: ThreadId, workspaceId: WorkspaceId }),
   z.object({
     type: z.literal("thread.workspace.set"),

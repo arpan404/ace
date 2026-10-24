@@ -42,6 +42,7 @@ import {
 import { applyNoteEdits } from "./project-notes.ts";
 import { ProjectStorage } from "./project-storage.ts";
 import { browseProjects } from "./project-browse.ts";
+import { ChatProjects } from "./chat-projects.ts";
 import type { Store } from "./store.ts";
 
 export interface ProjectsOptions {
@@ -59,6 +60,10 @@ export interface ProjectsOptions {
   /** Host-injected test fixture only; no client can set transport policy. */
   gitPolicy?: ProjectGitPolicy;
   hasOwnedWork?: (id: ThreadId) => boolean;
+  /** Where chats started with no project keep their folders (ADR 0099); unset disables chats. */
+  chatsRoot?: string;
+  /** Folder names for new chats. */
+  chatId?: () => string;
   /** "Clear stale lock" for a project's repository: how many it retired, and what still holds one. */
   clearLock?: (path: string) => Promise<Omit<CommandResult, "commandId">>;
 }
@@ -87,6 +92,7 @@ export class Projects {
   private stopRevocation: () => void;
   private now: () => number;
   private noteId: () => string;
+  private chats: ChatProjects | undefined;
   constructor(store: Store, now: () => number, options: ProjectsOptions = {}) {
     this.store = store;
     this.now = now;
@@ -108,7 +114,13 @@ export class Projects {
       ? new RepositoryPublications(store, options.sourceControl, now)
       : undefined;
     this.stopRevocation = store.devices.onRevoke((device) => this.cancelDevice(device));
-    this.ready = this.restoreIcons().catch(() => undefined);
+    this.chats = options.chatsRoot
+      ? new ChatProjects(store, this.catalog, options.chatsRoot, now, options.chatId ?? randomUUID)
+      : undefined;
+    this.ready = Promise.all([
+      this.restoreIcons().catch(() => undefined),
+      this.chats?.sweep().catch(() => undefined),
+    ]).then(() => undefined);
   }
   /** Backfill persisted defaults once per daemon start; it never blocks service readiness. */
   private async restoreIcons(): Promise<void> {
@@ -323,6 +335,10 @@ export class Projects {
           return { ...result, commandId: input.id };
         }
         if (p.type === "workspace.add") return await this.add(p, allowed);
+        if (p.type === "workspace.chat.create") {
+          if (!this.chats) throw new ProjectError("projects_unavailable");
+          return { ok: true, workspace: await this.chats.create() };
+        }
         if (p.type === "workspace.root.add") return await this.addRoot(p, allowed);
         if (
           p.type === "workspace.rename" ||
@@ -330,6 +346,7 @@ export class Projects {
           p.type === "workspace.remove"
         ) {
           const project = this.catalog.get(p.workspaceId);
+          if (project.kind === "chat") throw new ProjectError("chat_project");
           assertProjectPath(project.path, await this.paths.roots());
           this.check(allowed);
           if (this.destinations.has(project.path)) throw new ProjectError("project_busy");
@@ -648,6 +665,7 @@ export class Projects {
       this.metadataGit.close(),
       this.commands.drained(),
       this.ready,
+      this.chats?.close(),
     ]);
   }
 }

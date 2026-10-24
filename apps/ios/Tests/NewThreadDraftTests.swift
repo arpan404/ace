@@ -53,6 +53,20 @@ import Foundation
         // Nothing reached the runtime, so nothing failed to send either.
         #expect(model.error == nil)
     }
+    @Test func aChatWithNoProjectCanStartWhileADraftWithNoChoiceCannot() throws {
+        var draft = NewThreadDraft()
+        draft.text = "What's a semaphore?"
+        #expect(NewThreadGate.blocker(draft, canOperate: true, agent: ready) == "Choose a project")
+        draft.projectId = NewThreadDraft.chat
+        #expect(draft.isChat)
+        #expect(NewThreadGate.blocker(draft, canOperate: true, agent: ready) == nil)
+        // Project lists leave a chat's hidden project out.
+        let reply = try JSONDecoder().decode(ProjectListReply.self, from: Data("""
+        {"result":{"kind":"projects","projects":[{"id":"ace","name":"ace","path":"/code/ace"},
+        {"id":"chat-1","name":"Chat","path":"/data/chats/1","kind":"chat"}]}}
+        """.utf8))
+        #expect(reply.result.projects?.map(\.id) == ["ace"])
+    }
     @Test func anUnreadyAgentBlocksSendWithItsOwnReason() {
         var draft = NewThreadDraft()
         draft.projectId = "ace"; draft.text = "Go"

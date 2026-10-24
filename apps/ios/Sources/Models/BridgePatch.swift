@@ -30,6 +30,8 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     /// Inbox rows only: when the thread was archived, for the archive browser and read-only opens.
     var archivedAt: Double? = nil
     var workspaceId: String? = nil
+    /// A chat with no project (ADR 0099): marked as a chat, left out of project filters.
+    var chat: Bool? = nil
     var badge: String? = nil
     var diff: Diff? = nil
     var testsRunning: Bool? = nil
@@ -37,19 +39,53 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     var pr: PullRequestRef? = nil
     /// Start of the current working stretch (ms) while the tree works; nil otherwise.
     var workingSince: Double? = nil
+    /// Inbox rows only: how loudly the row asks for the person (`inbox-look.ts`).
+    var look: RowLook? = nil
+    /// Inbox rows only: the account mark the provider glyph wears when its provider has several
+    /// accounts (`inbox-accounts.ts`); nil draws the plain mark.
+    var account: String? = nil
+}
+/// How an inbox row reads, by the web's Home row rule (`rowAttention`): the attention level,
+/// the status word (none at rest: the row shows its age), its tone and glyph, and whether the
+/// row mutes. Swift draws it; it never derives attention.
+struct RowLook: Codable, Sendable, Equatable {
+    let level: String
+    let word: String?
+    let tone: String
+    let muted: Bool
+    let glyph: String?
+    /// Start (ms) of an active row's live stretch, for its elapsed time.
+    let since: Double?
+    let settled: Bool
+    let subagents: Int
+    /// The word takes its tone's colour unless the row mutes; waiting never does.
+    var loud: Bool { !muted && tone != "waiting" }
 }
 struct PullRequestRef: Codable, Sendable, Equatable {
     let number: Int
     /// open, draft, merged or closed.
     let state: String
-    var inReview: Bool { state == "open" || state == "draft" }
 }
+/// Drop `cut` UTF-8 bytes from the front of a text `base` bytes long, then add `append`. Bytes,
+/// because Swift's strings count and slice them without transcoding.
+struct TextEdit: Sendable, Equatable {
+    let base: Int
+    let cut: Int
+    let append: String
+    /// The edited text, or nil when `text` is not the one the edit was made against or the cut
+    /// would split a character.
+    func applied(to text: String) -> String? {
+        guard text.utf8.count == base, let kept = String(text.utf8.dropFirst(cut)) else { return nil }
+        return kept + append
+    }
+}
+
 struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     let id: String
     let index: Int?
     let type: String
     let role: String
-    let text: String
+    var text: String
     let complete: Bool
     let createdAt: Double
     let agentId: String
@@ -62,9 +98,28 @@ struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     var moreAttachments: Int? = nil
     /// A context handoff's divider; nil on every other row.
     var handoff: HandoffLine? = nil
+    /// The person's bubble as the web draws it; nil on every other row.
+    var bubble: BubbleLine? = nil
+    /// A thought's header: "Thinking…", "Thought for 12s"; nil on every other row.
+    var thought: String? = nil
     /// Shared secondary line, such as the visualization fallback; empty when the row has none.
     let detail: String?
     let quiet: Bool?
+}
+/// The words inside the person's bubble (`@ace/ui-core` `bubbleContent`): prose, code and mention
+/// runs in order, whether it folds behind "Show more", and how it was sent ("steer", "queue").
+struct BubbleLine: Codable, Sendable, Equatable {
+    struct Segment: Codable, Sendable, Equatable {
+        /// "text", "code" or "mention".
+        let kind: String
+        let text: String
+        /// A mention's catalog kind; empty for words and code.
+        let mention: String
+    }
+    let segments: [Segment]
+    let readable: Bool
+    let long: Bool
+    let origin: String
 }
 /// Where a thread moved to another provider (`@ace/ui-core` `handoffMarker`): the models whose
 /// work carried over, oldest first, and the one taking the conversation.
@@ -113,13 +168,21 @@ struct InboxLayout: Codable, Sendable, Equatable {
         /// `MergedInbox` orders every machine's sections by them.
         var ranks: [String]? = nil
         var order: Int? = nil
+        /// Threads in the section, loaded or not: Settled counts the daemon's older pages too.
+        var total: Int? = nil
         var id: String { key }
     }
     struct SnoozeOption: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }
+    /// A choice of the machine's Sort threads setting, worded by the shared rules.
+    struct SortOption: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }
     let sections: [Section]
     /// The daemon has older threads beyond the loaded window.
     let more: Bool
     let snooze: [SnoozeOption]
+    /// The machine's `threads.sortBy` the sections are in, and the choices it offers; nil from
+    /// older bridges.
+    var sortBy: String? = nil
+    var sorts: [SortOption]? = nil
     static let empty = InboxLayout(sections: [], more: false, snooze: [])
 }
 
@@ -127,11 +190,15 @@ enum BridgePatch: Decodable, Sendable {
     case service(ServiceReply)
     case terminal(TerminalOutputPatch)
     case fragment(BridgeFragment)
-    case inboxReset
+    /// A new list: the ids of every row that follows (nil from older bridges, which clear all).
+    case inboxReset([String]?)
     case inbox(String, ThreadRow?)
     case threadReset(String, Int)
     case position(String, Int, String, Int?)
     case item(String, Int, String, TranscriptRow?)
+    /// Streaming text as an edit of the row shown (`bridge/text-edit.ts`): `row` carries
+    /// every other field, its text empty until `ClientModel` applies the edit.
+    case itemText(String, Int, String, TextEdit, TranscriptRow)
     case metadata(String, Int, ThreadRow?)
     case interaction(String, Int, String, ApprovalRow?)
     case cursor(String, Int, Int)
@@ -144,8 +211,8 @@ enum BridgePatch: Decodable, Sendable {
     case block(String, Int, String, BlockRow?)
     case blockPosition(String, Int, String, Int?)
     case controls(String, Int, ControlsRow?)
-    case history(String, Int, Bool, Bool)
-    case models(String, Int, String, [ModelOption])
+    case history(String, Int, Bool)
+    case models(String, Int, ThreadModels)
     case queue(String, Int, QueueRow)
     case inboxSections(InboxLayout)
     case problem(ProblemNotice?)
@@ -167,17 +234,29 @@ enum BridgePatch: Decodable, Sendable {
     case browser(BrowserPatch)
     /// A thread's Devices screen and its logs (`bridge/native-devices.ts`).
     case devices(DevicesPatch)
+    /// A kept read restored from an earlier run, and each family's generation (`bridge/native-reads.ts`).
+    case serviceCache(ServiceReply.Cache, ServiceValue)
+    /// A kept read the bridge stopped keeping: Swift's copy lets it go too.
+    case serviceEvict(String)
+    case serviceGenerations([String: Int])
+    /// The history window put everything a read changed (`bridge/native-transcript.ts`).
+    case readingSettled(String, Int)
 
-    private enum Keys: String, CodingKey { case type, id, row, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation }
+    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
         func scope() throws -> (String, Int) { (try box.decode(String.self, forKey: .threadId), try box.decode(Int.self, forKey: .epoch)) }
         switch type {
         case "service.reply": self = .service(try ServiceReply(from: decoder))
+        case "service.cache":
+            let cache = ServiceReply.Cache(key: try box.decode(String.self, forKey: .key), family: try box.decode(String.self, forKey: .family))
+            self = .serviceCache(cache, try box.decode(ServiceValue.self, forKey: .value))
+        case "service.evict": self = .serviceEvict(try box.decode(String.self, forKey: .key))
+        case "service.generations": self = .serviceGenerations(try box.decode([String: Int].self, forKey: .generations))
         case "terminal.output": self = .terminal(try TerminalOutputPatch(from: decoder))
         case "fragment": self = .fragment(try BridgeFragment(from: decoder))
-        case "inbox.reset": self = .inboxReset
+        case "inbox.reset": self = .inboxReset(try box.decodeIfPresent([String].self, forKey: .ids))
         case "inbox.row": self = .inbox(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(ThreadRow.self, forKey: .row))
         case "thread.reset": let (id, epoch) = try scope(); self = .threadReset(id, epoch)
         case "thread.position":
@@ -186,6 +265,12 @@ enum BridgePatch: Decodable, Sendable {
         case "thread.item":
             let (id, epoch) = try scope()
             self = .item(id, epoch, try box.decode(String.self, forKey: .id), try box.decodeIfPresent(TranscriptRow.self, forKey: .row))
+        case "thread.item.text":
+            let (id, epoch) = try scope()
+            let edit = TextEdit(base: try box.decode(Int.self, forKey: .base), cut: try box.decode(Int.self, forKey: .cut),
+                                append: try box.decode(String.self, forKey: .append))
+            guard edit.cut >= 0, edit.cut <= edit.base else { throw DecodingError.dataCorruptedError(forKey: .cut, in: box, debugDescription: "cut past base") }
+            self = .itemText(id, epoch, try box.decode(String.self, forKey: .id), edit, try box.decode(TranscriptRow.self, forKey: .row))
         case "thread.metadata": let (id, epoch) = try scope(); self = .metadata(id, epoch, try box.decodeIfPresent(ThreadRow.self, forKey: .row))
         case "thread.interaction":
             let (id, epoch) = try scope()
@@ -203,14 +288,15 @@ enum BridgePatch: Decodable, Sendable {
         case "thread.blockPosition":
             let (id, epoch) = try scope()
             self = .blockPosition(id, epoch, try box.decode(String.self, forKey: .id), try box.decodeIfPresent(Int.self, forKey: .index))
+        case "reading.settled": let (id, epoch) = try scope(); self = .readingSettled(id, epoch)
         case "thread.controls": let (id, epoch) = try scope(); self = .controls(id, epoch, try box.decodeIfPresent(ControlsRow.self, forKey: .row))
         case "thread.history":
             let (id, epoch) = try scope()
-            self = .history(id, epoch, try box.decode(Bool.self, forKey: .hasOlder), try box.decode(Bool.self, forKey: .loading))
+            self = .history(id, epoch, try box.decode(Bool.self, forKey: .hasOlder))
         case "thread.queue": let (id, epoch) = try scope(); self = .queue(id, epoch, try QueueRow(from: decoder))
         case "thread.models":
             let (id, epoch) = try scope()
-            self = .models(id, epoch, try box.decode(String.self, forKey: .state), try box.decode([ModelOption].self, forKey: .models))
+            self = .models(id, epoch, try ThreadModels(from: decoder))
         case "inbox.sections": self = .inboxSections(try InboxLayout(from: decoder))
         case "connection.problem": self = .problem(try box.decodeIfPresent(ProblemNotice.self, forKey: .problem))
         case "machine.status": self = .machineStatus(try MachineStatusInfo(from: decoder))

@@ -507,3 +507,16 @@ test("a published HTML visualization can be found by its title, alone or among e
   log.append([{ type: "item.deleted", itemId: visualization.id }]);
   expect(log.query("quarterly").hits).toEqual([]);
 });
+
+test("a fork's copy of its source's message is not found a second time", () => {
+  const own = message("saffron parser");
+  const copy = Item.parse({
+    ...message("saffron parser"),
+    inherited: { threadId: "source-thread", itemId: "source-item" },
+  });
+  log.append([
+    { type: "item.created", item: own },
+    { type: "item.created", item: copy },
+  ]);
+  expect(log.query("saffron").hits.map((hit) => hit.itemId)).toEqual([own.id]);
+});

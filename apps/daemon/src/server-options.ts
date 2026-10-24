@@ -1,3 +1,4 @@
+import type { MaintenanceGate } from "@ace/service";
 import type { DevicesService } from "@ace/devices";
 import type { ScreenManager } from "@ace/screen";
 import type { CursorAuthService } from "@ace/accounts";
@@ -83,6 +84,8 @@ export interface ServerOptions {
   history?: Pick<DaemonHistory, "handle">;
   usage?: UsageCommands;
   maintenance?: boolean;
+  /** The daemon's shared admission gate; the server makes its own when none is given. */
+  maintenanceGate?: MaintenanceGate;
   version?: string;
   serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[];
   /** Current and maximum event-loop delay for `/v1/status`. */

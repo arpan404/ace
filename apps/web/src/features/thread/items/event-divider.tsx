@@ -2,29 +2,11 @@ import type { ThreadReader } from "@ace/client";
 import { useItem, useThreadMeta, useThread } from "@ace/client-react";
 import type { Item } from "@ace/protocol";
 import {
-  describeProviderError,
-  displayNotice,
-  isLimitError,
-  sanitizeUserText,
-  stripAceOriginMarker,
-  echoesEarlierError,
-  failureCount,
-  handoffMarker,
-  handoffSummary,
-  inputLine,
-  interruptionNotice,
-  isBareErrorCode,
-  noticeInput,
-  parseDelegationResults,
-  refusalCount,
-  repeatsEarlierEvent,
-  settledResults,
-  systemInput,
-  taskPrompt,
-  toolRefusal,
+  eventCounts,
+  eventView,
+  type EventCounts,
   type EventIcon,
   type EventLine,
-  type InputKind,
 } from "@ace/ui-core";
 import {
   ArrowClockwiseIcon,
@@ -44,9 +26,8 @@ import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
 import { DelegationCard } from "./delegation-card.tsx";
 import { HandoffDivider } from "./handoff-divider.tsx";
-import { ErrorRow, noticeError } from "./error-row.tsx";
+import { ErrorRow } from "./error-row.tsx";
 import { NotSentNotice } from "./not-sent-notice.tsx";
-import { notSentCommand } from "./send-failure.ts";
 import { RefusalRow } from "./refusal-row.tsx";
 import { SystemRow } from "./system-row.tsx";
 import { TaskCard } from "./task-card.tsx";
@@ -100,170 +81,85 @@ export function EventRow(props: {
   );
 }
 
-/** The same ace event, already shown just above (a restart notice and its echoed input). */
-function useRepeats(threadId: string, itemId: string, kind: InputKind | undefined): boolean {
-  const read = useCallback(
-    (reader: ThreadReader) => {
-      if (!kind) return false;
-      const index = reader.order.indexOf(itemId);
-      return index > 0 && repeatsEarlierEvent(reader.order, index, (id) => reader.item(id), kind);
-    },
-    [itemId, kind],
-  );
-  return useThread(threadId, ["order"], read) ?? false;
-}
+const sameCounts = (a: EventCounts, b: EventCounts) =>
+  a.repeated === b.repeated &&
+  a.echoed === b.echoed &&
+  a.refusals === b.refusals &&
+  a.failures === b.failures;
 
-/** How many identical refusals this row stands for; 0 when an earlier row already counts it. */
-function useRefusalCount(threadId: string, itemId: string, refused: boolean): number {
-  const read = useCallback(
-    (reader: ThreadReader) =>
-      refused
-        ? refusalCount(reader.order, reader.order.indexOf(itemId), (id) => reader.item(id))
-        : 1,
-    [itemId, refused],
-  );
-  return useThread(threadId, ["order"], read) ?? 1;
-}
-
-/** How many identical failures this error row stands for; 0 when an earlier row counts it. */
-function useFailureCount(threadId: string, itemId: string, failed: boolean): number {
-  const read = useCallback(
-    (reader: ThreadReader) =>
-      failed
-        ? failureCount(reader.order, reader.order.indexOf(itemId), (id) => reader.item(id))
-        : 1,
-    [itemId, failed],
-  );
-  return useThread(threadId, ["order"], read) ?? 1;
-}
-
-/** A bare error code that only repeats the error just above it (IR-12). */
-function useEchoedCode(threadId: string, item: Item | undefined): boolean {
-  const echo = item?.type === "notice" && isBareErrorCode(item.text);
-  const id = item?.id ?? "";
-  const read = useCallback(
-    (reader: ThreadReader) => {
-      if (!echo) return false;
-      return echoesEarlierError(reader.order, reader.order.indexOf(id), (key) => reader.item(key));
-    },
-    [echo, id],
-  );
-  return useThread(threadId, ["order"], read) ?? false;
+/** What the rows around this one decide about it: repeats, echoes and ×N counts. */
+function useEventCounts(threadId: string, itemId: string): EventCounts | undefined {
+  const read = useCallback((reader: ThreadReader) => eventCounts(reader, itemId), [itemId]);
+  return useThread(threadId, ["order", `item:${itemId}`], read, sameCounts);
 }
 
 /**
  * Anything in the transcript that is neither the person's words nor the agent's answer or
- * work (IR-8, IR-9, IR-10, IR-11, IR-12, A3): ace's own inputs as quiet rows and cards, errors as
- * one readable row, notices as one quiet line. Never a chat bubble.
+ * work, drawn as `eventView` decides (shared with the native apps): ace's own inputs as quiet
+ * rows and cards, errors as one readable row, notices as one quiet line. Never a chat bubble.
  */
 export function EventBlock(props: { threadId: string; itemId: string }) {
   const stored = useItem(props.threadId, props.itemId);
-  const item = stored?.type === "notice" ? displayNotice(stored) : stored;
   const thread = useThreadMeta(props.threadId);
-  const input = systemInput(item);
-  const repeated = useRepeats(props.threadId, props.itemId, input?.kind ?? noticeInput(item));
-  const echoed = useEchoedCode(props.threadId, item);
-  const refusal = toolRefusal(item);
-  const refusals = useRefusalCount(props.threadId, props.itemId, !!refusal);
-  const failures = useFailureCount(
-    props.threadId,
-    props.itemId,
-    !refusal && item?.type === "notice" && item.level === "error",
-  );
-  if (!item || repeated || echoed) return null;
-  if (refusal) return refusals ? <RefusalRow refusal={refusal} count={refusals} /> : null;
-  if (item.type === "message" && item.mergedContext)
-    return <MergedForkNotice context={item.mergedContext} />;
-  // A candidate the exact check rejects is the person's own message.
-  if (!input && item.type === "message" && item.role === "user" && !item.synthetic)
-    return <UserMessage threadId={props.threadId} itemId={props.itemId} />;
-  if (input) {
-    const handoff = input.kind === "handoff" ? handoffMarker(item) : undefined;
-    if (handoff) return <HandoffDivider marker={handoff} at={item.createdAt} />;
-    switch (input.kind) {
-      // The question block above already shows the answer with its question.
-      case "interaction_answer":
-        return null;
-      case "subagent_result": {
-        const results = parseDelegationResults(input.text);
-        if (results.length)
-          return (
-            <DelegationCard threadId={props.threadId} results={results} received={input.text} />
-          );
-        return (
-          <EventRow
-            line={{ icon: "automation", text: "Delegated work finished" }}
-            at={item.createdAt}
-            received={stripAceOriginMarker(input.text.trimStart())}
-          />
-        );
-      }
-      case "spawn":
-      case "parent_agent":
-      case "automation": {
-        const prompt = taskPrompt(input);
-        if (prompt) return <TaskCard prompt={prompt} />;
-        break;
-      }
-      default: {
-        const line = inputLine(input);
-        if (line)
-          return (
-            <EventRow
-              line={line}
-              at={item.createdAt}
-              received={input.text}
-              summary={input.kind === "handoff" ? handoffSummary(input.text) : undefined}
-            />
-          );
-      }
-    }
-    return <QuietText text={input.text} />;
-  }
-  switch (item.type) {
-    case "notice": {
-      if (item.code === "input_queued") return null;
-      // One quiet row; Continue lives on the pill over the composer, not here.
-      if (interruptionNotice(item))
-        return (
-          <SystemRow
-            text={item.text}
-            at={item.createdAt}
-            icon={<ArrowClockwiseIcon aria-hidden size={14} />}
-          />
-        );
-      const kind = noticeInput(item);
-      const line = kind && inputLine({ kind, text: item.text });
-      if (line) return <EventRow line={line} at={item.createdAt} received={item.text} />;
-      const notSent = notSentCommand(item);
-      if (notSent)
-        return <NotSentNotice threadId={props.threadId} notice={item} commandId={notSent} />;
-      if (item.level === "error") {
-        if (!failures) return null;
-        const error = noticeError(item);
-        // A usage or rate limit pauses the turn: the composer's strip says so while it holds.
-        if (isLimitError(describeProviderError(error))) return null;
-        return (
-          <ErrorRow
-            count={failures}
-            error={{
-              ...error,
-              provider: error.provider ?? thread?.provider,
-              model: error.model ?? item.executionSource?.selection.model,
-            }}
-          />
-        );
-      }
-      return <NoticeLine level={item.level} text={item.text} />;
-    }
-    case "compaction":
+  const counts = useEventCounts(props.threadId, props.itemId);
+  if (!stored || !counts) return null;
+  const view = eventView(stored, counts, thread?.provider);
+  switch (view.kind) {
+    case "none":
+      return null;
+    case "refusal":
+      return <RefusalRow refusal={view.refusal} count={view.count} />;
+    case "merged":
+      return <MergedForkNotice context={view.context} />;
+    case "user":
+      return <UserMessage threadId={props.threadId} itemId={props.itemId} />;
+    case "handoff":
+      return <HandoffDivider marker={view.marker} at={view.at} />;
+    case "delegation":
+      return (
+        <DelegationCard threadId={props.threadId} results={view.results} received={view.received} />
+      );
+    case "event":
+      return (
+        <EventRow line={view.line} at={view.at} received={view.received} summary={view.summary} />
+      );
+    case "task":
+      return <TaskCard prompt={view.prompt} />;
+    case "system":
       return (
         <SystemRow
-          text="Context compacted"
-          at={item.createdAt}
-          icon={<ArrowsInLineVerticalIcon aria-hidden size={14} />}
+          text={view.text}
+          at={view.at}
+          icon={
+            view.icon === "restart" ? (
+              <ArrowClockwiseIcon aria-hidden size={14} />
+            ) : (
+              <ArrowsInLineVerticalIcon aria-hidden size={14} />
+            )
+          }
         />
       );
+    case "notSent":
+      return (
+        <NotSentNotice threadId={props.threadId} notice={view.notice} commandId={view.commandId} />
+      );
+    case "error":
+      return <ErrorRow count={view.count} error={view.error} />;
+    case "notice":
+      return <NoticeLine level={view.level} text={view.text} />;
+    case "quiet":
+      return <QuietText text={view.text} />;
+    case "html":
+    case "image":
+    case "artifact":
+      return <PostedItem threadId={props.threadId} item={stored} />;
+  }
+}
+
+/** Something the agent published: a visualization, an image or a file. */
+function PostedItem(props: { threadId: string; item: Item }) {
+  const { item } = props;
+  switch (item.type) {
     case "html":
       return (
         <Suspense
@@ -292,14 +188,8 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
           filename={item.filename}
         />
       );
-    case "message":
-      return (
-        <QuietText
-          text={item.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("")}
-        />
-      );
     default:
-      return <DelegationItem threadId={props.threadId} item={item} />;
+      return null;
   }
 }
 
@@ -319,8 +209,7 @@ function NoticeLine(props: { level: "info" | "warning" | "error"; text: string }
 /** A message the provider injected that ace has no words for: one line, the rest on demand. */
 function QuietText(props: { text: string }) {
   const [open, setOpen] = useState(false);
-  const text = sanitizeUserText(props.text);
-  if (!text) return null;
+  const text = props.text;
   const first = text.split("\n").find((line) => line.trim()) ?? "";
   const more = text.trim() !== first.trim();
   return (
@@ -343,10 +232,4 @@ function QuietText(props: { text: string }) {
       </div>
     </div>
   );
-}
-
-/** Canonical result receipts render at their delivery point; launches belong to the grouped card. */
-function DelegationItem(props: { threadId: string; item: Item }) {
-  const results = settledResults(props.item);
-  return results?.length ? <DelegationCard threadId={props.threadId} results={results} /> : null;
 }

@@ -5,6 +5,7 @@ import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs.tsx";
 import { toolbarEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { useDebouncedValue } from "@/lib/debounced.ts";
+import { useRememberList } from "./last-list.ts";
 import { useListScroll } from "./list-scroll.ts";
 
 /** GitHub's search allows 30 requests a minute: let typing settle before asking. */
@@ -36,77 +37,86 @@ function SearchBox(props: { label: string; value: string; onValue(value: string)
       placeholder="Search"
       value={text}
       onValueChange={setText}
-      className="w-56 min-w-40 shrink"
+      className="mr-1 w-48 min-w-32 shrink"
     />
   );
 }
 
 /**
- * A list page's frame: the Pull requests / Issues switch in large type with search, a toolbar of
- * word choices and menus, and the rows, in one scroller. Every band shares one gutter
- * (`--forge-gutter`), so titles, filters and rows start on the same edge. The switch scrolls
- * away with the rows and the toolbar stays pinned; nothing changes size while scrolling, so the
- * rows never jump.
+ * A list page's frame: one pinned bar over the rows, with the Inbox / Pull requests / Issues
+ * switch on the left and, on the right, search, the list's menus (state, filters) and its one
+ * action. Every band shares one gutter (`--forge-gutter`), so the switch and the rows start on
+ * the same edge. Nothing changes size while scrolling, so the rows never jump.
  */
 export function ListFrame(props: {
-  kind: "pulls" | "issues";
-  search: string;
-  onSearch(text: string): void;
-  /** The toolbar's left: word choices (state, involvement). */
-  controls: ReactNode;
-  /** The toolbar's right: menus (project, sort, filters). */
+  kind: "inbox" | "pulls" | "issues";
+  /** The list's search; the inbox has none, since GitHub can't search notifications. */
+  search?: string;
+  onSearch?(text: string): void;
+  /** Menus beside the search: the state, then Filters (involvement, sort, project and the rest). */
   menus?: ReactNode;
   actions?: ReactNode;
   /** The list's address (filters, sort, search): where it was scrolled is kept per address. */
   address: string;
   /** Its rows are on screen, so a kept position can be restored. */
   ready: boolean;
-  /** One status line pinned under the toolbar (the merge strip). */
+  /** One status line pinned under the bar (the merge strip). */
   strip?: ReactNode;
   children: ReactNode;
 }) {
   const navigate = useNavigate();
   const { ref, onScroll } = useListScroll(props.kind, props.address, props.ready);
   const header = useSteadyHeader(ref);
+  useRememberList(props.kind);
   const label = props.kind === "pulls" ? "Search pull requests" : "Search issues";
+  const filtersLabel = {
+    inbox: "Inbox filters",
+    pulls: "Pull request filters",
+    issues: "Issue filters",
+  };
   return (
     <div
       ref={ref}
       className={cn("h-full overflow-y-auto", forgeGutter)}
       onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
     >
-      <div className="flex items-center gap-2 px-(--forge-gutter) pt-5 pb-1">
-        <Tabs
-          value={props.kind}
-          onValueChange={(value) =>
-            void navigate({ to: value === "issues" ? "/issues" : "/pulls" })
-          }
-        >
-          <TabsList aria-label="Pull requests and issues" className="-ml-2.5 gap-1">
-            <TabsTab value="pulls" className={titleTab}>
-              Pull requests
-            </TabsTab>
-            <TabsTab value="issues" className={titleTab}>
-              Issues
-            </TabsTab>
-          </TabsList>
-        </Tabs>
-        <span className="flex-1" />
-        <SearchBox label={label} value={props.search} onValue={props.onSearch} />
-        {props.actions}
-      </div>
       <header
         ref={header}
         className={cn("sticky top-0 z-[2] bg-background px-(--forge-gutter)", toolbarEdge)}
       >
-        <div
-          role="toolbar"
-          aria-label={props.kind === "pulls" ? "Pull request filters" : "Issue filters"}
-          className="-mx-2 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1 py-2"
-        >
-          {props.controls}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1 py-2.5">
+          <Tabs
+            value={props.kind}
+            onValueChange={(value) =>
+              void navigate({
+                to: value === "issues" ? "/issues" : value === "inbox" ? "/inbox" : "/pulls",
+              })
+            }
+          >
+            <TabsList aria-label="Inbox, pull requests and issues" className="-ml-2.5 gap-0.5">
+              <TabsTab value="inbox" className={titleTab}>
+                Inbox
+              </TabsTab>
+              <TabsTab value="pulls" className={titleTab}>
+                Pull requests
+              </TabsTab>
+              <TabsTab value="issues" className={titleTab}>
+                Issues
+              </TabsTab>
+            </TabsList>
+          </Tabs>
           <span className="flex-1" />
-          {props.menus}
+          <div
+            role="toolbar"
+            aria-label={filtersLabel[props.kind]}
+            className="flex min-w-0 items-center gap-1"
+          >
+            {props.onSearch && (
+              <SearchBox label={label} value={props.search ?? ""} onValue={props.onSearch} />
+            )}
+            {props.menus}
+          </div>
+          {props.actions && <div className="ml-1.5 flex items-center">{props.actions}</div>}
         </div>
         {props.strip}
       </header>
@@ -140,11 +150,6 @@ function useSteadyHeader(scroller: { current: HTMLDivElement | null }) {
 /** The page's one gutter: 16px in a narrow column, 32px beside it. */
 export const forgeGutter = "[--forge-gutter:1rem] sm:[--forge-gutter:2rem]";
 
-/** Pull requests / Issues, the current one on the flat selected fill. */
+/** Inbox / Pull requests / Issues, the current one on the flat selected fill. */
 const titleTab =
-  "h-8 rounded-md px-2.5 text-md font-medium text-muted-foreground hover:not-data-active:bg-hover hover:text-foreground data-active:bg-active data-active:text-foreground";
-
-/** A thin rule between two groups of word choices in a toolbar. */
-export function ToolbarRule() {
-  return <span aria-hidden className="mx-1.5 h-4 w-px bg-border" />;
-}
+  "h-7 rounded-md px-2.5 text-ui font-medium text-muted-foreground hover:not-data-active:bg-hover hover:text-foreground data-active:bg-active data-active:text-foreground";

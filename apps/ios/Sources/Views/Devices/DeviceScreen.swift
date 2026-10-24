@@ -30,6 +30,7 @@ struct DeviceScreen: View {
     @State private var sheet: DeviceSheet?
     @State private var confirmShutdown = false
     @State private var screenSize: CGSize?
+    @State private var pictureTurn = DeviceRotation.none
     @State private var caption: DeviceScreenInfo.Activity?
     @State private var seen: Int?
     @State private var autoStarted = false
@@ -77,12 +78,15 @@ struct DeviceScreen: View {
                 let size = screenSize ?? CGSize(width: info.screen.width, height: info.screen.height)
                 let geometry = size.width > size.height ? info.frame.landscape : info.frame.portrait
                 let room = CGSize(width: proxy.size.width - AceTheme.Spacing.xxl * 2, height: proxy.size.height - AceTheme.Spacing.lg * 2)
-                DeviceFrameView(geometry: geometry, layout: DeviceFrameLayout(room: room, geometry: geometry, screen: size)) {
+                // The body's turn, as `bodyTurn` (@ace/ui-core) reads it for a Simulator: the
+                // picture's own rotation, else a landscape picture means turned to the right.
+                let turn = pictureTurn != .none ? pictureTurn : size.width > size.height ? .quarter : .none
+                DeviceFrameView(geometry: geometry, layout: DeviceFrameLayout(room: room, geometry: geometry, screen: size), turn: turn) {
                     ZStack {
                         Color.black
                         if info.live {
                             DeviceSurface(next: { devices.live.nextPicture() }, interactive: canDrive, handle: handle,
-                                          label: "\(info.name) screen", screenSize: { screenSize = $0 }) { from, to in
+                                          label: "\(info.name) screen", screenSize: { screenSize = $0 }, turn: { pictureTurn = $0 }) { from, to in
                                 devices.gesture(model, threadId: threadId, deviceId: deviceId, from: from, to: to)
                             }
                             ripple(size)
@@ -153,7 +157,7 @@ struct DeviceScreen: View {
             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
             .foregroundStyle(AceTheme.Colours.foreground)
             .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
-            .aceGlass(in: Capsule())
+            .aceGlass(in: AceShape.capsule)
             .transition(.opacity)
             .accessibilityLabel("Agent action: \(caption.caption)")
             .accessibilityIdentifier("devices.activity")
@@ -186,7 +190,7 @@ struct DeviceScreen: View {
                     Button("Send", action: type).disabled(text.isEmpty)
                 }
                 .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                .aceGlass(in: Capsule())
+                .aceGlass(in: AceShape.capsule)
                 .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.xs)
                 .accessibilityIdentifier("devices.keyboard")
             }
@@ -241,18 +245,18 @@ struct DeviceScreen: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .bottomBar) {
-            Button("Home", systemImage: "house") { key("home") }.disabled(!canDrive).accessibilityIdentifier("devices.home")
+            Button("Home", ace: .house) { key("home") }.disabled(!canDrive).accessibilityIdentifier("devices.home")
             if info?.platform == "android" {
-                Button("Back", systemImage: "arrow.uturn.backward") { key("back") }.disabled(!canDrive)
+                Button("Back", ace: .arrowUUpLeft) { key("back") }.disabled(!canDrive)
             }
             if let buttons = info?.buttons, !buttons.isEmpty {
                 Menu {
                     ForEach(buttons) { button in Button(button.label) { key(button.key) } }
-                } label: { Label("Side buttons", systemImage: "button.vertical.right.press") }
+                } label: { Label("Side buttons", ace: .handTap) }
                 .disabled(!canDrive)
             }
             Spacer()
-            Button("Type", systemImage: "keyboard") {
+            Button("Type", ace: .keyboard) {
                 typing.toggle()
                 fieldFocused = typing
             }

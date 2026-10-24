@@ -10,12 +10,12 @@ import { useOpenSubagent } from "@/lib/subagent-link.tsx";
 import { useNow } from "@/lib/time.ts";
 import { useSubagentFocus } from "../subagent/focus.ts";
 import { AgentListSection, agentWords } from "./work-card-agent-list.tsx";
-import { RowButton, RowLabel, RowSub, Section, rowIcon } from "./work-card-parts.tsx";
+import { RowButton, RowLabel, RowSub, rowIcon } from "./work-card-parts.tsx";
 
 type Close = () => void;
 
 /**
- * The thread's agents: where this thread or subagent came from, with the parent's status in
+ * The thread's agents: where this delegated thread or subagent came from, with the parent's status in
  * the words its sidebar row (or its agent row) uses, then the subagents started beside it. A
  * main agent lists the subagents it started. Only a thread with agents to show has one.
  */
@@ -28,18 +28,13 @@ export function AgentsSection(props: { threadId: string; onClose: Close }) {
   );
 }
 
-/** A thread forked from another, or delegated by one of its agents. Else its own subagents. */
+/**
+ * A thread delegated by another's agent: its parent and siblings. Else its own subagents. A
+ * fork is no one's agent: it lists its own subagents like any thread.
+ */
 function ThreadFamily(props: { threadId: string; onClose: Close }) {
-  const meta = useThreadMeta(props.threadId);
-  const forkedFrom = meta?.lineage?.parentThreadId;
-  const parentId = forkedFrom ?? meta?.delegatedBy;
+  const parentId = useThreadMeta(props.threadId)?.delegatedBy;
   if (!parentId) return <MainAgents threadId={props.threadId} onClose={props.onClose} />;
-  if (forkedFrom)
-    return (
-      <Section label="Agents" title="Agents">
-        <ParentThreadRow threadId={parentId} onClose={props.onClose} />
-      </Section>
-    );
   return (
     <DelegatedSiblings threadId={props.threadId} parentId={parentId} onClose={props.onClose} />
   );

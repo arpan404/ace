@@ -33,13 +33,17 @@ function latestFinishedRun(store: Store, threadId: ThreadId): RunId | undefined 
   return row ? RunId.parse(row.id) : undefined;
 }
 
-/** The fork's latest assistant answer: what a merge cites when the agent names no items. */
+/**
+ * The fork's latest assistant answer: what a merge cites when the agent names no items. The
+ * answers it copied from its source when it was made are not its own work.
+ */
 function latestAnswer(store: Store, threadId: ThreadId): ItemId | undefined {
   const row = store.atomic((db) =>
     db
       .prepare(
         `SELECT id FROM items WHERE thread_id=? AND json_extract(item,'$.type')='message'
-        AND json_extract(item,'$.role')='assistant' ORDER BY created_seq DESC LIMIT 1`,
+        AND json_extract(item,'$.role')='assistant' AND json_extract(item,'$.inherited') IS NULL
+        ORDER BY created_seq DESC LIMIT 1`,
       )
       .get(threadId),
   );

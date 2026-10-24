@@ -27,7 +27,7 @@ When you open or find the PR for this work, link it with `thread_link_pr` (URL o
 ## Manage owned threads
 
 - **Start:** `thread_start` opens a new top-level thread, the way to give the person a separate or dedicated thread. Pass `project` (a name, folder path or id) to open it in another project on this machine; `projects_find` lists them. For child work whose result you need, use `delegate` (guide ace-agents).
-- **Send:** `agent_message` with `delivery` `queue`, `steer` or `restart`.
+- **Send:** `agent_message` with `delivery` `queue` (default for threads that aren't your children), `steer` or `restart`; `arrival` in the result says whether it went in now or waits.
 - **Queue:** `thread_read` lists queued messages with their `entryId`s. `queue_edit` with `action` `edit` (new text), `cancel`, `steer` (deliver it now into the running turn) or `reorder` (`order`, first to last).
 - **Answer:** `question_answer` answers a pending question. Permission approvals stay with the person.
 - **Change:** `thread_control` with an `action`: `rename` (omit `title` to retitle from the first message), `configure` (model and effort), `handoff` (move to a new Git worktree on `branch`), `interrupt`, `settle`, `unsettle`, `snooze`, `close_preview`, or `rename_project`.
@@ -44,6 +44,6 @@ An automation is a saved prompt that runs as a child agent in this project, on d
 
 - `automations_list` shows them with each schedule's next run; `runs: true` shows recent runs with their threads.
 - `automation_put` creates or replaces one by `id`: `title`, `prompt`, and an optional `schedule` (`rrule` or `cron`, a timezone, and `startAt` on a whole minute).
-- `automation_run` runs one now; `automation_remove` deletes it (your provider may ask the person first).
+- `automation_run` runs one now, or pauses (`action: pause`) and resumes (`action: resume`) it; `automation_remove` deletes it (your provider may ask the person first).
 
 Mutating tools take a `requestId`: any stable id you choose. Repeating a call with the same id changes nothing twice.

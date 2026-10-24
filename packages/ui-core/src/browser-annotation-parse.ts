@@ -235,10 +235,10 @@ export function splitAnnotationParts(parts: readonly ContentPart[]): {
  * Annotations rebuilt from a sent message for Edit: the block's records, and which of the
  * message's last attachments were its images. `attachments` keeps the person's own files.
  */
-export function returnedAnnotations(
+export function returnedAnnotations<File extends { sha256: string; name: string }>(
   parsed: ParsedBrowserAnnotations,
-  attachments: readonly { sha256: string; name: string }[],
-): { annotations: DraftAnnotations; attachments: { sha256: string; name: string }[] } {
+  attachments: readonly File[],
+): { annotations: DraftAnnotations; attachments: File[] } {
   const count = parsed.images.length;
   const tail = count && attachments.length >= count ? attachments.slice(-count) : [];
   const own = tail.length ? attachments.slice(0, -count) : [...attachments];
@@ -247,8 +247,8 @@ export function returnedAnnotations(
   parsed.images.forEach((image, index) => {
     const file = tail[index];
     if (!file) return;
-    if (image.kind === "crop") crops.set(image.number, file);
-    else pages.push({ url: image.url, ...file });
+    if (image.kind === "crop") crops.set(image.number, { sha256: file.sha256, name: file.name });
+    else pages.push({ url: image.url, sha256: file.sha256, name: file.name });
   });
   const items = parsed.items.map((item) => {
     const crop = crops.get(item.number);

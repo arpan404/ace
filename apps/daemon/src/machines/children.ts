@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   AgentId,
@@ -15,6 +16,7 @@ import type { RemoteChildren } from "../agent-control/monitor.ts";
 import { clip, elapsedSeconds, settledStates } from "../agent-control/watch-view.ts";
 import type { RequestMirror } from "./mirror.ts";
 import { MachineFailure } from "./transport.ts";
+import { ChildOutbox } from "./child-outbox.ts";
 
 const Row = z.object({
   id: ThreadId,
@@ -44,13 +46,14 @@ export interface ChildrenDeps {
   ): Promise<MachineThreadView[]>;
   mirror: RequestMirror;
   label(machine: string): string;
-  /** Hands a settled result to the parent as a new turn. */
-  deliver(parentThreadId: ThreadId, id: ThreadId, text: string): void;
+  /** Hands a settled result or a message notice to the parent; `key` names it once. */
+  deliver(parentThreadId: ThreadId, key: string, text: string): void;
   /** A live wait reads this child, so its result is not woken separately. */
   waiting(id: ThreadId): boolean;
   isDescendant(child: ThreadId, ancestor: ThreadId): boolean;
   log(message: string, fields: Record<string, unknown>): void;
 }
+const digest = (text: string) => createHash("sha256").update(text).digest("hex").slice(0, 24);
 const outcomeOf = (state: WatchedThread["state"]): DelegationOutcome["outcome"] =>
   state === "done" ? "completed" : state === "cancelled" ? "cancelled" : "failed";
 
@@ -65,6 +68,7 @@ export class MachineChildren implements RemoteChildren {
   private cancelTimer: (() => void) | undefined;
   private polling = false;
   private closed = false;
+  private outbox: ChildOutbox;
   constructor(deps: ChildrenDeps) {
     this.deps = deps;
     deps.store.atomic((db) =>
@@ -74,6 +78,7 @@ export class MachineChildren implements RemoteChildren {
         provider TEXT NOT NULL, model TEXT, created_at INTEGER NOT NULL, view TEXT,
         settled INTEGER NOT NULL DEFAULT 0, delivered INTEGER NOT NULL DEFAULT 0)`),
     );
+    this.outbox = new ChildOutbox(deps.store);
     this.arm();
   }
   close() {
@@ -176,6 +181,7 @@ export class MachineChildren implements RemoteChildren {
     const {
       status: _status,
       requests: _requests,
+      notice: _notice,
       ...view
     } = saved ?? {
       threadId: id,
@@ -225,15 +231,54 @@ export class MachineChildren implements RemoteChildren {
             ? { needs: view.needs.length, ask: clip(view.needs[0].prompt, 100) }
             : {}),
           ...(view.last ? { last: clip(view.last, 100) } : {}),
+          ...(this.saved(row)?.notice ? { notice: this.saved(row)?.notice?.text } : {}),
           machine: clip(this.deps.label(row.machine), 64),
         },
       ];
     });
   }
+  private saved(row: Row): MachineThreadView | undefined {
+    return row.view ? MachineThreadView.parse(JSON.parse(row.view)) : undefined;
+  }
+  /**
+   * The parent sent a settled child more work: it is working again, so the parent's tree reads
+   * working until its next result arrives, and the poll watches it again.
+   */
+  reopen(id: ThreadId): void {
+    const row = this.row(id);
+    if (!row || row.settled !== 1) return;
+    // The result it settled with stays owed to the parent, whatever the child does next.
+    if (row.delivered === 0) this.queueResult(row, this.saved(row));
+    this.deps.store.atomic((db) => {
+      // Its last view showed it finished; until a poll reads it again it shows as working.
+      db.prepare("UPDATE machine_children SET settled=0, delivered=0, view=NULL WHERE id=?").run(
+        id,
+      );
+      this.deps.engine()?.machineChild(
+        {
+          id,
+          parentId: row.parent_thread,
+          parentAgentId: row.parent_agent,
+          machine: row.machine,
+          name: this.deps.label(row.machine),
+          provider: row.provider,
+          model: row.model ?? undefined,
+          role: row.role,
+          title: this.saved(row)?.title || row.role,
+          status: { state: "working", agents: 1 },
+          outcome: null,
+        },
+        "start",
+      );
+    });
+    this.emit([id]);
+    this.arm();
+  }
   delivered(id: ThreadId): void {
     this.deps.store.atomic((db) =>
       db.prepare("UPDATE machine_children SET delivered=1 WHERE id=?").run(id),
     );
+    this.outbox.resultsRead(id);
   }
   subscribe(listener: (ids: readonly string[]) => void): () => void {
     this.listeners.add(listener);
@@ -247,7 +292,7 @@ export class MachineChildren implements RemoteChildren {
     if (this.closed || this.cancelTimer) return;
     let due = true;
     try {
-      due = this.rows("settled=0 OR delivered=0").length > 0;
+      due = this.rows("settled=0 OR delivered=0").length > 0 || this.outbox.hasUnsent();
     } catch (error) {
       this.deps.log("Machine children poll failed", { error });
     }
@@ -288,13 +333,23 @@ export class MachineChildren implements RemoteChildren {
           }
         }),
       );
-      for (const row of this.rows("settled=1 AND delivered=0")) this.deliver(row);
+      for (const row of this.rows("settled=1 AND delivered=0"))
+        this.queueResult(row, this.saved(row));
+      this.drain();
     } finally {
       this.polling = false;
     }
   }
   private update(row: Row, view: MachineThreadView) {
     this.unreachable.delete(row.id);
+    if (view.notice)
+      this.outbox.queue({
+        key: `notice:${row.id}:${view.notice.commandId}:${view.notice.code}`,
+        child: row.id,
+        parent: row.parent_thread,
+        kind: "notice",
+        text: `[ace: ${row.role} on ${this.deps.label(row.machine)}]\n${view.notice.text}`,
+      });
     const settled = settledStates.has(view.state) && view.requests.length === 0;
     const text = JSON.stringify(view);
     const name = this.deps.label(row.machine);
@@ -330,24 +385,55 @@ export class MachineChildren implements RemoteChildren {
         },
         settled ? "end" : undefined,
       );
+      if (settled) this.queueResult(row, view);
     });
     if (settled) this.deps.mirror.release(`child:${row.id}`);
     this.emit([row.id]);
   }
-  private deliver(row: Row) {
-    if (this.deps.waiting(row.id)) return;
-    const read = this.watched(row.id);
-    if (!read?.outcome) return;
-    const name = this.deps.label(row.machine);
-    try {
-      this.deps.deliver(
-        row.parent_thread,
-        row.id,
-        `[ace: ${row.role} on ${name} ${read.outcome.outcome}]\n${read.outcome.result || "No text result returned."}${read.outcome.truncated ? "\n[Result truncated.]" : ""}`,
-      );
-      this.delivered(row.id);
-    } catch (error) {
-      this.deps.log("Machine result not delivered yet", { id: row.id, error: String(error) });
+  /**
+   * Owes the parent the result a settled view carries. Keyed by the outcome, its settle time and
+   * its text alone, so the same settle read again (a notice changed the view, the child was
+   * reopened and settled unchanged) is the same entry, while a new settle is a new one.
+   */
+  private queueResult(row: Row, view: MachineThreadView | undefined) {
+    if (!view || !settledStates.has(view.state)) return;
+    const outcome = outcomeOf(view.state);
+    const result = view.result ?? "";
+    this.outbox.queue({
+      key: `result:${row.id}:${digest(JSON.stringify([outcome, view.elapsedSeconds, result]))}`,
+      child: row.id,
+      parent: row.parent_thread,
+      kind: "result",
+      text: `[ace: ${row.role} on ${this.deps.label(row.machine)} ${outcome}]\n${result || "No text result returned."}${view.truncated ? "\n[Result truncated.]" : ""}`,
+    });
+  }
+  /**
+   * Hands every owed result and notice to its parent, oldest first. Each is marked sent only
+   * once the parent took it; one that fails waits for the next poll. A result a live wait is
+   * about to read is left for that wait.
+   */
+  private drain() {
+    for (const entry of this.outbox.unsent()) {
+      if (entry.kind === "result" && this.deps.waiting(ThreadId.parse(entry.child))) continue;
+      try {
+        this.deps.deliver(
+          ThreadId.parse(entry.parent),
+          `${entry.kind}:${digest(entry.key)}`,
+          entry.text,
+        );
+        this.outbox.sent(entry.key);
+        if (entry.kind === "result")
+          this.deps.store.atomic((db) =>
+            db
+              .prepare("UPDATE machine_children SET delivered=1 WHERE id=? AND settled=1")
+              .run(entry.child),
+          );
+      } catch (error) {
+        this.deps.log("Machine result not delivered yet", {
+          id: entry.child,
+          error: String(error),
+        });
+      }
     }
   }
   private emit(ids: readonly string[]) {

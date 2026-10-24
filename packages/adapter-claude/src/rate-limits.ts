@@ -59,3 +59,13 @@ export function clearRateLimit(state: ClaudeState): void {
   state.emit({ type: "limit.cleared", agent: state.root });
   if (state.retryOn === "rate_limit") state.retryOn = undefined;
 }
+
+/**
+ * A response the model has started streaming proves a retried request got through: the
+ * network or upstream wait is over, even though the turn goes on.
+ */
+export function clearRetry(state: ClaudeState): void {
+  if (state.retryOn !== "network" && state.retryOn !== "upstream") return;
+  state.retryOn = undefined;
+  state.emit({ type: "retry.cleared", agent: state.root });
+}

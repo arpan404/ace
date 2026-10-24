@@ -1,47 +1,53 @@
 /*
- * A stand-in for Swift's native host in bridge tests: it decodes every frame the pump emits and
- * acknowledges it, and answers host calls from `calls`. Imported before any bridge module, since
- * they read `globalThis.aceHost` when they load. Test-only.
+ * The Node implementation of the host contract (`@ace/native-host/node`) standing in for Swift
+ * in bridge tests. It records every patch the pump emits, reassembling oversized ones from their
+ * fragments as Swift does, acknowledges each frame on the next tick, and answers async
+ * operations from `native.calls`. Import it before any bridge module: they connect to
+ * `globalThis.aceHost` as they load. Test-only.
  */
-
-type Call = (input: unknown) => Promise<string>;
+import { createNodeHost, type NodeOperation } from "@ace/native-host/node";
 
 export const native = {
   frames: [] as Record<string, unknown>[],
   ack: (_accepted: boolean) => {},
-  calls: new Map<string, Call>(),
+  calls: new Map<string, NodeOperation>(),
 };
-let next = 0;
+let fragments = "";
 
-Object.assign(globalThis, {
-  aceHost: {
-    call(operation: string, input: string, done: (error: string | null, value: string) => void) {
-      const handler = native.calls.get(operation);
-      if (!handler) return;
-      handler(JSON.parse(input)).then(
-        (value) => done(null, value),
-        (error: unknown) => done(error instanceof Error ? error.message : "failed", ""),
-      );
-    },
-    emit(frame: string) {
-      native.frames.push(...(JSON.parse(frame) as Record<string, unknown>[]));
-      setTimeout(() => native.ack(true), 0);
-    },
-    socket: () => {},
-    timer: (_id: string, delay: number, callback: () => void) => setTimeout(callback, delay),
-    cancelTimer: () => {},
-    now: () => Date.now(),
-    uuid: () => `id-${++next}`,
-    random: () => 0.5,
-    encode: (text: string) => [...new TextEncoder().encode(text)],
-    utf8Base64: (text: string) => Buffer.from(text, "utf8").toString("base64"),
-    previewHead: (text: string, limit: number) => text.slice(0, limit),
-    previewTail: (text: string, limit: number) => text.slice(-limit),
-    decode: (bytes: number[]) => new TextDecoder().decode(new Uint8Array(bytes)),
-    randomBytes: (count: number) => Array.from({ length: count }, () => 7),
-    base64: (text: string, decode: boolean) =>
-      decode
-        ? Buffer.from(text, "base64").toString("binary")
-        : Buffer.from(text, "binary").toString("base64"),
+export const host = createNodeHost({
+  operations: native.calls,
+  randomBytes: (count) => new Uint8Array(count).fill(7),
+  emit(frame) {
+    for (const patch of JSON.parse(frame) as Record<string, unknown>[]) {
+      if (patch.type !== "fragment") {
+        native.frames.push(patch);
+        continue;
+      }
+      fragments += String(patch.data);
+      if (patch.last !== true) continue;
+      native.frames.push(JSON.parse(Buffer.from(fragments, "base64").toString("utf8")));
+      fragments = "";
+    }
+    setTimeout(() => native.ack(true), 0);
   },
 });
+Object.assign(globalThis, { aceHost: host });
+
+/** The latest delivered patch of a type (and id, when given), as Swift would hold it. */
+export function latest(type: string, id?: string): Record<string, unknown> | undefined {
+  for (let index = native.frames.length - 1; index >= 0; index--) {
+    const frame = native.frames[index];
+    if (frame?.type === type && (id === undefined || frame.id === id)) return frame;
+  }
+  return undefined;
+}
+
+/** Wait until `check` holds, failing after two seconds. */
+export async function until<T>(check: () => T | undefined | false): Promise<T> {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const value = check();
+    if (value) return value;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("Timed out waiting for the bridge");
+}

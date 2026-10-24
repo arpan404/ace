@@ -67,10 +67,14 @@ struct RemoteSettingsView: View {
     let category: RemoteSettingsCategory
     var body: some View {
         Form {
-            Section {
-                ForEach(category.settings) { setting in RemoteSettingRow(model: model, setting: setting) }
-            } footer: { Text("Saved on this machine. A thread or project can override these defaults.") }
+            Group {
+                Section {
+                    ForEach(category.settings) { setting in RemoteSettingRow(model: model, setting: setting) }
+                } footer: { Text("Saved on this machine. A thread or project can override these defaults.") }
+            }
+            .insetRowBackground()
         }
+        .insetGroupedList()
         .navigationTitle(category.title).navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -82,6 +86,19 @@ private struct RemoteSettingRow: View {
     @State private var entries: [String] = []
     @State private var saving = false
     @State private var problem: String?
+    private var request: [String: Any] { ["type": "settings.get", "key": setting.key, "scope": [:] as [String: Any]] }
+
+    /// Opens on the value this phone last saw, read again behind it.
+    init(model: ClientModel, setting: RemoteSetting) {
+        self.model = model
+        self.setting = setting
+        let kept = model.kept(["type": "settings.get", "key": setting.key, "scope": [:] as [String: Any]], as: SettingsReply.self)
+        if let entry = kept?.entries.first(where: { $0.key == setting.key }) {
+            _value = State(initialValue: entry.value)
+            _words = State(initialValue: Self.text(entry.value))
+            if case .array(let values) = entry.value { _entries = State(initialValue: values.compactMap { if case .string(let text) = $0 { text } else { nil } }) }
+        }
+    }
     var body: some View {
         VStack(alignment: .leading) {
             if let value {
@@ -116,15 +133,15 @@ private struct RemoteSettingRow: View {
         }
         .disabled(saving || !model.canOperate)
         .accessibilityIdentifier("setting.\(setting.key)")
-        .task { await read() }
+        .task(id: model.readGeneration(request)) { await read() }
     }
-    private var changed: Bool { text(value) != words }
-    private func text(_ value: ServiceValue?) -> String {
+    private var changed: Bool { Self.text(value) != words }
+    private static func text(_ value: ServiceValue?) -> String {
         switch value { case .string(let text): text; case .number(let number): String(format: "%.0f", number); default: "" }
     }
     private func read() async {
         do {
-            let reply = try await model.service(["type": "settings.get", "key": setting.key, "scope": [:]], as: SettingsReply.self)
+            let reply = try await model.read(request, as: SettingsReply.self)
             try apply(reply)
         } catch { problem = error.localizedDescription }
     }
@@ -151,7 +168,7 @@ private struct RemoteSettingRow: View {
         guard reply.ok, let entry = reply.entries.first(where: { $0.key == setting.key }) else {
             throw ServiceFailure(message: reply.diagnostics.first?.message ?? "This setting couldn't be saved.")
         }
-        value = entry.value; words = text(entry.value); problem = nil
+        value = entry.value; words = Self.text(entry.value); problem = nil
         if case .array(let values) = entry.value { entries = values.compactMap { if case .string(let text) = $0 { text } else { nil } } }
     }
 }
