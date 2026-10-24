@@ -18,7 +18,7 @@ export const StallReport = z.object({
    * `main`: the main thread ran no timer. `io`: a file-system call on Node's shared thread pool
    * (async fs, dns, zlib; the log writes there) went unanswered while the main thread ran.
    */
-  kind: z._default(z.enum(["main", "io"]), "main"),
+  kind: z.prefault(z.enum(["main", "io"]), "main"),
   /** Epoch milliseconds when the stalled side was last seen making progress. */
   silentSince: z.number().check(z.nonnegative()),
   /** How long it had been stalled at the latest update. */
