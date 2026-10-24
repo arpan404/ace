@@ -43,6 +43,16 @@ $box.Text = "ace-initial"
 $box.Left = 20
 $box.Top = 20
 $box.Width = 400
+$script:selectAllCount = 0
+# Define the fixture's shortcut explicitly; it must receive the real Ctrl+A event.
+$box.Add_KeyDown({
+  param($sender, $key)
+  if ($key.Control -and $key.KeyCode -eq [System.Windows.Forms.Keys]::A) {
+    $box.SelectAll()
+    $script:selectAllCount += 1
+    $key.SuppressKeyPress = $true
+  }
+})
 $main.Controls.Add($box)
 $button = New-Object System.Windows.Forms.Button
 $button.AccessibleName = "OwnedButton"
@@ -73,7 +83,7 @@ $decoyLabel.Width = 200
 $decoy.Controls.Add($decoyLabel)
 function Write-State($which) {
   $actual = [AceInputFixture]::GetForegroundWindow().ToInt64()
-  $line = (@{ foreground = $actual; which = $which; mainText = $box.Text; decoyText = $decoyLabel.Text; count = $count.Text } | ConvertTo-Json -Compress)
+  $line = (@{ foreground = $actual; which = $which; mainText = $box.Text; decoyText = $decoyLabel.Text; count = $count.Text; selectAllCount = $script:selectAllCount } | ConvertTo-Json -Compress)
   [Console]::WriteLine($line)
   [Console]::Out.Flush()
 }

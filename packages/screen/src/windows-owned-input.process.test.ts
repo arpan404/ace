@@ -23,6 +23,7 @@ const ForegroundLine = z.object({
   mainText: z.string().max(512),
   decoyText: z.string().max(512),
   count: z.string().max(16),
+  selectAllCount: z.number().int().nonnegative(),
 });
 const Allowlist = z.array(z.string().min(1).max(256));
 
@@ -186,6 +187,8 @@ it.runIf(process.platform === "win32")(
         op: "input",
         input: { kind: "key.press", key: "Backspace", modifiers: [] },
       });
+      await expect.poll(async () => (await findByName("OwnedEdit")).value).toBe("");
+      expect(await foreground("snapshot", started.main)).toMatchObject({ selectAllCount: 1 });
       const sentinel = "Hello \u4f60\u597d \ud83d\ude00";
       await helper.request({ op: "input", input: { kind: "text.type", text: sentinel } });
       await expect.poll(async () => (await findByName("OwnedEdit")).value).toBe(sentinel);
