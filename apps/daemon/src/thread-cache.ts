@@ -4,11 +4,13 @@ import { BoundedCache } from "@ace/provider-kit/bounded-cache";
 import { decodeThreadRow } from "./thread-row.ts";
 
 export type FrozenThread = DeepReadonly<Thread>;
-type DeepReadonly<T> = T extends (infer U)[]
-  ? readonly DeepReadonly<U>[]
-  : T extends object
-    ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
-    : T;
+type DeepReadonly<T> = T extends string | number | boolean | bigint | symbol | null | undefined
+  ? T
+  : T extends (infer U)[]
+    ? readonly DeepReadonly<U>[]
+    : T extends object
+      ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
+      : T;
 
 interface Entry {
   revision: number;
@@ -73,6 +75,31 @@ export class ThreadCache {
     const thread = this.lookup(id);
     return thread && structuredClone(thread);
   }
+  /** The shared frozen thread and the caller's own copy of it, from one lookup. */
+  checkout(id: string): { base: FrozenThread; thread: Thread } | undefined {
+    const base = this.lookup(id);
+    return base && { base, thread: structuredClone(base) };
+  }
+  /**
+   * The store's own writer just wrote this thread's row, which now has `revision` and decodes
+   * to `thread`: keep it, so the next read needs no decode. Only inside the store's write
+   * transaction, under the same rules as a read made there; `thread` becomes the cache's.
+   */
+  remember(
+    id: string,
+    revision: number,
+    thread: Thread,
+    written: Record<string, SQLOutputValue>,
+  ): void {
+    if (!this.pending || this.pending.size >= 64) return;
+    const before = this.pending.get(id) ?? this.entries.get(id);
+    this.pending.set(id, {
+      revision,
+      thread: deepFreeze(thread),
+      // Sizes drift slowly between writes; the budget only needs to scale with them.
+      bytes: before?.bytes ?? rowBytes(written),
+    });
+  }
   /** Decode a row read together with its revision, reusing the cached copy for that revision. */
   decode(row: Record<string, SQLOutputValue>, revision: SQLOutputValue | undefined): FrozenThread {
     return this.decodeRow(row, revision);
@@ -112,8 +139,9 @@ export class ThreadCache {
   }
 }
 
+/** Frozen subtrees are already deeply frozen here: every cached value is frozen whole. */
 function deepFreeze<T>(value: T): T {
-  if (typeof value === "object" && value !== null) {
+  if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
     Object.freeze(value);
     for (const child of Object.values(value)) deepFreeze(child);
   }

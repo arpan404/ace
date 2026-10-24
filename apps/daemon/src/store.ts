@@ -3,7 +3,7 @@ import { LongThreadQueries } from "./long-thread/queries.ts";
 import { SidebarReads } from "./sidebar-reads.ts";
 import { CommandReceipts } from "./command-receipts.ts";
 import { EventWriter } from "./event-writer.ts";
-import { decodeThreadRow } from "./thread-row.ts";
+import { decodeThreadRow, threadRowColumns, threadRowSource } from "./thread-row.ts";
 import { ThreadCache, type FrozenThread } from "./thread-cache.ts";
 import { StreamSequences } from "./stream-sequences.ts";
 import { StoreStream, type TransactionOutcome } from "./store-stream.ts";
@@ -39,6 +39,7 @@ import { WorkspaceReservations } from "./workspace-reservations.ts";
 import { migrateRunClient } from "./run-client-storage.ts";
 import { executionWorkspace } from "./workspace-root.ts";
 import { migrateThreadClient, seedThreadClient } from "./thread-client-storage.ts";
+import { migrateThreadCold } from "./thread-cold.ts";
 import { HistoryIndex } from "./history-index.ts";
 import { setImmediate } from "node:timers/promises";
 import type { ArchiveReader } from "@ace/history-import";
@@ -173,7 +174,7 @@ export class Store {
       },
       row: (id) =>
         this.statement(
-          "SELECT threads.*, revisions.revision AS row_revision FROM threads LEFT JOIN sidebar_thread_revisions AS revisions ON revisions.thread_id = threads.id WHERE threads.id = ?",
+          `SELECT ${threadRowColumns}, revisions.revision AS row_revision FROM ${threadRowSource} LEFT JOIN sidebar_thread_revisions AS revisions ON revisions.thread_id = threads.id WHERE threads.id = ?`,
         ).get(id),
       committed: () => !this.db.isTransaction || this.committedSnapshot,
     });
@@ -224,6 +225,7 @@ export class Store {
       migrateProjects(this.db);
       this.workspaceReservations = new WorkspaceReservations(this.db, (sql) => this.statement(sql));
       this.atomic(migrateThreadClient);
+      this.atomic(migrateThreadCold);
       this.atomic(mapRecordedPermissionModes);
       this.atomic(indexEngineRecords);
       this.usageReplay = new UsageReplay(this.db);
@@ -326,6 +328,9 @@ export class Store {
         measurements: this.measurements,
         statement: (sql) => this.statement(sql),
         getThread: (id) => this.getThread(id),
+        checkoutThread: (id) => this.threads.checkout(id),
+        rememberThread: (id, revision, thread, written) =>
+          this.threads.remember(id, revision, thread, written),
         nextId: this.nextId,
         wakeSearch: () => this.searchMaintenance.wake(),
       });
@@ -817,7 +822,7 @@ export class Store {
   }
   importedSource(sourceId: string): Thread | undefined {
     const row = this.statement(
-      "SELECT * FROM threads WHERE json_extract(imported,'$.sourceId')=?",
+      `SELECT ${threadRowColumns} FROM ${threadRowSource} WHERE json_extract(imported,'$.sourceId')=?`,
     ).get(sourceId);
     return row ? decodeThreadRow(row) : undefined;
   }
@@ -917,7 +922,9 @@ export class Store {
     }
   }
   listThreads(): Thread[] {
-    return this.statement("SELECT * FROM threads ORDER BY updated_at DESC, id")
+    return this.statement(
+      `SELECT ${threadRowColumns} FROM ${threadRowSource} ORDER BY updated_at DESC, threads.id`,
+    )
       .all()
       .map((row) => decodeThreadRow(row));
   }

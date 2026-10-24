@@ -1,5 +1,6 @@
 import type { SQLOutputValue, StatementSync } from "node:sqlite";
 import type { Thread, ThreadListCursor, ThreadListWindow, ThreadListEntry } from "@ace/protocol";
+import { threadRowColumns, threadRowSource } from "./thread-row.ts";
 type Summary = Pick<ThreadListWindow, "total" | "counts">;
 /** Counted in project totals: not an unsent draft. */
 export const sidebarCounted =
@@ -31,9 +32,8 @@ export function sidebarPageStorage(
   const activity = options.archived ? "archived_at" : sidebarActivity;
   // Live updates fetch membership and only changed/new payloads. A deeply paged window
   // must not deserialize every historical thread on each active-thread update.
-  const columns = `${reuse ? "threads.id" : "threads.*"}, COALESCE(revisions.revision, 0) AS sidebar_revision`;
-  const source =
-    "threads LEFT JOIN sidebar_thread_revisions AS revisions ON revisions.thread_id=threads.id";
+  const columns = `${reuse ? "threads.id" : threadRowColumns}, COALESCE(revisions.revision, 0) AS sidebar_revision`;
+  const source = `${threadRowSource} LEFT JOIN sidebar_thread_revisions AS revisions ON revisions.thread_id=threads.id`;
   const entry = (row: Record<string, SQLOutputValue>): ThreadListEntry => {
     const id = String(row.id);
     const retained = reuse?.entries.get(id);
@@ -45,7 +45,7 @@ export function sidebarPageStorage(
       return retained;
     if (!reuse) return decode(row);
     const full = statement(
-      `SELECT threads.*, COALESCE(revisions.revision, 0) AS sidebar_revision FROM ${source} WHERE id = ?`,
+      `SELECT ${threadRowColumns}, COALESCE(revisions.revision, 0) AS sidebar_revision FROM ${source} WHERE threads.id = ?`,
     ).get(id);
     if (!full) throw new Error("Sidebar membership changed within a read");
     return decode(full);
