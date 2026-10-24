@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { HostId } from "@ace/protocol";
+import { HostId, ThreadId } from "@ace/protocol";
 import {
   git,
   registered,
@@ -112,4 +112,16 @@ it("cancels a transfer before it lands, on both machines", async () => {
   expect(await made(m.targetRoot)).toEqual([]);
   expect(await readdir(join(m.source.h.home, "daemon", "transfers", "outgoing"))).toEqual([]);
   expect(m.here.progress().at(-1)?.phase).toBe("cancelled");
+});
+
+it("refuses to continue a thread this machine doesn't have, saying so", async () => {
+  const m = await transferMachines();
+  const receipt = await m.here.command({
+    type: "thread.continueOn",
+    threadId: ThreadId.parse("thread-nowhere"),
+    hostId: m.targetHostId,
+    includeChanges: true,
+  });
+  expect(receipt).toMatchObject({ ok: false, error: "thread_not_found", code: "thread_not_found" });
+  expect(receipt.detail).toMatch(/doesn't exist/);
 });

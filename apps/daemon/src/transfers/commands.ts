@@ -23,6 +23,20 @@ export interface TransferCommandDeps {
   continueRefusal(threadId: ThreadId): Promise<string | undefined>;
 }
 
+/** What a person reads for each refusal a thread's state gives (thread.move's checks). */
+const refusalDetails: Record<string, string> = {
+  thread_busy:
+    "This thread is still working, waiting on you or has open terminals. Let it finish or stop it first.",
+  thread_not_found: "That thread doesn't exist on this machine.",
+  workspace_change_in_progress:
+    "The thread's checkout is still being changed. Try again once that's done.",
+  workspace_unavailable: "This machine's projects are still starting. Try again in a moment.",
+};
+
+export function refusalDetail(code: string): string {
+  return refusalDetails[code] ?? "This thread can't be continued on another machine right now.";
+}
+
 /** Who asked: the person's own device, or an agent whose thread holds the transfer. */
 export type TransferAsker =
   | { kind: "person" }
@@ -59,7 +73,12 @@ export class TransferCommands {
     return this.commands.run(command, async () => {
       const p = command.payload;
       if (p.type !== "workspace.transfer" && p.type !== "thread.continueOn")
-        return { ok: false, error: "invalid_command" };
+        return {
+          ok: false,
+          error: "invalid_command",
+          code: "invalid_command",
+          detail: "That isn't a transfer.",
+        };
       try {
         await this.start({
           commandId: command.id,
@@ -91,11 +110,7 @@ export class TransferCommands {
       const self = input.asker.kind === "agent" && input.asker.self;
       if (!self) {
         const refused = await this.deps.continueRefusal(input.threadId);
-        if (refused)
-          throw new TransferError(
-            refused,
-            "This thread is still working, waiting on you or has open terminals. Let it finish or stop it first.",
-          );
+        if (refused) throw new TransferError(refused, refusalDetail(refused));
       }
     }
     const workspaceId = thread?.workspaceId ?? input.workspaceId;
