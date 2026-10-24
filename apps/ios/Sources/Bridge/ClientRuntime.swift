@@ -69,10 +69,11 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
         }
         report?(message)
     }
-    func start(itemLimit: Int = 200) {
+    func start(itemLimit: Int = 200) { start(itemLimit: itemLimit, inboxSort: nil) }
+    func start(itemLimit: Int, inboxSort: String?) {
         guard let target = lock.withLock({ binding.target }) else { fail("Could not load the shared client"); return }
         let config = RuntimeConfig(deviceId: target.deviceId, hostId: target.hostId, itemLimit: itemLimit,
-                                   paired: target.secretKey.map { PairedConfig(secretKey: $0) })
+                                   paired: target.secretKey.map { PairedConfig(secretKey: $0) }, inboxSort: inboxSort)
         guard let json = try? JSONEncoder().encode(config) else { fail("Could not load the shared client"); return }
         let entry = (name: "aceStart", json: String(decoding: json, as: UTF8.self))
         if lock.withLock({ thread == nil }) { boot(then: entry); return }
@@ -174,7 +175,7 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
     }
 }
 private struct PairedConfig: Encodable { let secretKey: String }
-private struct RuntimeConfig: Encodable { let deviceId: String; let hostId: String; let itemLimit: Int; let paired: PairedConfig? }
+private struct RuntimeConfig: Encodable { let deviceId: String; let hostId: String; let itemLimit: Int; let paired: PairedConfig?; let inboxSort: String? }
 /// The value is retained across an async native operation, then read/released only on the VM thread.
 final class Callback: @unchecked Sendable {
     let value: JSValue

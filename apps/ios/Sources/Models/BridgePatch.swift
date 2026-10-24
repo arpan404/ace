@@ -173,10 +173,16 @@ struct InboxLayout: Codable, Sendable, Equatable {
         var id: String { key }
     }
     struct SnoozeOption: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }
+    /// A choice of the machine's Sort threads setting, worded by the shared rules.
+    struct SortOption: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }
     let sections: [Section]
     /// The daemon has older threads beyond the loaded window.
     let more: Bool
     let snooze: [SnoozeOption]
+    /// The machine's `threads.sortBy` the sections are in, and the choices it offers; nil from
+    /// older bridges.
+    var sortBy: String? = nil
+    var sorts: [SortOption]? = nil
     static let empty = InboxLayout(sections: [], more: false, snooze: [])
 }
 
