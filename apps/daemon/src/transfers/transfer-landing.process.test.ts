@@ -1,0 +1,100 @@
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { expect, it } from "vitest";
+import { git, repositoryWithOrigin, transferMachines } from "./transfer-test-support.ts";
+
+const status = (path: string) => git(path, "status", "--porcelain", "--untracked-files=all");
+
+/** The target's own clone of the same origin, registered there as a project. */
+async function cloneThere(m: Awaited<ReturnType<typeof transferMachines>>, origin: string) {
+  const path = join(m.targetRoot, "app-there");
+  await git(m.targetRoot, "clone", `file://${origin}`, path);
+  return { path, workspaceId: await m.addProject(m.target, path) };
+}
+
+it("reuses the target's project for the same origin, and never disturbs its busy checkout", async () => {
+  const m = await transferMachines();
+  const { path, origin } = await repositoryWithOrigin(m.sourceRoot, "app");
+  const there = await cloneThere(m, origin);
+  // There: someone's own feature branch, and an edit in progress on main.
+  await git(there.path, "branch", "feature");
+  await writeFile(join(there.path, "README.md"), "their edit\n");
+  const theirs = await status(there.path);
+  const theirFeature = await git(there.path, "rev-parse", "feature");
+  // Here: a different feature branch, with a commit and an uncommitted file.
+  await git(path, "switch", "-c", "feature");
+  await writeFile(join(path, "mine.txt"), "mine\n");
+  await git(path, "add", "-A");
+  await git(path, "commit", "-m", "mine");
+  await writeFile(join(path, "draft.txt"), "draft\n");
+  const workspaceId = await m.addProject(m.source, path);
+
+  await m.here.command({
+    type: "workspace.transfer",
+    workspaceId,
+    hostId: m.targetHostId,
+    includeChanges: true,
+  });
+  const transfer = await m.settled();
+  expect(transfer).toMatchObject({ phase: "completed", method: "remote" });
+  const landed = transfer.result;
+  expect(landed?.workspaceId).toBe(there.workspaceId);
+  expect(landed?.branch).toBe("feature-from-macbook");
+  // The branch got its own folder beside the project, with the uncommitted file there.
+  expect(landed?.path).not.toBe(there.path);
+  expect(await git(landed?.path ?? "", "log", "-1", "--format=%s")).toBe("mine");
+  expect(await status(landed?.path ?? "")).toBe("?? draft.txt");
+  // Their checkout and their branch are as they were.
+  expect(await status(there.path)).toBe(theirs);
+  expect(await git(there.path, "branch", "--show-current")).toBe("main");
+  expect(await git(there.path, "rev-parse", "feature")).toBe(theirFeature);
+});
+
+it("brings a clean checkout on the same branch forward, with the changes uncommitted in it", async () => {
+  const m = await transferMachines();
+  const { path, origin } = await repositoryWithOrigin(m.sourceRoot, "app");
+  const there = await cloneThere(m, origin);
+  await writeFile(join(path, "next.txt"), "next\n");
+  await git(path, "add", "-A");
+  await git(path, "commit", "-m", "next");
+  await writeFile(join(path, "README.md"), "edited\n");
+  const workspaceId = await m.addProject(m.source, path);
+
+  await m.here.command({
+    type: "workspace.transfer",
+    workspaceId,
+    hostId: m.targetHostId,
+    includeChanges: true,
+  });
+  const transfer = await m.settled();
+  expect(transfer.result).toMatchObject({
+    workspaceId: there.workspaceId,
+    path: there.path,
+    branch: "main",
+  });
+  expect(await git(there.path, "log", "-1", "--format=%s")).toBe("next");
+  expect(await status(there.path)).toBe(" M README.md");
+});
+
+it("sends the whole repository when the target can't clone its origin", async () => {
+  const m = await transferMachines();
+  const { path } = await repositoryWithOrigin(m.sourceRoot, "app");
+  await git(path, "remote", "set-url", "origin", "https://example.invalid/app.git");
+  await writeFile(join(path, "new.txt"), "new\n");
+  await git(path, "add", "-A");
+  await git(path, "commit", "-m", "new");
+  const workspaceId = await m.addProject(m.source, path);
+
+  await m.here.command({
+    type: "workspace.transfer",
+    workspaceId,
+    hostId: m.targetHostId,
+    includeChanges: false,
+  });
+  const transfer = await m.settled();
+  expect(transfer).toMatchObject({ phase: "completed", method: "bundle" });
+  const landed = transfer.result?.path ?? "";
+  expect(await git(landed, "log", "--format=%s")).toBe("new\nfirst");
+  expect(await readFile(join(landed, "new.txt"), "utf8")).toBe("new\n");
+  expect(m.here.progress().map((entry) => entry.method)).toContain("remote");
+});
