@@ -130,6 +130,16 @@ async function window(daemon: { url: string; tokenPath: string }) {
   return { command, request, progress, messages, lastCommand: () => `command-${sequence}` };
 }
 
+/** Polls and retries wait 20 ms in tests instead of up to 30 s. */
+const quickSleep = (_ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, 20);
+    signal.addEventListener("abort", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+
 type Side = Awaited<ReturnType<typeof daemonFixture>>;
 
 /** The paths of a daemon's registered projects. */
@@ -174,7 +184,7 @@ export async function transferMachines(
   const transport = options.transport ? options.transport(transferTransport) : transferTransport;
   const sourceOptions = {
     projects: projects(sourceRoot),
-    transfers: { transport, sleep: async () => undefined, offlineMs: 5_000 },
+    transfers: { transport, sleep: quickSleep, offlineMs: 5_000 },
   };
   let source: Side = await daemonFixture(undefined, sourceOptions);
   cleanup.push(() => source.daemon.close());
@@ -235,7 +245,10 @@ export async function transferMachines(
     await source.daemon.close();
     const next = {
       ...sourceOptions,
-      transfers: { ...sourceOptions.transfers, transport: wrap ? wrap(transferTransport) : transferTransport },
+      transfers: {
+        ...sourceOptions.transfers,
+        transport: wrap ? wrap(transferTransport) : transferTransport,
+      },
     };
     source = await daemonFixture(undefined, next, {}, source.h);
     cleanup.push(() => source.daemon.close());
