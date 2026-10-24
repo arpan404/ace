@@ -168,8 +168,7 @@ export class EngineRepository {
   private syncSnapshots(): void {
     const generation = this.store.rollbackGeneration();
     if (generation === this.snapshotGeneration) return;
-    for (const id of this.snapshots.keys())
-      if (!this.store.hasLiveWrite(id)) this.snapshots.delete(id);
+    for (const id of this.snapshots.keys()) if (!this.store.hasLiveWrite(id)) this.drop(id);
     this.snapshotGeneration = generation;
   }
   state(id: ThreadId): ThreadState | undefined {
@@ -180,7 +179,7 @@ export class EngineRepository {
       .statement("SELECT state,seq FROM thread_state WHERE thread_id = ?")
       .get(id);
     if (!row) {
-      this.snapshots.delete(id);
+      this.drop(id);
       return undefined;
     }
     let snapshot = this.snapshots.get(id);
@@ -192,6 +191,7 @@ export class EngineRepository {
       );
       this.snapshotSeq.set(snapshot, Number(row.seq));
     }
+    this.retire(id, snapshot);
     this.snapshots.delete(id);
     this.snapshots.set(id, snapshot);
     this.trim();
@@ -203,7 +203,7 @@ export class EngineRepository {
   }
   evict(id: ThreadId): void {
     if (this.store.hasLiveWrite(id)) return;
-    this.snapshots.delete(id);
+    this.drop(id);
   }
   requireState(id: ThreadId): ThreadState {
     const state = this.state(id);
@@ -285,6 +285,7 @@ export class EngineRepository {
         .run(state.threadId, snapshot.header(), this.store.headSeq());
       snapshot.flush();
       this.snapshotSeq.set(snapshot, this.store.headSeq());
+      this.retire(state.threadId, snapshot);
       this.snapshots.set(state.threadId, snapshot);
       this.trim();
     });
@@ -292,8 +293,24 @@ export class EngineRepository {
   private trim(): void {
     if (this.snapshots.size > this.capacity) {
       const oldest = [...this.snapshots.keys()].find((id) => !this.store.hasLiveWrite(id));
-      if (oldest !== undefined) this.snapshots.delete(oldest);
+      if (oldest !== undefined) this.drop(oldest);
     }
+  }
+  /**
+   * Every snapshot that leaves the map is released. Its cached entries are unreachable once it
+   * goes, yet their decorated values point back at it, so the shared budget would hold whole
+   * old snapshots until 8192 newer entries pushed them out.
+   */
+  private drop(id: ThreadId): void {
+    const snapshot = this.snapshots.get(id);
+    if (!snapshot) return;
+    this.snapshots.delete(id);
+    snapshot.release();
+  }
+  /** Releases the thread's resident snapshot when `next` is about to replace it. */
+  private retire(id: ThreadId, next: Snapshot): void {
+    const previous = this.snapshots.get(id);
+    if (previous !== next) previous?.release();
   }
   attributeAction(state: ThreadState, fact: Fact): Fact {
     return attributeAceAction(state, fact, this.aceAction);

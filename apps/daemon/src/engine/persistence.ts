@@ -18,6 +18,8 @@ export class Snapshot {
   private metadata: Records<Item>;
   private readonly sections = new Set<{ flush(): void; persist(): void; committed(): void }>();
   private readonly cache: RecordBudget;
+  /** Every dictionary this snapshot made, including ones agent reads add later. */
+  private readonly owned: { release(): void }[] = [];
   private readonly transaction: RecordTransaction & { tracking: boolean } = {
     tracking: false,
     touch: (section) => {
@@ -38,6 +40,7 @@ export class Snapshot {
         this.cache,
         this.transaction,
       );
+      this.own(records);
       return records.values;
     };
     const nativeRuns = new Map<string, Record<string, RunId>>();
@@ -67,6 +70,7 @@ export class Snapshot {
       this.cache,
       this.transaction,
     );
+    this.own(agents);
     state.agents = agents.values;
     this.items = new Records(
       db,
@@ -79,6 +83,7 @@ export class Snapshot {
       this.cache,
       this.transaction,
     );
+    this.own(this.items);
     state.items = this.items.values;
     this.metadata = new Records(
       db,
@@ -91,6 +96,7 @@ export class Snapshot {
       this.cache,
       this.transaction,
     );
+    this.own(this.metadata);
     state.runs = segment("runs", recordSchemas.runs, state.runs);
     state.interactions = segment("interactions", recordSchemas.interactions, state.interactions);
     state.tasks = segment("tasks", recordSchemas.tasks, state.tasks);
@@ -127,6 +133,13 @@ export class Snapshot {
       indexes.pendingItemLinks,
     );
     this.state = state;
+  }
+  private own(records: { release(): void }): void {
+    this.owned.push(records);
+  }
+  /** Called once the repository drops this snapshot: frees its entries in the shared budget. */
+  release(): void {
+    for (const records of this.owned) records.release();
   }
   prepare(fact: Fact): () => void {
     if (
