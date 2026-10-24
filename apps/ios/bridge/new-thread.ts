@@ -112,7 +112,7 @@ export class NewThread {
   /** Each project's own default access for new threads, from `workspaces.list`. */
   #projectAccess = new Map<string, AccessMode>();
   /** Each command id once: a repeated send waits on the first. */
-  #flights = new Map<string, Promise<void>>();
+  #flights = new Map<string, Promise<boolean>>();
   #memory: NewThreadMemory | undefined;
   constructor(
     owner: NewThreadOwner,
@@ -180,7 +180,8 @@ export class NewThread {
           quiet,
         );
         if (reply.result.kind !== "workspaces") throw new Error(reply.result.kind);
-        listed.push(...reply.result.workspaces);
+        // A chat's hidden project is never one to pick (ADR 0099).
+        listed.push(...reply.result.workspaces.filter((project) => project.kind !== "chat"));
         after = reply.result.next;
       } while (after && listed.length < maxProjects);
       this.#projectAccess.clear();
@@ -315,7 +316,8 @@ export class NewThread {
    * Start the thread. Admission (saved on this phone, or why not) answers on `admission:<id>`;
    * the daemon's receipt, naming the new thread, on `compose.start`.
    */
-  create(action: Create): Promise<void> {
+  /** Resolves true once the thread is saved on this phone to start. */
+  create(action: Create): Promise<boolean> {
     const running = this.#flights.get(action.commandId);
     if (running) return running;
     const flight = this.#create(action).finally(() => this.#flights.delete(action.commandId));
@@ -323,7 +325,7 @@ export class NewThread {
     return flight;
   }
 
-  async #create(action: Create): Promise<void> {
+  async #create(action: Create): Promise<boolean> {
     const admission = (ok: boolean, message: string) =>
       this.#put(`admission:${action.commandId}`, {
         type: "admission",
@@ -333,22 +335,22 @@ export class NewThread {
       });
     if (!this.#agents) {
       admission(false, "Still reading this computer's coding agents. Try again in a moment.");
-      return;
+      return false;
     }
     const start = selectNewThreadAgent(this.#agents, action);
     if (!start.ok) {
       admission(false, start.reason);
-      return;
+      return false;
     }
     const tray = this.#files.tray(action.workspaceId);
     if (!messageHasContent(action.text, tray?.size ?? 0)) {
       admission(false, "Write the first message or attach a file.");
-      return;
+      return false;
     }
     const files = tray?.context() ?? { context: undefined };
     if ("refused" in files) {
       admission(false, files.refused);
-      return;
+      return false;
     }
     const access = this.#access.decide({
       provider: start.provider,
@@ -358,7 +360,7 @@ export class NewThread {
     });
     if (access.problem) {
       admission(false, access.problem);
-      return;
+      return false;
     }
     const payload = createPayload({
       project: action.workspaceId,
@@ -396,8 +398,10 @@ export class NewThread {
           }),
         action.commandId,
       );
+      return true;
     } catch {
       admission(false, "Couldn't save the new thread on this phone. Your draft is still here.");
+      return false;
     }
   }
 

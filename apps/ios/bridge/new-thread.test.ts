@@ -6,6 +6,7 @@ import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, HostId, ProviderConfigurations } from "@ace/protocol";
 import { PatchPump } from "./patches.ts";
 import { ComposeActions } from "./compose-actions.ts";
+import { threadRow } from "./presentation.ts";
 import { NativeReads } from "./native-reads.ts";
 import type { NewThreadMemory } from "./new-thread.ts";
 import type { ChunkReader } from "./thread-attachments.ts";
@@ -452,4 +453,50 @@ test("New thread opens again on its last projects and agents, and keeps them whe
   );
   expect(latest("compose.projects")?.projects).toEqual(projects.projects);
   expect(latest("compose.agents")?.providers).toEqual(agents.providers);
+});
+
+test("a chat with no project starts in its own hidden project, with its photo, and reads as a chat", async () => {
+  const compose = await connect(fixture(), staged);
+  const agents = await readyAgents(compose);
+  const start = agents.start as { provider: string; model: string };
+  const chat = (commandId: string, text: string) => ({
+    kind: "create",
+    commandId,
+    workspaceId: "chat",
+    provider: start.provider,
+    model: start.model,
+    mode: "worktree",
+    text,
+  });
+  compose.compose({ kind: "attach", workspaceId: "chat", file: picked });
+  const attached = await until(() => {
+    const patch = latest("compose.attachments") as
+      | (Attachments & { workspaceId: string })
+      | undefined;
+    return patch?.files[0]?.state === "ready" && patch;
+  });
+  expect(attached.workspaceId).toBe("chat");
+  compose.compose(chat("chat-command-0001", "What's a semaphore?"));
+  const started = await until(() => latest("compose.start", "chat-command-0001"));
+  expect(started.ok).toBe(true);
+  const first = createPayloads().at(-1);
+  const thread = await until(() => client?.cachedThreads()?.thread(String(started.threadId)));
+  expect(threadRow(thread)).toMatchObject({ chat: true, project: "Chat", badge: "" });
+  // A chat runs in its own folder: never a worktree, whatever the draft held.
+  expect(first).toMatchObject({ mode: "local", context: { attachments: [{ sha256: photoSha }] } });
+  compose.compose(chat("chat-command-0002", "And a mutex?"));
+  expect((await until(() => latest("compose.start", "chat-command-0002"))).ok).toBe(true);
+  const second = createPayloads().at(-1);
+  expect(first?.workspaceId).not.toBe("chat");
+  expect(second?.workspaceId).not.toBe(first?.workspaceId);
+  // Neither chat's hidden project is offered as a project.
+  compose.compose({ kind: "projects" });
+  const projects = await until(() => {
+    const patch = latest("compose.projects");
+    return patch?.state === "ready" && patch;
+  });
+  const ids = (projects.projects as { id: string }[]).map((row) => row.id);
+  expect(ids).toContain("ace");
+  expect(ids).not.toContain(first?.workspaceId);
+  expect(ids).not.toContain(second?.workspaceId);
 });

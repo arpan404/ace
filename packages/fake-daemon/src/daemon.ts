@@ -1289,6 +1289,9 @@ export class FakeDaemon implements Host {
               id: payload.workspaceId,
               name: payload.workspaceId,
               path: `/fake/${payload.workspaceId}`,
+              ...(this.projects.get(payload.workspaceId)?.kind === "chat"
+                ? { kind: "chat" as const, name: "Chat" }
+                : {}),
             },
             mode: payload.mode ?? "local",
             worktree: fakeCheckoutPath(payload.mode, id, payload.workspaceId),
