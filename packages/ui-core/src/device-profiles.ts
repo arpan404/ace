@@ -23,12 +23,13 @@ export interface AppleFace {
   homeButton: boolean;
 }
 
-const face = (
-  width: number,
-  height: number,
-  cornerRadius: number,
-  side: number,
-): AppleFace => ({ screen: { width, height }, cornerRadius, side, chin: side, homeButton: false });
+const face = (width: number, height: number, cornerRadius: number, side: number): AppleFace => ({
+  screen: { width, height },
+  cornerRadius,
+  side,
+  chin: side,
+  homeButton: false,
+});
 
 /** Today's iPhone (17 Pro): what a model name ace can't read is drawn as. */
 const modernIphone = face(402, 874, 62, 0.036);

@@ -56,7 +56,9 @@ test("each iPhone's screen corners match its own display, whatever size its pict
 });
 
 test("an iPhone or iPad ace doesn't know is drawn as the current generation", () => {
-  expect(deviceScreen("iphone", "iPhone 42 Ultra")).toEqual(deviceScreen("iphone", "iPhone 17 Pro"));
+  expect(deviceScreen("iphone", "iPhone 42 Ultra")).toEqual(
+    deviceScreen("iphone", "iPhone 17 Pro"),
+  );
   expect(cornerPoints("iPhone 42 Ultra", { width: 402, height: 874 })).toBeCloseTo(62, 5);
   expect(cornerPoints("iPad Something", { width: 820, height: 1180 })).toBeCloseTo(18, 5);
 });
@@ -76,14 +78,17 @@ test("a Face ID iPhone's body is evenly bordered and its corners sit concentric 
 });
 
 test("a home-button face keeps its chin below the screen and moves it to the sides when turned", () => {
-  const upright = frameGeometry("iphone", "iPhone SE (3rd generation)", { width: 375, height: 667 });
+  const upright = frameGeometry("iphone", "iPhone SE (3rd generation)", {
+    width: 375,
+    height: 667,
+  });
   const sideways = frameGeometry("iphone", "iPhone 8", { width: 667, height: 375 });
   expect(upright.homeButton).toBe(true);
   expect(upright.bezel.top).toBeGreaterThan(upright.bezel.left * 3);
   expect(sideways.bezel.left).toBeGreaterThan(sideways.bezel.top * 3);
-  expect(frameGeometry("ipad", "iPad (9th generation)", { width: 810, height: 1080 }).homeButton).toBe(
-    true,
-  );
+  expect(
+    frameGeometry("ipad", "iPad (9th generation)", { width: 810, height: 1080 }).homeButton,
+  ).toBe(true);
   expect(frameGeometry("ipad", "iPad (A16)", { width: 820, height: 1180 }).homeButton).toBe(false);
 });
 
