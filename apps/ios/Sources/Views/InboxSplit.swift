@@ -22,6 +22,7 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $visibility, preferredCompactColumn: compactColumn) {
             list()
+                .toolbar(removing: pinned ? .sidebarToggle : nil)
                 .environment(\.openThreadRow, ThreadColumns.selection(path))
                 .environment(\.openForgeRow, path.first?.forge)
                 // Going back to the list in a compact window closes the thread, as popping it did.
@@ -56,7 +57,11 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
             visibility = change.wanted
             settling += 1
         }
-        .onChange(of: visibility) { _, now in if settling > 0, now != columns { visibility = columns } }
+        // Beside the thread the list stays: the split view's own late layout passes (a turn, the
+        // tab bar leaving) never hide it. Too narrow for both, the person's toggle is theirs.
+        .onChange(of: visibility) { _, now in
+            if (settling > 0 || pinned), now != columns { visibility = columns }
+        }
         .task(id: settling) {
             guard settling > 0 else { return }
             try? await Task.sleep(for: .milliseconds(800))
@@ -64,6 +69,8 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
         }
     }
 
+    /// The list sits beside the thread and keeps its place there (`ThreadColumns.sideBySide`).
+    private var pinned: Bool { ThreadColumns.sideBySide(sizeClass, width: width) }
     private var columns: NavigationSplitViewVisibility {
         ThreadColumns.visibility(sizeClass, width: width, open: !path.isEmpty)
     }
@@ -98,4 +105,5 @@ struct CloseOpenThread {
     let id: String
     let close: () -> Void
 }
+
 
