@@ -58,8 +58,9 @@ interface Runtime {
   /** How long an idle worker stays up before it stops. */
   quietMs?: number;
   /**
-   * Nothing needed the worker when the daemon started (see `notificationsRetained`), so its
-   * first start is a wake from sleep: old events catch up without alerting.
+   * Nothing needed the worker when the daemon started (see `notificationsRetained`), so the
+   * daemon runs without one from the log's current head: events after it count as slept
+   * through. Events before it (a crash, say) are delivered normally.
    */
   slept?: boolean;
 }
@@ -67,6 +68,8 @@ interface Awake {
   worker: NotificationWorker;
   attached: ReturnType<typeof attachNotifications>;
   alertsFrom: number;
+  /** When the sleep this worker woke from began, once its replay has caught up. */
+  sleptAt?: number | undefined;
   opened: Promise<void>;
   ready?: Promise<void>;
 }
@@ -110,6 +113,9 @@ export function createDaemonNotifications(
   let current: Awake | undefined;
   let sleeping: Promise<void> | undefined;
   let started = false;
+  /** When the current deliberate stop began, while there is no worker. */
+  let sleptAt: number | undefined = runtime.slept ? now() : undefined;
+  const bootHead = store.headSeq();
   let active = false;
   let closed = false;
   let state: NotificationState | undefined;
@@ -130,15 +136,23 @@ export function createDaemonNotifications(
 
   const begin = (): Awake => {
     cancelled();
-    // A worker that slept missed nothing a device could take, apart from alerts still young
-    // enough that a running worker would be retrying them when a device connected.
-    const alertsFrom = started || runtime.slept ? now() - deliverableFor(windowMs) : 0;
+    // While the worker slept no device could take an alert, so events in that window raise
+    // none unless they are young enough that a running worker would still be retrying them.
+    // The worker applies this only after a recorded sleep boundary.
+    const alertsFrom = now() - deliverableFor(windowMs);
+    const sleptAfter =
+      !started && runtime.slept && sleptAt !== undefined
+        ? { seq: bootHead, at: sleptAt }
+        : undefined;
     started = true;
+    sleptAt = undefined;
     state = undefined;
     const worker = new NotificationWorker({
       path: join(dataDir, "notifications.sqlite"),
       windowMs,
       alertsFrom: Math.max(0, alertsFrom),
+      ...(sleptAfter ? { sleptAfter } : {}),
+      onRestart: () => kick(),
       signal,
       ...(runtime.spawn ? { spawn: runtime.spawn } : {}),
       onState(next) {
@@ -163,7 +177,7 @@ export function createDaemonNotifications(
         // Admitted ingestion remains durable shutdown work, not cancellable startup.
         ingest: (events, coverage) => worker.ingest(events, coverage),
         drain: async () => {
-          await deliverIntents(store, worker, alertsFrom);
+          await deliverIntents(store, worker, sleepWindow(awake));
         },
       },
       store,
@@ -183,6 +197,9 @@ export function createDaemonNotifications(
     };
     return awake;
   };
+  /** Agent notices queued while the worker slept, and too old to deliver now, are let go. */
+  const sleepWindow = (awake: Awake) =>
+    awake.sleptAt === undefined ? undefined : { after: awake.sleptAt, before: awake.alertsFrom };
   // Check after every RPC before scheduling another one, especially durable revocations.
   const catchUp = async (awake: Awake) => {
     await awake.opened;
@@ -195,7 +212,10 @@ export function createDaemonNotifications(
     for (;;) {
       const recovered = await awake.attached.recover();
       cancelled();
-      if (recovered) return;
+      if (recovered) {
+        awake.sleptAt = await awake.worker.woke();
+        return;
+      }
       await setImmediate();
       cancelled();
     }
@@ -258,7 +278,7 @@ export function createDaemonNotifications(
           });
           const caughtUp = await awake.attached.recover();
           if (closed) return;
-          if (!caughtUp || (await deliverIntents(store, awake.worker, awake.alertsFrom)))
+          if (!caughtUp || (await deliverIntents(store, awake.worker, sleepWindow(awake))))
             again = true;
           failures = 0;
         } catch (error) {
@@ -300,6 +320,7 @@ export function createDaemonNotifications(
       }
       current = undefined;
       state = undefined;
+      sleptAt = now();
       cancelTimer?.();
       cancelTimer = undefined;
       timerAt = Number.POSITIVE_INFINITY;
@@ -307,6 +328,8 @@ export function createDaemonNotifications(
         try {
           await awake.ready?.catch(() => {});
           await awake.attached.close();
+          // The boundary lets the next start tell this sleep apart from a crash.
+          await awake.worker.sleep();
           await awake.worker.close();
         } catch (error) {
           report(error);
@@ -321,7 +344,10 @@ export function createDaemonNotifications(
   const stopNotices = store.subscribe((events) => {
     if (!active || closed || !events.some(isNotice)) return;
     if (current) kick();
-    else void dropIntents(store, now() - deliverableFor(windowMs)).catch(report);
+    else if (sleptAt !== undefined)
+      void dropIntents(store, { after: sleptAt, before: now() - deliverableFor(windowMs) }).catch(
+        report,
+      );
   });
 
   const use = async <T>(call: (worker: NotificationWorker) => Promise<T>): Promise<T> => {
