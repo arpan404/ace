@@ -29,11 +29,12 @@ struct ComposerAccessories: View {
     }
 }
 
-/// The composer's one model control: the provider's mark, the model, a dot and the effort in
-/// brief ("Opus 5.5 · Med"), and a caret. It opens the model and effort picker.
+/// The thread composer's model control: the model (opens the model sheet) and its effort and
+/// speed in brief (opens their panel), "◎ Opus 5.5 · Med ⌄".
 struct ComposerModelButton: View {
     let screen: ThreadScreenModel
     let open: () -> Void
+    let openTune: () -> Void
     /// The model's name; until the agent reports one, the provider's name stands in.
     private var name: String {
         guard let controls = screen.controls else { return "Choose model" }
@@ -41,31 +42,31 @@ struct ComposerModelButton: View {
         if let provider = controls.providerName, !provider.isEmpty { return provider }
         return "Choose model"
     }
-    private var effort: TuneRow.Effort? { screen.tune.flatMap { tune in tune.efforts.first { $0.id == tune.effort } } }
+    private var tune: String? {
+        guard let tune = screen.tune else { return nil }
+        let effort = tune.efforts.first { $0.id == tune.effort }
+        let speed = tune.speeds.first { $0.speed == tune.speed && $0.speed != "standard" }
+        return TuneSummary.text(effort: effort.map { $0.short ?? $0.label }, speed: speed?.label,
+                                hasLevels: !tune.efforts.isEmpty, hasSpeeds: tune.speeds.count > 1)
+    }
     var body: some View {
-        Button(action: open) {
-            HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
-                if let provider = screen.controls?.provider, !provider.isEmpty { ProviderMark(provider: provider) }
-                Text(name).foregroundStyle(AceTheme.Colours.foreground)
-                    .lineLimit(1).truncationMode(.tail)
-                    // Narrow enough that "Ask anything" beside it never truncates on a 6.1" phone.
-                    .frame(maxWidth: AceTheme.Spacing.xxxl * 2 + AceTheme.Spacing.lg, alignment: .leading)
-                if let effort {
-                    Text("·").foregroundStyle(AceTheme.Colours.subtleForeground).accessibilityHidden(true)
-                    Text(effort.short ?? effort.label).lineLimit(1)
-                }
-                AceIcon(screen.controls?.switching == "queued" ? .clock : .caretDown, size: 12, relativeTo: .caption)
-                    .font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
-            }
-            .fixedSize(horizontal: true, vertical: false)
-            .aceFont(AceTheme.Typography.caption, relativeTo: .subheadline)
-            .foregroundStyle(AceTheme.Colours.mutedForeground)
-            .padding(.horizontal, AceTheme.Spacing.sm)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget)
-            .contentShape(Rectangle())
+        ModelEffortChip(provider: screen.controls?.provider, model: name, effort: tune,
+                        queued: screen.controls?.switching == "queued",
+                        modelID: "composer.model", effortID: "composer.effort", openModel: open, openEffort: openTune)
+    }
+}
+
+/// The thread composer's access control, when the thread reports access it can change.
+struct ThreadAccessChip: View {
+    let access: ThreadAccessRow?
+    let set: (String) -> Void
+    var body: some View {
+        if let access, access.state != "none", access.state != "failed" || !access.choices.isEmpty {
+            AccessChip(label: access.label ?? "Access", selected: access.selected,
+                       items: access.choices.map { AccessItem(mode: $0.mode, label: $0.label, description: $0.description, attention: $0.attention) },
+                       note: access.pending == true ? "Applies at the agent's next turn" : access.stricter,
+                       loading: access.state == "loading" && access.choices.isEmpty,
+                       identifier: "composer.access", select: set)
         }
-        .buttonStyle(.plain).accessibilityLabel("Model and reasoning")
-        .accessibilityValue([name, effort?.label].compactMap { $0 }.joined(separator: ", "))
-        .accessibilityIdentifier("composer.model")
     }
 }

@@ -1,4 +1,4 @@
-import { KnownSpeed } from "@ace/protocol";
+import { AccessMode, KnownSpeed } from "@ace/protocol";
 import { otherAnswer, type QuestionDraft } from "@ace/ui-core";
 import { z } from "zod";
 import { Picked } from "./thread-attachments.ts";
@@ -51,6 +51,10 @@ export const ThreadAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("loadOlder") }),
   z.object({ type: z.literal("models") }),
   z.object({ type: z.literal("switchModel"), model: z.string().min(1).max(256), requestId }),
+  /** The thread's access from its next turn; null goes back to the default. */
+  z.object({ type: z.literal("access"), mode: AccessMode.nullable(), requestId }),
+  /** Star or unstar one of the thread's provider's models. */
+  z.object({ type: z.literal("favorite"), model: z.string().min(1).max(512) }),
   /** Effort for the next message; null goes back to the model's default. */
   z.object({ type: z.literal("effort"), effort: z.string().min(1).max(64).nullable(), requestId }),
   z.object({ type: z.literal("speed"), speed: KnownSpeed, requestId }),

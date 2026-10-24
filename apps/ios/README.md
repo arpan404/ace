@@ -391,11 +391,13 @@ New thread: machine (when several are paired), project, an optional new worktree
 then the first message with any photos or files. The bridge (`bridge/new-thread.ts`) reads
 projects (`workspaces.list`, recent first by thread activity via `newThreadProjects`), the
 machine's agents (`providers.request` readiness, `accounts.list` and the paged `models.list`
-reader shared with the web), and judges each with `newThreadAgents`: one that isn't installed,
-is signed out or needs attention stays listed, disabled, with its reason. The agent picker groups
-models by agent and leads with the model in use (else the account's default); the rest of a long
-list waits behind More models (`newThreadModelList`). Swift tells the bridge what the draft has
-chosen (`choice`), so ordering and access follow it.
+reader shared with the web), and judges each with `newThreadAgents`. The model picker
+(`Sources/Views/ModelPicker`, shared with the thread's model sheet) shows a row of providers and
+the shown one's models below, headed by account when there are several. A CLI that isn't
+installed is left out (`newThreadPickerAgents`); one that is signed out or needs attention shows
+its reason in one line. Models keep one order, each account's default first, and the rest of a
+long list waits behind More models (`newThreadModelList`). Swift tells the bridge what the draft
+has chosen (`choice`), so the lead and access follow it.
 
 - **Speed** offers the tiers the model lists and goes out as `serviceTier`
   (`selectNewThreadAgent`). **Access** (`bridge/new-thread-access.ts`) reads the daemon's
