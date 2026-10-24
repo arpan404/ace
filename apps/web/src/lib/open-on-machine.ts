@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
-import { usePrimaryMachine } from "./machines.ts";
+import { newThreadOn, threadOn } from "./machine-routes.ts";
+import { useMachines } from "./machines.ts";
 
 /** Something that exists on one machine: a thread there, or else its project. */
 export interface MachineTarget {
@@ -10,22 +11,23 @@ export interface MachineTarget {
 }
 
 /**
- * How "Open" reaches work on a machine (ADR 0099): every transfer's Open goes through here.
- * Returns the action, or undefined when this window can't show that machine's work, and Open
- * isn't offered. This window shows its own machine's threads and projects; another machine's
- * open here once the window can route to them.
+ * How "Open" reaches work on a machine (ADR 0099): every transfer's Open goes through here, to
+ * the thread (or New thread in the project) on that machine (ADR 0100). Undefined when the
+ * machine isn't one this window knows, and Open isn't offered.
  */
 export function useOpenOnMachine(): (target: MachineTarget) => (() => void) | undefined {
   const navigate = useNavigate();
-  const own = usePrimaryMachine();
+  const machines = useMachines();
   return useCallback(
     (target) => {
-      if (target.hostId !== own.id) return undefined;
+      const machine = machines.find((each) => each.id === target.hostId);
+      if (!machine) return undefined;
+      const on = machine.primary ? undefined : machine.id;
       const { threadId, workspaceId } = target;
-      if (threadId) return () => void navigate({ to: "/t/$threadId", params: { threadId } });
-      if (workspaceId) return () => void navigate({ to: "/new", search: { project: workspaceId } });
+      if (threadId) return () => void navigate(threadOn(on, threadId));
+      if (workspaceId) return () => void navigate(newThreadOn(on, workspaceId));
       return undefined;
     },
-    [navigate, own.id],
+    [navigate, machines],
   );
 }

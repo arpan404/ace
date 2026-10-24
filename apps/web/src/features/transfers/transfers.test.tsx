@@ -114,9 +114,31 @@ test("a thread continues on a linked machine: progress, then the project and a n
   expect(arrived.map((each) => each.title)).toEqual(["Fix the forecast cache (from This Mac)"]);
   expect(arrived[0]?.details?.continuedFrom?.name).toBe("This Mac");
 
-  // Back on this thread, its strip says where the work went.
+  // Back on this thread, its strip says where the work went, and Open goes there.
   await userEvent.keyboard("{Escape}");
   expect(await strip("Continued on Build server")).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Open" }));
+  expect(
+    await screen.findByRole("heading", { name: "Fix the forecast cache (from This Mac)" }),
+  ).toBeTruthy();
+  // There, it says where it came from, and Open comes back.
+  expect(await strip("Continued from This Mac")).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Open" }));
+  expect(await screen.findByRole("heading", { name: "Fix the forecast cache" })).toBeTruthy();
+}, 30_000);
+
+test("Open on a finished transfer switches to the new thread on that machine", async () => {
+  const { app, finish } = linkedMachines();
+  await app.open("/t/thread-forecast");
+  const dialog = await continueOn();
+  await userEvent.click(await within(dialog).findByRole("option", { name: "Build server" }));
+  await userEvent.click(within(dialog).getByRole("button", { name: "Continue on Build server" }));
+  await finish();
+  await userEvent.click(await within(dialog).findByRole("button", { name: "Open" }));
+  expect(
+    await screen.findByRole("heading", { name: "Fix the forecast cache (from This Mac)" }),
+  ).toBeTruthy();
+  expect(screen.queryByRole("dialog", { name: "Continue on another machine" })).toBeNull();
 }, 30_000);
 
 test("Cancel stops a transfer while it sends, and nothing lands on the other machine", async () => {
