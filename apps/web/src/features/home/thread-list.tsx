@@ -43,6 +43,8 @@ import { JumpKeys, useJumpHints } from "./list-jump-keys.tsx";
 import { useFocusAfterExit } from "./use-exit-focus.ts";
 import { ManyDevices, useManyDevices } from "./row-parts.tsx";
 import { ThreadRow } from "./thread-row.tsx";
+import { MachineRow } from "./machine-row.tsx";
+import { machineRow } from "@/lib/machine-threads.ts";
 import { SettledRow } from "./settled-row.tsx";
 import { UnsentRows } from "./unsent-rows.tsx";
 import { useHomeSort, type HomeList } from "./use-home-threads.ts";
@@ -497,10 +499,18 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                   </span>
                 )}
                 <div className={rowMotion(entry.phase)}>
-                  {(row.kind === "thread" || row.kind === "pinned" || row.kind === "snoozed") && (
-                    <ThreadRow threadId={row.id} settled={false} leaving={leaving} />
+                  {thread && machineRow(thread) ? (
+                    <MachineRow id={thread} settled={row.kind === "settled"} leaving={leaving} />
+                  ) : (
+                    <>
+                      {(row.kind === "thread" ||
+                        row.kind === "pinned" ||
+                        row.kind === "snoozed") && (
+                        <ThreadRow threadId={row.id} settled={false} leaving={leaving} />
+                      )}
+                      {row.kind === "settled" && <SettledRow threadId={row.id} leaving={leaving} />}
+                    </>
                   )}
-                  {row.kind === "settled" && <SettledRow threadId={row.id} leaving={leaving} />}
                   {row.kind === "settled-more" && (
                     <button
                       type="button"

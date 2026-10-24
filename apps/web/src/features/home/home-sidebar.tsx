@@ -10,6 +10,8 @@ import { useNewThreadEntry } from "@/features/projects/index.ts";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useHeld } from "@/lib/held.ts";
+import { useHostIdentity } from "@/lib/host-name.ts";
+import { useMachineEntries } from "@/lib/machine-threads.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { formatKeys } from "@/lib/keymap.ts";
@@ -30,7 +32,9 @@ const StartedTitlePublisher = deferredComponent(() =>
  * (Add project lives in its menu) and New thread.
  */
 export function HomeSidebar() {
-  const list = useHomeList();
+  // Other machines' threads join the one flat list, each row marked with its machine.
+  const others = useMachineEntries(useHostIdentity()?.hostId);
+  const list = useHomeList(others);
   // The daemon's count of settled threads, while it still holds some back.
   const settledTotal = useSidebar(["homeWindow"], (reader) => settledCount(reader.homeWindow));
   const { project } = useOrganizerState();

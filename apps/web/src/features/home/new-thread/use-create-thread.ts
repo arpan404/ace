@@ -17,6 +17,8 @@ import {
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { withBrowserLock } from "@/boot/web-locks.ts";
 import { useHostIdentity } from "@/lib/host-name.ts";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
+import { useScopedMachine } from "@/lib/machines.ts";
 import {
   createAttemptsKey,
   forgetCreateAttempt,
@@ -79,7 +81,13 @@ export function useCreateThread(
   const connection = useDaemonConnection();
   const host = useHostIdentity();
   const deviceId = connection.endpoint?.kind === "daemon" ? connection.endpoint.deviceId : "fake";
-  const recoveryKey = createAttemptsKey(connection.url, deviceId);
+  // Under another machine's client (ADR 0100) its starts are kept apart from this window's
+  // own, so each machine's recovery replays only its own starts, on its own client.
+  const scoped = useScopedMachine()?.id;
+  const recoveryKey = scoped
+    ? createAttemptsKey(`machine:${scoped}`, deviceId)
+    : createAttemptsKey(connection.url, deviceId);
+  const search = useMachineSearch();
   const [error, setError] = useState<string>();
 
   const mounted = useRef(false);
@@ -103,6 +111,7 @@ export function useCreateThread(
     storage,
     key: recoveryKey,
     hostId: host?.hostId,
+    search,
     draftKey,
     onError: setError,
     onRecovered,
@@ -157,7 +166,7 @@ export function useCreateThread(
         // Its view drawn at once on arrival: no empty frame between New thread and the thread.
         await preloadPendingThread().catch(() => {});
         if (mounted.current && canNavigate?.() !== false)
-          void navigate({ to: "/t/$threadId", params: { threadId } });
+          void navigate({ to: "/t/$threadId", params: { threadId }, search });
         return sameSubmittedDraft(requested, attempt.payload);
       } catch (failure) {
         if (commandId) settlingFor(client).delete(commandId);
@@ -187,7 +196,7 @@ export function useCreateThread(
         return false;
       }
     },
-    [client, navigate, storage, recoveryKey, host, canNavigate],
+    [client, navigate, storage, recoveryKey, host, canNavigate, search],
   );
   const create = useCallback(
     (request: CreateRequest, after: AfterCreate = "open") => {

@@ -1,4 +1,4 @@
-import { Link, useLocation } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import {
   settleAction,
   useHomeSelection,
@@ -13,6 +13,8 @@ import { RenameField } from "./rename-field.tsx";
 import { RowMoreMenu } from "./row-actions.tsx";
 import { ProjectMark, threadDetails } from "./row-parts.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
+import { useOpenHere, type RowMachine } from "./thread-row.tsx";
+import { threadOn } from "@/lib/machine-routes.ts";
 import { useThreadCard } from "./use-thread-card.ts";
 
 // The task rows' box and fills, one line tall: settled work is out of the way.
@@ -22,21 +24,26 @@ const row =
 /**
  * A settled thread at rest: its project badge and title on one line. Under the pointer or focus,
  * Unsettle and the row's ⋯ menu take the right end; the context menu is the task row's own.
+ * Another machine's settled thread (`machine`) only opens.
  */
-export function SettledRow(props: { threadId: string; leaving?: boolean | undefined }) {
+export function SettledRow(props: {
+  threadId: string;
+  leaving?: boolean | undefined;
+  machine?: RowMachine | undefined;
+}) {
+  const { machine } = props;
   const data = useThreadCard(props.threadId, true, props.leaving);
   const selection = useHomeSelection();
   const actions = useThreadActions();
   const editing = useRenameTitle(props.threadId);
   const refused = useRefusedTitle(props.threadId);
   const renaming = editing !== undefined || refused !== undefined;
-  const current = useLocation({
-    select: (location) =>
-      location.pathname === `/t/${props.threadId}` ||
-      location.pathname.startsWith(`/t/${props.threadId}/agents/`),
-  });
+  const current = useOpenHere(props.threadId, machine?.id);
   if (!data) return null;
-  const { entry, card } = data;
+  const { entry } = data;
+  const card = machine
+    ? { ...data.card, machine: machine.name, machineIcon: machine.icon }
+    : data.card;
   const rename = () => selection.rename(props.threadId, card.title);
   const unsettle = settleAction(entry, card.flags, actions);
   const body = (
@@ -82,48 +89,52 @@ export function SettledRow(props: { threadId: string; leaving?: boolean | undefi
       )}
     </>
   );
+  const drawn = (
+    <div className="group/row relative">
+      {renaming ? (
+        <div className={row}>{body}</div>
+      ) : (
+        <Link
+          {...threadOn(machine?.id, entry.id)}
+          aria-label={`${card.title}. ${threadDetails(card).join(", ")}`}
+          data-row-focus=""
+          draggable={false}
+          className={cn(
+            row,
+            "outline-none focus-ring-inset focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset group-hover/row:pr-16 group-focus-within/row:pr-16",
+            current ? "bg-active" : "hover:bg-hover",
+          )}
+        >
+          {body}
+        </Link>
+      )}
+      {!renaming && !machine && (
+        <div
+          className="absolute top-1/2 right-1.5 hidden -translate-y-1/2 items-center gap-0.5 group-focus-within/row:flex group-hover/row:flex has-[[data-popup-open]]:flex"
+          role="presentation"
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          {unsettle && (
+            <IconButton
+              icon={unsettle.icon}
+              size="sm"
+              label={`${unsettle.label} ${card.title}`}
+              tip={unsettle.label}
+              tabIndex={-1}
+              onClick={unsettle.run}
+            />
+          )}
+          <RowMoreMenu entry={entry} flags={card.flags} onRename={rename} />
+        </div>
+      )}
+    </div>
+  );
+  // Organize actions answer to this window's daemon, so another machine's row has none.
+  if (machine) return drawn;
   return (
     <ThreadMenu entry={entry} state={card.flags} onRename={rename}>
-      <div className="group/row relative">
-        {renaming ? (
-          <div className={row}>{body}</div>
-        ) : (
-          <Link
-            to="/t/$threadId"
-            params={{ threadId: entry.id }}
-            aria-label={`${card.title}. ${threadDetails(card).join(", ")}`}
-            data-row-focus=""
-            draggable={false}
-            className={cn(
-              row,
-              "outline-none focus-ring-inset focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset group-hover/row:pr-16 group-focus-within/row:pr-16",
-              current ? "bg-active" : "hover:bg-hover",
-            )}
-          >
-            {body}
-          </Link>
-        )}
-        {!renaming && (
-          <div
-            className="absolute top-1/2 right-1.5 hidden -translate-y-1/2 items-center gap-0.5 group-focus-within/row:flex group-hover/row:flex has-[[data-popup-open]]:flex"
-            role="presentation"
-            onClick={(event) => event.stopPropagation()}
-            onPointerDown={(event) => event.stopPropagation()}
-          >
-            {unsettle && (
-              <IconButton
-                icon={unsettle.icon}
-                size="sm"
-                label={`${unsettle.label} ${card.title}`}
-                tip={unsettle.label}
-                tabIndex={-1}
-                onClick={unsettle.run}
-              />
-            )}
-            <RowMoreMenu entry={entry} flags={card.flags} onRename={rename} />
-          </div>
-        )}
-      </div>
+      {drawn}
     </ThreadMenu>
   );
 }

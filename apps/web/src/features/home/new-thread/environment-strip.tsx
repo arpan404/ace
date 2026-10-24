@@ -14,12 +14,15 @@ import { useMachineIdentity } from "@/lib/machine-identity.ts";
 import { useManyDevices } from "../row-parts.tsx";
 import { BasePicker } from "./base-picker.tsx";
 import type { WorkMode } from "./choices.ts";
+import { useNewThreadMachines } from "./machine-choice.ts";
+import { MachinePicker } from "./machine-picker.tsx";
 
 const divider = <span aria-hidden className="mx-0.5 h-3.5 w-px shrink-0 bg-border" />;
 
 /**
  * Where a new thread runs, as one compact row in the composer's top strip (never inside the box,
- * never below it): the machine while more than one device is connected, a Worktree toggle (a
+ * never below it): the machine while more than one device is connected (a picker while more
+ * than one is online, ADR 0100), a Worktree toggle (a
  * branch and folder of its own, or the project's checkout as it is) and, for a worktree, the
  * branch it starts from, local or on a remote, found by typing. A narrow composer keeps the
  * machine's icon and drops its name.
@@ -39,6 +42,9 @@ export function NewThreadEnvironment(props: {
   const compact = useComposerCompact();
   const host = useMachineIdentity();
   const many = useManyDevices();
+  const choice = useNewThreadMachines();
+  const online = choice?.machines.filter((machine) => machine.status === "online").length ?? 0;
+  const picks = choice !== undefined && (online > 1 || !choice.current.primary);
   const [choosing, setChoosing] = useState(false);
   const worktree = props.mode === "worktree";
   const reading = !props.base && props.branches.state === "loading";
@@ -48,19 +54,26 @@ export function NewThreadEnvironment(props: {
       aria-label="Where this thread runs"
       className="flex min-w-0 flex-1 items-center gap-0.5 text-xs text-muted-foreground"
     >
-      {many && (
+      {picks ? (
         <>
-          <Tip label={`Runs on ${host.name}`} side="top">
-            <span className={cn(composerStrip, "shrink-0 cursor-default hover:bg-transparent")}>
-              {compact ? (
-                <MachineMark icon={host.icon} />
-              ) : (
-                <MachineLabel name={host.name} icon={host.icon} />
-              )}
-            </span>
-          </Tip>
+          <MachinePicker choice={choice} compact={compact} />
           {divider}
         </>
+      ) : (
+        many && (
+          <>
+            <Tip label={`Runs on ${host.name}`} side="top">
+              <span className={cn(composerStrip, "shrink-0 cursor-default hover:bg-transparent")}>
+                {compact ? (
+                  <MachineMark icon={host.icon} />
+                ) : (
+                  <MachineLabel name={host.name} icon={host.icon} />
+                )}
+              </span>
+            </Tip>
+            {divider}
+          </>
+        )
       )}
       {props.pullRequest ? (
         <p className="min-w-0 truncate px-2">
