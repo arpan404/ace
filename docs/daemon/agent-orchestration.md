@@ -36,8 +36,13 @@ name becomes one catalog id across the provider, and the daemon picks a
 signed-in account with quota that serves that exact model. A named model the
 account lacks is refused with the reason, never swapped for the account's
 default or a role model from Settings; those fill only a task that names no
-model. A name is matched only after the accounts it could run on have loaded
-their model lists, and every page of the catalog is searched. A task for
+model. A name that is not an exact id is matched only after every
+account it could run on has loaded its model list, so a cold account's closer
+match is never lost to a loaded account's weaker one. Loading shares a discovery
+already running and keeps a failed one's retry pause, so a provider that is not
+installed is not probed on every request. Every page of the catalog is searched.
+An ACP agent's own login is named by its source-qualified instance id, which
+becomes the child's ACP identity. A task for
 another machine is matched against that machine's catalog there. `thread_start`,
 `thread_fork` and `thread_control configure` take loose names the same way, the
 last two on the thread's own account. Use a

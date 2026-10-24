@@ -66,7 +66,8 @@ type Served = readonly [
 
 /**
  * The default Claude and Codex logins plus added Claude accounts, each serving its own models.
- * An account `serves` leaves out runs the scripted default model.
+ * An account `serves` leaves out runs the scripted default model; discovery fails for an account
+ * whose id starts with "broken-". `discoveries` counts discovery runs per account.
  */
 async function harness(
   added: Record<string, string>,
@@ -82,6 +83,7 @@ async function harness(
   const fallback: readonly Served[] = [
     ["chosen-model", "Scripted model", undefined, undefined, true],
   ];
+  const discoveries = new Map<string, number>();
   const catalog = new ModelCatalog({
     storage: openModelStorage(join(home, "models.sqlite")),
     instances: ids.map((id) =>
@@ -89,14 +91,17 @@ async function harness(
     ),
     now: () => 1000,
     deadline: () => () => {},
-    discover: async (target) =>
-      (serves[target.id] ?? fallback).map(([id, name, family, tier, isDefault]) =>
+    discover: async (target) => {
+      discoveries.set(target.id, (discoveries.get(target.id) ?? 0) + 1);
+      if (target.id.startsWith("broken-")) throw new Error("CLI not installed");
+      return (serves[target.id] ?? fallback).map(([id, name, family, tier, isDefault]) =>
         model(target.provider, target.id, id, name, {
           ...(family ? { family } : {}),
           ...(tier === "legacy" ? { tier: "legacy" as const } : {}),
           isDefault: isDefault === true,
         }),
-      ),
+      );
+    },
   });
   // The catalog as the daemon reads it, optionally reporting other access modes per account.
   const reported: ModelCatalogApi = accessModes
@@ -147,7 +152,7 @@ async function harness(
     await catalog.close();
     db.close();
   };
-  return { h, catalog, run, delegate, childModel, close };
+  return { h, catalog, discoveries, run, delegate, childModel, close };
 }
 
 // "346" serves Opus 5.5; "Work" serves Opus 4.8 and, as its default, Sonnet 5.5.
@@ -371,6 +376,47 @@ test("a model on the last of thousands of catalog rows is still found by search 
       model: "needle",
     });
     expect(await childModel(result)).toEqual({ instance: "claude-54", model: "needle-model" });
+  } finally {
+    await close();
+  }
+});
+
+test("a cold account's exact fit wins over a loaded account's longer variant", async () => {
+  const { h, catalog, delegate, childModel, close } = await harness(
+    { "claude-346": "346", "claude-work": "Work" },
+    {
+      "claude-346": [
+        ["claude-opus-4-8-contributor", "Opus 4.8 Contributor", "claude-opus", "current", true],
+      ],
+      "claude-work": [["claude-opus-4-8", "Opus 4.8", "claude-opus", "current", true]],
+    },
+  );
+  try {
+    const parent = await h.parent();
+    await catalog.invalidate({ instance: "claude-work" });
+    // No provider named either: the caller runs Codex, and Claude's accounts are searched.
+    const result = await delegate(parent, {
+      requestId: "exact-on-cold",
+      role: "review-exact-on-cold",
+      provider: undefined,
+      model: "opus 4.8",
+    });
+    expect(await childModel(result)).toEqual({ instance: "claude-work", model: "claude-opus-4-8" });
+  } finally {
+    await close();
+  }
+});
+
+test("an account whose discovery failed is not probed again on every unknown model name", async () => {
+  const { h, discoveries, delegate, close } = await harness({ "broken-claude": "Broken" }, {});
+  try {
+    const parent = await h.parent();
+    const before = discoveries.get("broken-claude") ?? 0;
+    for (const requestId of ["first", "second", "third"])
+      await expect(
+        delegate(parent, { requestId, role: `review-${requestId}`, model: "nothing like it" }),
+      ).rejects.toThrow(/unavailable/);
+    expect(discoveries.get("broken-claude") ?? 0).toBe(before);
   } finally {
     await close();
   }

@@ -3,6 +3,8 @@ import { createScriptedAdapter } from "@ace/adapter-testkit";
 import type { SessionContext } from "@ace/engine-api";
 import { start, end } from "../engine/test-support.ts";
 import { setup } from "./test-support.ts";
+import { AgentControlOperation } from "@ace/protocol";
+import { createAgentControlPort } from "./tools.ts";
 import { scriptedModelInstance, seedScriptedModels } from "../testing/models.ts";
 
 test("delegation resolves an approved ACP catalog by installation and account identity instead of catalog id", async () => {
@@ -63,4 +65,59 @@ test("delegation resolves an approved ACP catalog by installation and account id
       }),
     ).toThrow(/no valid configured default/);
   expect(h.store.listThreads()).toHaveLength(2);
+});
+
+test("an agent names an ACP agent's own login and a loose model through delegate, and the child runs there", async () => {
+  const h = setup();
+  const identity = {
+    acpAgentId: "local:agent",
+    installationId: "approved",
+    instanceId: "approved:default",
+  };
+  const contexts: SessionContext[] = [];
+  const fake = createScriptedAdapter({
+    provider: "acp",
+    capabilities: h.registry.get("claude").capabilities,
+    createTranslator: () => ({ translate: h.frames.translate, tick: () => [] }),
+    steps: [{ on: "send", frames: [h.frames.frame(start, end)] }],
+  });
+  h.registry.register(
+    {
+      ...fake,
+      acceptsIdentity: (selected) => selected.installationId === identity.installationId,
+      openSession: (ctx) => {
+        contexts.push(ctx);
+        return fake.openSession(ctx);
+      },
+    },
+    { installed: true, auth: "unknown", loginHint: "synthetic" },
+  );
+  const parent = await h.parent();
+  // Production keys an ACP catalog by an opaque digest, never by the login's id.
+  await seedScriptedModels(h.catalog, {
+    ...scriptedModelInstance("acp", h.home, "acp-production-catalog-digest"),
+    ...identity,
+  });
+  const port = createAgentControlPort(h.store, h.service);
+  const result = await port.execute(
+    parent,
+    AgentControlOperation.parse({
+      op: "delegate_task",
+      tasks: [
+        {
+          requestId: "acp-loose",
+          task: "work",
+          role: "acp-loose-name-task",
+          provider: "acp",
+          accountId: identity.instanceId,
+          model: "Scripted Model",
+        },
+      ],
+    }),
+    new AbortController().signal,
+  );
+  expect(result).toMatchObject({ ok: true });
+  await h.engine.flush();
+  expect(contexts[0]?.acpIdentity).toEqual(identity);
+  expect(contexts[0]?.model).toBe("chosen-model");
 });

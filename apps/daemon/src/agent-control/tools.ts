@@ -148,8 +148,9 @@ export function createAgentControlPort(
       const callerProvider = store.getThread(caller.threadId)?.provider;
       /** An agent may leave the provider (and an ACP model's agent ids) for ace to resolve. */
       // The account comes first: a label becomes its id and fixes the provider, and a loose model
-      // name is then matched against that account's catalog alone. A name the cached catalogs
-      // don't know is matched again once the accounts in scope that never loaded have loaded.
+      // name is then matched against that account's catalog alone. A name that is not an exact
+      // catalog id is matched only after every account it could run on has loaded its models, so
+      // a cold account's closer match is never lost to a warm account's weaker one.
       const list = (options: import("@ace/protocol").ModelListOptions) =>
         service.listModels(options);
       const resolved = async <T extends OpenSelection>(selection: T) => {
@@ -164,20 +165,17 @@ export function createAgentControlPort(
               provider: selection.provider ?? account.provider,
             }
           : selection;
-        const home = callerProvider ?? "codex";
-        let first: (T & { provider: import("@ace/protocol").ProviderKind }) | undefined;
-        try {
-          first = resolveSelection(chosen, home, list);
-          if (chosen.machine || knownModel(first, list)) return first;
-        } catch (error) {
-          // "Another provider has it" may only mean this account had not loaded yet.
-          if (!(error instanceof AgentControlError) || error.code !== "model_unavailable")
-            throw error;
-        }
-        const scope = chosen.provider ? accountScope(chosen.provider, chosen.accountId) : {};
-        if ((await service.warmModels(scope)) || !first)
-          return resolveSelection(chosen, home, list);
-        return first;
+        if (!chosen.machine && !knownModel(chosen, list))
+          await service.warmModels(
+            chosen.provider ? accountScope(chosen.provider, chosen.accountId) : {},
+          );
+        const result = resolveSelection(chosen, callerProvider ?? "codex", list);
+        // An ACP agent's own login is not in the account list: its source-qualified identity
+        // selects it, so the name the agent gave becomes that identity, not an account id.
+        if (result.provider !== "acp" || !result.accountId || account || result.machine)
+          return result;
+        const { accountId, ...identity } = result;
+        return { ...identity, instanceId: identity.instanceId ?? accountId };
       };
       const machines = extensions.machines;
       if (
