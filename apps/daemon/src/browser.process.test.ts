@@ -8,8 +8,7 @@ import { promisify } from "node:util";
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
 import { detectChromium } from "@ace/browser";
-import { BrowserFrame } from "@ace/protocol";
-import { startDaemon } from "./index.ts";
+import { startDaemon, stubHandler } from "./index.ts";
 import { readConfig } from "./config.ts";
 import { createDevThread } from "./commands.ts";
 import { BrowserClient } from "./browser-test-client.ts";
@@ -24,6 +23,20 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
     const daemon = await startDaemon({
       config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
       browser: { executablePath, ffmpeg: "/nonexistent/ffmpeg" },
+      handler: stubHandler({ development: true }),
+      history: { instances: [] },
+      modelInstances: [],
+      providerStatus: {
+        env: { PATH: "" },
+        versions: async () => ({}),
+        cursorSdk: async () => ({ installed: false, auth: "unknown", loginHint: "unused" }),
+        antigravity: async () => ({ installed: false, auth: "unknown", loginHint: "unused" }),
+      },
+      modelDiscovery: {
+        spawn: () => {
+          throw new Error("model discovery must stay idle");
+        },
+      },
     });
     const clients = [new BrowserClient(daemon.url), new BrowserClient(daemon.url)];
     try {
@@ -50,8 +63,9 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
           threadId: "unknown",
         }),
       ).toMatchObject({ ok: false, error: "Browser thread access denied" });
+      await daemon.browser.execute(thread.id, { action: "resize", width: 320, height: 200 });
       const frames = clients.map((client) =>
-        client.next((message) => message.type === "browser.frame"),
+        client.nextStream((message) => message.kind === "browser.video"),
       );
       await Promise.all(
         clients.map((client, index) =>
@@ -59,12 +73,21 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
             type: "browser.subscribe",
             requestId: `subscribe-${index}`,
             threadId: thread.id,
+            binaryFrames: true,
+            viewport: { width: 320, height: 200, devicePixelRatio: 1 },
+            video: { codecs: ["vp8"] },
           }),
         ),
       );
       for (const reply of await Promise.all(frames)) {
-        if (reply.type !== "browser.frame") throw new Error("Expected frame");
-        expect(BrowserFrame.parse(reply.frame).data.length).toBeGreaterThan(0);
+        if (reply.kind !== "browser.video") throw new Error("Expected video");
+        expect(reply.chunk).toMatchObject({
+          key: true,
+          codec: "vp8",
+          codedWidth: 320,
+          codedHeight: 200,
+        });
+        expect(reply.chunk.bytes.length).toBeGreaterThan(0);
       }
       // Nobody takes control (ADR 0067, Collaboration): both people and an agent use the page.
       expect(
