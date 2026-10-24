@@ -191,8 +191,10 @@ struct ForgeHome: View {
 /// top bar's edge effect still work.
 struct ForgeEmpty<Content: View>: View {
     @ViewBuilder let content: () -> Content
+    @Environment(\.onSidebarGlass) private var onGlass
+    private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
     var body: some View {
         ScrollView { content().padding(.top, 120).frame(maxWidth: .infinity) }
-            .background(AceTheme.Colours.background)
+            .background(surface)
     }
 }

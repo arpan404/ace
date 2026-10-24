@@ -78,6 +78,8 @@ private struct ForgeListFrame<Rows: View>: View {
     let refresh: () async -> Void
     let more: () async -> Void
     @ViewBuilder let rows: () -> Rows
+    @Environment(\.onSidebarGlass) private var onGlass
+    private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
 
     var body: some View {
         List {
@@ -116,7 +118,7 @@ private struct ForgeListFrame<Rows: View>: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(AceTheme.Colours.background)
+        .background(surface)
         .environment(\.defaultMinListRowHeight, 0)
         .contentMargins(.vertical, AceTheme.Spacing.xs, for: .scrollContent)
         .opacity(stale ? 0.6 : 1)

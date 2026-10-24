@@ -9,6 +9,7 @@ struct StripSurface<Content: View>: View {
     var maxHeight: CGFloat = .infinity
     @ViewBuilder var content: () -> Content
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.horizontalSizeClass) private var sizeClass
     var body: some View {
         let shape = AceShape.strip
         ScrollView {
@@ -33,7 +34,7 @@ struct StripSurface<Content: View>: View {
                     .offset(x: -bleed, y: -bleed)
             }
         }
-        .padding(.horizontal, StripMetrics.inset)
+        .padding(.horizontal, ReadingColumn.bar(sizeClass).card)
         .padding(.bottom, -StripMetrics.tuck)
     }
 }
@@ -46,8 +47,6 @@ enum StripMetrics {
     static let insetRadius = AceShape.nested(in: radius, inset: AceTheme.Spacing.lg)
     /// How far the strip's lower edge sits behind the composer.
     static let tuck = AceTheme.Spacing.lg
-    /// The strip is narrower than the composer by this much on each side.
-    static let inset = AceTheme.Spacing.md + AceTheme.Spacing.lg
 }
 
 /// A small text action inside a request card: "Details". Ghost, a step brighter when pressed.

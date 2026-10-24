@@ -144,6 +144,7 @@ struct InboxStack<Destination: View>: View {
     }
     private var title: some View {
         InboxTitle(problem: InboxConnectionProblem.of(inbox), openMachines: header.machines)
+            .modifier(HeaderLead())
     }
     private var settings: some View {
         Button(action: header.settings) { Image(systemName: "gearshape") }
@@ -182,4 +183,11 @@ private struct InboxSearchField: ViewModifier {
                 if now { withAnimation(.smooth) { shown = true } } else { query = ""; shown = false }
             }
     }
+}
+
+/// Steps the list's header in by `ThreadColumns.headerLead`, read where the header is drawn: the
+/// split sets it on its list, under this stack.
+private struct HeaderLead: ViewModifier {
+    @Environment(\.headerLead) private var lead
+    func body(content: Content) -> some View { content.padding(.leading, lead) }
 }

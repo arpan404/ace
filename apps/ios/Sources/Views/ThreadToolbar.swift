@@ -54,8 +54,12 @@ struct ThreadMenu: View {
     let problem: (String) -> Void
     /// Leaves the thread after it was snoozed or archived.
     let leave: () -> Void
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
+        menu.padding(.trailing, ReadingColumn.barTrailing(sizeClass))
+    }
+    private var menu: some View {
         Menu {
             Section {
                 Button("Changes", ace: .plusMinus) { open(.changes) }.accessibilityIdentifier("thread.changes")

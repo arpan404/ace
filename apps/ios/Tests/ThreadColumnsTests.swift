@@ -55,6 +55,25 @@ import SwiftUI
         #expect(!ThreadColumns.showsTabBar(.compact, path: [.thread(open)]))
     }
 
+    @Test func besideTheListTheCardComposerAndTranscriptShareOneColumnsEdges() {
+        let wide = ReadingColumn.bar(.regular)
+        #expect(wide.card == wide.composer)
+        #expect(wide.composer == ReadingColumn.textMargin)
+        // Clear of the window's resize corner, which sits under the composer's trailing end.
+        #expect(wide.bottom > ReadingColumn.bar(.compact).bottom)
+        // A phone keeps its composer near the edge and the card tucked narrower than it.
+        let phone = ReadingColumn.bar(.compact)
+        #expect(phone.card > phone.composer)
+        #expect(phone.composer < ReadingColumn.textMargin)
+    }
+
+    @Test func theListsHeaderStepsClearOfTheSidebarCornerAndTheWindowControlsOnly() {
+        #expect(ThreadColumns.headerLead(.regular, windowControls: 0) > 0)
+        #expect(ThreadColumns.headerLead(.compact, windowControls: 66) > 0)
+        // A phone, or a window without controls, keeps the bar's own place.
+        #expect(ThreadColumns.headerLead(.compact, windowControls: 0) == 0)
+    }
+
     @Test func nextAndPreviousThreadFollowTheListAndStopAtItsEnds() {
         let order = ["a", "b", "c"].map { InboxKey(machineId: "m", id: $0) }
         #expect(ThreadColumns.neighbour(of: order[0], in: order, step: 1) == order[1])

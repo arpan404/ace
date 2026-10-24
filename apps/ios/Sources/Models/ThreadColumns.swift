@@ -50,6 +50,13 @@ enum ThreadColumns {
     /// Whether the sidebar carries Threads, Pull requests and New thread in place of the tab bar.
     static func sidebarHoldsTabs(_ sizeClass: UserInterfaceSizeClass?) -> Bool { sizeClass == .regular }
 
+    /// How far the list's header (the wordmark) steps in from where the bar puts it: clear of
+    /// the sidebar panel's rounded corner, and of the window's controls (the red, yellow and green
+    /// dots) when the window has them, which the bar alone sets it right against.
+    static func headerLead(_ sizeClass: UserInterfaceSizeClass?, windowControls: CGFloat) -> CGFloat {
+        sidebarHoldsTabs(sizeClass) || windowControls > 0 ? AceTheme.Spacing.sm : AceTheme.Spacing.none
+    }
+
     /// The tab bar shows only in a compact window, and steps aside while it shows a page.
     static func showsTabBar(_ sizeClass: UserInterfaceSizeClass?, path: [InboxRoute]) -> Bool {
         !sidebarHoldsTabs(sizeClass) && path.isEmpty
@@ -81,4 +88,30 @@ enum ThreadColumns {
 /// no limit below it.
 enum ReadingColumn {
     static let maxWidth: CGFloat = 720
+
+    /// Where the composer and the request card above it sit in the reading column. A regular
+    /// window gives both the transcript's own margin, so card, composer and text share one
+    /// column's edges, and lifts the composer clear of the window's resize corner. A phone keeps
+    /// its composer close to the edge and the card tucked narrower than it.
+    struct Bar: Equatable {
+        /// From the column's edge to the composer's glass.
+        let composer: CGFloat
+        /// From the column's edge to the card's glass.
+        let card: CGFloat
+        /// Under the composer, above the bottom safe area.
+        let bottom: CGFloat
+    }
+    /// The transcript's rows sit this far in from the column's edges.
+    static let textMargin = AceTheme.Spacing.xl
+    /// The bar puts its trailing button this far from a column's edge; a regular window adds the
+    /// rest of `textMargin`, so ⋯ lines up with the composer and the text under it.
+    static let barTrailingMargin = AceTheme.Spacing.md + AceTheme.Spacing.xxs
+    static func barTrailing(_ sizeClass: UserInterfaceSizeClass?) -> CGFloat {
+        sizeClass == .regular ? textMargin - barTrailingMargin : AceTheme.Spacing.none
+    }
+    static func bar(_ sizeClass: UserInterfaceSizeClass?) -> Bar {
+        sizeClass == .regular
+            ? Bar(composer: textMargin, card: textMargin, bottom: AceTheme.Spacing.lg)
+            : Bar(composer: AceTheme.Spacing.md, card: AceTheme.Spacing.md + AceTheme.Spacing.lg, bottom: AceTheme.Spacing.sm)
+    }
 }
