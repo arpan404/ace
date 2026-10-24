@@ -16,6 +16,7 @@ and [Apple's authorization API boundaries](../../docs/research/macos-authorizati
 | `LockedUseIPC`       | Authorization-only XPC endpoint with Apple engine-host signing requirements, bounded input/deadline validation and replay rejection                                           |
 | Authorization bundle | Real `AuthorizationPluginCreate` ABI, mechanism lifecycle, immutable attempt binding, broker signature pinning, bounded asynchronous decisions and cancellation cleanup       |
 | `LockedUseUI`        | Opaque monochrome covers, physical/mirrored display mapping, topology-loss notification, input suppression and conservative takeover classification                           |
+| `LockedUseRuntime`   | Serialized coordinator connecting the authorization endpoint, native covers/input, approved work, cancellation, OS session observations and independent guardian boundary     |
 | Build/test scripts   | Signed local bundle and a fake-engine ABI harness; neither script installs anything or changes OS policy                                                                      |
 
 Policy functions take continuous monotonic time and trusted I/O facts explicitly. The owning broker must
@@ -29,6 +30,35 @@ window is one second and protection must have a heartbeat less than 500 ms old. 
 id is never reusable within an authority instance; its ledger fails closed at 4096 attempts
 and requires an owner restart. These limits are explicit prototype behavior, not a substitute
 for wiring turn completion and an independent watchdog into the real daemon.
+
+## Runtime integration
+
+`LockedUseCoordinator` is the native lifecycle owner. `LockedUseAuthorizationBridge`
+connects its decisions to the signature-checked XPC endpoint. `LockedUseNativeDesktop`
+connects the actual AppKit panels and HID input guard; construction activates neither.
+The runtime requires an independent window-ordering verifier before those panels can
+contribute to protection readiness. There is no default verifier that returns true.
+
+The trusted host supplies a verified `LockedUseSessionDriver`, a separately supervised
+`LockedUseGuardian`, a continuous clock and a recurring heartbeat scheduler. It must provide
+the approved daemon thread/turn scope to `begin`; these are not agent-controlled tool
+parameters. No production OS driver or guardian is supplied yet. In particular, requesting
+an authorization right is not implemented as if it unlocked loginwindow.
+
+The coordinator arms the guardian, prepares protection, requests the bound OS unlock,
+consumes the authorization permit, and waits for an actual unlocked-session observation
+before starting work. Every grant rechecks protection and transaction binding. Completion,
+cancellation, takeover, protection loss and session loss stop work and request relock.
+An unavailable session confirms neither unlock nor lock. Covers are removed only after
+the matching OS lock observation. Completion and guardian disarm additionally wait for the
+work task to exit. Until then another attempt is refused and status remains relocking.
+The host's work closure must propagate cancellation to its helper processes and await their
+termination; cancelling a Swift task alone does not prove a child process stopped.
+
+Runtime tests use substitute OS and guardian boundaries, without changing this Mac's lock,
+opening covers or installing an event tap. They prove coordinator behavior, not actual OS
+unlocking or crash relock. A counterfactual run removing the confirmed-lock completion gate
+fails the named completion test.
 
 ## Authorization boundary
 
@@ -110,8 +140,10 @@ swift run --package-path native/locked-use LockedUsePreview /tmp/ace-locked-use-
    and binds its immutable hint, authorization transaction and target GUI session.
 2. Implement an independent relock guardian and confirm it still works if the desktop, cover
    host, authority connection or agent process dies. Test display and sleep/wake transitions.
-3. Connect trusted desktop/daemon turn approval and cancellation to the authority. Agent tool
-   arguments must never assert protection readiness, authorization identity or manual unlock.
+3. Host the runtime coordinator in the trusted native service and connect desktop/daemon
+   turn approval and cancellation. Agent tool arguments must never assert protection
+   readiness, authorization identity or manual unlock. The coordinator and native/XPC adapters
+   are implemented; the service, daemon transport and production OS/guardian drivers are not.
 4. Add explicit user opt-in and an authorized installation/removal transaction that preserves
    normal manual authentication and other installed authorization providers.
 5. Package, sign, notarize and validate all components on isolated macOS fixtures, then obtain

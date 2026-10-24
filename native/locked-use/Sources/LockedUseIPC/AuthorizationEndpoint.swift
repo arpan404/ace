@@ -13,6 +13,13 @@ public struct LockedUsePluginRequest: Equatable, Sendable {
     public let transaction: Data
     public let requestID: UUID
     public let deadline: UInt64
+
+    public init(attempt: String, transaction: Data, requestID: UUID, deadline: UInt64) {
+        self.attempt = attempt
+        self.transaction = transaction
+        self.requestID = requestID
+        self.deadline = deadline
+    }
 }
 
 /// The installation owner supplies a verifier bound to a live OS transaction and the

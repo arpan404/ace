@@ -263,3 +263,12 @@ OS unlock/relock driver, independent relock guardian, trusted turn bridge and au
 installation/removal flow. Native covers are presentation components, not proof of a secure
 lock screen. Existing locked-mode refusal therefore remains in place. See the component
 [README](../../native/locked-use/README.md) for readiness gates and test boundaries.
+
+The native runtime now connects those libraries through a serialized coordinator, an
+authorization-endpoint bridge and an adapter for the actual covers/input guard. Approved
+work waits for a verified OS unlock observation. Cancellation cannot complete the attempt
+until work exits and the OS confirms relock; unavailable sessions confirm neither. The
+guardian stays armed during that wait and stale callbacks cannot affect a later turn.
+Runtime tests substitute OS/guardian boundaries and do not establish that loginwindow can
+be driven. The production service, daemon transport, verified OS driver, independent guardian
+and installation remain required before enabling this feature.

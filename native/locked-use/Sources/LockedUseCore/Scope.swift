@@ -63,7 +63,7 @@ public struct LockedUseProtection: Equatable, Sendable {
 }
 
 public enum LockedUseStopReason: String, Sendable {
-    case finished, cancelled, localInput, protectionLost, connectionLost, expired, clockChanged, sessionChanged, disabled
+    case finished, cancelled, workFailed, localInput, protectionLost, connectionLost, expired, clockChanged, sessionChanged, disabled
 }
 
 public enum LockedUsePhase: Equatable, Sendable {

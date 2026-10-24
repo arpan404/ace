@@ -22,10 +22,18 @@ private final class LockedUseCoverPanel: NSPanel {
 
     public init(protectionLost: @escaping () -> Void) { lost = protectionLost }
 
+    /// Planning only. prepare and each heartbeat re-read the actual topology before
+    /// any permit can be granted; this snapshot is never protection readiness.
+    public func plannedDisplays() throws -> LockedUseDisplays {
+        guard panels.isEmpty, generation < UInt64.max else { throw LockedUseCoverError.topologyChanged }
+        return try LockedUseDisplays(ids: Set(Self.displays().map(\.displayID)), generation: generation + 1)
+    }
+
     public func prepare() throws -> LockedUseDisplays {
         guard panels.isEmpty else { throw LockedUseCoverError.topologyChanged }
         let current = try Self.displays()
-        generation &+= 1
+        guard generation < UInt64.max else { throw LockedUseCoverError.topologyChanged }
+        generation += 1
         topology = current
         for screen in NSScreen.screens {
             guard let id = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value else { continue }
