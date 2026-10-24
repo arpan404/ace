@@ -258,6 +258,18 @@
     },
     {
       "properties": {
+        "type": {
+          "const": "workspace.chat.create",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "archiveThreads": {
           "default": false,
           "type": "boolean"

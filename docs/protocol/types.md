@@ -1383,7 +1383,7 @@ Example:
 | instance | no | string | {"minLength":1,"maxLength":256} |
 | offset | no | integer | {"default":0,"minimum":0,"maximum":40960} |
 | limit | no | integer | {"default":10,"minimum":1,"maximum":20} |
-| instanceOffset | no | integer | {"default":0,"minimum":0,"maximum":64} |
+| query | no | string | {"minLength":1,"maxLength":256} |
 
 Example:
 
@@ -1391,7 +1391,7 @@ Example:
 {
   "acpAgentId": "example",
   "instance": "example",
-  "instanceOffset": 3
+  "query": "example"
 }
 ```
 
@@ -1523,7 +1523,6 @@ Example:
 | models | yes | array | {"maxItems":20,"items":{"$ref":"https://ace.local/protocol/v1/AgentCatalogModel.json"}} |
 | instances | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/AgentCatalogInstance.json"}} |
 | nextOffset | no | integer | {"minimum":0,"maximum":9007199254740991} |
-| nextInstanceOffset | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | caller | yes | object | {"properties":{"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"access":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},{"type":"null"}]}},"required":["threadId","access"]} |
 
 Example:
@@ -1636,7 +1635,7 @@ Example:
 | instance | no | string | {"minLength":1,"maxLength":256} |
 | offset | no | integer | {"default":0,"minimum":0,"maximum":40960} |
 | limit | no | integer | {"default":10,"minimum":1,"maximum":20} |
-| instanceOffset | no | integer | {"default":0,"minimum":0,"maximum":64} |
+| query | no | string | {"minLength":1,"maxLength":256} |
 
 Example:
 
@@ -9219,6 +9218,8 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
+      "body": "example",
+      "commentId": 7,
       "link": {
         "pr": {
           "number": 6,
@@ -9231,10 +9232,7 @@ Example:
         },
         "threadId": "example"
       },
-      "reviewers": [
-        "9I5ZIk7-"
-      ],
-      "type": "forge.review.request"
+      "type": "forge.comment.reply"
     }
   },
   "type": "command"
@@ -9718,71 +9716,26 @@ Example:
 
 ```json
 {
-  "alive": {
-    "agentsRunning": 1,
-    "operationsRunning": 3,
-    "terminalsOpen": 9
-  },
   "commandId": "example",
-  "commit": "239bd09e8f01c36cde9d094555e41f73a365238facc90f3f",
-  "detail": "example",
-  "health": {
-    "activeSessions": null,
-    "at": 2,
-    "eventLoop": {
-      "maxMs": null,
-      "meanMs": null,
-      "p99Ms": 7
+  "editor": {
+    "editor": {
+      "command": "example",
+      "id": "example",
+      "name": "example"
     },
-    "logs": {
-      "directory": "example",
-      "dropped": 9,
-      "failed": 0,
-      "queued": 7
-    },
-    "memory": {
-      "heapTotalBytes": 3,
-      "heapUsedBytes": 4,
-      "rssBytes": 9
-    },
-    "openHandles": 7,
-    "queues": {},
-    "sqlite": {
-      "pageBytes": 5,
-      "walBytes": null
-    }
+    "path": "example"
   },
-  "locksCleared": 9,
-  "ok": false,
+  "error": "example",
+  "forkThreadId": "example",
+  "ok": true,
   "pr": {
-    "number": 8,
+    "number": 2,
     "repository": {
-      "forge": "github",
-      "host": "uAWbs",
-      "name": "mTVJj84n3",
-      "owner": "_q/J5kwQ"
+      "forge": "gitlab",
+      "host": "K",
+      "name": "_q",
+      "owner": "l.tH/iZt/FZUFU/AX/_p/uAWas"
     }
-  },
-  "prStatus": {
-    "checks": [],
-    "ci": "success",
-    "comments": [],
-    "headSha": "example",
-    "mergeability": "mergeable",
-    "raw": null,
-    "ref": {
-      "number": 3,
-      "repository": {
-        "forge": "gitlab",
-        "host": "6c7Tdfj",
-        "name": "fV",
-        "owner": "BInnhu_HEZ/4uorJMy."
-      }
-    },
-    "reviewThreads": [],
-    "state": "open",
-    "title": "example",
-    "url": "example"
   },
   "publication": {
     "error": null,
@@ -9813,66 +9766,17 @@ Example:
     "updatedAt": 7,
     "workspaceId": "example"
   },
-  "review": {
-    "comment": {
-      "anchor": {
-        "fingerprint": {
-          "after": [],
-          "before": [],
-          "lines": [
-            "example"
-          ]
-        },
-        "position": {
-          "end": 1,
-          "file": "example.ts",
-          "side": "new",
-          "start": 1
-        },
-        "revision": {
-          "kind": "working-tree"
-        },
-        "state": "active"
-      },
-      "id": "example",
-      "originalAnchor": {
-        "fingerprint": {
-          "after": [],
-          "before": [],
-          "lines": [
-            "example"
-          ]
-        },
-        "position": {
-          "end": 1,
-          "file": "example.ts",
-          "side": "new",
-          "start": 1
-        },
-        "revision": {
-          "kind": "working-tree"
-        },
-        "state": "active"
-      },
-      "resolved": false,
-      "sessionId": "example",
-      "text": "example"
-    },
-    "comments": [],
-    "intentId": "example"
-  },
-  "stackOperation": {
-    "action": "sync",
-    "message": "example",
-    "raw": null,
-    "state": "enqueued"
-  },
+  "remoteHead": "53c98d76b638a85abc802ddcfa216c48fde3309cb5edc272d9eb4212d",
   "type": "commandResult",
   "workspace": {
-    "defaultIcon": "data:image/x-icon;base64,70Crtt9xkI6go5APvyW2IzpjxJt=",
+    "defaults": {
+      "baseBranch": "example",
+      "browserProfileScope": "thread",
+      "checkCommand": "example"
+    },
+    "icon": "data:image/x-icon;base64,70Crtt9xkI6go5APvyW2IzpjxJt=",
     "id": "example",
     "name": "example",
-    "notes": [],
     "path": "example"
   }
 }
@@ -20460,6 +20364,7 @@ Example:
 | id | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | name | yes | string | {"maxLength":256} |
 | path | yes | string | {"minLength":1,"maxLength":4096} |
+| kind | no | [ProjectKind.json](schema/ProjectKind.json) |  |
 | icon | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectIcon.json"},{"type":"null"}]} |
 | defaultIcon | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectIcon.json"},{"type":"null"}]} |
 | badge | no | [ProjectBadgeStyle.json](schema/ProjectBadgeStyle.json) |  |
@@ -20470,11 +20375,10 @@ Example:
 
 ```json
 {
-  "badge": {
-    "color": "neutral"
-  },
+  "defaultIcon": "HTTPS://例え.テスト/icon.png",
   "id": "example",
   "name": "example",
+  "notes": [],
   "path": "example"
 }
 ```
@@ -20677,6 +20581,20 @@ Example:
 }
 ```
 
+### workspace.chat.create
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"workspace.chat.create"` |  |
+
+Example:
+
+```json
+{
+  "type": "workspace.chat.create"
+}
+```
+
 ### workspace.remove
 
 | Field | Required | Type | Constraints |
@@ -20689,7 +20607,6 @@ Example:
 
 ```json
 {
-  "archiveThreads": false,
   "type": "workspace.remove",
   "workspaceId": "example"
 }
@@ -20843,6 +20760,18 @@ Example:
   "git": null,
   "path": "example"
 }
+```
+
+## ProjectKind
+
+[JSON Schema](schema/ProjectKind.json), input validation.
+
+Type: ["chat"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"chat"
 ```
 
 ## ProjectName
@@ -29624,7 +29553,7 @@ Example:
 | workspaceChange | no | object | {"properties":{"commandId":{"type":"string","minLength":1,"maxLength":256},"state":{"type":"string","enum":["preparing","applied","failed"]},"at":{"$ref":"https://ace.local/protocol/v1/Timestamp.json"},"error":{"type":"string","maxLength":128},"lossy":{"default":true,"type":"boolean"},"uncertain":{"type":"boolean"},"mode":{"type":"string","enum":["local","worktree"]},"branch":{"type":"string","maxLength":1024}},"required":["commandId","state","at"]} |
 | worktreeMissing | no | boolean |  |
 | worktreeSetup | no | object | {"properties":{"state":{"type":"string","enum":["failed","skipped"]},"reason":{"type":"string","const":"read_only"},"details":{"maxItems":200,"type":"array","items":{"type":"string","maxLength":1024}},"at":{"$ref":"https://ace.local/protocol/v1/Timestamp.json"}},"required":["state","details","at"]} |
-| workspace | no | object | {"properties":{"id":{"type":"string","minLength":1},"name":{"type":"string","maxLength":256},"path":{"type":"string","maxLength":4096},"icon":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectIcon.json"},{"type":"null"}]},"defaultIcon":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectIcon.json"},{"type":"null"}]}},"required":["id","name","path"]} |
+| workspace | no | object | {"properties":{"id":{"type":"string","minLength":1},"name":{"type":"string","maxLength":256},"path":{"type":"string","maxLength":4096},"icon":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectIcon.json"},{"type":"null"}]},"defaultIcon":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectIcon.json"},{"type":"null"}]},"kind":{"$ref":"https://ace.local/protocol/v1/ProjectKind.json"}},"required":["id","name","path"]} |
 | mode | no | ["local","worktree"] |  |
 | worktree | no | string | {"maxLength":4096} |
 | branch | no | union | {"anyOf":[{"type":"string","maxLength":1024},{"type":"null"}]} |
@@ -29643,22 +29572,17 @@ Example:
 
 ```json
 {
-  "diff": {
-    "additions": 5,
-    "deletions": 8,
-    "files": 5
+  "base": {
+    "head": "fc32634eb89c28b77d9ccbc7645f3d126b102d4a",
+    "ref": "example",
+    "remote": "UoCT"
   },
   "linkedIssues": [],
-  "linkedPr": {
-    "number": 8,
-    "state": "open"
-  },
-  "linkedPrs": [],
   "machine": {
     "host": "example",
     "name": "example"
   },
-  "mode": "local",
+  "mode": "worktree",
   "pullRequestWorkspace": {
     "baseBranch": "example",
     "baseSha": "344587e3b8aaef8917c9a177e51f633cb195d93a0a264765deb09b8c742a214b",
@@ -29682,14 +29606,20 @@ Example:
       }
     }
   },
+  "repository": {
+    "forge": "github",
+    "host": "2aniyu46Op-",
+    "name": "g",
+    "owner": "kBveK/_rk_/elYs9fsB86m/sp4/y1HK4NG5d"
+  },
   "workspace": {
     "defaultIcon": null,
     "icon": "data:image/webp;base64,VmPjHffoRTe=",
     "id": "example",
+    "kind": "chat",
     "name": "example",
     "path": "example"
-  },
-  "worktree": "example"
+  }
 }
 ```
 
@@ -32901,26 +32831,19 @@ Example:
   "requestId": "example",
   "result": {
     "details": {
+      "ahead": 4,
       "base": {
-        "head": "8457c45276c6c5b3b1cf86bd03e9d5fdd75bcbf5beb0f6543",
-        "ref": "example",
-        "remote": "yc91ft"
+        "head": "a97bff8457c45276c6c5b3b1cf86bd03e9d5fdd75bcbf5beb",
+        "ref": "example"
       },
-      "behind": 4,
-      "head": null,
+      "baseBranch": "example",
+      "branch": null,
       "linkedIssues": [],
-      "linkedPrs": [],
-      "mode": "local",
-      "repository": {
-        "forge": "github",
-        "host": "RY.",
-        "name": "lVsZ.I8d7wP",
-        "owner": "pEcNcnLr/M2/rk9Wy4./fPF27QAHPb"
-      },
       "workspace": {
         "defaultIcon": "data:image/gif;base64,yRH5ISuv6n==",
         "icon": null,
         "id": "example",
+        "kind": "chat",
         "name": "example",
         "path": "example"
       },

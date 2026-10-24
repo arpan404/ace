@@ -1066,9 +1066,10 @@ Example:
   "change": "updated",
   "type": "workspace.changed",
   "workspace": {
-    "defaultIcon": "https://example.invalid/icon.png",
+    "icon": "https://example.invalid/icon.png",
     "id": "example",
     "name": "example",
+    "notes": [],
     "path": "example"
   },
   "workspaceId": "example"
