@@ -21,6 +21,8 @@ struct InboxShelves: Equatable { var snoozed = false; var settled = false }
 struct InboxList: View {
     @Bindable var inbox: MachineInbox
     let includes: (InboxKey) -> Bool
+    /// Whether the scope takes every thread of a machine, so its unloaded threads still count.
+    let whole: (String) -> Bool
     @Binding var shelves: InboxShelves
     let actions: InboxRowActions
     /// Opens New thread; nil while every machine is view-only.
@@ -29,10 +31,7 @@ struct InboxList: View {
     private static let shelved = ["snoozed", "settled"]
 
     private var sections: [MergedInbox.Section] {
-        inbox.merged.sections.compactMap { section in
-            let rows = section.rows.filter(includes)
-            return rows.isEmpty ? nil : MergedInbox.Section(key: section.key, label: section.label, rows: rows)
-        }
+        inbox.merged.sections.compactMap { $0.scoped(includes, whole: whole) }
     }
 
     var body: some View {
@@ -49,7 +48,7 @@ struct InboxList: View {
             ForEach(Self.shelved, id: \.self) { key in
                 if let section = sections.first(where: { $0.key == key }) {
                     let open = key == "snoozed" ? shelves.snoozed : shelves.settled
-                    InboxShelf(label: section.label, count: section.rows.count, expanded: open) {
+                    InboxShelf(label: section.label, count: section.count, expanded: open) {
                         withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) {
                             if key == "snoozed" { shelves.snoozed.toggle() } else { shelves.settled.toggle() }
                         }

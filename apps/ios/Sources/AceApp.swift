@@ -66,6 +66,7 @@ import QuartzCore
                     if let id = SpikeConfiguration.openOnLaunch {
                         Task {
                             for _ in 0..<300 where model.inbox[id] == nil { try? await Task.sleep(for: .milliseconds(100)) }
+                            if let item = SpikeConfiguration.focusOnLaunch { model.focusOnOpen = ThreadFocus(thread: id, item: item) }
                             model.deepLink = id
                         }
                     }

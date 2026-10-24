@@ -1,5 +1,6 @@
 import { ChatsIcon, NotePencilIcon } from "@phosphor-icons/react";
 import { useSidebar, useSidebarLoaded } from "@ace/client-react";
+import { settledTotal as settledCount } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
 import { Suspense } from "react";
 import { Icon } from "@/components/icon.tsx";
@@ -31,9 +32,7 @@ const StartedTitlePublisher = deferredComponent(() =>
 export function HomeSidebar() {
   const list = useHomeList();
   // The daemon's count of settled threads, while it still holds some back.
-  const settledTotal = useSidebar(["homeWindow"], (reader) =>
-    reader.homeWindow?.before ? reader.homeWindow.total : undefined,
-  );
+  const settledTotal = useSidebar(["homeWindow"], (reader) => settledCount(reader.homeWindow));
   const { project } = useOrganizerState();
   useThreadsWindowSync();
   const organizer = useOrganizer();

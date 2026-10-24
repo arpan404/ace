@@ -50,6 +50,17 @@ import QuartzCore
     var problem: ProblemNotice?
     var error: String?
     var thread: ThreadModel?
+    /// The history window's rows (`TranscriptReading`), beside the live thread: its patches carry
+    /// the reading view's negative epoch.
+    @ObservationIgnored var reading: ThreadModel?
+    /// Around each frame that moves the reading rows, so the feed keeps the reader's place.
+    @ObservationIgnored var readingWillMove: (() -> Void)?
+    @ObservationIgnored var readingMoved: (() -> Void)?
+    /// A requested page's reading patches, held until the bridge says the read settled, so a
+    /// page lands as one change rather than one per frame. Nil while nothing is requested.
+    @ObservationIgnored private var readingHeld: [BridgePatch]?
+    /// An item a search hit asked to show once its thread is open.
+    var focusOnOpen: ThreadFocus?
     var inboxLoaded = false
     var inboxLayout = InboxLayout.empty
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
@@ -154,6 +165,7 @@ import QuartzCore
             ThreadOpenTrace.signposter.endInterval("bridge.frame", signpost)
             ThreadOpenTrace.shared.frame(bytes: bytes, patches: patchCount - patchesBefore, rowUpdates: streamedUpdates - updatesBefore,
                                          inboxRows: inbox.count, seconds: CACurrentMediaTime() - began)
+            DisclosureTrace.shared.frame(bytes: bytes, patches: patchCount - patchesBefore, seconds: CACurrentMediaTime() - began)
         }
         largestFrame = max(largestFrame, bytes)
         if patchCount == 0 { LaunchTrace.mark("bridge.firstFrame") }
@@ -184,12 +196,41 @@ import QuartzCore
         }
         return resolved
     }
+    /// The thread a patch's scope names: the open thread, or the reading rows beside it.
+    private func scoped(_ id: String, _ epoch: Int) -> ThreadModel? {
+        if let thread, thread.id == id, thread.epoch == epoch { return thread }
+        if let reading, reading.id == id, reading.epoch == epoch { return reading }
+        return nil
+    }
+    /// Hold the reading rows from here until the page asked for settles.
+    func holdReading() { if readingHeld == nil { readingHeld = [] } }
+    /// Apply what was held now: the read failed or was cancelled, so no settle will come.
+    func releaseReading() {
+        guard let held = readingHeld else { return }
+        readingHeld = nil
+        if !held.isEmpty { apply(held) }
+    }
+    /// The reading view ended: what it held goes with it.
+    func dropReading() { readingHeld = nil; reading = nil }
     private func apply(_ patches: [BridgePatch]) {
         var reorder = false
         var added: [String] = []
+        var readingReorder = false
+        var readingAdded: [String] = []
+        var readingMoving: Double?
+        /// The reading rows are about to move: the feed notes where the reader is, once a frame.
+        func moving(_ model: ThreadModel) {
+            guard model === reading, readingMoving == nil else { return }
+            readingMoving = CACurrentMediaTime()
+            readingWillMove?()
+        }
         var activityChanged = false
         for patch in patches {
             patchCount += 1
+            if readingHeld != nil, let reading, let scope = patch.threadScope, scope.thread == reading.id, scope.epoch == reading.epoch {
+                if case .readingSettled = patch { releaseReading() } else { readingHeld?.append(patch) }
+                continue
+            }
             switch patch {
             case .service(let reply):
                 if reply.ok, let cache = reply.cache, let value = reply.value { reads.store(key: cache.key, family: cache.family, value: value) }
@@ -197,6 +238,7 @@ import QuartzCore
             case .serviceCache(let cache, let value): reads.store(key: cache.key, family: cache.family, value: value)
             case .serviceEvict(let key): reads.remove(key)
             case .serviceGenerations(let generations): reads.update(generations: generations)
+            case .readingSettled: break // Only a held page waits for it.
             case .terminal(let patch):
                 if let offset = terminal.receive(patch) { action(["type": "terminal.credit", "id": patch.id, "offset": offset]) }
             case .fragment: break // BridgeFrames only returns complete patches.
@@ -255,42 +297,57 @@ import QuartzCore
                 }
                 if !ok { error = message }
             case .threadReset(let id, let epoch):
-                guard let thread, thread.id == id, epoch == thread.epoch else { continue }
-                thread.epoch = epoch
-                thread.items.removeAll(keepingCapacity: true)
-                thread.positions.removeAll(keepingCapacity: true)
-                thread.order = []
-                thread.interactions = [:]
-                thread.loaded = false
-                thread.screen.reset()
+                guard let target = scoped(id, epoch) else { continue }
+                moving(target)
+                target.items.removeAll(keepingCapacity: true)
+                target.positions.removeAll(keepingCapacity: true)
+                target.order = []
+                target.interactions = [:]
+                // The reading rows are shown from their first frame; only the live thread waits.
+                target.loaded = target === reading
+                target.screen.reset()
             case .position(let id, let epoch, let itemId, let index):
-                guard let thread, thread.id == id, thread.epoch == epoch else { continue }
-                thread.positions[itemId] = index
-                reorder = true
+                guard let target = scoped(id, epoch) else { continue }
+                moving(target)
+                target.positions[itemId] = index
+                if target === reading { readingReorder = true } else { reorder = true }
             case .item(let id, let epoch, let itemId, let row):
-                guard let thread, thread.id == id, thread.epoch == epoch else { continue }
+                guard let target = scoped(id, epoch) else { continue }
+                let live = target !== reading
                 if let row {
-                    if let item = thread.items[itemId] { item.row = row; streamedUpdates += 1 }
+                    if let item = target.items[itemId] { item.row = row; if live { streamedUpdates += 1 } }
                     else {
-                        thread.items[itemId] = ItemModel(row)
-                        if let index = row.index { thread.positions[itemId] = index }
-                        added.append(itemId)
+                        moving(target)
+                        target.items[itemId] = ItemModel(row)
+                        if let index = row.index { target.positions[itemId] = index }
+                        if live { added.append(itemId) } else { readingAdded.append(itemId) }
                         break
                     }
-                    if let index = row.index, thread.positions[itemId] != index { thread.positions[itemId] = index; reorder = true }
-                } else { thread.items.removeValue(forKey: itemId); thread.positions.removeValue(forKey: itemId); reorder = true }
-            case .metadata(let id, let epoch, let row): if thread?.id == id, thread?.epoch == epoch { thread?.metadata = row; thread?.metadataCurrent = true }
-            case .interaction(let id, let epoch, let interactionId, let row):
-                if thread?.id == id, thread?.epoch == epoch {
-                    thread?.interactions[interactionId] = row
-                    if row?.state != "pending", let submission = approvalSubmissions.removeValue(forKey: interactionId) { approvalRequests[submission.requestId] = nil }
+                    if let index = row.index, target.positions[itemId] != index {
+                        moving(target)
+                        target.positions[itemId] = index
+                        if live { reorder = true } else { readingReorder = true }
+                    }
+                } else {
+                    // Only a row this model holds can leave it.
+                    guard target.items[itemId] != nil else { break }
+                    moving(target)
+                    target.items.removeValue(forKey: itemId); target.positions.removeValue(forKey: itemId)
+                    if live { reorder = true } else { readingReorder = true }
                 }
-            case .cursor(let id, let epoch, let cursor): if thread?.id == id, thread?.epoch == epoch { thread?.cursor = cursor }
+            case .metadata(let id, let epoch, let row):
+                if let target = scoped(id, epoch) { target.metadata = row; target.metadataCurrent = true }
+            case .interaction(let id, let epoch, let interactionId, let row):
+                guard let target = scoped(id, epoch) else { continue }
+                target.interactions[interactionId] = row
+                if target !== reading, row?.state != "pending", let submission = approvalSubmissions.removeValue(forKey: interactionId) { approvalRequests[submission.requestId] = nil }
+            case .cursor(let id, let epoch, let cursor): scoped(id, epoch)?.cursor = cursor
             case .ready(let id, let epoch, _):
                 if thread?.id == id, thread?.epoch == epoch { thread?.loaded = true; ThreadOpenTrace.shared.ready(id) }
             case .block, .blockPosition, .controls, .history, .models, .queue:
-                if let thread, let scope = patch.screenScope, scope.thread == thread.id, scope.epoch == thread.epoch {
-                    thread.screen.apply(patch)
+                if let scope = patch.screenScope, let target = scoped(scope.thread, scope.epoch) {
+                    if target === reading, target.screen.moves(patch) { moving(target) }
+                    target.screen.apply(patch)
                 }
             case .agents(let id, let epoch, let sheet):
                 if thread?.id == id, thread?.epoch == epoch { sheets.agents = sheet; ThreadOpenTrace.shared.sheetFilled("agents") }
@@ -310,6 +367,14 @@ import QuartzCore
             }
         }
         thread?.screen.commit()
+        if let reading {
+            reading.screen.commit()
+            if readingReorder { reading.reorder() } else if !readingAdded.isEmpty { reading.place(readingAdded) }
+        }
+        if let readingMoving {
+            readingMoved?()
+            ThreadOpenTrace.readingFrame(started: readingMoving)
+        }
         if activityChanged, let hostId { liveActivity.update(row: { self.inbox[$0] }, hostId: hostId, online: connection == "ready") }
         if let thread {
             if reorder { thread.reorder() } else if !added.isEmpty { thread.place(added) }

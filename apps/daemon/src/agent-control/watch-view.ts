@@ -34,6 +34,8 @@ export function watchedState(
   // A queue held for the person (left by a restart, an uncertain delivery or a pause) never
   // moves by itself, so a wait on it returns instead of blocking until it times out.
   if (heldFor(thread, record, resuming)) return "needs_you";
+  // Queued past its parent's run slots: it has not started, and still keeps its parent open.
+  if (record?.phase === "created" && thread.queuedLaunch) return "queued";
   if (record) {
     const view = agentTaskView(thread, record, descendantsPending, rootIdle);
     if (view.state === "waiting_on_human") return "needs_you";

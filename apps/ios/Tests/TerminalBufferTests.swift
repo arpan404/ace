@@ -12,6 +12,18 @@ import Foundation
         terminal.feed("\u{7}\rpublic\u{1b}[K")
         #expect(terminal.text == "ready\ncount: 2\npublic")
     }
+    @Test func programsSwitchingCursorKeyModeAreFollowedAcrossFramesAndReset() {
+        var terminal = TerminalBuffer()
+        #expect(!terminal.applicationCursor)
+        terminal.feed("\u{1b}[?1049h\u{1b}[?")
+        terminal.feed("1h~")
+        #expect(terminal.applicationCursor)
+        #expect(terminal.text == "~")
+        terminal.feed("\u{1b}[?25;1l")
+        #expect(!terminal.applicationCursor)
+        terminal.feed("\u{1b}[?1h\u{1b}c")
+        #expect(!terminal.applicationCursor)
+    }
     @Test func splitEscapeSequencesAndCursorMovementPreserveTheScreen() {
         var terminal = TerminalBuffer()
         terminal.feed("abc\r\ndef\u{1b}[")

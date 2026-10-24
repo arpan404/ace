@@ -15,6 +15,13 @@ import { ClaudeState } from "./state.ts";
 import { message, stream, finishStream, type StreamState } from "./content.ts";
 import { taskFrame, taskTick } from "./tasks.ts";
 import { number, object, string, raw, type Data } from "./native.ts";
+import { tokenCounts } from "./token-counts.ts";
+
+/** Any token in or out of the model means the turn reached it. */
+function modelAnswered(data: Data): boolean {
+  const usage = tokenCounts(data["usage"]);
+  return usage !== undefined && usage.inputTokens + usage.outputTokens > 0;
+}
 
 export function createTranslator(init: { rootKey: Key }): Translator {
   let state = new ClaudeState(init.rootKey);
@@ -151,35 +158,47 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         return true;
       }
       const lastError = state.errors.get(state.root);
-      const failed = !aborted && (data["is_error"] === true || lastError !== undefined);
+      const notified = object(data["origin"])["kind"] === "task-notification";
+      // Claude can close a queued notification without asking the model, folding it into a
+      // later turn. Such a turn did no work: it keeps the earlier outcome and the wake goes on.
+      const folded =
+        notified &&
+        !aborted &&
+        data["is_error"] !== true &&
+        lastError === undefined &&
+        !state.contentSeen.has(state.root) &&
+        !modelAnswered(data);
+      const error = lastError ?? (folded ? state.rootFailure : undefined);
+      const failed = !aborted && (data["is_error"] === true || error !== undefined);
       if (!failed && !aborted) clearRateLimit(state);
-      if (state.wakeDuringTurn && object(data["origin"])["kind"] !== "task-notification") {
+      if ((state.wakeDuringTurn && !notified) || folded) {
+        state.wake ??=
+          state.runTrigger === "subagent_result" ? "subagent_result" : "background_completion";
         state.wakeUntil = now + 5_000;
         state.emit({ type: "wake.expected", agent: state.root, until: state.wakeUntil });
       }
+      const ended = failed
+        ? {
+            ...error,
+            kind: error?.kind ?? ("provider" as const),
+            message: error?.message ?? string(data["result"], "Claude execution failed"),
+            ...(error?.details ? { details: error.details } : {}),
+          }
+        : undefined;
       state.emit({
         type: "turn.ended",
         agent: state.root,
         outcome: aborted ? "interrupted" : failed ? "failed" : "completed",
-        trigger:
-          object(data["origin"])["kind"] === "task-notification"
-            ? state.runTrigger === "subagent_result"
-              ? "subagent_result"
-              : "background_completion"
-            : state.runTrigger === "unknown"
-              ? "user"
-              : state.runTrigger,
-        ...(failed
-          ? {
-              error: {
-                ...lastError,
-                kind: lastError?.kind ?? ("provider" as const),
-                message: lastError?.message ?? string(data["result"], "Claude execution failed"),
-                ...(lastError?.details ? { details: lastError.details } : {}),
-              },
-            }
-          : {}),
+        trigger: notified
+          ? state.runTrigger === "subagent_result"
+            ? "subagent_result"
+            : "background_completion"
+          : state.runTrigger === "unknown"
+            ? "user"
+            : state.runTrigger,
+        ...(ended ? { error: ended } : {}),
       });
+      if (ended || !folded) state.rootFailure = ended;
       state.active.delete(state.root);
       messages.endRoot();
       state.releaseTurn();

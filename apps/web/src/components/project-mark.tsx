@@ -1,3 +1,4 @@
+import { ChatCircleIcon } from "@phosphor-icons/react";
 import { ProjectImage } from "./project-image.tsx";
 import type { ProjectBadge } from "@ace/ui-core";
 import type { ProjectBadgeStyle } from "@ace/protocol";
@@ -76,5 +77,20 @@ export function ProjectMark(props: {
   quiet?: boolean | undefined;
 }) {
   const project = useProjectMetadata()(props.id);
+  // A chat with no project (ADR 0099) is marked as a chat, never as its hidden folder.
+  if (project?.kind === "chat")
+    return (
+      <span
+        aria-hidden
+        data-project-mark=""
+        className={cn(
+          "inline-flex shrink-0 items-center justify-center",
+          sizes.row.tile,
+          props.quiet ? "text-faint-foreground" : "text-muted-foreground",
+        )}
+      >
+        <ChatCircleIcon aria-hidden size={sizes.row.glyph + 2} weight="bold" />
+      </span>
+    );
   return <ProjectMarkView badge={props.badge} look={project} quiet={props.quiet} />;
 }

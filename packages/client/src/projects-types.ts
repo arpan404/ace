@@ -62,6 +62,8 @@ export interface ProjectCalls {
     options?: RequestOptions,
     commandId?: string,
   ): Promise<CommandResult>;
+  /** Make a chat's hidden project (ADR 0099); the receipt's `workspace` is where it starts. */
+  chat(options?: RequestOptions, commandId?: string): Promise<CommandResult>;
   inspect(path: string, options?: RequestOptions): Promise<ProjectsResult>;
   home(options?: RequestOptions): Promise<ProjectsResult>;
   recentFolders(limit?: number, options?: RequestOptions): Promise<ProjectsResult>;

@@ -11,7 +11,7 @@ import { ProviderPayload } from "@ace/provider-kit/payload";
 import { elidedJson } from "@ace/provider-kit/binary-elision";
 import { ShellSettlement } from "./shell-settlement.ts";
 import { cancellationGraceMs, promptStop } from "./settlement.ts";
-import type { ProviderSession, SessionContext } from "@ace/engine-api";
+import { InputRejected, type ProviderSession, type SessionContext } from "@ace/engine-api";
 import { encodeContent } from "./content.ts";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import { JsonRpcPeer, MethodNotFound, type ServerRequest } from "@ace/provider-kit/jsonrpc";
@@ -31,7 +31,13 @@ interface PendingInteraction {
   owner: string;
   answer(value: unknown): void;
 }
+/** One send; a command input can expand into several prompts. */
+interface Batch {
+  /** Set once any of its prompts reached the transport; from then on it may have run. */
+  written: boolean;
+}
 interface Queued {
+  batch: Batch;
   input: ContentPart[];
   commandId?: string;
   origin?: "ace";
@@ -127,6 +133,8 @@ class AcpSession implements ProviderSession {
     );
   }
   sequence = 0;
+  /** session/prompt frames handed to the transport, to tell a written prompt from one that never left. */
+  promptFrames = 0;
   readonly started: number;
   readonly now: () => number;
   constructor(
@@ -151,7 +159,10 @@ class AcpSession implements ProviderSession {
     this.quirks = quirks;
     this.proc = proc;
     this.rpc = new JsonRpcPeer(proc, {
-      onFrame: (dir, data) => this.frame(dir, "stdio", data),
+      onFrame: (dir, data) => {
+        if (dir === "send" && object(data)["method"] === "session/prompt") this.promptFrames++;
+        this.frame(dir, "stdio", data);
+      },
       onMalformed: (line) => this.frame("recv", "stdio-text", line),
       onError: (error) => this.fail(error),
     });
@@ -352,22 +363,43 @@ class AcpSession implements ProviderSession {
     commandId?: string,
     origin?: "ace",
   ): Promise<void> {
-    if (this.closed) throw new Error("ACP session closed");
-    if (this.shells.blocked) throw new Error("ACP shell execution completion is unconfirmed");
+    // Refusals before queueing write nothing, so the agent provably took none of the input.
+    if (this.closed) throw new InputRejected("ACP session closed");
+    if (this.shells.blocked)
+      throw new InputRejected("ACP shell execution completion is unconfirmed");
     const inputs = nativeCommandInputs(input);
     const bytes = inputs.reduce(
       (total, parts) => total + Buffer.byteLength(JSON.stringify(parts)),
       0,
     );
     if (this.queue.length + inputs.length > 64 || this.queuedBytes + bytes > 4 * 1024 * 1024)
-      throw new Error("ACP input queue capacity reached");
-    await Promise.all(
+      throw new InputRejected("ACP input queue capacity reached");
+    const batch: Batch = { written: false };
+    try {
+      await this.enqueue(inputs, batch, commandId, origin);
+    } catch (error) {
+      if (batch.written) throw error;
+      // No prompt of this send reached the agent; drop the rest so none goes out later.
+      this.dropBatch(batch);
+      throw new InputRejected(error instanceof Error ? error.message : String(error), {
+        cause: error,
+      });
+    }
+  }
+  private enqueue(
+    inputs: ContentPart[][],
+    batch: Batch,
+    commandId: string | undefined,
+    origin: "ace" | undefined,
+  ): Promise<void[]> {
+    return Promise.all(
       inputs.map(
         (parts) =>
           new Promise<void>((resolve, reject) => {
             const partBytes = Buffer.byteLength(JSON.stringify(parts));
             this.queuedBytes += partBytes;
             this.queue.push({
+              batch,
               input: structuredClone(parts),
               ...(commandId ? { commandId } : {}),
               ...(origin ? { origin } : {}),
@@ -380,6 +412,13 @@ class AcpSession implements ProviderSession {
           }),
       ),
     );
+  }
+  private dropBatch(batch: Batch): void {
+    const kept = this.queue.filter((job) => job.batch !== batch);
+    if (kept.length === this.queue.length) return;
+    for (const job of this.queue) if (job.batch === batch) this.queuedBytes -= job.bytes;
+    this.queue.splice(0, this.queue.length, ...kept);
+    this.queueChanged();
   }
   queueChanged(): void {
     this.frame("note", "recorder", { event: "queue-changed", count: this.queue.length });
@@ -412,7 +451,8 @@ class AcpSession implements ProviderSession {
       // once per connection (a new or loaded session), never every turn, where each copy would
       // stay in history and re-bill. ACP reports no compaction, so there is no signal to resend on.
       const guidance = this.guided ? undefined : this.ctx.mcp;
-      const result = await this.rpc.request(
+      const written = this.promptFrames;
+      const reply = this.rpc.request(
         "session/prompt",
         {
           sessionId: this.nativeSessionId,
@@ -430,6 +470,9 @@ class AcpSession implements ProviderSession {
         },
         { timeoutMs: null, signal: this.ctx.signal },
       );
+      // The request frame goes out synchronously, or the request fails without writing it.
+      if (this.promptFrames !== written) next.batch.written = true;
+      const result = await reply;
       if (guidance) this.guided = true;
       const stop = promptStop(result);
       if (!stop) {

@@ -44,6 +44,6 @@ An automation is a saved prompt that runs as a child agent in this project, on d
 
 - `automations_list` shows them with each schedule's next run; `runs: true` shows recent runs with their threads.
 - `automation_put` creates or replaces one by `id`: `title`, `prompt`, and an optional `schedule` (`rrule` or `cron`, a timezone, and `startAt` on a whole minute).
-- `automation_run` runs one now; `automation_remove` deletes it (your provider may ask the person first).
+- `automation_run` runs one now, or pauses (`action: pause`) and resumes (`action: resume`) it; `automation_remove` deletes it (your provider may ask the person first).
 
 Mutating tools take a `requestId`: any stable id you choose. Repeating a call with the same id changes nothing twice.

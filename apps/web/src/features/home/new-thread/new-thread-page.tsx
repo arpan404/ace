@@ -1,6 +1,7 @@
 import { useIssueSource, usePrSource } from "@/features/forge/index.ts";
 import { useNavigate } from "@tanstack/react-router";
 import { ProjectPicker } from "./project-picker.tsx";
+import { chatChoice, forgetChatProject, useChatProject } from "./chat-project.ts";
 import { StartFrom, type StartSource } from "./start-from.tsx";
 import type { AccessMode, BranchRef, ProviderKind, WorktreeBase } from "@ace/protocol";
 import { Suspense, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
@@ -138,10 +139,13 @@ export function NewThreadPage(props: {
   const { ids: projects, loaded } = useRegisteredProjects();
   const host = useHostIdentity()?.hostId;
   const navigate = useNavigate();
-  const project =
-    props.project ?? pickProject(projects, undefined, loadChoices(storage).project, filter);
+  // "No project" is offered after every project, and is the choice when there are none.
+  const choice =
+    props.project ??
+    pickProject([...projects, chatChoice], undefined, loadChoices(storage).project, filter);
+  const chat = useChatProject(choice === chatChoice, storage);
   if (!loaded || !host) return <NewThreadSkeleton />;
-  if (props.project && !projects.includes(props.project))
+  if (props.project && props.project !== chatChoice && !projects.includes(props.project))
     return (
       <UnavailablePreparation
         host={host}
@@ -151,18 +155,28 @@ export function NewThreadPage(props: {
         issue={props.issue}
       />
     );
-  if (!projects.length || !project)
+  if (chat.state === "failed")
     return (
       <Screen title="New thread">
-        <ProjectsEmptyState />
+        <div className="px-5 py-6">
+          <p role="alert" className="text-ui text-status-failed">
+            Couldn't start a chat without a project. Check the connection and try again.
+          </p>
+          <Button type="button" size="sm" variant="ghost" className="mt-2" onClick={chat.retry}>
+            Try again
+          </Button>
+        </div>
       </Screen>
     );
+  const project = choice === chatChoice ? chat.state === "ready" && chat.project : choice;
+  if (!project) return <NewThreadSkeleton />;
   return (
     <PreparationPage
       key={preparationKey(host, project, props.skill, props.issue ?? props.pullRequest)}
       {...props}
       host={host}
       project={project}
+      chat={choice === chatChoice}
       onProject={(next) => {
         saveChoices(storage, { ...loadChoices(storage), project: next });
         void navigate({
@@ -189,6 +203,8 @@ function PreparationPage(props: {
   recoverStart: boolean;
   host: string;
   project: string;
+  /** `project` is the hidden project of a chat with no project (ADR 0099). */
+  chat: boolean;
   base?: string | undefined;
   skill?: string | undefined;
   pullRequest?: string | undefined;
@@ -206,9 +222,10 @@ function PreparationPage(props: {
   const project = props.project;
   const prSource = usePrSource(project, props.pullRequest);
   const issueSource = useIssueSource(project, props.issue);
+  // A chat's draft outlives the hidden project made for it, which the daemon may replace.
   const draftKey = preparationKey(
     props.host,
-    project,
+    props.chat ? chatChoice : project,
     props.skill,
     props.issue ?? props.pullRequest,
   );
@@ -273,9 +290,14 @@ function PreparationPage(props: {
   const options = start.loaded ? catalog : undefined;
   const [picked, setPicked] = useState<ProviderKind | undefined>(restored?.provider);
   const defaultMode = useDefaultWorkMode();
-  const branches = useBaseRefs(project);
-  // A folder that isn't a Git repository, or one with no commit yet, can only run locally.
-  const noWorktree = props.pullRequest ? undefined : noWorktreeReason(branches);
+  const branches = useBaseRefs(props.chat ? undefined : project);
+  // A folder that isn't a Git repository, or one with no commit yet, can only run locally. A
+  // chat's folder never is one.
+  const noWorktree = props.pullRequest
+    ? undefined
+    : props.chat
+      ? "not_a_repo"
+      : noWorktreeReason(branches);
   const selected = resolve(
     options,
     choices,
@@ -584,7 +606,7 @@ function PreparationPage(props: {
     forgetReturned();
     // ⌘N opens the project of the thread started last; the next one may start on this model
     // before the catalog loads.
-    saveChoices(storage, { ...loadChoices(storage), project });
+    saveChoices(storage, { ...loadChoices(storage), project: props.chat ? chatChoice : project });
     if (resolved.model)
       saveLaunch(storage, {
         scope: resolved.model.scope,
@@ -630,6 +652,7 @@ function PreparationPage(props: {
       draft.opposite ? "stay" : "open",
     );
     submitting.current = false;
+    if (sent && props.chat) forgetChatProject(storage, project);
     const current = preparation(storage, props.host, draftKey);
     const content = readDraft(storage, draftKey);
     const unchanged =
@@ -675,8 +698,8 @@ function PreparationPage(props: {
   // Mount only after the project-scoped draft key is known, so restoration cannot race
   // the project directory on a fresh load.
   if (!loaded) return <NewThreadSkeleton />;
-  // The first run: nothing to start a thread in until a project is added.
-  if (loaded && !projects.length)
+  // Nothing to start a thread in until a project is added, unless it's a chat.
+  if (loaded && !projects.length && !props.chat)
     return (
       <Screen title="New thread">
         <ProjectsEmptyState />
@@ -721,11 +744,11 @@ function PreparationPage(props: {
             the composer high on the page, and the project's open work to start from below it. */}
         <div className={cn(readingColumn, "flex flex-col pt-[clamp(1rem,22vh,12rem)]")}>
           <h2 className="mb-6 px-1 text-center text-2xl leading-tight font-normal tracking-title text-balance break-words text-muted-foreground">
-            What should we build in{" "}
+            {props.chat ? "What should we work on" : "What should we build in"}{" "}
             <ProjectPicker
               projects={projects}
               projectName={name}
-              project={project}
+              project={props.chat ? chatChoice : project}
               onProject={chooseProject}
               returnFocus={messageField}
             />
@@ -867,7 +890,8 @@ function PreparationPage(props: {
                       {readiness.pending}
                     </p>
                   )}
-                  {!notice && (
+                  {/* A chat runs in its own folder: there is nowhere else to choose. */}
+                  {!notice && !props.chat && (
                     <div data-environment="" className={composerEnvironmentRow}>
                       <div className="flex min-w-0 flex-1 items-center">
                         <Suspense fallback={<Skeleton className="mx-2 w-28" />}>
@@ -939,11 +963,13 @@ function PreparationPage(props: {
               }
             />
           </div>
-          <StartFrom
-            project={props.project}
-            source={{ pullRequest: props.pullRequest, issue: props.issue }}
-            onPick={props.onSource}
-          />
+          {!props.chat && (
+            <StartFrom
+              project={props.project}
+              source={{ pullRequest: props.pullRequest, issue: props.issue }}
+              onPick={props.onSource}
+            />
+          )}
         </div>
       </div>
     </Screen>

@@ -17,6 +17,7 @@ extension AceIcon {
         case arrowUp = "arrow-up"
         case arrowsInLineVertical = "arrows-in-line-vertical"
         case arrowsLeftRight = "arrows-left-right"
+        case arrowsOutSimple = "arrows-out-simple"
         case at = "at"
         case bell = "bell"
         case bellSimpleZ = "bell-simple-z"

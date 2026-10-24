@@ -18,7 +18,8 @@
     "./access": "./src/access.ts",
     "./access-ticket": "./src/access-ticket.ts",
     "./turn-steps": "./src/turn-steps.ts",
-    "./tool-icons": "./src/tool-icons.ts"
+    "./tool-icons": "./src/tool-icons.ts",
+    "./terminal-keys": "./src/terminal-keys.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

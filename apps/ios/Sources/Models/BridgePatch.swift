@@ -166,6 +166,8 @@ struct InboxLayout: Codable, Sendable, Equatable {
         /// `MergedInbox` orders every machine's sections by them.
         var ranks: [String]? = nil
         var order: Int? = nil
+        /// Threads in the section, loaded or not: Settled counts the daemon's older pages too.
+        var total: Int? = nil
         var id: String { key }
     }
     struct SnoozeOption: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }
@@ -201,8 +203,8 @@ enum BridgePatch: Decodable, Sendable {
     case block(String, Int, String, BlockRow?)
     case blockPosition(String, Int, String, Int?)
     case controls(String, Int, ControlsRow?)
-    case history(String, Int, Bool, Bool)
-    case models(String, Int, String, [ModelOption])
+    case history(String, Int, Bool)
+    case models(String, Int, ThreadModels)
     case queue(String, Int, QueueRow)
     case inboxSections(InboxLayout)
     case problem(ProblemNotice?)
@@ -229,6 +231,8 @@ enum BridgePatch: Decodable, Sendable {
     /// A kept read the bridge stopped keeping: Swift's copy lets it go too.
     case serviceEvict(String)
     case serviceGenerations([String: Int])
+    /// The history window put everything a read changed (`bridge/native-transcript.ts`).
+    case readingSettled(String, Int)
 
     private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation }
     init(from decoder: any Decoder) throws {
@@ -276,14 +280,15 @@ enum BridgePatch: Decodable, Sendable {
         case "thread.blockPosition":
             let (id, epoch) = try scope()
             self = .blockPosition(id, epoch, try box.decode(String.self, forKey: .id), try box.decodeIfPresent(Int.self, forKey: .index))
+        case "reading.settled": let (id, epoch) = try scope(); self = .readingSettled(id, epoch)
         case "thread.controls": let (id, epoch) = try scope(); self = .controls(id, epoch, try box.decodeIfPresent(ControlsRow.self, forKey: .row))
         case "thread.history":
             let (id, epoch) = try scope()
-            self = .history(id, epoch, try box.decode(Bool.self, forKey: .hasOlder), try box.decode(Bool.self, forKey: .loading))
+            self = .history(id, epoch, try box.decode(Bool.self, forKey: .hasOlder))
         case "thread.queue": let (id, epoch) = try scope(); self = .queue(id, epoch, try QueueRow(from: decoder))
         case "thread.models":
             let (id, epoch) = try scope()
-            self = .models(id, epoch, try box.decode(String.self, forKey: .state), try box.decode([ModelOption].self, forKey: .models))
+            self = .models(id, epoch, try ThreadModels(from: decoder))
         case "inbox.sections": self = .inboxSections(try InboxLayout(from: decoder))
         case "connection.problem": self = .problem(try box.decodeIfPresent(ProblemNotice.self, forKey: .problem))
         case "machine.status": self = .machineStatus(try MachineStatusInfo(from: decoder))

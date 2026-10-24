@@ -17,6 +17,7 @@ import {
   ThreadRefContextItem,
 } from "@ace/protocol";
 import { z as classic } from "zod";
+import { stillLimit } from "@/components/image-still.ts";
 import * as z from "zod/mini";
 
 /*
@@ -44,11 +45,22 @@ const DraftAnnotationsSchema = classic.object({
   ),
   pages: classic.array(Held.extend({ url: classic.string() })).catch([]),
 });
+/** A kept still is a small inline image, never a link; anything else is dropped, not the file. */
+const DraftFile = Held.extend({
+  mimeType: classic.string().max(128).optional().catch(undefined),
+  bytes: classic.number().int().nonnegative().optional().catch(undefined),
+  still: classic
+    .string()
+    .max(stillLimit)
+    .regex(/^data:image\/(?:webp|jpeg|png);base64,[A-Za-z0-9+/]+=*$/)
+    .optional()
+    .catch(undefined),
+});
 export const ComposerDraftSchema = classic.object({
   tokens: classic.array(Token).optional(),
   text: classic.string(),
   mentions: classic.array(classic.string()),
-  attachments: classic.array(classic.object({ sha256: classic.string(), name: classic.string() })),
+  attachments: classic.array(DraftFile),
   annotations: DraftAnnotationsSchema.optional().catch(undefined),
 });
 const Entries = z.catch(z.array(z.tuple([z.string(), ComposerDraftSchema])), []);

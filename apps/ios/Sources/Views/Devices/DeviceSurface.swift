@@ -15,9 +15,12 @@ final class DeviceSurfaceView: UIView {
     var onGesture: (DevicePress, DevicePress) -> Void = { _, _ in }
     /// The upright picture's size in device points, each time it changes.
     var onScreenSize: (CGSize) -> Void = { _ in }
-    var interactive = false
+    /// While the person drives, a swipe here goes to the device, never to ace's back swipe.
+    var interactive = false { didSet { claim.isEnabled = interactive } }
+    private lazy var claim = SurfaceTouchClaim.install(on: self)
     override init(frame: CGRect) {
         super.init(frame: frame)
+        claim.isEnabled = interactive
         video.videoGravity = .resize
         video.anchorPoint = .zero
         layer.addSublayer(video)

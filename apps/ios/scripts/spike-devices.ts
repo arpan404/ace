@@ -216,6 +216,13 @@ export function featureMessage(
   return true;
 }
 
+/** `GET /devices/inputs`: every input a person sent to a device, for tests that drive the screen. */
+export function devicesControl(daemon: FakeDaemon, request: Request): Response | undefined {
+  if (new URL(request.url).pathname !== "/devices/inputs" || request.method !== "GET")
+    return undefined;
+  return Response.json({ inputs: daemon.appDevices.inputs });
+}
+
 export function featureClosed(socket: Socket): void {
   features.get(socket)?.close();
   features.delete(socket);

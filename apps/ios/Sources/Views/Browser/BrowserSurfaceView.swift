@@ -15,7 +15,9 @@ final class BrowserSurfaceView: UIView {
     private(set) var pageSize: CGSize = .zero
     /// The newest picture decoded since the last refresh, if any.
     var nextPicture: () -> BrowserPicture? = { nil }
-    var interactive = true
+    /// While the person can use the page, a swipe here goes to the page, never to ace's back swipe.
+    var interactive = true { didSet { claim.isEnabled = interactive } }
+    private lazy var claim = SurfaceTouchClaim.install(on: self)
     var onInput: ([RemoteInput]) -> Void = { _ in } {
         didSet { textField.onInput = onInput }
     }
@@ -34,6 +36,7 @@ final class BrowserSurfaceView: UIView {
         videoLayer.videoGravity = .resizeAspect
         layer.addSublayer(videoLayer)
         addSubview(textField)
+        claim.isEnabled = interactive
         isAccessibilityElement = true
         accessibilityLabel = "Live browser page"
         accessibilityTraits = .allowsDirectInteraction

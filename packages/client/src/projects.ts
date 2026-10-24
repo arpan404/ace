@@ -52,6 +52,7 @@ export function deferredProjectsApi(
     update: (...args) => call((ready) => ready.update(...args)),
     rename: (...args) => call((ready) => ready.rename(...args)),
     remove: (...args) => call((ready) => ready.remove(...args)),
+    chat: (...args) => call((ready) => ready.chat(...args)),
     inspect: (...args) => call((ready) => ready.inspect(...args)),
     home: (...args) => call((ready) => ready.home(...args)),
     recentFolders: (...args) => call((ready) => ready.recentFolders(...args)),

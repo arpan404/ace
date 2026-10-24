@@ -30,6 +30,8 @@ export function projectCalls(client: ProjectsClient): ProjectCalls {
       client.command(ProjectCommand.parse({ type: "workspace.rename", ...input }), options, id),
     remove: (input, options, id) =>
       client.command(ProjectCommand.parse({ type: "workspace.remove", ...input }), options, id),
+    chat: (options, id) =>
+      client.command(ProjectCommand.parse({ type: "workspace.chat.create" }), options, id),
     inspect: (path, options) =>
       client.request(
         { type: "projects.request", operation: { op: "workspace.inspect", path } },

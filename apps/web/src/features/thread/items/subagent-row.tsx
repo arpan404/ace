@@ -3,6 +3,7 @@ import {
   formatElapsed,
   subagentDetail,
   subagentLabels,
+  subagentRunning,
   subagentMeta,
   subagentTerminal,
   subagentToolId,
@@ -85,7 +86,7 @@ export function SubagentRow(props: {
       <SubagentElapsed
         startedAt={entry.startedAt}
         endedAt={entry.endedAt}
-        running={!terminal}
+        running={subagentRunning(entry.state)}
         fresh={props.fresh}
       />
     ),

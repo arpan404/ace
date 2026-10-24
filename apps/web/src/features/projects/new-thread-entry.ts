@@ -5,6 +5,7 @@ import { useCallback, useMemo } from "react";
 import { useOrganizer } from "@/features/organize/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
+import { chatChoice } from "@/lib/chat-choice.ts";
 
 /** The project of the list's most recently updated thread. */
 function latestProject(reader: SidebarReader): string | undefined {
@@ -18,10 +19,10 @@ function latestProject(reader: SidebarReader): string | undefined {
 }
 
 /**
- * Ways into a new thread. `start` asks where when it has to: with no project it opens Add
- * project, with one it opens the draft there, with several the palette's "New thread in…".
- * `here` skips the question: the open thread's project, else the project Home is filtered to,
- * else the one worked in last.
+ * Ways into a new thread. `start` asks where when it has to: with no project it opens a chat
+ * with no project, with one it opens the draft there, with several the palette's "New thread
+ * in…". `here` skips the question: the open thread's project (another chat from a chat), else
+ * the project Home is filtered to, else the one worked in last.
  */
 export function useNewThreadEntry(): { start(): void; here(): void } {
   const navigate = useNavigate();
@@ -39,7 +40,7 @@ export function useNewThreadEntry(): { start(): void; here(): void } {
     const only = projects.length === 1 ? projects[0] : undefined;
     if (only) draft(only.id);
     else if (projects.length > 1) openPalette({ page: "new-thread-in" });
-    else if (directory.loaded) openPalette({ page: "add-project" });
+    else if (directory.loaded) draft(chatChoice);
     else void navigate({ to: "/new" });
   }, [projects, directory.loaded, draft, openPalette, navigate]);
   const here = useCallback(() => {
@@ -48,13 +49,15 @@ export function useNewThreadEntry(): { start(): void; here(): void } {
     const fromThread = open
       ? sidebar?.select(["ids", "threads"], (reader) => reader.thread(open)?.workspaceId)
       : undefined;
+    const threadProject = fromThread?.getSnapshot();
+    if (threadProject && directory.isChat(threadProject)) return draft(chatChoice);
     const project =
-      known(fromThread?.getSnapshot()) ??
+      known(threadProject) ??
       known(organizer.getState().project) ??
       known(sidebar?.select(["ids", "threads"], latestProject).getSnapshot()) ??
       projects[0]?.id;
     if (project) draft(project);
     else start();
-  }, [open, sidebar, organizer, projects, draft, start]);
+  }, [open, sidebar, organizer, projects, directory, draft, start]);
   return useMemo(() => ({ start, here }), [start, here]);
 }

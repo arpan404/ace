@@ -62,7 +62,6 @@ test("published images read their own authenticated attachment and cannot be fet
   };
   const result = await readNativeMedia(client, request, new AbortController().signal);
   expect(result).toEqual({ kind: "image", data: fixtureImage.data });
-  daemon.createThread({ id: "foreign", workspaceId: "ace", provider: "codex", title: "Foreign" });
   await expect(
     readNativeMedia(
       client,
@@ -136,7 +135,8 @@ test("a published canvas still opens on a daemon that has no attachment stream",
     new AbortController().signal,
   );
   expect(result).toMatchObject({ kind: "html" });
-  // The page travels URL-encoded inside the sandboxed wrapper.
-  expect(JSON.stringify(result)).toContain("Step%201");
+  // The page travels inside the sandboxed frame of an outer document that reports its height.
+  expect(JSON.stringify(result)).toContain("Step 1");
+  expect(JSON.stringify(result)).toContain("ace.html.height:");
   lease.release();
 });

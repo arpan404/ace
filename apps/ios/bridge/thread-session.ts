@@ -1,6 +1,12 @@
 import { retrySend, type ChangeTap, type ClientCore, type ThreadSource } from "@ace/client";
-import { FollowUpBehavior, InteractionId, ThreadId, type CommandPayload } from "@ace/protocol";
-import { composerReply, isBusy, messageHasContent, modelLabel } from "@ace/ui-core";
+import {
+  FollowUpBehavior,
+  InteractionId,
+  ThreadId,
+  type CatalogModel,
+  type CommandPayload,
+} from "@ace/protocol";
+import { catalogModelIds, composerReply, isBusy, messageHasContent, modelKey } from "@ace/ui-core";
 import { runsOn } from "@ace/ui-core/thread-execution";
 import { z } from "zod";
 import { host, scheduler } from "./host.ts";
@@ -14,12 +20,15 @@ import { goalPayload, PillFollower } from "./thread-pill.ts";
 import { QueueFollower } from "./thread-queue.ts";
 import { requestResolution } from "./thread-requests.ts";
 import { StepsFollower } from "./thread-steps.ts";
+import { ModelFavorites } from "./model-favorites.ts";
+import { ThreadAccessFollower } from "./thread-access.ts";
+import { threadModelRows, type ThreadModelRow } from "./thread-models.ts";
 import { TuneFollower } from "./thread-tune.ts";
 import { answerResolution, controlsRow, sendPayload, stopPayload } from "./thread-controls.ts";
 
 /*
  * What the open thread adds to the spike's item and interaction rows: its blocks, the composer's
- * controls (effort, speed, attachments), history paging, the model list, finished turns' steps
+ * controls (effort, speed, attachments), whether older history exists, the model list, finished turns' steps
  * and a subagent's lane, and the actions the thread screen sends. One session per navigation
  * generation; leaving the thread disposes it and cancels its reads.
  */
@@ -54,8 +63,12 @@ export class ThreadSession {
   readonly #whenKnown = new Promise<void>((resolve) => {
     this.#known = resolve;
   });
-  #loading = false;
-  #models: { state: string; models: Record<string, unknown>[] } = { state: "idle", models: [] };
+  #models: { state: string; models: ThreadModelRow[] } = { state: "idle", models: [] };
+  #listed: CatalogModel[] = [];
+  #stars: string[] = [];
+  #starProblem: string | null = null;
+  readonly #favorites: ModelFavorites;
+  readonly #access: ThreadAccessFollower;
 
   constructor(
     client: ClientCore,
@@ -78,6 +91,10 @@ export class ThreadSession {
       this.#pill.queued(count),
     );
     this.#steps = new StepsFollower(client, store, this.#threadId, put);
+    this.#favorites = new ModelFavorites(client);
+    this.#access = new ThreadAccessFollower(client, store, this.#threadId, put, (payload, id) =>
+      this.#dispatch(payload, id),
+    );
     this.#tune = new TuneFollower(client, store, signal, put, () => host.now());
     this.#tray = new AttachmentTray(
       client,
@@ -102,7 +119,10 @@ export class ThreadSession {
         [...keys].some((key) => key.startsWith("agent:"))
       )
         this.#controls();
-      if (keys === "all" || keys.has("thread")) this.#tune.update();
+      if (keys === "all" || keys.has("thread")) {
+        this.#tune.update();
+        this.#access.update();
+      }
       if (keys === "all" || keys.has("order") || keys.has("history")) this.#history();
       if (keys === "all" || keys.has("queue") || keys.has("thread") || keys.has("agents"))
         this.#queue.update();
@@ -114,6 +134,7 @@ export class ThreadSession {
     this.#history();
     this.#queue.update();
     this.#tune.update();
+    this.#access.update();
     this.#ready();
     void this.#readSetting();
     // Offline, the read waits for the connection; the composer must not wait with it.
@@ -122,7 +143,7 @@ export class ThreadSession {
   }
 
   // Queued after the snapshot's items AND blocks, so native reveals one coherent transcript: the
-  // latest window, never waiting for older history (`thread-history.ts`).
+  // latest window, never waiting for older history (the reading window, `native-transcript.ts`).
   #ready(): void {
     if (this.#store.thread)
       this.#put("ready", () => ({ type: "thread.ready", count: this.#store.order.length }));
@@ -194,14 +215,17 @@ export class ThreadSession {
       case "retrySend":
         void this.#retry(action.id, action.requestId);
         break;
-      case "loadOlder":
-        void this.#loadOlder();
-        break;
       case "models":
         void this.#listModels();
         break;
       case "switchModel":
         this.#dispatch(this.#switchPayload(action.model), action.requestId);
+        break;
+      case "access":
+        this.#access.set(action.mode, action.requestId);
+        break;
+      case "favorite":
+        void this.#favorite(action.model);
         break;
       case "queue":
         this.#dispatch(
@@ -349,7 +373,6 @@ export class ThreadSession {
     this.#put("history", () => ({
       type: "thread.history",
       hasOlder: this.#store.itemsBefore != null,
-      loading: this.#loading,
     }));
   }
   async #readSetting(): Promise<void> {
@@ -378,23 +401,6 @@ export class ThreadSession {
     this.#known();
     this.#controls();
   }
-  async #loadOlder(): Promise<void> {
-    if (this.#loading || this.#store.itemsBefore == null) return;
-    this.#loading = true;
-    this.#history();
-    try {
-      await this.#client.loadOlder(this.#threadId, 200, { signal: this.#abort.signal });
-    } catch {
-      if (!this.#abort.signal.aborted)
-        this.#pump.put("error", () => ({
-          type: "error",
-          message: "Couldn't load earlier messages. Check your connection.",
-        }));
-    } finally {
-      this.#loading = false;
-      if (!this.#abort.signal.aborted) this.#history();
-    }
-  }
   async #retry(commandId: string, id: string): Promise<void> {
     const pending = this.#client.pendingSend(commandId);
     if (pending?.state !== "failed") {
@@ -414,30 +420,41 @@ export class ThreadSession {
   async #listModels(): Promise<void> {
     const selection = this.#selection();
     if (!selection) return;
-    this.#publishModels("loading", []);
+    this.#publishModels("loading");
     try {
-      const listed = await this.#tune.read();
-      const seen = new Set<string>();
-      const models = listed.flatMap((model) => {
-        if (seen.has(model.id)) return [];
-        seen.add(model.id);
-        return [
-          {
-            id: model.id,
-            label: preview(model.displayName || modelLabel(model.id), 128),
-            detail: preview(model.detail ?? "", 256),
-            current: model.id === selection.model,
-          },
-        ];
-      });
-      this.#publishModels("ready", models);
+      this.#listed = await this.#tune.read();
+      this.#stars = await this.#favorites.read(catalogModelIds(this.#listed));
+      this.#publishModels("ready");
     } catch {
-      if (!this.#abort.signal.aborted) this.#publishModels("failed", []);
+      if (!this.#abort.signal.aborted) this.#publishModels("failed");
     }
   }
-  #publishModels(state: string, models: Record<string, unknown>[]): void {
-    this.#models = { state, models };
-    this.#put("models", () => ({ type: "thread.models", ...this.#models }));
+  async #favorite(model: string): Promise<void> {
+    const selection = this.#selection();
+    if (!selection) return;
+    try {
+      const key = modelKey(selection.provider, model);
+      this.#stars = await this.#favorites.toggle(key, catalogModelIds(this.#listed));
+      this.#starProblem = null;
+    } catch {
+      this.#starProblem = "Couldn't save this favourite. Reconnect and try again.";
+    }
+    if (this.#models.state === "ready") this.#publishModels("ready");
+  }
+  #publishModels(state: string): void {
+    const selection = this.#selection();
+    const rows =
+      state === "ready" && selection
+        ? threadModelRows(this.#listed, selection, this.#stars, preview)
+        : { models: [], favorites: [] };
+    this.#models = { state, models: rows.models };
+    const patch = {
+      type: "thread.models",
+      ...this.#models,
+      favorites: rows.favorites,
+      starProblem: this.#starProblem,
+    };
+    this.#put("models", () => patch);
   }
   #switchPayload(model: string): CommandPayload | undefined {
     const selection = this.#selection();

@@ -1,4 +1,5 @@
 import type { ChangeTap, ClientCore, PendingSend, SidebarSource } from "@ace/client";
+import { settledTotal } from "@ace/ui-core";
 import {
   inboxNextChange,
   snoozePresets,
@@ -143,7 +144,10 @@ export function followInbox(
       arm(inboxNextChange(threads, now));
       const unsent = sends.getSnapshot().map((send) => ({ key: send.commandId, machineId, send }));
       // The inbox pages home; while the archive is open the store's own window is the archive's.
-      return inboxLayout(threads, unsent, now, (store.homeWindow ?? store.window)?.before != null);
+      // Only the daemon's own copy has a Settled section, so only it carries the daemon's total.
+      return inboxLayout(threads, unsent, now, (store.homeWindow ?? store.window)?.before != null, {
+        settledTotal: store.unconfirmed === true ? undefined : settledTotal(store.homeWindow),
+      });
     });
   };
   const pending = (id: string) =>

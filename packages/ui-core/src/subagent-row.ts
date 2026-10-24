@@ -3,7 +3,7 @@ import { describeActivity } from "./agents.ts";
 import { effortLabel, optionEffort } from "./models.ts";
 import { modelLabel } from "./providers.ts";
 import type { SubagentEntry } from "./subagent-group.ts";
-import { subagentTerminal } from "./subagents.ts";
+import { subagentTerminal, type SubagentState } from "./subagents.ts";
 import { formatElapsed } from "./time.ts";
 
 /*
@@ -32,6 +32,7 @@ export function subagentDetail(
   fresh: boolean,
 ): SubagentDetail {
   const status = agent?.status;
+  if (entry.state === "queued") return { detail: queuedDetail };
   if (entry.state === "human") return { detail: "Waiting for you", kind: "human" };
   if (entry.state === "failed") {
     const error = status?.state === "failed" ? status.error : undefined;
@@ -41,6 +42,14 @@ export function subagentDetail(
     return { detail: entry.result, kind: entry.result ? "result" : undefined };
   if (!fresh || !status || (status.state !== "working" && status.state !== "starting")) return {};
   return { detail: sentence(describeActivity(status, toolTitle)), kind: "live" };
+}
+
+/** Why a queued subagent hasn't started, in its row and its own thread. */
+export const queuedDetail = "Starts when a running agent finishes";
+
+/** Whether a subagent's row shows a ticking time: it runs. One still queued has not started. */
+export function subagentRunning(state: SubagentState): boolean {
+  return !subagentTerminal(state) && state !== "queued";
 }
 
 /** The item a working agent runs now, whose title names its activity. */

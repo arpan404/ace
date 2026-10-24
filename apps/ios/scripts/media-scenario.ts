@@ -59,3 +59,55 @@ export function seedNativeMedia(daemon: FakeDaemon): void {
     attachmentImages: [{ threadId, name: fixtureImage.name }],
   });
 }
+
+/** A person's message sent from the web with a screenshot and a text file attached. */
+export function seedMessageAttachments(daemon: FakeDaemon): void {
+  const threadId = "ios-attachments";
+  const notes = "Checkout timings\nfirst paint: 180ms\nsubmit: 420ms\n";
+  const notesSha = createHash("sha256").update(notes).digest("hex");
+  daemon.createThread({
+    id: threadId,
+    workspaceId: "ace",
+    provider: "codex",
+    title: "Screenshot and notes",
+    hasSentMessage: true,
+  });
+  daemon.apply(threadId, [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "web-ask",
+      draft: {
+        type: "message",
+        role: "user",
+        complete: true,
+        parts: [{ type: "text", text: "Why is the submit step slow here?" }],
+        attachments: [
+          {
+            sha256: fixtureImage.sha256,
+            bytes: Buffer.from(fixtureImage.data, "base64").length,
+            mimeType: "image/png",
+            name: "checkout.png",
+            kind: "image",
+            thumbnailAvailable: true,
+          },
+          {
+            sha256: notesSha,
+            bytes: Buffer.byteLength(notes),
+            mimeType: "text/plain",
+            name: "timings.txt",
+            kind: "text",
+          },
+        ],
+      },
+    },
+    facts.message("root", "answer", "assistant", "The submit step waits on two serial requests."),
+    facts.endTurn("root"),
+  ]);
+  daemon.seedServices({
+    attachmentImages: [{ threadId, name: "checkout.png" }],
+    attachmentTexts: [{ threadId, sha256: notesSha, text: notes, name: "timings.txt" }],
+  });
+}

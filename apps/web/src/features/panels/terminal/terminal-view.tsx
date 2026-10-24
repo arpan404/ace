@@ -10,6 +10,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { ClipboardEvent, KeyboardEvent } from "react";
+import { terminalKeyBytes } from "@ace/client/terminal-keys";
 import { applePlatform } from "@/lib/keymap.ts";
 import { keyOwner, lineEditBytes } from "./keys.ts";
 import type { Row, Style } from "./screen.ts";
@@ -18,29 +19,16 @@ import { terminalText, type TerminalSurface } from "./surface.ts";
 import { canUseXterm, XtermView } from "./xterm-view.tsx";
 import { terminalFont } from "./fonts.ts";
 
-const keys: Record<string, string> = {
-  Enter: "\r",
-  Backspace: "\x7f",
-  Tab: "\t",
-  Escape: "\x1b",
-  ArrowUp: "\x1b[A",
-  ArrowDown: "\x1b[B",
-  ArrowRight: "\x1b[C",
-  ArrowLeft: "\x1b[D",
-  Home: "\x1b[H",
-  End: "\x1b[F",
-  Delete: "\x1b[3~",
-};
-
 /** Bytes a key press sends to a PTY, or undefined when the key is not the terminal's. */
-export function keyBytes(event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey">) {
+export function keyBytes(
+  event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">,
+) {
   if (event.metaKey) return undefined;
-  if (event.ctrlKey && !event.altKey && /^[a-z]$/i.test(event.key))
-    return String.fromCharCode(event.key.toUpperCase().charCodeAt(0) - 64);
-  if (event.ctrlKey) return undefined;
-  const mapped = keys[event.key];
-  if (mapped) return mapped;
-  return event.key.length === 1 ? event.key : undefined;
+  // The plain surface tracks no terminal modes; xterm encodes keys itself when it draws.
+  return terminalKeyBytes(
+    { key: event.key, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey },
+    { applicationCursor: false },
+  );
 }
 
 const tones: Record<NonNullable<Style["tone"]>, string> = {
