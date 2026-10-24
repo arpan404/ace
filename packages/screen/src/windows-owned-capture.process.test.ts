@@ -71,6 +71,10 @@ it.runIf(process.platform === "win32")(
     const closed = new Promise<void>((resolve) => {
       child.once("close", () => resolve());
     });
+    let stderr = "";
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString("utf8")).slice(-4096);
+    });
     onTestFinished(async () => {
       child.kill();
       await closed;
@@ -98,7 +102,7 @@ it.runIf(process.platform === "win32")(
         });
         child.once("close", () => {
           clearTimeout(timer);
-          reject(new Error("Fixture exited before reporting HWND"));
+          reject(new Error(`Fixture exited before reporting HWND: ${stderr}`));
         });
         lines.on("line", (line: string) => {
           let raw: unknown;

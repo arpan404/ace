@@ -18,11 +18,16 @@ test.skipIf(!executablePath && process.platform !== "win32")(
     const assembler = new StreamAssembler();
     const chunks: BrowserVideoChunk[] = [];
     const waiters = new Set<() => void>();
+    let problem: Error | undefined;
     let jpeg = false;
     const bridge = connectBrowser(f.service, {
       connectionId: "software-viewer",
       authorize: () => true,
       send: (message) => {
+        if (message.type === "browser.result" && !message.ok && message.error) {
+          problem = new Error(message.error);
+          for (const waiter of waiters) waiter();
+        }
         if (message.type === "browser.frame") jpeg = true;
         return true;
       },
@@ -40,6 +45,12 @@ test.skipIf(!executablePath && process.platform !== "win32")(
     const until = (ready: () => boolean) =>
       new Promise<void>((resolve, reject) => {
         const check = () => {
+          if (problem) {
+            clearTimeout(timer);
+            waiters.delete(check);
+            reject(problem);
+            return;
+          }
           if (!ready()) return;
           clearTimeout(timer);
           waiters.delete(check);
@@ -47,7 +58,7 @@ test.skipIf(!executablePath && process.platform !== "win32")(
         };
         const timer = setTimeout(() => {
           waiters.delete(check);
-          reject(new Error("No playable software video arrived"));
+          reject(new Error(`Software video stalled after ${chunks.length} encoded chunks`));
         }, 20_000);
         waiters.add(check);
         check();
