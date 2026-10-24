@@ -20,6 +20,12 @@ const unit = (nal: number[]) => {
   length.writeUInt32BE(nal.length);
   return Buffer.concat([length, Buffer.from(nal)]);
 };
+/** serve-sim's screen announcement (tag 130) for a 1206 x 2622 screen turned `orientation`. */
+const config = (orientation: string) =>
+  Buffer.concat([
+    Buffer.from([130]),
+    Buffer.from(JSON.stringify({ width: 1206, height: 2622, orientation })),
+  ]);
 const ax = [
   {
     type: "Application",
@@ -90,11 +96,6 @@ export async function fakeServeSim(
   let device = options.turned ?? "portrait";
   let announced = "portrait";
   let rotations = 0;
-  const config = (orientation: string) =>
-    Buffer.concat([
-      Buffer.from([130]),
-      Buffer.from(JSON.stringify({ width: 1206, height: 2622, orientation })),
-    ]);
   const ws = new WebSocketServer({ server });
   ws.on("connection", (socket) => {
     socket.send(config(announced));
