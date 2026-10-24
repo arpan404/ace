@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { CommandResult, Transfer, TransferCommands } from "@ace/protocol";
+import type { CommandResult, ThreadStatus, Transfer, TransferCommands } from "@ace/protocol";
 import type { ProjectsClient } from "./projects-types.ts";
 import { ClientError, type RequestOptions } from "./types.ts";
 
@@ -91,6 +91,29 @@ export function transferRunning(transfer: Transfer): boolean {
   return !finished.has(transfer.phase);
 }
 
+/** The phases Cancel stops: every one before the new thread is being started (ADR 0099). */
+export const cancellablePhases: ReadonlySet<Transfer["phase"]> = new Set<Transfer["phase"]>([
+  "preparing",
+  "cloning",
+  "sending",
+  "importing",
+]);
+
+/** Whether Cancel still applies to this transfer. */
+export function transferCancellable(transfer: Pick<Transfer, "phase">): boolean {
+  return cancellablePhases.has(transfer.phase);
+}
+
+const settledStates = new Set<ThreadStatus["state"]>(["new", "done", "failed"]);
+
+/**
+ * Whether a thread in this state is too busy to continue on another machine: anything but new,
+ * done or failed, as the daemon's thread.move checks refuse (ADR 0099).
+ */
+export function continueBlocked(state: ThreadStatus["state"]): boolean {
+  return !settledStates.has(state);
+}
+
 /**
  * Every transfer one machine reported, keyed by id: pushes and list results merge, and an
  * older report never replaces a newer one, so a list answered before a push can't undo it.
@@ -100,6 +123,8 @@ export class TransferStore {
   private byId = new Map<string, Transfer>();
   private snapshot: readonly Transfer[] = [];
   private listeners = new Set<() => void>();
+  private dismissals = new Set<string>();
+  private listed = false;
 
   /** Newest first. The same array until something changes. */
   all = (): readonly Transfer[] => this.snapshot;
@@ -112,9 +137,30 @@ export class TransferStore {
   }
   /** A `list` result: merged, never dropping a newer push. */
   seed(transfers: readonly Transfer[]): void {
-    let changed = false;
+    let changed = !this.listed;
+    this.listed = true;
     for (const transfer of transfers) changed = this.merge(transfer) || changed;
     if (changed) this.publish();
+  }
+  /**
+   * Whether a list has answered (or couldn't be read), so a transfer that started before this
+   * window was open is known. Until then "nothing running" may not be true.
+   */
+  seeded = (): boolean => this.listed;
+  /** The machine couldn't list its transfers; only pushes will tell. */
+  unlisted(): void {
+    if (this.listed) return;
+    this.listed = true;
+    this.publish();
+  }
+  /** Hide a finished transfer's line for as long as this window keeps the client. */
+  dismiss(transferId: string): void {
+    if (this.dismissals.has(transferId)) return;
+    this.dismissals.add(transferId);
+    this.publish();
+  }
+  dismissed(transferId: string): boolean {
+    return this.dismissals.has(transferId);
   }
   /** The latest transfer of this thread. */
   forThread(threadId: string): Transfer | undefined {
