@@ -1,6 +1,6 @@
 import { attachmentEcho } from "./attachment-echo.ts";
 import { markYieldedEnd, type SteerYield } from "./steer-yield.ts";
-import { hasRunningForegroundCommand, type Fact } from "@ace/core";
+import { hasRunningForegroundCommand, type Fact, type ThreadState } from "@ace/core";
 import type { Frame, ProviderSession, Translator } from "@ace/engine-api";
 import type { ThreadId, EventPayload, Capabilities } from "@ace/protocol";
 import { z } from "zod";
@@ -341,6 +341,9 @@ export class ThreadActor {
     this.pendingFrames = [];
     this.pendingBytes = 0;
     let translatedFacts: Fact[] | undefined;
+    // A retried batch never streams its facts a second time.
+    let streamedFacts: boolean | undefined;
+    let statusBefore: ThreadState["status"] | undefined;
     const admitted = this.acceptOperation(
       () => {
         const live = pending.filter((entry) => entry.generation === this.generation);
@@ -349,7 +352,7 @@ export class ThreadActor {
           this.repo.requireState(this.id).config.provider === "cursor" &&
           this.repo.backend(this.id) === "cursor-sdk";
         const fold = () => {
-          const before = this.repo.requireState(this.id).status;
+          const before = (statusBefore ??= this.repo.requireState(this.id).status);
           const facts = (translatedFacts ??= markYieldedEnd(
             live.flatMap((entry) => this.translateFrame(entry.frame, cursorSdk)),
             this.repo.requireState(this.id),
@@ -364,7 +367,8 @@ export class ThreadActor {
           const commandRunning =
             toolBoundary && hasRunningForegroundCommand(this.repo.requireState(this.id));
           // A streamable stretch goes to the live buffer without a transaction of its own.
-          const streamed = !cursorSdk && this.repo.stream(this.id, facts, this.clock.now());
+          const streamed = (streamedFacts ??=
+            !cursorSdk && this.repo.stream(this.id, facts, this.clock.now()));
           const settle = () => {
             if (streamed) this.schedule();
             else this.apply(facts);
