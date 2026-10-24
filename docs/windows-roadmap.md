@@ -549,17 +549,33 @@ observes Ctrl+A and Backspace, verifies counter changes, refuses click/text inpu
 while the owned decoy is foreground, and confirms both windows remain unchanged
 on refusal. Reacquiring the main window restores successful input.
 
-On **ARM64**, the two existing helper/capture tests and all 193 browser/foundation
-tests pass, but the input test fails before dispatch. Its form never acquires
-foreground status within the original 30-second deadline. The final diagnostic
-records a different foreground process and HWND, with both fixture windows
-unchanged. Ordinary activation retries do not resolve it. No guard, timeout,
-assertion or Windows skip is relaxed; the overall run is **failed**. ARM64 raw
-input needs an interactive session where the owned form can become foreground.
-No paired Windows machine is currently available through ace.
+[Run 40135465519](https://github.com/arpan404/ace/actions/runs/40135465519),
+pinned to `b91d3abc5`, passes **all three screen tests, 193 browser/foundation
+tests and 23 Rust tests on both native architectures**. ARM64's blocker was the
+runner's foreground shell overlays. The disposable-runner preparation requests
+normal `WM_CLOSE` on the observed WWAHost and SearchHost windows, with exact
+system executable and session checks. The real fixture then acquires foreground
+and passes pointer, Unicode, keyboard and wrong-foreground refusal checks.
+No input guard, assertion, deadline or Windows skip is relaxed. Four manual Rust
+tests remain ignored; the owned fixture now exercises the raw input path in CI.
+
+The same run reports Windows delivery performance at 25 Mbps, 120 ms RTT and
+30 ms jitter. It measures encoded chunk arrival, not decoder or client paint:
+
+| Native host | Median / p10 delivery | Page animation | Codec    | Encoded picture |
+| ----------- | --------------------- | -------------- | -------- | --------------- |
+| x64         | 44 / 34 fps           | 41.7 fps       | AVC High | 1274 x 796      |
+| ARM64       | 40 / 34 fps           | 38.6 fps       | AVC High | 1274 x 796      |
+
+Both page viewports are 1280 x 800 at DPR 2. Encoded rates closely track delivered
+rates, and the page animation is already below 60 fps. These report-only results
+**fail the unchanged 55 fps median / 45 fps p10 performance requirements**.
+The next comparison samples the same page before streaming to separate an
+unwatched rendering limit from capture/encoding contention. Setup's temporary
+JPEG capture is allowed to stop before that comparison.
 
 Oversized capture on drivers without video processing, Windows performance and
-installed desktop acceptance also remain open. W14/W15 remain unfinished.
+installed desktop acceptance remain open. W14/W15 remain unfinished.
 
 Full source typechecking passed again after the daemon test updates. The full
 repository check completed before these fixes with **2,797 files passed, 9 failed

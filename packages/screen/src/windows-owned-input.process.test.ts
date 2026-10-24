@@ -110,7 +110,7 @@ it.runIf(process.platform === "win32")(
             lines.removeListener("line", onLine);
             reject(
               new Error(
-                `[DEBUG-win-foreground] Foreground ${which} timed out, wanted=${wanted}, fixtureSession=${started.session}: ${JSON.stringify(last)}; ${stderr}`,
+                `Foreground ${which} timed out, wanted=${wanted}, fixtureSession=${started.session}: ${JSON.stringify(last)}; ${stderr}`,
               ),
             );
           }, 30_000);
