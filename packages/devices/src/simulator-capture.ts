@@ -14,7 +14,7 @@ import {
 } from "./simulator-transcode.ts";
 import { simulatorUI } from "./simulator-ui.ts";
 import { nativeId } from "./commands.ts";
-import { simulatorRotation } from "./simulator-rotation.ts";
+import { knownOrientation, simulatorRotation } from "./simulator-rotation.ts";
 import { DeviceError } from "./sdk.ts";
 import { pinnedServeSim } from "./serve-sim-version.ts";
 
@@ -276,6 +276,16 @@ export async function simulatorCapture(options: {
       },
     });
     const nativeInput = input;
+    // serve-sim announces the orientation it last asked for, not the one the Simulator is in: a
+    // fresh serve-sim says portrait even when an earlier session (or Simulator's own menu) left
+    // the device turned, and viewers would show a sideways picture in an upright frame. Turning
+    // the device to what is announced makes the picture and its rotation agree from the start.
+    socket.send(
+      Buffer.concat([
+        Buffer.from([7]),
+        Buffer.from(JSON.stringify({ orientation: knownOrientation(screen.orientation) })),
+      ]),
+    );
     const toH264 = async (): Promise<"h264"> => {
       if (h264) return "h264";
       const source = new SimulatorH264({

@@ -46,7 +46,7 @@ export async function fakeServeSim(
   home: string,
   version: string,
   udid: string,
-  options: { video?: boolean } = {},
+  options: { video?: boolean; turned?: string } = {},
 ) {
   const base = `/helper/${udid}`;
   const avcc: ServerResponse[] = [];
@@ -84,17 +84,34 @@ export async function fakeServeSim(
     res.writeHead(404).end();
   });
   const hid: unknown[] = [];
+  // Like serve-sim, a fresh helper announces portrait whatever way the Simulator itself is
+  // turned (`options.turned`, left so by an earlier session); a rotate request (tag 7) turns
+  // the Simulator and announces the new orientation when it differs.
+  let device = options.turned ?? "portrait";
+  let announced = "portrait";
+  let rotations = 0;
+  const config = (orientation: string) =>
+    Buffer.concat([
+      Buffer.from([130]),
+      Buffer.from(JSON.stringify({ width: 1206, height: 2622, orientation })),
+    ]);
   const ws = new WebSocketServer({ server });
   ws.on("connection", (socket) => {
-    socket.send(
-      Buffer.concat([
-        Buffer.from([130]),
-        Buffer.from(JSON.stringify({ width: 1206, height: 2622, orientation: "portrait" })),
-      ]),
-    );
-    socket.on("message", (bytes: Buffer) =>
-      hid.push([bytes[0], JSON.parse(bytes.subarray(1).toString())]),
-    );
+    socket.send(config(announced));
+    socket.on("message", (bytes: Buffer) => {
+      const payload: unknown = JSON.parse(bytes.subarray(1).toString());
+      if (bytes[0] !== 7) return hid.push([bytes[0], payload]);
+      const orientation =
+        typeof payload === "object" && payload && "orientation" in payload
+          ? String(payload.orientation)
+          : "";
+      if (!orientation) return;
+      rotations++;
+      device = orientation;
+      if (orientation === announced) return;
+      announced = orientation;
+      for (const client of ws.clients) client.send(config(announced));
+    });
   });
   const port = await new Promise<number>((resolve) =>
     server.listen(0, "127.0.0.1", () => {
@@ -120,19 +137,18 @@ export async function fakeServeSim(
   return {
     command,
     hid,
+    /** The way the Simulator itself is turned now. */
+    orientation: () => device,
+    /** How many rotate requests reached it. */
+    rotations: () => rotations,
     avcc,
     opened: () => avccOpened,
     mjpegOpen: () => mjpegOpen,
     delta: (byte: number) => avcc.at(-1)?.write(record(3, unit([0x21, byte]))),
     /** Announces a new screen orientation, as serve-sim does after a rotate request. */
     orient: (orientation: string) => {
-      for (const socket of ws.clients)
-        socket.send(
-          Buffer.concat([
-            Buffer.from([130]),
-            Buffer.from(JSON.stringify({ width: 1206, height: 2622, orientation })),
-          ]),
-        );
+      device = announced = orientation;
+      for (const socket of ws.clients) socket.send(config(orientation));
     },
   };
 }
