@@ -480,3 +480,30 @@ video-sharpness failures and remains running. It is not a clean repository pass.
 W12 remains open for remaining absolute-path writers, recovery/adoption and
 installed-app workflows. Confined Git also needs the empty-cwd reparse test
 described in the filesystem research; rename sharing alone is insufficient proof.
+
+## Windows browser and computer-use verification
+
+[Run 40060060692](https://github.com/arpan404/ace/actions/runs/40060060692),
+pinned to `ed2166d3f`, passes **33 files / 191 tests on x64**, including real
+Chrome VP8 encoding, viewer acknowledgements and WebCodecs decoding. Its ARM64
+browser starts successfully but times out before playable video arrives. The
+existing 190 foundation tests still pass there. Both architectures pass the real
+Rust helper's named-pipe negotiation and typed refusal test, plus 23 Rust behavior
+tests. Four interactive Rust tests remain ignored.
+
+The initial Chrome refusal came from the isolated Windows test environment.
+Creating standard `AppData/Local` and `AppData/Roaming` directories clears startup
+without changing Chrome's debugging protection. A later x64 run also passes
+playback after removal of the temporary native-folder probe.
+
+`5fa4e9ca0` lets session computer tools rejoin an existing Windows window by exact
+executable identity. It defaults agent input to foreground and refuses unsupported
+background or URL requests before acquisition. Four host process tests cover the
+entry, ownership, unavailable targets and ambiguous window selection.
+
+[Run 40061062541](https://github.com/arpan404/ace/actions/runs/40061062541) adds an
+owned WinForms fixture for WGC/JPEG capture and a Unicode UI Automation edit. The
+first fixture attempt missed the window in inventory; visible launch and bounded
+DWM diagnostics are now included. Capture, real input, hardware-codec quality and
+installed desktop acceptance remain unverified. Full source typechecking passed;
+the full repository check is still running. W14/W15 remain open.
