@@ -19,6 +19,15 @@ struct TabBarPlace: UIViewControllerRepresentable {
         override func loadView() { view = UIView(); view.isUserInteractionEnabled = false }
         override func didMove(toParent parent: UIViewController?) { super.didMove(toParent: parent); apply() }
         override func viewWillAppear(_ animated: Bool) { super.viewWillAppear(animated); apply() }
+        override func viewDidLoad() {
+            super.viewDidLoad()
+            // A window turning compact or regular lays the tabs out again, showing the bar;
+            // the place is set once more after that pass.
+            registerForTraitChanges([UITraitHorizontalSizeClass.self]) { (probe: Probe, _: UITraitCollection) in
+                Task { @MainActor in probe.apply() }
+            }
+        }
+        override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); apply() }
         func apply() {
             guard let tabs = tabBarController ?? sequence(first: parent, next: { $0?.parent }).compactMap({ $0 as? UITabBarController }).first else { return }
             guard tabs.isTabBarHidden != hidden else { return }

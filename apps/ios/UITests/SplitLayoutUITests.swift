@@ -86,6 +86,43 @@ import XCTest
         XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout: 10))
     }
 
+    func testNarrowingAnIPadWindowBringsTheTabBarBackAndKeepsTheThreadAndItsDraft() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad windows") }
+        let app = launch()
+        let full = app.windows.firstMatch.frame
+        open("thread.ios-approval", in: app)
+        XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 20))
+        let input = app.textViews["composer.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 10))
+        input.tap()
+        input.typeText("Keep this draft")
+        // The keyboard covers the window's resize grip: put it away with its own key; the draft stays.
+        let hide = app.keyboards.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'keyboard'")).firstMatch
+        if hide.exists { hide.tap() }
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        // A compact window: the phone's layout, the tab bar back, the thread and draft kept.
+        resize(app, toWidth: 420, height: full.height - 60)
+        guard app.windows.firstMatch.frame.width < full.width - 100 else { throw XCTSkip("the window did not resize: windowed apps are off") }
+        XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["sidebar.threads"].reachable)
+        XCTAssertFalse(app.tabBars.buttons["Threads"].reachable, "as on a phone, the tab bar steps aside for a thread")
+        XCTAssertEqual(input.value as? String, "Keep this draft")
+        screenshot("ipad-narrow-window-thread")
+        // Back to the list: the tab bar is there.
+        app.navigationBars.buttons["BackButton"].firstMatch.tap()
+        XCTAssertTrue(app.tabBars.buttons["Threads"].waitForHittable(timeout: 10))
+        screenshot("ipad-narrow-window")
+        open("thread.ios-approval", in: app)
+        XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
+        XCTAssertEqual(input.value as? String, "Keep this draft")
+        // Wide again: the sidebar and its places are back, the tab bar gone, nothing lost.
+        resize(app, toWidth: full.width, height: full.height)
+        XCTAssertTrue(app.buttons["sidebar.threads"].waitForHittable(timeout: 10))
+        XCTAssertFalse(app.tabBars.buttons["Threads"].reachable)
+        XCTAssertTrue(app.buttons["thread.ios-approval"].isSelected)
+        XCTAssertEqual(input.value as? String, "Keep this draft")
+    }
+
     func testTurningALargePhoneKeepsTheOpenThreadAndItsDraftAsTheListJoinsIt() throws {
         XCUIDevice.shared.orientation = .portrait
         let app = launch()
@@ -146,7 +183,27 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
         app.launch()
+        // iPadOS keeps a window's size across launches: start each test from a full one.
+        let screen = XCUIApplication(bundleIdentifier: "com.apple.springboard").frame
+        if UIDevice.current.userInterfaceIdiom == .pad, app.windows.firstMatch.frame.width < screen.width - 1 {
+            resize(app, toWidth: screen.width, height: screen.height)
+        }
         return app
+    }
+    /// Moves the window to the screen's top-leading corner and drags its resize grip so it is
+    /// `width` by `height` points (iPadOS 26 windowed apps).
+    private func resize(_ app: XCUIApplication, toWidth width: CGFloat, height: CGFloat) {
+        let screen = XCUIApplication(bundleIdentifier: "com.apple.springboard").coordinate(withNormalizedOffset: .zero)
+        var frame = app.windows.firstMatch.frame
+        if frame.minX > 0 || frame.minY > 0 {
+            let top = CGVector(dx: frame.midX + 40, dy: frame.minY + 8)
+            screen.withOffset(top).press(forDuration: 1, thenDragTo: screen.withOffset(CGVector(dx: top.dx - frame.minX, dy: 8)), withVelocity: .slow, thenHoldForDuration: 0.5)
+            sleep(2)
+            frame = app.windows.firstMatch.frame
+        }
+        let grip = screen.withOffset(CGVector(dx: frame.maxX - 2, dy: frame.maxY - 2))
+        grip.press(forDuration: 1, thenDragTo: screen.withOffset(CGVector(dx: frame.minX + width, dy: frame.minY + height)), withVelocity: .slow, thenHoldForDuration: 0.5)
+        sleep(3)
     }
     private func open(_ id: String, in app: XCUIApplication) {
         let row = app.buttons[id]

@@ -53,7 +53,8 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
         .navigationSplitViewStyle(.balanced)
         // Beside the list there is no tab bar at all, nor room kept for one.
         .toolbarVisibility(ThreadColumns.sidebarHoldsTabs(sizeClass) ? .hidden : .automatic, for: .tabBar)
-        .background { TabBarPlace(hidden: ThreadColumns.sidebarHoldsTabs(sizeClass)).frame(width: 0, height: 0) }
+        // The tab bar controller itself follows the same rule, or its first layout keeps room for it.
+        .background { TabBarPlace(hidden: !ThreadColumns.showsTabBar(sizeClass, path: path)).frame(width: 0, height: 0) }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .onGeometryChange(for: CGFloat.self) { proxy in
             if #available(iOS 26, *) { proxy.containerCornerInsets.topLeading.width } else { 0 }
