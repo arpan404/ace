@@ -26,9 +26,11 @@ export function transferStore(client: ClientApi): TransferStore {
     if (now && !ready)
       client.transfers.list().then(
         (transfers) => store.seed(transfers),
-        // A machine that can't list transfers yet still sends their pushes; the next
-        // reconnect asks again.
-        () => store.unlisted(),
+        // Lost with the connection: the reconnect asks again. A machine that can't list
+        // transfers still sends their pushes, so then pushes are all there is.
+        () => {
+          if (connection.getSnapshot() === "ready") store.unlisted();
+        },
       );
     ready = now;
   };
