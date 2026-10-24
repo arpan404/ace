@@ -10,6 +10,12 @@ type DeepReadonly<T> = T extends (infer U)[]
     ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
     : T;
 
+interface Entry {
+  revision: number;
+  /** Deeply frozen at runtime; typed mutable only so `copy` can clone it as a Thread. */
+  thread: Thread;
+  bytes: number;
+}
 interface ThreadCacheSource {
   /** The row's current revision on this connection, committed or not. */
   revision(id: string): number | undefined;
@@ -23,18 +29,40 @@ interface ThreadCacheSource {
  * Decoded threads keyed by the row revision that every insert or update of a threads row
  * bumps (sidebar_thread_revisions triggers, so direct SQL writes count too).
  *
- * Only committed reads are stored. A committed revision is never handed out again: the
- * AUTOINCREMENT high-water mark commits with it. So a hit is the exact row that revision
- * named, even inside a write transaction that later rolls back, and no rollback anywhere
- * on the connection has to remember to clear the cache.
+ * Committed reads are stored for good. A committed revision is never handed out again:
+ * the AUTOINCREMENT high-water mark commits with it. So a hit is the exact row that
+ * revision named, even inside a write transaction that later rolls back, and no rollback
+ * elsewhere on the connection has to remember to clear the cache.
+ *
+ * Reads inside the store's own write transaction are kept apart, for that transaction
+ * only: a rollback there could hand the same revision to different content. A savepoint
+ * rollback drops them, the commit makes them committed entries, any other end drops them.
  */
 export class ThreadCache {
-  /** Deeply frozen at runtime; typed mutable only so `copy` can clone it as a Thread. */
-  private readonly entries: BoundedCache<string, { revision: number; thread: Thread }>;
+  private readonly entries: BoundedCache<string, Entry>;
+  /** Reads of uncommitted rows in the store's open write transaction. */
+  private pending: Map<string, Entry> | undefined;
   private readonly source: ThreadCacheSource;
   constructor(source: ThreadCacheSource, maxEntries = 512, maxBytes = 32 * 1024 * 1024) {
     this.source = source;
     this.entries = new BoundedCache(maxEntries, maxBytes);
+  }
+  /** The store began its own write transaction; nothing else is open on the connection. */
+  begin(): void {
+    this.pending = new Map();
+  }
+  /** A savepoint in it rolled back: rows read since may be undone and their revisions reused. */
+  discard(): void {
+    this.pending?.clear();
+  }
+  /** It committed: what it read is committed now. */
+  commit(): void {
+    for (const [id, entry] of this.pending ?? []) this.store(id, entry);
+    this.pending = undefined;
+  }
+  /** It ended any other way. A no-op after `commit`. */
+  end(): void {
+    this.pending = undefined;
   }
   /** Shared and deeply frozen; callers that need to change it use `getThread`'s copy. */
   read(id: string): FrozenThread | undefined {
@@ -54,6 +82,8 @@ export class ThreadCache {
     if (revision !== undefined) {
       const hit = this.entries.get(id);
       if (hit?.revision === revision) return hit.thread;
+      const pending = this.pending?.get(id);
+      if (pending?.revision === revision) return pending.thread;
     }
     const row = this.source.row(id);
     return row ? this.decodeRow(row, row.row_revision) : undefined;
@@ -66,11 +96,19 @@ export class ThreadCache {
     const known = typeof revision === "number" && revision > 0 ? revision : undefined;
     const hit = known === undefined ? undefined : this.entries.get(id);
     if (hit && hit.revision === known) return hit.thread;
+    const pending = known === undefined ? undefined : this.pending?.get(id);
+    if (pending && pending.revision === known) return pending.thread;
     // Freeze a private clone: parsed output can share nested default objects with the schema.
     const thread = deepFreeze(structuredClone(decodeThreadRow(row)));
-    if (known !== undefined && this.source.committed())
-      this.entries.set(id, { revision: known, thread }, rowBytes(row));
+    if (known === undefined) return thread;
+    const entry = { revision: known, thread, bytes: rowBytes(row) };
+    if (this.source.committed()) this.store(id, entry);
+    // One transaction touches a few threads; a huge one just stops adding.
+    else if (this.pending && this.pending.size < 64) this.pending.set(id, entry);
     return thread;
+  }
+  private store(id: string, entry: Entry): void {
+    this.entries.set(id, entry, entry.bytes);
   }
 }
 

@@ -455,6 +455,7 @@ export class Store {
         return result;
       } catch (error) {
         this.db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
+        this.threads.discard();
         this.readCache.invalidate();
         this.rolledBack++;
         this.sidebarReads.invalidate();
@@ -466,6 +467,7 @@ export class Store {
       }
     }
     this.db.exec("BEGIN IMMEDIATE");
+    this.threads.begin();
     this.transactionEvents = [];
     let result: T;
     let events: Event[];
@@ -474,6 +476,7 @@ export class Store {
       if (result instanceof Promise) throw new Error("Store transactions must be synchronous");
       events = this.transactionEvents;
       this.db.exec("COMMIT");
+      this.threads.commit();
       this.transactions++;
       this.readCache.invalidate();
       this.wal.wake();
@@ -485,6 +488,7 @@ export class Store {
       this.settle(this.settlements.splice(0), "rolledBack");
       throw error;
     } finally {
+      this.threads.end();
       this.transactionEvents = undefined;
     }
     // The live buffer publishes its own commits: stored rows may compact a prefix that

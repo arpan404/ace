@@ -104,6 +104,27 @@ test("a rolled-back nested savepoint and a raw rollback on the connection leave 
   expect(store.getThread(id)?.title).toBe("After raw");
 });
 
+test("inside one transaction, a write after a rolled-back savepoint reads as itself", () => {
+  const { store, id, setTitle } = open();
+  store.atomic(() => {
+    setTitle("Before");
+    expect(store.getThread(id)?.title).toBe("Before");
+    expect(() =>
+      store.atomic(() => {
+        setTitle("Inner");
+        expect(store.getThread(id)?.title).toBe("Inner");
+        throw new Error("inner");
+      }),
+    ).toThrow("inner");
+    // The savepoint rollback handed the inner write's revision back; this write reuses it.
+    setTitle("Outer");
+    expect(store.readThread(id)?.title).toBe("Outer");
+  });
+  expect(store.getThread(id)?.title).toBe("Outer");
+  setTitle("Later");
+  expect(store.getThread(id)?.title).toBe("Later");
+});
+
 test("a deleted thread is gone, and one recreated under the same id reads as new", () => {
   const { db, store, id, workspaceId } = open();
   db.exec("PRAGMA foreign_keys=OFF");
