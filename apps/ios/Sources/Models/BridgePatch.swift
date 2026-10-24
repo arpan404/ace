@@ -30,6 +30,8 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     /// Inbox rows only: when the thread was archived, for the archive browser and read-only opens.
     var archivedAt: Double? = nil
     var workspaceId: String? = nil
+    /// A chat with no project (ADR 0099): marked as a chat, left out of project filters.
+    var chat: Bool? = nil
     var badge: String? = nil
     var diff: Diff? = nil
     var testsRunning: Bool? = nil
