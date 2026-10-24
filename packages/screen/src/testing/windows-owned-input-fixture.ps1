@@ -10,6 +10,7 @@ public static class AceInputFixture {
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
   private static readonly ConcurrentQueue<string> commands = new ConcurrentQueue<string>();
   public static void StartReader() {
     var reader = new Thread(ReadCommands);
@@ -82,8 +83,10 @@ $decoyLabel.Top = 20
 $decoyLabel.Width = 200
 $decoy.Controls.Add($decoyLabel)
 function Write-State($which) {
-  $actual = [AceInputFixture]::GetForegroundWindow().ToInt64()
-  $line = (@{ foreground = $actual; which = $which; mainText = $box.Text; decoyText = $decoyLabel.Text; count = $count.Text; selectAllCount = $script:selectAllCount } | ConvertTo-Json -Compress)
+  $window = [AceInputFixture]::GetForegroundWindow()
+  [uint32]$foregroundProcess = 0
+  [void][AceInputFixture]::GetWindowThreadProcessId($window, [ref]$foregroundProcess)
+  $line = (@{ foreground = $window.ToInt64(); foregroundPid = $foregroundProcess; main = $main.Handle.ToInt64(); decoy = $decoy.Handle.ToInt64(); pid = [Diagnostics.Process]::GetCurrentProcess().Id; which = $which; mainText = $box.Text; decoyText = $decoyLabel.Text; count = $count.Text; selectAllCount = $script:selectAllCount } | ConvertTo-Json -Compress)
   [Console]::WriteLine($line)
   [Console]::Out.Flush()
 }

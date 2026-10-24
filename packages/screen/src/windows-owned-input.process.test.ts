@@ -19,6 +19,10 @@ const StartupLine = z.object({
 });
 const ForegroundLine = z.object({
   foreground: z.number().int().positive(),
+  foregroundPid: z.number().int().nonnegative(),
+  main: z.number().int().positive(),
+  decoy: z.number().int().positive(),
+  pid: z.number().int().positive(),
   which: z.enum(["main", "decoy", "snapshot"]),
   mainText: z.string().max(512),
   decoyText: z.string().max(512),
@@ -98,10 +102,24 @@ it.runIf(process.platform === "win32")(
       stdin.on("error", () => {});
       const foreground = (which: "main" | "decoy" | "snapshot", wanted: number) =>
         new Promise<z.infer<typeof ForegroundLine>>((resolve, reject) => {
+          let last: z.infer<typeof ForegroundLine> | undefined;
           const timer = setTimeout(() => {
             lines.removeListener("line", onLine);
-            reject(new Error(`Foreground ${which} timed out: ${stderr}`));
+            reject(
+              new Error(
+                `Foreground ${which} timed out, wanted=${wanted}: ${JSON.stringify(last)}; ${stderr}`,
+              ),
+            );
           }, 30_000);
+          const send = () => {
+            stdin.write(`${which}\n`, (error: Error | undefined | null) => {
+              if (error) {
+                clearTimeout(timer);
+                lines.removeListener("line", onLine);
+                reject(error);
+              }
+            });
+          };
           const onLine = (line: string) => {
             let raw: unknown;
             try {
@@ -111,22 +129,19 @@ it.runIf(process.platform === "win32")(
             }
             const parsed = ForegroundLine.safeParse(raw);
             if (!parsed.success || parsed.data.which !== which) return;
-            clearTimeout(timer);
-            lines.removeListener("line", onLine);
+            last = parsed.data;
             if (parsed.data.foreground !== wanted) {
-              reject(new Error(`Foreground ${which} refused: ${JSON.stringify(parsed.data)}`));
+              // Normal activation may complete after its request returns. The fixture's
+              // UI timer yields between replies; keep the same deadline and exact HWND.
+              send();
               return;
             }
+            clearTimeout(timer);
+            lines.removeListener("line", onLine);
             resolve(parsed.data);
           };
           lines.on("line", onLine);
-          stdin.write(`${which}\n`, (error: Error | undefined | null) => {
-            if (error) {
-              clearTimeout(timer);
-              lines.removeListener("line", onLine);
-              reject(error);
-            }
-          });
+          send();
         });
       const failures: Error[] = [];
       let nativeStderr = "";
