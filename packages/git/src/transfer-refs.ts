@@ -23,6 +23,17 @@ export async function deleteRef(repository: Repository, root: string, ref: strin
   await repository.cli.call(root, ["update-ref", "-d", transferRef(ref)], { write: true });
 }
 
+/** Point `ref` (under `refs/`) at `commit`, so a bundle can carry a commit no branch names. */
+export async function pinRef(
+  repository: Repository,
+  root: string,
+  ref: string,
+  commit: string,
+): Promise<void> {
+  const sha = await repository.commit(root, commit);
+  await repository.cli.call(root, ["update-ref", transferRef(ref), sha], { write: true });
+}
+
 export async function assertBranchName(
   repository: Repository,
   root: string,

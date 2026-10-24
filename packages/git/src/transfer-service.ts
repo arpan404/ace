@@ -13,7 +13,7 @@ import {
 } from "./transfer-checkout.ts";
 import { cloneFromBundle, type BundleCloneOptions } from "./transfer-clone.ts";
 import { ignoredPaths } from "./transfer-ignored.ts";
-import { bundleRefs, createBranch, deleteRef, transferOrigin } from "./transfer-refs.ts";
+import { bundleRefs, createBranch, deleteRef, pinRef, transferOrigin } from "./transfer-refs.ts";
 
 /**
  * Git steps for moving a checkout to another machine (ADR 0099): the sender captures changes
@@ -55,6 +55,10 @@ export class GitTransfer {
   }
   deleteRef(path: string, ref: string): Promise<void> {
     return this.within(path, (root) => deleteRef(this.repository, root, ref));
+  }
+  /** Points `ref` at `commit`, e.g. a detached HEAD so its bundle carries it. */
+  pinRef(path: string, ref: string, commit: string): Promise<void> {
+    return this.within(path, (root) => pinRef(this.repository, root, ref, commit));
   }
   createBranch(path: string, name: string, commit: string): Promise<void> {
     return this.within(path, (root) => createBranch(this.repository, root, name, commit));
