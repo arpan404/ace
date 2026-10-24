@@ -501,23 +501,36 @@ executable identity. It defaults agent input to foreground and refuses unsupport
 background or URL requests before acquisition. Four host process tests cover the
 entry, ownership, unavailable targets and ambiguous window selection.
 
-[Run 40061062541](https://github.com/arpan404/ace/actions/runs/40061062541),
-pinned to `7bd9e6f71`, passes all **33 files / 191 tests on ARM64**. Its x64
-playback trace exposes an extension startup race: Chrome exposes the target before
-its script defines `aceVideo`. `cfdd1b4a2` resumes the attached target and waits
-for its exports within the existing startup budget. Two regression tests and real
-Chrome software playback pass locally. Native confirmation is pending in
-[run 40075224334](https://github.com/arpan404/ace/actions/runs/40075224334).
+[Run 40075224334](https://github.com/arpan404/ace/actions/runs/40075224334),
+pinned to `cfdd1b4a2`, passes all **33 files / 191 tests on both native architectures**.
+This includes real software video encoding, acknowledged delivery and WebCodecs
+decoding. The preceding x64 trace exposed a startup race: Chrome creates the
+extension target before its script defines `aceVideo`. The fix resumes the attached
+target and waits for its exports within the existing startup budget.
 
-The owned WinForms fixture now reaches WGC capture startup on both architectures,
-but the helper exits before the first JPEG. `b11b545b3` preserves the original
-failure, native stderr and exit status in the next run. Unicode UIA editing,
-real pointer/keyboard input, hardware-codec quality and installed desktop
-acceptance remain unverified. W14/W15 remain open.
+`b62120bb5` and `e970821c7` update two authenticated daemon/WSS tests that awaited
+obsolete JSON JPEG messages. Both now receive binary video; the remote viewer
+also acknowledges continuation. Access restrictions, shared input and recording
+artifact assertions remain in place. Both focused cases pass locally.
 
-Full source typechecking passed. The full repository check completed with
-**2,797 files passed, 9 failed and 40 skipped**, **17,064 tests passed and 11 failed**,
-and five uncaught errors. It is not a clean full gate. Browser failures include
-streaming timeouts, a missing cursor keyframe and refused orphan recovery; other
-failures remain in repository isolation, tool budgets, measurement, worktree
-progress and preview concurrency.
+The owned WinForms fixture reaches WGC startup on both architectures. Diagnostics
+found an empty frame pool represented as a code-zero error, fixed in `a8757cf35`.
+[Run 40076308738](https://github.com/arpan404/ace/actions/runs/40076308738) then
+identifies the missing `ID3D11VideoDevice` interface during scaler creation on both
+runners. `aef8b3138` uses direct staging readback when no resizing is needed.
+Native capture, Unicode UIA editing and repaint confirmation are pending in
+[run 40077048053](https://github.com/arpan404/ace/actions/runs/40077048053).
+Oversized captures still need video-processor scaling on these drivers.
+
+The existing full-resolution sharpness test is now included in Windows CI with
+its PSNR thresholds unchanged. Its first native run receives decoded width 1408
+instead of the asserted 1318. The next run records visible/display dimensions,
+PNG dimensions and the page viewport to distinguish codec padding from incorrect
+sizing. Real pointer/keyboard input and installed desktop acceptance remain
+unverified. W14/W15 remain open.
+
+Full source typechecking passed again after the daemon test updates. The full
+repository check completed before these fixes with **2,797 files passed, 9 failed
+and 40 skipped**, **17,064 tests passed and 11 failed**, and five uncaught errors.
+The two streaming timeout cases now pass in focused checks; no clean full gate is
+claimed. Cursor-keyframe, orphan-recovery and unrelated test failures remain.
