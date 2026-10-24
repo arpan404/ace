@@ -90,10 +90,8 @@ private struct LogStepContent: View {
         case "reasoning":
             ReasoningRow(row: row, thought: source.thoughts[row.id], thread: source.thread, openMessage: source.openMessage)
         case "html", "image":
-            if let openMedia = source.openMedia {
-                QuietLink(icon: row.type == "html" ? .chartBarHorizontal : .image, title: row.text) { openMedia(row) }
-                    .accessibilityIdentifier("media.\(row.id)")
-            } else { VisualizationRow(row: row) }
+            if let openMedia = source.openMedia { PublishedMediaRow(row: row) { openMedia(row) } }
+            else { VisualizationRow(row: row) }
         default:
             if let step = source.ace[row.id] ?? row.step {
                 StepRow(step: step, id: row.id, thread: source.thread, retried: source.retried.contains(row.id))

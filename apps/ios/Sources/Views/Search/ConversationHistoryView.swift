@@ -49,6 +49,7 @@ struct ConversationHistoryView: View {
                 }
             }
             .accessibilityIdentifier("history.messages")
+            .publishedMedia(model: model, threadId: threadId)
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                 if let window {
                     HStack {

@@ -69,6 +69,7 @@ struct ThreadView: View {
                                                 openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { fullMessage = $0 },
                                                 openAgents: { showAgents = true }, threadStatus: { model.inbox[$0]?.status }),
                          barHeight: barHeight, behind: $behind, jumps: jumps)
+            .publishedMedia(model: model, threadId: thread.id)
             .modifier(FloatingBar(height: $barHeight) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
