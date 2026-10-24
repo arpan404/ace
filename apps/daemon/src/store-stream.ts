@@ -125,6 +125,8 @@ export class StoreStream {
   flush(): void {
     if (this.flushing || this.sealed || !this.buffer.size) return;
     if (this.buffer.failed) throw this.waiting();
+    // Liveness-only snapshots order no rows: while writes are held they stay pinned.
+    if (this.buffer.quiet && this.options.blocked()) return;
     this.attempt();
   }
   /** Shutdown's last attempt, even while a retry is scheduled. */
