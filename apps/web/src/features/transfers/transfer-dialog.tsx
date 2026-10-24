@@ -1,5 +1,11 @@
 import { transferRunning } from "@ace/client";
-import { useClient, useProjectTransfer, useThreadTransfer, useTransfers } from "@ace/client-react";
+import {
+  useClient,
+  useProjectTransfer,
+  useThreadTransfer,
+  useTransfers,
+  useTransfersSeeded,
+} from "@ace/client-react";
 import { DesktopIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -14,6 +20,7 @@ import {
 } from "@/components/ui/command-step.tsx";
 import { listDivider } from "@/components/ui/rules.ts";
 import { Switch } from "@/components/ui/switch.tsx";
+import type { Transfer } from "@ace/protocol";
 import { cn } from "@/lib/cn.ts";
 import { useMachines, usePrimaryMachine, type Machine } from "@/lib/machines.ts";
 import type { TransferRequest } from "@/lib/transfer-opener.ts";
@@ -23,9 +30,16 @@ import { TransferLine } from "./transfer-line.tsx";
 import { transferMachines, type TransferMachine } from "./transfer-machines.ts";
 import { useTransferLine } from "./transfer-status.ts";
 import { refusalWords } from "./transfer-words.ts";
-import { useTransferActions, type Placement } from "./use-transfer-actions.ts";
+import {
+  placementOf,
+  useTransferActions,
+  type Placement,
+  type Refusal,
+} from "./use-transfer-actions.ts";
 
 type Step =
+  /** Until this machine's transfer list has answered: one may already be running. */
+  | { kind: "checking" }
   | { kind: "machines" }
   | { kind: "options"; machine: TransferMachine }
   | {
@@ -33,16 +47,18 @@ type Step =
       machine: { hostId: string; name: string };
       placement: Placement | undefined;
       /** The command's id once the daemon took it, or why it refused. */
-      started: { commandId: string } | { refused: string | undefined } | undefined;
+      started: { commandId: string } | { refused: Refusal } | undefined;
     };
 
 const verb = (request: TransferRequest) => (request.kind === "thread" ? "Continue" : "Open");
 
 /**
  * "Continue on…" and "Open on…" (ADR 0099): which machine, then where and whether to bring
- * uncommitted changes and ignored files, then the transfer's one line until it's done. Machines this one has
- * fleet links to are listed; offline or not-allowed ones show why, and none links to Settings ›
- * Machines. A transfer already running for this thread or project opens on its line.
+ * uncommitted changes and ignored files, then the transfer's one line until it's done. Machines
+ * this one has fleet links to are listed; offline or not-allowed ones show why, and none links to
+ * Settings › Fleet. A transfer already running for this thread or project opens on its line, so
+ * the machines wait until this machine's transfer list has answered. A request naming its
+ * machine (Try again) opens on that machine's options.
  */
 export function TransferDialog(props: {
   request: TransferRequest;
@@ -53,16 +69,16 @@ export function TransferDialog(props: {
   const thread = useThreadTransfer(request.kind === "thread" ? request.threadId : undefined);
   const project = useProjectTransfer(request.kind === "project" ? request.workspaceId : undefined);
   const latest = request.kind === "thread" ? thread : project;
+  const seeded = useTransfersSeeded();
   const [step, setStep] = useState<Step>(() =>
-    latest && transferRunning(latest)
-      ? {
-          kind: "status",
-          machine: latest.target,
-          placement: undefined,
-          started: { commandId: latest.commandId },
-        }
-      : { kind: "machines" },
+    request.machine
+      ? { kind: "options", machine: request.machine }
+      : seeded
+        ? opening(latest)
+        : { kind: "checking" },
   );
+  // Decided once, when the list answers, so a transfer that settles meanwhile keeps its line.
+  if (seeded && step.kind === "checking") setStep(opening(latest));
   const { start } = useTransferActions();
   // This machine's "Bring ignored files", read here so the options step never waits for it.
   const [ignoredByDefault] = useSetting(settingKeys.transferIgnoredFiles);
@@ -73,7 +89,7 @@ export function TransferDialog(props: {
         current.kind === "status" && current.placement === placement
           ? {
               ...current,
-              started: started.ok ? { commandId: started.commandId } : { refused: started.code },
+              started: started.ok ? { commandId: started.commandId } : { refused: started },
             }
           : current,
       ),
@@ -85,7 +101,15 @@ export function TransferDialog(props: {
       onOpenChange={(open) => !open && props.onClose()}
       title={`${verb(request)} on another machine`}
     >
-      {step.kind === "machines" ? (
+      {step.kind === "checking" ? (
+        <CommandStepRow onBack={undefined} closeLabel="Close">
+          <span
+            className={cn(commandStepField, "flex items-center truncate text-muted-foreground")}
+          >
+            Checking what this machine is sending…
+          </span>
+        </CommandStepRow>
+      ) : step.kind === "machines" ? (
         <MachineStep
           request={request}
           onChoose={(machine) => setStep({ kind: "options", machine })}
@@ -104,15 +128,28 @@ export function TransferDialog(props: {
           request={request}
           step={step}
           onClose={props.onClose}
-          onRetry={
-            step.placement
-              ? () => step.placement && send(step.machine, step.placement)
-              : () => setStep({ kind: "machines" })
-          }
+          onRetry={(echoed) => {
+            // The choices made here, else the ones the transfer's record echoes, else ask again.
+            const placement = step.placement ?? echoed;
+            if (placement) send(step.machine, placement);
+            else setStep({ kind: "options", machine: step.machine });
+          }}
         />
       )}
     </CommandDialog>
   );
+}
+
+/** The first step: a running transfer's line, else the machines. */
+function opening(latest: Transfer | undefined): Step {
+  return latest && transferRunning(latest)
+    ? {
+        kind: "status",
+        machine: latest.target,
+        placement: undefined,
+        started: { commandId: latest.commandId },
+      }
+    : { kind: "machines" };
 }
 
 function MachineStep(props: {
@@ -153,7 +190,7 @@ function MachineStep(props: {
     <>
       No other machines are linked to this one.{" "}
       <Link to="/settings/remote" className="text-link" onClick={props.onClose}>
-        Settings › Machines
+        Settings › Fleet
       </Link>
     </>
   );
@@ -230,7 +267,7 @@ function OptionsStep(props: {
 function StatusStep(props: {
   request: TransferRequest;
   step: Extract<Step, { kind: "status" }>;
-  onRetry(): void;
+  onRetry(echoed?: Placement): void;
   onClose(): void;
 }) {
   const { step } = props;
@@ -258,7 +295,7 @@ function StatusStep(props: {
           <TransferLine
             alert
             words={refusalWords(started.refused, step.machine.name)}
-            actions={[{ label: "Try again", run: props.onRetry }]}
+            actions={[{ label: "Try again", run: () => props.onRetry() }]}
           />
         ) : (
           <TransferLine words={`Getting ready to send to ${step.machine.name}`} actions={[]} />
@@ -269,10 +306,14 @@ function StatusStep(props: {
 }
 
 function KnownTransfer(props: {
-  transfer: import("@ace/protocol").Transfer;
-  onRetry(): void;
+  transfer: Transfer;
+  onRetry(echoed: Placement | undefined): void;
   onOpen(): void;
 }) {
-  const line = useTransferLine(props.transfer, props.onRetry, props.onOpen);
+  const line = useTransferLine(
+    props.transfer,
+    () => props.onRetry(placementOf(props.transfer)),
+    props.onOpen,
+  );
   return <TransferLine {...line} />;
 }

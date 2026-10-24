@@ -1,4 +1,5 @@
 import { TransferHost } from "@/features/transfers/index.ts";
+import { TransferOpenerProvider } from "@/lib/transfer-opener.ts";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { ForgeButton } from "@/components/forge-button.tsx";
 import { AddAccountHost } from "@/features/account-management/index.ts";
@@ -47,78 +48,80 @@ export function AppShell() {
   useStartupShell(useRouterState({ select: (state) => !state.isLoading }));
   useDesktopUpdates();
   return (
-    <ProjectsHost>
-      <SignInHost>
-        <AddAccountHost>
-          <div
-            ref={shell}
-            data-connection={connection}
-            data-live-held={liveIndicatorsHeld(connection) ? "" : undefined}
-            className={cn(
-              // Focus belongs to the inner panes; the shell must never become a scrollport.
-              // iOS lays its keyboard over the page: the shell ends above it (--visible-height).
-              "relative flex h-[var(--visible-height,100dvh)] min-h-0 overflow-clip",
-              "[&[data-live-held]_:is([data-slot=spinner],[data-live])]:[animation-play-state:paused]",
-              "[&[data-live-held]_:is([data-slot=spinner],[data-live])]:opacity-60",
-            )}
-          >
-            <a
-              href="#main"
-              // The desktop's macOS traffic lights cover the window's top-left corner.
-              className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[130] focus:rounded-md focus:bg-popover focus:px-3 focus:py-2 [:root[data-platform=darwin]:not([data-fullscreen])_&]:focus:left-[84px]"
+    <TransferOpenerProvider>
+      <ProjectsHost>
+        <SignInHost>
+          <AddAccountHost>
+            <div
+              ref={shell}
+              data-connection={connection}
+              data-live-held={liveIndicatorsHeld(connection) ? "" : undefined}
+              className={cn(
+                // Focus belongs to the inner panes; the shell must never become a scrollport.
+                // iOS lays its keyboard over the page: the shell ends above it (--visible-height).
+                "relative flex h-[var(--visible-height,100dvh)] min-h-0 overflow-clip",
+                "[&[data-live-held]_:is([data-slot=spinner],[data-live])]:[animation-play-state:paused]",
+                "[&[data-live-held]_:is([data-slot=spinner],[data-live])]:opacity-60",
+              )}
             >
-              Skip to content
-            </a>
-            <SidebarFrame
-              sidebar={
-                <LocalBoundary label="the sidebar">
-                  <ShellSidebar />
-                </LocalBoundary>
-              }
-            >
-              <ThreadLeaveProvider>
-                <PullRequestViewProvider value={PullRequestTab.Component}>
-                  <Outlet />
-                </PullRequestViewProvider>
-              </ThreadLeaveProvider>
-            </SidebarFrame>
-            <LocalBoundary label="the command palette" fallback={null}>
-              <CommandPalette />
-            </LocalBoundary>
-            <LocalBoundary label="search" fallback={null}>
-              <SearchHost />
-            </LocalBoundary>
-            <LocalBoundary label="the project picker" fallback={null}>
-              <MoveToProjectHost />
-            </LocalBoundary>
-            <LocalBoundary label="the machine chooser" fallback={null}>
-              <TransferHost />
-            </LocalBoundary>
-            <LocalBoundary label="the delete confirmation" fallback={null}>
-              <DeleteConfirmationHost />
-            </LocalBoundary>
-            <LocalBoundary label="the shortcuts sheet" fallback={null}>
-              <ShortcutHost />
-            </LocalBoundary>
-            <LocalBoundary label="keyboard shortcuts" fallback={null}>
-              <ShellHotkeys />
-              <ThreadStepKeys />
-            </LocalBoundary>
-            <LocalBoundary label="notifications" fallback={null}>
-              <Notifier />
-            </LocalBoundary>
-            <LocalBoundary label="picture in picture" fallback={null}>
-              <Suspense fallback={null}>
-                <FloatingBrowsers />
-              </Suspense>
-            </LocalBoundary>
-            <LocalBoundary label="open work" fallback={null}>
-              <OpenWorkWarmup />
-            </LocalBoundary>
-          </div>
-        </AddAccountHost>
-      </SignInHost>
-    </ProjectsHost>
+              <a
+                href="#main"
+                // The desktop's macOS traffic lights cover the window's top-left corner.
+                className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[130] focus:rounded-md focus:bg-popover focus:px-3 focus:py-2 [:root[data-platform=darwin]:not([data-fullscreen])_&]:focus:left-[84px]"
+              >
+                Skip to content
+              </a>
+              <SidebarFrame
+                sidebar={
+                  <LocalBoundary label="the sidebar">
+                    <ShellSidebar />
+                  </LocalBoundary>
+                }
+              >
+                <ThreadLeaveProvider>
+                  <PullRequestViewProvider value={PullRequestTab.Component}>
+                    <Outlet />
+                  </PullRequestViewProvider>
+                </ThreadLeaveProvider>
+              </SidebarFrame>
+              <LocalBoundary label="the command palette" fallback={null}>
+                <CommandPalette />
+              </LocalBoundary>
+              <LocalBoundary label="search" fallback={null}>
+                <SearchHost />
+              </LocalBoundary>
+              <LocalBoundary label="the project picker" fallback={null}>
+                <MoveToProjectHost />
+              </LocalBoundary>
+              <LocalBoundary label="the machine chooser" fallback={null}>
+                <TransferHost />
+              </LocalBoundary>
+              <LocalBoundary label="the delete confirmation" fallback={null}>
+                <DeleteConfirmationHost />
+              </LocalBoundary>
+              <LocalBoundary label="the shortcuts sheet" fallback={null}>
+                <ShortcutHost />
+              </LocalBoundary>
+              <LocalBoundary label="keyboard shortcuts" fallback={null}>
+                <ShellHotkeys />
+                <ThreadStepKeys />
+              </LocalBoundary>
+              <LocalBoundary label="notifications" fallback={null}>
+                <Notifier />
+              </LocalBoundary>
+              <LocalBoundary label="picture in picture" fallback={null}>
+                <Suspense fallback={null}>
+                  <FloatingBrowsers />
+                </Suspense>
+              </LocalBoundary>
+              <LocalBoundary label="open work" fallback={null}>
+                <OpenWorkWarmup />
+              </LocalBoundary>
+            </div>
+          </AddAccountHost>
+        </SignInHost>
+      </ProjectsHost>
+    </TransferOpenerProvider>
   );
 }
 

@@ -1,4 +1,4 @@
-import { transferRunning } from "@ace/client";
+import { TransferError, transferCancellable } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { HostId, ThreadId, WorkspaceId, type CommandResult, type Transfer } from "@ace/protocol";
 import { useCallback } from "react";
@@ -13,8 +13,33 @@ export interface Placement {
   includeIgnored?: boolean | undefined;
 }
 
-/** A refusal before anything started: its code (the receipt's error), never thrown. */
-export type Started = { ok: true; commandId: string } | { ok: false; code: string | undefined };
+/** What "Try again" repeats: the transfer's own options, as its record echoes them. */
+export function placementOf(transfer: Transfer): Placement | undefined {
+  const options = transfer.options;
+  if (!options) return undefined;
+  return {
+    hostId: transfer.target.hostId,
+    ...(options.parent ? { parent: options.parent } : {}),
+    includeChanges: options.includeChanges,
+    includeIgnored: options.includeIgnored,
+  };
+}
+
+/** Why the daemon refused: the receipt's code, and its own words when it gave them. */
+export interface Refusal {
+  code: string | undefined;
+  detail?: string | undefined;
+}
+
+/** A refusal before anything started, never thrown. */
+export type Started = { ok: true; commandId: string } | ({ ok: false } & Refusal);
+
+/** Only the daemon's transfer refusals carry words meant for a person; others, their code. */
+const refusalOf = (error: unknown): Refusal => {
+  if (error instanceof TransferError) return { code: error.code, detail: error.message };
+  if (typeof error !== "object" || error === null || !("code" in error)) return { code: undefined };
+  return { code: String(error.code) };
+};
 
 /** Start "Continue on" or "Open on", and cancel a running transfer. */
 export function useTransferActions() {
@@ -42,32 +67,30 @@ export function useTransferActions() {
                 ...place,
               });
       } catch (error) {
-        const code =
-          typeof error === "object" && error !== null && "code" in error
-            ? String(error.code)
-            : undefined;
-        return { ok: false, code };
+        return { ok: false, ...refusalOf(error) };
       }
       return result.ok
         ? { ok: true, commandId: result.commandId }
-        : { ok: false, code: result.error };
+        : {
+            ok: false,
+            code: result.code ?? result.error,
+            ...(result.detail ? { detail: result.detail } : {}),
+          };
     },
     [client],
   );
+  /** Undefined once it's cancelled (or had already moved on); else why it couldn't be. */
   const cancel = useCallback(
-    (transfer: Transfer) =>
-      transferRunning(transfer)
-        ? client.transfers.cancel(transfer.transferId).then(
-            () => undefined,
-            () => undefined,
-          )
-        : Promise.resolve(),
+    async (transfer: Transfer): Promise<Refusal | undefined> => {
+      if (!transferCancellable(transfer)) return undefined;
+      try {
+        await client.transfers.cancel(transfer.transferId);
+        return undefined;
+      } catch (error) {
+        return refusalOf(error);
+      }
+    },
     [client],
   );
   return { start, cancel };
-}
-
-/** Cancel applies until the new thread is being started (ADR 0099). */
-export function cancellable(transfer: Transfer): boolean {
-  return ["preparing", "cloning", "sending", "importing"].includes(transfer.phase);
 }
