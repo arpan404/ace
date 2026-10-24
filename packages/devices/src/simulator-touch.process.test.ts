@@ -19,10 +19,10 @@ const runtime: DeviceRuntime = {
 };
 
 /** A capture of a fake serve-sim whose screen is 1206 x 2622 points. */
-async function capture() {
+async function capture(options: { turned?: string } = {}) {
   const home = await mkdtemp(join(tmpdir(), "sim-touch-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
-  const sim = await fakeServeSim(home, "0.1.48", udid);
+  const sim = await fakeServeSim(home, "0.1.48", udid, options);
   const platform = new DevicePlatform({
     platform: "darwin",
     home,
@@ -104,6 +104,8 @@ it("Simulator frames tell viewers how far to turn the portrait picture when the 
   const { sim, frames } = await capture();
   await expect.poll(() => frames.length).toBeGreaterThan(0);
   expect(frames.at(-1)?.header.rotation).toBe(0);
+  // The capture first turned the Simulator to match what serve-sim announced.
+  await expect.poll(() => sim.rotations()).toBe(1);
 
   // The picture itself need not change: the turn alone republishes the latest frame.
   sim.orient("landscape_left");
@@ -115,6 +117,15 @@ it("Simulator frames tell viewers how far to turn the portrait picture when the 
   sim.orient("portrait");
   await expect.poll(() => frames.at(-1)?.header.rotation).toBe(0);
   expect(frames.at(-1)?.header).toMatchObject({ width: 201, height: 437, codec: "jpeg" });
+});
+
+it("a Simulator left turned by an earlier session is turned to match the orientation its pictures carry", async () => {
+  // A fresh serve-sim announces portrait, but the Simulator was left on its side: without the
+  // turn, viewers would draw a sideways picture in an upright frame.
+  const { sim, frames } = await capture({ turned: "landscape_left" });
+  await expect.poll(() => sim.orientation()).toBe("portrait");
+  await expect.poll(() => frames.length).toBeGreaterThan(0);
+  expect(frames.at(-1)?.header.rotation).toBe(0);
 });
 
 it("a Simulator's side buttons press the HID codes Xcode's device chrome gives them", async () => {

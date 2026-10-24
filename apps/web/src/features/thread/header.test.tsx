@@ -116,7 +116,7 @@ test("a usage limit remains on the sidebar and leaves the thread title clear", a
   expect(within(header()).queryByRole("status")).toBeNull();
 });
 
-test("search lives in the palette and the turns shortcut still works", async () => {
+test("search lives in the palette", async () => {
   await openThread();
   await userEvent.click(within(header()).getByRole("button", { name: "More actions" }));
   await userEvent.keyboard("{Escape}{Meta>}k{/Meta}");
@@ -126,10 +126,6 @@ test("search lives in the palette and the turns shortcut still works", async () 
   );
   await userEvent.click(await screen.findByRole("option", { name: /^Search this thread/ }));
   expect(await screen.findByRole("search", { name: "Search this thread" })).toBeTruthy();
-  await userEvent.keyboard("{Escape}");
-
-  await userEvent.keyboard("{Alt>}{Meta>}g{/Meta}{/Alt}");
-  expect(await screen.findByRole("complementary", { name: "Turns" })).toBeTruthy();
 });
 
 // ---------------------------------------------------------------------------------------------

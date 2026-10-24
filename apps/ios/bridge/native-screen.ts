@@ -1,4 +1,4 @@
-import { ScreenStreamClient } from "@ace/client/screen-stream";
+import { ScreenClientError, ScreenStreamClient } from "@ace/client/screen-stream";
 import { ScreenAck, ScreenOperation, ScreenState } from "@ace/protocol";
 import { z } from "zod";
 import { scheduler } from "./host.ts";
@@ -21,6 +21,17 @@ export const NativeScreenControl = z.discriminatedUnion("type", [
   z.object({ type: z.literal("native.screen.unwatch"), sessionId: ScreenAck.shape.sessionId }),
   z.object({ type: z.literal("native.screen.release"), sessionId: ScreenAck.shape.sessionId }),
 ]);
+
+/**
+ * A refused screen request as the phone reads it: the daemon's words and, when it gave one, its
+ * code, so the phone can tell "input sent, effect unconfirmed" from losing control.
+ */
+export function screenFailure(error: unknown): { message: string; code?: string } {
+  const message = error instanceof Error ? error.message : "Screen request failed";
+  return error instanceof ScreenClientError && error.errorCode
+    ? { message, code: error.errorCode }
+    : { message };
+}
 
 /** A dedicated screen channel. Native video bypasses JavaScript and input is never replayed. */
 export class NativeScreen {

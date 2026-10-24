@@ -1,7 +1,7 @@
 import { host } from "./polyfills.ts";
 import { ClientCore, type Lease, type ThreadSource } from "@ace/client";
 import { z } from "zod";
-import { DeviceId, HostId } from "@ace/protocol";
+import { DeviceId, HostId, SettingsValues } from "@ace/protocol";
 import { agentName } from "@ace/ui-core";
 import { call, scheduler } from "./host.ts";
 import { PatchPump, followThread } from "./patches.ts";
@@ -37,6 +37,8 @@ const Config = z.object({
   itemLimit: z.number().int().min(200).max(2200),
   /** A paired machine: each socket attempt exchanges the Keychain token for a fresh ticket. */
   paired: z.strictObject({ secretKey: z.string().min(1).max(1024) }).optional(),
+  /** The sort the inbox checkpoint was drawn in, so the live list opens in the same order. */
+  inboxSort: SettingsValues.shape["threads.sortBy"].optional().catch(undefined),
 });
 const Action = z.discriminatedUnion("type", [
   /** `warm`: native kept its copy of the thread from an earlier visit (`native-ledger.ts`). */
@@ -163,6 +165,7 @@ async function start(json: string): Promise<void> {
     activityGeneration,
     // What the phone draws first at its next launch, before this runtime starts.
     (checkpoint) => void call("inbox.checkpoint", null, checkpoint).catch(() => {}),
+    config.inboxSort,
   );
   followMachine(client, pump, trust);
   machine = new MachineProviders(client, pump);

@@ -52,7 +52,7 @@ struct InboxThreadRow: View {
     @ViewBuilder private func project(quiet: Bool) -> some View {
         if !row.project.isEmpty {
             HStack(spacing: AceTheme.Spacing.sm) {
-                ProjectTag(initials: row.badge ?? String(row.project.prefix(2)), quiet: quiet)
+                ProjectTag(initials: row.badge ?? String(row.project.prefix(2)), quiet: quiet, chat: row.chat == true)
                 Text(row.project).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).lineLimit(1)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
             }
@@ -134,7 +134,7 @@ struct InboxSettledRow: View {
 
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
-            ProjectTag(initials: row.badge ?? String(row.project.prefix(2)), quiet: true)
+            ProjectTag(initials: row.badge ?? String(row.project.prefix(2)), quiet: true, chat: row.chat == true)
             Text(row.title)
                 .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
                 .foregroundStyle(AceTheme.Colours.subtleForeground)
@@ -182,7 +182,7 @@ struct InboxUnsentRow: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             HStack(spacing: AceTheme.Spacing.sm) {
                 if let thread, !thread.project.isEmpty {
-                    ProjectTag(initials: thread.badge ?? String(thread.project.prefix(2)))
+                    ProjectTag(initials: thread.badge ?? String(thread.project.prefix(2)), chat: thread.chat == true)
                     Text(thread.project).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).lineLimit(1)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
                 }

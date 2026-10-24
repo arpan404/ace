@@ -17,8 +17,12 @@ import {
   CommandGroup,
   CommandItem,
   CommandList,
+  CommandShortcut,
   commandField,
 } from "@/components/ui/command.tsx";
+import { usePhone } from "@/lib/breakpoints.ts";
+import { useKeys } from "@/lib/keybindings.ts";
+import { describeKeys } from "@/lib/keymap.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import {
   projectFailure,
@@ -46,6 +50,8 @@ export function ProjectChoices(props: {
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const dialogs = useProjectDialogs();
+  const phone = usePhone();
+  const addProjectKeys = useKeys("addProject");
   const toast = useToast();
   const reachable = useConnectionState() === "ready";
   const typed = useNewProjectFolder(query);
@@ -184,7 +190,10 @@ export function ProjectChoices(props: {
           }}
         >
           <FolderPlusIcon aria-hidden size={16} />
-          Add project…
+          Add project
+          {!phone && (
+            <CommandShortcut className="ml-auto">{describeKeys(addProjectKeys)}</CommandShortcut>
+          )}
         </Button>
       </div>
     </>

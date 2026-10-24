@@ -39,7 +39,7 @@ export function ProjectPicker(props: {
   });
   const selected = choices.find((choice) => choice.id === props.project);
   const chat = props.project === chatChoice;
-  const value = chat ? "without a project" : (selected?.name ?? "Choose a project");
+  const value = chat ? "No project" : (selected?.name ?? "Choose a project");
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <Tip label="Change project" side="top">

@@ -8,6 +8,8 @@ struct DeviceProblem: Codable, Sendable, Equatable {
     let message: String
     let hint: String?
     var permission: String? = nil
+    /// The daemon's error code, when it gave one (`delivery_unconfirmed`, `target_gone`, …).
+    var code: String? = nil
     /// "Message. Hint." as one sentence pair.
     var text: String { [message, hint].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ") }
 }
@@ -34,17 +36,11 @@ struct DeviceTile: Codable, Sendable, Equatable, Identifiable, Hashable {
 /// The drawn hardware around a device's screen, in fractions of the screen's width.
 struct DeviceFrameGeometry: Codable, Sendable, Equatable {
     struct Edges: Codable, Sendable, Equatable { let top: Double; let right: Double; let bottom: Double; let left: Double }
-    struct Cutout: Codable, Sendable, Equatable {
-        let kind: String
-        var width: Double? = nil
-        var height: Double? = nil
-        var top: Double? = nil
-        var size: Double? = nil
-    }
     let bezel: Edges
     let screenRadius: Double
     let bodyRadius: Double
-    let cutout: Cutout
+    /// The metal band at the body's edge, outside its black glass.
+    let band: Double
     let homeButton: Bool
 }
 

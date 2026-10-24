@@ -5,8 +5,13 @@ import Observation
 /// files (local copies in app storage, named by id). It never holds a token or anything read
 /// from the Keychain; the machine is named by its host id.
 struct NewThreadDraft: Codable, Equatable, Sendable {
+    /// "No project" in place of a project id: the bridge starts a chat in a hidden project it
+    /// makes for it (ADR 0099).
+    static let chat = "chat"
     var machineId: String?
     var projectId: String?
+    /// A chat with no project: no branches, worktree or project files.
+    var isChat: Bool { projectId == Self.chat }
     var provider: String?
     var model: String?
     var account: String?

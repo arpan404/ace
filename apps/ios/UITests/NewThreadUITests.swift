@@ -64,6 +64,31 @@ import XCTest
         screenshot("newthread-started")
     }
 
+    func testAChatWithNoProjectStartsAndReadsAsAChat() {
+        let app = launch()
+        XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
+        app.newThreadButton.tap()
+        XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
+        app.buttons["newThread.project"].tap()
+        XCTAssertTrue(app.buttons["project.chat"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["project.ace"].waitForExistence(timeout: 15))
+        screenshot("chat-picker")
+        app.buttons["project.chat"].tap()
+        XCTAssertTrue(app.buttons["Project, none"].waitForExistence(timeout: 10))
+        // A chat runs in its own folder: no worktree strip, no project files to mention.
+        XCTAssertFalse(app.buttons["newThread.worktree"].exists)
+        let message = element(app, "newThread.message")
+        XCTAssertTrue(message.waitForExistence(timeout: 5))
+        message.tap()
+        message.typeText("What's the difference between a mutex and a semaphore?")
+        XCTAssertTrue(app.buttons["newThread.start"].waitForExistence(timeout: 15))
+        screenshot("chat-ready")
+        app.buttons["newThread.start"].tap()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["Chat"].waitForExistence(timeout: 15))
+        screenshot("chat-started")
+    }
+
     func testAProfileCreatedFromTheDraftIsOfferedOnReturnAndSuppliesItsInstructions() {
         let app = launch()
         XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))

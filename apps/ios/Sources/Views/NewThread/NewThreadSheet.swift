@@ -75,14 +75,20 @@ struct NewThreadSheet: View {
             client.composeAction(["kind": "open"])
             client.composeChoice(draft)
             if let project = draft.projectId {
-                client.composeAction(["kind": "branches", "workspaceId": project])
+                if !draft.isChat { client.composeAction(["kind": "branches", "workspaceId": project]) }
                 // Files kept from before a relaunch or a closed sheet go back on the message; the
                 // bridge checks and uploads them again and ignores one it already holds.
                 for file in drafts.restorable { client.composeAttach(file, workspaceId: project) }
             }
         }
         .onChange(of: draft.projectId) { _, project in
-            if let project { client?.composeAction(["kind": "branches", "workspaceId": project]) }
+            if let project, project != NewThreadDraft.chat { client?.composeAction(["kind": "branches", "workspaceId": project]) }
+        }
+        // With no project yet, the first thread is a chat.
+        .onChange(of: compose?.projectsState) { _, state in
+            if state == "ready", draft.projectId == nil, compose?.projects.isEmpty == true {
+                drafts.edit { $0.projectId = NewThreadDraft.chat }
+            }
         }
         .onChange(of: choiceKey) { _, _ in client?.composeChoice(draft) }
         .onDisappear { client?.composeAction(["kind": "close"]) }
@@ -107,7 +113,11 @@ struct NewThreadSheet: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
             Button { choosingProject = true } label: {
                 Group {
-                    if let name = project?.name {
+                    if draft.isChat {
+                        // A chat names no project: a plain question, "No project" opens the picker.
+                        Text("What should we work on? ")
+                            + Text("No project").foregroundStyle(AceTheme.Colours.mutedForeground) + NewThreadStyle.disclosure
+                    } else if let name = project?.name {
                         Text("What should we build in \(name)?") + NewThreadStyle.disclosure
                     } else {
                         Text("What should we build?\n")
@@ -121,7 +131,7 @@ struct NewThreadSheet: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(project.map { "Project, \($0.name)" } ?? "Choose a project")
+            .accessibilityLabel(draft.isChat ? "Project, none" : project.map { "Project, \($0.name)" } ?? "Choose a project")
             .accessibilityIdentifier("newThread.project")
             if inbox.sessions.count > 1 {
                 Menu {
@@ -167,7 +177,7 @@ struct NewThreadSheet: View {
                 .padding(.horizontal, AceTheme.Spacing.sm)
                 .accessibilityIdentifier("newThread.issue")
             }
-            if draft.projectId != nil {
+            if draft.projectId != nil, !draft.isChat {
                 NewThreadWorktreeChips(drafts: drafts, branches: branches)
             }
             NewThreadComposer(drafts: drafts, client: client, files: files, choice: choice, agentsState: compose?.agentsState,
@@ -182,9 +192,9 @@ struct NewThreadSheet: View {
     private var moreOptions: some View {
         Menu {
             Button("Mention a file", systemImage: "at") { path.append(.mention) }
-                .disabled(draft.projectId == nil).accessibilityIdentifier("newThread.mention")
+                .disabled(draft.projectId == nil || draft.isChat).accessibilityIdentifier("newThread.mention")
             Button("Browse files", systemImage: "folder") { browsing = true }
-                .disabled(draft.projectId == nil).accessibilityIdentifier("newThread.files")
+                .disabled(draft.projectId == nil || draft.isChat).accessibilityIdentifier("newThread.files")
             Button("Instructions and profile", systemImage: "person.text.rectangle") { path.append(.instructions) }
                 .accessibilityIdentifier("newThread.instructionsPage")
         } label: { Image(systemName: "ellipsis") }
@@ -228,6 +238,7 @@ struct NewThreadSheet: View {
         if draft.provider == nil, let agent = choice.agent, let model = choice.model {
             drafts.edit { $0.provider = agent.provider; $0.model = model.key; $0.account = model.account }
         }
+        if draft.isChat { drafts.edit { $0.worktree = false; $0.base = nil } }
         if draft.worktree, draft.base == nil, let start = branches?.start { drafts.edit { $0.base = start } }
         drafts.edit { $0.machineId = machineId }
         let commandId = drafts.reserveCommand { UUID().uuidString.lowercased() }
