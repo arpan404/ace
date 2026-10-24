@@ -243,7 +243,7 @@ jobs:
           cargo test --locked --target %RUST_TARGET% || exit /b 1
           popd
 
-      - name: Verify real screen helper pipe, owned capture and UIA
+      - name: Verify real screen helper pipe, owned capture, UIA and input
         timeout-minutes: 3
         env:
           ACE_WINDOWS_SCREEN_HELPER: ${{ github.workspace }}\native\screen-helper-windows\target\${{ matrix.rust_target }}\debug\ace-screen-helper-windows.exe
