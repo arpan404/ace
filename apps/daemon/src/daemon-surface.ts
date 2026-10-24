@@ -158,6 +158,12 @@ export function daemonHandle({
     get devices() {
       return services.devices;
     },
+    get projects() {
+      return requireService(services.projects, "projects");
+    },
+    get transfers() {
+      return requireService(services.transfers, "transfers");
+    },
     storage: services.storage,
     engine: services.engine,
     agentControl: services.agentControl,
