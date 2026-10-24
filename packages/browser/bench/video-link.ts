@@ -19,6 +19,8 @@ import { decodeStreamMessage, StreamAssembler } from "../src/stream.ts";
  * context's tab (video from its screencast).
  * Page animation and pre-link encoded rates distinguish rendering, encoding and delivery.
  * Delivery here ends at chunk arrival; decoder and client paint are not measured.
+ * ACE_VIDEO_LINK_BASELINE_SECONDS also samples the page with no viewer, after setup capture
+ * has stopped. Some headless implementations stop animating unwatched pages; zero is reported.
  */
 
 const seconds = Number(process.env.ACE_VIDEO_LINK_SECONDS ?? 20);
@@ -26,6 +28,12 @@ const megabits = Number(process.env.ACE_VIDEO_LINK_MBPS ?? 25);
 const rttMs = Number(process.env.ACE_VIDEO_LINK_RTT_MS ?? 120);
 const jitterMs = Number(process.env.ACE_VIDEO_LINK_JITTER_MS ?? 30);
 const enforce = process.env.ACE_VIDEO_LINK_REPORT_ONLY !== "1";
+const baselineSeconds = z.coerce
+  .number()
+  .int()
+  .min(0)
+  .max(60)
+  .parse(process.env.ACE_VIDEO_LINK_BASELINE_SECONDS ?? 0);
 const profile = process.env.ACE_VIDEO_LINK_PROFILE === "ephemeral" ? "ephemeral" : "persistent";
 const pane = { width: 1280, height: 800, devicePixelRatio: 2 };
 const executablePath = await detectChromium();
@@ -46,6 +54,12 @@ const pageSample = () => {
   if (!latestPageSample) throw new Error("Page animation sample did not arrive");
   return latestPageSample;
 };
+
+function pageRate(start: z.infer<typeof PageSample>, end: z.infer<typeof PageSample>): number {
+  return Number(
+    (end.at > start.at ? ((end.frames - start.frames) * 1000) / (end.at - start.at) : 0).toFixed(1),
+  );
+}
 
 const paragraphs = Array.from(
   { length: 600 },
@@ -151,6 +165,15 @@ try {
   await service.open({ threadId: "bench", workspaceId: "bench", profile });
   await service.execute("bench", { action: "navigate", url: `http://127.0.0.1:${address.port}/` });
   await service.execute("bench", { action: "resize", width: pane.width, height: pane.height });
+  let unwatchedPageFramesPerSecond: number | undefined;
+  if (baselineSeconds > 0) {
+    // Commands briefly retain a JPEG screencast. Let its five-second linger finish;
+    // no evaluate command is used to sample, since that would start capture again.
+    await new Promise((resolve) => setTimeout(resolve, 6_000));
+    const baselineStart = pageSample();
+    await new Promise((resolve) => setTimeout(resolve, baselineSeconds * 1000));
+    unwatchedPageFramesPerSecond = pageRate(baselineStart, pageSample());
+  }
   await bridge.handle({
     type: "browser.subscribe",
     threadId: "bench",
@@ -192,12 +215,8 @@ try {
       path: `${seconds} s scroll (${profile}) over ${megabits} Mbit/s, ${rttMs} ms RTT, ${jitterMs} ms jitter`,
       framesPerSecond: perSecond,
       encodedFramesPerSecond: rates(encoded),
-      pageFramesPerSecond: Number(
-        (pageEnd.at > pageStart.at
-          ? ((pageEnd.frames - pageStart.frames) * 1000) / (pageEnd.at - pageStart.at)
-          : 0
-        ).toFixed(1),
-      ),
+      pageFramesPerSecond: pageRate(pageStart, pageEnd),
+      unwatchedPageFramesPerSecond,
       sourceViewport: { width: pageEnd.width, height: pageEnd.height, dpr: pageEnd.dpr },
       codedPictures: [...codedPictures],
       sentMegabits,

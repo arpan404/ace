@@ -284,6 +284,7 @@ jobs:
         timeout-minutes: 3
         env:
           ACE_VIDEO_LINK_REPORT_ONLY: "1"
+          ACE_VIDEO_LINK_BASELINE_SECONDS: "10"
         run: node packages/browser/bench/video-link.ts
 
       - name: Observe bounded stdin search performance
