@@ -14,6 +14,7 @@ import {
 } from "../models.ts";
 import type { ServiceContext } from "./types.ts";
 import { backgroundFailure } from "./background.ts";
+import { installationGate } from "../installation-gate.ts";
 export async function startModels(context: ServiceContext): Promise<void> {
   const { config, options, resources, services } = context;
 
@@ -143,6 +144,15 @@ export async function startModels(context: ServiceContext): Promise<void> {
       : undefined;
   if (sdkInstance) registerCursorSdkCatalog(context, sdkInstance);
   if (options.modelInstances === undefined) {
+    const installationsKnown = installationGate(
+      services.providerStatuses?.firstCheck(),
+      10_000,
+      (run, milliseconds) => {
+        const timer = setTimeout(run, milliseconds);
+        timer.unref();
+        return () => clearTimeout(timer);
+      },
+    );
     registerConfiguredModelInstances(
       models,
       config.dataDir,
@@ -158,6 +168,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
             context.signal,
             new Set(ProviderKind.options.filter((kind) => kind !== provider)),
             services.providerConfigurations?.current() ?? [],
+            installationsKnown,
           );
     const admission = registerDefaultModelInstances(
       models,
@@ -166,6 +177,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
       context.signal,
       new Set(sdkInstance ? ["cursor"] : []),
       services.providerConfigurations?.current() ?? [],
+      installationsKnown,
     );
     services.modelsReady = admission.then(() => {
       if (!context.signal.aborted) models.revalidate();

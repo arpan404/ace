@@ -55,6 +55,8 @@ export async function registerDefaultModelInstances(
   signal: AbortSignal,
   registeredProviders: ReadonlySet<ProviderKind>,
   preferences: import("@ace/protocol").ProviderConfigurations = [],
+  /** Awaited before each discovery of these instances (see `installationGate`). */
+  admit?: () => Promise<void>,
 ): Promise<void> {
   if (process.env.ACE_TEST_REAL_HOME) assertTestHomeIsolation(cwd);
   if (signal.aborted) return;
@@ -88,15 +90,18 @@ export async function registerDefaultModelInstances(
   if (signal.aborted) return;
   for (const candidate of installed) {
     if (!candidate.path) continue;
-    catalog.registerInstance({
-      id: `${candidate.provider}-cli-default`,
-      label: "Default",
-      provider: candidate.provider,
-      executable: candidate.executable,
-      cwd,
-      // Installation identity is stable; account owners invalidate when login identity changes.
-      loginRevision: createHash("sha256").update(candidate.path).digest("hex"),
-    });
+    catalog.registerInstance(
+      {
+        id: `${candidate.provider}-cli-default`,
+        label: "Default",
+        provider: candidate.provider,
+        executable: candidate.executable,
+        cwd,
+        // Installation identity is stable; account owners invalidate when login identity changes.
+        loginRevision: createHash("sha256").update(candidate.path).digest("hex"),
+      },
+      admit,
+    );
   }
 }
 /** Explicit paths can admit a previously missing CLI without a restart or a probe. */

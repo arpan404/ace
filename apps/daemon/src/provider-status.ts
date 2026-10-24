@@ -82,11 +82,16 @@ export class ProviderStatuses {
   private controller = new AbortController();
   private flight: Promise<void> | undefined;
   private cancelTimer?: () => void;
+  private readonly first: Promise<void>;
   constructor(options: ProviderStatusOptions, runtime: ProviderStatusRuntime) {
     assertTestEnvironmentIsolation({ ...process.env, ...options.env });
     this.options = options;
     this.runtime = runtime;
-    void this.refresh();
+    this.first = this.refresh().catch(() => {});
+  }
+  /** Settles once the first check has reported every provider's installation, or failed. */
+  firstCheck(): Promise<void> {
+    return this.first;
   }
   private selection(row: Status) {
     const account = this.options.account?.(row);
