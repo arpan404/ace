@@ -53,7 +53,7 @@ test("no worker starts until a device subscribes, and its first alert arrives wi
   expect(errors).toEqual([]);
 });
 
-test("a worker that slept replays what it missed: stale alerts stay quiet, recent ones arrive once", async () => {
+test("a worker that slept replays what it missed: stale alerts fold into one catch-up, recent ones arrive alone", async () => {
   const f = setup();
   const stale = f.thread(),
     recent = f.thread(),
@@ -91,13 +91,24 @@ test("a worker that slept replays what it missed: stale alerts stay quiet, recen
   await notifications.service.connectDevice(desktop);
   expect(f.workers).toHaveLength(2);
   expect(await notifications.service.cursor()).toBe(f.store.headSeq());
-  await vi.waitFor(() => expect(received.map((alert) => alert.threadId)).toEqual([recent]));
+  // The hour-old wait isn't announced on its own; the catch-up names it. The recent one is.
+  const seen = () => received.map((alert) => [alert.status, alert.threadIds ?? [alert.threadId]]);
+  await vi.waitFor(() =>
+    expect(seen()).toEqual([
+      ["catch_up", [stale]],
+      ["needs_you", [recent]],
+    ]),
+  );
 
   f.needsYou(later);
-  await vi.waitFor(() => expect(received.map((alert) => alert.threadId)).toEqual([recent, later]));
+  await vi.waitFor(() => expect(seen()).toHaveLength(3));
   // Nothing arrives twice once delivery has settled.
   await new Promise((resolve) => setTimeout(resolve, 200));
-  expect(received.map((alert) => alert.threadId)).toEqual([recent, later]);
+  expect(seen()).toEqual([
+    ["catch_up", [stale]],
+    ["needs_you", [recent]],
+    ["needs_you", [later]],
+  ]);
   expect(errors).toEqual([]);
 });
 

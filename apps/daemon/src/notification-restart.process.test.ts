@@ -1,11 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { Worker } from "node:worker_threads";
 import { afterEach, expect, test, vi } from "vitest";
-import { notificationsRetained } from "@ace/notify";
-import { Agent, AgentId, type DeviceId, type Notification } from "@ace/protocol";
+import { Agent, AgentId, type Notification } from "@ace/protocol";
 import { createDaemonNotifications } from "./notifications.ts";
 import {
-  desktop,
+  desktopDaemon,
   notificationFixture,
   subscription,
   browser,
@@ -18,32 +17,6 @@ afterEach(async () => {
 });
 const settle = () => new Promise((resolve) => setTimeout(resolve, 300));
 
-/** A daemon whose desktop is the only device, as the desktop app registers it. */
-function desktopDaemon(f: ReturnType<typeof notificationFixture>, now?: () => number) {
-  const received: Notification[] = [];
-  let connected: DeviceId[] = [];
-  const notifications = createDaemonNotifications(f.home, f.store, () => {}, {}, 0, {
-    spawn: f.spawn,
-    slept: !notificationsRetained(f.path),
-    ...(now ? { now } : {}),
-  });
-  notifications.setSender((device, notification) => {
-    if (!connected.includes(device)) return false;
-    received.push(notification);
-    return true;
-  });
-  notifications.setConnected(() => connected);
-  notifications.activate();
-  return {
-    notifications,
-    received,
-    async connect() {
-      connected = [desktop];
-      await notifications.service.connectDevice(desktop);
-    },
-  };
-}
-
 test("a needs-you committed just before a crash is still delivered when the desktop returns much later", async () => {
   const f = notificationFixture(cleanups);
   const thread = f.thread();
@@ -52,10 +25,10 @@ test("a needs-you committed just before a crash is still delivered when the desk
   // The daemon goes down without a deliberate stop, after the event commits and before the
   // worker reads it.
   await before.notifications.close();
-  f.needsYou(thread);
+  // Committed a minute before the desktop returns: far past the window a sleeping worker skips.
+  f.needsYou(thread, Date.now() - 60_000);
 
-  // A minute later, far past the window a sleeping worker would skip.
-  const after = desktopDaemon(f, () => Date.now() + 60_000);
+  const after = desktopDaemon(f);
   cleanups.push(() => after.notifications.close());
   await after.connect();
   await vi.waitFor(() =>
