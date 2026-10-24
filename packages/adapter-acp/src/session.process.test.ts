@@ -482,17 +482,17 @@ it("rejects unknown prompt completion and queued input instead of sending a seco
     await h.session.close("shutdown");
   }
 });
+const command = (name: string) => ({
+  type: "mention" as const,
+  entryId: name,
+  kind: "command" as const,
+  name,
+  arguments: "",
+  invocation: { type: "slash" as const, name },
+});
 it("a send whose first command prompt was written is never reported as untaken when the rest is dropped", async () => {
   const h = await setup();
   try {
-    const command = (name: string) => ({
-      type: "mention" as const,
-      entryId: name,
-      kind: "command" as const,
-      name,
-      arguments: "",
-      invocation: { type: "slash" as const, name },
-    });
     const sent = h.session.send([command("unconfirmed"), command("second")], "queue");
     await expect(sent).rejects.toThrow("completion");
     await expect(sent).rejects.not.toBeInstanceOf(InputRejected);

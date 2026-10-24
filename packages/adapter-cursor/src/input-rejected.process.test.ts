@@ -17,21 +17,22 @@ const homes: string[] = [];
 afterEach(async () => {
   for (const home of homes.splice(0)) await rm(home, { recursive: true, force: true });
 });
-async function home(): Promise<string> {
+async function tempHome(): Promise<string> {
   const directory = await realpath(await mkdtemp(join(tmpdir(), "cursor-rejected-")));
   homes.push(directory);
   return directory;
 }
 
+const moduleUrl = (name: string) => JSON.stringify(new URL(name, import.meta.url).href);
+
 // A host on the real wire: "refuse" is turned down before the SDK, anything else fails inside it.
 async function wireSession() {
-  const directory = await home();
+  const directory = await tempHome();
   const entry = join(directory, "host.mjs");
-  const module = (name: string) => JSON.stringify(new URL(name, import.meta.url).href);
   await writeFile(
     entry,
-    `import {hostWire} from ${module("./host-wire.ts")};
-import {HostRefusal} from ${module("./host-refusal.ts")};
+    `import {hostWire} from ${moduleUrl("./host-wire.ts")};
+import {HostRefusal} from ${moduleUrl("./host-refusal.ts")};
 hostWire(async (method, params) => {
   if (method === 'open') return {agentId: 'native'};
   if (method === 'send') {
@@ -80,7 +81,7 @@ test("a send that fails inside the Cursor SDK may have run, and later sends are 
 });
 
 test("a Cursor host refuses a second send while one is in flight, before the SDK sees it", async () => {
-  const directory = await home();
+  const directory = await tempHome();
   const sent: unknown[] = [];
   const release = Promise.withResolvers<void>();
   const agent = {
