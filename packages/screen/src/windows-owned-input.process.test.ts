@@ -20,6 +20,9 @@ const StartupLine = z.object({
 const ForegroundLine = z.object({
   foreground: z.number().int().positive(),
   foregroundPid: z.number().int().nonnegative(),
+  foregroundName: z.string().max(256),
+  foregroundSession: z.number().int().min(-1),
+  foregroundClass: z.string().max(256),
   main: z.number().int().positive(),
   decoy: z.number().int().positive(),
   pid: z.number().int().positive(),
@@ -107,7 +110,7 @@ it.runIf(process.platform === "win32")(
             lines.removeListener("line", onLine);
             reject(
               new Error(
-                `Foreground ${which} timed out, wanted=${wanted}: ${JSON.stringify(last)}; ${stderr}`,
+                `[DEBUG-win-foreground] Foreground ${which} timed out, wanted=${wanted}, fixtureSession=${started.session}: ${JSON.stringify(last)}; ${stderr}`,
               ),
             );
           }, 30_000);

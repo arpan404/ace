@@ -4,6 +4,7 @@ Add-Type @'
 using System;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 public static class AceInputFixture {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
@@ -11,6 +12,7 @@ public static class AceInputFixture {
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, StringBuilder name, int capacity);
   private static readonly ConcurrentQueue<string> commands = new ConcurrentQueue<string>();
   public static void StartReader() {
     var reader = new Thread(ReadCommands);
@@ -86,7 +88,21 @@ function Write-State($which) {
   $window = [AceInputFixture]::GetForegroundWindow()
   [uint32]$foregroundProcess = 0
   [void][AceInputFixture]::GetWindowThreadProcessId($window, [ref]$foregroundProcess)
-  $line = (@{ foreground = $window.ToInt64(); foregroundPid = $foregroundProcess; main = $main.Handle.ToInt64(); decoy = $decoy.Handle.ToInt64(); pid = [Diagnostics.Process]::GetCurrentProcess().Id; which = $which; mainText = $box.Text; decoyText = $decoyLabel.Text; count = $count.Text; selectAllCount = $script:selectAllCount } | ConvertTo-Json -Compress)
+  $foregroundName = "unavailable"
+  $foregroundSession = -1
+  $observed = $null
+  try {
+    $observed = [Diagnostics.Process]::GetProcessById($foregroundProcess)
+    $foregroundName = $observed.ProcessName
+    $foregroundSession = $observed.SessionId
+  } catch {
+    # Failure to inspect another process must not change foreground behavior.
+  } finally {
+    if ($null -ne $observed) { $observed.Dispose() }
+  }
+  $class = New-Object System.Text.StringBuilder 256
+  [void][AceInputFixture]::GetClassName($window, $class, $class.Capacity)
+  $line = (@{ foreground = $window.ToInt64(); foregroundPid = $foregroundProcess; foregroundName = $foregroundName; foregroundSession = $foregroundSession; foregroundClass = $class.ToString(); main = $main.Handle.ToInt64(); decoy = $decoy.Handle.ToInt64(); pid = [Diagnostics.Process]::GetCurrentProcess().Id; which = $which; mainText = $box.Text; decoyText = $decoyLabel.Text; count = $count.Text; selectAllCount = $script:selectAllCount } | ConvertTo-Json -Compress)
   [Console]::WriteLine($line)
   [Console]::Out.Flush()
 }
