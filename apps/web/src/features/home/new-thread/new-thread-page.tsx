@@ -743,17 +743,35 @@ function PreparationPage(props: {
         {/* The thread's reading column: a question naming the project (its name picks another),
             the composer high on the page, and the project's open work to start from below it. */}
         <div className={cn(readingColumn, "flex flex-col pt-[clamp(1rem,22vh,12rem)]")}>
-          <h2 className="mb-6 px-1 text-center text-2xl leading-tight font-normal tracking-title text-balance break-words text-muted-foreground">
-            {props.chat ? "What should we do in" : "What should we build in"}{" "}
-            <ProjectPicker
-              projects={projects}
-              projectName={name}
-              project={props.chat ? chatChoice : project}
-              onProject={chooseProject}
-              returnFocus={messageField}
-            />
-            ?
-          </h2>
+          {props.chat ? (
+            // A chat names no project: a plain question, with the picker below to choose one.
+            <div className="mb-6 flex flex-col items-center gap-2 px-1 text-center">
+              <h2 className="text-2xl leading-tight font-normal tracking-title text-balance text-muted-foreground">
+                What should we work on?
+              </h2>
+              <p className="text-ui text-muted-foreground">
+                <ProjectPicker
+                  projects={projects}
+                  projectName={name}
+                  project={chatChoice}
+                  onProject={chooseProject}
+                  returnFocus={messageField}
+                />
+              </p>
+            </div>
+          ) : (
+            <h2 className="mb-6 px-1 text-center text-2xl leading-tight font-normal tracking-title text-balance break-words text-muted-foreground">
+              What should we build in{" "}
+              <ProjectPicker
+                projects={projects}
+                projectName={name}
+                project={project}
+                onProject={chooseProject}
+                returnFocus={messageField}
+              />
+              ?
+            </h2>
+          )}
           <div className="shrink-0">
             <Composer
               ref={composer}
