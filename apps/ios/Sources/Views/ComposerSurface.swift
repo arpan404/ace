@@ -6,7 +6,7 @@ struct ComposerSurface<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none, content: content)
             .padding(.vertical, AceTheme.Spacing.sm)
-            .floatingGlass()
+            .composerGlass(in: AceShape.field)
     }
 }
 

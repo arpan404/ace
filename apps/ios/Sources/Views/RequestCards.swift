@@ -19,7 +19,7 @@ struct ComposerFrame: ViewModifier {
         content
             .padding(padding)
             .aceContainerShape(AceShape.field)
-            .aceGlass(in: AceShape.field)
+            .composerGlass(in: AceShape.field)
             .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.sm)
     }
 }
