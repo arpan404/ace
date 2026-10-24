@@ -32,8 +32,7 @@ export const minTickSpacing = 3;
  * pointer grow longer, the one under it most, without any tick moving; they relax when it leaves.
  * Resting on a tick, or focusing it from the keyboard, opens its turn's preview beside it; a quick
  * sweep past opens nothing, an open card follows the pointer from tick to tick, and leaving the
- * rail, Escape or a click closes it. A click jumps. Shown only with a fine pointer: on touch the
- * Turns panel reaches the same turns.
+ * rail, Escape or a click closes it. A click jumps.
  */
 export function ConversationRail(props: {
   markers: readonly ConversationMarker[];
