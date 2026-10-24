@@ -102,8 +102,16 @@ export class IncomingTransfers {
     for (const record of this.rows.unsettled()) {
       // Past the cutoff the result stands: finish setting it up instead of undoing it.
       if (record.result) {
-        this.finish(record, record.result);
-        await this.removeFiles(record.transferId);
+        try {
+          this.finish(record, record.result);
+          await this.removeFiles(record.transferId);
+        } catch (error) {
+          // Left importing: the next start tries the setup again.
+          this.deps.log("Transfer setup not finished", {
+            transferId: record.transferId,
+            error: String(error),
+          });
+        }
         continue;
       }
       await this.rollback(record);
