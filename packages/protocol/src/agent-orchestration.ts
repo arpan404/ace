@@ -18,10 +18,15 @@ export const AgentCatalogInput = ModelFilter.extend({
   query: z.string().min(1).max(256).optional(),
 });
 const { raw: _raw, ...catalogModelShape } = CatalogModel.shape;
-export const AgentCatalogModel = z.object(catalogModelShape);
+export const AgentCatalogModel = z.object(catalogModelShape).extend({
+  /** With a query: every account that serves this model (`instance` is the first). */
+  accounts: z.array(z.string().min(1).max(256)).max(64).optional(),
+});
+/** Native permission selectors stay in ace: an agent chooses by `allowedAccessModes`. */
 export const AgentCatalogInstance = ModelInstanceStatus.omit({
   sources: true,
   permissionModes: true,
+  accessModes: true,
 }).extend({
   installed: z.boolean(),
   auth: z.enum(["logged_in", "logged_out", "unknown"]),
@@ -35,6 +40,8 @@ export const AgentCatalogPage = z.object({
   models: z.array(AgentCatalogModel).max(20),
   instances: z.array(AgentCatalogInstance).max(64),
   nextOffset: z.number().int().nonnegative().optional(),
+  /** Accounts left out because their details would not fit one page; never set in practice. */
+  instancesOmitted: z.number().int().positive().optional(),
   caller: z.object({ threadId: ThreadId, access: AccessMode.nullable() }),
 });
 export type AgentCatalogPage = z.infer<typeof AgentCatalogPage>;

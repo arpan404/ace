@@ -13,8 +13,11 @@ import { callerThread } from "./authorization.ts";
 import type { z } from "zod";
 import type { DelegationDependencies } from "./delegations.ts";
 
-/** The nearest runnable models to a name, across every page and account, nearest first. */
-function searched(deps: DelegationDependencies, filter: ModelFilter, query: string, limit: number) {
+/**
+ * The nearest runnable models to a name, across every page and account, nearest first: one entry
+ * per model, naming every account that serves it, so accounts never crowd out other models.
+ */
+function searched(deps: DelegationDependencies, filter: ModelFilter, query: string) {
   const rows: CatalogModel[] = [];
   let offset: number | undefined = 0;
   for (let page = 0; offset !== undefined && page < 50; page++) {
@@ -22,7 +25,14 @@ function searched(deps: DelegationDependencies, filter: ModelFilter, query: stri
     rows.push(...result.models.filter((model) => !model.hidden && !model.deprecated));
     offset = result.nextOffset;
   }
-  return searchModels(rows, query).slice(0, limit);
+  const byModel = new Map<string, CatalogModel & { accounts: string[] }>();
+  for (const model of searchModels(rows, query)) {
+    const key = `${model.provider}\u0000${model.id}`;
+    const entry = byModel.get(key);
+    if (!entry) byModel.set(key, { ...model, accounts: [model.instance] });
+    else if (!entry.accounts.includes(model.instance)) entry.accounts.push(model.instance);
+  }
+  return [...byModel.values()];
 }
 
 /**
@@ -58,7 +68,7 @@ export function readAgentCatalog(
     return Object.assign({}, status, {
       sources: undefined,
       permissionModes: undefined,
-      accessModes: offers,
+      accessModes: undefined,
       installed: installed.installed,
       auth: account?.quota.auth ?? installed.auth,
       enabled:
@@ -76,20 +86,33 @@ export function readAgentCatalog(
       allowedAccessModes: offers.map((offer) => offer.mode).filter((mode) => allows(status, mode)),
     });
   });
-  const rows = query ? searched(deps, filter, query, input.limit) : page.models;
+  const found = query ? searched(deps, filter, query) : undefined;
+  const rows = found ? found.slice(input.offset, input.offset + input.limit) : page.models;
   const models = rows.map(({ raw: _raw, ...model }) => model);
-  // Reserve envelope space, including worst-case JSON string escaping.
-  while (models.length > 1 && Buffer.byteLength(JSON.stringify({ instances, models })) > 180 * 1024)
-    models.pop();
-  const nextOffset = query
-    ? undefined
+  // Reserve envelope space, including worst-case JSON string escaping. Models give way first
+  // (they page); then accounts' discovery errors; an account is left out only as a last resort.
+  let accounts: typeof instances = instances;
+  const fits = () =>
+    Buffer.byteLength(JSON.stringify({ instances: accounts, models })) <= 180 * 1024;
+  while (models.length > 1 && !fits()) models.pop();
+  if (!fits()) accounts = accounts.map(({ errorDetail: _detail, ...account }) => account);
+  let instancesOmitted = 0;
+  while (accounts.length > 1 && !fits()) {
+    accounts = accounts.slice(0, -1);
+    instancesOmitted += 1;
+  }
+  const nextOffset = found
+    ? input.offset + models.length < found.length
+      ? input.offset + models.length
+      : undefined
     : models.length < page.models.length
       ? input.offset + models.length
       : page.nextOffset;
   const result = AgentCatalogPage.parse({
     models,
-    instances,
+    instances: accounts,
     ...(nextOffset === undefined ? {} : { nextOffset }),
+    ...(instancesOmitted ? { instancesOmitted } : {}),
     caller: { threadId: parent.id, access: deps.engine.access(parent.id) },
   });
   if (
