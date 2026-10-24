@@ -147,6 +147,8 @@ export function bootFake(): {
     { path: "/home/ci/services/web-gateway", git: true },
     { path: "/home/ci/infra/terraform", git: true },
   ]);
+  // One project there already, so New thread can start on the build server.
+  if (!empty) server.projects.command({ type: "workspace.add", path: "/home/ci/services/api" });
   seedBuildServerUsage(server, Date.now());
   if (!empty) seedLimitReadings(daemon, Date.now());
   const machines = fakeMachinePool([server], (other) =>

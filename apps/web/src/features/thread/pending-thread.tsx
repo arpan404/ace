@@ -17,6 +17,7 @@ import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { useProjectName } from "@/lib/projects.ts";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { Composer, type ComposerHandle } from "./composer/composer.tsx";
 import { ComposerDock } from "./composer/composer-dock.tsx";
 import { startedTitle } from "./composer/send-store.ts";
@@ -79,13 +80,15 @@ export function PendingThreadView(props: {
   // Leasing the real thread loads its first window, so the move to it shows no skeleton.
   const meta = useThreadMeta(realId);
   const navigate = useNavigate();
+  // A thread started on another machine stays on it (ADR 0100).
+  const search = useMachineSearch();
   const composer = useRef<ComposerHandle>(null);
   useEffect(() => {
     if (realId && meta) {
       composer.current?.preserveDraft(`thread:${realId}`);
-      void navigate({ to: "/t/$threadId", params: { threadId: realId }, replace: true });
+      void navigate({ to: "/t/$threadId", params: { threadId: realId }, search, replace: true });
     }
-  }, [realId, meta, navigate]);
+  }, [realId, meta, navigate, search]);
   const projectName = useProjectName();
   const workspaceId = payload?.type === "thread.create" ? payload.workspaceId : undefined;
   // New thread worked the title out as it sent; after a reload, the same rule on the message.

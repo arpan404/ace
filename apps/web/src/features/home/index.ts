@@ -3,6 +3,7 @@ export { ArchivedScreen } from "./archived-screen.tsx";
 export { HomeEmptyScreen } from "./home-empty-screen.tsx";
 export { ThreadsSidebar } from "./home-sidebar-lazy.tsx";
 export { NewThreadPage } from "./new-thread/new-thread-page.tsx";
+export { NewThreadOnMachine } from "./new-thread/new-thread-on-machine.tsx";
 export { OpenWorkWarmup } from "./new-thread/open-work-warmup.tsx";
 export { useSeenWhileOpen } from "./use-seen-while-open.ts";
 /** Moving between threads by keyboard (⌥⌘↓ ↑, ⌥⌘J), and the same steps for the palette. */
@@ -20,3 +21,4 @@ export {
   type NewThreadOptions,
   type Resolved as ResolvedModel,
 } from "./new-thread/choices.ts";
+export { OnMachine, machineAwayText } from "./on-machine.tsx";

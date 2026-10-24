@@ -1,5 +1,3 @@
-import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
-import { ClientProvider, useNotifyBatch } from "@ace/client-react";
 import { createContext, use, useMemo, useState, type ReactNode } from "react";
 import { useMachines, type Machine } from "@/lib/machines.ts";
 
@@ -61,43 +59,6 @@ const outsideSettings: SettingsMachine = {
 
 /** The choice that makes Machine pages edit every connected machine at once. */
 export const allMachines = "all";
-
-/**
- * Each other machine gets its own query cache, so a cached read from one machine can never show
- * on another's page. This window's daemon keeps the app's cache.
- */
-const caches = new WeakMap<object, QueryClient>();
-function machineCache(client: object, app: QueryClient): QueryClient {
-  let cache = caches.get(client);
-  if (!cache) {
-    cache = new QueryClient({ defaultOptions: app.getDefaultOptions() });
-    caches.set(client, cache);
-  }
-  return cache;
-}
-
-/**
- * Renders `children` against one machine: its client and its own query cache. While the machine
- * is offline it renders `unavailable` instead, so nothing stale or borrowed shows.
- */
-export function MachineScope(props: {
-  machine: Machine;
-  unavailable?: ReactNode;
-  children: ReactNode;
-}) {
-  const { machine } = props;
-  const app = useQueryClient();
-  const batch = useNotifyBatch();
-  if (machine.primary) return props.children;
-  if (!machine.client) return props.unavailable ?? null;
-  return (
-    <ClientProvider client={machine.client} batch={batch}>
-      <QueryClientProvider client={machineCache(machine.client, app)}>
-        {props.children}
-      </QueryClientProvider>
-    </ClientProvider>
-  );
-}
 
 /** Why a machine's settings can't show right now, in one line. */
 export function machineUnavailableText(machine: Machine): string {
