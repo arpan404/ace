@@ -103,12 +103,6 @@ enum ReadingColumn {
     }
     /// The transcript's rows sit this far in from the column's edges.
     static let textMargin = AceTheme.Spacing.xl
-    /// The bar puts its trailing button this far from a column's edge; a regular window adds the
-    /// rest of `textMargin`, so ⋯ lines up with the composer and the text under it.
-    static let barTrailingMargin = AceTheme.Spacing.md + AceTheme.Spacing.xxs
-    static func barTrailing(_ sizeClass: UserInterfaceSizeClass?) -> CGFloat {
-        sizeClass == .regular ? textMargin - barTrailingMargin : AceTheme.Spacing.none
-    }
     static func bar(_ sizeClass: UserInterfaceSizeClass?) -> Bar {
         sizeClass == .regular
             ? Bar(composer: textMargin, card: textMargin, bottom: AceTheme.Spacing.lg)
