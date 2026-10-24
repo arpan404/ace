@@ -1,12 +1,15 @@
-import type { StatementSync } from "node:sqlite";
+import type { SQLOutputValue, StatementSync } from "node:sqlite";
 import { BoundedCache } from "@ace/provider-kit/bounded-cache";
 import { sidebarPageStorage } from "./sidebar-page-storage.ts";
 import { SidebarPageWeight } from "./sidebar-page-weight.ts";
-import { decodeThreadRow } from "./thread-row.ts";
+import type { Thread } from "@ace/protocol";
+import type { FrozenThread } from "./thread-cache.ts";
 interface SidebarReadSource {
   statement(sql: string): StatementSync;
   /** Store-owned SQLite snapshot; SidebarReads owns only its caches. */
   snapshot<T>(read: () => T): T;
+  /** Shared, frozen decode of a row read with its revision. Entries are only sent, never changed. */
+  decode(row: Record<string, SQLOutputValue>, revision: SQLOutputValue | undefined): FrozenThread;
 }
 /** Sidebar reads pin membership and payloads to one SQLite snapshot and revision. */
 export class SidebarReads {
@@ -79,7 +82,8 @@ export class SidebarReads {
     const page = sidebarPageStorage(
       (sql) => this.source.statement(sql),
       (row) => {
-        const entry = decodeThreadRow(row);
+        // Frozen at runtime; the wire types are mutable only because they are plain schemas.
+        const entry = this.source.decode(row, row.sidebar_revision) as Thread;
         this.sidebarRowRevisions.set(entry, Number(row.sidebar_revision));
         return entry;
       },
