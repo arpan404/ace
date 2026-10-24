@@ -27,10 +27,13 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
         NavigationSplitView(columnVisibility: $visibility, preferredCompactColumn: compactColumn) {
             list()
                 .toolbar(removing: pinned ? .sidebarToggle : nil)
+                // Room for the wordmark beside the window's controls and its three buttons.
+                .navigationSplitViewColumnWidth(min: ThreadColumns.listWidth.min, ideal: ThreadColumns.listWidth.ideal, max: ThreadColumns.listWidth.max)
                 .environment(\.openThreadRow, ThreadColumns.selection(path))
                 .environment(\.openForgeRow, path.first?.forge)
                 .environment(\.onSidebarGlass, onSidebarGlass)
                 .environment(\.headerLead, ThreadColumns.headerLead(sizeClass, windowControls: windowControls))
+                .environment(\.markOnly, ThreadColumns.markOnly(sizeClass, windowControls: windowControls))
                 // Going back to the list in a compact window closes the thread, as popping it did.
                 .onAppear {
                     if ThreadColumns.backToList(sizeClass, reported: listReported) { path = [] }
@@ -116,6 +119,8 @@ extension EnvironmentValues {
     @Entry var openThreadRow: InboxKey?
     /// How far the list's header steps in (`ThreadColumns.headerLead`).
     @Entry var headerLead: CGFloat = 0
+    /// The header shows the ace mark without its word (`ThreadColumns.markOnly`).
+    @Entry var markOnly = false
     /// The pull request or issue open beside the list.
     @Entry var openForgeRow: ForgeRoute?
     /// Closes the detail column's own thread; pages pushed over it go back instead.

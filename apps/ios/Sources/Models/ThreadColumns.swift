@@ -12,6 +12,9 @@ enum ThreadColumns {
     /// A regular window narrower than this keeps the thread full width and shows the list over
     /// it: a list beside the thread would leave the transcript too narrow to read.
     static let sideBySideMinimum: CGFloat = 700
+    /// The list column beside the thread: wide enough for the header (the wordmark clear of the
+    /// window's controls, then Settings, Search and New thread) and the three-line rows.
+    static let listWidth = (min: CGFloat(300), ideal: CGFloat(330), max: CGFloat(380))
 
     /// Whether the list sits beside the open thread.
     static func sideBySide(_ sizeClass: UserInterfaceSizeClass?, width: CGFloat) -> Bool {
@@ -54,7 +57,14 @@ enum ThreadColumns {
     /// the sidebar panel's rounded corner, and of the window's controls (the red, yellow and green
     /// dots) when the window has them, which the bar alone sets it right against.
     static func headerLead(_ sizeClass: UserInterfaceSizeClass?, windowControls: CGFloat) -> CGFloat {
-        sidebarHoldsTabs(sizeClass) || windowControls > 0 ? AceTheme.Spacing.sm : AceTheme.Spacing.none
+        if windowControls > 0 { return AceTheme.Spacing.md }
+        return sidebarHoldsTabs(sizeClass) ? AceTheme.Spacing.sm : AceTheme.Spacing.none
+    }
+
+    /// Whether the header shows the ace mark without its word: when the window's controls share
+    /// the sidebar's bar, the word would push Search and New thread into its overflow menu.
+    static func markOnly(_ sizeClass: UserInterfaceSizeClass?, windowControls: CGFloat) -> Bool {
+        sidebarHoldsTabs(sizeClass) && windowControls > 0
     }
 
     /// The tab bar shows only in a compact window, and steps aside while it shows a page.

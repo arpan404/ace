@@ -69,9 +69,18 @@ import SwiftUI
 
     @Test func theListsHeaderStepsClearOfTheSidebarCornerAndTheWindowControlsOnly() {
         #expect(ThreadColumns.headerLead(.regular, windowControls: 0) > 0)
-        #expect(ThreadColumns.headerLead(.compact, windowControls: 66) > 0)
+        // Beside the window's controls the header keeps clearly apart from them.
+        #expect(ThreadColumns.headerLead(.compact, windowControls: 66) > ThreadColumns.headerLead(.regular, windowControls: 0))
+        #expect(ThreadColumns.headerLead(.regular, windowControls: 66) == ThreadColumns.headerLead(.compact, windowControls: 66))
         // A phone, or a window without controls, keeps the bar's own place.
         #expect(ThreadColumns.headerLead(.compact, windowControls: 0) == 0)
+    }
+
+    @Test func theWordmarkGivesWayOnlyWhereTheWindowsControlsShareTheSidebarsBar() {
+        #expect(ThreadColumns.markOnly(.regular, windowControls: 66))
+        // Full screen, or the phone's bar beside the controls (two buttons), keep the word.
+        #expect(!ThreadColumns.markOnly(.regular, windowControls: 0))
+        #expect(!ThreadColumns.markOnly(.compact, windowControls: 66))
     }
 
     @Test func nextAndPreviousThreadFollowTheListAndStopAtItsEnds() {

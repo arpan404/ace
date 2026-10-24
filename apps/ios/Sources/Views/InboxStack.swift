@@ -118,14 +118,15 @@ struct InboxStack<Destination: View>: View {
             ToolbarItem(placement: .topBarLeading) { title }
         }
         ToolbarItem(placement: .topBarTrailing) { settings }
-        if #available(iOS 26, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
+        // A phone gives each button its own glass; the sidebar groups its three into one, so a
+        // narrow column (a window beside its controls) still shows them all.
+        if #available(iOS 26, *), !ThreadColumns.sidebarHoldsTabs(sizeClass) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
         ToolbarItem(placement: .topBarTrailing) {
             Button { withAnimation(.smooth) { searching = true } } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Search").accessibilityIdentifier("inbox.search")
         }
         // The phone's floating New thread button, in the sidebar's own bar.
         if ThreadColumns.sidebarHoldsTabs(sizeClass), inbox.canStartThreads {
-            if #available(iOS 26, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: forge.startThread) { Image(systemName: "square.and.pencil") }
                     .accessibilityLabel("New thread").accessibilityIdentifier("inbox.compose")
