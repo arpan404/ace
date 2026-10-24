@@ -34,7 +34,7 @@ export function CommandChoices(props: {
   choices: readonly CommandChoice[];
   onChoose(choice: CommandChoice): void;
   onBack: (() => void) | undefined;
-  empty: string;
+  empty: ReactNode;
   trailing?: ReactNode;
 }) {
   const [text, setText] = useState("");

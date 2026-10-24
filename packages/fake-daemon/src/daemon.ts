@@ -973,10 +973,6 @@ export class FakeDaemon implements Host {
     }
     if (!this.canManageProjects(command.deviceId))
       return Promise.resolve({ commandId: command.id, ok: false, error: "forbidden" });
-    if (p.type === "workspace.transfer" || p.type === "thread.continueOn")
-      return Promise.resolve(
-        this.receipts.get(command.id)?.result ?? this.transfers.start({ ...command, payload: p }),
-      );
     if (command.payload.type !== "workspace.clone" && command.payload.type !== "workspace.publish")
       return Promise.resolve(this.command(command));
     return projectIntent(command, {
@@ -994,6 +990,13 @@ export class FakeDaemon implements Host {
         ? previous.result
         : { commandId: command.id, ok: false, error: "forbidden" };
     const payload = command.payload;
+    if (payload.type === "workspace.transfer" || payload.type === "thread.continueOn") {
+      const result = this.canManageProjects(command.deviceId)
+        ? this.transfers.start({ ...command, payload })
+        : { commandId: command.id, ok: false, error: "forbidden" };
+      this.receipts.set(command.id, { deviceId: command.deviceId, result });
+      return result;
+    }
     const configurations = ProviderConfigurations.parse(
       this.services.settings.get("providers.configuration"),
     );

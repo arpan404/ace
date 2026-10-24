@@ -1,3 +1,4 @@
+import { TransferHost } from "@/features/transfers/index.ts";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { ForgeButton } from "@/components/forge-button.tsx";
 import { AddAccountHost } from "@/features/account-management/index.ts";
@@ -89,6 +90,9 @@ export function AppShell() {
             </LocalBoundary>
             <LocalBoundary label="the project picker" fallback={null}>
               <MoveToProjectHost />
+            </LocalBoundary>
+            <LocalBoundary label="the machine chooser" fallback={null}>
+              <TransferHost />
             </LocalBoundary>
             <LocalBoundary label="the delete confirmation" fallback={null}>
               <DeleteConfirmationHost />

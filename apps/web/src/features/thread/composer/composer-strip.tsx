@@ -8,6 +8,7 @@ import {
   useThreadAutomationLine,
 } from "@/features/thread-automation/index.ts";
 import { useShownPlans } from "@/lib/use-plans.ts";
+import { ThreadTransferStrip, useThreadTransferState } from "@/features/transfers/index.ts";
 import { failedHead, withoutMessage } from "./failed-head.ts";
 import { withoutAgentPending, withoutAgentResults } from "./queued-agent-result.ts";
 import { holdsTurn, stoppedHold } from "@ace/ui-core";
@@ -112,6 +113,7 @@ export function ComposerStrip(props: {
     () => registerQueueEditSaver(props.threadId, (message, text) => saveEdit(message, text)),
     [props.threadId],
   );
+  const transfer = useThreadTransferState(props.threadId);
   const facts: StripFacts = {
     confirmStop: !!props.confirmStop,
     requests,
@@ -124,6 +126,7 @@ export function ComposerStrip(props: {
     queue: queued > 0 || queue.failed || !!held || !!editing,
     goal: !!goal,
     plan: !!plan,
+    transfer: transfer.state !== undefined,
   };
   const [pick, setPick] = useState<ReturnType<typeof pickStrip>>();
   // A waiting question's line in the transcript asks for its card: the slot goes back to the
@@ -162,6 +165,12 @@ export function ComposerStrip(props: {
     running: stopped.length,
     queued,
     plan,
+    transfer:
+      transfer.state?.kind === "transfer"
+        ? transfer.state.transfer.target.name
+        : transfer.state?.kind === "on"
+          ? transfer.state.on.name
+          : transfer.state?.from.name,
   };
   const indicators = (
     <StripIndicators
@@ -233,8 +242,15 @@ export function ComposerStrip(props: {
           working={props.status?.state === "working"}
           indicators={indicators}
         />
-      ) : plan ? (
+      ) : slot.shown === "plan" && plan ? (
         <PlanStrip progress={plan} indicators={indicators} />
+      ) : slot.shown === "transfer" && transfer.state ? (
+        <ThreadTransferStrip
+          threadId={props.threadId}
+          state={transfer.state}
+          onDismiss={transfer.dismiss}
+          indicators={indicators}
+        />
       ) : null}
     </StripSurface>
   );
