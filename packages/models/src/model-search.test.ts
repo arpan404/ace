@@ -105,3 +105,24 @@ test("search lists the nearest models first, one row per account", () => {
   expect(found.slice(0, 2).toSorted()).toEqual(["account-346", "codex-cli-default"]);
   expect(found.at(-1)).toBe("pi-cli-default");
 });
+
+test("the same model through two upstream routes is ambiguous, never a silent pick", () => {
+  const routes = [
+    row("opencode", "openai/gpt-6.1-sol", "GPT-6.1 Sol", {
+      family: "gpt-6.1",
+      nativeProviderId: "openai",
+    }),
+    row("opencode", "azure/gpt-6.1-sol", "GPT-6.1 Sol", {
+      family: "gpt-6.1",
+      nativeProviderId: "azure",
+    }),
+  ];
+  const found = resolveModelName(routes, "gpt 6.1 sol");
+  expect(found.kind).toBe("ambiguous");
+  expect(found.kind === "ambiguous" && found.options.map((model) => model.id).toSorted()).toEqual([
+    "azure/gpt-6.1-sol",
+    "openai/gpt-6.1-sol",
+  ]);
+  // One route still resolves a family name to its newest version.
+  expect(resolveModelName([routes[0] as CatalogModel], "gpt 6.1 sol").kind).toBe("match");
+});

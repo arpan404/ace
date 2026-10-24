@@ -107,6 +107,13 @@ export function searchModels(models: readonly CatalogModel[], query: string): Ca
   return scored.map((entry) => entry.model);
 }
 
+/** The upstream a model is served through: its native provider, or its id's route prefix. */
+function route(model: CatalogModel): string {
+  if (model.nativeProviderId) return model.nativeProviderId;
+  const slash = model.id.lastIndexOf("/");
+  return slash < 0 ? "" : model.id.slice(0, slash);
+}
+
 export type ModelNameMatch =
   | { kind: "match"; model: CatalogModel }
   | { kind: "ambiguous"; options: CatalogModel[] }
@@ -130,9 +137,16 @@ export function resolveModelName(models: readonly CatalogModel[], query: string)
     if (!tied.has(key)) tied.set(key, model);
   }
   const options = [...tied.values()];
+  // Versions of one family through one route. The same model through two upstreams (OpenCode's
+  // "openai/…" and "azure/…") is a choice of who runs and bills it, so it is never made silently.
   const oneFamily =
     first.family !== undefined &&
-    options.every((model) => model.provider === first.provider && model.family === first.family);
+    options.every(
+      (model) =>
+        model.provider === first.provider &&
+        model.family === first.family &&
+        route(model) === route(first),
+    );
   return options.length === 1 || oneFamily
     ? { kind: "match", model: first }
     : { kind: "ambiguous", options };
