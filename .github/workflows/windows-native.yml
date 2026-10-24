@@ -243,6 +243,10 @@ jobs:
           cargo test --locked --target %RUST_TARGET% || exit /b 1
           popd
 
+      - name: Close the runner system app before owned foreground tests
+        shell: pwsh
+        run: ./scripts/prepare-windows-screen.ps1
+
       - name: Verify real screen helper pipe, owned capture, UIA and input
         timeout-minutes: 3
         env:
