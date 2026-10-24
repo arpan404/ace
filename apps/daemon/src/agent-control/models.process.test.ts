@@ -218,23 +218,29 @@ test.each(["opus", "claude-opus-5-5", "opus-5.5"])(
   },
 );
 
-test("a configured user choice wins over an invalid agent guess", async () => {
+/** A greeting task for Claude, naming `model` when given. */
+function greeting(requestId: string, model?: string) {
+  return DelegationRequest.parse({
+    requestId,
+    task: "Say hello",
+    role: `greet-${requestId}`,
+    provider: "claude",
+    ...(model ? { model } : {}),
+  });
+}
+
+test("the person's role model fills an open choice but never replaces a model the agent named", async () => {
   const { f, catalog } = await fixture();
   try {
     const parent = await f.parent();
-    const child = f.service.delegate(
-      parent,
-      DelegationRequest.parse({
-        requestId: "configured",
-        task: "Say hello",
-        role: "greet-configured-choice",
-        provider: "claude",
-        model: "opus-5.5",
-      }),
-      "opus",
-    );
+    const child = f.service.delegate(parent, greeting("open-choice"), "opus");
     await f.engine.flush();
     expect(f.contexts.get(child.childId)?.model).toBe("claude-opus-5-5");
+    const before = f.store.listThreads();
+    expect(() => f.service.delegate(parent, greeting("named", "missing-model"), "opus")).toThrow(
+      /requested model missing-model is unavailable there\. Settings → Roles names claude-opus-5-5 for claude/,
+    );
+    expect(f.store.listThreads()).toEqual(before);
   } finally {
     await f.close();
     await catalog.close();
@@ -274,7 +280,7 @@ test("a model the chosen account lacks is refused even when another account serv
   }
 });
 
-test("an unavailable model without a valid default reports an error before creating a child", async () => {
+test("a named model the catalog lacks is refused before creating a child", async () => {
   const { f, catalog } = await fixture(false);
   try {
     const parent = await f.parent();
@@ -295,7 +301,7 @@ test("an unavailable model without a valid default reports an error before creat
         },
         new AbortController().signal,
       ),
-    ).rejects.toThrow(/Cannot delegate to claude.*no valid configured default/);
+    ).rejects.toThrow(/Cannot delegate to claude.*requested model opus-5\.5 is unavailable/);
     expect(f.store.listThreads()).toEqual(before);
     expect(f.service.journal.reservations()).toEqual([]);
   } finally {

@@ -1,7 +1,7 @@
 import { accountProvider, explicitInstance, pickInstance, type Candidate } from "@ace/accounts";
 import { AcpIdentity, type DelegationRequest, type Thread, type CatalogModel } from "@ace/protocol";
 import { AccountProvider } from "@ace/protocol/accounts";
-import { executionModelId, selectionModelFilter } from "@ace/models";
+import { executionModelId, isDefaultSelection, selectionModelFilter } from "@ace/models";
 import { modelsAvailableWithoutAuth } from "@ace/models/availability";
 import { cursorDefaultInstanceId } from "@ace/provider-kit/cursor-selection";
 import { delegationEffort, selectedDelegationModel } from "./models.ts";
@@ -99,7 +99,8 @@ export function delegationSelection(
       missing ??= error;
     }
   }
-  if (missing && !views.length && (input.accountId || input.model)) throw missing;
+  // Only a model the agent named makes "it isn't there" the reason; otherwise the account is.
+  if (missing && !views.length && input.model && !isDefaultSelection(input.model)) throw missing;
   const selected =
     input.provider === "antigravity" && input.accountId
       ? antigravityAccount(deps, input.accountId)

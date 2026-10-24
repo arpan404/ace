@@ -52,7 +52,8 @@ function catalogRows(catalog: ModelCatalogApi, filter: ModelListOptions): Catalo
   for (;;) {
     const page = catalog.list({ ...filter, offset, limit: 100 });
     rows.push(...page.models);
-    if (page.nextOffset === undefined) break;
+    // A page that does not move forward ends the read rather than looping.
+    if (page.nextOffset === undefined || page.nextOffset <= offset) break;
     offset = page.nextOffset;
   }
   return rows;
@@ -102,20 +103,24 @@ export function selectedDelegationModel(
     );
     return aliases.length === 1 ? aliases[0] : undefined;
   };
-  // A model the agent named runs as named or is refused: falling back to the account's default
-  // would run a model nobody chose. Only the person's configured choice may stand in for it.
+  // A model the agent named runs as named or is refused: neither the account's default nor a
+  // role model the person set for other work stands in for it. Those fill only an open choice.
   const named = request.model !== undefined && !isDefaultSelection(request.model);
-  const chosen =
-    find(request.model) ??
-    find(configured) ??
-    (named
-      ? undefined
-      : (available.find((row) => row.isDefault) ??
-        (parent.provider === request.provider ? find(parent.execution?.model) : undefined)));
+  const target = `${request.provider}${instance ? ` account ${instance}` : ""}`;
+  const chosen = named
+    ? find(request.model)
+    : (find(configured) ??
+      available.find((row) => row.isDefault) ??
+      (parent.provider === request.provider ? find(parent.execution?.model) : undefined));
+  if (!chosen && named) {
+    const role = find(configured);
+    const detail = `Cannot delegate to ${target}: requested model ${request.model} is unavailable there.${role ? ` Settings → Roles names ${role.id} for ${request.provider}; pass that model to use it.` : ""} Choose a model from \`models\` or another account.`;
+    throw new AgentControlError("model_unavailable", detail, undefined, detail);
+  }
   if (!chosen)
     throw new AgentControlError(
       "model_unavailable",
-      `Cannot delegate to ${request.provider}${instance ? ` account ${instance}` : ""}: requested model ${request.model ?? "(default)"} is unavailable and no valid configured default exists. Refresh the target account's model catalog or choose an available model.`,
+      `Cannot delegate to ${target}: no model was named and no valid configured default exists. Refresh the target account's model catalog or choose an available model.`,
     );
   if (
     request.options?.serviceTier &&
