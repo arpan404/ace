@@ -10,7 +10,7 @@ import {
   type PresenceUpdate,
   type ThreadId,
 } from "@ace/protocol";
-import type { NotificationTransport } from "./service.ts";
+import type { NotificationState, NotificationTransport } from "./service.ts";
 import {
   FromWorker,
   WorkerConfig,
@@ -30,7 +30,11 @@ function isWireFrame(input: unknown): boolean {
 type WorkerOptionsInput = {
   path: string;
   windowMs?: number;
+  /** Events before this time raise no alerts (see `deliverableFor`). */
+  alertsFrom?: number;
   transport: NotificationTransport;
+  /** Called when the worker's next delivery deadline or idleness changes. */
+  onState?: (state: NotificationState) => void;
   signal?: AbortSignal;
   spawn?: (entry: URL, options: WorkerOptions) => Worker;
   schedule?: (delayMs: number, restart: () => void) => () => void;
@@ -135,6 +139,8 @@ export class NotificationWorker {
             ),
           );
       } else if (message.type === "cancel") this.flights.get(message.id)?.abort();
+      else if (message.type === "state")
+        options.onState?.({ deadline: message.deadline, idle: message.idle });
       else {
         if (options.signal?.aborted || this.flights.size >= 16) {
           this.worker.postMessage({ type: "deliveryResult", id: message.id, result: "retry" }, []);

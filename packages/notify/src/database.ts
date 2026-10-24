@@ -1,5 +1,5 @@
 import { replayGap } from "./replay-gap.ts";
-import { chmodSync } from "node:fs";
+import { chmodSync, existsSync } from "node:fs";
 import { DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
 import {
@@ -54,17 +54,55 @@ const schema = `CREATE TABLE cursor (id INTEGER PRIMARY KEY CHECK(id=1), seq INT
   CREATE TRIGGER pending_insert AFTER INSERT ON pending BEGIN UPDATE queue_size SET n=n+1 WHERE id=1; END;
   CREATE TRIGGER pending_delete AFTER DELETE ON pending BEGIN UPDATE queue_size SET n=n-1 WHERE id=1; END;
   ${trackingTables}`;
+const deliverableJobs =
+  "SELECT jobs.due FROM jobs JOIN devices ON devices.id=jobs.device WHERE devices.revoked=0 AND devices.expired=0 ORDER BY jobs.due LIMIT 1";
+/**
+ * Work that a stopped worker would miss: queued alerts or jobs, or a device that can take an
+ * alert while no client is connected (push, or a phone's catch-up inbox). Live-socket desktop
+ * and web devices alone need nothing until one connects.
+ */
+function retainsWork(statement: (sql: string) => Pick<StatementSync, "get">): boolean {
+  return (
+    statement("SELECT 1 FROM pending LIMIT 1").get() !== undefined ||
+    statement(deliverableJobs).get() !== undefined ||
+    statement(
+      "SELECT 1 FROM devices WHERE revoked=0 AND expired=0 AND NOT (json_extract(body,'$.address.channel')='websocket' AND json_extract(body,'$.address.platform') IN ('desktop','web')) LIMIT 1",
+    ).get() !== undefined
+  );
+}
+/**
+ * Read-only check, without opening a worker, of whether the store at `path` retains work. A
+ * missing store retains none; one this build cannot read, or any failure, counts as retaining
+ * so the worker opens it and reports the problem.
+ */
+export function notificationsRetained(path: string): boolean {
+  if (!existsSync(path)) return false;
+  try {
+    const db = new DatabaseSync(path, { readOnly: true });
+    try {
+      const version = db.prepare("PRAGMA user_version").get()?.user_version;
+      return version !== FORMAT || retainsWork((sql) => db.prepare(sql));
+    } finally {
+      db.close();
+    }
+  } catch {
+    return true;
+  }
+}
 /** All writes are bounded, synchronous SQLite transactions around pure policy. */
 export class NotificationDatabase {
   private db: DatabaseSync;
   private statements = new Map<string, StatementSync>();
   private windowMs: number;
+  private alertsFrom: number;
   private tracking: InteractionTracking;
   readonly inbox: NotificationInbox;
-  constructor(path: string, windowMs = 5000) {
+  /** Events before `alertsFrom` update state but raise no alerts (see `deliverableFor`). */
+  constructor(path: string, windowMs = 5000, alertsFrom = 0) {
     if (!Number.isSafeInteger(windowMs) || windowMs < 0)
       throw new Error("Invalid coalescing window");
     this.windowMs = windowMs;
+    this.alertsFrom = alertsFrom;
     this.tracking = new InteractionTracking((sql) => this.statement(sql));
     this.inbox = new NotificationInbox((sql) => this.statement(sql));
     this.db = new DatabaseSync(path);
@@ -151,7 +189,7 @@ export class NotificationDatabase {
         if (!row) throw new Error("Missing notification thread");
         const state = CompactThread.parse(JSON.parse(String(row.body)));
         const prior = this.statement("SELECT body FROM pending WHERE thread=?").get(event.threadId);
-        const pending = advance(
+        const advanced = advance(
           state,
           prior ? Pending.parse(JSON.parse(String(prior.body))) : undefined,
           event,
@@ -159,6 +197,7 @@ export class NotificationDatabase {
           this.windowMs,
           this.tracking.track(event),
         );
+        const pending = advanced && advanced.at >= this.alertsFrom ? advanced : undefined;
         // State is compact and bounded independently of transcript length.
         this.statement("UPDATE threads SET body=? WHERE id=?").run(
           JSON.stringify(CompactThread.parse(state)),
@@ -404,6 +443,17 @@ export class NotificationDatabase {
         generation: row.generation,
       }),
     );
+  }
+  /** When delivery next has work: the earliest coalesced alert or deliverable job. */
+  nextDue(): number | undefined {
+    const pending = this.statement("SELECT due FROM pending ORDER BY due LIMIT 1").get()?.due;
+    const job = this.statement(deliverableJobs).get()?.due;
+    const times = [pending, job].filter((value) => typeof value === "number");
+    return times.length ? Math.min(...times) : undefined;
+  }
+  /** Whether anything here still needs a running worker (see `retainsWork`). */
+  retains(): boolean {
+    return retainsWork((sql) => this.statement(sql));
   }
   remove(id: number): void {
     this.statement("DELETE FROM jobs WHERE id=?").run(id);

@@ -68,3 +68,25 @@ correlated `notification.register` requests receive `notification.register.resul
 registration; existing one-way callers remain compatible. Enrollment uses the browser's Push API
 and a root-scoped module service worker, which parses the shared notification schema. Provider
 credentials never enter this flow.
+
+## Worker lifecycle (2026-10-24)
+
+The worker runs only while something can receive an alert. At startup a read-only probe of
+the notification database decides whether it is needed: a push or phone device, a queued
+alert or job, or a database this build can't read. Live-socket desktop and web devices alone
+don't need it until one connects. Otherwise the worker starts on the first call that needs
+it (a client connecting, a registration, presence, a feed or snooze) and replays the log
+from its durable cursor before it answers.
+
+Delivery isn't polled. After each call the worker reports its earliest deadline (a coalesced
+alert or a retry) and whether it is idle, and the daemon keeps one timer at that deadline.
+Work still due after a run waits a second, so a full queue doesn't spin. Agent notices wake
+delivery through the notice item written with their intent.
+
+An idle worker (nothing queued, no presence, no device that needs it offline, no client
+connected) stops after a quiet minute. While it is stopped no device can take an alert, so
+a worker that starts after sleeping replays older events without alerting on them. It still
+alerts on events young enough that a running worker would be retrying them when the device
+connected: the coalescing window plus every retry at its longest jitter. Agent notices
+queued before that point are acknowledged unsent. Revocations replay from the device store
+on each start.
