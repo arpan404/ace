@@ -47,9 +47,12 @@ enum ThreadColumns {
         return [first] + detail
     }
 
-    /// The tab bar steps aside while a compact window shows a thread; beside the list it stays.
+    /// Whether the sidebar carries Threads, Pull requests and New thread in place of the tab bar.
+    static func sidebarHoldsTabs(_ sizeClass: UserInterfaceSizeClass?) -> Bool { sizeClass == .regular }
+
+    /// The tab bar shows only in a compact window, and steps aside while it shows a page.
     static func showsTabBar(_ sizeClass: UserInterfaceSizeClass?, path: [InboxRoute]) -> Bool {
-        sizeClass == .regular || path.isEmpty
+        !sidebarHoldsTabs(sizeClass) && path.isEmpty
     }
 
     /// The thread before or after `current` in the list's order (`step` -1 or 1); the first or

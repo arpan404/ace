@@ -128,7 +128,7 @@ struct InboxView: View {
     private var failing: MachineSession? { inbox.sessions.first { $0.client.error != nil } }
 
     private func stack(_ tab: InboxTab, path: Binding<[InboxRoute]>) -> some View {
-        InboxStack(inbox: inbox, path: path, pulls: tab == .pulls,
+        InboxStack(inbox: inbox, path: path, pulls: tab == .pulls, tab: self.$tab,
                    forge: ForgeInboxHooks(openThread: { openThread($0) },
                                           startThread: { if !inbox.sessions.isEmpty { composing = true } }),
                    machine: $machineFilter, project: $projectFilter,
@@ -185,9 +185,9 @@ struct InboxView: View {
             .foregroundStyle(AceTheme.Colours.foreground)
             .padding(.leading, AceTheme.Spacing.xl).padding(.trailing, AceTheme.Spacing.lg)
             .aceGlass(in: AceShape.capsule)
-            // Clear of the tab bar.
+            // Clear of the tab bar, or of the sidebar's Threads and Pull requests beside a page.
             .padding(.leading, sizeClass == .regular ? AceTheme.Spacing.xl : AceTheme.Spacing.none)
-            .padding(.bottom, 76)
+            .padding(.bottom, ThreadColumns.sidebarHoldsTabs(sizeClass) ? AceTheme.Dimensions.touchTarget * 2 + AceTheme.Spacing.xxl : 76)
             .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             .task(id: undo) {
                 try? await Task.sleep(for: .seconds(5))
@@ -218,3 +218,4 @@ struct InboxView: View {
         else if new.count < old.count, let parent = new.last { current?.open(parent.id) }
     }
 }
+

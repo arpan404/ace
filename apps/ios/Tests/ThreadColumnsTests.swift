@@ -44,10 +44,15 @@ import SwiftUI
         #expect(ThreadColumns.path([], detail: [.thread(child)]) == [])
     }
 
-    @Test func theTabBarStaysBesideTheListAndStepsAsideForAThreadOnAPhone() {
-        #expect(ThreadColumns.showsTabBar(.regular, path: [.thread(open)]))
-        #expect(!ThreadColumns.showsTabBar(.compact, path: [.thread(open)]))
+    @Test func besideTheListTheSidebarCarriesTheTabsAndAPhoneKeepsItsTabBar() {
+        // Regular: Threads, Pull requests and New thread live in the sidebar; no tab bar at all.
+        #expect(ThreadColumns.sidebarHoldsTabs(.regular))
+        #expect(!ThreadColumns.showsTabBar(.regular, path: []))
+        #expect(!ThreadColumns.showsTabBar(.regular, path: [.thread(open)]))
+        // Compact: the tab bar is back, stepping aside while a page shows.
+        #expect(!ThreadColumns.sidebarHoldsTabs(.compact))
         #expect(ThreadColumns.showsTabBar(.compact, path: []))
+        #expect(!ThreadColumns.showsTabBar(.compact, path: [.thread(open)]))
     }
 
     @Test func nextAndPreviousThreadFollowTheListAndStopAtItsEnds() {

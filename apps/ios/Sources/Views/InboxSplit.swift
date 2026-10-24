@@ -7,6 +7,8 @@ import SwiftUI
 /// open sheet. Pages pushed from the thread open on the detail column's own stack.
 struct InboxSplit<Sidebar: View, Page: View>: View {
     @Binding var path: [InboxRoute]
+    /// What the detail column says while nothing is open.
+    let empty: String
     @ViewBuilder let list: () -> Sidebar
     @ViewBuilder let page: (InboxRoute) -> Page
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -21,12 +23,14 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
         NavigationSplitView(columnVisibility: $visibility, preferredCompactColumn: compactColumn) {
             list()
                 .environment(\.openThreadRow, ThreadColumns.selection(path))
+                .environment(\.openForgeRow, path.first?.forge)
                 // Going back to the list in a compact window closes the thread, as popping it did.
                 .onAppear {
                     if ThreadColumns.backToList(sizeClass, reported: listReported) { path = [] }
                     listReported = false
                 }
-                // As a stack, the tab bar hides once a thread is pushed; beside the list it stays.
+                // As a stack, the tab bar hides once a page is pushed; beside the list the
+                // sidebar's foot takes its place.
                 .toolbarVisibility(ThreadColumns.showsTabBar(sizeClass, path: path) ? .automatic : .hidden, for: .tabBar)
         } detail: {
             NavigationStack(path: detail) {
@@ -36,12 +40,14 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
                         page(first).id(first)
                             .environment(\.closeOpenThread, first.thread.map { key in CloseOpenThread(id: key.id) { path = [] } })
                     }
-                    else { EmptyState(icon: nil, title: "No thread open").frame(maxHeight: .infinity) }
+                    else { EmptyState(icon: nil, title: empty).frame(maxHeight: .infinity) }
                 }
                 .navigationDestination(for: InboxRoute.self) { page($0) }
             }
         }
         .navigationSplitViewStyle(.balanced)
+        // Beside the list there is no tab bar at all, nor room kept for one.
+        .toolbarVisibility(ThreadColumns.sidebarHoldsTabs(sizeClass) ? .hidden : .automatic, for: .tabBar)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         // The columns follow the window's shape when it changes, and leave the person's own
         // sidebar toggle alone in between. Expanding from a stack, the split view picks its own
@@ -82,6 +88,8 @@ private struct ColumnsChange: Equatable {
 extension EnvironmentValues {
     /// The thread open beside the list, whose row reads as selected.
     @Entry var openThreadRow: InboxKey?
+    /// The pull request or issue open beside the list.
+    @Entry var openForgeRow: ForgeRoute?
     /// Closes the detail column's own thread; pages pushed over it go back instead.
     @Entry var closeOpenThread: CloseOpenThread?
 }

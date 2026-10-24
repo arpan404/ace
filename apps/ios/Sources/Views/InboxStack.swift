@@ -6,14 +6,18 @@ struct InboxHeaderActions {
     let machines: () -> Void
 }
 
-/// One tab's navigation stack: the compact wordmark (or a connection problem) and the glass
-/// Settings and Search buttons in the bar, the filter chips under it, the list, and the thread
-/// it opens. Search is the system's own: the list turns into results while there is a query.
-/// The Pulls tab holds the Pull requests and Issues lists (`Views/Forge`) and their pages.
+/// One tab's list and the page it opens (`InboxSplit`): the compact wordmark (or a connection
+/// problem) and the glass Settings and Search buttons in the bar, the filter chips under it, the
+/// list, and the thread it opens. Search is the system's own: the list turns into results while
+/// there is a query. The Pulls tab holds the Pull requests and Issues lists (`Views/Forge`) and
+/// their pages. Beside an open page the sidebar carries what the tab bar does on a phone: New
+/// thread joins its bar and Threads and Pull requests sit at its foot.
 struct InboxStack<Destination: View>: View {
     @Bindable var inbox: MachineInbox
     @Binding var path: [InboxRoute]
     let pulls: Bool
+    /// The tab showing, which the sidebar's foot switches in a regular window.
+    @Binding var tab: InboxTab
     /// What the Pulls tab's pages ask of the inbox.
     let forge: ForgeInboxHooks
     @Binding var machine: String
@@ -25,6 +29,7 @@ struct InboxStack<Destination: View>: View {
     @State private var query = ""
     @State private var searching = false
     @State private var forgeKind = ForgeKind.pulls
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     /// The tab and the chips: a row shows when its machine, project and pull request match.
     private func includes(_ key: InboxKey) -> Bool {
@@ -38,18 +43,11 @@ struct InboxStack<Destination: View>: View {
     }
 
     var body: some View {
+        // The list beside the open page in a regular window, a stack in a compact one.
         if pulls {
-            NavigationStack(path: $path) {
-                root
-                    // The root owns the tab bar: it hides as a page is pushed and returns as soon as
-                    // the path empties, while the page is still sliding away, rather than each page
-                    // hiding it and the bar popping back only once the pop has finished.
-                    .toolbarVisibility(path.isEmpty ? .automatic : .hidden, for: .tabBar)
-                    .navigationDestination(for: InboxRoute.self) { page($0) }
-            }
+            InboxSplit(path: $path, empty: "No pull request open") { root } page: { page($0) }
         } else {
-            // Threads: the list beside the open thread in a regular window, a stack in a compact one.
-            InboxSplit(path: $path) { root.inboxCommands(commands) } page: { page($0) }
+            InboxSplit(path: $path, empty: "No thread open") { root.inboxCommands(commands) } page: { page($0) }
         }
     }
 
@@ -57,7 +55,8 @@ struct InboxStack<Destination: View>: View {
         Group {
             if pulls {
                 ForgeHome(inbox: inbox, machine: $machine, project: $project, query: query, kind: $forgeKind,
-                          actions: ForgeTabActions(open: { path.append(.forge($0)) }, openThread: forge.openThread, startThread: forge.startThread))
+                          // The list's row is the open page, in place of the one open before.
+                          actions: ForgeTabActions(open: { path = [.forge($0)] }, openThread: forge.openThread, startThread: forge.startThread))
             } else {
                 // The list stays mounted under the results, so it keeps its place while the
                 // person searches and is back where it was when they cancel.
@@ -77,6 +76,7 @@ struct InboxStack<Destination: View>: View {
         .inboxTopBar { if !pulls { InboxFilters(inbox: inbox, machine: $machine, project: $project) } }
         .modifier(InboxSearchField(query: $query, searching: $searching,
                                    prompt: pulls ? (forgeKind == .pulls ? "Search pull requests" : "Search issues") : "Search threads and messages"))
+        .inboxFootBar { if ThreadColumns.sidebarHoldsTabs(sizeClass) { InboxPlaces(tab: $tab) } }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
     }
@@ -117,6 +117,14 @@ struct InboxStack<Destination: View>: View {
         ToolbarItem(placement: .topBarTrailing) {
             Button { withAnimation(.smooth) { searching = true } } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Search").accessibilityIdentifier("inbox.search")
+        }
+        // The phone's floating New thread button, in the sidebar's own bar.
+        if ThreadColumns.sidebarHoldsTabs(sizeClass), inbox.canStartThreads {
+            if #available(iOS 26, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: forge.startThread) { Image(systemName: "square.and.pencil") }
+                    .accessibilityLabel("New thread").accessibilityIdentifier("inbox.compose")
+            }
         }
     }
     @ViewBuilder private func forgePage(_ route: ForgeRoute) -> some View {
