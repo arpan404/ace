@@ -25,6 +25,8 @@ struct DeviceFrameLayout: Equatable {
 struct DeviceFrameView<Screen: View>: View {
     let geometry: DeviceFrameGeometry
     let layout: DeviceFrameLayout
+    /// How far the body has turned: the home button follows the screen's bottom edge.
+    var turn = DeviceRotation.none
     @ViewBuilder let screen: () -> Screen
 
     var body: some View {
@@ -54,14 +56,27 @@ struct DeviceFrameView<Screen: View>: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// Centred in whichever bezel the screen's bottom faces: the deeper of the two pairs.
+    /// Centred in the bezel the screen's bottom faces once the body has turned (as the web's
+    /// `homeBezel`): bottom, left, top, right for 0°, 90°, 180°, 270°.
     private var homeButton: some View {
-        let bezel = geometry.bezel
-        let sideways = bezel.left > bezel.top
-        let depth = (sideways ? bezel.left : bezel.bottom) * layout.unit
+        let bezel = geometry.bezel, unit = layout.unit
+        let depth: CGFloat
+        let x: CGFloat, y: CGFloat
+        switch turn {
+        case .none:
+            depth = bezel.bottom * unit
+            x = layout.body.width / 2 - depth / 4; y = layout.screen.maxY + depth / 4
+        case .quarter:
+            depth = bezel.left * unit
+            x = depth / 4; y = layout.body.height / 2 - depth / 4
+        case .half:
+            depth = bezel.top * unit
+            x = layout.body.width / 2 - depth / 4; y = depth / 4
+        case .threeQuarters:
+            depth = bezel.right * unit
+            x = layout.screen.maxX + depth / 4; y = layout.body.height / 2 - depth / 4
+        }
         let size = depth * 0.5
-        let x = sideways ? (depth - size) / 2 : layout.body.width / 2 - size / 2
-        let y = sideways ? layout.body.height / 2 - size / 2 : layout.screen.maxY + (depth - size) / 2
         return Circle().strokeBorder(Self.edge, lineWidth: 1)
             .frame(width: size, height: size)
             .offset(x: x, y: y)
