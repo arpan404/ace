@@ -181,6 +181,8 @@ export class Store {
       statement: (sql) => this.statement(sql),
       snapshot: (read) => this.sidebarSnapshot(read),
       decode: (row, revision) => this.threads.decode(row, revision),
+      read: (id) => this.threads.read(id),
+      committed: () => !this.db.isTransaction || this.committedSnapshot,
     });
     this.receipts = new CommandReceipts({
       statement: (sql) => this.statement(sql),
