@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/TransferProgress.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "transfer": {
+      "$ref": "https://ace.local/protocol/v1/Transfer.json"
+    },
+    "type": {
+      "const": "transfer.progress",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "transfer"
+  ],
+  "type": "object"
+}

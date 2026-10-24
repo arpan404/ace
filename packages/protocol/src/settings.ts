@@ -118,6 +118,11 @@ export const SettingsValues = z.object({
   /** Whether agents on other paired machines may use this one, and how far (ADR 0078). */
   "remote.agentAccess": z.enum(["off", "read", "operate"]),
   /**
+   * Whether agents on this machine may move projects and threads to other machines (ADR 0099).
+   * The person's own transfers from the app don't depend on it.
+   */
+  "remote.agentTransfers": z.boolean(),
+  /**
    * Whether pairing links open ace's hosted web app (https://app.acehq.dev) instead of the web
    * app this daemon serves over LAN or Tailscale. Off by default: the daemon's own web app always
    * matches its version; the hosted one may not.

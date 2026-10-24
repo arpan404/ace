@@ -150,3 +150,20 @@ test("an offline machine says so; its page reconnects it, and removing it takes 
   const fleet = await screen.findByRole("region", { name: "Machines" });
   await waitFor(() => expect(within(fleet).queryByText("Build server")).toBeNull());
 }, 30_000);
+
+test("agents may move work to other machines until the switch is turned off on every machine", async () => {
+  const { app, remote } = withBuildServer();
+  await app.open("/settings/remote");
+  await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
+  const access = await screen.findByRole("region", { name: "Access" });
+  const toggle = await within(access).findByRole("switch", {
+    name: "Agents can move projects and threads to other machines",
+    checked: true,
+  });
+  await userEvent.click(toggle);
+  await waitFor(() => {
+    expect(app.daemon.services.settings.get("remote.agentTransfers")).toBe(false);
+    expect(remote.services.settings.get("remote.agentTransfers")).toBe(false);
+  });
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
+}, 30_000);

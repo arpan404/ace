@@ -75,6 +75,10 @@ export function AccessRows(props: { remote: readonly Machine[] }) {
     "Pairing links open app.acehq.dev",
   );
   const agents = useSettingControl(settingKeys.agentAccess, "Agents from other machines");
+  const transfers = useSettingControl(
+    settingKeys.agentTransfers,
+    "Agents can move projects and threads to other machines",
+  );
   // "local" is remote access off; the choice shows the network it would open on.
   const selected = transport.value === "local" ? "lan" : transport.value;
   return (
@@ -167,6 +171,21 @@ export function AccessRows(props: { remote: readonly Machine[] }) {
             options={agentAccessOptions}
             disabled={agents.offline || agents.pending}
             onValueChange={agents.set}
+          />
+        </DaemonSlot>
+      </SettingRow>
+      <SettingRow
+        id="remote.agentTransfers"
+        title="Agents can move projects and threads to other machines"
+        htmlFor={`${id}-transfers`}
+        inline
+      >
+        <DaemonSlot control={transfers}>
+          <Switch
+            id={`${id}-transfers`}
+            checked={transfers.value}
+            disabled={transfers.offline || transfers.pending}
+            onCheckedChange={(on) => void transfers.set(on)}
           />
         </DaemonSlot>
       </SettingRow>
