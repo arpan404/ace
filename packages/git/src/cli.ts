@@ -287,6 +287,16 @@ export class GitCli {
       this.call(cwd, args, options),
     );
   }
+  /**
+   * Fetch from a bundle file ace wrote or received. Git reads bundles through its `file`
+   * transport, so this call alone allows `file`; the caller validates the bundle path first
+   * (see `transfer-bundle-file.ts`), and every other transport stays closed.
+   */
+  fetchBundle(cwd: string, args: string[], options: CallOptions): Promise<Output> {
+    if (args[0] !== "fetch")
+      return Promise.reject(new GitError("invalid_argument", "Bundle fetch requires fetch"));
+    return this.executionPolicy.run({ protocols: ["file"] }, () => this.call(cwd, args, options));
+  }
   /** Publishing has its own admission path; local plumbing never inherits transport permission. */
   push(
     cwd: string,
