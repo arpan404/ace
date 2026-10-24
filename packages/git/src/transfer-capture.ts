@@ -1,6 +1,7 @@
 import { textOutput } from "./cli.ts";
 import { hash, refSchema } from "./decode.ts";
 import { longWriteTimeoutMs } from "./deadlines.ts";
+import { nestedCheckouts } from "./nested.ts";
 import { parseIndex } from "./parse-index.ts";
 import type { Repository } from "./repository.ts";
 import { withSnapshotIndex } from "./snapshot-index.ts";
@@ -55,12 +56,18 @@ export async function captureChanges(
   const { cli } = repository;
   const head = await headCommit(repository, root);
   const tree = await withSnapshotIndex(repository, root, async (env, seeded) => {
-    await cli.call(root, ["add", "--all", "--", ":/"], {
+    const tracked = new Set(seeded.filter((entry) => entry.mode === "160000").map((e) => e.path));
+    // Other checkouts below this one (untracked nested repositories, linked worktrees) stay out:
+    // Git cannot add one without commits, and one with commits would become a bare gitlink.
+    const found = await nestedCheckouts(repository, root, seeded, env);
+    const excluded = [...found.repositories, ...found.linked].filter((path) => !tracked.has(path));
+    const pathspecs = [":/", ...excluded.map((path) => `:(top,exclude,literal)${path}`)];
+    await cli.call(root, ["add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul"], {
       write: true,
       env,
       timeoutMs: longWriteTimeoutMs,
+      input: pathspecs.join("\0") + "\0",
     });
-    const tracked = new Set(seeded.filter((entry) => entry.mode === "160000").map((e) => e.path));
     const embedded = parseIndex(
       (await cli.call(root, ["ls-files", "--stage", "-z"], { env })).stdout,
     )

@@ -51,7 +51,7 @@ export async function verifyBundle(
   bundle: string,
 ): Promise<boolean> {
   await assertBundleFile(bundle);
-  const result = await repository.cli.call(root, ["bundle", "verify", "--quiet", bundle], {
+  const result = await repository.cli.call(root, ["bundle", "verify", bundle], {
     allowFailure: true,
     timeoutMs: longWriteTimeoutMs,
   });
