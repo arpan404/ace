@@ -522,16 +522,28 @@ are now handled at their nullable boundaries. Unscaled frames use direct staging
 readback rather than requiring the unavailable video-processing interface.
 Oversized captures still require that interface on these drivers.
 
-The 191 browser/foundation tests pass on both architectures. The newly added
-sharpness case is the only failure in the bounded browser/foundation suite:
-VP9 post-scroll PSNR is **34.98 dB on x64 / 35.21 dB on ARM64**, below the unchanged
-**37 dB** requirement. The page, PNG, visible picture and display are all
-1318x1650; decoded coded width 1408 is codec padding. The assertion now checks
-visible/display device pixels and the reference PNG independently. Quality
-thresholds, capture timing and codec preference remain unchanged.
+[Run 40080072968](https://github.com/arpan404/ace/actions/runs/40080072968),
+pinned to `f6e51f86b`, passes **34 files / 193 browser and foundation tests**,
+**two native helper/capture tests**, and **23 Rust tests** on each of x64 and
+ARM64. Four manual Rust tests remain ignored. Both the preferred-codec and forced
+VP9 sharpness cases pass the original **34 dB still / 37 dB post-scroll** bars.
+The preceding VP9 post-scroll failures were 34.98 dB on x64 and 35.21 dB on ARM64.
 
-Real pointer/keyboard input and installed desktop acceptance remain unverified.
-W14/W15 remain open while the VP9 quality failure is investigated.
+VP9 now uses its own measured 0..255 quantizer range and feedback response,
+including a sharper still frame within the existing bandwidth budget. AVC/HEVC
+behavior, quality bars, capture timing and codec preference stay unchanged.
+The page, PNG, visible picture and display are checked independently at full
+device resolution; padded coded width is not treated as the visible width.
+
+Local verification passes 27 quantizer/pacing tests, nine real Chrome video tests
+and full source typechecking. A sequential Mac VP9 link benchmark at 25 Mbps,
+120 ms RTT and 30 ms jitter measured 60 fps median / 58 fps p10 at 4.6 Mbps after,
+versus 60 / 57 fps at 5.4 Mbps before. This is Mac performance evidence, not a
+native Windows frame-rate measurement.
+
+Real pointer/keyboard input, oversized capture on drivers without video processing,
+Windows performance and installed desktop acceptance remain open. W14/W15 remain
+unfinished.
 
 Full source typechecking passed again after the daemon test updates. The full
 repository check completed before these fixes with **2,797 files passed, 9 failed
