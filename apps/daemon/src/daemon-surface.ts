@@ -164,6 +164,9 @@ export function daemonHandle({
     get transfers() {
       return requireService(services.transfers, "transfers");
     },
+    get workspaceActions() {
+      return services.workspaceActions;
+    },
     storage: services.storage,
     engine: services.engine,
     agentControl: services.agentControl,
