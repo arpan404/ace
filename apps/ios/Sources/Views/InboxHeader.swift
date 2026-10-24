@@ -32,6 +32,7 @@ struct InboxTitle: View {
     let problem: InboxConnectionProblem?
     let openMachines: () -> Void
     @State private var shown: InboxConnectionProblem?
+    @Environment(\.markOnly) private var markOnly
 
     var body: some View {
         Group {
@@ -55,7 +56,7 @@ struct InboxTitle: View {
             } else {
                 HStack(alignment: .center, spacing: 6) {
                     AceMark().frame(width: 22, height: 20)
-                    Text("ace").aceFont(AceTheme.Typography.wordmark, relativeTo: .title3)
+                    if !markOnly { Text("ace").aceFont(AceTheme.Typography.wordmark, relativeTo: .title3) }
                 }
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .fixedSize()

@@ -418,8 +418,16 @@ extension XCUIApplication {
         row.tap()
         return waitForCount("opens", from: before, timeout: timeout)
     }
-    /// Back to the inbox from a thread.
+    /// Back to the inbox from a thread, or on to another thread beside the list.
     func goBack() {
+        // Beside the list (iPad) a thread never leaves the detail column: opening another one
+        // closes it, as going back does on a phone.
+        if buttons["inbox.settings"].isHittable {
+            revealRow("thread.ios-form").tap()
+            let deadline = Date(timeIntervalSinceNow: 10)
+            while probe["open.thread"] != "ios-form" && Date() < deadline { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1)) }
+            return
+        }
         navigationBars.buttons.firstMatch.tap()
         let composer = textViews["composer.input"]
         let deadline = Date(timeIntervalSinceNow: 10)

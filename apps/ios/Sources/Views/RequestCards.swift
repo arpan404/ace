@@ -15,12 +15,14 @@ struct RequestCardFrame: ViewModifier {
 /// composer, a question in its place, and the notes that replace it share it.
 struct ComposerFrame: ViewModifier {
     var padding = EdgeInsets()
+    @Environment(\.horizontalSizeClass) private var sizeClass
     func body(content: Content) -> some View {
+        let bar = ReadingColumn.bar(sizeClass)
         content
             .padding(padding)
             .aceContainerShape(AceShape.field)
             .composerGlass(in: AceShape.field)
-            .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.sm)
+            .padding(.horizontal, bar.composer).padding(.bottom, bar.bottom)
     }
 }
 

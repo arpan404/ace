@@ -16,6 +16,7 @@ struct InboxUndo: Equatable {
 struct InboxView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @Bindable var inbox: MachineInbox
     /// Rename, remove and pairing for Settings › Machines; nil for the debug fixture.
     var machines: MachinesModel?
@@ -106,7 +107,8 @@ struct InboxView: View {
         }
         .onChange(of: pullsPath) { old, new in pathChanged(.pulls, old: old, new: new) }
         .sensoryFeedback(.success, trigger: settles)
-        .overlay(alignment: .bottom) { toast }
+        // Beside an open thread the toast sits under the list it acted on, clear of the composer.
+        .overlay(alignment: sizeClass == .regular ? .bottomLeading : .bottom) { toast }
     }
 
     private var sheets: some View {
@@ -126,7 +128,7 @@ struct InboxView: View {
     private var failing: MachineSession? { inbox.sessions.first { $0.client.error != nil } }
 
     private func stack(_ tab: InboxTab, path: Binding<[InboxRoute]>) -> some View {
-        InboxStack(inbox: inbox, path: path, pulls: tab == .pulls,
+        InboxStack(inbox: inbox, path: path, pulls: tab == .pulls, tab: self.$tab,
                    forge: ForgeInboxHooks(openThread: { openThread($0) },
                                           startThread: { if !inbox.sessions.isEmpty { composing = true } }),
                    machine: $machineFilter, project: $projectFilter,
@@ -165,7 +167,7 @@ struct InboxView: View {
     }
 
     @ViewBuilder private var toast: some View {
-        if let undo, openTab == nil {
+        if let undo, openTab == nil || sizeClass == .regular {
             HStack(spacing: AceTheme.Spacing.md) {
                 Text(undo.kind == .settled ? "Settled thread" : "Archived thread").lineLimit(1)
                 Button("Undo") {
@@ -183,8 +185,9 @@ struct InboxView: View {
             .foregroundStyle(AceTheme.Colours.foreground)
             .padding(.leading, AceTheme.Spacing.xl).padding(.trailing, AceTheme.Spacing.lg)
             .aceGlass(in: AceShape.capsule)
-            // Clear of the tab bar.
-            .padding(.bottom, 76)
+            // Clear of the tab bar, or of the sidebar's Threads and Pull requests beside a page.
+            .padding(.leading, sizeClass == .regular ? AceTheme.Spacing.xl : AceTheme.Spacing.none)
+            .padding(.bottom, ThreadColumns.sidebarHoldsTabs(sizeClass) ? AceTheme.Dimensions.touchTarget * 2 + AceTheme.Spacing.xxl : 76)
             .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             .task(id: undo) {
                 try? await Task.sleep(for: .seconds(5))
