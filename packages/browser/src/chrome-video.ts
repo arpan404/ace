@@ -176,19 +176,28 @@ export class ChromeVideo implements VideoHost {
       .parse(await this.connection.send("Extensions.loadUnpacked", { path: this.directory }));
     if (loaded.id !== videoExtensionId)
       throw new Error("The video extension loaded under another id");
-    const worker = await this.attach(`${origin}worker.js`);
+    const worker = await this.attach(`${origin}worker.js`, "ready");
     await evaluate(worker, "aceVideo.ready", []);
-    const document = await this.attach(`${origin}offscreen.html`);
+    const document = await this.attach(`${origin}offscreen.html`, "supported");
     document.on("Runtime.bindingCalled", (raw) => this.receive(raw));
     await document.send("Runtime.addBinding", { name: "aceVideoEvent" });
     return { worker, document };
   }
-  /** Attaches to the extension target at `url`, waiting a few seconds for it to start. */
-  private async attach(url: string): Promise<BrowserCdp> {
+  /**
+   * Attaches to the extension target at `url`, waiting a few seconds for it to start and for
+   * its `aceVideo[method]` export to exist. A visible target runs no script yet on a slow
+   * start (Windows): calling `aceVideo.ready` then throws `ReferenceError`.
+   */
+  private async attach(url: string, method: string): Promise<BrowserCdp> {
+    let session: BrowserCdp | undefined;
     for (let attempt = 0; attempt < 50; attempt++) {
-      const { targetInfos } = Targets.parse(await this.connection.send("Target.getTargets"));
-      const target = targetInfos.find((info) => info.url === url);
-      if (target) {
+      if (!session) {
+        const { targetInfos } = Targets.parse(await this.connection.send("Target.getTargets"));
+        const target = targetInfos.find((info) => info.url === url);
+        if (!target) {
+          await this.delay(100);
+          continue;
+        }
         this.targets.keep(target.targetId);
         const { sessionId } = Attached.parse(
           await this.connection.send("Target.attachToTarget", {
@@ -197,11 +206,24 @@ export class ChromeVideo implements VideoHost {
           }),
         );
         this.sessions.add(sessionId);
-        return this.connection.session(sessionId);
+        session = this.connection.session(sessionId);
+        await session.send("Runtime.runIfWaitingForDebugger", {});
       }
+      if (await this.exportReady(session, method)) return session;
       await this.delay(100);
     }
     throw new Error("The video extension did not start");
+  }
+  /** Whether the attached target's worker script has defined its `aceVideo[method]` export. */
+  private async exportReady(session: BrowserCdp, method: string): Promise<boolean> {
+    const reply = Evaluated.parse(
+      await session.send("Runtime.evaluate", {
+        expression: `typeof globalThis.aceVideo?.${method} === "function"`,
+        returnByValue: true,
+      }),
+    );
+    if (reply.exceptionDetails) return false;
+    return reply.result?.value === true;
   }
   private receive(raw: unknown): void {
     const binding = Binding.safeParse(raw);
