@@ -114,8 +114,13 @@ struct RemoteScreenInventory: Decodable {
     func watch(_ model: ClientModel, id: String) async {
         guard model.connection == "ready", let session = model.browserSession else { return }
         live.open(sessionId: id, session: session)
-        do { let _: ServiceValue = try await request(model, ["op": "subscribe", "sessionId": id]) }
-        catch { live.close(); if !Task.isCancelled { problem = error.localizedDescription } }
+        do {
+            let _: ServiceValue = try await request(model, ["op": "subscribe", "sessionId": id])
+            // Until a viewer asks for video the Mac sends only stills, and a live view draws none:
+            // without this the picture stays black. The daemon holds the bit rate to the link.
+            let _: ServiceValue = try await request(model, ["op": "stream.configure", "sessionId": id,
+                "settings": ["codec": "h264", "maxWidth": 2560, "maxHeight": 2560, "fps": 60, "bitrate": 6_000_000]])
+        } catch { live.close(); if !Task.isCancelled { problem = error.localizedDescription } }
     }
     func unwatch(_ model: ClientModel, id: String) {
         live.close()
