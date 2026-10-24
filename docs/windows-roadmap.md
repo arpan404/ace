@@ -501,9 +501,23 @@ executable identity. It defaults agent input to foreground and refuses unsupport
 background or URL requests before acquisition. Four host process tests cover the
 entry, ownership, unavailable targets and ambiguous window selection.
 
-[Run 40061062541](https://github.com/arpan404/ace/actions/runs/40061062541) adds an
-owned WinForms fixture for WGC/JPEG capture and a Unicode UI Automation edit. The
-first fixture attempt missed the window in inventory; visible launch and bounded
-DWM diagnostics are now included. Capture, real input, hardware-codec quality and
-installed desktop acceptance remain unverified. Full source typechecking passed;
-the full repository check is still running. W14/W15 remain open.
+[Run 40061062541](https://github.com/arpan404/ace/actions/runs/40061062541),
+pinned to `7bd9e6f71`, passes all **33 files / 191 tests on ARM64**. Its x64
+playback trace exposes an extension startup race: Chrome exposes the target before
+its script defines `aceVideo`. `cfdd1b4a2` resumes the attached target and waits
+for its exports within the existing startup budget. Two regression tests and real
+Chrome software playback pass locally. Native confirmation is pending in
+[run 40075224334](https://github.com/arpan404/ace/actions/runs/40075224334).
+
+The owned WinForms fixture now reaches WGC capture startup on both architectures,
+but the helper exits before the first JPEG. `b11b545b3` preserves the original
+failure, native stderr and exit status in the next run. Unicode UIA editing,
+real pointer/keyboard input, hardware-codec quality and installed desktop
+acceptance remain unverified. W14/W15 remain open.
+
+Full source typechecking passed. The full repository check completed with
+**2,797 files passed, 9 failed and 40 skipped**, **17,064 tests passed and 11 failed**,
+and five uncaught errors. It is not a clean full gate. Browser failures include
+streaming timeouts, a missing cursor keyframe and refused orphan recovery; other
+failures remain in repository isolation, tool budgets, measurement, worktree
+progress and preview concurrency.
