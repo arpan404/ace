@@ -30,7 +30,7 @@ The sending daemon owns the transfer and sends straight to the target over its f
 (ADR 0078's paired-device TLS listener, the same pinned key and device token). Bytes go machine
 to machine over LAN or Tailscale, never through the client, so a phone on cellular can start a
 multi-gigabyte move, and closing the window doesn't stop it. A machine with no fleet link to the
-target is refused with `machine_not_linked`; the app offers Settings › Machines to link them.
+target is refused with `machine_not_linked`; the app offers Settings › Fleet to link them.
 
 ### Authority
 
@@ -50,7 +50,7 @@ there). It returns at once with the transfer id; the result is delivered like a 
 so the agent's tree is never done while a transfer it started is still running. `machines` shows
 whether each machine accepts transfers.
 
-`remote.agentTransfers` (boolean, default on), shown in Settings › Machines as "Agents can move
+`remote.agentTransfers` (boolean, default on), shown in Settings › Fleet as "Agents can move
 projects and threads to other machines", is checked by the sending machine before an agent's
 transfer starts. Off refuses with `transfers_off` and a next step. The person's own transfers
 from the app are not affected. A read-only thread can't start one (ADR 0078's caller ceiling).
@@ -90,7 +90,7 @@ Files Git ignores are usually the ones a checkout needs to run but must never co
 local config, editor settings. Leaving them behind made a moved project fail on its first run.
 So the git methods (1 and 2) send them too, unless the transfer says not to.
 
-- `remote.transferIgnoredFiles` (boolean, default on), shown in Settings › Machines as "Bring
+- `remote.transferIgnoredFiles` (boolean, default on), shown in Settings › Fleet as "Bring
   ignored files" with one line: "Local files Git ignores, such as .env and local config, go too.
   Dependency folders are rebuilt there instead." It is the sending machine's default.
   `workspace.transfer`, `thread.continueOn` and the agents' `transfer` tool take an optional
@@ -169,7 +169,7 @@ would refuse; for it the check is skipped and the handoff is captured when the u
 - The wire between the machines: `POST /v1/transfers` with `probe`, `begin`, `status`, `commit`
   and `cancel` (`packages/protocol/src/machine-transfers.ts`), and
   `PUT /v1/transfers/chunk?transfer=<id>&offset=<n>` for the pieces. `probe` needs only a paired
-  device, so Settings › Machines and `machines` show which links take transfers even when that
+  device, so Settings › Fleet and `machines` show which links take transfers even when that
   machine keeps agents out.
 - The target verifies the SHA-256 of the whole file before importing; a damaged file fails the
   transfer with `transfer_corrupt`. A failed or cancelled import leaves no project registered
@@ -180,7 +180,7 @@ would refuse; for it the check is skipped and the handoff is captured when the u
 
 ### UI
 
-- Settings › Machines: the `remote.agentTransfers` and `remote.transferIgnoredFiles` switches.
+- Settings › Fleet: the `remote.agentTransfers` and `remote.transferIgnoredFiles` switches.
 - Thread menu: "Continue on…", project menu: "Open on…", each listing linked machines, with
   offline or not-allowed machines shown with the reason instead of hidden. The options step has
   "Bring uncommitted changes" and "Bring ignored files".

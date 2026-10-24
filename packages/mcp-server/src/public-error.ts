@@ -436,7 +436,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   transfers_off: {
     message: "Agents can't move work to other machines here",
-    hint: 'The person turns on "Agents can move projects and threads to other machines" in Settings › Machines; stop and tell them, or keep working on this machine.',
+    hint: 'The person turns on "Agents can move projects and threads to other machines" in Settings › Fleet; stop and tell them, or keep working on this machine.',
   },
   machine_forbidden: {
     message: "Not allowed on that machine",

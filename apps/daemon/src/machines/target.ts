@@ -53,7 +53,7 @@ export function createMachineTarget(deps: MachineTargetDeps) {
     if (access === "off")
       throw new TargetRefusal(
         "machine_opted_out",
-        "Agents on other machines can't use this machine. The person can turn this on in Settings › Machines and devices.",
+        "Agents on other machines can't use this machine. The person can turn this on in Settings › Fleet.",
       );
     if (!allows(device, "read")) throw new TargetRefusal("machine_forbidden");
     return access === "operate" && allows(device, "operate") ? "operate" : "read";
@@ -80,7 +80,7 @@ export function createMachineTarget(deps: MachineTargetDeps) {
     if (needs(call, deps.browser) === "operate" && access !== "operate")
       throw new TargetRefusal(
         "machine_forbidden",
-        "Agents from that machine may only read here. Use a read-only tool, or ask the person to allow more in Settings › Machines and devices.",
+        "Agents from that machine may only read here. Use a read-only tool, or ask the person to allow more in Settings › Fleet.",
       );
     const owned = (threadId: string) => {
       if (!deps.threads.owns(device, threadId))
