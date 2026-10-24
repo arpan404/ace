@@ -4,9 +4,25 @@ struct NativeProject: Decodable, Identifiable {
     let id: String
     let name: String
     let path: String
+    /// `chat` for a chat's hidden project (ADR 0099), which no project list shows.
+    var kind: String? = nil
 }
 struct ProjectListReply: Decodable {
-    struct Result: Decodable { let kind: String; let projects: [NativeProject]?; let next: String?; let code: String? }
+    struct Result: Decodable {
+        let kind: String
+        /// The machine's projects, without chats' hidden ones.
+        let projects: [NativeProject]?
+        let next: String?
+        let code: String?
+        private enum CodingKeys: String, CodingKey { case kind, projects, next, code }
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            kind = try values.decode(String.self, forKey: .kind)
+            projects = try values.decodeIfPresent([NativeProject].self, forKey: .projects)?.filter { $0.kind != "chat" }
+            next = try values.decodeIfPresent(String.self, forKey: .next)
+            code = try values.decodeIfPresent(String.self, forKey: .code)
+        }
+    }
     let result: Result
 }
 
