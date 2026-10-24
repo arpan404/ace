@@ -82,9 +82,17 @@ export interface TransferPorts {
   /** `remote.transferIgnoredFiles`, for a transfer that doesn't say. */
   ignoredByDefault(): boolean;
   project(id: string): { name: string; git: boolean; origin?: string } | undefined;
-  thread(
-    id: string,
-  ): { workspaceId: string; title: string; provider: string; status: ThreadStatus } | undefined;
+  thread(id: string):
+    | {
+        workspaceId: string;
+        title: string;
+        provider: string;
+        status: ThreadStatus;
+        details?:
+          | { workspaceChange?: { state: string; uncertain?: boolean | undefined } | undefined }
+          | undefined;
+      }
+    | undefined;
   /** Records where the source thread went. */
   continued(threadId: string, on: ThreadContinuedOn): void;
   /** When each phase step runs (tests step transfers by hand). */
@@ -152,11 +160,17 @@ export class FakeTransfers {
     const thread =
       payload.type === "thread.continueOn" ? this.ports.thread(payload.threadId) : undefined;
     if (payload.type === "thread.continueOn") {
-      if (!thread) return refuse("thread_not_found", "That thread doesn't exist.");
+      if (!thread) return refuse("thread_not_found", "That thread doesn't exist on this machine.");
       if (continueBlocked(thread.status.state))
         return refuse(
           "thread_busy",
           "This thread is still working, waiting on you or has open terminals. Let it finish or stop it first.",
+        );
+      const change = thread.details?.workspaceChange;
+      if (change?.state === "preparing" || change?.uncertain)
+        return refuse(
+          "workspace_change_in_progress",
+          "The thread's checkout is still being changed. Try again once that's done.",
         );
     }
     const workspaceId = thread?.workspaceId ?? ("workspaceId" in payload && payload.workspaceId);
@@ -213,12 +227,18 @@ export class FakeTransfers {
     };
   }
   /**
-   * Stops a transfer before its thread is being started; after that (or once settled) it
-   * answers with the transfer as it is, as the real sender does.
+   * Stops a transfer before its thread is being started, as the real sender does: once it has
+   * completed that is `too_late`; otherwise past that point it answers with the transfer as is.
    */
   cancel(transferId: string): TransfersResult["result"] {
     const transfer = this.transfers.get(transferId);
     if (!transfer) return { kind: "error", code: "not_found", message: "No such transfer." };
+    if (transfer.phase === "completed")
+      return {
+        kind: "error",
+        code: "too_late",
+        message: `It already reached ${transfer.target.name}; the work is there now.`,
+      };
     if (!transferCancellable(transfer)) return { kind: "cancelled", transfer };
     this.cancels.add(transferId);
     return { kind: "cancelled", transfer: this.update(transfer, { phase: "cancelled" }) };
