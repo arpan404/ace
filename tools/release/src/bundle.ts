@@ -39,7 +39,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|session|api-key|builtins|install|device-tools)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|session|api-key|builtins|install|device-tools|metadata-host-client)\.ts$/,
             },
             async (args) => {
               let contents = await readFile(args.path, "utf8");
@@ -86,6 +86,8 @@ export async function bundleDaemon(
                   '"./cursor-account-terminal.ts"',
                   '"./cursor-account-terminal.mjs"',
                 );
+              if (args.path.endsWith("/adapter-claude/src/metadata-host-client.ts"))
+                contents = contents.replace('"./metadata-host.ts"', '"./claude-metadata-host.mjs"');
               if (args.path.endsWith("/adapter-claude/src/fork.ts"))
                 contents = contents.replace('"./fork-worker.ts"', '"./claude-fork-worker.mjs"');
               if (args.path.endsWith("/adapter-pi/src/session.ts"))
@@ -191,6 +193,7 @@ export async function bundleDaemon(
       "opencode-mcp-ready-plugin/server.mjs",
     ],
     ["packages/adapter-claude/src/fork-worker.ts", "claude-fork-worker.mjs"],
+    ["packages/adapter-claude/src/metadata-host.ts", "claude-metadata-host.mjs"],
     ["apps/daemon/src/cursor-account-terminal.ts", "cursor-account-terminal.mjs"],
     ["apps/daemon/src/history-publish-worker.ts", "history-publish-worker.mjs"],
     ["apps/daemon/src/stall-watchdog-worker.ts", "stall-watchdog-worker.mjs"],
