@@ -513,21 +513,25 @@ obsolete JSON JPEG messages. Both now receive binary video; the remote viewer
 also acknowledges continuation. Access restrictions, shared input and recording
 artifact assertions remain in place. Both focused cases pass locally.
 
-The owned WinForms fixture reaches WGC startup on both architectures. Diagnostics
-found an empty frame pool represented as a code-zero error, fixed in `a8757cf35`.
-[Run 40076308738](https://github.com/arpan404/ace/actions/runs/40076308738) then
-identifies the missing `ID3D11VideoDevice` interface during scaler creation on both
-runners. `aef8b3138` uses direct staging readback when no resizing is needed.
-Native capture, Unicode UIA editing and repaint confirmation are pending in
-[run 40077048053](https://github.com/arpan404/ace/actions/runs/40077048053).
-Oversized captures still need video-processor scaling on these drivers.
+[Run 40077601968](https://github.com/arpan404/ace/actions/runs/40077601968),
+pinned to `230ac496d`, passes native helper negotiation and the complete owned
+WinForms capture/UIA fixture on **both x64 and ARM64**. It captures a real JPEG,
+finds the textbox, sets and rereads Unicode through UIA without input fallback,
+then confirms changed captured pixels. Empty frame-pool and UIA walker null results
+are now handled at their nullable boundaries. Unscaled frames use direct staging
+readback rather than requiring the unavailable video-processing interface.
+Oversized captures still require that interface on these drivers.
 
-The existing full-resolution sharpness test is now included in Windows CI with
-its PSNR thresholds unchanged. Its first native run receives decoded width 1408
-instead of the asserted 1318. The next run records visible/display dimensions,
-PNG dimensions and the page viewport to distinguish codec padding from incorrect
-sizing. Real pointer/keyboard input and installed desktop acceptance remain
-unverified. W14/W15 remain open.
+The 191 browser/foundation tests pass on both architectures. The newly added
+sharpness case is the only failure in the bounded browser/foundation suite:
+VP9 post-scroll PSNR is **34.98 dB on x64 / 35.21 dB on ARM64**, below the unchanged
+**37 dB** requirement. The page, PNG, visible picture and display are all
+1318x1650; decoded coded width 1408 is codec padding. The assertion now checks
+visible/display device pixels and the reference PNG independently. Quality
+thresholds, capture timing and codec preference remain unchanged.
+
+Real pointer/keyboard input and installed desktop acceptance remain unverified.
+W14/W15 remain open while the VP9 quality failure is investigated.
 
 Full source typechecking passed again after the daemon test updates. The full
 repository check completed before these fixes with **2,797 files passed, 9 failed
