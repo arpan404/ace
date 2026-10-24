@@ -103,3 +103,42 @@ test("another machine's thread says the machine isn't connected instead of showi
     await screen.findByText("Build server isn't connected. Its work shows here when it's back."),
   ).toBeTruthy();
 });
+
+/** The build server's own thread in its api project. */
+function threadOnBuild(build: FakeDaemon) {
+  const api = build.projects.list().workspaces.find((each) => each.name === "api");
+  if (!api) throw new Error("no api project");
+  build.createThread({
+    id: "thread-on-build",
+    workspaceId: api.id,
+    title: "Add rate limits",
+    provider: "claude",
+    hasSentMessage: true,
+    details: { workspace: api },
+  });
+}
+
+test("New thread here on another machine's thread opens New thread there, in that project", async () => {
+  const { made, build } = machines();
+  threadOnBuild(build);
+  await made.open("/t/thread-on-build?machine=build");
+  await screen.findByRole("heading", { level: 1, name: "Add rate limits" });
+  await userEvent.keyboard("{Meta>}{Shift>}n{/Shift}{/Meta}");
+  expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Project: api" })).toBeTruthy();
+});
+
+test("a thread addressed by this window's own host id is the open row in the list", async () => {
+  const { made } = machines();
+  made.daemon.createThread({
+    id: "thread-here",
+    workspaceId: "weather",
+    title: "Trim the cache",
+    provider: "claude",
+    hasSentMessage: true,
+  });
+  await made.open("/t/thread-here?machine=this-mac");
+  const threads = await screen.findByRole("list", { name: "Threads" });
+  const row = await within(threads).findByRole("link", { name: /^Trim the cache/ });
+  await waitFor(() => expect(row.className).toContain("bg-active"));
+});

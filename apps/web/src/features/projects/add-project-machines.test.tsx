@@ -154,3 +154,14 @@ test("a chosen machine that leaves the pool stays chosen, so nothing lands on an
   await userEvent.keyboard("{Enter}");
   await waitFor(() => expect(paths(made.daemon)).toEqual(["/srv/app"]));
 });
+
+test("with the other machine offline Add project doesn't ask which machine", async () => {
+  const { made } = twoMachines();
+  await made.open("/settings");
+  await screen.findByRole("heading", { level: 1 });
+  made.crashMachine("build");
+  await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
+  expect(await screen.findByRole("option", { name: "Local folder" })).toBeTruthy();
+  expect(screen.queryByRole("listbox", { name: "Machines" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Machine:/ })).toBeNull();
+});
