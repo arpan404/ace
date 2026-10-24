@@ -118,6 +118,12 @@ export type CatalogOptions = {
     signal: AbortSignal,
     diagnostic?: (metadata: DiscoveryDiagnostics) => void,
   ) => Promise<string>;
+  /**
+   * Reads (`list`, `resolve`) re-check connections owned by the CLIs at most this often, so a
+   * login changed outside ace shows the next time someone looks, and an unread catalog spawns
+   * nothing. Without it, callers schedule `reconcileConnections` themselves.
+   */
+  connectionCheckMs?: number;
   onError?: (
     provider: ModelInstance["provider"],
     instance: string,
@@ -157,6 +163,7 @@ export class ModelCatalog implements ModelCatalogApi {
   #closing: Promise<void> | undefined;
   #active = 0;
   #closed = false;
+  #connectionsCheckedAt: number | undefined;
   constructor(options: CatalogOptions) {
     this.#options = options;
     this.#deletions = new PendingDeletions(options.storage);
@@ -752,9 +759,20 @@ export class ModelCatalog implements ModelCatalogApi {
   revalidate(): void {
     this.#revalidate(this.#select({}));
   }
+  #checkConnectionsOnRead(): void {
+    const interval = this.#options.connectionCheckMs;
+    if (interval === undefined || this.#closed) return;
+    const now = this.#options.now();
+    const last = this.#connectionsCheckedAt;
+    if (last !== undefined && now - last < interval) return;
+    this.#connectionsCheckedAt = now;
+    // Each instance records its own probe failure and retry; nothing is left to report here.
+    void this.reconcileConnections().catch(() => {});
+  }
   list(input: ModelListOptions = {}): ModelListResult {
     const options = ModelListOptions.parse(input);
     const states = this.#select(options);
+    this.#checkConnectionsOnRead();
     this.#revalidate(states);
     const models: ModelListResult["models"] = [];
     let skipped = options.offset;
@@ -790,6 +808,7 @@ export class ModelCatalog implements ModelCatalogApi {
   resolve(input: ModelRoleSpec): ModelResolution {
     const filter = ModelFilter.parse(input);
     const states = this.#select(filter);
+    this.#checkConnectionsOnRead();
     this.#revalidate(states);
     return this.#resolve(input, states);
   }

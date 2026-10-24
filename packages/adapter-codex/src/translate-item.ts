@@ -179,7 +179,7 @@ export function translateItem(
       type === "agentMessage" &&
       complete &&
       frame.channel !== "hydration" &&
-      /^(?:error:\s*)?(?:You(?:’|')ve hit your usage limit|Your usage limit has been reached|Rate limit reached|Authentication failed|Not logged in)/i.test(
+      /^(?:error:\s*)?(?:You(?:\u2019|')ve hit your usage limit|Your usage limit has been reached|Rate limit reached|Authentication failed|Not logged in)/i.test(
         str(item["text"]),
       )
     )

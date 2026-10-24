@@ -14,6 +14,7 @@ import {
 } from "../models.ts";
 import type { ServiceContext } from "./types.ts";
 import { backgroundFailure } from "./background.ts";
+import { installationGate } from "../installation-gate.ts";
 export async function startModels(context: ServiceContext): Promise<void> {
   const { config, options, resources, services } = context;
 
@@ -114,15 +115,16 @@ export async function startModels(context: ServiceContext): Promise<void> {
   resources.own(() => models.close());
   services.models = models;
   resources.own(models.listen(() => services.providerStatuses?.publish()));
-  // These CLIs own connect/disconnect outside ace. Metadata-only reconciliation is bounded.
-  const reconcileFailed = backgroundFailure(context, "Model connection check failed");
+  // Stale and failed catalogs retry on this tick. Connections that OpenCode and Pi change
+  // outside ace are re-checked when the catalog is read (`connectionCheckMs`), not here: an
+  // unread catalog has no one to show a change to, and the check starts a Pi session.
+  const revalidateFailed = backgroundFailure(context, "Model catalog revalidation failed");
   const connectionsTimer = setInterval(() => {
     // A failed pass is retried on the next tick; it must never escape the timer.
     try {
       models.revalidate();
-      models.reconcileConnections().catch(reconcileFailed);
     } catch (error) {
-      reconcileFailed(error);
+      revalidateFailed(error);
     }
   }, 60_000);
   connectionsTimer.unref();
@@ -143,6 +145,15 @@ export async function startModels(context: ServiceContext): Promise<void> {
       : undefined;
   if (sdkInstance) registerCursorSdkCatalog(context, sdkInstance);
   if (options.modelInstances === undefined) {
+    const installationsKnown = installationGate(
+      services.providerStatuses?.firstCheck(),
+      10_000,
+      (run, milliseconds) => {
+        const timer = setTimeout(run, milliseconds);
+        timer.unref();
+        return () => clearTimeout(timer);
+      },
+    );
     registerConfiguredModelInstances(
       models,
       config.dataDir,
@@ -158,6 +169,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
             context.signal,
             new Set(ProviderKind.options.filter((kind) => kind !== provider)),
             services.providerConfigurations?.current() ?? [],
+            installationsKnown,
           );
     const admission = registerDefaultModelInstances(
       models,
@@ -166,6 +178,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
       context.signal,
       new Set(sdkInstance ? ["cursor"] : []),
       services.providerConfigurations?.current() ?? [],
+      installationsKnown,
     );
     services.modelsReady = admission.then(() => {
       if (!context.signal.aborted) models.revalidate();

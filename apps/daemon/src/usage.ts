@@ -90,6 +90,20 @@ export function createDaemonUsage(
   replayTimer: { delay(run: () => void, milliseconds: number): () => void } = defaultReplayTimer,
 ) {
   const worker = new UsageWorker(join(dataDir, "usage.sqlite"), settings, runtime);
+  // The worker owns the durable cursor, and only this replay advances it. Remembering its
+  // last answer lets a store commit with no new events skip waking a retired isolate.
+  let cursor: number | undefined;
+  const sink = {
+    async cursor() {
+      cursor ??= await worker.cursor();
+      return cursor;
+    },
+    async ingest(batch: Parameters<UsageWorker["ingest"]>[0]) {
+      cursor = undefined;
+      cursor = await worker.ingest(batch);
+      return cursor;
+    },
+  };
   let stopped = false;
   let failures = 0;
   let retry: (() => void) | undefined;
@@ -133,7 +147,7 @@ export function createDaemonUsage(
     if (stopped) return Promise.reject(new Error("Usage service closed"));
     if (running) return running;
     running = (async () => {
-      while (await backfillBatch(worker, store)) {
+      while (await backfillBatch(sink, store)) {
         if (stopped) break;
         await new Promise<void>((resolve) => setImmediate(resolve));
       }
@@ -184,7 +198,7 @@ export function createDaemonUsage(
     },
     catchUp,
     async start() {
-      await worker.cursor();
+      await sink.cursor();
       // The append subscription wakes new data; only a failed replay keeps a retry timer.
       schedule();
     },
