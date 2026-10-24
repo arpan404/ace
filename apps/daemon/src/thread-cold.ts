@@ -16,11 +16,14 @@ export const threadColdTable = `CREATE TABLE IF NOT EXISTS thread_cold (
  */
 export function migrateThreadCold(db: DatabaseSync): void {
   db.exec(`
+    -- Delete, then insert: an upsert's ON CONFLICT would override a trigger's OR REPLACE.
     CREATE TRIGGER IF NOT EXISTS thread_cold_insert AFTER INSERT ON thread_cold BEGIN
-      INSERT OR REPLACE INTO sidebar_thread_revisions(thread_id) VALUES (NEW.thread_id);
+      DELETE FROM sidebar_thread_revisions WHERE thread_id = NEW.thread_id;
+      INSERT INTO sidebar_thread_revisions(thread_id) VALUES (NEW.thread_id);
     END;
     CREATE TRIGGER IF NOT EXISTS thread_cold_update AFTER UPDATE ON thread_cold BEGIN
-      INSERT OR REPLACE INTO sidebar_thread_revisions(thread_id) VALUES (NEW.thread_id);
+      DELETE FROM sidebar_thread_revisions WHERE thread_id = NEW.thread_id;
+      INSERT INTO sidebar_thread_revisions(thread_id) VALUES (NEW.thread_id);
     END;
     -- Foreign keys cascade these; the triggers cover a connection with them off.
     CREATE TRIGGER IF NOT EXISTS thread_cold_owner_delete AFTER DELETE ON threads BEGIN

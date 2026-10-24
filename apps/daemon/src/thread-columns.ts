@@ -1,9 +1,4 @@
-import {
-  ThreadClientFields,
-  ThreadDetails,
-  ThreadProviderMetadata,
-  type Thread,
-} from "@ace/protocol";
+import { ThreadClientFields, ThreadDetails, ThreadProviderMetadata } from "@ace/protocol";
 import type { ThreadPart } from "./thread-row.ts";
 import type { FrozenThread } from "./thread-cache.ts";
 

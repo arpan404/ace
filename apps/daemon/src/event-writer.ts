@@ -1,11 +1,5 @@
 import type { DatabaseSync, StatementSync } from "node:sqlite";
-import {
-  Event,
-  ThreadProviderMetadata,
-  type EventPayload,
-  type Thread,
-  type ThreadId,
-} from "@ace/protocol";
+import { Event, type EventPayload, type Thread, type ThreadId } from "@ace/protocol";
 import { updateThread } from "@ace/projection";
 import { prepareRunClient } from "./run-client-storage.ts";
 import { liveMetadataChange } from "./thread-client-storage.ts";
