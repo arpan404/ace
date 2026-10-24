@@ -22,7 +22,9 @@ export interface TransferCommandDeps {
 }
 
 /** Who asked: the person's own device, or an agent whose thread holds the transfer. */
-export type TransferAsker = { kind: "person" } | { kind: "agent"; threadId: ThreadId; agentId: AgentId; self: boolean };
+export type TransferAsker =
+  | { kind: "person" }
+  | { kind: "agent"; threadId: ThreadId; agentId: AgentId; self: boolean };
 
 export interface TransferInput {
   commandId: Command["id"];

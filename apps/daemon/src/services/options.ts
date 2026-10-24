@@ -56,6 +56,12 @@ export type DaemonOptions = {
     handoffGit?: () => import("../agent-control/handoffs.ts").HandoffGit;
     extensions?: import("../agent-control/tools.ts").AgentControlExtensions;
   };
+  /** Transfers to other machines (ADR 0099): tests drop connections and shorten waits. */
+  transfers?: {
+    transport?: import("../transfers/client.ts").TransferTransport;
+    sleep?(ms: number, signal: AbortSignal): Promise<void>;
+    offlineMs?: number;
+  };
   /** Calls to other paired machines (ADR 0078): the transport and poll interval. */
   machines?: {
     transport?: import("../machines/transport.ts").MachineTransport;

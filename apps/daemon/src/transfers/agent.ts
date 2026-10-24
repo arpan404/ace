@@ -1,4 +1,12 @@
-import { CommandId, type AgentControlResult, type AgentControlOperation, type McpAttribution, type ThreadId, type Transfer, type WorkspaceId } from "@ace/protocol";
+import {
+  CommandId,
+  type AgentControlResult,
+  type AgentControlOperation,
+  type McpAttribution,
+  type ThreadId,
+  type Transfer,
+  type WorkspaceId,
+} from "@ace/protocol";
 import type { PublicToolCode } from "@ace/mcp-server";
 import { AgentControlError } from "../agent-control/failure.ts";
 import type { Store } from "../store.ts";
@@ -18,7 +26,12 @@ export interface AgentTransferDeps {
   /** A local project by id or name, for `project`. */
   project(name: string): WorkspaceId | undefined;
   /** The thread's background hold, so its tree never reads done while the transfer runs. */
-  hold(thread: ThreadId, agent: McpAttribution["agentId"], transferId: string, change: { title: string } | { status: "completed" | "failed" | "stopped" }): void;
+  hold(
+    thread: ThreadId,
+    agent: McpAttribution["agentId"],
+    transferId: string,
+    change: { title: string } | { status: "completed" | "failed" | "stopped" },
+  ): void;
   /** Hands the settled result to the thread as a new turn; `key` names it once. */
   deliver(thread: ThreadId, key: string, text: string): void;
   now(): number;
@@ -35,7 +48,12 @@ const codes: Record<string, PublicToolCode> = {
 
 function agentError(error: unknown): unknown {
   if (!(error instanceof TransferError)) return error;
-  return new AgentControlError(codes[error.code] ?? "execution_failed", error.code, error, error.message);
+  return new AgentControlError(
+    codes[error.code] ?? "execution_failed",
+    error.code,
+    error,
+    error.message,
+  );
 }
 
 /** What the thread reads when its transfer settles. */
@@ -46,10 +64,13 @@ export function transferResultText(transfer: Transfer): string {
     return (
       `Transfer ${transfer.transferId} to ${to} completed: the project is at ${path} on ${to}` +
       (branch ? `, on branch ${branch}` : "") +
-      (threadId ? `. This thread continues there as thread ${threadId}; the person sends the next message there.` : ".")
+      (threadId
+        ? `. This thread continues there as thread ${threadId}; the person sends the next message there.`
+        : ".")
     );
   }
-  if (transfer.phase === "cancelled") return `Transfer ${transfer.transferId} to ${to} was cancelled.`;
+  if (transfer.phase === "cancelled")
+    return `Transfer ${transfer.transferId} to ${to} was cancelled.`;
   return `Transfer ${transfer.transferId} to ${to} failed: ${transfer.error?.message ?? "it stopped unexpectedly."}`;
 }
 
@@ -62,14 +83,17 @@ export class AgentTransfers {
   constructor(deps: AgentTransferDeps) {
     this.deps = deps;
   }
-  async transfer(caller: McpAttribution, operation: TransferOperation): Promise<AgentControlResult> {
+  async transfer(
+    caller: McpAttribution,
+    operation: TransferOperation,
+  ): Promise<AgentControlResult> {
     const { store, outgoing } = this.deps;
     if (!(await this.deps.enabled()))
       throw new AgentControlError(
         "transfers_off",
         "transfers_off",
         undefined,
-        "This machine doesn't let agents move work to other machines. The person can turn on \"Agents can move projects and threads to other machines\" in Settings › Machines.",
+        'This machine doesn\'t let agents move work to other machines. The person can turn on "Agents can move projects and threads to other machines" in Settings › Machines.',
       );
     const thread = store.getThread(caller.threadId);
     if (!thread) throw new AgentControlError("thread_not_found", "caller_missing");
@@ -87,7 +111,9 @@ export class AgentTransfers {
         undefined,
         'Pass project or thread: "self", not both.',
       );
-    const workspaceId = operation.project ? this.deps.project(operation.project) : thread.workspaceId;
+    const workspaceId = operation.project
+      ? this.deps.project(operation.project)
+      : thread.workspaceId;
     if (!workspaceId)
       throw new AgentControlError(
         "invalid_arguments",
@@ -140,10 +166,18 @@ export class AgentTransfers {
     if (!agent || record.delivered) return;
     const { transfer } = record;
     try {
-      this.deps.deliver(agent.threadId, `transfer-result:${transfer.transferId}`, transferResultText(transfer));
+      this.deps.deliver(
+        agent.threadId,
+        `transfer-result:${transfer.transferId}`,
+        transferResultText(transfer),
+      );
       this.deps.hold(agent.threadId, agent.agentId, transfer.transferId, {
         status:
-          transfer.phase === "completed" ? "completed" : transfer.phase === "cancelled" ? "stopped" : "failed",
+          transfer.phase === "completed"
+            ? "completed"
+            : transfer.phase === "cancelled"
+              ? "stopped"
+              : "failed",
       });
       this.deps.outgoing.markDelivered(transfer.transferId);
     } catch {

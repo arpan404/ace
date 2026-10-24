@@ -55,25 +55,25 @@ export function httpChains(
       () => options.transferTarget,
       auth.deviceBearer.bind(auth),
       machineCallsHttp(
-      () => options.machineCalls,
-      auth.deviceBearer.bind(auth),
-      webHttp(
-        options.webRoot,
-        attachmentsHttp(
-          options,
-          auth,
-          true,
-          iconsHttp(
+        () => options.machineCalls,
+        auth.deviceBearer.bind(auth),
+        webHttp(
+          options.webRoot,
+          attachmentsHttp(
             options,
             auth,
             true,
-            previewHttp(
-              preview,
-              accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
+            iconsHttp(
+              options,
+              auth,
+              true,
+              previewHttp(
+                preview,
+                accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
+              ),
             ),
           ),
         ),
-      ),
       ),
     );
   return { local, remoteHttp };

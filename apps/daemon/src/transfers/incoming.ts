@@ -111,7 +111,9 @@ export class IncomingTransfers {
     await this.sweep();
     await ensureDirectory(this.deps.directory);
     const reused =
-      call.method === "remote" && call.remote ? await this.sameOrigin(call.remote.normalized) : undefined;
+      call.method === "remote" && call.remote
+        ? await this.sameOrigin(call.remote.normalized)
+        : undefined;
     const record: IncomingRecord = {
       transferId: call.transferId,
       deviceId: device.id,
@@ -148,7 +150,10 @@ export class IncomingTransfers {
       throw new TargetRefusal("invalid", "This transfer isn't receiving bytes.");
     const previous = this.writes.get(transferId) ?? Promise.resolve();
     const write = previous.then(() => appendAt(this.file(transferId), offset, data));
-    this.writes.set(transferId, write.catch(() => undefined));
+    this.writes.set(
+      transferId,
+      write.catch(() => undefined),
+    );
     return { offset: await write };
   }
   private async commit(device: Device, call: TransferCommit): Promise<IncomingTransfer> {
@@ -178,9 +183,7 @@ export class IncomingTransfers {
     if (this.running.has(record.transferId)) return;
     const controller = new AbortController();
     this.running.set(record.transferId, controller);
-    void this.run(record, controller.signal).finally(() =>
-      this.running.delete(record.transferId),
-    );
+    void this.run(record, controller.signal).finally(() => this.running.delete(record.transferId));
   }
   private async run(record: IncomingRecord, signal: AbortSignal): Promise<void> {
     const file = this.file(record.transferId);

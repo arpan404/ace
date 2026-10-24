@@ -1,6 +1,11 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import { ThreadId, type IncomingTransfer, type TransferCommit, type WorkspaceId } from "@ace/protocol";
+import {
+  ThreadId,
+  type IncomingTransfer,
+  type TransferCommit,
+  type WorkspaceId,
+} from "@ace/protocol";
 import type { IncomingRecord } from "./incoming-rows.ts";
 import { freeFolder } from "./files.ts";
 import { TransferError, type TransferArchive, type TransferGit } from "./ports.ts";
@@ -90,8 +95,6 @@ export async function landTransfer(
       bundle: file,
       ...(commit.branch ? { branch: commit.branch } : {}),
     });
-    if (commit.changes)
-      await deps.git.fetchBundle(path, file, [`${commit.changes.ref}:${commit.changes.ref}`]);
     workspaceId = await deps.projects.register({ key, path, name: begin.name });
     deps.made({ registeredId: workspaceId });
   } else {
@@ -123,7 +126,9 @@ export async function landTransfer(
       if (file) {
         if (!(await deps.git.verifyBundle(path, file))) throw new NeedsFullBundle();
         await deps.git.fetchBundle(path, file, [
-          ...(commit.branch ? [`refs/heads/${commit.branch}:refs/ace/incoming/${record.transferId}`] : []),
+          ...(commit.branch
+            ? [`refs/heads/${commit.branch}:refs/ace/incoming/${record.transferId}`]
+            : []),
           ...(commit.changes ? [`${commit.changes.ref}:${commit.changes.ref}`] : []),
         ]);
       }
@@ -207,7 +212,9 @@ async function place(
     await apply(path);
   }
   if (changes) await git.deleteRef(project.path, changes.ref).catch(() => undefined);
-  await git.deleteRef(project.path, `refs/ace/incoming/${record.transferId}`).catch(() => undefined);
+  await git
+    .deleteRef(project.path, `refs/ace/incoming/${record.transferId}`)
+    .catch(() => undefined);
   return {
     workspaceId: project.workspaceId,
     path,

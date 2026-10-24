@@ -58,7 +58,7 @@ export function createMachineTarget(deps: MachineTargetDeps) {
     if (!allows(device, "read")) throw new TargetRefusal("machine_forbidden");
     return access === "operate" && allows(device, "operate") ? "operate" : "read";
   }
-  async function describe(access: "read" | "operate") {
+  async function describe(device: Device, access: "read" | "operate") {
     const engine = deps.engine();
     const providers: ProviderKind[] = engine
       ? Providers.options.filter((kind) => engine.providerAvailability(kind).installed)
@@ -70,6 +70,7 @@ export function createMachineTarget(deps: MachineTargetDeps) {
       projects: deps.threads.projects(),
       tools: deps.browser.available() ? ["agents", "browser"] : ["agents"],
       providers: providers.slice(0, 16),
+      transfers: allows(device, "operate") && allows(device, "projects"),
     };
     return description;
   }
@@ -87,7 +88,7 @@ export function createMachineTarget(deps: MachineTargetDeps) {
     };
     switch (call.op) {
       case "describe":
-        return describe(access);
+        return describe(device, access);
       case "delegate":
         return deps.threads.delegate(device, origin, call);
       case "status":

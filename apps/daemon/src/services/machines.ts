@@ -13,6 +13,7 @@ import { MachineChildren } from "../machines/children.ts";
 import { RequestMirror } from "../machines/mirror.ts";
 import { MachineCaller } from "../machines/caller.ts";
 import { machineRequest } from "../machines/transport.ts";
+import { TransferClient, transferTransport } from "../transfers/client.ts";
 import type { ServiceContext } from "./types.ts";
 
 /** The shell's timers for polls; nothing waits on them at exit. */
@@ -69,6 +70,8 @@ export function startMachines(context: ServiceContext): void {
       }
     },
     transport: options.machines?.transport ?? machineRequest,
+    transfers: async (profile) =>
+      new TransferClient(options.transfers?.transport ?? transferTransport, profile).probe(),
     log: record("info"),
   });
   // Settings' links to other machines (`fleet.request`), checked through the same directory.

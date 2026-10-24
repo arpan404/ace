@@ -76,10 +76,9 @@ export function transfersHttp(
     const owner = target();
     if (request.method !== method || !device || !owner) {
       request.resume();
-      reply(
-        request.method !== method ? 405 : !device ? 401 : 503,
-        { error: request.method !== method ? "invalid" : !device ? "unauthorized" : "unavailable" },
-      );
+      reply(request.method !== method ? 405 : !device ? 401 : 503, {
+        error: request.method !== method ? "invalid" : !device ? "unauthorized" : "unavailable",
+      });
       return;
     }
     void (async () => {

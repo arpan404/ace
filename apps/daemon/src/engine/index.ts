@@ -735,7 +735,11 @@ export class Engine {
   }
   /** The bounded history another machine's new thread starts from (ADR 0099). */
   machineHandoff(threadId: ThreadId): import("@ace/protocol").PortableHandoff {
-    return captureMachineHandoff(this.repo, threadId, this.repo.requireState(threadId).config.provider);
+    return captureMachineHandoff(
+      this.repo,
+      threadId,
+      this.repo.requireState(threadId).config.provider,
+    );
   }
   /** Keeps a carried handoff waiting on a new thread, for the person's next message there. */
   adoptMachineHandoff(threadId: ThreadId, input: Parameters<typeof adoptMachineHandoff>[2]): void {

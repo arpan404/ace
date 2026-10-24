@@ -1,57 +1,33 @@
+import type { GitTransfer } from "@ace/git";
+import type { measureFolder, packFolder, unpackArchive } from "@ace/files";
+
 /**
- * What transfers need from Git and from the folder archive owner (ADR 0099). `@ace/git` and
- * `@ace/files` implement these; the transfer owners only see the shapes.
+ * What transfers need from Git and from the folder archive owner (ADR 0099): `@ace/git`'s
+ * transfer primitives and `@ace/files`' folder archives, narrowed so tests see the shapes.
  */
-export interface TransferGit {
-  transferOrigin(path: string): Promise<{ url: string; normalized: string } | undefined>;
-  bundleRefs(path: string): Promise<{
-    branches: string[];
-    tags: string[];
-    originTracking: string[];
-    branch?: string | undefined;
-    head?: string | undefined;
-  }>;
-  captureChanges(
-    path: string,
-    input: { ref: string; message?: string },
-  ): Promise<{ commit: string; head: string } | undefined>;
-  createBundle(
-    path: string,
-    input: { file: string; refs: string[]; exclude?: string[] },
-  ): Promise<{ bytes: number } | { empty: true }>;
-  deleteRef(path: string, ref: string): Promise<void>;
-  cloneFromBundle(input: {
-    parent: string;
-    path: string;
-    bundle: string;
-    branch?: string;
-  }): Promise<void>;
-  verifyBundle(path: string, bundle: string): Promise<boolean>;
-  fetchBundle(path: string, bundle: string, refspecs: string[]): Promise<void>;
-  applyChanges(path: string, commit: string): Promise<void>;
-  landingBranch(
-    path: string,
-    input: { branch: string; commit: string; machine: string },
-  ): Promise<{ branch: string; existing: boolean }>;
-  createBranch(path: string, name: string, commit: string): Promise<void>;
-  checkoutBranch(path: string, input: { name: string; commit: string }): Promise<void>;
-  checkoutState(path: string): Promise<{ clean: boolean; branch?: string; head?: string }>;
-  fastForward(path: string, commit: string): Promise<void>;
-  addBranchWorktree(repo: string, input: { path: string; branch: string }): Promise<void>;
-}
+export type TransferGit = Pick<
+  GitTransfer,
+  | "transferOrigin"
+  | "bundleRefs"
+  | "captureChanges"
+  | "createBundle"
+  | "deleteRef"
+  | "cloneFromBundle"
+  | "verifyBundle"
+  | "fetchBundle"
+  | "applyChanges"
+  | "landingBranch"
+  | "createBranch"
+  | "checkoutBranch"
+  | "checkoutState"
+  | "fastForward"
+  | "addBranchWorktree"
+>;
 
 export interface TransferArchive {
-  measureFolder(root: string, options?: { signal?: AbortSignal }): Promise<{ bytes: number }>;
-  packFolder(
-    root: string,
-    file: string,
-    options?: { signal?: AbortSignal; maxBytes?: number },
-  ): Promise<{ bytes: number; sha256: string }>;
-  unpackArchive(
-    file: string,
-    destination: string,
-    options?: { signal?: AbortSignal },
-  ): Promise<{ entries: number }>;
+  measureFolder: typeof measureFolder;
+  packFolder: typeof packFolder;
+  unpackArchive: typeof unpackArchive;
 }
 
 /** A transfer stopped, in words a person acts on. */

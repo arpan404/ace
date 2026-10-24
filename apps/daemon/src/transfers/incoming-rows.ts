@@ -93,7 +93,7 @@ export class IncomingRows {
   expired(before: number): IncomingRecord[] {
     return this.store
       .statement(
-        "SELECT * FROM transfer_incoming WHERE updated_at<? AND state IN ('completed','failed','cancelled') LIMIT 64",
+        "SELECT * FROM transfer_incoming WHERE updated_at<? AND state IN ('receiving','completed','failed','cancelled') LIMIT 64",
       )
       .all(before)
       .map((raw) => decode(Row.parse(raw)));
@@ -124,7 +124,10 @@ export class IncomingRows {
     if (change.state) columns.push(["state", change.state]);
     if (change.method) columns.push(["method", change.method]);
     if ("hasOrigin" in change)
-      columns.push(["has_origin", change.hasOrigin === undefined ? null : change.hasOrigin ? 1 : 0]);
+      columns.push([
+        "has_origin",
+        change.hasOrigin === undefined ? null : change.hasOrigin ? 1 : 0,
+      ]);
     if ("commit" in change)
       columns.push(["commit_input", change.commit ? JSON.stringify(change.commit) : null]);
     if ("workspaceId" in change) columns.push(["workspace_id", change.workspaceId ?? null]);
@@ -132,7 +135,8 @@ export class IncomingRows {
     if ("createdPath" in change) columns.push(["created_path", change.createdPath ?? null]);
     if ("result" in change)
       columns.push(["result", change.result ? JSON.stringify(change.result) : null]);
-    if ("error" in change) columns.push(["error", change.error ? JSON.stringify(change.error) : null]);
+    if ("error" in change)
+      columns.push(["error", change.error ? JSON.stringify(change.error) : null]);
     columns.push(["updated_at", at]);
     this.store
       .statement(

@@ -8,6 +8,8 @@ import {
   type ThreadContinuedOn,
   type ThreadId,
   type Transfer,
+  type TransferBegin,
+  type TransferMethod,
   type TransferOrigin,
   type TransferPhase,
   type TransferThread,
@@ -132,7 +134,10 @@ export class OutgoingTransfers {
       const probe = await new TransferClient(this.deps.transport, profile).probe();
       return { hostId: probe.hostId, name: probe.name };
     } catch {
-      throw new TransferError("machine_offline", `${machine.slice(0, 64)} is offline or unreachable.`);
+      throw new TransferError(
+        "machine_offline",
+        `${machine.slice(0, 64)} is offline or unreachable.`,
+      );
     }
   }
   /** Checks the target takes transfers from this device, then starts one. A retry returns it. */
@@ -257,11 +262,13 @@ export class OutgoingTransfers {
   private async drive(transferId: string, signal: AbortSignal): Promise<void> {
     let record = this.need(transferId);
     const profile = this.deps.profiles().find((entry) => entry.name === record.request.profile);
-    if (!profile) throw new TransferError("machine_not_linked", "That machine isn't linked anymore.");
+    if (!profile)
+      throw new TransferError("machine_not_linked", "That machine isn't linked anymore.");
     const client = new TransferClient(this.deps.transport, profile);
     let plan = record.plan ?? { source: "", name: "" };
-    let method = record.transfer.method;
-    if (!method) {
+    let method: TransferMethod;
+    if (record.transfer.method) method = record.transfer.method;
+    else {
       const planned = await planSource(this.deps.git, {
         transferId,
         source: plan.source,
@@ -272,20 +279,16 @@ export class OutgoingTransfers {
       record = this.update(record, { method }, plan);
     }
     const origin = await this.deps.origin();
-    let status = await this.reach(signal, () =>
-      client.call(
-        {
-          op: "begin",
-          transferId,
-          origin,
-          method,
-          name: plan.name.slice(0, 256) || "project",
-          ...(record.request.parent ? { parent: record.request.parent } : {}),
-          ...(method === "remote" && plan.remote ? { remote: plan.remote } : {}),
-        },
-        signal,
-      ),
-    );
+    const begin: TransferBegin = {
+      op: "begin",
+      transferId,
+      origin,
+      method,
+      name: plan.name.slice(0, 256) || "project",
+      ...(record.request.parent ? { parent: record.request.parent } : {}),
+      ...(method === "remote" && plan.remote ? { remote: plan.remote } : {}),
+    };
+    let status = await this.reach(signal, () => client.call(begin, signal));
     for (;;) {
       signal.throwIfAborted();
       if (status.state === "completed" && status.result) {
@@ -322,7 +325,10 @@ export class OutgoingTransfers {
         const file = await writeTransferFile(this.deps, {
           method,
           plan,
-          file: join(this.deps.directory, `${transferId}.${method === "archive" ? "tar" : "bundle"}`),
+          file: join(
+            this.deps.directory,
+            `${transferId}.${method === "archive" ? "tar" : "bundle"}`,
+          ),
           incremental,
           signal,
         });
@@ -332,9 +338,11 @@ export class OutgoingTransfers {
       record = this.update(this.need(transferId), { phase: "sending" });
       const file = plan.file;
       let offset = status.offset;
-      while (file && offset < file.bytes) {
+      const path = file?.path ?? "";
+      const total = file?.bytes ?? 0;
+      while (offset < total) {
         signal.throwIfAborted();
-        const data = await readAt(file.path, offset, Math.min(transferChunkBytes, file.bytes - offset));
+        const data = await readAt(path, offset, Math.min(transferChunkBytes, total - offset));
         const from = offset;
         offset = await this.reach(signal, () => client.chunk(transferId, from, data, signal));
         record = this.bytes(this.need(transferId), offset);
@@ -420,7 +428,9 @@ export class OutgoingTransfers {
     this.lastBytes.delete(record.transfer.transferId);
     if (current.plan?.file) await removeQuietly(current.plan.file.path);
     if (current.plan?.changes)
-      await this.deps.git.deleteRef(current.plan.source, current.plan.changes.ref).catch(() => undefined);
+      await this.deps.git
+        .deleteRef(current.plan.source, current.plan.changes.ref)
+        .catch(() => undefined);
     this.deps.log("Transfer to another machine settled", {
       transferId: record.transfer.transferId,
       target: record.transfer.target.name,

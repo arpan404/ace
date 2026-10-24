@@ -43,7 +43,9 @@ export const TransferBegin = z.strictObject({
   /** A folder on the target for a new project; omitted: its default. */
   parent: z.string().min(1).max(4096).optional(),
   /** method remote: the origin the target may already have, or clones itself. */
-  remote: z.object({ url: z.string().min(1).max(2048), normalized: z.string().max(2048) }).optional(),
+  remote: z
+    .object({ url: z.string().min(1).max(2048), normalized: z.string().max(2048) })
+    .optional(),
 });
 export type TransferBegin = z.infer<typeof TransferBegin>;
 

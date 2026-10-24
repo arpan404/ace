@@ -58,7 +58,9 @@ export async function planSource(
       ...(remote ? { remote } : {}),
       ...(refs.branch ? { branch: refs.branch } : {}),
       ...(refs.head ? { head: refs.head } : {}),
-      ...(changes ? { changes: { ref: changesRef(input.transferId), commit: changes.commit } } : {}),
+      ...(changes
+        ? { changes: { ref: changesRef(input.transferId), commit: changes.commit } }
+        : {}),
     },
   };
 }
@@ -90,7 +92,9 @@ export async function writeTransferFile(
   }
   const refs = await deps.git.bundleRefs(plan.source);
   const wanted = input.incremental
-    ? [...(plan.branch ? [fullRef("refs/heads/", plan.branch)] : [])]
+    ? plan.branch
+      ? [fullRef("refs/heads/", plan.branch)]
+      : []
     : [
         ...refs.branches.map((name) => fullRef("refs/heads/", name)),
         ...refs.tags.map((name) => fullRef("refs/tags/", name)),
