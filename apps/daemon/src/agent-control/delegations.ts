@@ -49,6 +49,9 @@ import {
   selectionModelFilter,
 } from "@ace/models";
 
+/** Longest a request waits for accounts' model lists to load before matching what loaded. */
+export const modelLoadWaitMs = 20_000;
+
 export interface DelegationDependencies {
   store: Store;
   engine: Engine;
@@ -326,16 +329,45 @@ export class DelegationService {
     return messageArrival(this.deps.engine.messageFacts(threadId, id), restart);
   }
   /**
-   * Load the model lists of accounts in `filter` that have never loaded, so a model name is
-   * matched against what each account really serves rather than an empty cache. A discovery
-   * already running is shared, and one that failed keeps its retry pause: an uninstalled
-   * provider is not probed again on every request.
+   * Load the model lists of accounts in `filter` that have never loaded (or loaded empty and are
+   * due for discovery), so a model name is matched against what each account really serves. A
+   * discovery already running is shared, and one that failed keeps its retry pause, so an
+   * uninstalled provider is not probed on every request. The wait is capped and ends with the
+   * request: slow discovery keeps running in the background and the request matches what loaded.
    */
-  async warmModels(filter: import("@ace/protocol").ModelFilter): Promise<void> {
+  async warmModels(
+    filter: import("@ace/protocol").ModelFilter,
+    signal?: AbortSignal,
+  ): Promise<void> {
     await this.deps.modelsReady;
-    await this.deps.models.loadMissing?.(filter);
+    const load = this.deps.models.loadMissing?.(filter);
+    if (!load) return;
+    // A load still running when the wait ends must not surface later as an unhandled failure.
+    load.catch(() => {});
+    let cancel: (() => void) | undefined;
+    let stop: (() => void) | undefined;
+    const waits: Promise<unknown>[] = [
+      load,
+      new Promise<void>((resolve) => {
+        cancel = this.deps.clock.setTimer(resolve, modelLoadWaitMs);
+      }),
+    ];
+    if (signal)
+      waits.push(
+        new Promise<void>((resolve) => {
+          stop = () => resolve();
+          signal.addEventListener("abort", stop, { once: true });
+        }),
+      );
+    try {
+      await Promise.race(waits);
+    } finally {
+      cancel?.();
+      if (signal && stop) signal.removeEventListener("abort", stop);
+    }
+    signal?.throwIfAborted();
   }
-  async prepareModels(caller: McpAttribution, value: DelegationRequest) {
+  async prepareModels(caller: McpAttribution, value: DelegationRequest, signal?: AbortSignal) {
     const request = delegationRequest(value);
     this.admission.validate(caller, request);
     await this.deps.modelsReady;
@@ -366,7 +398,7 @@ export class DelegationService {
     };
     // Auto-selection can choose an account whose catalog is still cold. Loading it keeps a failed
     // discovery's retry pause; only the person's explicit refresh forces one.
-    if (catalog.loadMissing) await catalog.loadMissing(filter);
+    if (catalog.loadMissing) await this.warmModels(filter, signal);
     else {
       const page = catalog.list(filter);
       if (

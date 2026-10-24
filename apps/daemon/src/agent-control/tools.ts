@@ -168,6 +168,7 @@ export function createAgentControlPort(
         if (!chosen.machine && !knownModel(chosen, list))
           await service.warmModels(
             chosen.provider ? accountScope(chosen.provider, chosen.accountId) : {},
+            signal,
           );
         const result = resolveSelection(chosen, callerProvider ?? "codex", list);
         // An ACP agent's own login is not in the account list: its source-qualified identity
@@ -263,7 +264,7 @@ export function createAgentControlPort(
             if (request.workspace && extensions.delegateWorkspace) return undefined;
             if (request.workspace?.kind && request.workspace.kind !== "project")
               throw new Error("Workspace owner unavailable");
-            const configured = await service.prepareModels(caller, request);
+            const configured = await service.prepareModels(caller, request, signal);
             signal.throwIfAborted();
             return configured;
           };

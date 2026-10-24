@@ -851,7 +851,13 @@ export class ModelCatalog implements ModelCatalogApi {
     if (this.#closed) throw new Error("Catalog closed");
     return Promise.all(
       this.#select(ModelFilter.parse(input))
-        .filter((state) => !state.entry)
+        // Never loaded, or loaded empty and due for discovery (or already in one): a usable,
+        // fresh list returns at once, and an empty one that is fresh is not probed again.
+        .filter(
+          (state) =>
+            !state.entry ||
+            (!state.entry.models.length && (state.flight !== undefined || this.#stale(state))),
+        )
         .map((state) => this.#refresh(state)),
     );
   }
