@@ -76,11 +76,19 @@ import ApplicationServices
     }
 
     /// The person owns another window of this frontmost app. App-wide focus, first
-    /// responder commands and tracking menus must remain with that window.
+    /// responder commands and tracking menus must remain with that window. An unreadable
+    /// focused window is not proof of that: the guard then treats the window as shared.
     var sharingActiveApp: Bool {
         guard app.isActive, !cuScreenLocked(), let chosen = window?.number else { return false }
-        guard let focused = cuElementAttribute(element, "AXFocusedWindow"), let number = cuWindowNumber(focused) else { return true }
+        guard let focused = cuElementAttribute(element, "AXFocusedWindow"), let number = cuWindowNumber(focused) else { return false }
         return number != chosen
+    }
+
+    /// Whether the app's focused window, the one its menus and shortcuts act on, is the chosen window.
+    var chosenWindowFocused: Bool {
+        guard let chosen = window?.number, let focused = cuElementAttribute(element, "AXFocusedWindow"),
+              let number = cuWindowNumber(focused) else { return false }
+        return number == chosen
     }
 
     func rememberFocus(_ target: AXUIElement) {

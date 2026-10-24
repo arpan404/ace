@@ -9,6 +9,12 @@ final class ComputerSettleWindowTests: XCTestCase {
         XCTAssertFalse(cuConsecutiveEdits(["type": "click"], ["type": "type"]))
         XCTAssertFalse(cuConsecutiveEdits(["type": "type"], ["type": "set_value", "when": ["text": "Ready"]]))
     }
+
+    func testKeysAfterAFocusChangeWaitForTheAppToApplyIt() {
+        // Chromium applies accessibility focus asynchronously; typing at once can hit the old field.
+        XCTAssertTrue(cuNeedsSettleAfter(["type": "focus", "id": 4], next: ["type": "type", "text": "hello"], skipped: false))
+        XCTAssertTrue(cuNeedsSettleAfter(["type": "set_value", "id": 4, "text": "a"], next: ["type": "focus", "id": 5], skipped: false))
+    }
     private let ms: UInt64 = 1_000_000
     private func window(minimum: UInt64 = 60, quiet: UInt64 = 150, responded: UInt64 = 60, limit: UInt64 = 2_000) -> CUSettleWindow {
         CUSettleWindow(started: 1_000 * ms, minimumNs: minimum * ms, quietNs: quiet * ms, respondedQuietNs: responded * ms, limit: (1_000 + limit) * ms)

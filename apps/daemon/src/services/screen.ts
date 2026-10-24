@@ -37,7 +37,7 @@ export async function startScreen({ config, options, resources, services, store 
     const computer = new ComputerClient({
       helper: () => installScreenHelper(helper, config.dataDir, config.screenHelperManifest),
       nextId: randomUUID,
-      ...(process.env["ACE_CU_TIMINGS"]
+      ...(config.computerUseTimings
         ? {
             timing: {
               report: (timing) => {

@@ -15,10 +15,23 @@ struct CUCursorAnchor {
     private var panel: NSPanel?
     private var anchor: CUCursorAnchor?
     private var tracking: Timer?
+    private var shownAt: UInt64 = 0
+    private let idleNs: UInt64
+    private let now: () -> UInt64
+
+    /// The pointer stays through the model's pause between batches, then goes away once the
+    /// agent has stopped acting, so it never lingers over the person's window (or keeps polling).
+    init(idleSeconds: Double = 30, now: @escaping () -> UInt64 = cuNow) {
+        idleNs = UInt64(idleSeconds * 1_000_000_000)
+        self.now = now
+    }
+
+    var isShowing: Bool { anchor != nil }
 
     /// Keep the last pointer visible between batches, without a per-click fade-out.
     func show(at point: CGPoint, window: CUWindow?) {
         guard let window, let number = window.number, !cuScreenLocked() else { hide(); return }
+        shownAt = now()
         anchor = CUCursorAnchor(window: number, localPoint: CGPoint(x: point.x - window.frame.minX, y: point.y - window.frame.minY))
         update()
         if tracking == nil {
@@ -36,6 +49,7 @@ struct CUCursorAnchor {
     }
 
     private func update() {
+        if anchor != nil, now() &- shownAt >= idleNs { hide(); return }
         guard let anchor, !cuScreenLocked(),
               let window = cuServerWindowInfo([anchor.window])[anchor.window], window.onScreen, let frame = window.frame else {
             panel?.orderOut(nil)

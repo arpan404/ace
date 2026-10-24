@@ -23,6 +23,15 @@ final class ComputerSessionStatusTests: XCTestCase {
         XCTAssertNoThrow(try cuRequirePostedInput(cuSessionStatus(onConsole: true, loginDone: true, locked: false)))
     }
 
+    func testWhileLockedMenusAndShortcutsRunOnlyWhenTheSelectedWindowIsTheFocusedOne() {
+        // The person locked the Mac with another document in front: Close would close theirs.
+        XCTAssertEqual(cuResponderRefusal(preserveHumanFocus: false, locked: true, chosenWindowFocused: false), .lockedOtherWindow)
+        XCTAssertNil(cuResponderRefusal(preserveHumanFocus: false, locked: true, chosenWindowFocused: true))
+        // Unlocked, the agent makes its window key first, so the focused window does not decide.
+        XCTAssertNil(cuResponderRefusal(preserveHumanFocus: false, locked: false, chosenWindowFocused: false))
+        XCTAssertEqual(cuResponderRefusal(preserveHumanFocus: true, locked: false, chosenWindowFocused: true), .personFocus)
+    }
+
     func testCancellationAndEscapeStillWinWhenTheDesktopIsUnavailable() {
         var facts = CUGuardFacts(locked: false, appFrontmost: false, secondsSinceHumanInput: 60, stopRequested: false, sessionAvailable: false)
         XCTAssertThrowsError(try cuGuard(facts, app: "TextEdit")) { error in

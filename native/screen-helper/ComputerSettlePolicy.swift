@@ -23,10 +23,12 @@ struct CUSettleWindow {
     }
 }
 
-/// Text edits and selection changes confirm their own delivery. Navigation, clicks, menus
+/// Text edits and selection changes confirm their own delivery. A focus change does not:
+/// Chromium and Electron apply it asynchronously, so keys right after it could reach the
+/// previously focused field. Navigation, clicks, menus
 /// and conditions still need a settled UI before the next step can depend on their result.
 func cuConsecutiveEdits(_ current: CUObject, _ next: CUObject) -> Bool {
-    let edits: Set<String> = ["type", "paste", "set_value", "select_text", "focus"]
+    let edits: Set<String> = ["type", "paste", "set_value", "select_text"]
     guard next["when"] == nil, let first = current.string("type"), let second = next.string("type"),
           edits.contains(first), edits.contains(second) else { return false }
     // Return/Tab in typed text can submit a form or move focus just like a named key.

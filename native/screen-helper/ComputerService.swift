@@ -28,7 +28,8 @@ import ApplicationServices
                 if self.cancellations.isCancelled(id) { throw CUError("cancelled", cuCancelledMessage) }
                 CUOutput.shared.reply(id, result: try await self.handle(request, id: id))
             } catch {
-                self.awake.release()
+                // A failed observation or batch ends the keep-awake lease; a failed lookup does not.
+                if ["state", "act"].contains(request.string("op") ?? "") { self.awake.release() }
                 CUOutput.shared.reply(id, error: error)
             }
         }

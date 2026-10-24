@@ -59,7 +59,8 @@ export const ComputerState = z.looseObject({
     .optional(),
   launched: z.boolean().optional(),
   screenLocked: z.boolean().optional(),
-  sessionState: z.enum(["active", "locked", "unavailable"]).optional(),
+  /** "active", "locked" or "unavailable"; kept as a string so a newer helper's value never fails the state. */
+  sessionState: z.string().optional(),
   /** Nodes may be only conservative search candidates and their ancestors. */
   searchFiltered: z.boolean().optional(),
   screenshot: z

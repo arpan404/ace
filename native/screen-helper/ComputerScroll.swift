@@ -40,7 +40,6 @@ extension CUActor {
         let target = pointerDelivery == .windowTargeted ? pointerTarget(for: element ?? hitElement(at: point)) : nil
         for (index, delta) in deltas.enumerated() {
             if index > 0 { try await pause(ms: 16) }
-            try checkpoint()
             try postedInputCheckpoint()
             poster.scroll(at: point, window: session.window?.number, target: target, delta: delta)
         }

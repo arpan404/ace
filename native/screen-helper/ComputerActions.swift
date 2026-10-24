@@ -124,8 +124,14 @@ import ApplicationServices
     }
 
     func requireAppResponder() throws {
-        if session.preserveHumanFocus {
+        let preserve = session.preserveHumanFocus
+        let locked = cuSessionStatus() == .locked
+        switch cuResponderRefusal(preserveHumanFocus: preserve, locked: locked, chosenWindowFocused: locked && session.chosenWindowFocused) {
+        case nil: return
+        case .personFocus:
             throw CUError("window_focus_required", "This command would use the person's focus in \(session.name). Use element ids, set_value, paste, or an element action instead.")
+        case .lockedOtherWindow:
+            throw CUError("screen_locked", "The Mac is locked and \(session.name)'s menus and shortcuts would act on a different window than the one selected. Use element ids, set_value or an element action; observe again after the person unlocks the Mac.")
         }
     }
 

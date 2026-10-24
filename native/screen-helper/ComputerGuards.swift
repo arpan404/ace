@@ -30,6 +30,17 @@ func cuConflictsWithHuman(_ facts: CUHumanTargetFacts) -> Bool {
     return !facts.focusKnown || facts.containsFocus || (facts.pointerAction && facts.cursorOnTarget)
 }
 
+enum CUResponderRefusal: Equatable { case personFocus, lockedOtherWindow }
+
+/// Menus, shortcuts and posted input reach the app's focused window, not the chosen one.
+/// While locked the agent cannot make its window key, so those commands run only when the
+/// chosen window already is the focused one; otherwise they could close or edit another document.
+func cuResponderRefusal(preserveHumanFocus: Bool, locked: Bool, chosenWindowFocused: Bool) -> CUResponderRefusal? {
+    if preserveHumanFocus { return .personFocus }
+    if locked, !chosenWindowFocused { return .lockedOtherWindow }
+    return nil
+}
+
 /// Whether an action may run now. Pure: the person always wins over the agent.
 func cuGuard(_ facts: CUGuardFacts, app: String) throws {
     try cuGuard(facts, app: app, conflict: { facts.conflictsWithHuman })

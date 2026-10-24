@@ -9,6 +9,23 @@ final class ComputerCursorTests: XCTestCase {
         XCTAssertEqual(anchor.screenPoint(in: CGRect(x: 300, y: 200, width: 700, height: 532)), CGPoint(x: 420, y: 276))
     }
 
+    @MainActor func testTheAgentPointerGoesAwayOnceTheAgentStopsActing() async throws {
+        guard !cuScreenLocked() else { throw XCTSkip("The pointer is never shown while the Mac is locked") }
+        var clock: UInt64 = 1_000
+        let overlay = CUOverlay(idleSeconds: 30, now: { clock })
+        defer { overlay.hide() }
+        // A window id nothing uses: the pointer is pending, never drawn over a real window.
+        let target = CUWindow(element: AXUIElementCreateApplication(getpid()), number: CGWindowID(UInt32.max - 7), title: "",
+                              frame: CGRect(x: 0, y: 0, width: 200, height: 100), onScreen: true, minimized: false, main: false)
+        overlay.show(at: CGPoint(x: 20, y: 20), window: target)
+        clock += 20_000_000_000
+        try await Task.sleep(nanoseconds: 450_000_000)
+        XCTAssertTrue(overlay.isShowing, "still within the model's pause between batches")
+        clock += 11_000_000_000
+        try await Task.sleep(nanoseconds: 450_000_000)
+        XCTAssertFalse(overlay.isShowing)
+    }
+
     @MainActor func testTheAgentPointerPersistsBetweenActionsAndLeavesHumanFocusAlone() async throws {
         guard ProcessInfo.processInfo.environment["ACE_CURSOR_INTEGRATION"] == "1" else {
             throw XCTSkip("Opt-in live overlay check uses only a disposable fixture window")
