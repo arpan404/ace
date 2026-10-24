@@ -190,14 +190,14 @@ function OptionsStep(props: {
       <CommandStepRow onBack={props.onBack} closeLabel="Close">
         <span className={cn(commandStepField, "flex items-center truncate")}>{action}</span>
       </CommandStepRow>
-      <div className={cn("px-4 py-1 text-ui", listDivider)}>
-        <FolderChoice machine={reached} name={props.machine.name} onParent={setParent} />
+      <div className={cn("min-h-0 flex-1 overflow-y-auto px-4 py-1 text-ui", listDivider)}>
         <div className="flex h-11 items-center gap-3">
           <label htmlFor={`${id}-changes`} className="min-w-0 flex-1 truncate text-foreground">
             Bring uncommitted changes
           </label>
           <Switch id={`${id}-changes`} checked={changes} onCheckedChange={setChanges} />
         </div>
+        <FolderChoice machine={reached} name={props.machine.name} onParent={setParent} />
       </div>
       <CommandStepFooter>
         {/* oxlint-disable-next-line jsx-a11y/no-autofocus -- Enter sends from the step. */}
@@ -224,7 +224,11 @@ function StatusStep(props: {
       : undefined;
   return (
     <>
-      <CommandStepRow onBack={undefined} closeLabel="Close">
+      <CommandStepRow
+        onBack={undefined}
+        closeLabel="Close"
+        leading={<DesktopIcon aria-hidden size={18} className="shrink-0 text-muted-foreground" />}
+      >
         <span className={cn(commandStepField, "flex items-center truncate")}>
           {verb(props.request)} on {step.machine.name}
         </span>
