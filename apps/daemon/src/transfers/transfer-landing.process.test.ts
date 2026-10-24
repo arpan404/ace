@@ -96,5 +96,7 @@ it("sends the whole repository when the target can't clone its origin", async ()
   const landed = transfer.result?.path ?? "";
   expect(await git(landed, "log", "--format=%s")).toBe("new\nfirst");
   expect(await readFile(join(landed, "new.txt"), "utf8")).toBe("new\n");
+  expect(await git(landed, "remote", "get-url", "origin")).toBe("https://example.invalid/app.git");
+  expect(await git(landed, "rev-parse", "--abbrev-ref", "@{upstream}")).toBe("origin/main");
   expect(m.here.progress().map((entry) => entry.method)).toContain("remote");
 });

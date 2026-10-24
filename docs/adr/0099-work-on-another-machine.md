@@ -61,11 +61,19 @@ The sending machine chooses, in order:
 1. **remote**: the checkout is a Git repository with an `origin` the target can clone. If the
    target already has a project whose origin is the same repository (URLs compared after
    normalising scheme, `git@host:` form, trailing `.git` and case of the host), it reuses it;
-   otherwise it clones origin itself with its own Git credentials. The sender then sends a
-   bundle holding only the commits origin doesn't have (`git bundle create` with the
-   origin-tracking refs as negative refs), which may be empty.
+   otherwise it clones origin itself with its own Git credentials. This transfer clone never
+   prompts: Git Credential Manager is non-interactive, SSH uses the configured `core.sshCommand`
+   in batch mode, and askpass is disabled. A three-minute deadline bounds the attempt;
+   authentication failures and timeouts fall back to a full bundle. Cancellation stops the clone.
+   The sender then sends a bundle holding only the commits origin doesn't have (`git bundle create`
+   with the origin-tracking refs as negative refs), which may be empty.
 2. **bundle**: a Git repository with no remote, or one the target couldn't clone. The bundle
-   holds every local branch and tag. The target clones from it and removes the bundle remote.
+   holds every local branch and tag, plus the sender's last-known origin-tracking refs when it
+   has an origin. The target imports it without configuring a remote to the bundle file, then
+   restores `origin` to the source's fetch URL. The current branch tracks its matching origin
+   branch when the sender had that tracking ref. This uses local information only, without a
+   network request. Remote metadata travels with both methods and survives fallback; URLs with
+   embedded credentials are rejected using the clone URL validation.
 3. **archive**: a folder that isn't a Git repository. A tar of the whole folder, symlinks kept as
    links and never followed out of the folder, sockets and devices skipped.
 

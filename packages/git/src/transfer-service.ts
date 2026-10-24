@@ -55,7 +55,7 @@ export class GitTransfer {
     return this.within(path, (root) => createBranch(this.repository, root, name, commit));
   }
 
-  /** A new repository at `path` from a bundle, with no remote; see `cloneFromBundle`. */
+  /** A new repository at `path` from a bundle, optionally restoring origin; see `cloneFromBundle`. */
   async cloneFromBundle(
     input: BundleCloneOptions,
     policy?: ProjectGitPolicy,

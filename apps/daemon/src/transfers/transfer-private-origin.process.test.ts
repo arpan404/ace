@@ -100,3 +100,12 @@ it("cancels a stalled origin clone and removes its partial project", async () =>
     timeout: 5_000,
   });
 }, 30_000);
+
+it("refuses a source origin with embedded credentials before landing a project", async () => {
+  const m = await transferMachines();
+  const before = registered(m.target);
+  await sourceWithHistory(m, "https://token@example.invalid/private.git");
+  expect(await m.settled()).toMatchObject({ phase: "failed" });
+  expect(registered(m.target)).toEqual(before);
+  expect(await readdir(m.targetRoot)).not.toContain("app");
+}, 30_000);
