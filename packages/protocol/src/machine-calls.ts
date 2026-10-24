@@ -34,6 +34,8 @@ export const MachineDescription = z.object({
   projects: z.array(MachineProject).max(32),
   tools: z.array(MachineToolGroup).max(8),
   providers: z.array(ProviderKind).max(16),
+  /** This device may move projects and threads here (ADR 0099). */
+  transfers: z.boolean().optional(),
 });
 export type MachineDescription = z.infer<typeof MachineDescription>;
 
@@ -46,6 +48,8 @@ export const MachineSummary = z.object({
   projects: z.array(MachineProject).max(32).optional(),
   tools: z.array(MachineToolGroup).max(8).optional(),
   providers: z.array(ProviderKind).max(16).optional(),
+  /** Agents here may `transfer` projects and threads to it (ADR 0099). */
+  transfers: z.boolean().optional(),
   /** What to do next when the machine can't be used right now. */
   next: z.string().max(256).optional(),
 });

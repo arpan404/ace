@@ -4,6 +4,7 @@ import { accessHttp } from "./access-http.ts";
 import { attachmentsHttp } from "./attachments-http.ts";
 import { iconsHttp } from "./icons-http.ts";
 import { machineCallsHttp } from "./machines/http.ts";
+import { transfersHttp } from "./transfers/http.ts";
 import { previewHttp } from "./preview-http.ts";
 import type { DaemonPreview } from "./preview.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
@@ -23,7 +24,7 @@ export function httpChains(
   access: Access,
   maintenance: MaintenanceGate,
   preview: () => DaemonPreview | undefined,
-): { local: Server; remoteHttp(): ReturnType<typeof machineCallsHttp> } {
+): { local: Server; remoteHttp(): ReturnType<typeof transfersHttp> } {
   const local = httpServer(
     webHttp(
       options.webRoot,
@@ -50,7 +51,10 @@ export function httpChains(
   );
   // Paired devices only: one chain for the static and the runtime-toggled TLS listener.
   const remoteHttp = () =>
-    machineCallsHttp(
+    transfersHttp(
+      () => options.transferTarget,
+      auth.deviceBearer.bind(auth),
+      machineCallsHttp(
       () => options.machineCalls,
       auth.deviceBearer.bind(auth),
       webHttp(
@@ -69,6 +73,7 @@ export function httpChains(
             ),
           ),
         ),
+      ),
       ),
     );
   return { local, remoteHttp };

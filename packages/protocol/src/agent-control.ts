@@ -289,6 +289,14 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("agent.status"), threadId: ThreadId }),
   z.strictObject({ op: z.literal("agents.status") }),
   z.strictObject({ op: z.literal("machines") }),
+  /** Carry a project, or the calling thread, to another paired machine (ADR 0099). */
+  z.strictObject({
+    op: z.literal("transfer"),
+    machine: MachineName,
+    project: z.string().min(1).max(256).optional(),
+    thread: z.literal("self").optional(),
+    includeChanges: z.boolean().optional(),
+  }),
   z.strictObject({ op: z.literal("agent.result"), threadId: ThreadId }),
   z.strictObject({ op: z.literal("agent.cancel"), threadId: ThreadId, requestId: key }),
   z.strictObject({

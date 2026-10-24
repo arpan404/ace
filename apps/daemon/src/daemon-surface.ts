@@ -53,6 +53,8 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "onboarding",
     "agentControl",
     "machineCalls",
+    "transferTarget",
+    "transfers",
     "fleet",
     "mcp",
     "notifications",

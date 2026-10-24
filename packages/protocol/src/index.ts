@@ -90,6 +90,7 @@ export * from "./agent-monitor.ts";
 export * from "./machine-calls.ts";
 export * from "./fleet.ts";
 export * from "./transfers.ts";
+export * from "./machine-transfers.ts";
 export * from "./queue.ts";
 export * from "./context-meter.ts";
 export {

@@ -62,6 +62,7 @@ export const defaults: SettingsValues = {
   "remote.enabled": false,
   "remote.transport": "local",
   "remote.agentAccess": "off",
+  "remote.agentTransfers": true,
   "remote.hostedPairingLink": false,
   "remote.relayUrl": "",
   "automations.enabled": false,

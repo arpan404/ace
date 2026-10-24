@@ -9,7 +9,7 @@ import { ProjectPicker } from "./project-picker.ts";
 import { projectRemotes } from "./project-git.ts";
 import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { ProjectDirectory } from "./project-directory.ts";
 import {
   GitService,
@@ -303,6 +303,33 @@ export class Projects {
     } finally {
       await made?.close();
     }
+  }
+  /**
+   * A canonical folder inside the allowed roots that a project may be made in (ADR 0099):
+   * `requested`, or else the folder of the newest project, or else home.
+   */
+  async transferParent(requested: string | undefined): Promise<string> {
+    const allowed = async (path: string) => {
+      const directory = await ProjectDirectory.open(this.paths, path);
+      try {
+        assertProjectPath(directory.path, await this.paths.roots());
+        return directory.path;
+      } finally {
+        await directory.close();
+      }
+    };
+    if (requested !== undefined) return allowed(requested);
+    const latest = this.store
+      .statement(
+        "SELECT path FROM workspaces WHERE NOT EXISTS(SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY rowid DESC LIMIT 1",
+      )
+      .get();
+    const newest = typeof latest?.["path"] === "string" ? latest["path"] : undefined;
+    if (newest) {
+      const parent = await allowed(dirname(newest)).catch(() => undefined);
+      if (parent) return parent;
+    }
+    return allowed(this.home);
   }
   execute(input: Command, allowed: () => boolean = () => true): Promise<CommandResult> {
     const existing = this.clones.get(input.id);

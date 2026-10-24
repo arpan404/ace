@@ -85,6 +85,7 @@ export const PublicToolCode = z.enum([
   "user_browser_unavailable",
   "machine_forbidden",
   "machine_disconnected",
+  "transfers_off",
   "tool_unavailable",
   "thread_not_found",
   "thread_busy",
@@ -432,6 +433,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   machine_unavailable: {
     message: "That machine is not available to agents",
     hint: "Call machines for the machines you may use, or do the work on this machine.",
+  },
+  transfers_off: {
+    message: "Agents can't move work to other machines here",
+    hint: "The person turns on \"Agents can move projects and threads to other machines\" in Settings › Machines; stop and tell them, or keep working on this machine.",
   },
   machine_forbidden: {
     message: "Not allowed on that machine",
