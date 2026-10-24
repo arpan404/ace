@@ -55,6 +55,14 @@ test("a written version picks that version, not a longer one that contains it", 
   expect(chosen("opus 4")).toBe("claude-opus-4-8");
 });
 
+test("a version is read in order and from its start, never as loose numbers", () => {
+  const older = [row("claude", "claude-opus-4-5", "Opus 4.5", { family: "claude-opus" })];
+  expect(resolveModelName(older, "opus 5.4").kind).toBe("none");
+  expect(resolveModelName(older, "opus 5").kind).toBe("none");
+  expect(chosen("opus 8")).toBe("none");
+  expect(chosen("opus 4.8")).toBe("claude-opus-4-8");
+});
+
 test("spacing, case and punctuation do not matter", () => {
   expect(chosen("gpt 6.1 sol")).toBe("gpt-6.1-sol");
   expect(chosen("GPT6.1-Sol")).toBe("gpt-6.1-sol");
