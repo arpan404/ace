@@ -13,7 +13,7 @@ import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
 import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
-import { seedNativeMedia } from "./media-scenario.ts";
+import { seedMessageAttachments, seedNativeMedia } from "./media-scenario.ts";
 import { answerScreenshot, browserControl, realVideo, seedBrowser } from "./spike-browser.ts";
 import { devicesControl, featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
 import { seedFiles } from "./files-scenario.ts";
@@ -161,6 +161,7 @@ const busyTimer =
     : undefined;
 seedProjects(daemon);
 seedNativeMedia(daemon);
+seedMessageAttachments(daemon);
 seedBrowser(daemon, details);
 seedFiles(daemon, details);
 seedWorkLogs(daemon);
