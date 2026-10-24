@@ -155,11 +155,13 @@ it("an agent saves a schedule by its rule alone, sees when it runs next, and pau
       .object({ automations: z.array(Entry) })
       .parse(data(await agent.call("automations_list", {})))
       .automations.find((candidate) => candidate.id === "morning-check");
-  expect((await agent.call("automation_pause", { id: "morning-check" })).failed).toBe(false);
+  // A run needs its requestId so a repeat runs once; pause and resume need none.
+  expect((await agent.call("automation_run", { id: "morning-check" })).failed).toBe(true);
+  const pause = await agent.call("automation_run", { id: "morning-check", action: "pause" });
+  expect(pause.failed).toBe(false);
   expect(await listed()).toMatchObject({ enabled: false, nextRunAt: null });
-  expect(
-    (await agent.call("automation_pause", { id: "morning-check", paused: false })).failed,
-  ).toBe(false);
+  const resume = await agent.call("automation_run", { id: "morning-check", action: "resume" });
+  expect(resume.failed).toBe(false);
   expect((await listed())?.enabled).toBe(true);
   expect((await listed())?.nextRunAt).toBeGreaterThan(0);
 });

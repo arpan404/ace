@@ -181,7 +181,7 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"threadIds":{"type":"array","items":{"type":"string"}},"wait":{"type":"object","properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false}},"required":["threadIds"],"additionalProperties":{}} |
+| data | no | object | {"properties":{"threadIds":{"type":"array","items":{"type":"string"}},"wait":{"type":"object","properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","queued","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false}},"required":["threadIds"],"additionalProperties":{}} |
 
 Example:
 
@@ -228,7 +228,7 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false} |
+| data | no | object | {"properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","queued","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false} |
 
 Example:
 
@@ -269,7 +269,7 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | union | {"anyOf":[{"type":"object","properties":{"children":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"parent":{"type":"string","minLength":1},"role":{"type":"string","maxLength":40},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"step":{"type":"string","maxLength":60},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"ask":{"type":"string","maxLength":100},"last":{"type":"string","maxLength":100},"queued":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"notice":{"type":"string","maxLength":400},"machine":{"type":"string","maxLength":64}},"required":["id","role","state","elapsedSeconds"],"additionalProperties":false}},"counts":{"type":"object","properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","needs_you","done","failed","cancelled"],"additionalProperties":false}},"required":["children","counts"],"additionalProperties":false},{"type":"object","properties":{"threadId":{"type":"string"},"state":{"type":"string"},"outcome":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","enum":["completed","failed","cancelled"]},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"before":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["threadId","outcome","result","truncated","before"],"additionalProperties":false}},"required":["threadId","state"],"additionalProperties":{}}]} |
+| data | no | union | {"anyOf":[{"type":"object","properties":{"children":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"parent":{"type":"string","minLength":1},"role":{"type":"string","maxLength":40},"state":{"type":"string","enum":["working","queued","needs_you","done","failed","cancelled"]},"step":{"type":"string","maxLength":60},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"ask":{"type":"string","maxLength":100},"last":{"type":"string","maxLength":100},"queued":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"notice":{"type":"string","maxLength":400},"machine":{"type":"string","maxLength":64}},"required":["id","role","state","elapsedSeconds"],"additionalProperties":false}},"counts":{"type":"object","properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","needs_you","done","failed","cancelled"],"additionalProperties":false}},"required":["children","counts"],"additionalProperties":false},{"type":"object","properties":{"threadId":{"type":"string"},"state":{"type":"string"},"outcome":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","enum":["completed","failed","cancelled"]},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"before":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["threadId","outcome","result","truncated","before"],"additionalProperties":false}},"required":["threadId","state"],"additionalProperties":{}}]} |
 
 Example:
 
@@ -1141,7 +1141,7 @@ Example:
 
 ## automation_run
 
-Run a saved automation now: its message arrives in this thread, after any turn already going. The run and its answer appear in automations_list {runs: true}.
+Run a saved automation now (action run, the default): its message arrives in this thread, after any turn already going, and the run appears in automations_list {runs: true}. action pause skips a run waiting to start and stops one still going; resume picks its schedule up from now.
 
 Required capability: automations. Timeout: 630000 ms.
 
@@ -1149,18 +1149,21 @@ Required capability: automations. Timeout: 630000 ms.
 
 [JSON Schema](schema/automation_run.input.json), input validation.
 
+Semantic rule: run needs requestId.
+
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | id | yes | string | {"minLength":1,"maxLength":256,"description":"The automation's id, as you named it in automation_put."} |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
-| variables | no | [TriggerVariables.json](schema/TriggerVariables.json) | {"default":{},"description":"Values for {{name}} placeholders in its prompt."} |
+| action | no | ["run","pause","resume"] | {"default":"run"} |
+| requestId | no | string | {"description":"run: any stable id; repeats run once.","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| variables | no | [TriggerVariables.json](schema/TriggerVariables.json) | {"default":{},"description":"run: values for {{name}} placeholders in its prompt."} |
 
 Example:
 
 ```json
 {
   "id": "example",
-  "requestId": "hZPUx-nsQ"
+  "requestId": "PUx-nsQXh"
 }
 ```
 
@@ -1180,49 +1183,6 @@ Example:
 ```json
 {
   "code": "forbidden",
-  "ok": true
-}
-```
-
-## automation_pause
-
-Pause an automation (paused: true) or resume it (paused: false). Pausing skips a run waiting to start and stops one still going in this thread; resuming picks the schedule up from now.
-
-Required capability: automations. Timeout: 630000 ms.
-
-## automation_pause.input
-
-[JSON Schema](schema/automation_pause.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| id | yes | string | {"minLength":1,"maxLength":256,"description":"The automation's id, as you named it in automation_put."} |
-| paused | no | boolean | {"default":true,"description":"true pauses it; false resumes it."} |
-
-Example:
-
-```json
-{
-  "id": "example",
-  "paused": true
-}
-```
-
-## automation_pause.output
-
-[JSON Schema](schema/automation_pause.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-
-Example:
-
-```json
-{
-  "hint": "example",
   "ok": true
 }
 ```

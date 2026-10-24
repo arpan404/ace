@@ -119,50 +119,48 @@ const automationPut = controlTool({
   },
 });
 
+/**
+ * Run, pause and resume share one tool: they carry the same risk, and the catalogue stays inside
+ * its budget (mcp-agent-budget.process.test.ts). Removing deletes the person's work, so it stays
+ * its own destructive tool.
+ */
 const automationRun = controlTool({
   ...automations,
   name: "automation_run",
-  title: "Run an automation now",
+  title: "Run, pause or resume an automation",
   riskClass: "agent-execution",
   description:
-    "Run a saved automation now: its message arrives in this thread, after any turn already going. The run and its answer appear in automations_list {runs: true}.",
-  input: z.strictObject({
-    id: automationId,
-    requestId: fields.requestId,
-    variables: TriggerVariables.default({}).describe(
-      "Values for {{name}} placeholders in its prompt.",
-    ),
-  }),
+    "Run a saved automation now (action run, the default): its message arrives in this thread, after any turn already going, and the run appears in automations_list {runs: true}. action pause skips a run waiting to start and stops one still going; resume picks its schedule up from now.",
+  input: z
+    .strictObject({
+      id: automationId,
+      action: z.enum(["run", "pause", "resume"]).default("run"),
+      requestId: fields.requestId.optional().describe("run: any stable id; repeats run once."),
+      variables: TriggerVariables.default({}).describe(
+        "run: values for {{name}} placeholders in its prompt.",
+      ),
+    })
+    .superRefine((input, context) => {
+      if (input.action === "run" && input.requestId === undefined)
+        context.addIssue({ code: "custom", path: ["requestId"], message: "run needs requestId." });
+    })
+    .meta({ "x-ace-constraint": "run needs requestId." }),
   output: controlResult(z.unknown()),
-  run: ({ id, requestId, variables }, control) =>
-    control.run({
-      op: "automation.manage",
-      request: { type: "automation.run", requestId, id, variables },
-    }),
-});
-
-const automationPause = controlTool({
-  ...automations,
-  name: "automation_pause",
-  title: "Pause or resume an automation",
-  riskClass: "agent-execution",
-  description:
-    "Pause an automation (paused: true) or resume it (paused: false). Pausing skips a run waiting to start and stops one still going in this thread; resuming picks the schedule up from now.",
-  input: z.strictObject({
-    id: automationId,
-    paused: z.boolean().default(true).describe("true pauses it; false resumes it."),
-  }),
-  output: NoData,
-  run: ({ id, paused }, control) =>
-    control.run({
-      op: "automation.manage",
-      request: {
-        type: "automation.setEnabled",
-        requestId: `${paused ? "pause" : "resume"}:${id}`,
-        id,
-        enabled: !paused,
-      },
-    }),
+  run: ({ id, action, requestId, variables }, control) =>
+    action === "run"
+      ? control.run({
+          op: "automation.manage",
+          request: { type: "automation.run", requestId: requestId ?? "", id, variables },
+        })
+      : control.run({
+          op: "automation.manage",
+          request: {
+            type: "automation.setEnabled",
+            requestId: `${action}:${id}`,
+            id,
+            enabled: action === "resume",
+          },
+        }),
 });
 
 const automationRemove = controlTool({
@@ -181,10 +179,4 @@ const automationRemove = controlTool({
     }),
 });
 
-export const automationTools = [
-  automationsList,
-  automationPut,
-  automationRun,
-  automationPause,
-  automationRemove,
-];
+export const automationTools = [automationsList, automationPut, automationRun, automationRemove];
