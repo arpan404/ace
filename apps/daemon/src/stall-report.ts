@@ -1,36 +1,39 @@
-import { z } from "zod";
+// The mini build of Zod: this module runs in the watchdog's own isolate, where the full
+// build would be most of what that thread holds in memory.
+import * as z from "zod/mini";
 
 const maxFrames = 32;
+const count = () => z.int().check(z.nonnegative());
 export const StallFrame = z.object({
-  fn: z.string().max(512),
-  url: z.string().max(2048),
-  line: z.number().int().nonnegative(),
-  column: z.number().int().nonnegative(),
+  fn: z.string().check(z.maxLength(512)),
+  url: z.string().check(z.maxLength(2048)),
+  line: count(),
+  column: count(),
 });
 export type StallFrame = z.infer<typeof StallFrame>;
 /** What the watchdog knows about one stall. Written to disk while it lasts. */
 export const StallReport = z.object({
-  pid: z.number().int().positive(),
+  pid: z.int().check(z.positive()),
   /**
    * `main`: the main thread ran no timer. `io`: a file-system call on Node's shared thread pool
    * (async fs, dns, zlib; the log writes there) went unanswered while the main thread ran.
    */
-  kind: z.enum(["main", "io"]).default("main"),
+  kind: z._default(z.enum(["main", "io"]), "main"),
   /** Epoch milliseconds when the stalled side was last seen making progress. */
-  silentSince: z.number().nonnegative(),
+  silentSince: z.number().check(z.nonnegative()),
   /** How long it had been stalled at the latest update. */
-  silentMs: z.number().int().nonnegative(),
+  silentMs: count(),
   /**
    * Process CPU time used meanwhile. Close to `silentMs`: the thread was computing. Far below:
    * it was waiting (a SQLite lock's busy wait, sync I/O) or the machine gave it no CPU.
    */
-  cpuMs: z.number().int().nonnegative().optional(),
+  cpuMs: z.optional(count()),
   /** How late the watchdog's own checks ran: large when the whole process got no CPU. */
-  watchdogLateMs: z.number().int().nonnegative().optional(),
+  watchdogLateMs: z.optional(count()),
   /** The machine's one-minute load average. */
-  load: z.number().nonnegative().optional(),
+  load: z.optional(z.number().check(z.nonnegative())),
   /** Age of the thread pool probe still unanswered, when there is one. */
-  ioWaitMs: z.number().int().nonnegative().optional(),
+  ioWaitMs: z.optional(count()),
   /**
    * The main thread ran JavaScript again while the stall still lasted, so `stack` is where it
    * was stuck. False with an empty stack: it never left native code (SQLite, sync I/O) while
@@ -38,33 +41,27 @@ export const StallReport = z.object({
    */
   caught: z.boolean(),
   /** From asking the main thread for its stack to getting it. Long when it sat in native code. */
-  answerMs: z.number().int().nonnegative().optional(),
-  stack: z.array(StallFrame).max(maxFrames),
+  answerMs: z.optional(count()),
+  stack: z.array(StallFrame).check(z.maxLength(maxFrames)),
   /** The main thread came back: `silentMs` is the whole stall. */
   ended: z.boolean(),
 });
 export type StallReport = z.infer<typeof StallReport>;
 
-const PausedEvent = z
-  .object({
-    callFrames: z.array(
-      z
-        .object({
-          functionName: z.string(),
-          url: z.string().optional(),
-          location: z
-            .object({
-              scriptId: z.string(),
-              lineNumber: z.number().int().nonnegative(),
-              columnNumber: z.number().int().nonnegative().optional(),
-            })
-            .loose(),
-        })
-        .loose(),
-    ),
-  })
-  .loose();
-export const ScriptParsed = z.object({ scriptId: z.string(), url: z.string() }).loose();
+const PausedEvent = z.looseObject({
+  callFrames: z.array(
+    z.looseObject({
+      functionName: z.string(),
+      url: z.optional(z.string()),
+      location: z.looseObject({
+        scriptId: z.string(),
+        lineNumber: count(),
+        columnNumber: z.optional(count()),
+      }),
+    }),
+  ),
+});
+export const ScriptParsed = z.looseObject({ scriptId: z.string(), url: z.string() });
 
 /** The paused main thread's JavaScript stack, innermost first, with 1-based positions. */
 export function pausedStack(params: unknown, scripts: ReadonlyMap<string, string>): StallFrame[] {
