@@ -5,7 +5,7 @@ import { it, expect, afterEach } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Frame, ProviderSession } from "@ace/engine-api";
+import { InputRejected, type Frame, type ProviderSession } from "@ace/engine-api";
 import { ThreadId } from "@ace/protocol";
 import { openAcpSession } from "./index.ts";
 import { createAcpAdapter } from "./index.ts";
@@ -381,25 +381,32 @@ it("loads an existing native session and applies model selection before input", 
     await h.session.close("idle");
   }
 });
-it("rejects active and queued input when its owned process lifetime ends", async () => {
+it("rejects active and queued input when its owned process lifetime ends, and only the queued one as never taken", async () => {
   const h = await setup();
   const active = h.session.send(input("hold"), "queue").catch((error: unknown) => error);
   await h.wait((f) => method(f, "cursor/create_plan"));
   const queued = h.session.send(input("next"), "queue").catch((error: unknown) => error);
   h.controller.abort();
   const [a, b, exit] = await Promise.all([active, queued, h.exited]);
+  // The written prompt may have run; the one still in ace's queue never reached the agent.
   expect(a).toBeInstanceOf(Error);
-  expect(b).toBeInstanceOf(Error);
+  expect(a).not.toBeInstanceOf(InputRejected);
+  expect(b).toBeInstanceOf(InputRejected);
+  expect(h.frames.filter((f) => f.dir === "send" && method(f, "session/prompt"))).toHaveLength(1);
   expect(exit.deliberate).toBe(true);
   await h.session.close("shutdown");
 });
-it("reports unexpected process death and rejects future sends", async () => {
+it("reports unexpected process death and rejects future sends as never taken", async () => {
   const h = await setup(genericQuirks);
   try {
-    await expect(h.session.send(input("die"), "queue")).rejects.toThrow();
+    const died = await h.session.send(input("die"), "queue").catch((error: unknown) => error);
+    expect(died).toBeInstanceOf(Error);
+    expect(died).not.toBeInstanceOf(InputRejected);
     const exit = await h.exited;
     expect(exit.deliberate).toBe(false);
-    await expect(h.session.send(input("next"), "queue")).rejects.toThrow("closed");
+    const next = h.session.send(input("next"), "queue");
+    await expect(next).rejects.toThrow("closed");
+    await expect(next).rejects.toBeInstanceOf(InputRejected);
   } finally {
     await h.session.close("shutdown");
   }
@@ -468,7 +475,27 @@ it("rejects unknown prompt completion and queued input instead of sending a seco
     const first = h.session.send(input("unknown"), "queue");
     const next = h.session.send(input("next"), "queue");
     await expect(first).rejects.toThrow("completion");
-    await expect(next).rejects.toThrow();
+    await expect(first).rejects.not.toBeInstanceOf(InputRejected);
+    await expect(next).rejects.toBeInstanceOf(InputRejected);
+    expect(h.frames.filter((f) => f.dir === "send" && method(f, "session/prompt"))).toHaveLength(1);
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+it("a send whose first command prompt was written is never reported as untaken when the rest is dropped", async () => {
+  const h = await setup();
+  try {
+    const command = (name: string) => ({
+      type: "mention" as const,
+      entryId: name,
+      kind: "command" as const,
+      name,
+      arguments: "",
+      invocation: { type: "slash" as const, name },
+    });
+    const sent = h.session.send([command("unconfirmed"), command("second")], "queue");
+    await expect(sent).rejects.toThrow("completion");
+    await expect(sent).rejects.not.toBeInstanceOf(InputRejected);
     expect(h.frames.filter((f) => f.dir === "send" && method(f, "session/prompt"))).toHaveLength(1);
   } finally {
     await h.session.close("shutdown");
