@@ -124,7 +124,7 @@ test("New thread in… offers Add project, which opens in its place", async () =
   await userEvent.type(search, "new thread in");
   await userEvent.click(await screen.findByRole("option", { name: /^New thread in…/ }));
   const step = await screen.findByRole("dialog", { name: "New thread in" });
-  await userEvent.click(within(step).getByRole("option", { name: /^Add project…/ }));
+  await userEvent.click(within(step).getByRole("option", { name: /^Add project/ }));
   expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
 });
 
