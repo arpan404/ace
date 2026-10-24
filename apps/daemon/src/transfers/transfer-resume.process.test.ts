@@ -40,7 +40,7 @@ it("resumes from the acknowledged offset after a connection drops mid-upload", a
   expect(transfer).toMatchObject({ phase: "completed", method: "remote" });
   expect(digest(await readFile(join(transfer.result?.path ?? "", "data.bin")))).toBe(sent);
   const bytes = m.here.progress().map((entry) => entry.sentBytes);
-  expect(bytes).toEqual([...bytes].sort((a, b) => a - b));
+  expect(bytes).toEqual([...bytes].toSorted((a, b) => a - b));
 });
 
 it("carries on after the sending machine restarts mid-upload", async () => {

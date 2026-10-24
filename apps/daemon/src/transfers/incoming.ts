@@ -72,7 +72,7 @@ export class IncomingTransfers {
   async close(): Promise<void> {
     this.closed = true;
     for (const controller of this.running.values()) controller.abort();
-    await Promise.allSettled([...this.flights]);
+    await Promise.allSettled(this.flights);
   }
   private file(transferId: string) {
     return join(this.deps.directory, `${transferId}.part`);

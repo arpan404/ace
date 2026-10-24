@@ -46,8 +46,8 @@ it("opens a project on another machine on the same branch, uncommitted changes s
   expect(await readFile(join(landed.path, "image.bin"))).toEqual(binary);
   await expect(readFile(join(landed.path, "gone.txt"))).rejects.toThrow();
   await expect(readFile(join(landed.path, "secret.env"))).rejects.toThrow();
-  expect((await status(landed.path)).split("\n").sort()).toEqual(
-    [" D gone.txt", " M README.md", "?? .gitignore", "?? image.bin"].sort(),
+  expect((await status(landed.path)).split("\n").toSorted()).toEqual(
+    [" D gone.txt", " M README.md", "?? .gitignore", "?? image.bin"].toSorted(),
   );
   // Here: the checkout is as it was, and nothing of the transfer is left behind.
   expect(await status(path)).toBe(before);
@@ -107,5 +107,5 @@ it("copies a folder that isn't a repository, keeping links inside it and droppin
   const there = transfer.result?.path ?? "";
   expect(there.startsWith(m.targetRoot)).toBe(true);
   expect(await readFile(join(there, "latest.md"), "utf8")).toBe("notes\n");
-  expect((await readdir(there)).sort()).toEqual(["latest.md", "sub"]);
+  expect((await readdir(there)).toSorted()).toEqual(["latest.md", "sub"]);
 });

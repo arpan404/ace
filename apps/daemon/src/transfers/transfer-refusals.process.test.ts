@@ -1,6 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import { HostId } from "@ace/protocol";
 import {
   git,
   registered,
@@ -10,7 +11,7 @@ import {
 import { writeFile } from "node:fs/promises";
 
 /** Folders the target made for projects. */
-const made = async (root: string) => (await readdir(root)).sort();
+const made = async (root: string) => (await readdir(root)).toSorted();
 
 it("refuses a machine whose link doesn't allow projects, saying how to link it again", async () => {
   const m = await transferMachines({ scopes: ["read", "operate"] });
@@ -35,7 +36,7 @@ it("refuses a machine this one has no link to", async () => {
   const receipt = await m.here.command({
     type: "workspace.transfer",
     workspaceId,
-    hostId: "host-nobody-linked",
+    hostId: HostId.parse("host-nobody-linked"),
     includeChanges: true,
   });
   expect(receipt).toMatchObject({ ok: false, error: "machine_not_linked" });
@@ -50,7 +51,10 @@ it("fails a transfer whose file arrives damaged, and registers nothing there", a
         route.method === "PUT" && Buffer.isBuffer(route.body)
           ? {
               ...route,
-              body: Buffer.concat([Buffer.from([route.body[0] ^ 0xff]), route.body.subarray(1)]),
+              body: Buffer.concat([
+                Buffer.from([(route.body[0] ?? 0) ^ 0xff]),
+                route.body.subarray(1),
+              ]),
             }
           : route,
         options,
@@ -77,8 +81,7 @@ it("fails a transfer whose file arrives damaged, and registers nothing there", a
 });
 
 it("cancels a transfer before it lands, on both machines", async () => {
-  let release: () => void = () => undefined;
-  const held = new Promise<void>((resolve) => (release = resolve));
+  const { promise: held, resolve: release } = Promise.withResolvers<void>();
   const m = await transferMachines({
     transport: (inner) => async (profile, route, options) => {
       if (route.method === "PUT") await held;

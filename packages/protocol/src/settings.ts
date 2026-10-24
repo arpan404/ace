@@ -117,8 +117,6 @@ export const SettingsValues = z.object({
   "remote.transport": z.enum(["local", "lan", "tailscale", "relay"]),
   /** Whether agents on other paired machines may use this one, and how far (ADR 0078). */
   "remote.agentAccess": z.enum(["off", "read", "operate"]),
-  /** Whether agents here may move projects and threads to other machines (ADR 0099). */
-  "remote.agentTransfers": z.boolean(),
   /**
    * Whether agents on this machine may move projects and threads to other machines (ADR 0099).
    * The person's own transfers from the app don't depend on it.

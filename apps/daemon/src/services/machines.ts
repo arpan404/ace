@@ -93,6 +93,8 @@ export function startMachines(context: ServiceContext): void {
       ),
     redeem: options.machines?.redeem ?? redeemPairing,
     hostName,
+    transfers: (profile) =>
+      new TransferClient(options.transfers?.transport ?? transferTransport, profile).probe(),
   });
   const pollMs = options.machines?.pollMs ?? 1000;
   let caller: MachineCaller | undefined;

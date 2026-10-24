@@ -10,6 +10,7 @@ import { GitError } from "@ace/git";
 import {
   Command,
   DeviceId,
+  HostId,
   PairingResponse,
   type CommandPayload,
   type CommandResult,
@@ -119,6 +120,21 @@ async function window(daemon: { url: string; tokenPath: string }) {
       { timeout: 30_000, interval: 20 },
     );
   }
+  async function links() {
+    const requestId = `fleet-${++sequence}`;
+    client.send({ type: "fleet.request", requestId, operation: { op: "links" } });
+    return vi.waitFor(
+      () => {
+        const found = messages.find(
+          (message) => message.type === "fleet.result" && message.requestId === requestId,
+        );
+        if (found?.type !== "fleet.result" || found.result.kind !== "links")
+          throw new Error("No links yet");
+        return found.result.links;
+      },
+      { timeout: 30_000, interval: 20 },
+    );
+  }
   /** Every `transfer.progress` push this window got for one transfer, in order. */
   const progress = (commandId?: string): Transfer[] =>
     messages.flatMap((message) =>
@@ -127,7 +143,7 @@ async function window(daemon: { url: string; tokenPath: string }) {
         ? [message.transfer]
         : [],
     );
-  return { command, request, progress, messages, lastCommand: () => `command-${sequence}` };
+  return { command, request, links, progress, messages, lastCommand: () => `command-${sequence}` };
 }
 
 /** Polls and retries wait 20 ms in tests instead of up to 30 s. */
@@ -139,6 +155,13 @@ const quickSleep = (_ms: number, signal: AbortSignal) =>
       resolve();
     });
   });
+
+/** Each machine may make projects only in its own root folder. */
+const projects = (root: string) => ({
+  home: root,
+  roots: async () => [root],
+  gitPolicy: fixturePolicy,
+});
 
 type Side = Awaited<ReturnType<typeof daemonFixture>>;
 
@@ -169,11 +192,6 @@ export async function transferMachines(
   cleanup.push(async () => {
     await rm(sourceRoot, { recursive: true, force: true });
     await rm(targetRoot, { recursive: true, force: true });
-  });
-  const projects = (root: string) => ({
-    home: root,
-    roots: async () => [root],
-    gitPolicy: fixturePolicy,
   });
   const target = await daemonFixture(
     undefined,
@@ -210,7 +228,7 @@ export async function transferMachines(
   profiles.close();
   await target.daemon.settings.set("host.displayName", "Studio", { kind: "global" });
   await source.daemon.settings.set("host.displayName", "MacBook", { kind: "global" });
-  const targetHostId = loadHostId(targetHome);
+  const targetHostId = HostId.parse(loadHostId(targetHome));
   let here = await window(source.daemon);
 
   /** Registers a folder as a project on one side, as Add project does. */

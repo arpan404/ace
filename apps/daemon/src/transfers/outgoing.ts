@@ -204,7 +204,7 @@ export class OutgoingTransfers {
   async close(): Promise<void> {
     this.closed = true;
     for (const controller of this.running.values()) controller.abort();
-    await Promise.allSettled([...this.flights]);
+    await Promise.allSettled(this.flights);
   }
   /** Stops a transfer before its thread exists there; after that its result stands. */
   async cancel(transferId: string): Promise<Transfer> {

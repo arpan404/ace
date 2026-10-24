@@ -15,8 +15,7 @@ async function project(m: Machines) {
 }
 
 it("an agent's transfer holds its thread working and delivers the result as a new turn", async () => {
-  let release: () => void = () => undefined;
-  const held = new Promise<void>((resolve) => (release = resolve));
+  const { promise: held, resolve: release } = Promise.withResolvers<void>();
   const m = await transferMachines({
     transport: (inner) => async (profile, route, options) => {
       if (route.method === "PUT") await held;

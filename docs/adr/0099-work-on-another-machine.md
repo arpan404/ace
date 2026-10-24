@@ -78,12 +78,17 @@ the ref. Ignored files are not sent; that is what `.gitignore` asks for.
 ### Where it lands
 
 - A project the target already has (same origin): the branch is fetched from the bundle. If the
-  project's own checkout is clean and on that branch, or the transfer is a thread continuation in
-  worktree mode, a new worktree is made for the branch, so the target's existing checkout is never
-  disturbed. A branch name already used there with different commits gets a `-from-<machine>`
-  suffix.
-- Otherwise a new project in `parent`, or the target's default clone folder, named after the
-  source project (`-2`, `-3`… when taken), registered the way `workspace.clone` registers.
+  project's own checkout is clean and on that branch, it is fast-forwarded and the changes are
+  applied there. Otherwise the target's checkout is never disturbed: the branch gets its own linked
+  worktree in a folder beside the project (`<project>-<branch>`), or, for a thread continuation,
+  the new thread runs in worktree mode from that branch. A branch name already used there at a
+  different commit gets a `-from-<machine>` suffix (`-2`, `-3`… when that is taken too).
+- Otherwise a new project in `parent`, or else the folder of the target's newest project, or else
+  its home, always inside its allowed project roots; named after the source project (`-2`, `-3`…
+  when taken), registered through `workspace.add` or `workspace.clone`.
+- method `remote` clones origin on the target when the import starts. If that clone fails, or the
+  bundle needs commits the reused project doesn't have, the target asks for a full bundle and
+  the transfer carries on as `bundle`.
 
 ### Continuing a thread
 
@@ -96,6 +101,11 @@ model when installed there or else its default, and the handoff as history. It d
 turn; the person sends the next message there. Attachments are not carried in this slice; the
 handoff says so.
 
+The handoff's excerpts are all the new agent can read of the source thread: `handoff_read` pages
+only threads on its own machine, so the new thread's context says the rest stayed on the source
+machine. An agent continuing its own thread (`thread: "self"`) is the live work the busy check
+would refuse; for it the check is skipped and the handoff is captured when the upload is done.
+
 ### Reliability
 
 - The sender keeps a durable transfer row (SQLite) with phase, method, byte offset and digest.
@@ -103,8 +113,14 @@ handoff says so.
   each acknowledged by offset; a restart or a lost connection resumes from the target's
   acknowledged offset. The target keeps the incoming file and row keyed by transfer id, so a
   repeated begin, chunk or commit is idempotent.
-- The target verifies the SHA-256 of the whole file before importing. A failed or cancelled
-  import never registers a project, and removes only folders it created.
+- The wire between the machines: `POST /v1/transfers` with `probe`, `begin`, `status`, `commit`
+  and `cancel` (`packages/protocol/src/machine-transfers.ts`), and
+  `PUT /v1/transfers/chunk?transfer=<id>&offset=<n>` for the pieces. `probe` needs only a paired
+  device, so Settings › Machines and `machines` show which links take transfers even when that
+  machine keeps agents out.
+- The target verifies the SHA-256 of the whole file before importing; a damaged file fails the
+  transfer with `transfer_corrupt`. A failed or cancelled import leaves no project registered
+  (one it registered on the way is removed again) and removes only folders it created.
 - Cancel works in every phase before `starting`; after that the thread exists and is the result.
 - Finished transfer files are deleted on both machines; rows are kept 24 hours for the list.
 - Transfers above 20 GiB are refused before sending, with the size in the message.

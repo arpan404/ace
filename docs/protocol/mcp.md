@@ -372,7 +372,7 @@ Example:
 
 ## machines
 
-Other machines the person paired that let agents in: name (pass as machine), online or offline, access (read or operate), projects, tool groups and providers. Use with delegate {machine, project}; delegated children there join wait and agents_status.
+Other machines the person paired: name (pass as machine), online or offline, access (read or operate), projects, tool groups, providers, and transfers (true: transfer can move work there). Use with delegate {machine, project}; delegated children there join wait and agents_status.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -405,6 +405,51 @@ Example:
 {
   "hint": "example",
   "ok": true
+}
+```
+
+## transfer
+
+Carry a project, or this thread, to another paired machine: same branch, uncommitted changes included. Default: this thread's project. thread: "self" continues this thread there as a new thread with its history. Returns at once with transferId; the result arrives as a new turn, so end your turn. Never poll.
+
+Required capability: agents. Timeout: 630000 ms.
+
+## transfer.input
+
+[JSON Schema](schema/transfer.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| machine | yes | string | {"pattern":"^[a-zA-Z0-9_.-]{1,64}$","description":"A machine from `machines` whose transfers is true."} |
+| project | no | string | {"description":"A project on this machine, by id or name. Default: this thread's.","minLength":1,"maxLength":256} |
+| thread | no | `"self"` | {"description":"Continue this thread there; the person sends its next message there."} |
+| includeChanges | no | boolean | {"description":"Send uncommitted changes. Default true."} |
+
+Example:
+
+```json
+{
+  "machine": "PNgdRfaTasLnIVrkYf9tiEPHNcFsjRjRPL3Fys_PEnXFyNXRY0U.Aptjx-4xmHcw"
+}
+```
+
+## transfer.output
+
+[JSON Schema](schema/transfer.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | object | {"properties":{"transferId":{"type":"string"}},"required":["transferId"],"additionalProperties":{}} |
+
+Example:
+
+```json
+{
+  "code": "not_found",
+  "ok": false
 }
 ```
 
