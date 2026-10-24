@@ -10,7 +10,8 @@ import SwiftUI
 
 /// A settled turn's full steps from the daemon (`turn.steps`), grouped as the web's opened log
 /// groups them, on a rail: rows standing in for the steps while they load, Retry when the read
-/// failed, and Load more for a turn longer than one read.
+/// failed, and Load more for a turn longer than one read. Its head holds the read
+/// (`WorkBlockView`), so the rows are usually here before the log opens.
 struct DaemonSteps: View {
     let ordinal: Int
     let blockId: String
@@ -30,7 +31,7 @@ struct DaemonSteps: View {
                 .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
             } else if rows.isEmpty && header?.state != "ready" {
-                StepsSkeleton()
+                StepsSkeleton().onAppear { DisclosureTrace.shared.waiting(blockId) }
             } else if rows.isEmpty {
                 Text("No steps recorded.").aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
                     .foregroundStyle(AceTheme.Colours.subtleForeground)
@@ -40,6 +41,7 @@ struct DaemonSteps: View {
                                        thoughts: header?.thoughts, openMessage: openMessage)
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
                     StepRail { WorkLogRows(rows: header?.log ?? rows.map { BlockRow.LogRow(kind: "step", id: $0.id) }, source: source) }
+                        .onAppear { DisclosureTrace.shared.shown(blockId) }
                     if header?.more == true {
                         Button("Load more steps") { links.model.moreSteps(ordinal: ordinal) }
                             .disabled(header?.state == "loading")
@@ -49,8 +51,6 @@ struct DaemonSteps: View {
                 }
             }
         }
-        .onAppear { links.model.openSteps(ordinal: ordinal, block: blockId) }
-        .onDisappear { links.model.closeSteps(ordinal: ordinal, epoch: links.epoch) }
     }
 }
 

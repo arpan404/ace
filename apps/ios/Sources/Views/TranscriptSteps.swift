@@ -37,6 +37,7 @@ struct StepRow: View {
                 BrowserStepLink(isBrowser: step.browser == true) { row }
                 if open, let detail = step.detail {
                     StepDetailView(detail: detail).rowDetailIndent()
+                        .onAppear { DisclosureTrace.shared.shown(key) }
                         .padding(.top, AceTheme.Spacing.xs).padding(.bottom, AceTheme.Spacing.sm)
                 }
             }
@@ -52,6 +53,7 @@ struct StepRow: View {
             Button { openStep(opens) } label: { line(open: nil) }.buttonStyle(.plain).accessibilityHint("Opens its screen")
         } else if expandable {
             Button {
+                if !open { DisclosureTrace.shared.asked("step", key: key) }
                 withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) {
                     if let thread { thread.disclosures.toggle(key) } else { localOpen.toggle() }
                 }
@@ -235,7 +237,9 @@ private struct StepDiff: View {
 
 /// A turn's work. While it runs, its steps stream in groups at the top of the turn under the
 /// live "Working for" line; once the whole tree settles it folds into "Worked for 3m 12s" over a
-/// hairline, and its steps open on a rail.
+/// hairline, and its steps open on a rail. A settled head that stays on screen a moment reads its
+/// turn's steps ahead of a tap, and lets them go when it scrolls away; the bridge bounds how many
+/// turns stay read.
 struct WorkBlockView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let row: BlockRow
@@ -258,7 +262,13 @@ struct WorkBlockView: View {
     }
     private var settled: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { thread.disclosures.toggle(blockId) } } label: {
+            Button {
+                if !expanded {
+                    DisclosureTrace.shared.asked("steps", key: blockId)
+                    holdSteps()
+                }
+                withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { thread.disclosures.toggle(blockId) }
+            } label: {
                 LogRowBox(open: expanded) { Text(row.work?.label ?? "Worked") }
             }
             .buttonStyle(.plain)
@@ -272,7 +282,7 @@ struct WorkBlockView: View {
                     if let ordinal = row.ordinal, let steps {
                         DaemonSteps(ordinal: ordinal, blockId: blockId, links: steps, thread: thread, openMessage: openMessage)
                     } else if let log = row.log, !log.isEmpty {
-                        StepRail { WorkLogRows(rows: log, source: source) }
+                        StepRail { WorkLogRows(rows: log, source: source) }.onAppear { DisclosureTrace.shared.shown(blockId) }
                     } else {
                         Text("No steps recorded.").aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
                             .foregroundStyle(AceTheme.Colours.subtleForeground).padding(.vertical, AceTheme.Spacing.xs)
@@ -281,6 +291,17 @@ struct WorkBlockView: View {
                 .padding(.vertical, AceTheme.Spacing.xs)
             }
         }
+        .task(id: row.ordinal) {
+            // A head scrolled past quickly reads nothing; an opened log reads at once.
+            if !expanded { try? await Task.sleep(for: .milliseconds(300)) }
+            if !Task.isCancelled { holdSteps() }
+        }
+        .onDisappear {
+            if let ordinal = row.ordinal, let steps { steps.model.closeSteps(ordinal: ordinal, epoch: steps.epoch) }
+        }
+    }
+    private func holdSteps() {
+        if let ordinal = row.ordinal, let steps { steps.model.openSteps(ordinal: ordinal, block: blockId) }
     }
 }
 
