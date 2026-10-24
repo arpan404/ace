@@ -374,7 +374,10 @@ fn optional(
 ) -> Result<Option<IUIAutomationElement>> {
     match value {
         Ok(element) => Ok(Some(element)),
-        Err(e) if e.code().0 as u32 == 0x80004003 => Ok(None),
+        // No child/sibling returns NULL (same for GetNextSibling...):
+        // https://learn.microsoft.com/en-us/windows/win32/api/uiautomationcore/nf-uiautomationcore-iuiautomationtreewalker-getfirstchildelementbuildcache
+        // windows-rs 0.58 surfaces S_OK/null as Err with code 0 (see WGC TryGetNextFrame); E_POINTER also means empty.
+        Err(e) if e.code().0 == 0 || e.code().0 as u32 == 0x80004003 => Ok(None),
         Err(e) => Err(e.into()),
     }
 }
