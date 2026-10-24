@@ -24,6 +24,8 @@ struct TerminalBuffer {
     private var column = 0
     private var escape = ""
     private var mode = 0
+    /// DECCKM, set by programs like vim and less: arrow keys then send SS3, not CSI.
+    private(set) var applicationCursor = false
     let columns: Int
     let rows: Int
     let limit: Int
@@ -40,7 +42,7 @@ struct TerminalBuffer {
             if mode == 1 {
                 if char == "[" { mode = 2; escape = "" }
                 else if char == "]" { mode = 3; escape = "" }
-                else { mode = 0 }
+                else { if char == "c" { applicationCursor = false }; mode = 0 }
                 continue
             }
             if mode == 2 {
@@ -71,6 +73,10 @@ struct TerminalBuffer {
         if lines.count > limit { lines.removeFirst(); row -= 1 }
     }
     private mutating func csi(_ final: Character) {
+        if escape.hasPrefix("?") {
+            if final == "h" || final == "l", escape.dropFirst().split(separator: ";").contains("1") { applicationCursor = final == "h" }
+            return
+        }
         let values = escape.split(separator: ";", omittingEmptySubsequences: false).map { Int($0) ?? 0 }
         let n = min(max(columns, rows), max(1, values.first ?? 1))
         let top = max(0, lines.count - rows)
@@ -105,6 +111,8 @@ struct TerminalBuffer {
     var offset = 0
     var problem: String?
     var exited = false
+    /// Whether the program wants application cursor keys; key input encodes arrows for it.
+    var applicationCursor: Bool { buffer.applicationCursor }
     @ObservationIgnored private var buffer = TerminalBuffer()
     func start(_ id: String) { streamId = id; offset = 0; text = ""; buffer = TerminalBuffer(); problem = nil; exited = false }
     func receive(_ patch: TerminalOutputPatch) -> Int? {
