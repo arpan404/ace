@@ -9,7 +9,7 @@ import {
   bodyTurn,
   deviceButtons,
   deviceKind,
-  defaultScreens,
+  deviceScreen,
   frameGeometry,
   framePoints,
   type Size,
@@ -44,7 +44,7 @@ function RunningTile(props: {
   const preview = useRef<HTMLDivElement>(null);
   const measured = useElementSize(preview);
   const visible = useOnScreen(preview);
-  const [screen, setScreen] = useState<Size>(defaultScreens[kind]);
+  const [screen, setScreen] = useState<Size>(() => deviceScreen(kind, row.name));
   const watching = visible && row.live && session !== undefined;
   useEffect(() => {
     if (!watching || !session) return;

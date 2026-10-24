@@ -104,6 +104,7 @@ struct InboxFilters: View {
                     Text("All projects").tag("")
                     ForEach(projects, id: \.id) { Text($0.name).tag($0.id) }
                 }
+                sortPicker
             } label: { chip(projects.first { $0.id == project }?.name ?? "All projects") }
                 .accessibilityIdentifier("inbox.projects")
             Spacer(minLength: AceTheme.Spacing.none)
@@ -113,6 +114,22 @@ struct InboxFilters: View {
     }
 
     private func chip(_ title: String) -> some View { InboxChip(title: title) }
+
+    /// Sort threads, the machines' own setting (the web's Settings › Agents › Sort threads), under
+    /// the projects. Choosing saves it on every machine this phone can act on.
+    @ViewBuilder private var sortPicker: some View {
+        let choices = inbox.sortChoices
+        if !choices.isEmpty && inbox.sessions.contains(where: { $0.client.canOperate }) {
+            Section("Sort threads") {
+                Picker("Sort threads", selection: Binding(
+                    get: { inbox.sortBy(in: machine) ?? "activity" },
+                    set: { choice in Task { await inbox.setSort(choice) } })) {
+                    ForEach(choices) { Text($0.label).tag($0.id) }
+                }
+            }
+            .accessibilityIdentifier("inbox.sort")
+        }
+    }
 }
 
 /// The inbox's glass chip: a menu's current choice and a chevron. The Pull requests and Issues

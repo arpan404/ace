@@ -142,6 +142,9 @@ private struct ScreenTargetPicker: View {
     @Environment(\.dismiss) private var dismiss
     @State private var bundleId = ""
     @State private var query = ""
+    @State private var searching = false
+    /// One share at a time: a second tap while the first starts would share the app twice.
+    @State private var starting = false
     var body: some View {
         NavigationStack {
             List {
@@ -161,8 +164,8 @@ private struct ScreenTargetPicker: View {
                 if let problem = screen.problem { Text(problem).foregroundStyle(AceTheme.Colours.mutedForeground).listRowBackground(Color.clear) }
             }
             .insetGroupedList()
-            .disabled(screen.busy)
-            .searchable(text: $query, prompt: "Search app windows")
+            .disabled(screen.busy || starting)
+            .searchable(text: $query, isPresented: $searching, prompt: "Search app windows")
             .navigationTitle("Share an app window").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close", ace: .x) { dismiss() } }
@@ -177,7 +180,14 @@ private struct ScreenTargetPicker: View {
         .task { await screen.targets(model) }
     }
     private func share(_ target: RemoteScreenTarget) {
-        guard target.kind != "app" || !(target.bundleId ?? "").isEmpty else { return }
-        Task { if let id = await screen.start(model, target: target, threadId: threadId) { selected(id) } }
+        guard !starting, target.kind != "app" || !(target.bundleId ?? "").isEmpty else { return }
+        starting = true
+        Task {
+            defer { starting = false }
+            guard let id = await screen.start(model, target: target, threadId: threadId) else { return }
+            // An active search holds the sheet open; end it so the sheet closes onto the app.
+            searching = false
+            selected(id)
+        }
     }
 }

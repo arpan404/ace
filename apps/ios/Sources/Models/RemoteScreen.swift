@@ -39,6 +39,12 @@ struct ScreenSessionInfo: Decodable, Identifiable, Hashable {
     var id: String { sessionId }
 }
 private struct ScreenSessionsReply: Decodable { let sessions: [ScreenSessionInfo] }
+/// A screen request the daemon refused, with its code when it gave one.
+private struct ScreenRefusal: LocalizedError {
+    let message: String
+    let code: String?
+    var errorDescription: String? { message }
+}
 struct RemoteScreenPermissions: Decodable { let screenRecording: Bool; let accessibility: Bool }
 struct RemoteScreenStatus: Decodable { let enabled: Bool; let permissions: RemoteScreenPermissions; let sessions: Int }
 struct RemoteScreenInventory: Decodable {
@@ -109,13 +115,21 @@ struct RemoteScreenInventory: Decodable {
     func input(_ model: ClientModel, id: String, _ input: [String: Any]) async -> Bool {
         guard model.connection == "ready", model.canOperate, controls(id) else { return false }
         do { let _: ServiceValue = try await request(model, ["op": "input", "sessionId": id, "input": input]); return true }
+        // A background window takes the input but can't confirm its effect; the live picture
+        // shows what it did, and the person keeps control.
+        catch let refused as ScreenRefusal where refused.code == "delivery_unconfirmed" { return true }
         catch { owned.remove(id); problem = error.localizedDescription; return false }
     }
     func watch(_ model: ClientModel, id: String) async {
         guard model.connection == "ready", let session = model.browserSession else { return }
         live.open(sessionId: id, session: session)
-        do { let _: ServiceValue = try await request(model, ["op": "subscribe", "sessionId": id]) }
-        catch { live.close(); if !Task.isCancelled { problem = error.localizedDescription } }
+        do {
+            let _: ServiceValue = try await request(model, ["op": "subscribe", "sessionId": id])
+            // Until a viewer asks for video the Mac sends only stills, and a live view draws none:
+            // without this the picture stays black. The daemon holds the bit rate to the link.
+            let _: ServiceValue = try await request(model, ["op": "stream.configure", "sessionId": id,
+                "settings": ["codec": "h264", "maxWidth": 2560, "maxHeight": 2560, "fps": 60, "bitrate": 6_000_000]])
+        } catch { live.close(); if !Task.isCancelled { problem = error.localizedDescription } }
     }
     func unwatch(_ model: ClientModel, id: String) {
         live.close()
@@ -130,7 +144,7 @@ struct RemoteScreenInventory: Decodable {
     }
     private func request<T: Decodable>(_ model: ClientModel, _ operation: [String: Any]) async throws -> T {
         let reply = try await model.service(["type": "screen.request", "operation": operation], as: DeviceServiceReply<T>.self)
-        guard reply.ok else { throw ServiceFailure(message: reply.error?.message ?? "Screen request failed") }
+        guard reply.ok else { throw ScreenRefusal(message: reply.error?.message ?? "Screen request failed", code: reply.error?.code) }
         if let data = reply.data { return data }
         return try ServiceValue.null.decode(T.self)
     }
