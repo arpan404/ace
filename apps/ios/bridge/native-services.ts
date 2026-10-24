@@ -31,7 +31,6 @@ import { NativeFilesRequest } from "./checkout-request.ts";
 import { NativeAttachmentRequest, readNativeAttachment } from "./native-attachment.ts";
 import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
 import { NativeTerminalInputRequest, writeNativeTerminalInput } from "./native-terminal-input.ts";
-import { NativeHistoryWindow, readHistoryWindow } from "./native-search.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
 import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
@@ -109,8 +108,8 @@ export class NativeServices {
     reads?: NativeReads,
   ) {
     this.owner = owner;
-    this.transcript = new NativeTranscript(owner);
     this.sink = sink;
+    this.transcript = new NativeTranscript(owner, sink);
     this.devices = devices;
     this.screen = screen;
     this.files = files;
@@ -209,16 +208,6 @@ export class NativeServices {
       const transcript = NativeTranscriptRequest.safeParse(raw);
       if (transcript.success) {
         this.#reply(id, true, await this.transcript.read(transcript.data, controller.signal), "");
-        return;
-      }
-      const window = NativeHistoryWindow.safeParse(raw);
-      if (window.success) {
-        this.#reply(
-          id,
-          true,
-          await readHistoryWindow(this.owner, window.data, controller.signal),
-          "",
-        );
         return;
       }
       const files = NativeFilesRequest.safeParse(raw);

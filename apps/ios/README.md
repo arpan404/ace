@@ -36,6 +36,8 @@ or performance runs. Contract sends deliberately add inputs to its history. The
 streaming thread's turn never ends (`ACE_IOS_SPIKE_STREAMED=650000` starts it as if it had
 streamed that many deltas, about nine hours, to check that a long-running thread opens at once), so a queued follow-up waits in the daemon queue,
 outside the transcript, as it would on a real daemon; `GET /queue?thread=ID` lists it.
+`ACE_IOS_SPIKE_HISTORY=8000` seeds the streaming thread with that many history messages
+instead of 1,999, so reading far back slides the 400-item history window past its bound.
 
 XcodeGen output, generated `Resources/client.js`, build products and xcresult bundles
 are ignored. Run `generate` before opening Xcode. The Swift theme is committed;
@@ -95,7 +97,7 @@ Budgets fail tests when the app gets slower. Two suites hold them:
 Run the UI budgets with two fixtures, the second for the busy inbox:
 
 ```sh
-ACE_IOS_SPIKE_PORT=9882 ACE_IOS_SPIKE_STREAMED=650000 bun run spike:daemon
+ACE_IOS_SPIKE_PORT=9882 ACE_IOS_SPIKE_STREAMED=650000 ACE_IOS_SPIKE_HISTORY=8000 bun run spike:daemon
 ACE_IOS_SPIKE_PORT=9883 ACE_IOS_SPIKE_INBOX=300 bun run spike:daemon
 xcodebuild build-for-testing -project Ace.xcodeproj -scheme AcePerf -configuration Perf \
   -destination 'platform=iOS Simulator,id=YOUR_SIMULATOR_UDID' -derivedDataPath .build/DerivedData -jobs 4
@@ -118,6 +120,7 @@ in brackets:
 | Streaming 20 deltas a second into it, per 5 s | 5.4 ms main thread, 95 ms script, 7.4 KB | 30 ms, 250 ms, 40 KB |
 | Footprint over a minute of streaming | flat (−1 MiB) | +8 MiB |
 | Scrolling its transcript: late-frame time during the swipes only | 17.8 ms per s | 60 ms per s |
+| Reading it 25 pages back and 5 forward (8,000 items, 400-item window): main thread per page, late frames per page, footprint growth | 4.6 ms, 252 ms, +24 MiB (58 ms, 362 ms, +60 MiB when each page replaced the whole 2,000-item window) | 25 ms, 600 ms, +50 MiB |
 | Agents and Changes sheets, asked to rows applied | 140, 128 ms | 350 ms |
 | Model sheet, tap to shown (mostly XCUITest waiting) | 1,940 ms | 3,000 ms |
 | Typing 33 characters with the long thread behind (XCUITest's own pace) | 830 ms | 1,800 ms |
@@ -168,10 +171,10 @@ once its row is listed) and `--spike-items 200` (the paired app's 200-item windo
   use WAL with FULL synchronous commits before resolving JS promises. The database path
   includes daemon/device identity; its immutable host binding rejects another daemon.
 - Native item models preserve identity across deltas. Membership and position updates
-  change the order separately. The SDK bounds the spike window to 2,200 items and text
-  to 8,192 code units. Snapshots remain capped at 200; the spike calls the SDK's history
-  paging API to admit the rest after the latest window is on screen
-  (`bridge/thread-history.ts`), one page at a time once native has the one before. Rows keep
+  change the order separately. The live tail is the daemon's 200-item snapshot (the SDK
+  bounds the spike's store to 2,200 items and text to 8,192 code units). Older history opens
+  in the shared bounded window beside it (`bridge/native-transcript.ts`, ADR 0062 "Phone
+  client"), whose rows arrive as `reading:` patches into a second thread model. Rows keep
   their sort numbers while older pages land above them (`bridge/anchored-positions.ts`).
 - Composer drafts clear after `ClientCore.enqueue()` confirms local persistence.
   Unsent words are kept per machine and thread in `thread-drafts.json` (`ThreadDrafts`, the
@@ -621,9 +624,10 @@ The paired app opens the latest 200 items instead of eagerly hydrating a 2,200-i
 benchmark window. The initial items and block layout complete before the transcript appears;
 a compact message skeleton fills the loading interval. Live work groups are independent
 list rows, and reopening a parent holds its last readable snapshot until the replacement
-is ready. Reading older content pauses tail following; Jump to latest resumes it. Conversation history
-uses separate bounded SDK windows and keeps page controls reachable below the content, so
-long conversations remain readable after the live cache is full. Historical full messages
+is ready. Reading older content pauses tail following; Scroll to end resumes it. Older history
+pages into one bounded window beside the live tail as the person scrolls up, and a search hit
+opens its thread at the hit in that window, so long conversations stay readable and memory
+stays flat however far back they go. Historical full messages
 and media resolve their authenticated item without replacing the live tail.
 
 Projects > Add project also has New project and Clone repository. Their protected local

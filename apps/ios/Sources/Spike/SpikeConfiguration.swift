@@ -27,6 +27,11 @@ enum SpikeConfiguration {
         let arguments = ProcessInfo.processInfo.arguments
         return arguments.firstIndex(of: "--spike-open").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
     }
+    /// The item `--spike-focus ID` asks the opened thread to show, as a search hit does.
+    static var focusOnLaunch: String? {
+        let arguments = ProcessInfo.processInfo.arguments
+        return arguments.firstIndex(of: "--spike-focus").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
+    }
     static func target() -> ConnectionTarget? {
         // `--spike-port N` lets parallel fixtures share one Mac; loopback only.
         let arguments = ProcessInfo.processInfo.arguments

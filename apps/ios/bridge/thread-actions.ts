@@ -48,7 +48,6 @@ export const ThreadAction = z.discriminatedUnion("type", [
     requestId,
   }),
   z.object({ type: z.literal("retrySend"), id: z.string().min(1), requestId }),
-  z.object({ type: z.literal("loadOlder") }),
   z.object({ type: z.literal("models") }),
   z.object({ type: z.literal("switchModel"), model: z.string().min(1).max(256), requestId }),
   /** The thread's access from its next turn; null goes back to the default. */

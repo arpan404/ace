@@ -4,7 +4,7 @@ import { interactionRow } from "./interaction-rows.ts";
 import { itemDetail, stepContext } from "./thread-rows.ts";
 import { thoughtOf } from "./thread-messages.ts";
 
-import { PatchPump } from "./patch-pump.ts";
+import type { PatchSink } from "./agents.ts";
 import type { NativeLedger } from "./native-ledger.ts";
 import { anchoredOffset } from "./anchored-positions.ts";
 export { PatchPump } from "./patch-pump.ts";
@@ -12,15 +12,16 @@ export { PatchPump } from "./patch-pump.ts";
 /**
  * `ledger`: what native holds of this thread (bound to the pump for `epoch`). With it, a whole
  * thread pass (opening, a fresh snapshot) diffs against native's copy instead of resetting it.
+ * `prefix`: the pump keys' scope, `reading:` for the history window (`native-transcript.ts`).
  */
 export function followThread(
   store: ThreadSource,
   threadId: string,
   epoch: number,
-  pump: PatchPump,
+  pump: PatchSink,
   ledger?: NativeLedger,
+  prefix: "thread:" | "reading:" = "thread:",
 ) {
-  const prefix = "thread:";
   const positions = new Map<string, number>();
   const put = (key: string, read: () => Record<string, unknown> | undefined) => {
     pump.put(prefix + key, () => {
@@ -106,7 +107,7 @@ export function followThread(
         }
       }
     }
-    if (keys !== "all" && keys.has("error") && store.error)
+    if (prefix === "thread:" && keys !== "all" && keys.has("error") && store.error)
       put("error", () => ({
         type: "error",
         message: "The conversation could not be loaded. Retry the connection.",

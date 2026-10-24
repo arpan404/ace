@@ -247,6 +247,26 @@ import XCTest
         sleep(3)
         XCTAssertFalse(app.buttons["thread.menu"].exists)
     }
+    /// A search hit opens its thread at the message, in the thread's own history window, and
+    /// Scroll to end returns to the live end.
+    func testAFocusedMessageOpensInTheHistoryWindowAndScrollToEndReturnsLive() {
+        let app = XCUIApplication()
+        // The fixture's 101st history message (the agent, turn and its run come first).
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
+                               "--spike-items", "200", "--spike-open", "ios-stream", "--spike-focus", "ios-stream.item.103"]
+        app.launch()
+        let transcript = app.scrollViews["transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 30))
+        let target = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "History 101.")).firstMatch
+        XCTAssertTrue(target.waitForExistence(timeout: 20), "the focused message is shown")
+        XCTAssertTrue(target.isHittable, "the focused message is on screen")
+        XCTAssertEqual(transcript.value as? String, "Reading history")
+        app.buttons["Scroll to end"].tap()
+        let ready = expectation(for: NSPredicate(format: "value == %@", "Ready"), evaluatedWith: transcript)
+        wait(for: [ready], timeout: 10)
+        XCTAssertFalse(target.exists, "the window around the old message is gone")
+        screenshot("focused-message-back-live")
+    }
     /// The inbox lists more fixture threads than fit; scroll until the row shows.
     private func reveal(_ identifier: String, in app: XCUIApplication) {
         let row = app.buttons[identifier]
