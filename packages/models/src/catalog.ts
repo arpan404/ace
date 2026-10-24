@@ -166,6 +166,8 @@ export class ModelCatalog implements ModelCatalogApi {
   /** Latest reported installation version per `runtime:provider`. */
   readonly #installations = new Map<string, string>();
   #connectionsCheckedAt: number | undefined;
+  #observers = 0;
+  #cancelObservedCheck: (() => void) | undefined;
   constructor(options: CatalogOptions) {
     this.#options = options;
     this.#deletions = new PendingDeletions(options.storage);
@@ -770,7 +772,34 @@ export class ModelCatalog implements ModelCatalogApi {
   revalidate(): void {
     this.#revalidate(this.#select({}));
   }
-  #checkConnectionsOnRead(): void {
+  /**
+   * While a client shows the catalog (it is subscribed to changes), re-check the connections
+   * OpenCode and Pi own every `connectionCheckMs`, so a login changed in a terminal reaches an
+   * open model picker without another read. An unwatched catalog still checks only on reads.
+   */
+  observeConnections(): () => void {
+    if (this.#options.connectionCheckMs === undefined || this.#closed) return () => {};
+    if (++this.#observers === 1) this.#armObservedCheck();
+    let stopped = false;
+    return () => {
+      if (stopped) return;
+      stopped = true;
+      if (--this.#observers > 0) return;
+      this.#cancelObservedCheck?.();
+      this.#cancelObservedCheck = undefined;
+    };
+  }
+  #armObservedCheck(): void {
+    const interval = this.#options.connectionCheckMs;
+    if (interval === undefined) return;
+    this.#cancelObservedCheck = this.#options.deadline(() => {
+      this.#cancelObservedCheck = undefined;
+      if (this.#closed || this.#observers === 0) return;
+      this.#checkConnections();
+      this.#armObservedCheck();
+    }, interval);
+  }
+  #checkConnections(): void {
     const interval = this.#options.connectionCheckMs;
     if (interval === undefined || this.#closed) return;
     const now = this.#options.now();
@@ -783,7 +812,7 @@ export class ModelCatalog implements ModelCatalogApi {
   list(input: ModelListOptions = {}): ModelListResult {
     const options = ModelListOptions.parse(input);
     const states = this.#select(options);
-    this.#checkConnectionsOnRead();
+    this.#checkConnections();
     this.#revalidate(states);
     const models: ModelListResult["models"] = [];
     let skipped = options.offset;
@@ -819,7 +848,7 @@ export class ModelCatalog implements ModelCatalogApi {
   resolve(input: ModelRoleSpec): ModelResolution {
     const filter = ModelFilter.parse(input);
     const states = this.#select(filter);
-    this.#checkConnectionsOnRead();
+    this.#checkConnections();
     this.#revalidate(states);
     return this.#resolve(input, states);
   }
@@ -1163,6 +1192,8 @@ export class ModelCatalog implements ModelCatalogApi {
     const closing = (async () => {
       this.#closed = true;
       this.#listeners.clear();
+      this.#cancelObservedCheck?.();
+      this.#cancelObservedCheck = undefined;
       for (const state of this.#states.values()) {
         state.abort?.abort();
         state.probe?.abort.abort();

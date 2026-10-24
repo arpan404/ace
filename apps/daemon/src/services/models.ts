@@ -198,15 +198,19 @@ export function createModelsSession(context: SocketContext): SocketService {
   const { options, authorize, send, tasks } = context;
   let modelRequests = 0;
   let stopChanges: (() => void) | undefined;
+  let stopObserving: (() => void) | undefined;
   return {
     authenticated(channel) {
       if (channel !== undefined || stopChanges || !authorize("read")) return;
       stopChanges = options.models?.listen?.((filter) => {
         if (context.connected() && authorize("read")) send({ type: "models.changed", filter });
       });
+      // A connected client may show the catalog, so logins changed outside ace must reach it.
+      stopObserving = options.models?.observeConnections?.();
     },
     close() {
       stopChanges?.();
+      stopObserving?.();
     },
     async handle(message) {
       switch (message.type) {
