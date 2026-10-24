@@ -146,6 +146,8 @@ export function openDaemonModels(
       instances,
       discover: createModelDiscovery(discoveryOptions),
       revisionProbe: createModelRevisionProbe(discoveryOptions.spawn),
+      // OpenCode and Pi own their logins; a read notices a change made outside ace.
+      connectionCheckMs: 60_000,
       now: Date.now,
       random: Math.random,
       deadline(expire, ms) {
