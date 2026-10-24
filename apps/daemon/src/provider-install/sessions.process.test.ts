@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { writeFile } from "node:fs/promises";
+import { symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { probeOutput } from "@ace/provider-kit/process";
 import { installFixture } from "./testing.ts";
@@ -171,6 +171,39 @@ test("a zero-exit installer with an unusable binary fails verification", async (
       message: "The installed binary did not pass --version verification.",
     });
     expect(f.events.some((event) => event.state === "succeeded")).toBe(false);
+  } finally {
+    await f.close();
+  }
+});
+
+test("a script update whose installer download returns 404 says so and keeps the installed CLI", async () => {
+  const f = await installFixture();
+  try {
+    await f.existing("codex", "script");
+    await symlink("/bin/bash", join(f.bin, "bash"));
+    await writeFile(
+      join(f.bin, "curl"),
+      `#!${process.execPath}\nconsole.error('curl: (56) The requested URL returned error: 404');\nprocess.exit(56);`,
+      { mode: 0o755 },
+    );
+    await f.statuses.refreshAfterMutation();
+    await f.request({
+      type: "provider.install.run",
+      requestId: "update",
+      provider: "codex",
+      action: "update",
+      method: "script",
+    });
+    expect(await f.wait((event) => event.state === "failed")).toMatchObject({
+      exit: 56,
+      message:
+        "Couldn't download the official installer (HTTP 404). Version 1.0.0 is still installed. The download server may be unavailable; try again later.",
+    });
+    await f.statuses.refreshAfterMutation();
+    expect(f.statuses.readiness().find((row) => row.provider === "codex")).toMatchObject({
+      installed: true,
+      version: "1.0.0",
+    });
   } finally {
     await f.close();
   }
