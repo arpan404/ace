@@ -91,6 +91,17 @@ export const Transfer = z.object({
   target: z.object({ hostId: HostId, name: z.string().min(1).max(256) }),
   phase: TransferPhase,
   method: TransferMethod.optional(),
+  /**
+   * What the person (or agent) asked for, as the command said it, so "Try again" repeats the
+   * same choice. Absent on transfers from daemons older than this field.
+   */
+  options: z
+    .object({
+      includeChanges: z.boolean(),
+      includeIgnored: z.boolean(),
+      parent: path.optional(),
+    })
+    .optional(),
   /** Bytes sent and to send, counting both the code and the ignored files. */
   sentBytes: z.number().int().nonnegative(),
   totalBytes: z.number().int().nonnegative().optional(),
