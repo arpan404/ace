@@ -101,7 +101,10 @@ export async function addBranchWorktree(
   });
 }
 
-/** The local branch name a transferred `branch` at `commit` lands under (see `landingBranchName`). */
+/**
+ * The local branch name a transferred `branch` at `commit` lands under (see
+ * `landingBranchName`), never one a worktree has checked out.
+ */
 export async function landingBranch(
   repository: Repository,
   root: string,
@@ -113,5 +116,9 @@ export async function landingBranch(
   const heads = new Map(
     [...refs].map(([ref, sha]) => [ref.slice("refs/heads/".length), sha] as const),
   );
-  return landingBranchName({ ...options, commit, heads });
+  // A branch checked out in any worktree can't get another worktree of its own.
+  const occupied = new Set(
+    (await repository.worktrees(root)).flatMap((tree) => (tree.branch ? [tree.branch] : [])),
+  );
+  return landingBranchName({ ...options, commit, heads, occupied });
 }

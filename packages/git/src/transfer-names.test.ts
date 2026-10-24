@@ -103,3 +103,39 @@ test("machine names become branch-safe fragments", () => {
   expect(machineSlug("  Studio (2) ")).toBe("studio-2");
   expect(machineSlug("雪")).toBe("machine");
 });
+
+test("a branch whose folder is a branch there lands flattened instead of hanging", () => {
+  expect(
+    landingBranchName({
+      branch: "feature/login",
+      commit: "b",
+      machine: "Studio",
+      heads: heads({ feature: "a" }),
+    }),
+  ).toEqual({ branch: "feature-login-from-studio", existing: false });
+});
+
+test("landing gives up with ref_conflict once every candidate name is taken", () => {
+  const taken: Record<string, string> = { "feature-login": "x", feature: "a" };
+  for (let n = 1; n <= 100; n++) taken[`feature-login-from-studio${n === 1 ? "" : `-${n}`}`] = "x";
+  expect(() =>
+    landingBranchName({
+      branch: "feature/login",
+      commit: "b",
+      machine: "Studio",
+      heads: heads(taken),
+    }),
+  ).toThrow(expect.objectContaining({ code: "ref_conflict" }));
+});
+
+test("a branch at the commit but checked out in a worktree is passed over for a suffixed one", () => {
+  expect(
+    landingBranchName({
+      branch: "main",
+      commit: "b",
+      machine: "Studio",
+      heads: heads({ main: "b" }),
+      occupied: new Set(["main"]),
+    }),
+  ).toEqual({ branch: "main-from-studio", existing: false });
+});

@@ -116,3 +116,20 @@ test("a branch worktree opens an existing branch in a new folder only", async ()
     service.transfer.addBranchWorktree(repo, { path: join(directory, "x"), branch: "missing" }),
   ).rejects.toMatchObject({ code: "invalid_ref" });
 });
+
+test("a branch checked out there at the same commit lands on a suffixed branch its worktree can use", async () => {
+  const repo = await repository();
+  const head = await scalar(repo, "rev-parse", "HEAD");
+  await put(repo, "tracked.txt", "their edit\n");
+  const landing = await service.transfer.landingBranch(repo, {
+    branch: "main",
+    commit: head,
+    machine: "Studio",
+  });
+  expect(landing).toEqual({ branch: "main-from-studio", existing: false });
+  await service.transfer.createBranch(repo, landing.branch, head);
+  const path = join(await scratch(), "landed");
+  await service.transfer.addBranchWorktree(repo, { path, branch: landing.branch });
+  expect(await scalar(path, "rev-parse", "HEAD")).toBe(head);
+  expect(await scalar(repo, "branch", "--show-current")).toBe("main");
+});

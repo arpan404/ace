@@ -1,3 +1,5 @@
+import { GitError } from "./types.ts";
+
 /** A machine name as a branch-name fragment: `Arpan's MacBook Pro` → `arpans-macbook-pro`. */
 export function machineSlug(machine: string): string {
   const slug = machine
@@ -11,10 +13,22 @@ export function machineSlug(machine: string): string {
   return slug || "machine";
 }
 
-/** The names a transferred branch may land under, in the order they are tried. */
-export function landingCandidate(branch: string, machine: string, attempt: number): string {
-  const suffixed = `${branch}-from-${machineSlug(machine)}`;
-  return attempt === 0 ? branch : attempt === 1 ? suffixed : `${suffixed}-${attempt}`;
+/** Suffixed names tried per spelling of the branch before landing gives up. */
+const maxSuffixes = 100;
+
+/**
+ * The names a transferred branch may land under, in the order they are tried: the branch
+ * itself, then `<branch>-from-<machine>`, `-2`, `-3`… When the branch has folders (`a/b`), the
+ * same suffixes follow with the folders flattened (`a-b-from-<machine>`), so a target branch
+ * named like one of those folders (`a`) can't block every candidate.
+ */
+export function* landingCandidates(branch: string, machine: string): Generator<string> {
+  yield branch;
+  const slug = machineSlug(machine);
+  const spellings = [branch, ...(branch.includes("/") ? [branch.replaceAll("/", "-")] : [])];
+  for (const spelling of spellings)
+    for (let n = 1; n <= maxSuffixes; n++)
+      yield n === 1 ? `${spelling}-from-${slug}` : `${spelling}-from-${slug}-${n}`;
 }
 
 export interface LandingBranch {
@@ -25,23 +39,29 @@ export interface LandingBranch {
 
 /**
  * Where a transferred branch lands among the target's local branches (`heads`: name → commit).
- * A candidate is used only when free or already exactly at `commit`. A branch there at any
+ * A candidate is used only when free, or already exactly at `commit` and not checked out in any
+ * worktree (`occupied`), since the landing may need its own worktree on it. A branch there at any
  * other commit, an ancestor included, is the target's own and is never moved: the transfer
- * lands beside it as `<branch>-from-<machine>`, then `-2`, `-3`…, each checked the same way.
+ * lands beside it (see `landingCandidates`). `ref_conflict` when every candidate is taken.
  */
 export function landingBranchName(input: {
   branch: string;
   commit: string;
   machine: string;
   heads: ReadonlyMap<string, string>;
+  occupied?: ReadonlySet<string> | undefined;
 }): LandingBranch {
-  for (let attempt = 0; ; attempt++) {
-    const name = landingCandidate(input.branch, input.machine, attempt);
+  for (const name of landingCandidates(input.branch, input.machine)) {
     const current = input.heads.get(name);
-    if (current === input.commit) return { branch: name, existing: true };
+    if (current === input.commit && !input.occupied?.has(name))
+      return { branch: name, existing: true };
     if (current === undefined && !nests(name, input.heads))
       return { branch: name, existing: false };
   }
+  throw new GitError(
+    "ref_conflict",
+    `No free branch name for ${input.branch.slice(0, 200)}: the names it would land under are all taken`,
+  );
 }
 
 /** `a` cannot be created beside `a/b`, nor `a/b` beside `a`: refs are files in folders. */
