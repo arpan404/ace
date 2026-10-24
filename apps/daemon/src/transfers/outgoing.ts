@@ -77,6 +77,8 @@ export class OutgoingTransfers {
   private deps: OutgoingDeps;
   private rows: OutgoingRows;
   private running = new Map<string, AbortController>();
+  private flights = new Set<Promise<void>>();
+  private closed = false;
   private progress = new Set<(transfer: Transfer) => void>();
   private settled = new Set<(record: OutgoingRecord) => void>();
   private lastBytes = new Map<string, number>();
@@ -198,8 +200,11 @@ export class OutgoingTransfers {
       this.rows.delete(record.transfer.transferId);
     }
   }
-  close(): void {
+  /** Stops sending; a restart resumes from the target's acknowledged offset. */
+  async close(): Promise<void> {
+    this.closed = true;
     for (const controller of this.running.values()) controller.abort();
+    await Promise.allSettled([...this.flights]);
   }
   /** Stops a transfer before its thread exists there; after that its result stands. */
   async cancel(transferId: string): Promise<Transfer> {
@@ -217,11 +222,12 @@ export class OutgoingTransfers {
     return this.finish(record, { phase: "cancelled" });
   }
   private run(transferId: string): void {
-    if (this.running.has(transferId)) return;
+    if (this.running.has(transferId) || this.closed) return;
     const controller = new AbortController();
     this.running.set(transferId, controller);
-    void this.drive(transferId, controller.signal)
+    const flight = this.drive(transferId, controller.signal)
       .catch(async (error: unknown) => {
+        if (this.closed) return;
         const record = this.rows.get(transferId);
         if (!record || terminal.has(record.transfer.phase) || controller.signal.aborted) return;
         const failure =
@@ -238,7 +244,14 @@ export class OutgoingTransfers {
           error: { code: failure.code, message: failure.message },
         });
       })
-      .finally(() => this.running.delete(transferId));
+      .catch((error: unknown) =>
+        this.deps.log("Transfer could not settle", { transferId, error: String(error) }),
+      )
+      .finally(() => {
+        this.running.delete(transferId);
+        this.flights.delete(flight);
+      });
+    this.flights.add(flight);
   }
   /** Retries calls that couldn't reach the target, until it has been gone too long. */
   private async reach<T>(signal: AbortSignal, call: () => Promise<T>): Promise<T> {

@@ -51,6 +51,8 @@ export class IncomingTransfers {
   private deps: IncomingDeps;
   private rows: IncomingRows;
   private running = new Map<string, AbortController>();
+  private flights = new Set<Promise<void>>();
+  private closed = false;
   private writes = new Map<string, Promise<unknown>>();
   private held = new Set<string>();
   constructor(deps: IncomingDeps) {
@@ -66,8 +68,11 @@ export class IncomingTransfers {
     }
     await this.sweep();
   }
-  close(): void {
+  /** Stops importing; a restart rolls back what an import made and runs it again. */
+  async close(): Promise<void> {
+    this.closed = true;
     for (const controller of this.running.values()) controller.abort();
+    await Promise.allSettled([...this.flights]);
   }
   private file(transferId: string) {
     return join(this.deps.directory, `${transferId}.part`);
@@ -215,6 +220,8 @@ export class IncomingTransfers {
       );
       await removeQuietly(file);
     } catch (error) {
+      // Shutting down: the row stays importing, and the next start rolls back and retries.
+      if (this.closed) return;
       const current = this.rows.get(record.transferId) ?? record;
       await this.rollback(current);
       if (current.state !== "importing") return;

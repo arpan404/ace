@@ -94,10 +94,6 @@ export function pinnedRequest(
     const deadline = setTimeout(abort, options.timeoutMs);
     deadline.unref();
     options.signal?.addEventListener("abort", abort, { once: true });
-    if (options.signal?.aborted) {
-      abort();
-      return;
-    }
     request.on("socket", (socket) => {
       socket.once("secureConnect", () => {
         connected = true;
@@ -108,6 +104,11 @@ export function pinnedRequest(
       if (request.socket && !request.socket.connecting) connected = true;
     });
     request.on("error", () => finish(lost()));
+    // After the error listener: destroying an aborted request reports through it.
+    if (options.signal?.aborted) {
+      abort();
+      return;
+    }
     request.on("response", (response) => {
       connected = true;
       const chunks: Buffer[] = [];

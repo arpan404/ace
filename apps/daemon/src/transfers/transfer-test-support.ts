@@ -132,6 +132,16 @@ async function window(daemon: { url: string; tokenPath: string }) {
 
 type Side = Awaited<ReturnType<typeof daemonFixture>>;
 
+/** The paths of a daemon's registered projects. */
+export function registered(side: Side): string[] {
+  return side.daemon.store
+    .statement(
+      "SELECT path FROM workspaces WHERE NOT EXISTS(SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY path",
+    )
+    .all()
+    .map((row) => String(row["path"]));
+}
+
 /**
  * Two real daemons in temp homes, the target listening for paired devices over TLS and the
  * source paired with it as `ace remote add` stores a machine (profile `studio`). Each may make
@@ -150,7 +160,11 @@ export async function transferMachines(
     await rm(sourceRoot, { recursive: true, force: true });
     await rm(targetRoot, { recursive: true, force: true });
   });
-  const projects = (root: string) => ({ home: root, roots: async () => [root], gitPolicy: fixturePolicy });
+  const projects = (root: string) => ({
+    home: root,
+    roots: async () => [root],
+    gitPolicy: fixturePolicy,
+  });
   const target = await daemonFixture(
     undefined,
     { projects: projects(targetRoot) },
@@ -217,8 +231,12 @@ export async function transferMachines(
     );
   }
   /** Stops the source daemon and starts it again on the same home. */
-  async function restartSource(next: typeof sourceOptions = sourceOptions) {
+  async function restartSource(wrap?: (inner: TransferTransport) => TransferTransport) {
     await source.daemon.close();
+    const next = {
+      ...sourceOptions,
+      transfers: { ...sourceOptions.transfers, transport: wrap ? wrap(transferTransport) : transferTransport },
+    };
     source = await daemonFixture(undefined, next, {}, source.h);
     cleanup.push(() => source.daemon.close());
     here = await window(source.daemon);

@@ -73,7 +73,12 @@ it("carries a repository with no remote as a bundle of every branch and tag", as
   await git(path, "branch", "side");
   const workspaceId = await m.addProject(m.source, path);
 
-  await m.here.command({ type: "workspace.transfer", workspaceId, hostId: m.targetHostId, includeChanges: true });
+  await m.here.command({
+    type: "workspace.transfer",
+    workspaceId,
+    hostId: m.targetHostId,
+    includeChanges: true,
+  });
   const transfer = await m.settled();
   expect(transfer).toMatchObject({ phase: "completed", method: "bundle" });
   const there = transfer.result?.path ?? "";
@@ -91,7 +96,12 @@ it("copies a folder that isn't a repository, keeping links inside it and droppin
   await symlink("../../outside", join(path, "escape"));
   const workspaceId = await m.addProject(m.source, path);
 
-  await m.here.command({ type: "workspace.transfer", workspaceId, hostId: m.targetHostId, includeChanges: true });
+  await m.here.command({
+    type: "workspace.transfer",
+    workspaceId,
+    hostId: m.targetHostId,
+    includeChanges: true,
+  });
   const transfer = await m.settled();
   expect(transfer).toMatchObject({ phase: "completed", method: "archive" });
   const there = transfer.result?.path ?? "";
