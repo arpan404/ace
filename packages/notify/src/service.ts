@@ -11,7 +11,7 @@ import type {
 import { metadata, type MetadataEvent } from "./metadata.ts";
 import { NotificationDatabase } from "./database.ts";
 import { PresenceIndex } from "./presence.ts";
-import { isQuiet, retryDelay } from "./policy.ts";
+import { isQuiet, maxRetries, retryDelay } from "./policy.ts";
 
 export type DeliveryResult = "accepted" | "retry" | "gone" | "revoked" | "failed";
 export interface NotificationTransport {
@@ -31,8 +31,15 @@ export interface NotificationOptions {
   jitter: () => number;
   transport: NotificationTransport;
   windowMs?: number;
+  /** Events before this time raise no alerts: they happened while no device could take one. */
+  alertsFrom?: number;
   preview?: (thread: ThreadId) => string | undefined;
   onError?: (error: unknown) => void;
+}
+/** When delivery next has work, and whether the service could stop without missing any. */
+export interface NotificationState {
+  deadline: number | null;
+  idle: boolean;
 }
 export class NotificationService {
   private database: NotificationDatabase;
@@ -46,7 +53,17 @@ export class NotificationService {
   private closed = false;
   constructor(options: NotificationOptions) {
     this.options = options;
-    this.database = new NotificationDatabase(options.path, options.windowMs);
+    this.database = new NotificationDatabase(options.path, options.windowMs, options.alertsFrom);
+  }
+  state(): NotificationState {
+    return {
+      deadline: this.database.nextDue() ?? null,
+      idle:
+        !this.running &&
+        this.inFlight.size === 0 &&
+        this.presence.empty() &&
+        !this.database.retains(),
+    };
   }
   cursor(): number {
     return this.database.cursor();
@@ -195,7 +212,7 @@ export class NotificationService {
               JSON.stringify(flight.address) === JSON.stringify(device.address)
             )
               flight.controller.abort();
-        if (result !== "retry" || job.attempts >= 4 || controller.signal.aborted)
+        if (result !== "retry" || job.attempts >= maxRetries || controller.signal.aborted)
           this.database.remove(job.id);
         else
           this.database.retry(
@@ -228,6 +245,8 @@ export function attachNotifications(
   },
   log: NotificationLog,
   onError: (error: unknown) => void,
+  /** Live ingestion paused for replay; the caller should replay soon. */
+  onBehind?: () => void,
 ): { recover(): Promise<boolean>; tick(): Promise<void>; close(): Promise<void> } {
   let running: Promise<void> | undefined;
   let closed = false;
@@ -237,6 +256,7 @@ export function attachNotifications(
   let live = true;
   const failed = (error: unknown) => {
     live = false;
+    onBehind?.();
     if (!(error instanceof Error && error.message.includes(replayGap))) onError(error);
   };
   const replay = async () => {

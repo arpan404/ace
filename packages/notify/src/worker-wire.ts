@@ -77,7 +77,13 @@ export const FromWorker = z.discriminatedUnion("type", [
     notification: Notification,
   }),
   z.object({ type: z.literal("cancel"), id: seq }),
+  /** Sent after a call changes when delivery next has work or whether the worker is idle. */
+  z.object({ type: z.literal("state"), deadline: seq.nullable(), idle: z.boolean() }),
 ]);
 /** What a successful call may return. */
 export type WorkerValue = Extract<z.infer<typeof FromWorker>, { type: "result" }>["value"];
-export const WorkerConfig = z.object({ path: z.string().max(4096), windowMs: seq.default(5000) });
+export const WorkerConfig = z.object({
+  path: z.string().max(4096),
+  windowMs: seq.default(5000),
+  alertsFrom: seq.default(0),
+});
