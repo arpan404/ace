@@ -112,6 +112,7 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
     case "forge.auto-merge":
     case "forge.review":
     case "forge.inbox.write":
+    case "forge.task":
       return ["forge"];
     default:
       return [];

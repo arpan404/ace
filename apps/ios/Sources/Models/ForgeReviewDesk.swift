@@ -19,6 +19,19 @@ import Foundation
         ForgeCompleter(client: client, project: target.project, repository: target.repository, on: (kind: "pull", number: target.number))
     }
 
+    /// Where this pull request's text draws its media and links.
+    var scope: ForgeRichScope { ForgeRichScope(client: client, project: target.project, repository: target.repository) }
+
+    /// Tick or untick one task box in this pull request's text (`on` names the comment, or the
+    /// description). Refusals and lost answers show as the desk's message.
+    func tick(on: [String: Any], offset: Int, checked: Bool) async {
+        guard !writing else { return }
+        writing = true
+        defer { writing = false }
+        let outcome = await client.forgeTask(project: target.project, number: target.number, repository: target.repository, on: on, offset: offset, checked: checked)
+        message = outcome.ok ? nil : outcome.message
+    }
+
     var ready: Bool { !writing && client.canOperate && client.connection == "ready" }
 
     @discardableResult

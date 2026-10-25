@@ -238,7 +238,14 @@ export async function readTimeline(
     prCommits(reads, request, detail.status.headSha),
   ]);
   const locked = lockedOut(lifecycle);
-  const conversation: Conversation = { state, url: detail.status.url, locked, preview, shown };
+  const conversation: Conversation = {
+    state,
+    url: detail.status.url,
+    repository: detail.status.ref.repository,
+    locked,
+    preview,
+    shown,
+  };
   const items = prTimelineItems(detail, commits.commits, activity.events, "oldest");
   return {
     type: "forge.pull.timeline",

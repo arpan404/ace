@@ -17,6 +17,8 @@ import type { ShownBodies } from "./forge-conversation.ts";
 import { ForgeReviewRequest, writeReview } from "./forge-review-write.ts";
 import { ForgeInboxRequest, ForgeInboxWriteRequest, readInbox, writeInbox } from "./forge-inbox.ts";
 import { ForgeTimelineRequest, readTimeline } from "./forge-timeline.ts";
+import { ForgeMediaRequest, readMedia, type Download } from "./forge-media-read.ts";
+import { ForgeTaskRequest, writeTask } from "./forge-task.ts";
 
 /*
  * The phone's Pull requests and Issues as native service calls: Swift asks for a list, a page
@@ -38,6 +40,8 @@ export const ForgeRequest = z.intersection(
     ForgeReviewersRequest,
     ForgeInboxRequest,
     ForgeInboxWriteRequest,
+    ForgeMediaRequest,
+    ForgeTaskRequest,
   ]),
   z.object({ fresh: z.boolean().default(false) }),
 );
@@ -54,13 +58,14 @@ export class ForgeService {
   #now: () => number;
   #stamp: () => string;
   #newId: () => string;
+  #download: Download;
   #cache = new Map<string, ForgeMemory>();
   /** Comment bodies as last shown, which an edit or delete expects to replace. */
   #shown: ShownBodies = new Map();
 
   /**
    * `stamp` is the kept forge reads' stamp (`NativeReads.stamp`), so both memories agree;
-   * `newId` names a pending review comment.
+   * `newId` names a pending review comment; `download` reads forge media bytes by hash.
    */
   constructor(
     owner: ForgeOwner,
@@ -68,12 +73,14 @@ export class ForgeService {
     now: () => number,
     stamp: () => string,
     newId: () => string,
+    download: Download,
   ) {
     this.#owner = owner;
     this.#preview = preview;
     this.#now = now;
     this.#stamp = stamp;
     this.#newId = newId;
+    this.#download = download;
   }
 
   /**
@@ -98,9 +105,9 @@ export class ForgeService {
         case "forge.issues":
           return await readIssues(reads, request, this.#preview);
         case "forge.pull":
-          return await readPull(reads, request, this.#preview);
+          return await readPull(reads, request, this.#preview, this.#shown);
         case "forge.issue":
-          return await readIssue(reads, request, this.#preview);
+          return await readIssue(reads, request, this.#preview, this.#shown);
         case "forge.merge":
         case "forge.auto-merge":
           return { type: "forge.write", ...(await writePull(this.#owner, reads, request)) };
@@ -114,6 +121,10 @@ export class ForgeService {
           return await complete(reads, request, this.#preview);
         case "forge.pull.reviewers":
           return await readReviewers(reads, request, this.#preview);
+        case "forge.task":
+          return await writeTask(this.#owner, reads, request, this.#shown);
+        case "forge.media":
+          return await readMedia(reads, this.#download, request, signal);
         case "forge.inbox":
           return await readInbox(reads, request, this.#preview);
         case "forge.inbox.write":

@@ -221,6 +221,7 @@ test("the phone asks for forge lists through its native service call and gets a 
       () => 0,
       () => "",
       () => "draft",
+      () => (async function* () {})(),
     ),
   );
   services.handle({

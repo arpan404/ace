@@ -81,6 +81,30 @@ import XCTest
         XCTAssertTrue(element(app, "forge.reviewer.jonas").waitForExistence(timeout: 20))
     }
 
+    func testRichTextDrawsAndABoxInYourOwnCommentTicks() {
+        let app = openPull()
+        // The description's uploads, alerts and diagram arrive through the daemon.
+        for _ in 0..<2 { app.swipeUp() }
+        screenshot("rich-description")
+        for _ in 0..<2 { app.swipeUp() }
+        screenshot("rich-description-more")
+        let timeline = app.buttons["forge.pull.timeline"]
+        for _ in 0..<6 where !timeline.isHittable { app.swipeUp() }
+        timeline.tap()
+        let comment = element(app, "forge.comment.issue:2452")
+        XCTAssertTrue(comment.waitForExistence(timeout: 20))
+        let boxes = app.buttons
+        let open = boxes.matching(NSPredicate(format: "label == 'Not done'")).firstMatch
+        if !open.waitForExistence(timeout: 10) { screenshot("task-missing") }
+        XCTAssertTrue(open.exists)
+        let done = boxes.matching(NSPredicate(format: "label == 'Done'"))
+        let before = done.count
+        open.tap()
+        let ticked = expectation(for: NSPredicate(format: "count > \(before)"), evaluatedWith: done)
+        wait(for: [ticked], timeout: 20)
+        screenshot("task-ticked")
+    }
+
     private func openPull() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]

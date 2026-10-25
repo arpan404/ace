@@ -10,6 +10,7 @@ struct ForgeIssuePageView: View {
     let actions: ForgeTabActions
     @State private var page: ForgeIssuePage?
     @State private var failure: String?
+    @State private var tickMessage: String?
     @Environment(\.openURL) private var openURL
     private var request: [String: Any] { ClientModel.forgeIssueRead(project: route.project, number: route.number, repository: route.repository) }
 
@@ -87,8 +88,13 @@ struct ForgeIssuePageView: View {
             .padding(.horizontal, AceTheme.Spacing.lg)
             .accessibilityIdentifier("forge.issue.header")
             ForgeThreadsSection(threads: page.threads, machineId: route.machineId, openThread: actions.openThread)
-            if !page.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                MarkdownView(text: page.body).padding(.horizontal, AceTheme.Spacing.lg)
+            if !page.bodyBlocks.isEmpty {
+                ForgeRichView(blocks: page.bodyBlocks, scope: scope(page), tick: bodyTicker(page))
+                    .padding(.horizontal, AceTheme.Spacing.lg)
+                if let tickMessage {
+                    Text(tickMessage).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text)
+                        .padding(.horizontal, AceTheme.Spacing.lg)
+                }
             }
             if !page.events.isEmpty {
                 ForgeSection(title: "Conversation") {
@@ -102,6 +108,24 @@ struct ForgeIssuePageView: View {
             }
         }
         .padding(.vertical, AceTheme.Spacing.md)
+    }
+
+    private func scope(_ page: ForgeIssuePage) -> ForgeRichScope {
+        ForgeRichScope(client: client, project: route.project, repository: route.repository ?? page.repository)
+    }
+
+    private func bodyTicker(_ page: ForgeIssuePage) -> ((Int, Bool) -> Void)? {
+        guard page.tasks, client.canOperate else { return nil }
+        return { offset, checked in tick(page, offset, checked) }
+    }
+
+    /// Tick one box in the issue's body, in the text shown; GitHub's answer is read back.
+    private func tick(_ page: ForgeIssuePage, _ offset: Int, _ checked: Bool) {
+        Task {
+            let outcome = await client.forgeTask(project: route.project, number: page.number, repository: page.repository,
+                                                 on: ["kind": "issue"], offset: offset, checked: checked)
+            tickMessage = outcome.ok ? nil : outcome.message
+        }
     }
 
     private func people(_ page: ForgeIssuePage) -> String {
@@ -121,7 +145,7 @@ struct ForgeIssuePageView: View {
             }
             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
             .foregroundStyle(AceTheme.Colours.mutedForeground)
-            if let body = event.body, event.comment { MarkdownView(text: body) }
+            if event.comment, !event.blocks.isEmpty, let page { ForgeRichView(blocks: event.blocks, scope: scope(page)) }
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
         .padding(.vertical, AceTheme.Spacing.sm)

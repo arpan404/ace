@@ -1,6 +1,7 @@
 import "./test-host.ts";
 import { seedForgeBrowse } from "@ace/fake-daemon";
 import type { CommandPayload, ThreadListEntry } from "@ace/protocol";
+import { downloadFile } from "@ace/client/files";
 import { afterEach } from "vitest";
 import type { ForgeOwner } from "./forge-reads.ts";
 import { ForgeRequest, ForgeService } from "./forge-service.ts";
@@ -32,6 +33,14 @@ export async function connected(
 ) {
   const { daemon, client } = sheetFixture();
   seedForgeBrowse(daemon, Date.parse("2026-10-20T00:00:00Z"));
+  // The daemon serves forge media to a registered project; a thread there registers `ace`.
+  daemon.createThread({
+    id: "forge-project",
+    workspaceId: "ace",
+    title: "Project",
+    provider: "codex",
+    hasSentMessage: true,
+  });
   close = () => client.close();
   await client.start();
   await until(() => client.connectionState().getSnapshot() === "ready", "connected");
@@ -64,6 +73,7 @@ export async function connected(
     () => 0,
     stamp,
     () => `draft-${++ids}`,
+    (input, signal) => downloadFile(client, input, { signal, timeoutMs: 15_000 }),
   );
   const ask = (request: Record<string, unknown>) =>
     // Parsed as the native service parses it, defaults included.

@@ -11,6 +11,7 @@ struct ForgeComment: Decodable, Sendable, Equatable, Identifiable {
     let author: String
     let at: Double?
     let body: String
+    let blocks: [ForgeRichBlock]
     let hidden: String?
     let reactions: [Reaction]
     let url: String
@@ -21,6 +22,7 @@ struct ForgeComment: Decodable, Sendable, Equatable, Identifiable {
     let hide: Bool
     let unhide: Bool
     let editBody: String
+    let tasks: Bool
 }
 
 /// A line conversation: where it sits, whether it is resolved, its comments and its reply box.

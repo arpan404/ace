@@ -92,8 +92,13 @@ struct ForgePullPageView: View {
                 .padding(.horizontal, AceTheme.Spacing.lg)
             }
             ForgeThreadsSection(threads: page.threads, machineId: route.machineId, openThread: openThread)
-            if !page.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                MarkdownView(text: page.body).padding(.horizontal, AceTheme.Spacing.lg)
+            if !page.bodyBlocks.isEmpty, let desk {
+                ForgeRichView(blocks: page.bodyBlocks, scope: desk.scope, tick: descriptionTicker(page, desk))
+                    .padding(.horizontal, AceTheme.Spacing.lg)
+                if let message = desk.message {
+                    Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text)
+                        .padding(.horizontal, AceTheme.Spacing.lg)
+                }
             }
             ForgeSection(title: nil) {
                 ForgeLinkRow(title: "Timeline", detail: page.conversation, identifier: "forge.pull.timeline") {
@@ -206,6 +211,12 @@ struct ForgePullPageView: View {
         .padding(.horizontal, AceTheme.Spacing.lg)
         .padding(.vertical, AceTheme.Spacing.sm)
         .background(AceTheme.Colours.background)
+    }
+
+    /// The description's boxes tick only where GitHub lets this account edit it.
+    private func descriptionTicker(_ page: ForgePullPage, _ desk: ForgeReviewDesk) -> ((Int, Bool) -> Void)? {
+        guard page.tasks, client.canOperate else { return nil }
+        return { offset, checked in Task { await desk.tick(on: ["kind": "pull"], offset: offset, checked: checked) } }
     }
 
     private func load() async {

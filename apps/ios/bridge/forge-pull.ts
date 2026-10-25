@@ -25,9 +25,17 @@ import {
 } from "@ace/ui-core";
 import { z } from "zod";
 import type { Preview } from "./agents.ts";
-import { prDetail as readDetail, scopeOf, type PrTarget as PageTarget } from "./forge-pr-reads.ts";
+import type { ShownBodies } from "./forge-conversation.ts";
+import {
+  prDetail as readDetail,
+  prLifecycle,
+  scopeOf,
+  type PrTarget as PageTarget,
+} from "./forge-pr-reads.ts";
+import { bodyKey } from "./forge-task.ts";
 import { ForgeRefusal, type ForgeOwner, type ForgeReads } from "./forge-reads.ts";
 import { keyOf, type ForgeLabelView } from "./forge-rows.ts";
+import { repositoryBlocks, type RichBlock } from "./forge-rich.ts";
 
 /*
  * One pull request as the phone's page shows it: the header, the merge gates and the one
@@ -87,6 +95,9 @@ export interface PullReply {
   commits: number;
   changedFiles: number;
   body: string;
+  bodyBlocks: RichBlock[];
+  /** The description's task boxes tick and save. */
+  tasks: boolean;
   /** What the Timeline holds, in words: "4 comments · 2 open conversations". */
   conversation: string;
   labels: ForgeLabelView[];
@@ -138,9 +149,14 @@ export async function readPull(
   reads: ForgeReads,
   request: Extract<ForgePullRequest, { type: "forge.pull" }>,
   preview: Preview,
+  shown: ShownBodies,
 ): Promise<PullReply> {
   const detail = await readDetail(reads, request);
-  const mergeState = await readMergeState(reads, request, detail);
+  const [mergeState, lifecycle] = await Promise.all([
+    readMergeState(reads, request, detail),
+    prLifecycle(reads, request),
+  ]);
+  shown.set(bodyKey("pull", detail.status.ref.repository, detail.status.ref.number), detail.body);
   const { status } = detail;
   const state = status.state === "unknown" ? "open" : status.state;
   const outcomes = reviewerOutcomes(status.comments);
@@ -201,6 +217,8 @@ export async function readPull(
     commits: detail.commits,
     changedFiles: detail.changedFiles,
     body: preview(detail.body, 32_768),
+    bodyBlocks: repositoryBlocks(preview(detail.body, 32_768), status.ref.repository),
+    tasks: lifecycle?.snapshot.editableFields.includes("body") ?? false,
     conversation: conversationWords(status),
     labels: detail.labels.slice(0, 20).map((name) => ({
       name: preview(name, 100),

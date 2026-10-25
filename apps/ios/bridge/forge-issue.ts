@@ -4,6 +4,9 @@ import { z } from "zod";
 import type { Preview } from "./agents.ts";
 import { ForgeRefusal, type ForgeReads } from "./forge-reads.ts";
 import { keyOf, type ForgeLabelView } from "./forge-rows.ts";
+import type { ShownBodies } from "./forge-conversation.ts";
+import { bodyKey } from "./forge-task.ts";
+import { repositoryBlocks, type RichBlock } from "./forge-rich.ts";
 
 /*
  * One issue as the phone's page shows it: its state, body, labels and people, the first page
@@ -31,6 +34,9 @@ export interface IssueReply {
   createdAt: number | null;
   updatedAt: number | null;
   body: string;
+  bodyBlocks: RichBlock[];
+  /** The body's task boxes tick and save. */
+  tasks: boolean;
   labels: ForgeLabelView[];
   assignees: string[];
   milestone: string | null;
@@ -41,6 +47,7 @@ export interface IssueReply {
     event: string;
     at: number | null;
     body: string | null;
+    blocks: RichBlock[];
   }[];
   /** More conversation than the first page; the rest opens on GitHub. */
   moreEvents: boolean;
@@ -58,6 +65,7 @@ export async function readIssue(
   reads: ForgeReads,
   request: ForgeIssueRequest,
   preview: Preview,
+  shown: ShownBodies,
 ): Promise<IssueReply> {
   const scope = {
     workspaceId: request.project,
@@ -67,6 +75,7 @@ export async function readIssue(
   const detail = await reads.read({ op: "forge.issue.detail", ...scope }, false);
   if (detail.resource !== "issueDetail") throw new ForgeRefusal("forge_invalid_data");
   const issue = detail.value;
+  shown.set(bodyKey("issue", issue.ref.repository, issue.ref.number), issue.body);
   // The conversation is a nicety: the issue still opens when its timeline can't be read.
   const timeline = await reads
     .read({ op: "forge.issue.timeline", ...scope, page: 1 }, false)
@@ -84,6 +93,8 @@ export async function readIssue(
     createdAt: epoch(issue.createdAt),
     updatedAt: epoch(issue.updatedAt),
     body: preview(issue.body, 32_768),
+    bodyBlocks: repositoryBlocks(preview(issue.body, 32_768), issue.ref.repository),
+    tasks: issue.permissions.edit,
     labels: issue.labels.slice(0, 20).map((name) => ({
       name: preview(name, 100),
       color: issue.labelColors?.[name] ?? null,
@@ -97,6 +108,7 @@ export async function readIssue(
       event: preview(event.event, 100),
       at: epoch(event.at),
       body: event.body ? preview(event.body, 8_192) : null,
+      blocks: event.body ? repositoryBlocks(preview(event.body, 8_192), issue.ref.repository) : [],
     })),
     moreEvents: events?.nextPage !== undefined,
     threads: issue.relatedThreads.slice(0, 20).map((thread) => ({

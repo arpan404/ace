@@ -32,6 +32,8 @@ struct ForgePullPage: Decodable, Sendable, Equatable {
     let commits: Int
     let changedFiles: Int
     let body: String
+    let bodyBlocks: [ForgeRichBlock]
+    let tasks: Bool
     let conversation: String
     let labels: [ForgeLabel]
     let gates: [Gate]
@@ -98,6 +100,7 @@ struct ForgeIssuePage: Decodable, Sendable, Equatable {
         let event: String
         let at: Double?
         let body: String?
+        let blocks: [ForgeRichBlock]
     }
     struct IssueRef: Codable, Sendable, Equatable, Hashable {
         let repository: ForgeRepository
@@ -115,6 +118,8 @@ struct ForgeIssuePage: Decodable, Sendable, Equatable {
     let createdAt: Double?
     let updatedAt: Double?
     let body: String
+    let bodyBlocks: [ForgeRichBlock]
+    let tasks: Bool
     let labels: [ForgeLabel]
     let assignees: [String]
     let milestone: String?

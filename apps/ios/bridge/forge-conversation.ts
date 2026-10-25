@@ -11,6 +11,7 @@ import {
   threadPlace,
 } from "@ace/ui-core";
 import type { Preview } from "./agents.ts";
+import { repositoryBlocks, type RichBlock } from "./forge-rich.ts";
 
 /*
  * A pull request's comments and line conversations as the phone draws them, with what this
@@ -36,6 +37,8 @@ export interface CommentView {
   author: string;
   at: number | null;
   body: string;
+  /** The text as the phone draws it. */
+  blocks: RichBlock[];
   /** "Hidden as off topic" while GitHub hides it; its text then waits behind Show. */
   hidden: string | null;
   /** Every reaction GitHub offers, counted; empty when reactions can't be read or given. */
@@ -50,6 +53,8 @@ export interface CommentView {
   unhide: boolean;
   /** What Edit opens with: the text as its author wrote it. */
   editBody: string;
+  /** Its task boxes tick and save (the viewer may edit it). */
+  tasks: boolean;
 }
 export interface ThreadView {
   id: string;
@@ -75,6 +80,8 @@ export interface Conversation {
   state: ForgeReviewState | undefined;
   /** The pull request's address, under which each comment has its own. */
   url: string;
+  /** Its repository, for GitHub's links in comment text. */
+  repository: { host: string; owner: string; name: string };
   /** Locked to this account: comments, reviews and reactions are refused. */
   locked: boolean;
   preview: Preview;
@@ -124,6 +131,7 @@ export function commentView(conversation: Conversation, comment: ForgeComment): 
     author: conversation.preview(comment.author, 100),
     at: epoch(comment.createdAt ?? comment.updatedAt),
     body: conversation.preview(comment.body, 65_536),
+    blocks: repositoryBlocks(conversation.preview(comment.body, 65_536), conversation.repository),
     hidden: reason === undefined ? null : `Hidden as ${hiddenWord(reason)}`,
     reactions: reactionsOf(conversation, comment),
     url: commentUrl(conversation.url, comment),
@@ -134,6 +142,7 @@ export function commentView(conversation: Conversation, comment: ForgeComment): 
     hide: hideable && reason === undefined,
     unhide: hideable && reason !== undefined,
     editBody: own ? conversation.preview(authoredReviewComment(comment.body), 65_536) : "",
+    tasks: own && writable(conversation),
   };
 }
 

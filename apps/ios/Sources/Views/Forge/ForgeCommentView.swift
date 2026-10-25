@@ -33,8 +33,8 @@ struct ForgeCommentView: View {
                 }
             }
             if comment.hidden == nil || shown {
-                if !comment.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    MarkdownView(text: comment.body)
+                if !comment.blocks.isEmpty {
+                    ForgeRichView(blocks: comment.blocks, scope: actions.desk.scope, tick: ticker)
                 }
                 ForgeReactionsRow(comment: comment, desk: actions.desk)
             }
@@ -104,6 +104,17 @@ struct ForgeCommentView: View {
         ("off-topic", "Off-topic"), ("outdated", "Outdated"), ("resolved", "Resolved"),
         ("duplicate", "Duplicate"), ("spam", "Spam"),
     ]
+
+    /// Its boxes tick only where the viewer may edit it.
+    private var ticker: ((Int, Bool) -> Void)? {
+        guard comment.tasks else { return nil }
+        return { offset, checked in tick(offset, checked) }
+    }
+
+    private func tick(_ offset: Int, _ checked: Bool) {
+        let on: [String: Any] = ["kind": "comment", "source": comment.source, "commentId": comment.commentId]
+        Task { await actions.desk.tick(on: on, offset: offset, checked: checked) }
+    }
 
     private func run(_ fields: [String: Any]) {
         var action = fields

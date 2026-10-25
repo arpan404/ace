@@ -24,6 +24,7 @@ import { followFileChanges } from "./checkout-request.ts";
 import { NativeServices, NativeServiceAction } from "./native-services.ts";
 import { NativeReads } from "./native-reads.ts";
 import { ForgeService } from "./forge-service.ts";
+import { downloadFile } from "@ace/client/files";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { BrowserLive } from "./browser-live.ts";
 import { nativeChunks } from "./thread-attachments.ts";
@@ -208,6 +209,7 @@ async function start(json: string): Promise<void> {
     search.complete(workspaceId, query, limit),
   );
   followFileChanges(client, pump);
+  const forgeClient = client;
   services = new NativeServices(
     client,
     pump,
@@ -220,6 +222,7 @@ async function start(json: string): Promise<void> {
       () => host.now(),
       () => reads.stamp("forge"),
       () => host.uuid(),
+      (input, signal) => downloadFile(forgeClient, input, { signal, timeoutMs: 60_000 }),
     ),
     reads,
   );

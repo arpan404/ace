@@ -174,7 +174,14 @@ export async function readFile(
     prLifecycle(reads, request),
   ]);
   const locked = lockedOut(lifecycle);
-  const conversation: Conversation = { state, url: detail.status.url, locked, preview, shown };
+  const conversation: Conversation = {
+    state,
+    url: detail.status.url,
+    repository: detail.status.ref.repository,
+    locked,
+    preview,
+    shown,
+  };
   const diff = mobileFileDiff(file.patch ?? "", file.truncated, undefined, preview);
   const threads = detail.status.reviewThreads.filter((thread) => thread.file === file.path);
   const placed = new Set<string>();
