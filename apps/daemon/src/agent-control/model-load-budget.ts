@@ -15,9 +15,12 @@ export interface ModelLoadBudget {
    * still running carries on in the background.
    */
   wait(work: Promise<unknown>): Promise<boolean>;
-  /** The same deadline without cancellation, for work that outlives the call that started it. */
+  /**
+   * The same deadline without cancellation, for work that outlives the call that started it.
+   * It holds the deadline too: the timer stops only once every holder has ended.
+   */
   detached(): ModelLoadBudget;
-  /** Stop the deadline's timer once the operation is done with it. */
+  /** This holder is done with the deadline; once every holder is, its timer stops. */
   end(): void;
 }
 
@@ -30,14 +33,19 @@ export function modelLoadBudget(
   const expired = new Promise<false>((resolve) => {
     cancel = clock.setTimer(() => resolve(false), milliseconds);
   });
-  return budget(expired, () => cancel?.(), signal);
+  const deadline = { expired, holders: 0, stop: () => cancel?.() };
+  return holder(deadline, signal);
 }
 
-function budget(
-  expired: Promise<false>,
-  end: () => void,
-  signal: AbortSignal | undefined,
-): ModelLoadBudget {
+interface Deadline {
+  readonly expired: Promise<false>;
+  holders: number;
+  stop(): void;
+}
+
+function holder(deadline: Deadline, signal: AbortSignal | undefined): ModelLoadBudget {
+  deadline.holders += 1;
+  let ended = false;
   return {
     async wait(work: Promise<unknown>): Promise<boolean> {
       const done = work.then(() => true as const);
@@ -45,19 +53,24 @@ function budget(
       // unhandled failure; handled before anything here can return.
       done.catch(() => {});
       signal?.throwIfAborted();
-      if (!signal) return Promise.race([done, expired]);
+      if (!signal) return Promise.race([done, deadline.expired]);
       let stop: (() => void) | undefined;
       const aborted = new Promise<never>((_, reject) => {
         stop = () => reject(signal.reason);
         signal.addEventListener("abort", stop, { once: true });
       });
       try {
-        return await Promise.race([done, expired, aborted]);
+        return await Promise.race([done, deadline.expired, aborted]);
       } finally {
         if (stop) signal.removeEventListener("abort", stop);
       }
     },
-    detached: () => budget(expired, end, undefined),
-    end,
+    detached: () => holder(deadline, undefined),
+    end() {
+      if (ended) return;
+      ended = true;
+      deadline.holders -= 1;
+      if (deadline.holders === 0) deadline.stop();
+    },
   };
 }

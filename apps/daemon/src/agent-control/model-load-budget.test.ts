@@ -87,3 +87,28 @@ test("a wait on an already cancelled operation still owns the failure of the wor
   );
   await turn();
 });
+
+test("work that outlives its call keeps the deadline running after the call ends, until it ends too", async () => {
+  const clock = new ManualClock();
+  const started = clock.now();
+  const call = modelLoadBudget(clock);
+  const creation = call.detached();
+  const waiting = watch(creation.wait(never));
+  // The call returns and lets go; the creation it started is still waiting.
+  call.end();
+  clock.advance(started + 20_000);
+  await turn();
+  expect(waiting).toEqual({ value: false });
+
+  // Once both have let go, the timer is gone: nothing is left waiting on it.
+  const other = modelLoadBudget(clock);
+  const otherCreation = other.detached();
+  const late = watch(otherCreation.wait(never));
+  other.end();
+  otherCreation.end();
+  // Ending twice is one ending, not one for another holder.
+  other.end();
+  clock.advance(clock.now() + 20_000);
+  await turn();
+  expect(late).toEqual({});
+});

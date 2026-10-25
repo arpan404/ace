@@ -154,10 +154,11 @@ export function createConversationStarts(
     // A retry with the same requestId joins this creation until it settles, then reads the receipt.
     // The creation outlives the call, so it keeps the call's deadline but not its cancellation;
     // a call with no budget gives the creation its own.
+    // The creation holds the call's deadline (or its own) until it is done.
     const creation = budget ? budget.detached() : service.loadBudget();
     const work = start(caller, operation, creation).finally(() => {
       pending.delete(key);
-      if (!budget) creation.end();
+      creation.end();
     });
     pending.set(key, { identity, work });
     return untilAborted(work, signal);
