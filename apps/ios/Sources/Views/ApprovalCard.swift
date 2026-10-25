@@ -25,12 +25,16 @@ struct ApprovalCard: View {
             if approval.truncated {
                 Text("Some details are shortened for display").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
             }
-            // One row when it fits; on a narrow screen or large text, Details goes under the answers.
+            // One row when it fits; else Details above the answers; at large text everything stacks.
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: AceTheme.Spacing.xs) {
+                HStack(spacing: AceTheme.Spacing.xxs) {
                     detailsToggle
                     Spacer(minLength: AceTheme.Spacing.none)
                     answerRow
+                }
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                    detailsToggle
+                    HStack(spacing: AceTheme.Spacing.xxs) { Spacer(minLength: AceTheme.Spacing.none); answerRow }
                 }
                 VStack(alignment: .trailing, spacing: AceTheme.Spacing.none) {
                     VStack(alignment: .trailing, spacing: AceTheme.Spacing.none) { answers }.disabled(submission != nil || !canAct)
@@ -64,7 +68,7 @@ struct ApprovalCard: View {
         approval.options.filter { $0.kind == "allow_once" || $0.kind == "deny" }.sorted { $0.kind == "allow_once" && $1.kind != "allow_once" }
     }
     private var answerRow: some View {
-        HStack(spacing: AceTheme.Spacing.xs) { answers }.disabled(submission != nil || !canAct)
+        HStack(spacing: AceTheme.Spacing.xxs) { answers }.disabled(submission != nil || !canAct)
     }
     @ViewBuilder private var detailsToggle: some View {
         if hasDetails {
@@ -162,7 +166,7 @@ struct RequestButtonStyle: ButtonStyle {
             .lineLimit(1)
             .minimumScaleFactor(0.8)
             .foregroundStyle(primary ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
-            .padding(.horizontal, AceTheme.Spacing.md)
+            .padding(.horizontal, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
             .frame(maxWidth: wide ? .infinity : nil, minHeight: AceTheme.Dimensions.touchTarget)
             .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: shape)
             .opacity(enabled ? 1 : AceTheme.Opacity.disabled(scheme))
