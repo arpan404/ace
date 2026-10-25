@@ -95,6 +95,25 @@ test("Cancel stops a transfer while it sends, and nothing lands on the other mac
   expect(view?.kind === "threads" ? Object.keys(view.threads) : []).toEqual([]);
 }, 30_000);
 
+test("Cancel while the other machine sets up leaves no project there either", async () => {
+  const { app, build, step, drain } = linkedMachines();
+  await app.open("/t/thread-forecast");
+  const dialog = await optionsFor("Build server");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Continue on Build server" }));
+  // Step until it sets up there; it can still be cancelled then.
+  while (app.daemon.transfers.list()[0]?.phase !== "importing") {
+    await step();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  await userEvent.click(await within(dialog).findByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(app.daemon.transfers.list()[0]?.phase).toBe("cancelled"));
+  await drain();
+  expect(app.daemon.transfers.list()[0]?.phase).toBe("cancelled");
+  expect(build.projects.list().workspaces).toEqual([]);
+  const view = build.snapshot({ kind: "threads" });
+  expect(view?.kind === "threads" ? Object.keys(view.threads) : []).toEqual([]);
+}, 30_000);
+
 test("a machine that keeps agents out still takes the person's transfer", async () => {
   const { app, desk, finish } = linkedMachines();
   await app.open("/t/thread-forecast");

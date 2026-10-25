@@ -57,10 +57,14 @@ test("picking Build server starts the thread there, opens it here and lists it i
   expect(titles(made.daemon)).not.toContain("Add a health check");
 
   // One flat list: the row is marked with its machine and opens it on that machine.
-  const threads = await screen.findByRole("list", { name: "Threads" });
-  expect(
-    await within(threads).findByRole("link", { name: /^Add a health check\..*Build server/ }),
-  ).toBeTruthy();
+  // The list is looked up on every try: the sidebar may replace it while the row arrives.
+  await waitFor(() =>
+    expect(
+      within(screen.getByRole("list", { name: "Threads" })).getByRole("link", {
+        name: /^Add a health check\..*Build server/,
+      }),
+    ).toBeTruthy(),
+  );
 });
 
 test("a machine that isn't connected shows why in the picker and can't be picked", async () => {

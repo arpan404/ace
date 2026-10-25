@@ -77,8 +77,11 @@ export function TransferDialog(props: {
         ? opening(latest)
         : { kind: "checking" },
   );
-  // Decided once, when the list answers, so a transfer that settles meanwhile keeps its line.
+  // Decided when the list answers, so a transfer that settles meanwhile keeps its line. One that
+  // turns up running while the machines show (a reconnect's list, or another window's push)
+  // takes their place: a second transfer must not be offered.
   if (seeded && step.kind === "checking") setStep(opening(latest));
+  else if (step.kind === "machines" && latest && transferRunning(latest)) setStep(opening(latest));
   const { start } = useTransferActions();
   // This machine's "Bring ignored files", read here so the options step never waits for it.
   const [ignoredByDefault] = useSetting(settingKeys.transferIgnoredFiles);

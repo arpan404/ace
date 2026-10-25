@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -164,4 +164,20 @@ test("with the other machine offline Add project doesn't ask which machine", asy
   expect(await screen.findByRole("option", { name: "Local folder" })).toBeTruthy();
   expect(screen.queryByRole("listbox", { name: "Machines" })).toBeNull();
   expect(screen.queryByRole("button", { name: /^Machine:/ })).toBeNull();
+});
+
+test("with this machine offline Add project works on the one machine that's online, and says so", async () => {
+  const { made, build } = twoMachines();
+  await made.open("/settings");
+  await screen.findByRole("heading", { level: 1 });
+  act(() => made.daemon.refuseConnections(true));
+  await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
+  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
+  expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  const field = await screen.findByRole("combobox", { name: "Folder path" });
+  await userEvent.clear(field);
+  await userEvent.type(field, "~/services/api/");
+  await screen.findByText("~/services/api");
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() => expect(paths(build)).toEqual(["/home/ci/services/api"]));
 });
