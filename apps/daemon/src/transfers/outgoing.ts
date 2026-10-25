@@ -548,16 +548,27 @@ export class OutgoingTransfers {
       sentBytes: record.transfer.totalBytes ?? record.transfer.sentBytes,
     });
   }
-  /** Settles a transfer once: its files and capture ref go, its listeners hear it. */
+  /**
+   * Settles a transfer once: its files and capture refs go first, so a transfer that reads
+   * settled has nothing of it left here; then the row settles and its listeners hear it.
+   */
   private async finish(record: OutgoingRecord, change: Partial<Transfer>): Promise<Transfer> {
     const current = this.rows.get(record.transfer.transferId) ?? record;
     if (terminal.has(current.transfer.phase)) return current.transfer;
-    const settled = this.update(current, change);
-    this.lastBytes.delete(record.transfer.transferId);
     for (const path of payloads(current.plan)) await removeQuietly(path);
     for (const ref of [current.plan?.changes?.ref, current.plan?.pinned])
       if (ref && current.plan)
-        await this.deps.git.deleteRef(current.plan.source, ref).catch(() => undefined);
+        await this.deps.git.deleteRef(current.plan.source, ref).catch((error: unknown) =>
+          this.deps.log("Transfer ref not deleted", {
+            transferId: record.transfer.transferId,
+            error: String(error),
+          }),
+        );
+    // Another settle may have won while this one cleaned up.
+    const now = this.rows.get(record.transfer.transferId) ?? current;
+    if (terminal.has(now.transfer.phase)) return now.transfer;
+    const settled = this.update(now, change);
+    this.lastBytes.delete(record.transfer.transferId);
     this.deps.log("Transfer to another machine settled", {
       transferId: record.transfer.transferId,
       target: record.transfer.target.name,

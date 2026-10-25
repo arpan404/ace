@@ -196,9 +196,14 @@ it("removes both payloads on both machines when a transfer is cancelled", async 
   expect((await readdir(incomingDir(m))).some((name) => name.includes("ignored"))).toBe(true);
   const [running] = m.source.daemon.transfers.outgoing.list();
   if (!running) throw new Error("No transfer");
-  const answer = await m.here.request({ op: "cancel", transferId: running.transferId });
-  release();
+  // The held commit ignores the abort: the cancel answers without waiting for it.
+  const answer = await m.here
+    .request({ op: "cancel", transferId: running.transferId })
+    .finally(release);
   expect(answer).toMatchObject({ kind: "cancelled" });
+  expect(m.source.daemon.transfers.outgoing.get(running.transferId)?.transfer.phase).toBe(
+    "cancelled",
+  );
   await vi.waitFor(async () => {
     expect(await readdir(outgoingDir(m))).toEqual([]);
     expect(await readdir(incomingDir(m))).toEqual([]);

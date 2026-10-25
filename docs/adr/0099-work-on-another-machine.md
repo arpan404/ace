@@ -213,7 +213,10 @@ would refuse; for it the check is skipped and the handoff is captured when the u
   setup instead of rolling anything back, so the thread stays unarchived and gets its handoff.
 - Shutting the target down stops running imports and waits for them and for pending writes; an
   import stopped before its cutoff is undone and runs again on the next start.
-- Finished transfer files are deleted on both machines; rows are kept 24 hours for the list. An
+- A cancel or a shutdown stops waiting on a call to the target the moment it aborts, whatever the
+  connection does; what the target made of that call is learnt again through status.
+- Finished transfer files and refs (the capture ref and a detached HEAD's pin) are deleted on
+  both machines before the transfer reads settled; rows are kept 24 hours for the list. An
   agent's row whose result its thread hasn't been given yet is never deleted: retention skips it
   until the result is delivered and the background hold settled.
 - Transfers above 20 GiB are refused before sending, with the size in the message. The target
