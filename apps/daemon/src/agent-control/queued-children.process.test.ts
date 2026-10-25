@@ -144,6 +144,131 @@ test("a queued child reports its slot limit, use and queue place, shifting as th
   expect(h.errors).toEqual([]);
 });
 
+test("a pump that fills the engine mid-pass still refreshes the children left behind", async () => {
+  const h = setup(
+    { maxConcurrent: 8 },
+    undefined,
+    false,
+    undefined,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    { maxActiveThreads: 2 },
+  );
+  const parent = await h.parent();
+  const first = h.delegate(parent, "first");
+  await h.engine.flush();
+  const second = h.delegate(parent, "second");
+  const third = h.delegate(parent, "third");
+  const fourth = h.delegate(parent, "fourth");
+  await h.engine.flush();
+  expect(
+    [second, third, fourth].map((child) => h.service.queueFacts(child.childId)?.queuePosition),
+  ).toEqual([1, 2, 3]);
+
+  await h.complete(first.childId, "first done");
+  await h.engine.flush();
+  // The freed slot retires on the engine's idle timer; the next pump starts one child, fills
+  // the engine on the next, and still refreshes the children left behind.
+  h.clock.advance(h.clock.now() + 100001);
+  await h.engine.flush();
+
+  expect(h.service.journal.get(second.childId)?.phase).toBe("running");
+  expect(h.service.queueFacts(second.childId)).toBeUndefined();
+  expect(h.service.queueFacts(third.childId)).toEqual({
+    slotLimit: 8,
+    slotsInUse: 1,
+    queuePosition: 1,
+  });
+  expect(h.service.queueFacts(fourth.childId)).toEqual({
+    slotLimit: 8,
+    slotsInUse: 1,
+    queuePosition: 2,
+  });
+  expect(h.store.getThread(fourth.childId)?.queuedLaunch).toMatchObject({ queuePosition: 2 });
+  expect(h.errors).toEqual([]);
+});
+
+test("starting one of fifty queued children updates each shifted child exactly once", async () => {
+  const h = setup({ maxConcurrent: 1 });
+  const parent = await h.parent();
+  const running = h.delegate(parent, "running");
+  const queued = Array.from({ length: 50 }, (_, index) => h.delegate(parent, `queued-${index}`));
+  const [head, ...rest] = queued;
+  if (!head) throw new Error("Missing queued children");
+  await h.engine.flush();
+  const baseline = h.events.length;
+
+  await h.complete(running.childId, "first done");
+  await h.engine.flush();
+
+  // The head starts; every other child moves up exactly one place, with one update each.
+  const updates = h.events.slice(baseline).flatMap((event) => {
+    const payload = event.payload;
+    return payload.type === "thread.updated" &&
+      payload.queuedLaunch !== undefined &&
+      payload.queuedLaunch !== null
+      ? [{ child: event.threadId, facts: payload.queuedLaunch }]
+      : [];
+  });
+  expect(h.service.journal.get(head.childId)?.phase).toBe("running");
+  expect(updates).toHaveLength(rest.length);
+  expect([...new Set(updates.map((update) => update.child))].toSorted()).toEqual(
+    rest.map((child) => child.childId).toSorted(),
+  );
+  for (const [index, child] of rest.entries())
+    expect(
+      updates.find((update) => update.child === child.childId)?.facts,
+    ).toMatchObject({ queuePosition: index + 1 });
+
+  // Nothing more follows: no second round of queue writes, not even on the retry poll.
+  for (let round = 0; round < 2; round++) {
+    h.clock.advance(h.clock.now() + 2000);
+    await h.engine.flush();
+  }
+  expect(
+    h.events.slice(baseline).filter((event) => {
+      const payload = event.payload;
+      return (
+        payload.type === "thread.updated" &&
+        payload.queuedLaunch !== undefined &&
+        payload.queuedLaunch !== null
+      );
+    }),
+  ).toHaveLength(rest.length);
+  expect(h.errors).toEqual([]);
+});
+
+test("cancelling a full queue writes no intermediate positions", async () => {
+  const h = setup({ maxConcurrent: 1 });
+  const parent = await h.parent();
+  const running = h.delegate(parent, "running");
+  const queued = Array.from({ length: 50 }, (_, index) => h.delegate(parent, `queued-${index}`));
+  await h.engine.flush();
+  expect(running).toBeDefined();
+  const baseline = h.events.length;
+
+  h.service.cancelDescendants(parent.threadId);
+  await h.engine.flush();
+
+  expect(
+    queued.every((child) => h.service.journal.get(child.childId)?.phase === "settled"),
+  ).toBe(true);
+  // Every queued child settles straight to cleared: no intermediate positions on the way out.
+  expect(
+    h.events.slice(baseline).filter((event) => {
+      const payload = event.payload;
+      return (
+        payload.type === "thread.updated" &&
+        payload.queuedLaunch !== undefined &&
+        payload.queuedLaunch !== null
+      );
+    }),
+  ).toHaveLength(0);
+  expect(h.errors).toEqual([]);
+});
+
 test("delegate_task says per child whether it started or queued, with its queue place", async () => {
   const h = setup({ maxConcurrent: 1 });
   const parent = await h.parent();
