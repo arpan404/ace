@@ -30,10 +30,10 @@ test("Continue on from another machine's thread is sent from that machine", asyn
   await app.open("/t/thread-deploy?machine=build");
   await screen.findByRole("heading", { name: "Tune the deploy script" });
   await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
-  // Organize actions there wait for their follow-up; they would answer to this window's daemon.
+  // Organize actions are offered there too, and run on that machine (ADR 0102).
   await screen.findByRole("menuitem", { name: /Rename/ });
   for (const name of ["Move to project…", "Archive", "Delete thread"])
-    expect(screen.queryByRole("menuitem", { name })).toBeNull();
+    expect(screen.getByRole("menuitem", { name })).toBeTruthy();
   await userEvent.click(screen.getByRole("menuitem", { name: "Continue on…" }));
 
   // The build server's links are listed, not this window's.
