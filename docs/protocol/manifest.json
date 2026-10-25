@@ -33,12 +33,12 @@
       "sha256": "93f395ba88bd7bc4b5f7814adf92492ba93cddfc74cb4ff4161dc8d2deb42e98"
     },
     "push.md": {
-      "bytes": 101944,
-      "sha256": "4bbdfc34d702c03c2e27ff7deeeba3a09ab9f7f6036af1c333d37147e1d0465c"
+      "bytes": 101939,
+      "sha256": "410a2e4b07200d4d7d15bcfc83e195c1936ec6e914398733e4e8268038fc2ed4"
     },
     "requests.md": {
-      "bytes": 100550,
-      "sha256": "5062512cd82a3d644b804956a29af7685c8afc11d6a49261adae0a616f8b0767"
+      "bytes": 100480,
+      "sha256": "69c363ad946cabaf47791c7a14cea8cb11d0b5414b81f1c8490ee4b19afd018d"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -285,8 +285,8 @@
       "sha256": "075a840a01430c1d26ea11abe8da29bc66cbbed65c5f246699a7545f64af747d"
     },
     "schema/AppDevice.json": {
-      "bytes": 803,
-      "sha256": "5c50e7014882e7e185ef4880d17b649b40f305fb1b1a2f040788ca779a17602b"
+      "bytes": 872,
+      "sha256": "14641232c4dace35f97ef3dee7b426ca68a84a69e08e0b8f70da9c11bd23f5d4"
     },
     "schema/AppDeviceId.json": {
       "bytes": 236,
@@ -944,6 +944,26 @@
       "bytes": 1081,
       "sha256": "60f739521b0b511890e29d29c7e194e80b9a2560b415ec9e8f6c7f54393b47a2"
     },
+    "schema/DeviceChrome.json": {
+      "bytes": 1410,
+      "sha256": "52f3401417549e89bfe4b6a08a1a23c3959ad53d0a15d448e9c08aa43fbcc0fe"
+    },
+    "schema/DeviceChromeButton.json": {
+      "bytes": 718,
+      "sha256": "87d6e638f13211b2642b38c791999c18efee09717f5e2bf7397352e00f4d8794"
+    },
+    "schema/DeviceChromeImage.json": {
+      "bytes": 251,
+      "sha256": "0b21549005b2656128fb06ffc48cde7886fb609b4fae11495d0e69ae938136a8"
+    },
+    "schema/DeviceChromeRect.json": {
+      "bytes": 618,
+      "sha256": "e59ddb0c5e241343cd93a6af465f6d9748f0047174df60f78cc6aebc71aad842"
+    },
+    "schema/DeviceChromeResult.json": {
+      "bytes": 388,
+      "sha256": "c0484c4b6e40c95d9e936d8e59ed4879386ae74dc6dabd190db43ec690b80438"
+    },
     "schema/DeviceClientMessage.json": {
       "bytes": 496,
       "sha256": "e15c399d53b52f6bcc59387d8e4bb2b7db84df100ecc1c4da4376f0226ecd639"
@@ -969,8 +989,8 @@
       "sha256": "eb3369375a7c6d42ed271320f8655fc342085f3e9ea8d9222ec5ee41630667d1"
     },
     "schema/DeviceOperation.json": {
-      "bytes": 13136,
-      "sha256": "6709327d49827d14e5faf7566dc2d2b829f47175e9eee3959ae7d622de4e1a0c"
+      "bytes": 14007,
+      "sha256": "7ad251c009acdc3aea56cd529ea09424d1e4c5c3f8ef8b786abcc938121b6095"
     },
     "schema/DevicePermission.json": {
       "bytes": 208,
@@ -979,6 +999,10 @@
     "schema/DevicePermissions.json": {
       "bytes": 345,
       "sha256": "e7c0e4f4ebfdefe1eaca633bfd653564c90199ac79fb4ea14e9e55ea75e83027"
+    },
+    "schema/DevicePosture.json": {
+      "bytes": 208,
+      "sha256": "aa807fe397eb9e85a7bd8b91e19e98583151b075e17dd36552321292e447188e"
     },
     "schema/DeviceScope.json": {
       "bytes": 266,
@@ -997,8 +1021,8 @@
       "sha256": "98b93bfdb9c5c1a4e2fd753b48b538b6fca02d7447b0da93a4d6409eb1d698c5"
     },
     "schema/DeviceState.json": {
-      "bytes": 1833,
-      "sha256": "8b69b28842be25f368937daaf7fa4200e36238d7bbd24a30656432b7bbc02cbb"
+      "bytes": 1922,
+      "sha256": "1a42bf3b1def78c34b45ec5d6de160c312080716eee74b815c096f743ccc1695"
     },
     "schema/DeviceToken.json": {
       "bytes": 174,
@@ -4441,10 +4465,10 @@
       "sha256": "571045442f6b19fd7ecf97ce180c84085c282b10849598f40e85882a4be2f437"
     },
     "types.md": {
-      "bytes": 912065,
-      "sha256": "5e1d599f71d4a4ee8056cf98daff540fbb1ae0bb894525311fdeec428ee0bd70"
+      "bytes": 915843,
+      "sha256": "bb6422c9f6f1dc2278ee0cf0e8babe31901a8edd2089da5e3e9ab46bb22bffc4"
     }
   },
-  "input": "dcf0d48121e9011b451d05ac42094f002be34b9245ca109f489d2390ce6f797c",
+  "input": "916feeead9d59c77a2c0356121e53e86ac091ea76dd982d260174850398c7ed6",
   "version": 1
 }

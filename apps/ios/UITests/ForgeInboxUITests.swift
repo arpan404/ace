@@ -11,7 +11,7 @@ import XCTest
         app.launch()
         XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
         app.tabBars.buttons["Pulls"].firstMatch.tap()
-        let segment = app.segmentedControls["forge.kind"].buttons["Inbox"]
+        let segment = app.buttons["forge.kind.inbox"]
         XCTAssertTrue(segment.waitForExistence(timeout: 20))
         segment.tap()
         let row = app.buttons["forge.inbox.9002"]

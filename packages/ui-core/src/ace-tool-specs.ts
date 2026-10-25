@@ -482,6 +482,15 @@ const simActs: Record<string, { input?: InputKind; words: AceToolSpec["words"] }
   clipboard_set: {
     words: ({ subject }) => say(["Set", "Setting", "Set"], ` the clipboard${on(subject)}`),
   },
+  posture: {
+    words: ({ args, subject }) => {
+      const posture = str(args, "posture");
+      if (posture === "closed")
+        return say(["Folded", "Folding", "Fold"], ` ${subject ?? "the simulator"} shut`);
+      const how = posture === "partiallyOpen" ? " half open" : posture === "open" ? " flat" : "";
+      return say(["Unfolded", "Unfolding", "Unfold"], ` ${subject ?? "the simulator"}${how}`);
+    },
+  },
 };
 const simAct = (args: Record<string, unknown>) =>
   simActs[str(args, "action") ?? ""] ?? simActs["ui"]!;

@@ -74,6 +74,7 @@ struct NewThreadSheet: View {
             }
             .navigationDestination(for: NewThreadRoute.self) { route in destination(route) }
         }
+        .escapeCloses { dismiss() }
         .tint(AceTheme.Colours.foreground)
         .task(id: machineId) {
             guard let client, let machineId else { return }

@@ -5,6 +5,7 @@ import type {
   DeviceInput,
   DeviceOperation,
   DevicePermission,
+  DevicePosture,
   DeviceSettings,
   DeviceState,
 } from "@ace/protocol";
@@ -14,6 +15,8 @@ import {
   deviceProblem,
   deviceRows,
   holdsControl,
+  inventoryNotes,
+  platformFailure,
   type DeviceControls,
   type DeviceProblem,
   type DeviceRow,
@@ -217,13 +220,15 @@ export function useDevices(threadId: string, deviceId?: string) {
           : undefined,
     enabled,
     rows,
-    notes: snapshot.issues.map((issue) => ({ message: issue.message, hint: issue.hint })),
+    notes: inventoryNotes(snapshot.issues),
     toolsMissing: snapshot.issues.some((issue) => issue.code === "tool_missing"),
     downloadingTools,
     selected,
     controls,
     pending: pending > 0,
-    problem: failed ?? (snapshot.issues[0] && deviceProblem(snapshot.issues[0])),
+    // The open device's own failure only: the machine's other notices are `notes`.
+    problem:
+      failed ?? (deviceId === undefined ? undefined : platformFailure(snapshot.issues, deviceId)),
     session,
     holder: state?.controller === "agent" ? state.holder : undefined,
     activity: state?.activity,
@@ -290,6 +295,10 @@ export function useDevices(threadId: string, deviceId?: string) {
       target && act(() => withControl({ op: "open_app", deviceId: target, appId })),
     configure: (settings: DeviceSettings) =>
       target && act(() => withControl({ op: "configure", deviceId: target, settings })),
+    /** A foldable device's posture; absent for every device ace can't fold. */
+    posture: state?.posture,
+    fold: (posture: DevicePosture) =>
+      target && act(() => withControl({ op: "posture", deviceId: target, posture })),
     /** The accessibility tree agents read, with their `@eN` refs. */
     uiTree: async (): Promise<ScreenUITreeResult | undefined> => {
       if (!target || !session) return undefined;

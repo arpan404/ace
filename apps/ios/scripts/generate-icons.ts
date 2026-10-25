@@ -199,6 +199,7 @@ const extra = [
   "chat-teardrop-text",
   "arrows-out-simple",
   "folder-simple",
+  "git-fork",
   "git-pull-request",
   "hammer",
   "list",

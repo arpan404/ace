@@ -15,8 +15,8 @@ import UIKit
     /// Widget extensions never register a model and keep these shared defaults.
     static let paletteDefaults: [String: NativePalette.Pair] = [
         "background": .init(light: 0xFFFFFF, dark: 0x0C0C0C),
-        "secondaryBackground": .init(light: 0xF5F5F7, dark: 0x141416),
-        "card": .init(light: 0xFFFFFF, dark: 0x1A1A1D),
+        "secondaryBackground": .init(light: 0xF5F5F7, dark: 0x101010),
+        "card": .init(light: 0xFFFFFF, dark: 0x121212),
         "foreground": .init(light: 0x222222, dark: 0xDEDEDE),
         "mutedForeground": .init(light: 0x545454, dark: 0xA3A3A3),
         "subtleForeground": .init(light: 0x676767, dark: 0x898989),
@@ -33,11 +33,11 @@ import UIKit
             return adaptive(pair.light, pair.dark)
         }
         static var secondaryBackground: Color {
-            let pair = NativePaletteBridge.pair(for: "secondaryBackground", light: 0xF5F5F7, dark: 0x141416)
+            let pair = NativePaletteBridge.pair(for: "secondaryBackground", light: 0xF5F5F7, dark: 0x101010)
             return adaptive(pair.light, pair.dark)
         }
         static var card: Color {
-            let pair = NativePaletteBridge.pair(for: "card", light: 0xFFFFFF, dark: 0x1A1A1D)
+            let pair = NativePaletteBridge.pair(for: "card", light: 0xFFFFFF, dark: 0x121212)
             return adaptive(pair.light, pair.dark)
         }
         static var foreground: Color {

@@ -84,6 +84,7 @@ extension AceIcon {
         case gear = "gear"
         case gearSix = "gear-six"
         case gitBranch = "git-branch"
+        case gitFork = "git-fork"
         case gitMerge = "git-merge"
         case gitPullRequest = "git-pull-request"
         case globe = "globe"

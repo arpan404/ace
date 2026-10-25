@@ -98,6 +98,7 @@ export {
   AppDeviceId,
   DeviceActivity,
   DeviceInput,
+  DevicePosture,
   DeviceSettings,
   DeviceFailure,
   DeviceInventory,

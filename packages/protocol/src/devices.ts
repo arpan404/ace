@@ -59,6 +59,12 @@ export const DeviceInput = z.discriminatedUnion("kind", [
   }),
 ]);
 export type DeviceInput = z.infer<typeof DeviceInput>;
+/**
+ * How a foldable device's hinge sits: shut on its cover screen, half open like a book, or open
+ * flat on its inner screen.
+ */
+export const DevicePosture = z.enum(["closed", "partiallyOpen", "open"]);
+export type DevicePosture = z.infer<typeof DevicePosture>;
 export const DeviceSettings = z.object({
   appearance: z.enum(["light", "dark"]).optional(),
   location: z
@@ -91,6 +97,11 @@ export const DeviceFailure = z.object({
   hint: z.string().max(2048),
   /** The macOS privacy permission the daemon's screen helper is missing, when that is the cause. */
   permission: z.enum(["screenRecording", "accessibility"]).optional(),
+  /**
+   * The platform an inventory issue concerns (a missing Android SDK, the Simulator's tools).
+   * Absent when it concerns the whole machine or the daemon is older.
+   */
+  platform: z.enum(["ios", "android"]).optional(),
 });
 export type DeviceFailure = z.infer<typeof DeviceFailure>;
 export const DeviceInventory = z.object({
@@ -141,6 +152,11 @@ export const DeviceState = z.object({
    * Absent from older daemons.
    */
   touch: z.enum(["multi", "pointer", "gestures"]).optional(),
+  /**
+   * The live picture already shows the device's own body (a Simulator window captured without
+   * its title bar, when serve-sim isn't there): clients draw no frame of their own around it.
+   */
+  framed: z.boolean().optional(),
   controller: z.enum(["none", "human", "agent"]),
   /** Whether this authenticated connection holds the human controller lease. */
   ownedHere: z.boolean().optional(),
@@ -149,6 +165,11 @@ export const DeviceState = z.object({
   error: DeviceFailure.optional(),
   /** The last thing an agent did on this device. */
   activity: DeviceActivity.optional(),
+  /**
+   * A foldable device's posture, present only when ace can fold it (an iPhone Duo Simulator on
+   * an Xcode whose device service ace knows). Absent for every other device.
+   */
+  posture: DevicePosture.optional(),
 });
 export type DeviceState = z.infer<typeof DeviceState>;
 const target = { deviceId: AppDeviceId };
@@ -198,6 +219,8 @@ export const DeviceOperation = z.discriminatedUnion("op", [
     agentId: AgentId.optional(),
   }),
   z.object({ op: z.literal("input"), ...target, input: DeviceInput }),
+  /** Fold or unfold a foldable device. Needs control, like input. */
+  z.object({ op: z.literal("posture"), ...target, posture: DevicePosture }),
   z.object({ op: z.literal("screenshot"), ...target }),
   /** The device clipboard's text, at most 4,096 characters. Needs control, like input. */
   z.object({ op: z.literal("clipboard.get"), ...target }),

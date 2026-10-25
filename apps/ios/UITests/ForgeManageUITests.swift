@@ -52,7 +52,7 @@ import XCTest
 
     func testACommentFromTheIssuePageJoinsItsConversation() {
         let app = launchOnPulls()
-        let segment = app.segmentedControls["forge.kind"].buttons["Issues"]
+        let segment = app.buttons["forge.kind.issues"]
         XCTAssertTrue(segment.waitForExistence(timeout: 20))
         segment.tap()
         let row = app.buttons["forge.issue.240"]

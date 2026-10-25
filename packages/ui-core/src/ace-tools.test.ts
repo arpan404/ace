@@ -96,6 +96,15 @@ test("a merged browser, screen or simulator tool reads by the action it was aske
   expect(past("sim_act", { action: "clipboard_set", text: "x" })).toBe(
     "Set the clipboard on the simulator",
   );
+  expect(past("sim_act", { action: "posture", posture: "closed" })).toBe(
+    "Folded the simulator shut",
+  );
+  expect(past("sim_act", { action: "posture", posture: "partiallyOpen" })).toBe(
+    "Unfolded the simulator half open",
+  );
+  expect(past("sim_act", { action: "posture", posture: "open" })).toBe(
+    "Unfolded the simulator flat",
+  );
 });
 
 test("a later browser action names the element a text snapshot listed for its ref", () => {

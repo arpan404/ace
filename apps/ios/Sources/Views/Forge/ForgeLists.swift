@@ -4,6 +4,8 @@ import SwiftUI
 /// headings over rows; a row opens its page, swipes to GitHub, and its menu copies the link or
 /// opens the thread working on it.
 struct ForgePullsList: View {
+    /// The page open beside the list, whose row reads as selected.
+    @Environment(\.openForgeRow) private var openRow
     let model: ForgeListModel<ForgePullList>
     let open: (ForgeRoute) -> Void
     let openThread: (InboxKey) -> Void
@@ -18,10 +20,10 @@ struct ForgePullsList: View {
             if let scope = model.scope { ForEach(model.list?.groups ?? []) { group in
                 ForgeGroupHeader(label: group.label, count: group.count).forgeRowChrome()
                 ForEach(group.rows) { row in
-                    Button { open(ForgeRoute(kind: .pull, machineId: scope.machineId, project: scope.project, number: row.number)) } label: {
-                        ForgePullRowView(row: row)
-                    }
-                    .buttonStyle(.row)
+                    let route = ForgeRoute(kind: .pull, machineId: scope.machineId, project: scope.project, number: row.number)
+                    Button { open(route) } label: { ForgePullRowView(row: row) }
+                        .buttonStyle(RowPressStyle(selected: openRow == route))
+                        .accessibilityAddTraits(openRow == route ? .isSelected : [])
                     .accessibilityIdentifier("forge.pull.\(row.number)")
                     .forgeRowChrome()
                     .forgeRowActions(url: row.url, thread: row.thread.map { InboxKey(machineId: scope.machineId, id: $0.id) }, openThread: openThread)
@@ -33,6 +35,8 @@ struct ForgePullsList: View {
 
 /// The Issues list: assigned to you, opened by you, and the rest.
 struct ForgeIssuesList: View {
+    /// The page open beside the list, whose row reads as selected.
+    @Environment(\.openForgeRow) private var openRow
     let model: ForgeListModel<ForgeIssueList>
     let open: (ForgeRoute) -> Void
     let openThread: (InboxKey) -> Void
@@ -46,10 +50,10 @@ struct ForgeIssuesList: View {
             if let scope = model.scope { ForEach(model.list?.groups ?? []) { group in
                 if group.id != "all" { ForgeGroupHeader(label: group.label, count: group.count).forgeRowChrome() }
                 ForEach(group.rows) { row in
-                    Button { open(ForgeRoute(kind: .issue, machineId: scope.machineId, project: scope.project, number: row.number)) } label: {
-                        ForgeIssueRowView(row: row)
-                    }
-                    .buttonStyle(.row)
+                    let route = ForgeRoute(kind: .issue, machineId: scope.machineId, project: scope.project, number: row.number)
+                    Button { open(route) } label: { ForgeIssueRowView(row: row) }
+                        .buttonStyle(RowPressStyle(selected: openRow == route))
+                        .accessibilityAddTraits(openRow == route ? .isSelected : [])
                     .accessibilityIdentifier("forge.issue.\(row.number)")
                     .forgeRowChrome()
                     .forgeRowActions(url: row.url, thread: row.thread.map { InboxKey(machineId: scope.machineId, id: $0.id) }, openThread: openThread)
@@ -74,6 +78,8 @@ struct ForgeListFrame<Rows: View>: View {
     let refresh: () async -> Void
     let more: () async -> Void
     @ViewBuilder let rows: () -> Rows
+    @Environment(\.onSidebarGlass) private var onGlass
+    private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
 
     var body: some View {
         List {
@@ -112,7 +118,7 @@ struct ForgeListFrame<Rows: View>: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(AceTheme.Colours.background)
+        .background(surface)
         .environment(\.defaultMinListRowHeight, 0)
         .contentMargins(.vertical, AceTheme.Spacing.xs, for: .scrollContent)
         .opacity(stale ? 0.6 : 1)

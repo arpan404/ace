@@ -12,6 +12,12 @@ enum InboxRoute: Hashable {
         return nil
     }
 
+    /// The pull request or issue page this is; nil for a thread.
+    var forge: ForgeRoute? {
+        if case .forge(let route) = self { return route }
+        return nil
+    }
+
     /// The threads a stack holds, in order; its pull request and issue pages are not threads.
     static func threads(_ path: [InboxRoute]) -> [InboxKey] { path.compactMap(\.thread) }
 }

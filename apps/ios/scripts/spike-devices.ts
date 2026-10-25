@@ -52,6 +52,18 @@ function seedDevices(daemon: FakeDaemon): void {
     daemon.appDevices.addDevice(
       AppDevice.parse({ ...device, platform: "ios", runtime: "iOS 26.0" }),
     );
+  // A foldable iPhone, booted and open flat, for the posture control.
+  const duo = "ios:5e6d3b4c-3f6d-4e5c-9b2a-8d9e0f1a2b3c";
+  daemon.appDevices.addDevice(
+    AppDevice.parse({
+      id: duo,
+      name: "iPhone Duo",
+      state: "booted",
+      platform: "ios",
+      runtime: "iOS 27.1",
+    }),
+  );
+  daemon.appDevices.folds.set(duo, "open");
 }
 
 /** One of ace's simulator tools on the iPhone, as the agent called it. */
@@ -261,9 +273,13 @@ export function featureMessage(
 
 /** `GET /devices/inputs`: every input a person sent to a device, for tests that drive the screen. */
 export function devicesControl(daemon: FakeDaemon, request: Request): Response | undefined {
-  if (new URL(request.url).pathname !== "/devices/inputs" || request.method !== "GET")
-    return undefined;
-  return Response.json({ inputs: daemon.appDevices.inputs });
+  if (request.method !== "GET") return undefined;
+  const path = new URL(request.url).pathname;
+  if (path === "/devices/inputs") return Response.json({ inputs: daemon.appDevices.inputs });
+  // How each foldable device sits, for the posture UI test.
+  if (path === "/devices/folds")
+    return Response.json({ folds: Object.fromEntries(daemon.appDevices.folds) });
+  return undefined;
 }
 
 export function featureClosed(socket: Socket): void {

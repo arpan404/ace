@@ -8,6 +8,8 @@ struct Target: Codable, Equatable {
     let bundleIds: [String]?
     let displayId: UInt32?
     let windowId: UInt32?
+    /// A window target shown without its title bar and toolbar: a Simulator's device alone.
+    let content: Bool?
 }
 enum InputCoordinates { case pixels, windowPoints }
 struct Action: Decodable {
@@ -160,7 +162,7 @@ func permissions() -> [String: Bool] { ["screenRecording": CGPreflightScreenCapt
     if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") { NSWorkspace.shared.open(url) }
 }
 func capabilities() -> [String: Any] {
-    ["version": 2, "platform": "macos", "background": true, "permissionEvents": true, "maxSessions": 8, "capture": ["windows": true, "displays": true, "changeDriven": true],
+    ["version": 2, "platform": "macos", "background": true, "permissionEvents": true, "maxSessions": 8, "capture": ["windows": true, "displays": true, "changeDriven": true, "windowContent": true],
      "input": ["pointer": true, "keyboard": true, "scroll": true, "text": true], "uiTree": true,
      "semanticActions": ["press", "focus", "setValue", "scroll", "expand", "select", "performSecondaryAction", "selectText"], "codecs": ["jpeg", "h264"],
      "permissions": ["screen": CGPreflightScreenCaptureAccess() ? "granted" : "denied", "input": AXIsProcessTrusted() ? "granted" : "denied"]]

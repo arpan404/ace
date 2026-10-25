@@ -28,6 +28,9 @@
         "bundleId": {
           "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
         },
+        "content": {
+          "type": "boolean"
+        },
         "kind": {
           "const": "window",
           "type": "string"
