@@ -17,12 +17,18 @@ export const bufferScheduler: BufferScheduler = {
 };
 
 const weightOf = (event: Event) => Buffer.byteLength(JSON.stringify(event)) * 8 + 512;
+/** Rows a subscriber may already hold are written within this bound. */
+const eventDelayMs = 75;
+/** A batch without events (an agent's transport signals) carries only liveness times. Nobody has
+ * seen it, so it waits longer and usually rides along with the next transaction. */
+const quietDelayMs = 1000;
 
 /** Uncommitted data is pinned, never evicted. Admission drains before reaching the hard cap. */
 export class LiveWriteBuffer {
   private events: Event[] = [];
   private snapshots = new Map<ThreadId, BufferedSnapshot>();
   private cancel: (() => void) | undefined;
+  private armedMs: number | undefined;
   private weight = 0;
   private waiters = new Set<() => void>();
   /** Consecutive failed attempts at the pinned batch; zero while healthy. */
@@ -37,6 +43,10 @@ export class LiveWriteBuffer {
   }
   get size(): number {
     return this.snapshots.size;
+  }
+  /** Whether the pinned batch holds only snapshots: no rows whose order a later write depends on. */
+  get quiet(): boolean {
+    return this.size > 0 && this.events.length === 0;
   }
   get bytes(): number {
     return this.weight;
@@ -77,7 +87,7 @@ export class LiveWriteBuffer {
       this.events.push(event);
     }
     this.metrics.peakBytes = Math.max(this.metrics.peakBytes, this.weight);
-    this.arm(75);
+    this.arm(this.delay());
   }
   /** Buffered envelopes after `seq`, in order. */
   after(seq: number): Event[] {
@@ -92,6 +102,7 @@ export class LiveWriteBuffer {
   begin(): void {
     this.cancel?.();
     this.cancel = undefined;
+    this.armedMs = undefined;
   }
   /** These threads' events and snapshots are durable: release them, settling once empty. */
   committed(threads: readonly ThreadId[], rows: number): void {
@@ -115,7 +126,7 @@ export class LiveWriteBuffer {
   }
   /** Rows written for the batch were rolled back with an enclosing transaction: write again. */
   rearm(): void {
-    if (this.size) this.arm(75);
+    if (this.size) this.arm(this.delay());
   }
   /** Resolve once no failed batch is pinned, or the buffer stops. */
   async settled(signal?: AbortSignal): Promise<void> {
@@ -155,9 +166,17 @@ export class LiveWriteBuffer {
     this.waiters.clear();
     for (const resolve of ready) resolve();
   }
+  private delay(): number {
+    return this.events.length ? eventDelayMs : quietDelayMs;
+  }
+  /** A shorter delay replaces a longer armed one: a quiet batch that gains events re-arms. */
   private arm(ms: number): void {
-    this.cancel ??= this.options.scheduler.delay(() => {
+    if (this.cancel && this.armedMs !== undefined && this.armedMs <= ms) return;
+    this.cancel?.();
+    this.armedMs = ms;
+    this.cancel = this.options.scheduler.delay(() => {
       this.cancel = undefined;
+      this.armedMs = undefined;
       this.options.attempt();
     }, ms);
   }

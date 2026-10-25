@@ -1,6 +1,17 @@
 import type { SQLOutputValue, StatementSync } from "node:sqlite";
 import type { Thread, ThreadListCursor, ThreadListWindow, ThreadListEntry } from "@ace/protocol";
+import { threadRowColumns, threadRowSource } from "./thread-row.ts";
 type Summary = Pick<ThreadListWindow, "total" | "counts">;
+/** Counted in project totals: not an unsent draft. */
+export const sidebarCounted =
+  "COALESCE(json_extract(client, '$.hasSentMessage'), 1) != 0 AND NOT (json_extract(client, '$.hasSentMessage') IS NULL AND json_extract(status, '$.state') = 'new' AND title = 'New thread')";
+// Queue attention and settled membership exactly match projection.sidebarSettled.
+const attention =
+  "COALESCE(json_extract(provider_metadata, '$.queue.paused'), 0) = 1 AND json_extract(provider_metadata, '$.queue.resumeAt') IS NULL AND json_extract(provider_metadata, '$.queue.reason') IS NOT NULL AND json_extract(provider_metadata, '$.queue.reason') NOT IN ('limit', 'snooze') AND NOT (json_extract(provider_metadata, '$.queue.reason') = 'manual' AND COALESCE(json_extract(provider_metadata, '$.queue.pendingCount'), 0) = 0)";
+/** Paged with the history below the live threads; may be NULL, which is neither. */
+export const sidebarSettled = `COALESCE(json_extract(client, '$.pinned'), 0) != 1 AND json_extract(client, '$.settledAt') IS NOT NULL AND json_extract(status, '$.state') NOT IN ('working', 'needs_you') AND (COALESCE(json_extract(client, '$.settledReason'), '') = 'manual' OR NOT (${attention}))`;
+export const sidebarDeleted = "json_extract(client, '$.deletedAt') IS NOT NULL";
+export const sidebarActivity = "COALESCE(json_extract(client, '$.activityAt'), updated_at)";
 export function sidebarPageStorage(
   statement: (sql: string) => StatementSync,
   decode: (row: Record<string, SQLOutputValue>) => Thread,
@@ -13,24 +24,16 @@ export function sidebarPageStorage(
   },
   summarize: (load: () => Summary) => Summary = (load) => load(),
 ): { threads: ThreadListEntry[]; window: ThreadListWindow } {
-  const draft =
-    "COALESCE(json_extract(client, '$.hasSentMessage'), 1) != 0 AND NOT (json_extract(client, '$.hasSentMessage') IS NULL AND json_extract(status, '$.state') = 'new' AND title = 'New thread')";
-  const visible = `json_extract(client, '$.deletedAt') IS NULL AND archived_at IS ${options.archived ? "NOT " : ""}NULL`;
-  // Queue attention and settled membership exactly match projection.sidebarSettled.
-  const attention =
-    "COALESCE(json_extract(provider_metadata, '$.queue.paused'), 0) = 1 AND json_extract(provider_metadata, '$.queue.resumeAt') IS NULL AND json_extract(provider_metadata, '$.queue.reason') IS NOT NULL AND json_extract(provider_metadata, '$.queue.reason') NOT IN ('limit', 'snooze') AND NOT (json_extract(provider_metadata, '$.queue.reason') = 'manual' AND COALESCE(json_extract(provider_metadata, '$.queue.pendingCount'), 0) = 0)";
-  const settled = `COALESCE(json_extract(client, '$.pinned'), 0) != 1 AND json_extract(client, '$.settledAt') IS NOT NULL AND json_extract(status, '$.state') NOT IN ('working', 'needs_you') AND (COALESCE(json_extract(client, '$.settledReason'), '') = 'manual' OR NOT (${attention}))`;
-  const paged = options.archived ? "1" : `(${settled})`;
+  const draft = sidebarCounted;
+  const visible = `NOT (${sidebarDeleted}) AND archived_at IS ${options.archived ? "NOT " : ""}NULL`;
+  const paged = options.archived ? "1" : `(${sidebarSettled})`;
   const matching = `${visible}${options.project ? " AND workspace_id = ?" : ""}`;
   const params: string[] = options.project ? [options.project] : [];
-  const activity = options.archived
-    ? "archived_at"
-    : "COALESCE(json_extract(client, '$.activityAt'), updated_at)";
+  const activity = options.archived ? "archived_at" : sidebarActivity;
   // Live updates fetch membership and only changed/new payloads. A deeply paged window
   // must not deserialize every historical thread on each active-thread update.
-  const columns = `${reuse ? "threads.id" : "threads.*"}, COALESCE(revisions.revision, 0) AS sidebar_revision`;
-  const source =
-    "threads LEFT JOIN sidebar_thread_revisions AS revisions ON revisions.thread_id=threads.id";
+  const columns = `${reuse ? "threads.id" : threadRowColumns}, COALESCE(revisions.revision, 0) AS sidebar_revision`;
+  const source = `${threadRowSource} LEFT JOIN sidebar_thread_revisions AS revisions ON revisions.thread_id=threads.id`;
   const entry = (row: Record<string, SQLOutputValue>): ThreadListEntry => {
     const id = String(row.id);
     const retained = reuse?.entries.get(id);
@@ -42,7 +45,7 @@ export function sidebarPageStorage(
       return retained;
     if (!reuse) return decode(row);
     const full = statement(
-      `SELECT threads.*, COALESCE(revisions.revision, 0) AS sidebar_revision FROM ${source} WHERE id = ?`,
+      `SELECT ${threadRowColumns}, COALESCE(revisions.revision, 0) AS sidebar_revision FROM ${source} WHERE threads.id = ?`,
     ).get(id);
     if (!full) throw new Error("Sidebar membership changed within a read");
     return decode(full);
@@ -74,17 +77,19 @@ export function sidebarPageStorage(
   return {
     threads: [...active, ...page],
     window: {
-      before:
-        rows.length > options.limit && last
-          ? {
-              at: options.archived
-                ? (last.archivedAt ?? last.updatedAt)
-                : (last.activityAt ?? last.updatedAt),
-              id: last.id,
-            }
-          : null,
+      before: rows.length > options.limit && last ? sidebarCursor(last, options.archived) : null,
       total,
       counts,
     },
+  };
+}
+/** Where the next page starts: after this, the page's last entry. */
+export function sidebarCursor(
+  last: ThreadListEntry,
+  archived: boolean | undefined,
+): ThreadListCursor {
+  return {
+    at: archived ? (last.archivedAt ?? last.updatedAt) : (last.activityAt ?? last.updatedAt),
+    id: last.id,
   };
 }
