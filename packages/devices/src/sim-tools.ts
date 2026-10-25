@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DeviceOperation, AppDevice } from "@ace/protocol/devices";
+import { DeviceOperation, AppDevice, DevicePosture } from "@ace/protocol/devices";
 import { ScreenUITreeResult } from "@ace/protocol";
 import {
   modelImage,
@@ -30,11 +30,23 @@ const json = (value: unknown): SimResult => ({ kind: "json", value });
 /** What an agent needs after taking or releasing a simulator, not the full device state. */
 function summary(raw: unknown) {
   const state = z
-    .looseObject({ device: AppDevice, lifecycle: z.string(), controller: z.string() })
+    .looseObject({
+      device: AppDevice,
+      lifecycle: z.string(),
+      controller: z.string(),
+      posture: DevicePosture.optional(),
+    })
     .safeParse(raw);
   if (!state.success) return raw;
-  const { device, lifecycle, controller } = state.data;
-  return { simId: device.id, name: device.name, state: device.state, lifecycle, controller };
+  const { device, lifecycle, controller, posture } = state.data;
+  return {
+    simId: device.id,
+    name: device.name,
+    state: device.state,
+    lifecycle,
+    controller,
+    ...(posture ? { posture } : {}),
+  };
 }
 
 async function run(

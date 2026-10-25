@@ -8,7 +8,7 @@ import {
   ScreenUITreeResult,
   type ScreenUINode,
 } from "@ace/protocol";
-import type { AppDevice as Device, DeviceInput } from "@ace/protocol/devices";
+import type { AppDevice as Device, DeviceInput, DevicePosture } from "@ace/protocol/devices";
 import { framePacket, type Frame } from "@ace/screen";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { DevicePlatform } from "../platform.ts";
@@ -100,6 +100,18 @@ export class FakeSimPlatform extends DevicePlatform {
   override async clipboardWrite(device: Device, text: string): Promise<void> {
     this.effects.push(`${device.id} clipboard ${JSON.stringify(text)}`);
     this.clipboards.set(device.id, text);
+  }
+  /** Foldable devices and how each sits; tests seed the ones that fold. */
+  readonly folds = new Map<string, DevicePosture>();
+  override async posture(device: Device): Promise<DevicePosture | undefined> {
+    return this.folds.get(device.id);
+  }
+  override async setPosture(device: Device, posture: DevicePosture): Promise<DevicePosture> {
+    if (!this.folds.has(device.id))
+      throw new DeviceError("not_supported", "This device doesn't fold", "Use a foldable one.");
+    this.effects.push(`${device.id} posture ${posture}`);
+    this.folds.set(device.id, posture);
+    return posture;
   }
   override async screenshot(device: Device): Promise<DeviceShot> {
     this.shots.push(device.id);

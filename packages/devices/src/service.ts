@@ -127,7 +127,7 @@ export class DevicesService {
         this.sessions.delete(session.device.id);
       } else if (changed) {
         this.emit(session);
-        this.refreshPosture(session);
+        void this.refreshPosture(session);
       }
     }
     this.inventory.update({ devices, issues: this.options.platform.diagnostics() });
@@ -150,7 +150,7 @@ export class DevicesService {
       );
     const session = createSession(Device.parse(device), this.options.runtime);
     this.sessions.set(id, session);
-    this.refreshPosture(session);
+    void this.refreshPosture(session);
     return session;
   }
   state(session: DeviceSession): DeviceState {
@@ -172,8 +172,8 @@ export class DevicesService {
     });
   }
   /** Reads a foldable device's posture again; viewers hear when it changed. */
-  private refreshPosture(session: DeviceSession): void {
-    void this.options.platform
+  private refreshPosture(session: DeviceSession): Promise<void> {
+    return this.options.platform
       .posture(session.device)
       .then((posture) => {
         if (posture === session.posture) return;
@@ -481,7 +481,8 @@ export class DevicesService {
         return { completed: true };
       case "start":
         await this.start(session, operation.fps);
-        this.refreshPosture(session);
+        // An agent starting a foldable device learns its posture from the reply.
+        await this.refreshPosture(session);
         return this.state(session);
       case "stop":
         if (actor.kind === "agent") session.lease.ticket(actor);
