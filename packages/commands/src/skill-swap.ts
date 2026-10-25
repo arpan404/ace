@@ -59,7 +59,7 @@ export function swapRecoveryPlan(journal: SwapJournal, seen: SwapObserved): Swap
   };
 }
 
-export type SwapReport = (message: string, path: string) => void;
+export type SwapReport = (message: string, detail: string) => void;
 const conflict = () =>
   new SkillError("conflict", "This skill changed since the review. Check for updates again.");
 

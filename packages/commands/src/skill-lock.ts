@@ -4,8 +4,9 @@ import { SkillError } from "./skill-errors.ts";
 
 /** Pause between attempts while another ace holds the lock; injected so tests control time. */
 export type SkillLockWait = (milliseconds: number) => Promise<void>;
-const attempts = 200;
-const interval = 50;
+// A short, bounded wait: the request queue and the socket handler wait with it.
+const attempts = 3;
+const interval = 100;
 const busy = (error: unknown) => {
   const code = error instanceof Error ? Reflect.get(error, "errcode") : undefined;
   // SQLITE_BUSY and SQLITE_LOCKED: another connection holds the lock.
@@ -16,7 +17,8 @@ const busy = (error: unknown) => {
  * Serialize skill folder swaps across every ace on this machine (a release daemon and a dev one
  * share `~/.agents`). The lock is an IMMEDIATE transaction on a SQLite file beside the shared
  * state, like the plugin manager's `operation.sqlite`: the kernel drops it when its process dies,
- * so a crashed daemon never blocks the next. A busy lock is retried without blocking the thread.
+ * so a crashed daemon never blocks the next. A busy lock is retried for about 300 ms without
+ * blocking the thread, then answers `busy`.
  */
 export async function withSkillLock<T>(
   path: string,
@@ -34,8 +36,9 @@ export async function withSkillLock<T>(
         db.exec("PRAGMA busy_timeout=0; BEGIN IMMEDIATE");
         break;
       } catch (error) {
-        if (!busy(error) || attempt >= attempts)
-          throw new SkillError("unavailable", "Another ace is changing skills. Try again.");
+        if (!busy(error)) throw error;
+        if (attempt >= attempts)
+          throw new SkillError("busy", "Another ace is updating skills. Try again in a moment.");
         await wait(interval);
       }
     }

@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import type { SkillEntry, SkillResult, SkillUpdateReview } from "@ace/protocol";
 import { SkillLibrary } from "./index.ts";
 import type { OpenCommandChild } from "./posix.ts";
+import type { RecoveryScheduler } from "./recovery-loop.ts";
 
 export const installedHash = "a".repeat(40);
 export const upstreamHash = "b".repeat(40);
@@ -61,7 +62,8 @@ export async function updateHome() {
     options: {
       data?: string;
       openChild?: OpenCommandChild;
-      report?: (message: string, path: string) => void;
+      report?: (message: string, detail: string) => void;
+      schedule?: RecoveryScheduler;
     } = {},
   ) => {
     const data = join(root, options.data ?? "data");
@@ -76,6 +78,7 @@ export async function updateHome() {
       },
       workspace: () => undefined,
       openChild: options.openChild,
+      schedule: options.schedule,
       updates: {
         fetcher: {
           fetch: async (_url, _ref, temporary) => ({ gitRoot: temporary, commit: "c".repeat(40) }),

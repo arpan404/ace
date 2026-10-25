@@ -28695,12 +28695,12 @@ Example:
 
 [JSON Schema](schema/SkillErrorCode.json), input validation.
 
-Type: ["unavailable","forbidden","not_found","conflict","exists","invalid","limit","read_only","update_failed"]. See JSON Schema for constraints.
+Type: ["unavailable","busy","forbidden","not_found","conflict","exists","invalid","limit","read_only","update_failed"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
-"forbidden"
+"busy"
 ```
 
 ## SkillHash

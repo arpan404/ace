@@ -60,11 +60,13 @@ async function initializeCommands({
     pluginEntries: plugins ? () => plugins.extensions("claude") : undefined,
     options: integration.skills,
     usage: async (names) => readSkillUsage((sql) => store.statement(sql), names),
-    report: (message, path) => log.log("warn", message, logFields([["path", path]])),
+    report: (message, detail) => log.log("warn", message, logFields([["detail", detail]])),
     now,
     id,
   });
-  await skillLibrary.start().catch(() => {});
+  // Recovery is queued ahead of skill requests and retries in the background; it never blocks
+  // the command library from starting.
+  void skillLibrary.start();
   services.skillLibrary = skillLibrary;
   resources.own(() => skillLibrary.close());
   if (plugins) resources.own(plugins.subscribeCatalog(() => skillLibrary.invalidate()));

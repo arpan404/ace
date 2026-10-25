@@ -52,8 +52,8 @@ export function createDaemonSkillLibrary(input: {
   workspace(workspaceId: string): string | undefined;
   pluginEntries?: (() => Promise<readonly CatalogEntry[]>) | undefined;
   usage?: SkillUsageReader | undefined;
-  /** Interrupted updates that recovery left in place for the person. */
-  report?: ((message: string, path: string) => void) | undefined;
+  /** Update recovery warnings: what was left in place or deferred, with a path or cause. */
+  report?: ((message: string, detail: string) => void) | undefined;
   options?: DaemonSkillOptions | undefined;
   now(): number;
   id(): string;

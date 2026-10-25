@@ -1,7 +1,7 @@
 import { SkillOperation, type SkillAgent, type SkillResult, type SkillUsage } from "@ace/protocol";
 import { CommandCatalog } from "./catalog.ts";
 import { CommandFiles, type WatchSource } from "./files.ts";
-import type { RecoveryScheduler } from "./recovery-loop.ts";
+import { RecoveryLoop, type RecoveryScheduler } from "./recovery-loop.ts";
 import type { DiscoveryRoot } from "./roots.ts";
 import { editSkill, newSkill } from "./skill-markdown.ts";
 import {
@@ -21,6 +21,12 @@ import { SkillUpdates, type SkillUpdateOptions } from "./skill-updates.ts";
 import { listSkills, type Listed, type PluginSkill } from "./skill-listing.ts";
 export type { PluginSkill } from "./skill-listing.ts";
 
+/** An error and its cause, in one line for the daemon log. */
+function causeText(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const cause = error.cause instanceof Error ? `: ${error.cause.message}` : "";
+  return `${error.message}${cause}`;
+}
 export type SkillUsageReader = (
   names: readonly string[],
 ) => Promise<ReadonlyMap<string, Omit<SkillUsage, "id">>>;
@@ -55,14 +61,41 @@ export class SkillLibrary {
   private tail: Promise<unknown> = Promise.resolve();
   private pending = 0;
   private closed = false;
+  private stopRetry: (() => void) | undefined;
   constructor(options: SkillLibraryOptions) {
     this.options = options;
     this.disk = new SkillDisk(options.openChild);
     this.updates = options.updates ? new SkillUpdates(options.updates, this.disk) : undefined;
   }
-  /** Self-heal after a crash mid-update, before the first request. */
-  async start(): Promise<void> {
-    await this.updates?.recover();
+  /**
+   * Self-heal after a crash mid-update. Queued ahead of requests, so it never blocks the caller
+   * for long and never throws; if another ace holds the skills lock or the lock can't be opened,
+   * the cause is logged and recovery retries in the background (and before the next apply).
+   */
+  start(): Promise<void> {
+    const run = this.tail.then(() => this.recoverNow()).then(() => {});
+    this.tail = run;
+    return run;
+  }
+  private async recoverNow(): Promise<boolean> {
+    if (!this.updates) return true;
+    try {
+      await this.updates.recover();
+      this.stopRetry?.();
+      this.stopRetry = undefined;
+      return true;
+    } catch (error) {
+      if (!this.stopRetry && !this.closed) {
+        this.options.updates?.report?.("Skill update recovery will retry", causeText(error));
+        const schedule = this.options.schedule ?? new RecoveryLoop().schedule;
+        this.stopRetry = schedule(() => {
+          const run = this.tail.then(() => this.recoverNow());
+          this.tail = run;
+          return run;
+        });
+      }
+      return false;
+    }
   }
   request(operation: unknown): Promise<SkillResult> {
     const parsed = SkillOperation.safeParse(operation);
@@ -112,6 +145,8 @@ export class SkillLibrary {
   }
   async close(): Promise<void> {
     this.closed = true;
+    this.stopRetry?.();
+    this.stopRetry = undefined;
     this.listeners.clear();
     await this.tail.catch(() => {});
     for (const { files } of this.watchers.values()) await files.close();

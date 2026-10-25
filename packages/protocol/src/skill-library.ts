@@ -144,6 +144,8 @@ export type SkillOperation = z.infer<typeof SkillOperation>;
 
 export const SkillErrorCode = z.enum([
   "unavailable",
+  /** Another ace on this machine holds the skills lock; trying again shortly works. */
+  "busy",
   "forbidden",
   "not_found",
   "conflict",

@@ -1,8 +1,9 @@
 import { afterEach, expect, test } from "vitest";
 import { spawn } from "node:child_process";
-import { chmod, mkdir, readFile, rename, rm, symlink } from "node:fs/promises";
+import { chmod, readFile, rename, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { openCommandChild, type OpenCommandChild } from "./posix.ts";
+import type { RecoveryScheduler } from "./recovery-loop.ts";
 import {
   apply,
   demo,
@@ -173,7 +174,7 @@ function gate(prefix: string, count: number) {
   return { control, pausedAt, openChild };
 }
 
-test("two aces applying at once take turns: the second sees the first's update as a change", async () => {
+test("an apply while another ace holds the skills lock answers busy at once, then works", async () => {
   const h = await home();
   // The second open of the staging folder: the first ace is filling it, demo still in place.
   const { control, pausedAt, openChild } = gate(".demo.ace-update-", 2);
@@ -185,17 +186,32 @@ test("two aces applying at once take turns: the second sees the first's update a
   control.armed = true;
   const firstApply = apply(first, entry, firstReview);
   await pausedAt;
-  let secondSettled = false;
-  const secondApply = apply(second, entry, secondReview).finally(() => (secondSettled = true));
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  expect(secondSettled).toBe(false);
+  const started = performance.now();
+  const busy = await apply(second, entry, secondReview);
+  expect(performance.now() - started).toBeLessThan(1000);
+  expect(busy).toEqual({
+    kind: "error",
+    code: "busy",
+    message: "Another ace is updating skills. Try again in a moment.",
+  });
   control.release();
   expect(errorCode(await firstApply)).toBe("skill");
-  expect(errorCode(await secondApply)).toBe("conflict");
+  // Its review compared against the folder the first ace has since replaced.
+  expect(errorCode(await apply(second, entry, secondReview))).toBe("conflict");
   expect(await h.folder()).toEqual(updated);
 });
 
-test("recovery waits for another ace's apply instead of undoing it", async () => {
+/** A scheduler whose retries run only when the test says so. */
+function manualSchedule() {
+  const tasks: (() => Promise<boolean>)[] = [];
+  const schedule: RecoveryScheduler = (run) => {
+    tasks.push(run);
+    return () => tasks.splice(tasks.indexOf(run), 1);
+  };
+  return { schedule, tasks };
+}
+
+test("recovery while another ace is applying defers instead of waiting or undoing it", async () => {
   const h = await home();
   const { control, pausedAt, openChild } = gate(".demo.ace-old-", 1);
   // Both aces share one data directory here, so the second sees the first's journal.
@@ -205,19 +221,46 @@ test("recovery waits for another ace's apply instead of undoing it", async () =>
   control.armed = true;
   const applying = apply(first, entry, review);
   await pausedAt;
-  await mkdir(join(h.root, "shared"), { recursive: true });
-  let recovered = false;
-  const recovering = h
-    .library({ data: "shared" })
-    .start()
-    .finally(() => (recovered = true));
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  expect(recovered).toBe(false);
+  const reports: string[] = [];
+  const retries = manualSchedule();
+  const second = h.library({
+    data: "shared",
+    schedule: retries.schedule,
+    report: (message, detail) => reports.push(`${message}: ${detail}`),
+  });
+  const started = performance.now();
+  await second.start();
+  expect(performance.now() - started).toBeLessThan(1000);
+  expect(reports).toEqual([
+    "Skill update recovery will retry: Another ace is updating skills. Try again in a moment.",
+  ]);
   control.release();
   expect(errorCode(await applying)).toBe("skill");
-  await recovering;
+  // The background retry finds the first ace's journal gone and nothing to undo.
+  expect(await retries.tasks[0]?.()).toBe(true);
+  expect(retries.tasks).toHaveLength(0);
   expect(await h.folder()).toEqual(updated);
-  await rm(join(h.root, "shared"), { recursive: true, force: true });
+});
+
+test("a skills lock that can't be opened is logged with its cause and recovery retries", async () => {
+  const h = await home();
+  await crashApply(h, ...movedAside);
+  await rm(join(h.home, ".agents/.ace-skills.sqlite"), { force: true });
+  await chmod(join(h.home, ".agents"), 0o555);
+  const reports: string[] = [];
+  const retries = manualSchedule();
+  await h
+    .library({
+      schedule: retries.schedule,
+      report: (message, detail) => reports.push(`${message}: ${detail}`),
+    })
+    .start();
+  await chmod(join(h.home, ".agents"), 0o755);
+  expect(reports).toHaveLength(1);
+  expect(reports[0]).toMatch(/^Skill update recovery will retry: .+/);
+  expect(await h.folder()).not.toEqual(installed);
+  expect(await retries.tasks[0]?.()).toBe(true);
+  expect(await h.folder()).toEqual(installed);
 });
 
 test("removing the backup never empties a directory swapped in under its name", async () => {

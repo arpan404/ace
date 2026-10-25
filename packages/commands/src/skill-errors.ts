@@ -8,12 +8,13 @@ export type SkillErrorCode =
   | "limit"
   | "read_only"
   | "update_failed"
-  | "unavailable";
+  | "unavailable"
+  | "busy";
 /** A failure the person can act on; its message is shown as written. */
 export class SkillError extends Error {
   readonly code: SkillErrorCode;
-  constructor(code: SkillErrorCode, message: string) {
-    super(message);
+  constructor(code: SkillErrorCode, message: string, options?: { cause?: unknown }) {
+    super(message, options);
     this.code = code;
   }
 }

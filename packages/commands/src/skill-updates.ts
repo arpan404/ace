@@ -31,7 +31,7 @@ export interface SkillUpdateOptions {
   lockPath: string;
   /** Private directory for swap journals (ace's data dir); survives restarts. */
   journalRoot: string;
-  /** Things recovery left in place for the person, with the path concerned. */
+  /** Things recovery left in place or couldn't do yet, with the path or cause concerned. */
   report?: SwapReport | undefined;
   /** Pause while another ace holds the skills lock. */
   wait?: SkillLockWait | undefined;
@@ -57,6 +57,9 @@ export class SkillUpdates {
   private readonly pending = new Map<string, Pending>();
   private readonly disk: SkillDisk;
   private readonly swap: SkillSwap;
+  /** A recovery failed; settle journals before the next swap. */
+  private owed = false;
+  private staleStaging = true;
   constructor(options: SkillUpdateOptions, disk: SkillDisk) {
     this.options = options;
     this.disk = disk;
@@ -175,6 +178,10 @@ export class SkillUpdates {
     const token = this.options.id();
     const lockTemporary = `${this.options.lockPath}.ace-${token}`;
     await this.locking(async () => {
+      if (this.owed) {
+        await this.settleJournals();
+        this.owed = false;
+      }
       const root = await this.disk.openPath(canonical.rootReal);
       if (root === undefined)
         throw new SkillError("read_only", "This skill's folder moved. Reload the list.");
@@ -223,18 +230,33 @@ export class SkillUpdates {
       if (pending.expires <= this.options.now()) void this.cancel(id);
   }
   /**
-   * After a crash: drop this ace's staged reviews, then settle each apply it has a journal for
-   * (`SkillSwap.recover`). Folders without a journal, or that no longer match one, are left alone.
+   * After a crash: drop this ace's staged reviews (first call only), then settle each apply it has
+   * a journal for (`SkillSwap.recover`). Folders without a journal, or that no longer match one,
+   * are left alone. A failure (lock busy or unopenable) leaves recovery owed: it is thrown for the
+   * caller to log and retry, and the next apply settles the journals first under its lock.
    */
   async recover(): Promise<void> {
-    await rm(this.options.temporaryRoot, { recursive: true, force: true });
-    if (!(await this.swap.pending())) return;
-    await this.locking(async () => {
-      const locked = await this.locked();
-      await this.swap.recover(
-        (journal) => locked.get(journal.name)?.folderHash === journal.folderHash,
-      );
-    });
+    if (this.staleStaging) {
+      this.staleStaging = false;
+      await rm(this.options.temporaryRoot, { recursive: true, force: true });
+    }
+    if (!(await this.swap.pending())) {
+      this.owed = false;
+      return;
+    }
+    try {
+      await this.locking(() => this.settleJournals());
+      this.owed = false;
+    } catch (error) {
+      this.owed = true;
+      throw error;
+    }
+  }
+  private async settleJournals(): Promise<void> {
+    const locked = await this.locked();
+    await this.swap.recover(
+      (journal) => locked.get(journal.name)?.folderHash === journal.folderHash,
+    );
   }
   async close(): Promise<void> {
     for (const id of this.pending.keys()) await this.cancel(id);
