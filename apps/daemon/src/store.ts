@@ -331,6 +331,8 @@ export class Store {
         checkoutThread: (id) => this.threads.checkout(id),
         rememberThread: (id, revision, thread, written) =>
           this.threads.remember(id, revision, thread, written),
+        rememberCreatedThread: (id, revision, thread, row) =>
+          this.threads.rememberCreated(id, revision, thread, row),
         nextId: this.nextId,
         wakeSearch: () => this.searchMaintenance.wake(),
       });

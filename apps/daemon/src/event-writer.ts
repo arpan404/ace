@@ -37,12 +37,19 @@ interface EventWriteSource {
   getThread(id: ThreadId): Thread | undefined;
   /** The shared frozen thread and a private copy, from one cache lookup. */
   checkoutThread(id: ThreadId): { base: FrozenThread; thread: Thread } | undefined;
-  /** This writer just wrote the thread's row, which decodes to `thread` at `revision`. */
+  /** This writer just wrote `written` to the thread's row, which decodes to `thread` at `revision`. */
   rememberThread(
     id: ThreadId,
     revision: number,
     thread: Thread,
     written: Record<string, ColumnValue>,
+  ): void;
+  /** As `rememberThread`, for a thread this writer just created with every column in `row`. */
+  rememberCreatedThread(
+    id: ThreadId,
+    revision: number,
+    thread: Thread,
+    row: Record<string, ColumnValue>,
   ): void;
   nextId(): string;
   wakeSearch(): void;
@@ -180,13 +187,10 @@ export class EventWriter {
     const revision = this.source
       .statement("SELECT revision FROM sidebar_thread_revisions WHERE thread_id = ?")
       .get(thread.id)?.revision;
-    if (typeof revision === "number")
-      this.source.rememberThread(
-        thread.id,
-        revision,
-        rebuildThread(previous, changes.row, changes.parts),
-        changes.row,
-      );
+    if (typeof revision !== "number") return;
+    const rebuilt = rebuildThread(previous, changes.row, changes.parts);
+    if (previous) this.source.rememberThread(thread.id, revision, rebuilt, changes.row);
+    else this.source.rememberCreatedThread(thread.id, revision, rebuilt, changes.row);
   }
 }
 

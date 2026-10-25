@@ -16,6 +16,8 @@ interface Entry {
   revision: number;
   /** Deeply frozen at runtime; typed mutable only so `copy` can clone it as a Thread. */
   thread: Thread;
+  /** Weight of each stored column the thread was read from; `bytes` is their sum. */
+  weights: Readonly<Record<string, number>>;
   bytes: number;
 }
 interface ThreadCacheSource {
@@ -81,9 +83,11 @@ export class ThreadCache {
     return base && { base, thread: structuredClone(base) };
   }
   /**
-   * The store's own writer just wrote this thread's row, which now has `revision` and decodes
-   * to `thread`: keep it, so the next read needs no decode. Only inside the store's write
-   * transaction, under the same rules as a read made there; `thread` becomes the cache's.
+   * The store's own writer just wrote `written` to this thread's row, which now has
+   * `revision` and decodes to `thread`: keep it, so the next read needs no decode. The
+   * thread must be cached already (the writer read it first), so the weights of the columns
+   * not written are known. Only inside the store's write transaction, under the same rules
+   * as a read made there; `thread` becomes the cache's.
    */
   remember(
     id: string,
@@ -91,14 +95,21 @@ export class ThreadCache {
     thread: Thread,
     written: Record<string, SQLOutputValue>,
   ): void {
+    const before = this.pending?.get(id) ?? this.entries.get(id);
+    if (before) this.keep(id, revision, thread, { ...before.weights, ...weigh(written) });
+  }
+  /** As `remember`, for a thread the writer just created: `row` is every column it wrote. */
+  rememberCreated(
+    id: string,
+    revision: number,
+    thread: Thread,
+    row: Record<string, SQLOutputValue>,
+  ): void {
+    this.keep(id, revision, thread, weigh(row));
+  }
+  private keep(id: string, revision: number, thread: Thread, weights: Record<string, number>) {
     if (!this.pending || this.pending.size >= 64) return;
-    const before = this.pending.get(id) ?? this.entries.get(id);
-    this.pending.set(id, {
-      revision,
-      thread: deepFreeze(thread),
-      // Sizes drift slowly between writes; the budget only needs to scale with them.
-      bytes: before?.bytes ?? rowBytes(written),
-    });
+    this.pending.set(id, { revision, thread: deepFreeze(thread), weights, bytes: total(weights) });
   }
   /** Decode a row read together with its revision, reusing the cached copy for that revision. */
   decode(row: Record<string, SQLOutputValue>, revision: SQLOutputValue | undefined): FrozenThread {
@@ -128,7 +139,8 @@ export class ThreadCache {
     // Freeze a private clone: parsed output can share nested default objects with the schema.
     const thread = deepFreeze(structuredClone(decodeThreadRow(row)));
     if (known === undefined) return thread;
-    const entry = { revision: known, thread, bytes: rowBytes(row) };
+    const weights = weigh(row);
+    const entry = { revision: known, thread, weights, bytes: total(weights) };
     if (this.source.committed()) this.store(id, entry);
     // One transaction touches a few threads; a huge one just stops adding.
     else if (this.pending && this.pending.size < 64) this.pending.set(id, entry);
@@ -149,14 +161,19 @@ function deepFreeze<T>(value: T): T {
 }
 
 /** Decoded objects run a few times their stored text; the budget only needs to scale with it. */
-function rowBytes(row: Record<string, SQLOutputValue>): number {
-  let bytes = 0;
-  for (const value of Object.values(row))
-    bytes +=
+function weigh(row: Record<string, SQLOutputValue>): Record<string, number> {
+  const weights: Record<string, number> = {};
+  for (const [column, value] of Object.entries(row))
+    weights[column] =
       typeof value === "string"
         ? value.length * 4
         : value instanceof Uint8Array
           ? value.byteLength
           : 8;
+  return weights;
+}
+function total(weights: Readonly<Record<string, number>>): number {
+  let bytes = 0;
+  for (const weight of Object.values(weights)) bytes += weight;
   return bytes;
 }
