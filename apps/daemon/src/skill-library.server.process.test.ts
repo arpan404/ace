@@ -102,7 +102,11 @@ async function result(client: Client, requestId: string) {
   return message.result;
 }
 async function demoEntry(client: Client): Promise<SkillEntry> {
-  client.send({ type: "skills.request", requestId: "list", operation: { op: "list" } });
+  client.send({
+    type: "skills.request",
+    requestId: "list",
+    operation: { op: "list", subscribe: false },
+  });
   const listed = await result(client, "list");
   const entry = listed.kind === "list" ? listed.entries.find((e) => e.name === "demo") : undefined;
   if (!entry) throw new Error(JSON.stringify(listed));
@@ -215,6 +219,7 @@ test("a subscribed list hears about skills created by another client", async () 
         body: "# Notes\n",
         scope: { kind: "personal" },
         agents: ["claude"],
+        manual: false,
       },
     });
     expect(await result(editor, "create")).toMatchObject({ kind: "skill" });
