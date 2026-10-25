@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ThreadId, AgentId } from "./ids.ts";
 import { ScreenId, ScreenStreamSettings } from "./screen-base.ts";
 import { ScreenUITreeOptions, ScreenUIFindOptions, ScreenUIActOptions } from "./screen-v2.ts";
+export * from "./device-chrome.ts";
 
 export const AppDeviceId = z
   .string()
@@ -164,6 +165,8 @@ export const DeviceOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("permissions.request"), permission: DevicePermission }),
   /** Download the device tools ace runs (serve-sim on a Mac, the scrcpy server), if missing. */
   z.object({ op: z.literal("tools.install") }),
+  /** The device's real hardware look from the SDK on the daemon's machine (`DeviceChromeResult`). */
+  z.object({ op: z.literal("chrome"), ...target }),
   z.object({ op: z.literal("boot"), ...target }),
   z.object({ op: z.literal("shutdown"), ...target }),
   z.object({ op: z.literal("install"), ...target, path: z.string().min(1).max(4096) }),

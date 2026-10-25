@@ -109,6 +109,11 @@ export {
   DeviceAck,
   DeviceScreenshot,
   DeviceServerMessage,
+  DeviceChrome,
+  DeviceChromeButton,
+  DeviceChromeImage,
+  DeviceChromeRect,
+  DeviceChromeResult,
 } from "./devices.ts";
 export * from "./thread-transitions.ts";
 export * from "./handoff-read.ts";
