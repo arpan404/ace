@@ -124,6 +124,8 @@ export class FakeAppDevices {
   readonly requested: DevicePermission[] = [];
   /** Whether the device tools are downloaded; `tools.install` downloads them. */
   toolsReady = true;
+  /** Discovery reports this machine's Android SDK missing, beside its working Simulators. */
+  androidSdkMissing = false;
   /** How many times a person asked for the device tools download. */
   toolDownloads = 0;
   /**
@@ -219,17 +221,30 @@ export class FakeAppDevices {
     this.paint(session);
   }
 
-  /** The inventory's notes: the missing device tools, until they are downloaded. */
+  /** The inventory's notes: a missing Android SDK, and the device tools until they download. */
   private issues() {
-    return this.toolsReady
-      ? []
-      : [
-          {
-            code: "tool_missing" as const,
-            message: "The Simulator's device tools aren't downloaded",
-            hint: "Download device tools in Devices.",
-          },
-        ];
+    return [
+      ...(this.androidSdkMissing
+        ? [
+            {
+              code: "sdk_missing" as const,
+              platform: "android" as const,
+              message: "Android SDK platform-tools and emulator were not found",
+              hint: "Install Android Studio's Platform Tools and Android Emulator, then set ANDROID_HOME to the SDK directory.",
+            },
+          ]
+        : []),
+      ...(this.toolsReady
+        ? []
+        : [
+            {
+              code: "tool_missing" as const,
+              platform: "ios" as const,
+              message: "The Simulator's device tools aren't downloaded",
+              hint: "Download device tools in Devices.",
+            },
+          ]),
+    ];
   }
 
   private known(deviceId: string): Session {

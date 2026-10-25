@@ -1,4 +1,4 @@
-import type { AppDevice, DeviceInput, DeviceState } from "@ace/protocol";
+import type { AppDevice, DeviceFailure, DeviceInput, DeviceState } from "@ace/protocol";
 
 /** One simulator or emulator as the devices list shows it. */
 export interface DeviceRow {
@@ -83,6 +83,10 @@ export interface DeviceProblem {
   permission?: "screenRecording" | "accessibility" | undefined;
 }
 
+/**
+ * A failure in a person's words. Missing SDKs and tools keep the daemon's own sentence and hint:
+ * they name the platform and the fix. Raw command and data failures get a plain line instead.
+ */
 export function deviceProblem(failure: DeviceProblem & { code: string }): DeviceProblem {
   if (failure.permission)
     return { message: failure.message, hint: failure.hint, permission: failure.permission };
@@ -91,20 +95,32 @@ export function deviceProblem(failure: DeviceProblem & { code: string }): Device
       message: "The device action didn't finish.",
       hint: "Check that the device is running, then try again.",
     },
-    tool_missing: {
-      message: "A device tool is missing on this machine.",
-      hint: "Install the device and recording tools, then try again.",
-    },
-    sdk_missing: {
-      message: "The device software isn't installed.",
-      hint: "Install Xcode for iOS or the Android SDK, then reconnect.",
-    },
     invalid_data: {
       message: "The device returned an unreadable response.",
       hint: "Restart its live view and try again.",
     },
   };
   return plain[failure.code] ?? { message: failure.message, hint: failure.hint };
+}
+
+/** The machine's setup notices (a missing SDK, tools to download), one per inventory issue. */
+export function inventoryNotes(issues: readonly DeviceFailure[]): DeviceProblem[] {
+  return issues.map(deviceProblem);
+}
+
+/**
+ * The inventory issue that is the open device's (`ios:…`, `android:…`) own failure: its platform's SDK is missing, so
+ * the device can't be listed or run. Every other issue (another platform's SDK, tools that
+ * aren't downloaded yet, an issue that names no platform) stays a machine-wide notice.
+ */
+export function platformFailure(
+  issues: readonly DeviceFailure[],
+  deviceId: string,
+): DeviceProblem | undefined {
+  // A device's id names its platform, so this holds while the device itself isn't listed.
+  const platform = deviceId.slice(0, deviceId.indexOf(":"));
+  const issue = issues.find((entry) => entry.code === "sdk_missing" && entry.platform === platform);
+  return issue && deviceProblem(issue);
 }
 
 /**

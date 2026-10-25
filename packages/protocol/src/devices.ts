@@ -91,6 +91,11 @@ export const DeviceFailure = z.object({
   hint: z.string().max(2048),
   /** The macOS privacy permission the daemon's screen helper is missing, when that is the cause. */
   permission: z.enum(["screenRecording", "accessibility"]).optional(),
+  /**
+   * The platform an inventory issue concerns (a missing Android SDK, the Simulator's tools).
+   * Absent when it concerns the whole machine or the daemon is older.
+   */
+  platform: z.enum(["ios", "android"]).optional(),
 });
 export type DeviceFailure = z.infer<typeof DeviceFailure>;
 export const DeviceInventory = z.object({

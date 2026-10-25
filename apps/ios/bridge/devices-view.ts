@@ -7,6 +7,7 @@ import {
   deviceControls,
   deviceKind,
   deviceProblem,
+  inventoryNotes,
   deviceRows,
   deviceScreen,
   frameGeometry,
@@ -303,7 +304,7 @@ export function phoneDevicesView(input: DevicesViewInput): PhoneDevicesView {
     offline,
     running,
     groups,
-    notes: snapshot.issues.map((issue) => deviceProblem(issue)),
+    notes: inventoryNotes(snapshot.issues),
     toolsMissing: snapshot.issues.some((issue) => issue.code === "tool_missing"),
     device: selected ? screen(input, selected, states.get(selected.id)) : null,
   };

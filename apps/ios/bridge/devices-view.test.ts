@@ -198,7 +198,7 @@ test("a channel that closed says so, and missing tools are a setup note", () => 
     "Lost the connection to this machine's simulators and emulators.",
   );
   expect(shown.toolsMissing).toBe(true);
-  expect(shown.notes[0]?.message).toBe("A device tool is missing on this machine.");
+  expect(shown.notes[0]).toEqual({ message: "Device tools missing", hint: "Download them." });
   expect(shown.device).toBeNull();
 });
 
