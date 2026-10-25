@@ -99,5 +99,12 @@ export interface ModelCatalogApi {
   /** Account revocation removes retained choices and drains obsolete writes before deletion. */
   invalidate(filter?: ModelFilter): Promise<void>;
   refresh(filter?: ModelFilter): Promise<ModelInstanceStatus[]>;
+  /**
+   * Wait for the accounts in `filter` that have never loaded a model list, or loaded an empty one
+   * that is due for discovery, as lazy discovery loads them: a discovery already running is
+   * shared, and one that failed waits out its retry pause instead of running again. Optional for
+   * embedded catalogs.
+   */
+  loadMissing?(filter?: ModelFilter): Promise<ModelInstanceStatus[]>;
 }
 export type Deadline = (expire: () => void, milliseconds: number) => () => void;

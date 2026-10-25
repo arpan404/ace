@@ -16,7 +16,7 @@ Call `delegate` once with `tasks: [{ requestId, task, role }, ...]`, up to 64 ta
 - **requestId:** any stable id you choose. A retry with the same ids starts nothing new.
 - **task:** the whole assignment: goal, files, constraints, the project notes that apply, and how to verify. A child sees none of your conversation.
 - **role:** the child's display name in the sidebar. It must be unique among your live children and say what and where (e.g. `Fix-869-worked-for-toast`, never `Implementer`). Generic names and repeats are rejected.
-- **Optional per task:** `provider` (default: yours), `model` (an id from `models`; ace picks the account), `effort`, `access` (`inherit` by default, never above yours), `workspace` (this checkout by default, a `new_worktree` from a base branch, or an `existing_worktree`), and `machine` with `project` to run on another machine.
+- **Optional per task:** `provider` (default: yours), `model` (an id, or the name as the person wrote it, such as "opus 5.5"; ace finds the nearest model across providers and accounts, and lists the options when a name fits several), `accountId` (an account id or label from `models` or your brief; by default ace picks a signed-in account with quota that serves the model), `effort`, `access` (`inherit` by default, never above yours), `workspace` (this checkout by default, a `new_worktree` from a base branch, or an `existing_worktree`), and `machine` with `project` to run on another machine.
 
 At most a few children run at once per parent; the rest wait queued and start as slots free.
 
