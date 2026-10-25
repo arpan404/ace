@@ -158,7 +158,7 @@ export class PinnedDirectory {
   }
   /** Read-only descriptor for a child; a symlink of that name is never followed. */
   openRead(name: string): number {
-    return openAt(this.fd, name, constants.O_RDONLY).fd;
+    return openFileAt(this.fd, name).fd;
   }
   /** Stores `target` as a link's text; the link is created inside this directory only. */
   symlink(target: string, name: string): void {

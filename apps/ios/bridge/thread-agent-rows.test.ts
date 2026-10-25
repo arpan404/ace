@@ -78,18 +78,6 @@ const indent = {
   secret: false,
 };
 
-type QuestionLine = {
-  asking: boolean;
-  asker: string;
-  title: string;
-  answer: string;
-  outcome: string;
-};
-
-/** The waiting question as the transcript draws it, if it is still shown. */
-const questionLine = () =>
-  rows("thread.block").find((row) => row.kind === "question")?.question as QuestionLine | undefined;
-
 test("a waiting question reads as the agent asking it, then leaves for the work log once answered", async () => {
   const fake = fixture();
   fake.createThread({ id: "ask", workspaceId: "ace", title: "Ask", provider: "codex" });

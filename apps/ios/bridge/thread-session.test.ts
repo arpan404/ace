@@ -14,8 +14,6 @@ import {
   until,
 } from "./thread-harness.ts";
 
-const idle = () => {};
-
 /*
  * The thread screen's bridge messages over the real SDK and an in-process fake daemon
  * (`thread-harness.ts`). No provider CLI runs.
