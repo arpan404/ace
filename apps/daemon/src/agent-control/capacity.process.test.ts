@@ -81,8 +81,8 @@ test("after Stop, the parent can delegate again in its next turn and earlier res
   expect(h.errors).toEqual([]);
 });
 
-test("a fifth child queues and starts when one finishes", async () => {
-  const h = setup();
+test("with a limit of four, a fifth child queues and starts when one finishes", async () => {
+  const h = setup({ maxConcurrent: 4 });
   const parent = await h.parent();
   const children = Array.from({ length: 5 }, (_, index) => h.delegate(parent, `child-${index}`));
   await h.engine.flush();
@@ -129,8 +129,8 @@ test("a person can message a finished child while the parent has 4 working child
   expect(h.inputs.get(finished.childId)?.at(-1)).toBe("One more thing");
 });
 
-test("a batch of eight tasks creates every child: four start and the rest wait their turn", async () => {
-  const h = setup();
+test("with a limit of four, a batch of eight tasks creates every child: four start and the rest wait their turn", async () => {
+  const h = setup({ maxConcurrent: 4 });
   const parent = await h.parent();
   const port = createAgentControlPort(h.store, h.service);
   const result = await port.execute(
