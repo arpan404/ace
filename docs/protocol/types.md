@@ -3067,7 +3067,7 @@ Example:
 
 ```json
 {
-  "on": "queue",
+  "on": "background_task",
   "refs": [],
   "state": "blocked"
 }
@@ -3566,7 +3566,7 @@ Example:
 
 [JSON Schema](schema/BlockedReason.json), input validation.
 
-Type: ["human","subagents","queue","background_task","rate_limit","network","upstream"]. See JSON Schema for constraints.
+Type: ["human","subagents","background_task","rate_limit","network","upstream"]. See JSON Schema for constraints.
 
 Example:
 
@@ -9543,94 +9543,18 @@ Example:
 
 ```json
 {
-  "seq": 8,
+  "seq": 7,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "agentChildren": {},
-    "agents": {},
-    "backgroundTasks": {},
-    "interactions": {},
-    "itemOrder": [],
-    "items": {},
-    "kind": "thread",
-    "offshift": {
-      "blocker": null,
-      "criteria": [],
-      "criteriaCount": 10,
-      "endpoint": "example",
-      "id": "YxRCYA",
-      "next": "example",
-      "outcome": "example",
-      "outcomeTruncated": false,
-      "pending": [],
-      "pendingCount": 8,
-      "phase": "review",
-      "playbook": "land",
-      "revision": "example",
-      "steps": [],
-      "updatedAt": 0,
-      "version": 9
-    },
-    "runs": {},
-    "seq": 8,
-    "thread": {
-      "autoSettleAt": 4,
-      "backend": "acp",
-      "capabilities": {
-        "accessModes": [],
-        "approvals": "interactive",
-        "backgroundTaskControl": true,
-        "backgroundVisibility": "partial",
-        "fork": false,
-        "goals": true,
-        "imageInput": true,
-        "interruptCascades": true,
-        "launchOptions": [],
-        "permissionModes": [],
-        "permissions": {
-          "modes": [],
-          "nativeAutoReview": false,
-          "toolGate": false
-        },
-        "planMode": false,
-        "resume": true,
-        "rewindFiles": false,
-        "steer": true,
-        "subagentTranscripts": true,
-        "tokenUsage": true
-      },
-      "continuation": {
-        "actionId": "thread.continue_new",
-        "reason": "cursor_cli_retired",
-        "state": "read_only"
-      },
-      "createdAt": 5,
-      "deletedAt": 3,
-      "execution": {
-        "options": {},
-        "provider": "opencode"
-      },
-      "id": "example",
-      "pinned": true,
-      "provider": "opencode",
-      "readAt": 3,
-      "run": {
-        "pendingCount": 4,
-        "phase": "review",
-        "playbook": "fix",
-        "state": "open"
-      },
-      "settledReason": "inactivity",
-      "snoozedUntil": 8,
-      "status": {
-        "state": "done"
-      },
-      "title": "example",
-      "updatedAt": 7,
-      "workspaceId": "example"
-    },
-    "usage": {}
+    "kind": "threads",
+    "seq": 7,
+    "threads": {},
+    "window": {
+      "before": null,
+      "counts": [],
+      "total": 9
+    }
   }
 }
 ```
@@ -22469,22 +22393,6 @@ Example:
 }
 ```
 
-## QueuedLaunch
-
-[JSON Schema](schema/QueuedLaunch.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| text | yes | string |  |
-
-Example:
-
-```json
-{
-  "text": "example"
-}
-```
-
 ## QueuedMessage
 
 [JSON Schema](schema/QueuedMessage.json), input validation.
@@ -28352,9 +28260,8 @@ Example:
   "contextMeters": {},
   "interactions": {},
   "itemOrder": [],
-  "itemSeqs": {},
   "items": {},
-  "itemsBefore": null,
+  "itemsBefore": 9,
   "kind": "thread",
   "runs": {},
   "seq": 7,
@@ -29379,7 +29286,6 @@ Example:
 | imported | no | [ImportedProvenance.json](schema/ImportedProvenance.json) |  |
 | lineage | no | [ThreadLineage.json](schema/ThreadLineage.json) |  |
 | delegatedBy | no | [DelegatedBy.json](schema/DelegatedBy.json) |  |
-| queuedLaunch | no | [QueuedLaunch.json](schema/QueuedLaunch.json) |  |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
 
@@ -29442,16 +29348,6 @@ Example:
   "snoozedUntil": 7,
   "status": {
     "state": "done"
-  },
-  "switch": {
-    "at": 2,
-    "lossy": true,
-    "recommendation": "delegate_task",
-    "selection": {
-      "model": "example",
-      "provider": "pi"
-    },
-    "state": "queued"
   },
   "title": "example",
   "titleSource": "person",
@@ -29829,7 +29725,6 @@ Example:
 | imported | no | [ImportedProvenance.json](schema/ImportedProvenance.json) |  |
 | lineage | no | [ThreadLineage.json](schema/ThreadLineage.json) |  |
 | delegatedBy | no | [DelegatedBy.json](schema/DelegatedBy.json) |  |
-| queuedLaunch | no | [QueuedLaunch.json](schema/QueuedLaunch.json) |  |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
 
@@ -30453,24 +30348,13 @@ Example:
 | --- | --- | --- | --- |
 | lineage | no | [ThreadLineage.json](schema/ThreadLineage.json) |  |
 | delegatedBy | no | [DelegatedBy.json](schema/DelegatedBy.json) |  |
-| queuedLaunch | no | [QueuedLaunch.json](schema/QueuedLaunch.json) |  |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
 
 Example:
 
 ```json
-{
-  "switch": {
-    "at": 3,
-    "error": "example",
-    "lossy": true,
-    "selection": {
-      "provider": "cursor"
-    },
-    "state": "applied"
-  }
-}
+{}
 ```
 
 ## ThreadView
@@ -30507,6 +30391,7 @@ Example:
   "backgroundTasks": {},
   "interactions": {},
   "itemOrder": [],
+  "itemSeqs": {},
   "items": {},
   "kind": "thread",
   "runs": {},
@@ -30593,24 +30478,14 @@ Example:
       "interactions": 4,
       "state": "needs_you"
     },
-    "switch": {
-      "at": 3,
-      "lossy": false,
-      "recommendation": "delegate",
-      "selection": {
-        "model": "example",
-        "options": {},
-        "provider": "opencode"
-      },
-      "state": "failed"
-    },
     "title": "example",
     "titleSource": "provider",
     "unread": true,
     "updatedAt": 1,
     "workspaceId": "example"
   },
-  "usage": {}
+  "usage": {},
+  "usageSnapshots": {}
 }
 ```
 
@@ -32806,12 +32681,12 @@ Example:
 
 [JSON Schema](schema/WatchedState.json), input validation.
 
-Type: ["working","queued","needs_you","done","failed","cancelled"]. See JSON Schema for constraints.
+Type: ["working","needs_you","done","failed","cancelled"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
-"queued"
+"needs_you"
 ```
 
 ## WatchedThread

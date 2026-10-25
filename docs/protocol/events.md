@@ -157,7 +157,6 @@ Example:
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
 | lineage | no | [ThreadLineage.json](schema/ThreadLineage.json) |  |
 | delegatedBy | no | [DelegatedBy.json](schema/DelegatedBy.json) |  |
-| queuedLaunch | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/QueuedLaunch.json"},{"type":"null"}]} |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
 | effectiveCapabilities | no | [Capabilities.json](schema/Capabilities.json) |  |
@@ -171,11 +170,41 @@ Example:
 
 ```json
 {
-  "execution": {
-    "options": {},
-    "provider": "pi"
+  "acpSupport": {
+    "capabilities": {
+      "imageInput": true,
+      "planMode": true,
+      "resume": false
+    },
+    "coverage": "generic",
+    "mcp": "http",
+    "modeSelection": true,
+    "modelSelection": false,
+    "raw": {
+      "json": "example",
+      "truncated": false
+    },
+    "visibility": "limited"
   },
-  "goal": null,
+  "archivedAt": null,
+  "goal": {
+    "checks": 3,
+    "lastReason": "example",
+    "objective": "example",
+    "status": "blocked"
+  },
+  "status": {
+    "state": "new"
+  },
+  "switch": {
+    "at": 6,
+    "lossy": false,
+    "selection": {
+      "options": {},
+      "provider": "pi"
+    },
+    "state": "applied"
+  },
   "type": "thread.updated",
   "workspaceId": "example"
 }
