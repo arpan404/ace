@@ -78,8 +78,7 @@ struct AccessItem: Identifiable, Equatable {
 }
 
 /// The composer's access control beside +: a shield and the mode's name ("⛨ Auto review ⌄"), the
-/// shield alone where there is no room for the name. A native menu lists the modes the agent supports, each
-/// with what it does; `note` (a pick waiting for the next turn, a stricter default) heads it.
+/// shield alone where there is no room for the name. It opens the short access list.
 struct AccessChip: View {
     let label: String
     let selected: String?
@@ -89,20 +88,11 @@ struct AccessChip: View {
     let identifier: String
     let select: (String) -> Void
     @Environment(\.composerRoomy) private var roomy
+    @State private var choosing = false
     private var risky: Bool { items.first { $0.mode == selected }?.attention == true }
 
     var body: some View {
-        Menu {
-            Section {
-                ForEach(items) { item in
-                    Button { if item.mode != selected { select(item.mode) } } label: {
-                        if item.mode == selected { Label(item.label, systemImage: "checkmark") } else { Text(item.label) }
-                        Text(item.detail)
-                    }
-                    .accessibilityIdentifier("\(identifier).\(item.mode)")
-                }
-            } header: { if let note { Text(note) } }
-        } label: {
+        Button { choosing = true } label: {
             HStack(spacing: AceTheme.Spacing.xs) {
                 if loading { ProgressView().controlSize(.mini) }
                 else { Image(systemName: risky ? "exclamationmark.shield" : "checkmark.shield").imageScale(.small) }
@@ -122,5 +112,68 @@ struct AccessChip: View {
         .disabled(items.isEmpty)
         .accessibilityLabel("Access").accessibilityValue(label)
         .accessibilityIdentifier(identifier)
+        .sheet(isPresented: $choosing) {
+            AccessSheet(selected: selected, items: items, note: note, identifier: identifier) { mode in
+                choosing = false
+                if mode != selected { select(mode) }
+            }
+        }
+    }
+}
+
+/// The access modes as one short list: each mode on one row with what it does under it, the
+/// current one ticked. Choosing one closes the sheet.
+struct AccessSheet: View {
+    let selected: String?
+    let items: [AccessItem]
+    var note: String? = nil
+    let identifier: String
+    let choose: (String) -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    AccessRows(selected: selected, items: items, identifier: identifier, choose: choose)
+                } footer: { if let note { Text(note) } }
+            }
+            .insetGroupedList()
+            .navigationTitle("Access")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+    }
+}
+
+/// The access rows, shared by the access sheet and the composer's settings sheet.
+struct AccessRows: View {
+    let selected: String?
+    let items: [AccessItem]
+    let identifier: String
+    let choose: (String) -> Void
+    var body: some View {
+        ForEach(items) { item in
+            Button { choose(item.mode) } label: {
+                HStack(spacing: AceTheme.Spacing.md) {
+                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                        Text(item.label).aceFont(InsetStyle.label, relativeTo: .body)
+                            .foregroundStyle(AceTheme.Colours.foreground)
+                        Text(item.detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                            .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2)
+                    }
+                    Spacer(minLength: AceTheme.Spacing.sm)
+                    if item.mode == selected {
+                        Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(AceTheme.Colours.foreground)
+                    }
+                }
+                .padding(.vertical, AceTheme.Spacing.xs)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .insetRowBackground()
+            .accessibilityAddTraits(item.mode == selected ? .isSelected : [])
+            .accessibilityIdentifier("\(identifier).\(item.mode)")
+        }
     }
 }

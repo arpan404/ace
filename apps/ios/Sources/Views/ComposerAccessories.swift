@@ -35,14 +35,17 @@ struct ComposerModelButton: View {
     let screen: ThreadScreenModel
     let open: () -> Void
     let openTune: () -> Void
+    private var name: String { Self.name(screen) }
+    private var tune: String? { Self.tune(screen) }
     /// The model's name; until the agent reports one, the provider's name stands in.
-    private var name: String {
+    static func name(_ screen: ThreadScreenModel) -> String {
         guard let controls = screen.controls else { return "Choose model" }
         if !controls.model.isEmpty { return controls.model }
         if let provider = controls.providerName, !provider.isEmpty { return provider }
         return "Choose model"
     }
-    private var tune: String? {
+    /// "Med", "Med · Fast"; nil when the model has nothing to tune.
+    static func tune(_ screen: ThreadScreenModel) -> String? {
         guard let tune = screen.tune else { return nil }
         let effort = tune.efforts.first { $0.id == tune.effort }
         let speed = tune.speeds.first { $0.speed == tune.speed && $0.speed != "standard" }
@@ -68,5 +71,61 @@ struct ThreadAccessChip: View {
                        loading: access.state == "loading" && access.choices.isEmpty,
                        identifier: "composer.access", select: set)
         }
+    }
+}
+
+/// The composer's settings, from its settings button while it is one line: the model and its
+/// effort (each opens its own sheet) and the access modes as rows to choose from.
+struct ComposerSettingsSheet: View {
+    let screen: ThreadScreenModel
+    let openModel: () -> Void
+    let openTune: () -> Void
+    let setAccess: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    private var name: String { ComposerModelButton.name(screen) }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button(action: openModel) {
+                        InsetRow(systemImage: nil, title: name, subtitle: screen.controls?.providerName.flatMap { $0 == name ? nil : $0 }) {
+                            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
+                        }
+                    }
+                    .buttonStyle(.plain).insetRowBackground()
+                    .accessibilityIdentifier("composer.settings.model")
+                    if let tune = ComposerModelButton.tune(screen) {
+                        Button(action: openTune) {
+                            InsetRow(systemImage: nil, title: "Effort") {
+                                HStack(spacing: AceTheme.Spacing.xs) {
+                                    InsetValue(text: tune)
+                                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain).insetRowBackground()
+                        .accessibilityIdentifier("composer.settings.effort")
+                    }
+                } header: { InsetHeader("Model") }
+                if let access = screen.access, !access.choices.isEmpty {
+                    Section {
+                        AccessRows(selected: access.selected,
+                                   items: access.choices.map { AccessItem(mode: $0.mode, label: $0.label, description: $0.description, attention: $0.attention) },
+                                   identifier: "composer.access") { mode in
+                            if mode != access.selected { setAccess(mode) }
+                            dismiss()
+                        }
+                    } header: { InsetHeader("Access") } footer: {
+                        if let note = access.pending == true ? "Applies at the agent's next turn" : access.stricter { Text(note) }
+                    }
+                }
+            }
+            .insetGroupedList()
+            .navigationTitle("This thread")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 }

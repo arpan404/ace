@@ -15,6 +15,9 @@ struct ThreadView: View {
     @State private var attachProblem: String?
     @State private var showModels = false
     @State private var showTune = false
+    /// The composer's settings sheet, and what it hands on to once it closes.
+    @State private var showSettings = false
+    @State private var afterSettings: (() -> Void)?
     @State private var lane: BlockRow.Agents.Entry?
     @State private var showFiles = false
     @State private var media: TranscriptRow?
@@ -118,6 +121,12 @@ struct ThreadView: View {
             .modifier(MessageAttachmentRoutes(model: model, threadId: thread.id))
             .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle, showFiles: $showFiles,
                                        mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil))
+            .sheet(isPresented: $showSettings, onDismiss: { afterSettings?(); afterSettings = nil }) {
+                ComposerSettingsSheet(screen: screen,
+                                      openModel: { afterSettings = { showModels = true }; showSettings = false },
+                                      openTune: { afterSettings = { showTune = true }; showSettings = false },
+                                      setAccess: { mode in Task { _ = await model.setAccess(mode) } })
+            }
             .sheet(isPresented: $showModels) {
                 ModelPickerSheet(model: model, screen: screen)
             }
@@ -201,6 +210,14 @@ struct ThreadView: View {
                         ThreadAccessChip(access: screen.access) { mode in Task { _ = await model.setAccess(mode) } }
                     } model: {
                         ComposerModelButton(screen: screen, open: { showModels = true }, openTune: { showTune = true })
+                    } settings: {
+                        Button { showSettings = true } label: {
+                            Image(systemName: "slider.horizontal.3").font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(AceTheme.Colours.foreground)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Model and access").accessibilityIdentifier("composer.settings")
                     }
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { composerHeight = $0 }
                 } else {
