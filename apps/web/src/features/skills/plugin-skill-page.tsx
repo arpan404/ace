@@ -102,6 +102,7 @@ export function PluginSkillPage(props: { skill: Skill; plugin: Skill; components
             <p className="mt-2 text-md text-muted-foreground">{skill.description}</p>
           )}
           {ownSkill && <UseInThread name={skill.name} />}
+          <div className="mt-8" />
           <SettingSection label={isPlugin ? "Plugin" : "Details"}>
             {!isPlugin && (
               <SettingRow

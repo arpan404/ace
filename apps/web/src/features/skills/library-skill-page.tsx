@@ -147,7 +147,7 @@ export function LibrarySkillPage(props: { entry: SkillEntry }) {
       <div className="h-full overflow-auto">
         <div className="mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11">
           <SkillHeading title={title} description={entry.description}>
-            {!editing && <UseInThread name={entry.name} />}
+            {!editing && <UseInThread name={entry.name} project={workspaceId} />}
           </SkillHeading>
           {editing && text !== undefined ? (
             <SkillEditForm
@@ -172,7 +172,7 @@ export function LibrarySkillPage(props: { entry: SkillEntry }) {
               onSave={save}
             />
           ) : (
-            <>
+            <div className="mt-8">
               <SkillDetails
                 entry={entry}
                 workspaceId={workspaceId}
@@ -204,7 +204,7 @@ export function LibrarySkillPage(props: { entry: SkillEntry }) {
                   <Prose className="py-3" text={instructionsShown(text, title)} />
                 )}
               </SettingSection>
-            </>
+            </div>
           )}
         </div>
       </div>

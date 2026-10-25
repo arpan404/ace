@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
 import { AgentsMenu } from "./agents-menu.tsx";
-import { homeLabel, skillAgents, timesText } from "./library-model.ts";
+import { homeLabel, isSkillAgent, skillAgents, timesText } from "./library-model.ts";
 import { useSetSkillAgents, useSkillUsage } from "./library-source.ts";
 import { AgentsLine } from "./skill-parts.tsx";
 import { SkillSourceRow } from "./skill-update.tsx";
@@ -103,7 +103,7 @@ function ChangeAgents(props: { entry: SkillEntry; workspaceId: WorkspaceId | und
   const toast = useToast();
   const setAgents = useSetSkillAgents();
   const { entry } = props;
-  const fixed = new Set(
+  const fixed = new Set<ProviderKind>(
     entry.agents.filter((agent) => !agent.removable).map((agent) => agent.provider),
   );
   return (
@@ -137,7 +137,6 @@ function ChangeAgents(props: { entry: SkillEntry; workspaceId: WorkspaceId | und
   );
 }
 
-const isSkillAgent = (provider: ProviderKind) => skillAgents.includes(provider);
 const names = (providers: readonly ProviderKind[]) =>
   providers.map((provider) => providerNames[provider]).join(" and ");
 
