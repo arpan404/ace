@@ -13,7 +13,10 @@ import {
   DeviceSettings as Settings,
   type DeviceSettings,
   type DeviceFailure,
+  type DeviceChrome,
 } from "@ace/protocol/devices";
+import { DeviceChromeReader } from "./device-chrome-reader.ts";
+import { deviceChromeSources } from "./device-chrome-sources.ts";
 import { DeviceError, resolveXcode, type SDKOptions } from "./sdk.ts";
 import {
   adbShell,
@@ -56,6 +59,8 @@ export type PlatformOptions = SDKOptions & {
    */
   frameEncoder?: string;
   emulatorWindow?: NonNullable<AndroidOptions["emulatorWindow"]>;
+  /** Reads the SDK's device art; tests point it at fixtures. */
+  readFile?: (path: string) => Promise<Uint8Array | undefined>;
 };
 export type ScreenBinding = { sessionId: string; actor: "human" | "agent"; owner: string };
 const Text = z
@@ -83,6 +88,7 @@ export class DevicePlatform {
   private checkedInput = false;
   private toolsDownload: Promise<DeviceTools> | undefined;
   private readonly appProcesses = new Map<string, string>();
+  private readonly chromes: DeviceChromeReader;
   diagnostics(): DeviceFailure[] {
     return [
       ...this.missingSDKs,
@@ -105,6 +111,29 @@ export class DevicePlatform {
       this.input(device, input, undefined, authorize),
     );
     this.simulators = this.iosSimulators();
+    this.chromes = new DeviceChromeReader(
+      deviceChromeSources({
+        home: options.home,
+        env: options.env,
+        simctl: async (args) => {
+          const { xcrun } = await this.xcode();
+          return (await this.run(xcrun, ["simctl", ...args], 2 * 1024 * 1024)).stdout;
+        },
+        plutil: async (args) => (await this.run("/usr/bin/plutil", args, 256 * 1024)).stdout,
+        simulatorType: async (udid) =>
+          (await this.simulators.list()).find((device) => device.udid === udid)
+            ?.deviceTypeIdentifier,
+        ...(options.readFile ? { readFile: options.readFile } : {}),
+      }),
+    );
+  }
+  /**
+   * The device's real hardware look from the SDK on this machine: Xcode's device profile and
+   * chrome for a Simulator, the emulator skin for an AVD. Undefined when there is none.
+   */
+  async chrome(device: Device): Promise<DeviceChrome | undefined> {
+    if (device.platform === "ios" && this.options.platform !== "darwin") return undefined;
+    return this.chromes.chrome(device);
   }
   private iosSimulators(authorize?: () => void) {
     return new Simulators(this.options.platform, async (command, args, probeOptions) => {

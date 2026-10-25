@@ -66,6 +66,9 @@ function color(components: readonly number[]): string {
         : [a, a, a];
   return `rgb(${rgb.map(channel).join(",")})`;
 }
+const point = (x: number, y: number) => `${round(x)} ${round(y)}`;
+/** A copy of the graphics state for a new `q` level, with no groups of its own open yet. */
+const saved = (state: State): State => ({ ...state, opened: 0 });
 const caps = ["butt", "round", "square"];
 const joins = ["miter", "round", "bevel"];
 
@@ -84,7 +87,7 @@ class Painter {
   }
   run(content: string, resources: PdfDict | undefined, start: State): void {
     const stack: State[] = [];
-    let state: State = { ...start, opened: 0 };
+    let state = saved(start);
     let path: string[] = [];
     let current: [number, number] = [0, 0];
     let subpath: [number, number] = [0, 0];
@@ -99,7 +102,6 @@ class Painter {
       const value = operands[operands.length - 1 - index];
       return typeof value === "number" ? value : 0;
     };
-    const point = (x: number, y: number) => `${round(x)} ${round(y)}`;
     const paint = (fill: "nonzero" | "evenodd" | undefined, stroke: boolean) => {
       if (path.length && (fill || stroke)) {
         const attributes = [
@@ -147,7 +149,7 @@ class Painter {
       switch (token.keyword) {
         case "q":
           stack.push(state);
-          state = { ...state, opened: 0 };
+          state = saved(state);
           break;
         case "Q":
           this.out.push("</g>".repeat(state.opened));

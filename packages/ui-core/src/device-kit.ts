@@ -11,3 +11,4 @@ export * from "./device-profiles.ts";
 export * from "./device-activity.ts";
 export * from "./device-log-lines.ts";
 export * from "./ui-tree-refs.ts";
+export * from "./device-chrome-layout.ts";

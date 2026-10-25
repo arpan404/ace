@@ -389,6 +389,12 @@ export class DevicesService {
       void this.list().catch(() => {});
       return { serveSim: tools.serveSim !== undefined, scrcpy: tools.scrcpy !== undefined };
     }
+    if (operation.op === "chrome") {
+      const device = (await this.list()).find((candidate) => candidate.id === operation.deviceId);
+      if (!device)
+        throw new DeviceError("not_found", "Device not found", "Refresh the device list.");
+      return { chrome: (await this.options.platform.chrome(device)) ?? null };
+    }
     if (operation.op === "states")
       return {
         states: this.states().filter(

@@ -202,7 +202,7 @@ export function buttonRect(
   }
 }
 
-async function art(read: ArtReader, from: "profile" | "chrome", file: string, prefix: string) {
+async function readArt(read: ArtReader, from: "profile" | "chrome", file: string, prefix: string) {
   const bytes = await read(from, file);
   return bytes ? pdfArt(bytes, prefix) : undefined;
 }
@@ -227,7 +227,7 @@ export async function simulatorChrome(
   };
   const drawn = await Promise.all(
     pieces.map(async (piece, index) => {
-      const pieceArt = await art(read, "chrome", chrome.images[piece], `p${index}`);
+      const pieceArt = await readArt(read, "chrome", chrome.images[piece], `p${index}`);
       return pieceArt ? ([piece, pieceArt] as const) : undefined;
     }),
   );
@@ -244,14 +244,14 @@ export async function simulatorChrome(
   if (!topLeft || !top || !topRight || !right || !bottomRight || !bottom || !bottomLeft || !left)
     return undefined;
   const [middle, mask, sensorBar, buttons] = await Promise.all([
-    chrome.images.screen ? art(read, "chrome", chrome.images.screen, "c") : undefined,
-    profile.framebufferMask ? art(read, "profile", profile.framebufferMask, "m") : undefined,
-    profile.sensorBarImage ? art(read, "profile", profile.sensorBarImage, "s") : undefined,
+    chrome.images.screen ? readArt(read, "chrome", chrome.images.screen, "c") : undefined,
+    profile.framebufferMask ? readArt(read, "profile", profile.framebufferMask, "m") : undefined,
+    profile.sensorBarImage ? readArt(read, "profile", profile.sensorBarImage, "s") : undefined,
     Promise.all(
       chrome.inputs.map(async (input): Promise<DeviceChromeButton | undefined> => {
         const [image, pressed] = await Promise.all([
-          art(read, "chrome", input.image, "b"),
-          input.imageDown ? art(read, "chrome", input.imageDown, "d") : undefined,
+          readArt(read, "chrome", input.image, "b"),
+          input.imageDown ? readArt(read, "chrome", input.imageDown, "d") : undefined,
         ]);
         if (!image) return undefined;
         return {

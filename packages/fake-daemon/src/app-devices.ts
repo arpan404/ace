@@ -2,6 +2,7 @@ import type { DeviceTransport } from "@ace/client/devices";
 import {
   AppDevice,
   type DeviceActivity,
+  type DeviceChrome,
   DeviceAck,
   DeviceClientMessage,
   type DeviceFailure,
@@ -133,6 +134,8 @@ export class FakeAppDevices {
   videoEncoding = true;
   /** Every `devices.ack` a viewer sent, in order. */
   readonly acks: DeviceAck[] = [];
+  /** Each device's real hardware look, as the SDK on a Mac describes it; none by default. */
+  readonly chromes = new Map<string, DeviceChrome>();
   private messageIds = 0;
   /** Every live-view setting a viewer asked for, in order. */
   readonly streamRequests: { deviceId: string; settings: StreamSettings }[] = [];
@@ -422,6 +425,7 @@ export class FakeAppDevices {
       return { ...this.permissions };
     }
     const session = this.session(operation.deviceId);
+    if (operation.op === "chrome") return { chrome: this.chromes.get(session.device.id) ?? null };
     switch (operation.op) {
       case "controller":
         if (operation.controller === "human") {

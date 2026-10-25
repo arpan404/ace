@@ -5,6 +5,8 @@ const Device = z.object({
   name: z.string().max(256),
   state: z.string().max(64),
   isAvailable: z.boolean(),
+  /** Which hardware it simulates: a `com.apple.CoreSimulator.SimDeviceType` identifier. */
+  deviceTypeIdentifier: z.string().max(256).optional().catch(undefined),
 });
 const Devices = z.object({ devices: z.record(z.string(), z.array(Device).max(1024)) });
 export type Simulator = z.infer<typeof Device> & { runtime: string };
