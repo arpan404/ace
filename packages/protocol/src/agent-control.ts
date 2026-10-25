@@ -289,7 +289,7 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("agent.status"), threadId: ThreadId }),
   z.strictObject({ op: z.literal("agents.status") }),
   z.strictObject({ op: z.literal("machines") }),
-  /** Carry a project, or the calling thread, to another paired machine (ADR 0099). */
+  /** Carry a project, or the calling thread, to another paired machine (ADR 0101). */
   z.strictObject({
     op: z.literal("transfer"),
     machine: MachineName,

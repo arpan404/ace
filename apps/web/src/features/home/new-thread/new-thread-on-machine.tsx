@@ -13,7 +13,7 @@ import {
 import { NewThreadPage } from "./new-thread-page.tsx";
 
 /**
- * New thread on the machine `?machine=` names, else the one picked last (ADR 0100). The whole
+ * New thread on the machine `?machine=` names, else the one picked last (ADR 0102). The whole
  * page runs under that machine's client: its projects, models, branches, access and the create
  * command. The strip's machine picker moves it to another machine.
  */

@@ -13,7 +13,7 @@ export function machineAwayText(machine: Machine): string {
 }
 
 /**
- * Renders a route's view on the machine its `?machine=` names (ADR 0100): under that machine's
+ * Renders a route's view on the machine its `?machine=` names (ADR 0102): under that machine's
  * client, or this window's own when it names none or names this one. A machine that is offline
  * or not in this window's pool says so; nothing falls back to another machine.
  */

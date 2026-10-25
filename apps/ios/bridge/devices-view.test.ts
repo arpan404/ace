@@ -155,7 +155,7 @@ test("the agent's newest action reads as a caption at the point it landed, with 
   });
 });
 
-test("an iPhone offers the side buttons ace can press and a frame with its island upright", () => {
+test("an iPhone offers the side buttons ace can press and a frame shaped like its own model", () => {
   const device = view([live()]).device;
 
   expect(device?.buttons.map((button) => button.key)).toEqual([
@@ -164,8 +164,15 @@ test("an iPhone offers the side buttons ace can press and a frame with its islan
     "volumeDown",
     "power",
   ]);
-  expect(device?.frame.portrait.cutout.kind).toBe("island");
-  expect(device?.frame.landscape.cutout.kind).toBe("none");
+  // The iPhone 17 Pro's own screen, until its first picture, with its display's 62pt corners.
+  expect(device?.screen).toEqual({ width: 402, height: 874 });
+  expect((device?.frame.portrait.screenRadius ?? 0) * 402).toBeCloseTo(62, 5);
+  // On its side the frame is the same hardware turned: corners as round, borders as thin.
+  expect((device?.frame.landscape.screenRadius ?? 0) * 874).toBeCloseTo(62, 5);
+  expect((device?.frame.landscape.bezel.top ?? 0) * 874).toBeCloseTo(
+    (device?.frame.portrait.bezel.left ?? 0) * 402,
+    5,
+  );
 });
 
 test("a channel that closed says so, and missing tools are a setup note", () => {

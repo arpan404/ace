@@ -24,7 +24,7 @@ export interface LandOptions {
 /**
  * After a project is added, created or cloned: open it. A folder inside a repository offers the
  * repository's root instead, in a toast, which is added only if chosen. A project on
- * another machine opens New thread on that machine (ADR 0100).
+ * another machine opens New thread on that machine (ADR 0102).
  */
 export function useLandInProject(): (result: Added, verb?: string, options?: LandOptions) => void {
   const navigate = useNavigate();

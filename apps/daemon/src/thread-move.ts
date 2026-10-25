@@ -28,6 +28,17 @@ export async function moveThread(
       return { ok: false, error: "thread_busy" };
     const project = projects.get(p.workspaceId);
     if (thread.workspaceId === project.id) return { ok: true, threadId: thread.id };
+    // A chat's folder belongs to the chat it was made for (ADR 0099); only that chat moves
+    // back in (Undo after Move to project), while nothing else lives there.
+    if (
+      project.kind === "chat" &&
+      store
+        .statement(
+          "SELECT 1 FROM threads WHERE workspace_id=? AND json_extract(client,'$.deletedAt') IS NULL LIMIT 1",
+        )
+        .get(project.id)
+    )
+      return { ok: false, error: "chat_project" };
     const source = store.executionWorkspace(thread.id);
     if (!source.ready) return { ok: false, error: "workspace_preparing" };
     const oldProject = store.getWorkspacePath(thread.workspaceId);
@@ -104,7 +115,7 @@ function movable(store: Store, thread: Thread): string | undefined {
 }
 
 /**
- * Why a thread can't be continued on another machine now (ADR 0099): thread.move's checks for a
+ * Why a thread can't be continued on another machine now (ADR 0101): thread.move's checks for a
  * live tree, pending input and live terminals. A worktree thread may go; its worktree travels.
  */
 export function continueError(

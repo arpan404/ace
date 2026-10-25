@@ -9,7 +9,7 @@ import { SettledRow } from "./settled-row.tsx";
 import { ThreadRow } from "./thread-row.tsx";
 
 /**
- * A row of the Home list for another machine's thread (ADR 0100), under that machine's client so
+ * A row of the Home list for another machine's thread (ADR 0102), under that machine's client so
  * its project, status and card read as they do there. While the machine isn't connected the row
  * says so instead of a status: the last status heard may no longer hold.
  */

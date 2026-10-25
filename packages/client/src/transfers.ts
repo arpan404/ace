@@ -4,7 +4,7 @@ import type { ProjectsClient } from "./projects-types.ts";
 import { ClientError, type RequestOptions } from "./types.ts";
 
 /*
- * Carrying a project, or a thread with its project, to another machine (ADR 0099). The two
+ * Carrying a project, or a thread with its project, to another machine (ADR 0101). The two
  * commands take the durable command path; progress arrives as `transfer.progress` pushes, and
  * `list` answers what is running or finished lately, so a store can catch up after a reconnect.
  */
@@ -91,7 +91,7 @@ export function transferRunning(transfer: Transfer): boolean {
   return !finished.has(transfer.phase);
 }
 
-/** The phases Cancel stops: every one before the new thread is being started (ADR 0099). */
+/** The phases Cancel stops: every one before the new thread is being started (ADR 0101). */
 export const cancellablePhases: ReadonlySet<Transfer["phase"]> = new Set<Transfer["phase"]>([
   "preparing",
   "cloning",
@@ -108,7 +108,7 @@ const settledStates = new Set<ThreadStatus["state"]>(["new", "done", "failed"]);
 
 /**
  * Whether a thread in this state is too busy to continue on another machine: anything but new,
- * done or failed, as the daemon's thread.move checks refuse (ADR 0099).
+ * done or failed, as the daemon's thread.move checks refuse (ADR 0101).
  */
 export function continueBlocked(state: ThreadStatus["state"]): boolean {
   return !settledStates.has(state);

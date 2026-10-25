@@ -701,7 +701,7 @@ export class Engine {
     this.delegationFacts.machineChild(...args);
   }
   /**
-   * A transfer an agent started (ADR 0099) holds its thread open like a background task, so the
+   * A transfer an agent started (ADR 0101) holds its thread open like a background task, so the
    * tree never reads done while the work is still moving to another machine.
    */
   transferHold(
@@ -733,7 +733,7 @@ export class Engine {
     );
     if (!("title" in hold)) this.wake(threadId);
   }
-  /** The bounded history another machine's new thread starts from (ADR 0099). */
+  /** The bounded history another machine's new thread starts from (ADR 0101). */
   machineHandoff(threadId: ThreadId): import("@ace/protocol").PortableHandoff {
     return captureMachineHandoff(
       this.repo,

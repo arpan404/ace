@@ -199,3 +199,76 @@ change on that element. `screen_act` advertises one flat step object with a gram
 and validates calls against the strict per-step union. The live view encodes H.264 High,
 re-sends a still picture once as a refined keyframe, captures at no more than native pixel
 density and crops windows without their shadow. Numbers: [computer-use-performance.md](../computer-use-performance.md).
+
+## Amendment 2026-10-23: locked sessions and idle sleep
+
+A real lock test on macOS 26.2 returned an empty TextEdit `AXWindows` array and
+`invalidUIElement` for a text control that worked before locking. Neither a cached
+reference nor a fresh helper could reach that document. Removing a blanket lock guard
+therefore does not establish general support for GUI work behind the macOS lock screen.
+
+Computer-use calls now hold a system idle-sleep assertion through the gaps between
+successful calls, for at most five minutes without another call. Failure, cancellation,
+helper shutdown and expiry release it. An additional OS assertion timeout bounds a stuck
+helper. Display idle-sleep protection remains limited to an unlocked action batch; a
+locked display may dim while background work continues. Explicit sleep, a closed lid and
+low-battery sleep retain the OS's behavior. These use the documented IOKit
+[power assertions](https://developer.apple.com/documentation/iokit/1557078-iopmassertioncreatewithdescripti).
+The desktop app also has its existing user-controlled prevent-sleep setting for active
+agent turns; the helper protection covers computer use when that app is absent.
+
+Controls still exposed through accessibility may be used while locked. Posted keyboard
+and pointer fallback is refused because delivery cannot be confirmed. Missing locked
+windows report `screen_locked`, not a closed document or a stale-id retry instruction.
+An unavailable GUI session reports `session_unavailable`. Observations distinguish an
+active, locked and unavailable session, and lock transitions discard screenshot geometry
+and remembered agent focus. After unlocking, callers must observe fresh controls.
+
+Lock detection retains the existing best-effort `CGSSessionScreenIsLocked` dictionary
+flag, which Apple does not document as a public `CGSession` key. A missing session or
+missing public console/login facts is treated as unavailable. This is not a guarantee of
+Apple-supported lock detection across macOS versions. No lock bypass, automatic unlock,
+security-setting change or replacement authentication screen is introduced. The existing
+off-Space engine also retains its previously documented private window/focus dependencies.
+
+Ace's browser already moves locked-screen pages to its own Chromium backend. That and
+non-GUI tools can continue when native app controls are unavailable. Universal native GUI
+operation behind the real lock and a persistent status surface on the secure lock screen
+remain unimplemented; this change must not be described as providing either.
+
+### Follow-up investigation: authorization-assisted Locked Use
+
+[The clean-room investigation](../research/macos-codex-locked-use.md) found that OpenAI
+documents a separately enabled authorization plug-in that temporarily unlocks the desktop
+under display covers for approved work. Local bundle and authorization-policy metadata
+confirm that integration is installed on this Mac. The AX-only test above does not rule out
+such a consented architecture. Ace currently has no corresponding installation, scoped
+authorization or protected-desktop lifecycle. Those require a separate design review; this
+investigation changed no authorization policy. [Apple API boundaries](../research/macos-authorization-plugin-locked-use.md)
+and the unresolved unlock/relock controls are recorded separately.
+
+### Uninstalled authorization component
+
+`native/locked-use` now builds a signed authorization bundle and separate policy, IPC and
+native cover/input libraries. It is not imported by the daemon, screen helper or desktop
+app, and does not install a right, service or enable switch. The policy enforces one-use
+attempts, fresh display/input/guardian facts, bounded work and authorization intervals,
+manual takeover and confirmed-lock teardown. The plug-in has bounded asynchronous engine
+callbacks and an authorization-only, signature-pinned XPC query.
+
+The engine's `AuthorizationSessionId` is an opaque authorization transaction, not the
+GUI `SecuritySessionId`. The eventual authority must bind both explicitly to approved work;
+no current production verifier supplies that binding. The prototype also lacks a verified
+OS unlock/relock driver, independent relock guardian, trusted turn bridge and authorized
+installation/removal flow. Native covers are presentation components, not proof of a secure
+lock screen. Existing locked-mode refusal therefore remains in place. See the component
+[README](../../native/locked-use/README.md) for readiness gates and test boundaries.
+
+The native runtime now connects those libraries through a serialized coordinator, an
+authorization-endpoint bridge and an adapter for the actual covers/input guard. Approved
+work waits for a verified OS unlock observation. Cancellation cannot complete the attempt
+until work exits and the OS confirms relock; unavailable sessions confirm neither. The
+guardian stays armed during that wait and stale callbacks cannot affect a later turn.
+Runtime tests substitute OS/guardian boundaries and do not establish that loginwindow can
+be driven. The production service, daemon transport, verified OS driver, independent guardian
+and installation remain required before enabling this feature.

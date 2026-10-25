@@ -117,6 +117,16 @@ test("New thread in… lists the projects and opens a draft in the one chosen", 
   expect(await screen.findByRole("button", { name: "Project: billing-api" })).toBeTruthy();
 });
 
+test("New thread in… offers Add project, which opens in its place", async () => {
+  await openApp();
+  const search = await palette();
+  await userEvent.type(search, "new thread in");
+  await userEvent.click(await screen.findByRole("option", { name: /^New thread in…/ }));
+  const step = await screen.findByRole("dialog", { name: "New thread in" });
+  await userEvent.click(within(step).getByRole("option", { name: /^Add project/ }));
+  expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
+});
+
 test("with several projects ⌘N asks which, and ⇧⌘N starts in the open thread's project", async () => {
   await openApp("/t/thread-fan-out");
   await screen.findByRole("heading", { level: 1, name: "Backpressure on broadcast fan-out" });

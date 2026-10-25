@@ -50,7 +50,7 @@ export function useThreadTransferState(threadId: string) {
 }
 
 /**
- * The thread's transfer in the composer's strip (ADR 0099): "Sending to Studio · 312 MB of
+ * The thread's transfer in the composer's strip (ADR 0101): "Sending to Studio · 312 MB of
  * 1.2 GB  Cancel", the daemon's words and Try again when it failed, "Continued on Studio  Open"
  * on the thread the work left, "Continued from MacBook  Open" on the one it arrived in.
  */

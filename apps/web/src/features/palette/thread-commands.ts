@@ -3,7 +3,6 @@ import {
   FolderOpenIcon,
   GitForkIcon,
   GitMergeIcon,
-  ListNumbersIcon,
   MagnifyingGlassIcon,
   NotePencilIcon,
   PaperclipIcon,
@@ -57,14 +56,14 @@ const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
  * name, branch and pull request; the projects themselves by name (each opens its latest thread)
  * and "New thread in" each of them; then actions on the threads picked in Home and on the open
  * thread. Mounted only while the palette is open, so the whole-list subscription is short-lived.
- * Other online machines' threads are among them (ADR 0100), each named with its machine and
+ * Other online machines' threads are among them (ADR 0102), each named with its machine and
  * opening there.
  */
 export function useThreadCommands(close: () => void, query = ""): PaletteGroup[] {
   const navigate = useNavigate();
   const openProject = useOpenProject();
   const state = useOrganizerState();
-  // The picked rows and the open thread may be on another machine: each acts there (ADR 0100).
+  // The picked rows and the open thread may be on another machine: each acts there (ADR 0102).
   const windowThreads = useWindowThreads();
   const { actions } = windowThreads;
   const mover = useThreadMover();
@@ -356,13 +355,6 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
                   keys: keymap.findInThread.keys,
                   icon: MagnifyingGlassIcon,
                   run: run(screen.find),
-                },
-                {
-                  id: "thread-turns",
-                  label: "Turns",
-                  keys: keymap.turns.keys,
-                  icon: ListNumbersIcon,
-                  run: run(screen.turns),
                 },
               ]
             : []),

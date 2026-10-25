@@ -121,13 +121,21 @@ export function stateHeader(state: ComputerState): string {
   const lines = [
     `${app.name} (${app.bundleId})${app.active ? ", frontmost" : ", in the background"}${state.launched ? ", just opened" : ""}`,
   ];
-  if (!window) {
+  if (state.screenLocked)
+    lines.push(
+      "The Mac is locked. Only controls currently exposed through accessibility can work. Screenshots, activate and posted input are unavailable. Use another tool if controls are missing; observe again after unlocking.",
+    );
+  if (state.sessionState === "unavailable")
+    lines.push(
+      "The Mac’s GUI session is unavailable. Stop computer actions until it returns, then observe again.",
+    );
+  if (!window && !state.screenLocked && state.sessionState !== "unavailable") {
     lines.push(
       windows.length
         ? "No window selected."
         : `No open windows. Open one through the menu bar, e.g. menu ["File", "New"].`,
     );
-  } else {
+  } else if (window) {
     lines.push(
       `Window: "${window.title}" ${window.width}×${window.height}, ${where(window.onScreen)}`,
     );
@@ -162,9 +170,15 @@ export function stateFooter(state: ComputerState, includeMenuBar: boolean): stri
   if (includeMenuBar && state.menuBar.length) lines.push(`Menu bar: ${state.menuBar.join(", ")}`);
   const picture = screenshotNote(state);
   if (picture) lines.push(picture);
-  if (state.window && !state.window.onScreen && state.nodes.length < 6)
+  if (
+    !state.searchFiltered &&
+    !state.screenLocked &&
+    state.window &&
+    !state.window.onScreen &&
+    state.nodes.length < 6
+  )
     lines.push(
-      "This window shows almost no accessible content while it is off screen (common for Electron and browser apps). Try a screenshot, or use activate to bring it forward.",
+      "This window shows almost no accessible content while it is off screen. Observe again after it loads, or try a screenshot. Activating it would interrupt the person.",
     );
   return lines.join("\n");
 }

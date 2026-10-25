@@ -8,7 +8,7 @@ export interface RowRoute {
 
 /**
  * Organize actions over the Home list's row ids, each run by the actions of the row's own
- * machine (ADR 0100). A row id names this window's thread or another machine's
+ * machine (ADR 0102). A row id names this window's thread or another machine's
  * (`machine:[hostId,threadId]`); `route` resolves it, or returns undefined for a machine this
  * window can't reach now, whose rows are then left alone. Actions on several rows run once per
  * machine with that machine's rows, in the order given, so one machine's pins still lead the

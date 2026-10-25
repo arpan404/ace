@@ -3,7 +3,7 @@ import { formatBytes } from "@/components/format-bytes.ts";
 import type { Refusal } from "./use-transfer-actions.ts";
 
 /*
- * What a transfer says, in one sentence (ADR 0099): "Sending to Studio · 312 MB of 1.2 GB",
+ * What a transfer says, in one sentence (ADR 0101): "Sending to Studio · 312 MB of 1.2 GB",
  * "Continued on Studio", or the daemon's own words when it failed. Pure.
  */
 
@@ -47,7 +47,7 @@ export function refusalWords(refusal: Refusal, machine: string): string {
   return refusal.detail || codeWords(refusal.code, machine);
 }
 
-/** The daemon's stable codes (ADR 0099), for a refusal or failure that came without words. */
+/** The daemon's stable codes (ADR 0101), for a refusal or failure that came without words. */
 function codeWords(code: string | undefined, machine: string): string {
   switch (code) {
     // Starting one.

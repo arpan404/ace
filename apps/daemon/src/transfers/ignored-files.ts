@@ -1,5 +1,5 @@
 /**
- * Which ignored files travel with a transfer (ADR 0099 "Ignored files"). Local files such as
+ * Which ignored files travel with a transfer (ADR 0101 "Ignored files"). Local files such as
  * `.env` and editor config go; folders that are platform-specific or rebuilt there stay, and so
  * do nested Git repositories, which are their own projects.
  */

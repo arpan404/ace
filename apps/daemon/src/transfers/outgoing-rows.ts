@@ -97,7 +97,7 @@ export const unsettledPhases: readonly TransferPhase[] = [
   "starting",
 ];
 
-/** The sender's durable transfer rows (ADR 0099 "Reliability"). */
+/** The sender's durable transfer rows (ADR 0101 "Reliability"). */
 export class OutgoingRows {
   private store: Store;
   constructor(store: Store) {

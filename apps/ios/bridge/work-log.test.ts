@@ -151,3 +151,53 @@ test("the person's Stop reads Interrupted by you, and the turn's edits read as f
     chips: [{ path: "src/relay/config.ts", name: "config.ts", added: 2, removed: 1 }],
   });
 });
+
+const reasoning = (item: string, complete: boolean) => ({
+  type: "item.upsert" as const,
+  agent: "root",
+  item,
+  draft: { type: "reasoning" as const, complete, text: "" },
+});
+const shell = (item: string, command: string) =>
+  facts.tool("root", item, { kind: "shell", title: command, detail: { kind: "shell", command } });
+
+test("a thought with no words between calls never regroups the log: it titles the running group", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "think", workspaceId: "ace", title: "Think", provider: "codex" });
+  fake.apply("think", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Build it"),
+    shell("lint", "bun run lint"),
+    facts.toolDone("root", "lint"),
+    reasoning("first", false),
+  ]);
+  open(connect(fake), "think");
+  // One call and a thought in flight: still the call's own row, not a group of two.
+  const lone = await until(() => (log()?.length === 1 ? log() : undefined), "the lone step");
+  expect(lone[0]?.kind).toBe("step");
+  const first = lone[0]?.id;
+
+  fake.apply("think", [
+    reasoning("first", true),
+    shell("build", "bun run build"),
+    facts.toolDone("root", "build"),
+    reasoning("second", false),
+  ]);
+  const titled = await until(
+    () => log()?.find((row) => row.kind === "group" && row.running === true),
+    "the group titled by the thought",
+  );
+  // The step's row became a group once, under the same id; the thought titles it, uncounted.
+  expect(titled).toMatchObject({ id: first, count: "2 steps" });
+  expect(titled.items).toHaveLength(2);
+  expect(titled.items).not.toContain(titled.active);
+
+  fake.apply("think", [reasoning("second", true), shell("test", "bun run test")]);
+  const grown = await until(
+    () => log()?.find((row) => row.kind === "group" && row.items?.length === 3),
+    "the next call to join",
+  );
+  expect(grown).toMatchObject({ id: first, active: grown.items?.[2] });
+  expect(log()).toHaveLength(1);
+});

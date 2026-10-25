@@ -162,7 +162,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
   const [announcement, setAnnouncement] = useState("");
   const selection = useHomeSelection();
   const picked = useHomeSelectionState().ids;
-  // Rows of every machine: each action runs on the row's own machine (ADR 0100).
+  // Rows of every machine: each action runs on the row's own machine (ADR 0102).
   const threads = useWindowThreads();
   const { actions } = threads;
   const keys = useResolvedKeymap();

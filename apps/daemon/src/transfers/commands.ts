@@ -58,7 +58,7 @@ export interface TransferInput {
 }
 
 /**
- * `workspace.transfer` and `thread.continueOn` (ADR 0099), with ADR 0057 admission and receipts:
+ * `workspace.transfer` and `thread.continueOn` (ADR 0101), with ADR 0057 admission and receipts:
  * the receipt is written once the transfer is accepted and running; its progress follows as
  * `transfer.progress`. The agents' `transfer` tool starts the same work.
  */

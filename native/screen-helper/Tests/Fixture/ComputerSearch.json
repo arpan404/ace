@@ -1,0 +1,71 @@
+{
+  "nodes": [
+    {
+      "id": 1,
+      "depth": 0,
+      "role": "window",
+      "name": "Owned"
+    },
+    {
+      "id": 2,
+      "depth": 1,
+      "role": "text field",
+      "flags": ["focused", "disabled"],
+      "name": "Draft\\copy\nline\tend",
+      "value": "alpha",
+      "detail": "help",
+      "placeholder": "Subject",
+      "url": "https://example.test",
+      "actions": ["increment", "Custom Action"]
+    },
+    {
+      "id": 3,
+      "depth": 1,
+      "role": "button",
+      "name": "Other"
+    },
+    {
+      "id": 4,
+      "depth": 1,
+      "role": "button",
+      "name": "İstanbul"
+    }
+  ],
+  "cases": [
+    {
+      "query": "Value: alpha",
+      "candidates": [1, 2, 4],
+      "expected": "1 element match \"Value: alpha\":\n1 window Owned\n\t2 text field (focused, disabled) Draft\\\\copy\\nline\\tend, Value: alpha, Description: help, Placeholder: Subject, URL: https://example.test, Actions: increment, Custom Action"
+    },
+    {
+      "query": "2 text field (focused, disabled)",
+      "candidates": [1, 2, 4],
+      "expected": "1 element match \"2 text field (focused, disabled)\":\n1 window Owned\n\t2 text field (focused, disabled) Draft\\\\copy\\nline\\tend, Value: alpha, Description: help, Placeholder: Subject, URL: https://example.test, Actions: increment, Custom Action"
+    },
+    {
+      "query": "Draft\\\\copy\\nline\\tend",
+      "candidates": [1, 2, 4],
+      "expected": "1 element match \"Draft\\\\copy\\nline\\tend\":\n1 window Owned\n\t2 text field (focused, disabled) Draft\\\\copy\\nline\\tend, Value: alpha, Description: help, Placeholder: Subject, URL: https://example.test, Actions: increment, Custom Action"
+    },
+    {
+      "query": "Custom Action",
+      "candidates": [1, 2, 4],
+      "expected": "1 element match \"Custom Action\":\n1 window Owned\n\t2 text field (focused, disabled) Draft\\\\copy\\nline\\tend, Value: alpha, Description: help, Placeholder: Subject, URL: https://example.test, Actions: increment, Custom Action"
+    },
+    {
+      "query": "https://example.test",
+      "candidates": [1, 2, 4],
+      "expected": "1 element match \"https://example.test\":\n1 window Owned\n\t2 text field (focused, disabled) Draft\\\\copy\\nline\\tend, Value: alpha, Description: help, Placeholder: Subject, URL: https://example.test, Actions: increment, Custom Action"
+    },
+    {
+      "query": "İ",
+      "candidates": [1, 2, 3, 4],
+      "expected": "1 element match \"İ\":\n1 window Owned\n\t4 button İstanbul"
+    },
+    {
+      "query": "missing",
+      "candidates": [1, 4],
+      "expected": "Nothing in the window matches \"missing\"."
+    }
+  ]
+}

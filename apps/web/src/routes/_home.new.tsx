@@ -9,7 +9,7 @@ import { OpenFolderScreen } from "@/features/projects/index.ts";
  * `/new?project=ace&base=main`: both optional; the page falls back to remembered choices.
  * `/new?folder=<absolute path>` (the desktop's `ace://open?folder=`) adds that folder as a
  * project, or finds it, and opens New thread in it.
- * `/new?machine=<hostId>&project=…` starts it on another of the person's machines (ADR 0100).
+ * `/new?machine=<hostId>&project=…` starts it on another of the person's machines (ADR 0102).
  */
 const NewThreadSearch = z.object({
   discard: z.catch(z.optional(z.number().check(z.int(), z.gte(0))), undefined),

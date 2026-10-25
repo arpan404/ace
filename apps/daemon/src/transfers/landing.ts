@@ -261,7 +261,7 @@ class Made {
 }
 
 /**
- * Where one transfer's code lands on this machine (ADR 0099 "Where it lands"). A project this
+ * Where one transfer's code lands on this machine (ADR 0101 "Where it lands"). A project this
  * machine already had keeps its checkout untouched unless it is clean on the same branch; a new
  * project is made from the bundle, the archive or a clone of origin. Every step checks for
  * cancellation; until the cutoff a failure or a cancel undoes what this landing made.

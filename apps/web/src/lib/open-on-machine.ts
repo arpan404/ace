@@ -11,8 +11,8 @@ export interface MachineTarget {
 }
 
 /**
- * How "Open" reaches work on a machine (ADR 0099): every transfer's Open goes through here, to
- * the thread (or New thread in the project) on that machine (ADR 0100). Undefined when the
+ * How "Open" reaches work on a machine (ADR 0101): every transfer's Open goes through here, to
+ * the thread (or New thread in the project) on that machine (ADR 0102). Undefined when the
  * machine isn't one this window knows, and Open isn't offered.
  */
 export function useOpenOnMachine(): (target: MachineTarget) => (() => void) | undefined {

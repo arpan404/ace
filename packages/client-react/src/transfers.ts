@@ -4,7 +4,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import { useClient } from "./context.ts";
 
 /*
- * One machine's transfers (ADR 0099), followed from the first view that asks: every
+ * One machine's transfers (ADR 0101), followed from the first view that asks: every
  * `transfer.progress` push lands in the store, and each time the connection becomes ready the
  * list is read again, so what moved while the window was away still shows; until it answers the
  * store isn't seeded. Pushes from agents' transfers arrive the same way as the person's own.

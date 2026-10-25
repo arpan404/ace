@@ -92,7 +92,7 @@ const terminal = new Set<TransferPhase>(["completed", "failed", "cancelled"]);
 const cancellable = new Set<TransferPhase>(["preparing", "cloning", "sending", "importing"]);
 
 /**
- * The sending side of transfers (ADR 0099): one durable row per transfer, sent straight to the
+ * The sending side of transfers (ADR 0101): one durable row per transfer, sent straight to the
  * target over its fleet link, resumed from the target's acknowledged offset after a restart or a
  * lost connection. Progress goes out on every phase change and at most every 500 ms of bytes.
  */

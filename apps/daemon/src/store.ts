@@ -56,6 +56,7 @@ import {
   ThreadId,
   type ItemId,
   type ThreadView,
+  type ProjectKind,
   WorkspaceId,
   WorkspaceFileChange,
 } from "@ace/protocol";
@@ -742,11 +743,17 @@ export class Store {
       this.deferredAfter = Math.max(this.deferredAfter, through);
     this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   }
-  getWorkspace(
-    id: WorkspaceId,
-  ): { path: string; name: string; icon?: string | null; defaultIcon?: string | null } | undefined {
+  getWorkspace(id: WorkspaceId):
+    | {
+        path: string;
+        name: string;
+        icon?: string | null;
+        defaultIcon?: string | null;
+        kind?: ProjectKind;
+      }
+    | undefined {
     const row = this.statement(
-      "SELECT id,path,name,(SELECT icon FROM workspace_metadata WHERE workspace_id=workspaces.id) AS icon,(SELECT default_icon FROM workspace_metadata WHERE workspace_id=workspaces.id) AS defaultIcon FROM workspaces WHERE id=?",
+      "SELECT w.id,w.path,w.name,m.icon,m.default_icon AS defaultIcon,m.kind FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id WHERE w.id=?",
     ).get(id);
     if (!row) return undefined;
     const project = decodeProjectRow(row);
@@ -755,6 +762,7 @@ export class Store {
       name: project.name,
       ...(project.icon === undefined ? {} : { icon: project.icon }),
       ...(project.defaultIcon === undefined ? {} : { defaultIcon: project.defaultIcon }),
+      ...(project.kind ? { kind: project.kind } : {}),
     };
   }
   executionWorkspace(id: ThreadId) {

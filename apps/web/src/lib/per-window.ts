@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 
 /**
  * One shared object per window (a dialog's request, the Home selection), whichever machine's
- * client the view asking for it runs against (ADR 0100). Under the provider every view, inside a
+ * client the view asking for it runs against (ADR 0102). Under the provider every view, inside a
  * `MachineScope` or not, reaches the same one, so a dialog hosted once in the shell hears a menu
  * in another machine's thread. Outside a provider (a view rendered on its own), one per client.
  */

@@ -145,7 +145,8 @@ import QuartzCore
             self.error = message
         } })
         self.runtime = runtime
-        runtime.start(itemLimit: itemLimit)
+        // The restored inbox's sort, so the live list opens in the order already on screen.
+        runtime.start(itemLimit: itemLimit, inboxSort: inboxLayout.sortBy)
     }
     /// Outbox and cached views are bound to one host and device identity.
     nonisolated static func database(hostId: String, deviceId: String, in directory: URL) -> URL {

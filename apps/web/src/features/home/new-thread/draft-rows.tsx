@@ -17,7 +17,7 @@ import { useDiscardDraft } from "./use-discard-draft.ts";
 
 /**
  * Unsent preparations belong to a daemon and this device, outside the running thread list:
- * this window's own, then each other connected machine's (ADR 0100), each row marked with its
+ * this window's own, then each other connected machine's (ADR 0102), each row marked with its
  * machine and reopening on it. Discard takes a row away at once, with Undo.
  */
 export function DraftRows() {

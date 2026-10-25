@@ -49,7 +49,7 @@ const reloading = new Set<ProviderKind>(["opencode", "pi"]);
  */
 const budgets: Record<ProviderKind, number> = {
   claude: 2_650,
-  // Raised from 1_150 for the transfer tool's name (ADR 0099).
+  // Raised from 1_150 for the transfer tool's name (ADR 0101).
   codex: 1_200,
   opencode: 3_800,
   cursor: 3_800,
@@ -174,7 +174,7 @@ it("only the entry points and tools_find load upfront, whatever the client", asy
   // with no existing tool to fold into. A deferring client pays only for their names, which
   // the per-request budget above counts; a core or static client never lists them upfront.
   // Raised to 31 for offshift (#899), a durable run record no thread tool can hold. Raised to 33
-  // for transfer (ADR 0099), moving work to another machine, which no delegate or thread tool
+  // for transfer (ADR 0101), moving work to another machine, which no delegate or thread tool
   // can do; the base it landed on already listed 32.
   const own = full.tools.filter(
     (tool) => !/^(?:browser|screen|sim)_/.test(bareToolName(tool.name)),

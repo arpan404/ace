@@ -79,7 +79,7 @@ export function startAgentControl(context: ServiceContext): void {
           ? services.machines.caller.message(child, message)
           : { ok: false, code: "not_found" },
     },
-    // Transfers start after this service too (ADR 0099).
+    // Transfers start after this service too (ADR 0101).
     transfer: async (caller, operation) => {
       const transfers = services.transfers;
       if (!transfers) throw new AgentControlError("machine_unavailable", "transfers_not_ready");

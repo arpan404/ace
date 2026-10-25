@@ -7,7 +7,7 @@ import { ForkDraftView } from "@/features/thread/index.ts";
 const id = z.catch(z.optional(z.string().check(z.minLength(1), z.maxLength(128))), undefined);
 /**
  * `?run=<run>` forks after a finished turn; `?item=<item>` after one finished answer.
- * `?machine=<hostId>` forks a thread on another of the person's machines, there (ADR 0100).
+ * `?machine=<hostId>` forks a thread on another of the person's machines, there (ADR 0102).
  */
 const ForkSearch = z.object({
   run: id,

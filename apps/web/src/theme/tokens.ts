@@ -176,18 +176,18 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
       : "inset 0 1px 0 rgb(255 255 255 / 0.06), 0 1px 3px rgb(0 0 0 / 0.4)",
     "--switch-off": wash(p.t1, light ? 16 : 22),
 
-    // A simulator's drawn hardware (Devices): a near-black body with a lit metal rim, the
-    // stage it sits on, and the black glass around its screen. Hardware looks the same in
-    // every theme, so the body is a fixed colour, just above the glass.
+    // A simulator's drawn hardware (Devices): a graphite metal band and buttons around black
+    // glass, on the stage it sits on. Hardware looks the same in every theme, so the metal is a
+    // fixed colour; its rim is one soft hairline (a lit edge), never a drawn outline.
     "--device-stage": light
       ? `color-mix(in srgb, ${p.sidebar}, ${p.t1} 1.5%)`
       : `color-mix(in srgb, ${p.sidebar}, #000 20%)`,
-    "--device-body": "#111113",
+    "--device-body": "#2b2b2f",
     // A hardware button under the pointer: the body's metal, one step lighter.
-    "--device-body-hover": "#232327",
+    "--device-body-hover": "#3a3a3f",
     "--device-rim": light
-      ? "inset 0 0 0 1px rgb(255 255 255 / 0.14), 0 0 0 1px rgb(0 0 0 / 0.14)"
-      : "inset 0 0 0 1px rgb(255 255 255 / 0.14), 0 0 0 1px rgb(0 0 0 / 0.5)",
+      ? "inset 0 0 0 0.5px rgb(255 255 255 / 0.1), 0 0 0 0.5px rgb(0 0 0 / 0.18)"
+      : "inset 0 0 0 0.5px rgb(255 255 255 / 0.12)",
     "--device-glass": "#000",
 
     // Floating layers: solid edge and shadow, and the glass material (styles/glass.css).

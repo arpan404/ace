@@ -15,7 +15,7 @@ import {
 } from "@ace/protocol";
 
 /*
- * Transfers in memory (ADR 0099): this machine "sends" a project, or a thread with its project,
+ * Transfers in memory (ADR 0101): this machine "sends" a project, or a thread with its project,
  * to another fake machine it has a fleet link to, stepping through the phases a real transfer
  * reports and pushing `transfer.progress` on each. It refuses as the real sender does, chooses
  * the method the same way (remote for a repository with an origin, bundle for one without,

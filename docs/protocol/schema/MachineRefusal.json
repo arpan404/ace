@@ -9,7 +9,8 @@
         "unauthorized",
         "not_found",
         "invalid",
-        "unavailable"
+        "unavailable",
+        "too_late"
       ],
       "type": "string"
     },

@@ -36,6 +36,26 @@
     "method": {
       "$ref": "https://ace.local/protocol/v1/TransferMethod.json"
     },
+    "options": {
+      "properties": {
+        "includeChanges": {
+          "type": "boolean"
+        },
+        "includeIgnored": {
+          "type": "boolean"
+        },
+        "parent": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "includeChanges",
+        "includeIgnored"
+      ],
+      "type": "object"
+    },
     "phase": {
       "$ref": "https://ace.local/protocol/v1/TransferPhase.json"
     },

@@ -4,7 +4,7 @@ import { ProviderKind } from "./provider.ts";
 
 /**
  * Carrying a project, or a thread with its project, to another of the person's machines
- * (ADR 0099). The client asks the machine that has the work; that daemon sends it straight to
+ * (ADR 0101). The client asks the machine that has the work; that daemon sends it straight to
  * the other machine over its fleet link. Nothing here carries a credential.
  */
 

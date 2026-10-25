@@ -45,8 +45,16 @@ struct ProjectPickerView: View {
         guard !needle.isEmpty else { return compose.projects }
         return compose.projects.filter { $0.name.localizedCaseInsensitiveContains(needle) || $0.path.localizedCaseInsensitiveContains(needle) }
     }
+    /// "No project" leads the list unless a search leaves it out.
+    private var offersChat: Bool {
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        return needle.isEmpty || "No project chat".localizedCaseInsensitiveContains(needle)
+    }
     var body: some View {
         List {
+            if offersChat {
+                Section { chatRow }.insetRowBackground()
+            }
             switch compose.projectsState {
             case "failed":
                 ContentUnavailableView {
@@ -56,9 +64,8 @@ struct ProjectPickerView: View {
             case "ready":
                 let recent = matches.filter(\.recent)
                 let rest = matches.filter { !$0.recent }
-                if matches.isEmpty {
-                    ContentUnavailableView(query.isEmpty ? "No projects yet" : "No projects match", systemImage: "folder",
-                                           description: Text(query.isEmpty ? "Add a folder from your computer to start." : ""))
+                if matches.isEmpty, !query.isEmpty {
+                    ContentUnavailableView("No projects match", systemImage: "folder")
                         .listRowBackground(Color.clear)
                 }
                 if !recent.isEmpty {
@@ -87,6 +94,21 @@ struct ProjectPickerView: View {
         .searchable(text: $query, prompt: "Search projects")
         .navigationTitle("Project").navigationBarTitleDisplayMode(.inline)
         .refreshable { reload() }
+    }
+    /// A chat with no project (ADR 0099).
+    private var chatRow: some View {
+        Button { choose(NewThreadDraft.chat) } label: {
+            HStack(spacing: AceTheme.Spacing.md) {
+                Image(systemName: "bubble.left").foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text("No project").aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                Spacer(minLength: AceTheme.Spacing.none)
+                if selected == NewThreadDraft.chat { Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(AceTheme.Colours.foreground) }
+            }
+            .padding(.vertical, AceTheme.Spacing.xs).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected == NewThreadDraft.chat ? .isSelected : [])
+        .accessibilityIdentifier("project.chat")
     }
     private func row(_ project: ComposeProject) -> some View {
         Button { choose(project.id) } label: {

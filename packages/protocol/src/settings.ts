@@ -118,13 +118,13 @@ export const SettingsValues = z.object({
   /** Whether agents on other paired machines may use this one, and how far (ADR 0078). */
   "remote.agentAccess": z.enum(["off", "read", "operate"]),
   /**
-   * Whether agents on this machine may move projects and threads to other machines (ADR 0099).
+   * Whether agents on this machine may move projects and threads to other machines (ADR 0101).
    * The person's own transfers from the app don't depend on it.
    */
   "remote.agentTransfers": z.boolean(),
   /**
    * Whether transfers from this machine also carry files Git ignores, such as `.env`, by
-   * default (ADR 0099). Dependency and cache folders never travel; they are rebuilt there.
+   * default (ADR 0101). Dependency and cache folders never travel; they are rebuilt there.
    */
   "remote.transferIgnoredFiles": z.boolean(),
   /**

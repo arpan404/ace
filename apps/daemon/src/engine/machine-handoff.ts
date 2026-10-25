@@ -4,7 +4,7 @@ import type { EngineRepository } from "./repository.ts";
 import { handoff } from "./transition-history.ts";
 
 /*
- * A thread's history carried to another machine (ADR 0099). The source captures the same
+ * A thread's history carried to another machine (ADR 0101). The source captures the same
  * bounded, conversation-first handoff a provider switch builds; the target keeps it waiting on
  * the new thread, so it goes in front of the person's next message there, as a switch's does.
  */

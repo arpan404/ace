@@ -25,7 +25,7 @@ import { threadActionsOn, type ThreadActions } from "./use-thread-actions.ts";
 const WindowClient = createContext<ClientApi | undefined>(undefined);
 
 /**
- * What organizing shares across one window (ADR 0100): the Home selection, the project picker
+ * What organizing shares across one window (ADR 0102): the Home selection, the project picker
  * and the delete and archive questions, so a menu in another machine's row or thread reaches the
  * one dialog the shell hosts; and this window's own client. Mounted under the window's client.
  */

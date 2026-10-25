@@ -16,7 +16,7 @@ const none: readonly MachineThreadHit[] = [];
 const dataOf = <T>(each: readonly { data: T | undefined }[]) => each.map((result) => result.data);
 
 /**
- * Threads each other online machine's own search finds for `text` (ADR 0100), asked of that
+ * Threads each other online machine's own search finds for `text` (ADR 0102), asked of that
  * machine's client and cached under its host id, so one machine's hits never show as another's.
  */
 export function useMachineThreadHits(

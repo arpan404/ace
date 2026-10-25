@@ -87,7 +87,7 @@ function failure(error: unknown): { code: string; message: string } {
 }
 
 /**
- * The receiving side of transfers (ADR 0099). Rows and files are keyed by transfer id, so a
+ * The receiving side of transfers (ADR 0101). Rows and files are keyed by transfer id, so a
  * repeated begin, chunk or commit is answered from what is already here. A failed or cancelled
  * import never leaves a project registered and removes only the folders it made.
  */

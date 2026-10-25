@@ -1,20 +1,18 @@
-import { iphoneCutout, type DeviceKind } from "./device-catalog.ts";
+import type { DeviceKind } from "./device-catalog.ts";
+import { ipadFace, iphoneFace, type AppleFace } from "./device-profiles.ts";
 
 /*
  * The drawn hardware around a device's screen, in units of the screen's own width, and how big
  * to draw it in the room the stage has. Pure: the frame component only multiplies these out.
+ *
+ * Nothing is drawn over the screen: a Simulator's or emulator's own picture already shows what
+ * the real device shows there, so islands, notches and camera holes are never painted on it.
  */
 
 export interface Size {
   width: number;
   height: number;
 }
-
-export type Cutout =
-  | { kind: "island"; width: number; height: number; top: number }
-  | { kind: "notch"; width: number; height: number }
-  | { kind: "punch"; size: number; top: number }
-  | { kind: "none" };
 
 export interface FrameGeometry {
   /** Hardware around the screen on each side, as a fraction of the screen's width. */
@@ -23,8 +21,9 @@ export interface FrameGeometry {
   screenRadius: number;
   /** The body's corner radius, as a fraction of the screen's width. */
   bodyRadius: number;
-  cutout: Cutout;
-  /** A round home button under the screen (older iPhones), in the bezel the bottom turned to. */
+  /** The metal band at the body's edge, outside its black glass, as a fraction of the screen's width. */
+  band: number;
+  /** A round home button under the screen (older iPhones and iPads), in the bezel the bottom turned to. */
   homeButton: boolean;
 }
 
@@ -40,8 +39,8 @@ export function framePoints(header: {
 
 /** The screen size each kind assumes before its first frame arrives, in points. */
 export const defaultScreens: Record<DeviceKind, Size> = {
-  iphone: { width: 393, height: 852 },
-  ipad: { width: 1032, height: 1376 },
+  iphone: iphoneFace("").screen,
+  ipad: ipadFace("").screen,
   watch: { width: 208, height: 248 },
   tv: { width: 1920, height: 1080 },
   vision: { width: 1920, height: 1080 },
@@ -49,59 +48,82 @@ export const defaultScreens: Record<DeviceKind, Size> = {
   "android-tablet": { width: 800, height: 1280 },
 };
 
-const even = (value: number) => ({ top: value, right: value, bottom: value, left: value });
+/** The upright screen a device of this kind and name has, until its first picture says otherwise. */
+export function deviceScreen(kind: DeviceKind, name: string): Size {
+  if (kind === "iphone") return iphoneFace(name).screen;
+  if (kind === "ipad") return ipadFace(name).screen;
+  return defaultScreens[kind];
+}
 
-/** The frame for a kind of device, upright or turned on its side. */
-export function frameGeometry(kind: DeviceKind, name: string, screen: Size): FrameGeometry {
-  const landscape = screen.width > screen.height;
-  // Geometry is drawn against the screen's width; turned sideways, the short side leads.
-  const short = landscape ? screen.height / screen.width : 1;
-  const plain = (bezel: number, screenRadius: number): FrameGeometry => ({
-    bezel: even(bezel * short),
-    screenRadius: screenRadius * short,
-    bodyRadius: (screenRadius + bezel) * short,
-    cutout: { kind: "none" },
-    homeButton: false,
-  });
+/** A face as fractions of the upright screen's width. */
+interface Face {
+  radius: number;
+  side: number;
+  chin: number;
+  bodyRadius?: number | undefined;
+  band: number;
+  homeButton: boolean;
+}
+
+function appleFace(face: AppleFace, short: number, band: number): Face {
+  return {
+    radius: short > 0 ? face.cornerRadius / short : 0,
+    side: face.side,
+    chin: face.chin,
+    bodyRadius: face.bodyRadius,
+    band,
+    homeButton: face.homeButton,
+  };
+}
+
+const plain = (side: number, radius: number, band: number): Face => ({
+  radius,
+  side,
+  chin: side,
+  band,
+  homeButton: false,
+});
+
+function faceOf(kind: DeviceKind, name: string, short: number): Face {
   switch (kind) {
-    case "iphone": {
-      const cut = iphoneCutout(name);
-      if (cut === "none") {
-        // The home-button face: square screen corners, deep forehead and chin.
-        const frame = plain(0.06, 0);
-        return {
-          ...frame,
-          bezel: landscape
-            ? { top: 0.06 * short, right: 0.2 * short, bottom: 0.06 * short, left: 0.2 * short }
-            : { top: 0.24, right: 0.06, bottom: 0.24, left: 0.06 },
-          bodyRadius: 0.16 * short,
-          homeButton: true,
-        };
-      }
-      const frame = plain(0.045, 0.14);
-      if (landscape) return frame;
-      return {
-        ...frame,
-        cutout:
-          cut === "island"
-            ? { kind: "island", width: 0.32, height: 0.094, top: 0.028 }
-            : { kind: "notch", width: 0.54, height: 0.076 },
-      };
-    }
+    case "iphone":
+      return appleFace(iphoneFace(name), short, 0.012);
     case "ipad":
-      return plain(0.05, 0.035);
+      return appleFace(ipadFace(name), short, 0.006);
     case "watch":
-      return plain(0.1, 0.22);
-    case "android-phone": {
-      const frame = plain(0.035, 0.09);
-      return landscape ? frame : { ...frame, cutout: { kind: "punch", size: 0.03, top: 0.025 } };
-    }
+      return plain(0.1, 0.22, 0.03);
+    case "android-phone":
+      return plain(0.035, 0.09, 0.01);
     case "android-tablet":
-      return plain(0.045, 0.035);
+      return plain(0.045, 0.035, 0.006);
     case "tv":
     case "vision":
-      return plain(0.012, 0.008);
+      return plain(0.012, 0.008, 0);
   }
+}
+
+/**
+ * The frame for a device, upright or turned on its side, fitted to the picture's own size: the
+ * screen's corners follow the model's display, the bezels its measured borders, and the body's
+ * corners sit concentric around the screen's.
+ */
+export function frameGeometry(kind: DeviceKind, name: string, screen: Size): FrameGeometry {
+  const landscape = screen.width > screen.height;
+  const short = Math.min(screen.width, screen.height);
+  const face = faceOf(kind, name, short);
+  // Geometry is drawn against the screen's width; turned sideways, the short side leads.
+  const k = landscape && screen.width > 0 ? screen.height / screen.width : 1;
+  const across = face.side * k;
+  const along = face.chin * k;
+  return {
+    bezel: landscape
+      ? { top: across, right: along, bottom: across, left: along }
+      : { top: along, right: across, bottom: along, left: across },
+    screenRadius: face.radius * k,
+    bodyRadius: (face.bodyRadius ?? face.radius + face.side) * k,
+    band: face.band * k,
+    homeButton: face.homeButton,
+  };
 }
 
 /**

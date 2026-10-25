@@ -66,7 +66,7 @@ export class MachineDirectory {
           const offline = error instanceof MachineFailure && error.kind !== "refused";
           const known = this.seen.get(profile.name);
           if (!offline) this.seen.delete(profile.name);
-          // Transfers don't need agent access there (ADR 0099): list a machine that takes them.
+          // Transfers don't need agent access there (ADR 0101): list a machine that takes them.
           if (!offline && this.deps.transfers) {
             const probe = await this.deps.transfers(profile).catch(() => undefined);
             if (probe?.accepts)

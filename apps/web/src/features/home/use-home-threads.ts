@@ -84,7 +84,7 @@ const listEqual = (a: HomeList, b: HomeList) =>
  * most recent first in each; settled apart), across every project the filter lets through.
  * Only ids are selected, so a status change re-renders its own row and moves rows only when the
  * order changes. `others` are other machines' threads under their machine row ids
- * (`useMachineEntries`), ordered in the same flat list (ADR 0100).
+ * (`useMachineEntries`), ordered in the same flat list (ADR 0102).
  */
 export function useHomeList(others: readonly ThreadListEntry[] = noOthers): HomeList {
   const keys = useEveryEntryKey();

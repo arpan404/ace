@@ -6,7 +6,7 @@ import Testing
 /// The Devices screen draws what the bridge shapes (`bridge/devices-view.ts`), and a device's
 /// frame fits the room the stage has.
 @MainActor @Suite struct DevicesViewTests {
-    private static let frame = #"{"bezel":{"top":0.045,"right":0.045,"bottom":0.045,"left":0.045},"screenRadius":0.14,"bodyRadius":0.185,"cutout":{"kind":"island","width":0.32,"height":0.094,"top":0.028},"homeButton":false}"#
+    private static let frame = #"{"bezel":{"top":0.045,"right":0.045,"bottom":0.045,"left":0.045},"screenRadius":0.14,"bodyRadius":0.185,"band":0.012,"homeButton":false}"#
     private static let patch = #"""
     {"type":"devices.view","threadId":"thread-1","view":{"connected":true,"loading":false,"enabled":true,"offline":null,
      "running":[{"id":"ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b","name":"iPhone 17 Pro","platform":"ios","kind":"iphone","detail":"iOS 26.0 · Live","running":true,"live":true,"control":"Claude is using it"}],
@@ -35,7 +35,7 @@ import Testing
         #expect(device.control.action == "take")
         #expect(device.interactive == false)
         #expect(device.activity?.caption == "tap @e7 “Sign in”")
-        #expect(device.frame.portrait.cutout.kind == "island")
+        #expect(device.frame.portrait.screenRadius == 0.14)
     }
 
     @Test func aFrameFitsItsRoomKeepsTheScreensAspectAndNeverBlowsUpASmallScreen() throws {

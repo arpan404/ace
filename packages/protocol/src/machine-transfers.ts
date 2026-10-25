@@ -6,7 +6,7 @@ import { TransferMethod } from "./transfers.ts";
 
 /**
  * Daemon-to-daemon calls that carry a project or thread to another of the person's machines
- * (ADR 0099). The sending daemon calls `POST /v1/transfers` on the target's paired-device TLS
+ * (ADR 0101). The sending daemon calls `POST /v1/transfers` on the target's paired-device TLS
  * listener with its own device token, and uploads the bundle or archive to
  * `PUT /v1/transfers/chunk` in pieces acknowledged by offset (`part=ignored` for the archive of
  * files Git ignores). Nothing here carries a credential.

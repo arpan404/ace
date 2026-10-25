@@ -246,7 +246,7 @@ export interface ThreadActionsDeps {
   toast: ReturnType<typeof useToast>;
   navigate: ReturnType<typeof useNavigate>;
   router: ReturnType<typeof useRouter>;
-  /** `?machine=` for the threads' own links, empty on this window's daemon (ADR 0100). */
+  /** `?machine=` for the threads' own links, empty on this window's daemon (ADR 0102). */
   machine: { machine?: string };
 }
 

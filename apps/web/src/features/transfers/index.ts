@@ -1,4 +1,4 @@
-/** Work on another machine (ADR 0099): the machine chooser, and a thread's transfer line. */
+/** Work on another machine (ADR 0101): the machine chooser, and a thread's transfer line. */
 export { TransferHost } from "./transfer-host.tsx";
 export {
   ThreadTransferStrip,

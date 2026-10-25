@@ -12,7 +12,7 @@ const admissionDetails: Partial<Record<string, string>> = {
 
 /**
  * `workspace.transfer`, `thread.continueOn`, `transfers.request` and `transfer.progress`
- * (ADR 0099). Moving work needs `projects` on this machine, as adding a project does; continuing
+ * (ADR 0101). Moving work needs `projects` on this machine, as adding a project does; continuing
  * a thread needs `operate` on it too.
  */
 export function createTransfersSession(context: SocketContext): SocketService {

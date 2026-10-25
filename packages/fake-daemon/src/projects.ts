@@ -151,7 +151,7 @@ export class FakeProjects {
       const remote = this.directories.get(project.path)?.remote;
       this.directories.set(project.path, {
         empty: false,
-        git: true,
+        git: project.kind !== "chat",
         modifiedAt: thread.createdAt,
         initialBranch: thread.details?.baseBranch ?? "main",
         ...(remote ? { remote } : {}),
@@ -317,7 +317,7 @@ export class FakeProjects {
     });
   }
   /**
-   * A project another machine sent here (ADR 0099): the project with the same origin when there
+   * A project another machine sent here (ADR 0101): the project with the same origin when there
    * is one, else a new Git checkout in `parent` (or the home), named after the source with `-2`,
    * `-3`… when the folder is taken.
    */
@@ -401,6 +401,20 @@ export class FakeProjects {
           modifiedAt: this.context.now(),
         });
         return this.register(path, p.name, p.icon);
+      }
+      if (p.type === "workspace.chat.create") {
+        const id = this.allocateId();
+        const path = `/fake/chats/${id}`;
+        this.directories.set(path, {
+          empty: true,
+          git: false,
+          initialBranch: "main",
+          modifiedAt: this.context.now(),
+        });
+        const workspace = Project.parse({ id, name: "Chat", path, kind: "chat" });
+        this.projects.set(id, workspace);
+        this.emit({ type: "workspace.changed", workspaceId: id, change: "added", workspace });
+        return { ok: true, workspace };
       }
       const project = this.projects.get(p.workspaceId);
       if (!project) throw new Error("workspace_not_found");

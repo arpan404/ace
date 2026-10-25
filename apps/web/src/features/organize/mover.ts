@@ -6,7 +6,7 @@ import type { ThreadTarget } from "./use-thread-actions.ts";
 export interface MoveRequest {
   entries: readonly ThreadTarget[];
   /**
-   * The machine the threads are on, when it isn't this window's own (ADR 0100): the picker then
+   * The machine the threads are on, when it isn't this window's own (ADR 0102): the picker then
    * lists that machine's projects and moves them there. A thread never moves between machines.
    */
   hostId?: string | undefined;

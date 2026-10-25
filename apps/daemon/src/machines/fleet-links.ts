@@ -24,7 +24,7 @@ export interface FleetLinkDeps {
   hostName(): Promise<string>;
   /**
    * Whether that machine takes transfers from this device (`operate` and `projects` there),
-   * answered without its agent access (ADR 0099).
+   * answered without its agent access (ADR 0101).
    */
   transfers?(profile: RemoteProfile): Promise<{ hostId: HostId; name: string; accepts: boolean }>;
 }
@@ -152,7 +152,7 @@ export class FleetLinks {
       };
     } catch (error) {
       const refused = error instanceof MachineFailure && error.kind === "refused";
-      // Agents may be shut out there while the person's transfers still go (ADR 0099).
+      // Agents may be shut out there while the person's transfers still go (ADR 0101).
       const probe = refused
         ? await this.deps.transfers?.(profile).catch(() => undefined)
         : undefined;

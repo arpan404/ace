@@ -43,7 +43,7 @@ export function PullRequestPages(props: { project: string; children: ReactNode }
 /**
  * A thread's links: a pull request opens in the thread's side panel, beside the conversation; an
  * issue opens its page. The issue pages read this window's own machine, so on another machine's
- * thread (ADR 0100) issue links stay on GitHub; the side panel runs on the thread's machine.
+ * thread (ADR 0102) issue links stay on GitHub; the side panel runs on the thread's machine.
  */
 export function ThreadForgeLinks(props: { threadId: string; children: ReactNode }) {
   const workspaceId = useThreadMeta(props.threadId)?.workspaceId;

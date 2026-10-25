@@ -40,6 +40,7 @@ export function startMachines(context: ServiceContext): void {
   const threads = new TargetThreads({
     store,
     engine,
+    models: () => services.models,
     journal: () => services.agentControl?.delegations.journal,
     now,
   });

@@ -36,7 +36,7 @@ export class Client extends ClientCore implements ClientApi {
   }
   /** Project calls forward through `command`/`request`; pushes arrive through `onMessage`. */
   readonly projects: ProjectsApi = { ...projectCalls(this), ...projectEvents(this) };
-  /** Transfers to other machines (ADR 0099), through `command`/`request` and pushes. */
+  /** Transfers to other machines (ADR 0101), through `command`/`request` and pushes. */
   readonly transfers: TransfersApi = transfersApi(this);
   /** Ephemeral auth requests never enter the persistent intent outbox. */
   async cursorAuth(input: CursorAuthQuery, options: RequestOptions = {}): Promise<CursorAuthEvent> {

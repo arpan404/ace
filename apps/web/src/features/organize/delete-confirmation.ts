@@ -41,7 +41,7 @@ class Confirmation<Request> {
 
 /*
  * One confirmation per window, so every part opening it reaches the dialog the shell hosts, also
- * from another machine's thread or row (ADR 0100). A request carries its own `confirm`, made
+ * from another machine's thread or row (ADR 0102). A request carries its own `confirm`, made
  * against the asking view's client, so the dialog needs no machine of its own.
  */
 const deletes = perWindow(() => new Confirmation<DeleteRequest>());

@@ -9,7 +9,7 @@ export interface LineAction {
 
 /**
  * A transfer in one sentence with its text buttons at the right: "Sending to Studio · 312 MB of
- * 1.2 GB  Cancel", "Continued on Studio  Open". No glyph, no tint (ADR 0099).
+ * 1.2 GB  Cancel", "Continued on Studio  Open". No glyph, no tint (ADR 0101).
  */
 export function TransferLine(props: {
   words: string;

@@ -164,7 +164,7 @@ export function bootFake(): {
   seedBuildServerUsage(server, Date.now());
   // This Mac and the build server are linked both ways, as Settings › Fleet's Link leaves them,
   // so Continue on… and Open on… can send work either way. This Mac is also linked to a studio
-  // that is off, which the chooser shows as offline (ADR 0099).
+  // that is off, which the chooser shows as offline (ADR 0101).
   server.linkTo(daemon);
   daemon.linkTo(server);
   daemon.linkTo(

@@ -81,7 +81,7 @@ export function useCreateThread(
   const connection = useDaemonConnection();
   const host = useHostIdentity();
   const deviceId = connection.endpoint?.kind === "daemon" ? connection.endpoint.deviceId : "fake";
-  // Under another machine's client (ADR 0100) its starts are kept apart from this window's
+  // Under another machine's client (ADR 0102) its starts are kept apart from this window's
   // own, so each machine's recovery replays only its own starts, on its own client.
   const scoped = useScopedMachine()?.id;
   const recoveryKey = scoped

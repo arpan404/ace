@@ -53,7 +53,7 @@ type Step =
 const verb = (request: TransferRequest) => (request.kind === "thread" ? "Continue" : "Open");
 
 /**
- * "Continue on…" and "Open on…" (ADR 0099): which machine, then where and whether to bring
+ * "Continue on…" and "Open on…" (ADR 0101): which machine, then where and whether to bring
  * uncommitted changes and ignored files, then the transfer's one line until it's done. Machines
  * this one has fleet links to are listed; offline or not-allowed ones show why, and none links to
  * Settings › Fleet. A transfer already running for this thread or project opens on its line, so

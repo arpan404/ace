@@ -32,7 +32,7 @@ const fullRef = (prefix: string, name: string) =>
 export const changesRef = (transferId: string) => `refs/ace/transfer/${transferId}`;
 
 /**
- * How the code travels (ADR 0099): a Git repository with an origin goes as `remote`, one without
+ * How the code travels (ADR 0101): a Git repository with an origin goes as `remote`, one without
  * as `bundle`, any other folder as `archive`. Uncommitted changes are captured as a commit
  * without touching the checkout or its index.
  */

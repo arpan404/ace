@@ -21,7 +21,7 @@ export interface Held {
 }
 
 /**
- * Git steps for moving a checkout to another machine (ADR 0099): the sender captures changes
+ * Git steps for moving a checkout to another machine (ADR 0101): the sender captures changes
  * and writes bundles; the receiver clones or fetches them and lands branches and changes.
  * Each call runs under the checkout's mutation lease, like every other Git writer.
  */

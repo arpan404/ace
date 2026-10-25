@@ -56,7 +56,7 @@ export type DaemonOptions = {
     handoffGit?: () => import("../agent-control/handoffs.ts").HandoffGit;
     extensions?: import("../agent-control/tools.ts").AgentControlExtensions;
   };
-  /** Transfers to other machines (ADR 0099): tests drop connections and shorten waits. */
+  /** Transfers to other machines (ADR 0101): tests drop connections and shorten waits. */
   transfers?: {
     transport?: import("../transfers/client.ts").TransferTransport;
     sleep?(ms: number, signal: AbortSignal): Promise<void>;

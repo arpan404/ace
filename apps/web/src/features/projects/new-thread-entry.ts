@@ -9,6 +9,7 @@ import { useMachinePool } from "@/lib/machine-pool.ts";
 import { newThreadOn } from "@/lib/machine-routes.ts";
 import { useMachines, useScopedMachine } from "@/lib/machines.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
+import { chatChoice } from "@/lib/chat-choice.ts";
 
 /** The project of the list's most recently updated thread. */
 function latestProject(reader: SidebarReader): string | undefined {
@@ -22,12 +23,13 @@ function latestProject(reader: SidebarReader): string | undefined {
 }
 
 /**
- * Ways into a new thread. `start` asks where when it has to: with no project it opens Add
- * project, with one it opens the draft there, with several, or while another machine is online,
- * the palette's "New thread in…" (which chooses the machine too).
- * `here` skips the question: the open thread's project, else the project Home is filtered to,
- * else the one worked in last. On another machine's thread (ADR 0100) that is New thread on
- * that machine, in the thread's project there. `only` is the project `start` opens without asking, if any.
+ * Ways into a new thread. `start` asks where when it has to: with no project it opens a chat
+ * with no project, with one it opens the draft there, with several, or while another machine is
+ * online, the palette's "New thread in…" (which chooses the machine too). `here` skips the
+ * question: the open thread's project (another chat from a chat), else the project Home is
+ * filtered to, else the one worked in last. On another machine's thread (ADR 0102) that is New
+ * thread on that machine, in the thread's project there. `only` is the project `start` opens
+ * without asking, if any.
  */
 export function useNewThreadEntry(): { start(): void; here(): void; only: string | undefined } {
   const navigate = useNavigate();
@@ -58,7 +60,7 @@ export function useNewThreadEntry(): { start(): void; here(): void; only: string
   const start = useCallback(() => {
     if (only) draft(only);
     else if (projects.length > 1 || elsewhere) openPalette({ page: "new-thread-in" });
-    else if (directory.loaded) openPalette({ page: "add-project" });
+    else if (directory.loaded) draft(chatChoice);
     else void navigate({ to: "/new" });
   }, [only, projects, elsewhere, directory.loaded, draft, openPalette, navigate]);
   const here = useCallback(() => {
@@ -75,13 +77,15 @@ export function useNewThreadEntry(): { start(): void; here(): void; only: string
     const fromThread = open
       ? sidebar?.select(["ids", "threads"], (reader) => reader.thread(open)?.workspaceId)
       : undefined;
+    const threadProject = fromThread?.getSnapshot();
+    if (threadProject && directory.isChat(threadProject)) return draft(chatChoice);
     const project =
-      known(fromThread?.getSnapshot()) ??
+      known(threadProject) ??
       known(organizer.getState().project) ??
       known(sidebar?.select(["ids", "threads"], latestProject).getSnapshot()) ??
       projects[0]?.id;
     if (project) draft(project);
     else start();
-  }, [onMachine, pool, open, sidebar, organizer, projects, draft, start, navigate]);
+  }, [onMachine, pool, open, sidebar, organizer, projects, directory, draft, start, navigate]);
   return useMemo(() => ({ start, here, only }), [start, here, only]);
 }

@@ -69,6 +69,9 @@ func cuImageLooksBlank(_ image: CGImage) -> Bool {
 /// window's AX frame in points. `marks` tags elements with their outline ids so the picture and
 /// the outline line up.
 @MainActor func cuCaptureWindow(_ number: CGWindowID, frame: CGRect, marks: (Double) -> [CUMark] = { _ in [] }) async throws -> CUScreenshot {
+    guard !cuScreenLocked() else {
+        throw CUError("screen_locked", "The Mac is locked. Window screenshots are unavailable; use the accessibility outline and element ids until the person unlocks it.")
+    }
     guard CGPreflightScreenCaptureAccess() else {
         throw CUError("permission_screen_recording", "Screenshots need Screen Recording for \"Ace Screen Helper\" in System Settings > Privacy & Security. Ask the person to grant it; the outline still works without it.")
     }
@@ -82,6 +85,10 @@ func cuImageLooksBlank(_ image: CGImage) -> Bool {
             throw CUError("capture_failed", "macOS would not capture this window. Use the outline instead.")
         }
         captured = last
+    }
+    // The session may lock while ScreenCaptureKit is awaiting a frame.
+    guard !cuScreenLocked() else {
+        throw CUError("screen_locked", "The Mac locked during capture. Use the accessibility outline and element ids.")
     }
     let actualScale = Double(captured.width) / max(frame.width, 1)
     let image = cuDrawMarks(captured, marks: marks(actualScale))

@@ -75,7 +75,7 @@ export function transferResultText(transfer: Transfer): string {
 }
 
 /**
- * The agents' `transfer` tool (ADR 0099 "Agents"). It returns at once with the transfer id; the
+ * The agents' `transfer` tool (ADR 0101 "Agents"). It returns at once with the transfer id; the
  * result arrives as a new turn, and a background hold keeps the agent's tree working meanwhile.
  */
 export class AgentTransfers {

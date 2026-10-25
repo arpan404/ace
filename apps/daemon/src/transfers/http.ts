@@ -43,7 +43,7 @@ function assertMayTransfer(device: Device): void {
 
 /**
  * `POST /v1/transfers` and `PUT /v1/transfers/chunk` on the paired-device TLS listener
- * (ADR 0099): the same pinned key and device token as `/v1/machine-calls`. Every request
+ * (ADR 0101): the same pinned key and device token as `/v1/machine-calls`. Every request
  * authenticates again; `remote.agentAccess` does not apply to transfers.
  */
 export function transfersHttp(

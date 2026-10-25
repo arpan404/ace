@@ -15,7 +15,7 @@ export async function machineLinks(client: ClientApi): Promise<FleetLink[]> {
 
 /**
  * Whether this machine is linked to another one, so "Continue on…" and "Open on…" have somewhere
- * to go (ADR 0099). With no other machine they aren't offered at all.
+ * to go (ADR 0101). With no other machine they aren't offered at all.
  */
 export function useHasLinkedMachines(): boolean {
   const client = useClient();

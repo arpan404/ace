@@ -37,6 +37,17 @@ export async function startScreen({ config, options, resources, services, store 
     const computer = new ComputerClient({
       helper: () => installScreenHelper(helper, config.dataDir, config.screenHelperManifest),
       nextId: randomUUID,
+      ...(config.computerUseTimings
+        ? {
+            timing: {
+              report: (timing) => {
+                process.stderr.write(
+                  `${JSON.stringify({ component: "computer-use", ...timing })}\n`,
+                );
+              },
+            },
+          }
+        : {}),
     });
     resources.own(() => computer.close());
     services.computer = computer;

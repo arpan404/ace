@@ -142,7 +142,7 @@ export class FakeDaemon implements Host {
   readonly appDevices: FakeAppDevices;
   readonly screen: FakeScreen;
   readonly commandFlights = new CommandFlights();
-  /** Transfers to other fake machines (ADR 0099); `linkTo` makes a machine reachable. */
+  /** Transfers to other fake machines (ADR 0101); `linkTo` makes a machine reachable. */
   readonly transfers: FakeTransfers;
   constructor(options: FakeDaemonOptions) {
     this.options = options;
@@ -1321,6 +1321,9 @@ export class FakeDaemon implements Host {
               id: payload.workspaceId,
               name: payload.workspaceId,
               path: `/fake/${payload.workspaceId}`,
+              ...(this.projects.get(payload.workspaceId)?.kind === "chat"
+                ? { kind: "chat" as const, name: "Chat" }
+                : {}),
             },
             mode: payload.mode ?? "local",
             worktree: fakeCheckoutPath(payload.mode, id, payload.workspaceId),

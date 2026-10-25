@@ -2,7 +2,7 @@ import type { GitTransfer } from "@ace/git";
 import type { measureFolder, mergeArchive, packFiles, packFolder, unpackArchive } from "@ace/files";
 
 /**
- * What transfers need from Git and from the folder archive owner (ADR 0099): `@ace/git`'s
+ * What transfers need from Git and from the folder archive owner (ADR 0101): `@ace/git`'s
  * transfer primitives and `@ace/files`' folder archives, narrowed so tests see the shapes.
  */
 export type TransferGit = Pick<

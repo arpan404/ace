@@ -51,7 +51,7 @@ export function nextNeedingYou(
  * Moving between threads in the sidebar's order (pinned, then the work in hand, then recent;
  * snoozed and settled stay folded away): the next, the previous, and the next that needs you.
  * Other machines' threads are in that order as Home lists them, and open on their machine
- * (ADR 0100).
+ * (ADR 0102).
  */
 export function useThreadSteps() {
   const own = useHostIdentity()?.hostId;

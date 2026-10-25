@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { useMachinePool } from "./machine-pool.ts";
 
 /*
- * Other machines' threads in this window's list (ADR 0100). Each is listed under a row id that
+ * Other machines' threads in this window's list (ADR 0102). Each is listed under a row id that
  * names its machine, so a thread id two daemons share stays two rows, and nothing that acts on
  * this daemon's ids can mistake one for its own.
  */

@@ -10,7 +10,7 @@ export type TransferRequest = (
 ) & {
   /**
    * The machine the work is on, when it isn't this window's own (a thread opened with
-   * `?machine=`): the chooser then runs against that machine's client (ADR 0100).
+   * `?machine=`): the chooser then runs against that machine's client (ADR 0102).
    */
   hostId?: string | undefined;
   /** Open straight on the options step for this machine (Try again without known options). */
@@ -27,7 +27,7 @@ interface State {
 
 /**
  * "Continue on…" from a thread menu and "Open on…" from a project menu: one machine chooser per
- * window, so every menu opens the same one (ADR 0099), including menus in another machine's
+ * window, so every menu opens the same one (ADR 0101), including menus in another machine's
  * thread, whose client differs from the window's.
  */
 export class TransferOpener {

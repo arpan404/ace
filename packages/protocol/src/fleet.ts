@@ -24,7 +24,7 @@ export const FleetLink = z.object({
   access: z.enum(["read", "operate"]).optional(),
   /**
    * Whether this machine's device there holds `projects` (ADR 0063). Transfers need it with
-   * `operate` (ADR 0099); absent when unknown.
+   * `operate` (ADR 0101); absent when unknown.
    */
   projects: z.boolean().optional(),
 });

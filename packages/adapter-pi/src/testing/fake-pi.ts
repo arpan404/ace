@@ -211,8 +211,13 @@ async function handle(line: string) {
       });
       return;
     case "prompt": {
-      inputDelivered = true;
       const message = typeof c.message === "string" ? c.message : "";
+      // Pi answers a prompt it turns down before acceptance with one failed response.
+      if (message === "refuse" || message.startsWith("/refuse")) {
+        emit({ type: "response", id: c.id, command: c.type, success: false, error: "No model" });
+        return;
+      }
+      inputDelivered = true;
       if (message === "image-echo") {
         // Pi repeats every image of the run: the user message and its tool result both carry it.
         const images = z.array(z.unknown()).catch([]).parse(c.images);

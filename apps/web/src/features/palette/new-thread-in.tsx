@@ -1,4 +1,4 @@
-import { FolderSimpleIcon } from "@phosphor-icons/react";
+import { ChatCircleIcon, FolderPlusIcon, FolderSimpleIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
 import { CommandChoices, type CommandChoice } from "@/components/ui/command-choices.tsx";
@@ -15,15 +15,24 @@ import { newThreadOn } from "@/lib/machine-routes.ts";
 import { MachineScope } from "@/lib/machine-scope.tsx";
 import { useMachines, type Machine } from "@/lib/machines.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
+import { chatChoice } from "@/lib/chat-choice.ts";
+import { CommandShortcut } from "@/components/ui/command.tsx";
+import { usePhone } from "@/lib/breakpoints.ts";
+import { useKeys } from "@/lib/keybindings.ts";
+import { describeKeys } from "@/lib/keymap.ts";
 
 type Chosen = Pick<Machine, "id" | "name" | "primary">;
 
+/** The last row: add a project here, whose new thread draft then opens. */
+const addProject = "\u0000add-project";
+
 /**
- * "New thread in…": the projects by name; choosing one opens a new thread draft there. While more
- * than one machine is online, a chip in the field names the machine whose projects are listed
- * (the one New thread used last, else this one) and lists the machines to choose another.
+ * "New thread in…": the projects by name, then a chat with no project, then Add project…;
+ * choosing a project or the chat opens a new thread draft there. While more than one machine is
+ * online, a chip in the field names the machine whose projects are listed (the one New thread
+ * used last, else this one) and lists the machines to choose another.
  */
-export function NewThreadIn(props: { onBack: () => void; close(): void }) {
+export function NewThreadIn(props: { onBack: () => void; close(): void; onAddProject(): void }) {
   const machines = useMachines();
   const navigate = useNavigate();
   const { storage } = useLayout();
@@ -82,6 +91,7 @@ export function NewThreadIn(props: { onBack: () => void; close(): void }) {
         chip={chip}
         onBack={props.onBack}
         onChoose={(project) => {
+          if (project === addProject) return props.onAddProject();
           const on = machine.primary ? undefined : machine.id;
           if (several) rememberMachine(storage, on);
           props.close();
@@ -103,14 +113,26 @@ function MachineProjects(props: {
   onChoose(project: string): void;
 }) {
   const directory = useProjectDirectory();
+  const phone = usePhone();
+  const addProjectKeys = useKeys("addProject");
   const choices = useMemo(
-    () =>
-      directory.projects.map((project): CommandChoice => ({
+    () => [
+      ...directory.projects.map((project): CommandChoice => ({
         id: project.id,
         label: project.name,
         icon: FolderSimpleIcon,
       })),
-    [directory.projects],
+      { id: chatChoice, label: "No project", icon: ChatCircleIcon },
+      {
+        id: addProject,
+        label: "Add project",
+        icon: FolderPlusIcon,
+        aside: phone ? undefined : (
+          <CommandShortcut>{describeKeys(addProjectKeys)}</CommandShortcut>
+        ),
+      },
+    ],
+    [directory.projects, phone, addProjectKeys],
   );
   const empty = !directory.loaded
     ? "Reading projects…"

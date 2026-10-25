@@ -36,7 +36,7 @@ const row =
   "relative flex w-full items-center rounded-md px-3 text-left text-ui outline-none transition-colors duration-(--motion-fast)";
 
 /**
- * Another machine's thread (ADR 0100), drawn under that machine's client. It opens on that
+ * Another machine's thread (ADR 0102), drawn under that machine's client. It opens on that
  * machine and is marked with it; its menus and hover actions run on that machine, and it is
  * picked, dragged and renamed under its list row id (`machine:[hostId,threadId]`).
  */
@@ -48,7 +48,7 @@ export interface RowMachine {
 
 /** Whether the location shows `threadId` on `machine` (undefined: this window's own). */
 export function useOpenHere(threadId: string, machine: string | undefined): boolean {
-  // `?machine=` naming this window's own daemon is this window's own (ADR 0100).
+  // `?machine=` naming this window's own daemon is this window's own (ADR 0102).
   const own = useMachines().find((each) => each.primary)?.id;
   return useLocation({
     select: (location) => {

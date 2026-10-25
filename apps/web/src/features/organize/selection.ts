@@ -22,7 +22,7 @@ interface State extends ListSelection {
 /**
  * The Home threads picked for a bulk action, one per window, so the list, its selection bar and
  * the palette share it. Ids are the list's row ids: another machine's thread is picked and
- * renamed under its machine row id (`machine:[hostId,threadId]`, ADR 0100), so it never stands
+ * renamed under its machine row id (`machine:[hostId,threadId]`, ADR 0102), so it never stands
  * for a thread of this window's daemon with the same id.
  */
 export class HomeSelection {

@@ -38,7 +38,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 /**
- * Work on another machine (ADR 0099): this machine sending projects and threads to the person's
+ * Work on another machine (ADR 0101): this machine sending projects and threads to the person's
  * other machines over their fleet links, and receiving them from those machines.
  */
 export function startTransfers(context: ServiceContext): void {

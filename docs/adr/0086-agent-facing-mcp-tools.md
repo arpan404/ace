@@ -36,7 +36,8 @@ Tools translate their input into the daemon's agent-control operations, which ke
 authorization, ownership and durability. Actions of different risk live in different tools,
 because MCP annotations are per tool: `thread_merge` and `automation_remove` are the only
 destructive ones (and the only ace tools Codex prompts for); `thread_control` takes every other
-change to an owned thread as an `action`.
+change to an owned thread as an `action`, and `automation_run` takes run, pause and resume the
+same way.
 
 **delegate.** One input shape: `tasks` (1 to 64), with `waitSeconds` and `waitFor` replacing
 the old `wait`, `waitMs`, `await` and `timeoutSeconds`. The provider defaults to the caller's,

@@ -11,7 +11,7 @@ import { warmThread } from "@/lib/thread-warmer.ts";
  * `/t/<id>?item=<id>` opens a canonical item or pending interaction.
  * `?seq=1234&q=words` keeps search-hit links working.
  * The router reads `seq=1234` as a number; the thread view ignores one that isn't a sequence.
- * `?machine=<hostId>` opens a thread on another of the person's machines (ADR 0100).
+ * `?machine=<hostId>` opens a thread on another of the person's machines (ADR 0102).
  */
 const ThreadSearch = z.object({
   item: z.catch(z.optional(z.string().check(z.minLength(1), z.maxLength(256))), undefined),

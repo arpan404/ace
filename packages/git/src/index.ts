@@ -99,7 +99,7 @@ export type { CheckoutState } from "./transfer-checkout.ts";
 export class GitService {
   private readonly repository: Repository;
   private readonly maxPatchBytes: number;
-  /** Moving work to another machine (ADR 0099). */
+  /** Moving work to another machine (ADR 0101). */
   readonly transfer: GitTransfer;
 
   constructor(options: GitOptions = {}) {

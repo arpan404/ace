@@ -25,12 +25,16 @@ async function openStep(made: ReturnType<typeof harness>) {
   return screen.findByRole("dialog", { name: "New thread in" });
 }
 
-const projectNames = async (step: HTMLElement) => {
+/** The step's rows, in order. */
+const rows = async (step: HTMLElement) => {
   const list = await within(step).findByRole("listbox", { name: "Projects" });
   return within(list)
     .getAllByRole("option")
-    .map((option) => option.textContent);
+    .map((option) => option.textContent ?? "");
 };
+/** The machine's projects: every row but the chat and Add project, which always follow them. */
+const projectNames = async (step: HTMLElement) =>
+  (await rows(step)).filter((row) => row !== "No project" && !row.startsWith("Add project"));
 
 test("New thread in lists another machine's projects by keyboard and opens New thread there", async () => {
   const { made } = world([{ hostId: "build", name: "Build server" }]);
@@ -46,6 +50,11 @@ test("New thread in lists another machine's projects by keyboard and opens New t
   await within(step).findByRole("listbox", { name: "Machines" });
   await userEvent.keyboard("{ArrowDown}{Enter}");
   await waitFor(async () => expect(await projectNames(step)).toEqual(["api"]));
+  // Another machine's step still ends with a chat there and Add project.
+  expect((await rows(step)).slice(-2)).toEqual([
+    "No project",
+    expect.stringMatching(/^Add project/),
+  ]);
   expect(within(step).getByRole("button", { name: "Machine: Build server" })).toBeTruthy();
 
   await userEvent.keyboard("{Enter}");

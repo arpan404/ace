@@ -24,7 +24,7 @@ const BulkMenuItems = deferredComponent(() =>
  */
 export function ThreadMenu(props: {
   entry: ThreadListEntry;
-  /** The list's id for the row (another machine's thread has its own, ADR 0100). */
+  /** The list's id for the row (another machine's thread has its own, ADR 0102). */
   rowId?: string | undefined;
   state: ThreadRowFlags;
   onRename(): void;

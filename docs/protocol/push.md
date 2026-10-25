@@ -567,22 +567,22 @@ Example:
 {
   "transfer": {
     "commandId": "example",
-    "ignoredFiles": {
-      "bytes": 0,
-      "files": 5
-    },
     "kind": "thread",
     "method": "archive",
+    "options": {
+      "includeChanges": true,
+      "includeIgnored": true
+    },
     "phase": "starting",
     "sentBytes": 0,
-    "startedAt": 7,
+    "startedAt": 9,
     "target": {
       "hostId": "example",
       "name": "example"
     },
     "threadId": "example",
     "transferId": "example",
-    "updatedAt": 8,
+    "updatedAt": 3,
     "workspaceId": "example"
   },
   "type": "transfer.progress"
@@ -3157,68 +3157,88 @@ Example:
 
 ```json
 {
-  "code": "example",
   "commandId": "example",
-  "commit": "a2ba3262d11d6fb5079bc3efa6055626e5e72e798e45088",
-  "forgeLifecycle": {
-    "headSha": "B2c6eEAAAc29fCC71950B4AD91DefbbE3578BB82DaeBef297FD6b5bF8Fc",
-    "outcome": "head_changed"
+  "commit": "940ddaa15689ff940adfde498207a6a282c015e5eea2ba3262",
+  "health": {
+    "activeSessions": null,
+    "at": 8,
+    "eventLoop": {
+      "maxMs": null,
+      "meanMs": null,
+      "p99Ms": null
+    },
+    "logs": {
+      "dropped": 4,
+      "failed": 4,
+      "queued": 3
+    },
+    "memory": {
+      "heapTotalBytes": 8,
+      "heapUsedBytes": 1,
+      "rssBytes": 5
+    },
+    "openHandles": 6,
+    "queues": {},
+    "sqlite": {
+      "pageBytes": 5,
+      "walBytes": 3
+    },
+    "streaming": {
+      "bufferedBytes": 0,
+      "eventRows": 5,
+      "failures": 1,
+      "flushes": 6,
+      "liveBytes": 3,
+      "peakBytes": 2,
+      "reads": {
+        "bytes": 7,
+        "evictions": 9,
+        "hitBytes": 9,
+        "hits": 2,
+        "invalidations": 7,
+        "misses": 8,
+        "staleServes": 4
+      },
+      "replayResyncs": 1,
+      "rows": 7,
+      "transactions": 1,
+      "walBytes": 3
+    }
   },
-  "forkThreadId": "example",
   "inboxAction": {
     "action": "unsubscribe",
     "error": "example",
     "id": "example",
     "state": "failed"
   },
+  "locksCleared": 7,
   "ok": true,
-  "prExisting": true,
-  "prStatus": {
-    "checks": [],
-    "ci": "success",
-    "comments": [],
-    "headSha": "example",
-    "mergeState": {
-      "autoMerge": null,
-      "blockers": [],
-      "canDequeue": true,
-      "canDisable": false,
-      "canEnable": false,
-      "checksState": null,
-      "headSha": "DD3A54b5345a9b5a8CfEB8e2bfDd12c938D0Fd98F63BB74e4Dd3c6e2e1",
-      "mergeState": "example",
-      "queue": null,
-      "raw": null,
-      "reviewDecision": "example",
-      "rules": [],
-      "state": "example",
-      "writeState": "pending"
-    },
-    "mergeability": "conflicting",
-    "raw": null,
-    "ref": {
-      "number": 8,
-      "repository": {
-        "forge": "gitlab",
-        "host": "X5K",
-        "name": "35U6",
-        "owner": "QX/vIaAS_0/INIh4Ma/CwZclJ/Vjtoeuj"
-      }
-    },
-    "reviewThreads": [],
-    "state": "closed",
-    "title": "example",
-    "url": "example"
+  "pr": {
+    "number": 2,
+    "repository": {
+      "forge": "gitlab",
+      "host": "WZb9eYc8",
+      "name": "XvQf0kEssr",
+      "owner": "pEw8n/o/jMRg9/6BKIk-7H/Tvu4VlWAkT/2n/mLzXZZtR/9Chqxb"
+    }
   },
-  "terminalId": "example",
+  "remoteHead": "1d6fb5079bc3efa6055626e5e72e798e450881ec08299ba9e4",
+  "stackOperation": {
+    "action": "continue",
+    "message": "example",
+    "state": "failed"
+  },
+  "threadId": "example",
+  "title": "example",
   "type": "commandResult",
   "workspace": {
-    "badge": {
-      "color": "amber"
+    "defaultIcon": "data:image/webp;base64,8itZ7x54KckcmyhR",
+    "defaults": {
+      "access": "auto-review"
     },
-    "defaults": {},
     "id": "example",
     "name": "example",
+    "notes": [],
     "path": "example"
   }
 }

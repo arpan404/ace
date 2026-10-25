@@ -38,7 +38,7 @@ export function ProjectCrumb(props: { workspaceId: string }) {
 }
 
 /**
- * Work on another machine (ADR 0100) names that machine first, the way every machine is named:
+ * Work on another machine (ADR 0102) names that machine first, the way every machine is named:
  * its mark and name. Nothing on this window's own machine, so a single machine never shows one.
  */
 function MachineCrumb() {

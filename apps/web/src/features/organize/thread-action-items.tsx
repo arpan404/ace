@@ -71,7 +71,7 @@ export function threadActions(
     fork: { point: ForkPoint | undefined; onFork(point: ForkPoint): void };
     /** Ask which project it moves to. */
     onMove(): void;
-    /** Ask which machine it continues on (ADR 0099). */
+    /** Ask which machine it continues on (ADR 0101). */
     onContinueOn?(): void;
     onLeave?(): void;
   },
@@ -239,7 +239,7 @@ export function ThreadActionItems(props: {
   const mover = useThreadMover();
   const transfers = useTransferOpener();
   const linked = useHasLinkedMachines();
-  // Another machine's thread (ADR 0100): every action runs on that machine's client, the picker
+  // Another machine's thread (ADR 0102): every action runs on that machine's client, the picker
   // lists that machine's projects, and Continue on is sent from that machine.
   const scoped = useScopedMachine()?.id;
   const allActions = threadActions(entry, flags, actions, {

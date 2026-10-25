@@ -80,7 +80,7 @@ export function PendingThreadView(props: {
   // Leasing the real thread loads its first window, so the move to it shows no skeleton.
   const meta = useThreadMeta(realId);
   const navigate = useNavigate();
-  // A thread started on another machine stays on it (ADR 0100).
+  // A thread started on another machine stays on it (ADR 0102).
   const search = useMachineSearch();
   const composer = useRef<ComposerHandle>(null);
   useEffect(() => {

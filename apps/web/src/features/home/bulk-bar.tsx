@@ -35,7 +35,7 @@ import {
  * row and the palette all offer Pin or Unpin, Move to project, Archive and Delete. Move asks
  * which project; Delete asks first. Move and Archive act at once and offer one Undo for all,
  * while Delete is permanent (no Undo). Loaded once something is picked. Picked rows may be on
- * several machines (ADR 0100): each action runs on each row's own machine. A project belongs to
+ * several machines (ADR 0102): each action runs on each row's own machine. A project belongs to
  * one machine, so Move shows only while every picked row is on the same one.
  */
 

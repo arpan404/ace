@@ -95,7 +95,9 @@ export class ForgeService {
       if (reply.result.kind === "error") throw new ForgeRefusal(reply.result.code);
       if (reply.result.kind !== "workspaces") throw new ForgeRefusal("forge_invalid_data");
       for (const project of reply.result.workspaces)
-        projects.push({ id: project.id, name: this.#preview(project.name, 200) });
+        // A chat's hidden project has no repository (ADR 0099).
+        if (project.kind !== "chat")
+          projects.push({ id: project.id, name: this.#preview(project.name, 200) });
       after = reply.result.next;
     } while (after && projects.length < 300);
     return { type: "forge.projects", projects };

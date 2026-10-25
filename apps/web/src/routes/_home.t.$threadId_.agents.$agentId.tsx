@@ -4,7 +4,7 @@ import * as z from "zod/mini";
 import { OnMachine } from "@/features/home/index.ts";
 import { SubagentView } from "@/features/thread/index.ts";
 
-/** `?machine=<hostId>`: the thread is on another of the person's machines (ADR 0100). */
+/** `?machine=<hostId>`: the thread is on another of the person's machines (ADR 0102). */
 const SubagentSearch = z.object({
   machine: z.catch(z.optional(z.string().check(z.minLength(1), z.maxLength(256))), undefined),
 });

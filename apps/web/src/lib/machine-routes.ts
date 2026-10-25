@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useScopedMachine } from "./machines.ts";
 
 /*
- * Addresses of work on another of the person's machines (ADR 0100). A thread or New thread on
+ * Addresses of work on another of the person's machines (ADR 0102). A thread or New thread on
  * another machine is the same route with `?machine=<hostId>`; the route renders under that
  * machine's client (`MachineScope`). No `machine` means this window's own daemon.
  */

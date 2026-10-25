@@ -28,6 +28,8 @@ export function inboxCheckpoint(
     [],
     context.now,
     (store.homeWindow ?? store.window)?.before != null,
+    // Saved in the order the phone shows, so the next launch draws it the same way.
+    { sortBy: context.sortBy },
   );
   const kept = new Set<string>();
   for (const section of layout.sections)

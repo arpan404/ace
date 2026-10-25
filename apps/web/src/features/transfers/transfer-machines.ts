@@ -9,7 +9,7 @@ export interface TransferMachine {
 }
 
 /**
- * The machines this one has fleet links to (ADR 0099): each linked machine, offline or
+ * The machines this one has fleet links to (ADR 0101): each linked machine, offline or
  * not-allowed ones kept with the reason. A link that doesn't name its machine yet can't be
  * sent to and is left out. A link `refused` for agents still takes the person's transfers.
  * Pure.

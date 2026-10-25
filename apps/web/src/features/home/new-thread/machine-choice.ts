@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Machine } from "@/lib/machines.ts";
 
 /*
- * Which machine New thread starts on (ADR 0100). A draft names its machine by the host id in its
+ * Which machine New thread starts on (ADR 0102). A draft names its machine by the host id in its
  * key (`newThreadDraftKey`), so reopening a draft reopens its machine. Bare ⌘N opens the machine
  * started on last while it is online, and each machine remembers its own last project.
  */

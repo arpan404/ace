@@ -42,6 +42,29 @@ final class MachineSession: Identifiable {
         memo = (inputs, merged)
         return merged
     }
+    /// The machines' Sort threads setting, as the menu shows it: the first machine in `scope`
+    /// (one machine's id, or empty for all) that has said. Each runtime orders its own sections.
+    func sortBy(in scope: String) -> String? {
+        sessions.lazy.filter { scope.isEmpty || $0.hostId == scope }.compactMap { $0.client.inboxLayout.sortBy }.first
+    }
+    /// The sort choices, worded by the shared rules.
+    var sortChoices: [InboxLayout.SortOption] {
+        sessions.lazy.compactMap { $0.client.inboxLayout.sorts }.first { !$0.isEmpty } ?? []
+    }
+    /// Saves `sortBy` as every machine this phone can act on sorts its threads, so one inbox
+    /// reads in one order and the web follows it too. Each runtime regroups once its machine
+    /// confirms; a machine that refuses keeps its own order and says why.
+    func setSort(_ sortBy: String) async {
+        for session in sessions where session.client.canOperate && session.client.connection == "ready"
+            && session.client.inboxLayout.sortBy != sortBy {
+            let client = session.client
+            let saved = try? await client.service(
+                ["type": "settings.set", "key": "threads.sortBy", "value": sortBy, "layer": ["kind": "global"]],
+                as: SortSaved.self)
+            if saved?.ok != true { client.error = "Couldn't change how threads are sorted." }
+        }
+    }
+    private struct SortSaved: Decodable { let ok: Bool }
     var allReady: Bool { !sessions.isEmpty && sessions.allSatisfy { $0.client.connection == "ready" } }
     var anyLoaded: Bool { sessions.contains { $0.client.inboxLoaded } }
 
