@@ -239,8 +239,15 @@ export class SkillSwap {
     for (const journal of journals) {
       const root = await this.disk.openPath(journal.rootReal);
       if (root === undefined) {
-        this.report("Skill folder of an interrupted update is gone", journal.rootReal);
-        await this.journals.remove(journal.id);
+        if (await this.disk.absent(journal.rootReal)) {
+          this.report("Skill folder of an interrupted update is gone", journal.rootReal);
+          await this.journals.remove(journal.id);
+        } else
+          // Unreadable, or a link where the folder was: keep the journal and try next time.
+          this.report(
+            "Skill folder of an interrupted update can't be opened yet",
+            journal.rootReal,
+          );
         continue;
       }
       try {

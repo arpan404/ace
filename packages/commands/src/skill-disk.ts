@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { close, fchmod, fstat, fsync, read, write, type Stats } from "node:fs";
 import { promisify } from "node:util";
+import { basename, dirname } from "node:path";
 import {
   createCommandFile,
   directoryFlags,
@@ -67,6 +68,21 @@ export class SkillDisk {
   /** A resolved directory, or `undefined` when any component is missing or is a link. */
   async openPath(real: string): Promise<number | undefined> {
     return openResolvedDirectory(this.openChild, real).catch(() => undefined);
+  }
+  /**
+   * Whether a resolved path is confirmed gone: its parent opens (pinned, no links) and its
+   * listing has no such name. Permission errors or a link in the way are not absence.
+   */
+  async absent(real: string): Promise<boolean> {
+    const parent = await this.openPath(dirname(real));
+    if (parent === undefined) return false;
+    try {
+      return !(await this.names(parent)).includes(basename(real));
+    } catch {
+      return false;
+    } finally {
+      await closeFd(parent);
+    }
   }
   /** A child directory that is not a link, or `undefined`. */
   async openDirectory(parent: number, name: string): Promise<number | undefined> {

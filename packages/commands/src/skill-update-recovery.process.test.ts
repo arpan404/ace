@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { spawn } from "node:child_process";
-import { chmod, mkdir, readFile, rename, rm } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { openCommandChild, type OpenCommandChild } from "./posix.ts";
 import {
@@ -240,4 +240,28 @@ test("removing the backup never empties a directory swapped in under its name", 
   expect(errorCode(await apply(library, entry, await prepare(library, entry)))).toBe("skill");
   expect(await readFile(join(h.skills, ".theirs/mine.md"), "utf8")).toBe("Someone else's.\n");
   expect((await h.folder())["demo/SKILL.md"]).toBe(updated["demo/SKILL.md"]);
+});
+
+test("a skill folder that can't be opened keeps its journal, and a later start finishes", async () => {
+  const h = await home();
+  await crashApply(h, ...movedAside);
+  await chmod(h.skills, 0o000);
+  const reports: string[] = [];
+  await h.library({ report: (message) => reports.push(message) }).start();
+  await chmod(h.skills, 0o755);
+  expect(reports).toEqual(["Skill folder of an interrupted update can't be opened yet"]);
+  await h.library().start();
+  expect(await h.folder()).toEqual(installed);
+});
+
+test("a skill folder swapped for a symlink keeps its journal until the real folder is back", async () => {
+  const h = await home();
+  await crashApply(h, ...movedAside);
+  await rename(h.skills, `${h.skills}-real`);
+  await symlink(`${h.skills}-real`, h.skills);
+  await h.library().start();
+  await rm(h.skills);
+  await rename(`${h.skills}-real`, h.skills);
+  await h.library().start();
+  expect(await h.folder()).toEqual(installed);
 });
