@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// The thread's composer on one line: a round + on the left, then the message in a capsule with
-/// the round Send inside its trailing end; the model and access sit under it as small quiet chips.
-/// Tapped into, or when the message wraps, the field opens to a few lines (in step with the
-/// keyboard) and Send stays at its lower corner. While the agent works an empty composer's round
+/// The thread's composer as one box: the message on top, and under it, inside the same glass, one
+/// compact row of controls: + and the access mode on the left, the model, its effort and the round
+/// Send on the right. Nothing sits outside the box. Tapped into, or when the message wraps, the
+/// words open to a few lines (in step with the keyboard). While the agent works an empty composer's round
 /// button stops the whole tree; a typed message goes the way the bridge says (steer or queue), and
 /// a long press offers the other delivery where the provider can steer. Files on the next message
 /// sit above the field.
-struct ComposerView<Top: View, Leading: View, Chips: View>: View {
+struct ComposerView<Top: View, Leading: View, Access: View, Model: View>: View {
     let controls: ControlsRow?
     let stopping: Bool
     let placeholder: String
@@ -21,10 +21,12 @@ struct ComposerView<Top: View, Leading: View, Chips: View>: View {
     /// Where this composer's unsent words are kept (`ThreadDrafts.key`); nil keeps them only on screen.
     var draftKey: String? = nil
     @ViewBuilder var top: () -> Top
-    /// The round button left of the field (+).
+    /// The + at the row's start.
     @ViewBuilder var leading: () -> Leading
-    /// The quiet chips under the field (model, access).
-    @ViewBuilder var chips: () -> Chips
+    /// The access mode, beside +.
+    @ViewBuilder var access: () -> Access
+    /// The model and its effort, before Send.
+    @ViewBuilder var model: () -> Model
     @State private var draft = ComposerDraft()
     @State private var feedback = 0
     @State private var wraps = false
@@ -36,29 +38,28 @@ struct ComposerView<Top: View, Leading: View, Chips: View>: View {
     private var empty: Bool { files == 0 && draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var card: Bool { ComposerFit.card(focused: focused, wraps: wraps) }
     private var stops: Bool { empty && controls?.busy == true && controls?.canStop == true }
-    /// The round + beside the field, a hair taller than a touch target like the field itself.
-    private var round: CGFloat { AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xxs }
     var body: some View {
         let bar = ReadingColumn.bar(sizeClass)
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             top()
-            HStack(alignment: .bottom, spacing: AceTheme.Spacing.sm) {
-                leading()
-                    .frame(width: round, height: round)
-                    .aceGlass(in: Circle(), interactive: true)
-                HStack(alignment: .bottom, spacing: AceTheme.Spacing.none) {
-                    input
-                    action.padding(.bottom, AceTheme.Dimensions.border)
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                input
+                HStack(spacing: AceTheme.Spacing.none) {
+                    leading()
+                        .frame(width: ComposerControlRow.height, height: ComposerControlRow.height)
+                        .contentShape(Rectangle())
+                    access()
+                    Spacer(minLength: AceTheme.Spacing.xs)
+                    model()
+                    action
                 }
-                .frame(minHeight: round)
-                .aceContainerShape(AceShape.field)
-                .composerGlass(in: AceShape.field)
-            }
-            // The chips keep their height when a tall request and the keyboard leave little room.
-            HStack(spacing: AceTheme.Spacing.xs) { chips() }
+                .padding(.horizontal, AceTheme.Spacing.xs)
+                .padding(.bottom, AceTheme.Spacing.xxs)
+                // The row keeps its height when a tall request and the keyboard leave little room.
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.leading, round + AceTheme.Spacing.sm)
-                .environment(\.composerChip, true)
+            }
+            .containerShape(AceShape.composerBox)
+            .composerGlass(in: AceShape.composerBox)
         }
         .padding(.horizontal, bar.composer).padding(.bottom, bar.bottom)
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: wraps)
@@ -81,11 +82,10 @@ struct ComposerView<Top: View, Leading: View, Chips: View>: View {
                 }
             }
             .accessibilityLabel(placeholder)
-            .padding(.leading, AceTheme.Spacing.lg)
-            .padding(.trailing, AceTheme.Spacing.xxs)
+            .padding(.horizontal, AceTheme.Spacing.lg)
     }
     private var action: some View {
-        ComposerActionButton(stopping: stops, saving: draft.saving, disabled: disabled, label: label) {
+        ComposerActionButton(stopping: stops, saving: draft.saving, disabled: disabled, label: label, size: ComposerControlRow.height + AceTheme.Spacing.xs) {
             feedback += 1
             if stops { stop() } else { submit(alternate: false) }
         }

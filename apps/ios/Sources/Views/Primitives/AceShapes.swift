@@ -10,6 +10,8 @@ import SwiftUI
     /// The composer and its strip, and the fields inside cards that take several lines: a full
     /// capsule while one line tall, then the composer's radius.
     static let field = TextCapsule(maxRadius: AceTheme.Radii.composer)
+    /// The composer's box (the words and its controls row): the composer's radius.
+    static let composerBox = rounded(AceTheme.Radii.composer)
     /// The request above the composer: a grouped list at the composer's radius.
     static let group = rounded(AceTheme.Radii.composer)
     /// The person's message: a capsule for a short line, the bubble radius once it wraps.

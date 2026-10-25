@@ -1,27 +1,18 @@
 import SwiftUI
 
 extension EnvironmentValues {
-    /// The composer shows its controls on their own row under the words, with room for names.
+    /// The composer has room for its controls' names (its own row under the words).
     @Entry var composerRoomy = true
-    /// Drawn as a small quiet chip under the thread's composer: words only, on a soft capsule.
-    @Entry var composerChip = false
 }
 
-/// The soft capsule behind a chip under the composer, shorter than the control's touch target.
-private struct ChipBackground: ViewModifier {
-    let on: Bool
-    func body(content: Content) -> some View {
-        content.background {
-            if on {
-                AceShape.capsule.fill(AceTheme.Colours.fill)
-                    .frame(height: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.lg)
-            }
-        }
-    }
+/// How tall a control in the composer's own row is: shorter than a touch target, so the row and
+/// the words above it make one compact box. The control's tap area spans the row.
+enum ComposerControlRow {
+    static let height: CGFloat = 36
 }
 
-/// The composer's model control in two parts, one tap each: "◎ Opus 5.5" opens the model sheet,
-/// "Med ⌄" opens effort and speed. The effort part shows only when the model has levels or speeds.
+/// The composer's model controls, two taps: the model's name opens the model sheet; the effort
+/// ("Med", "Med · Fast") opens effort and speed. The effort shows only when the model has levels or speeds.
 struct ModelEffortChip: View {
     let provider: String?
     let model: String
@@ -33,21 +24,19 @@ struct ModelEffortChip: View {
     let effortID: String
     let openModel: () -> Void
     let openEffort: () -> Void
-    @Environment(\.composerChip) private var chip
 
     var body: some View {
         HStack(spacing: AceTheme.Spacing.none) {
             Button(action: openModel) {
-                HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
-                    if !chip, let provider, !provider.isEmpty { ProviderMark(provider: provider, size: 15) }
+                HStack(spacing: AceTheme.Spacing.xs) {
+                    if let provider, !provider.isEmpty { ProviderMark(provider: provider, size: 14) }
                     if loading { ProgressView().controlSize(.mini) }
-                    Text(model).foregroundStyle(chip ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground).lineLimit(1).truncationMode(.tail)
+                    Text(model).lineLimit(1).truncationMode(.tail)
                         .frame(maxWidth: AceTheme.Spacing.xxxl * 3, alignment: .leading).fixedSize()
-                    if effort == nil && !chip { caret }
+                    caret
                 }
-                .padding(.leading, chip ? AceTheme.Spacing.md - AceTheme.Spacing.xxs : AceTheme.Spacing.sm)
-                .padding(.trailing, effort == nil ? (chip ? AceTheme.Spacing.md - AceTheme.Spacing.xxs : AceTheme.Spacing.sm) : AceTheme.Spacing.xs)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .padding(.horizontal, AceTheme.Spacing.sm)
+                .frame(minHeight: ComposerControlRow.height)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -56,12 +45,11 @@ struct ModelEffortChip: View {
             if let effort {
                 Button(action: openEffort) {
                     HStack(spacing: AceTheme.Spacing.xs) {
-                        Text("·").foregroundStyle(AceTheme.Colours.subtleForeground).accessibilityHidden(true)
                         Text(effort).lineLimit(1).fixedSize()
-                        if !chip { caret }
+                        caret
                     }
-                    .padding(.trailing, chip ? AceTheme.Spacing.md - AceTheme.Spacing.xxs : AceTheme.Spacing.sm)
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .padding(.horizontal, AceTheme.Spacing.sm)
+                    .frame(minHeight: ComposerControlRow.height)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -71,10 +59,9 @@ struct ModelEffortChip: View {
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .subheadline)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
-        .modifier(ChipBackground(on: chip))
     }
     private var caret: some View {
-        AceIcon(queued ? .clock : .caretDown, size: 12, relativeTo: .caption)
+        AceIcon(queued ? .clock : .caretDown, size: 11, relativeTo: .caption)
             .font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
     }
 }
@@ -90,8 +77,8 @@ struct AccessItem: Identifiable, Equatable {
     var detail: String { attention ? "Riskier: " + description.prefix(1).lowercased() + description.dropFirst() : description }
 }
 
-/// The composer's access control beside +: a shield and the mode's name ("⛨ Ask ⌄"), the shield
-/// alone while the composer is one line. A native menu lists the modes the agent supports, each
+/// The composer's access control beside +: a shield and the mode's name ("⛨ Auto review ⌄"), the
+/// shield alone where there is no room for the name. A native menu lists the modes the agent supports, each
 /// with what it does; `note` (a pick waiting for the next turn, a stricter default) heads it.
 struct AccessChip: View {
     let label: String
@@ -102,7 +89,6 @@ struct AccessChip: View {
     let identifier: String
     let select: (String) -> Void
     @Environment(\.composerRoomy) private var roomy
-    @Environment(\.composerChip) private var chip
     private var risky: Bool { items.first { $0.mode == selected }?.attention == true }
 
     var body: some View {
@@ -119,19 +105,17 @@ struct AccessChip: View {
         } label: {
             HStack(spacing: AceTheme.Spacing.xs) {
                 if loading { ProgressView().controlSize(.mini) }
-                else if !chip { Image(systemName: risky ? "exclamationmark.shield" : "checkmark.shield").imageScale(.medium) }
-                if roomy || chip {
+                else { Image(systemName: risky ? "exclamationmark.shield" : "checkmark.shield").imageScale(.small) }
+                if roomy {
                     Text(label).lineLimit(1).fixedSize()
-                }
-                if roomy && !chip {
-                    Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
+                    AceIcon(.caretDown, size: 11, relativeTo: .caption)
+                        .font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
                 }
             }
             .aceFont(AceTheme.Typography.caption, relativeTo: .subheadline)
             .foregroundStyle(AceTheme.Colours.mutedForeground)
-            .padding(.horizontal, chip ? AceTheme.Spacing.md - AceTheme.Spacing.xxs : AceTheme.Spacing.xs)
-            .modifier(ChipBackground(on: chip))
-            .frame(minWidth: AceTheme.Dimensions.touchTarget, minHeight: AceTheme.Dimensions.touchTarget)
+            .padding(.horizontal, AceTheme.Spacing.sm)
+            .frame(minWidth: ComposerControlRow.height, minHeight: ComposerControlRow.height)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

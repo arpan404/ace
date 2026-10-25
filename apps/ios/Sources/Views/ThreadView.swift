@@ -167,7 +167,7 @@ struct ThreadView: View {
     /// The composer with what floats above it: the live pill and Scroll to end, and the grouped
     /// surface just above the composer, which holds the oldest open request (a question
     /// too, the composer staying under it). While a request needs the person the pill steps
-    /// aside. Only the composer's own chips sit below its field.
+    /// aside. Nothing sits below the composer.
     @ViewBuilder private var bottomBar: some View {
         let request = thread.approvals.first
         VStack(spacing: AceTheme.Spacing.none) {
@@ -197,9 +197,10 @@ struct ThreadView: View {
                     } leading: {
                         AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
                             .foregroundStyle(AceTheme.Colours.foreground)
-                    } chips: {
-                        ComposerModelButton(screen: screen, open: { showModels = true }, openTune: { showTune = true })
+                    } access: {
                         ThreadAccessChip(access: screen.access) { mode in Task { _ = await model.setAccess(mode) } }
+                    } model: {
+                        ComposerModelButton(screen: screen, open: { showModels = true }, openTune: { showTune = true })
                     }
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { composerHeight = $0 }
                 } else {
