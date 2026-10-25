@@ -148,7 +148,13 @@ it("a waiting task whose start is later refused there settles failed instead of 
 }, 60_000);
 
 it("a task stopped while waiting and then given new work reads working until its new result", async () => {
-  const { pair, delegate, stateHere } = await limitedPair();
+  let statusCalls = 0;
+  const counted: MachineTransport = async (profile, body, options) => {
+    const answer = await machineRequest(profile, body, options);
+    if (body.call.op === "status") statusCalls++;
+    return answer;
+  };
+  const { pair, delegate, stateHere } = await limitedPair({ sourceTransport: counted });
   const first = await delegate("busy");
   const reopened = await delegate("reopened");
   await pair.source.call({ op: "agent.cancel", threadId: reopened, requestId: "stop-reopened" });
@@ -170,8 +176,9 @@ it("a task stopped while waiting and then given new work reads working until its
   await vi.waitFor(() => expect(pair.target.h.contexts.get(reopened)).toBeDefined(), {
     timeout: 15_000,
   });
-  // Polls after the new work started never bring back the old cancellation.
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  // A whole poll after the new work started never brings back the old cancellation.
+  const after = statusCalls;
+  await vi.waitFor(() => expect(statusCalls).toBeGreaterThan(after + 1), { timeout: 15_000 });
   expect((await stateHere(reopened))?.state).toBe("working");
 
   await pair.finishTask(first, "Do the busy part", "Busy part done.");
@@ -217,8 +224,8 @@ it("the target's person stopping a waiting task there means it never runs, and t
     result: "Stopped before it started.",
   });
   // The slot it waited for frees, and the stopped task still never runs.
+  // The queue drains as the holder's status changes, before finishTask sees it done.
   await pair.finishTask(first, "Do the running-there part", "Done there.");
-  await new Promise((resolve) => setTimeout(resolve, 1200));
   await pair.target.daemon.engine?.flush();
   expect(pair.target.h.contexts.get(queued)).toBeUndefined();
   expect(pair.target.h.inputs.get(queued) ?? []).toEqual([]);
