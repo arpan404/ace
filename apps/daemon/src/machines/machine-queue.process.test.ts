@@ -305,7 +305,7 @@ it("a stopped task's cancellation read before new work lands never settles it on
   const reopened = await delegate("stopped-then-reworked");
 
   // The next status reply that reads its cancellation is held back, as a slow network would.
-  let release = () => {};
+  let release: (() => void) | undefined;
   const held = new Promise<void>((resolveHeld) => {
     hold = (answer) => {
       if (!JSON.stringify(answer).includes("Stopped before it started."))
@@ -330,7 +330,7 @@ it("a stopped task's cancellation read before new work lands never settles it on
     text: "Do this after all",
   });
   expect(sent.ok).toBe(true);
-  release();
+  release?.();
   // A later poll proves the held one was handled; the child still reads working.
   const after = statusCalls;
   await vi.waitFor(() => expect(statusCalls).toBeGreaterThan(after + 1), { timeout: 15_000 });

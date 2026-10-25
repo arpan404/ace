@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import { z } from "zod";
 import { Command, ThreadId, WaitResult, type AgentControlOperation } from "@ace/protocol";
 import { commandContext } from "../commands.ts";
