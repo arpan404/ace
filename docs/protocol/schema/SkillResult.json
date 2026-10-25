@@ -41,8 +41,7 @@
                 "enum": [
                   "canonical",
                   "copy",
-                  "shared",
-                  "plugin"
+                  "shared"
                 ],
                 "type": "string"
               }

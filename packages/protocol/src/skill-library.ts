@@ -163,7 +163,7 @@ export const SkillResult = z.discriminatedUnion("kind", [
       .array(
         z.object({
           provider: SkillAgent,
-          reason: z.enum(["canonical", "copy", "shared", "plugin"]),
+          reason: z.enum(["canonical", "copy", "shared"]),
         }),
       )
       .max(8)
