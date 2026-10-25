@@ -149,6 +149,94 @@ export function useThreadActions(): ThreadActions {
   );
 }
 
+const id = (entry: ThreadTarget) => ThreadId.parse(entry.id);
+const count = (n: number) => (n === 1 ? "1 thread" : `${n} threads`);
+
+const pin = (entry: ThreadTarget, order?: number): Action => ({
+  patch: order === undefined ? { pinned: true } : { pinned: true, pinOrder: order },
+  payload: {
+    type: "thread.pin",
+    threadId: id(entry),
+    pinned: true,
+    ...(order === undefined ? {} : { order }),
+  },
+  verb: "Pin",
+  failed: "pin the thread",
+});
+
+const unpin = (entry: ThreadTarget): Action => ({
+  patch: { pinned: false },
+  payload: { type: "thread.pin", threadId: id(entry), pinned: false },
+  verb: "Unpin",
+  failed: "unpin the thread",
+});
+
+const settle = (entry: ThreadTarget): Action => ({
+  patch: { settled: true },
+  payload: { type: "thread.settle", threadId: id(entry) },
+  verb: "Settle",
+  failed: "settle the thread",
+});
+
+const unsettle = (entry: ThreadTarget): Action => ({
+  patch: { settled: false, autoSettle: false },
+  payload: { type: "thread.unsettle", threadId: id(entry) },
+  verb: "Unsettle",
+  failed: "unsettle the thread",
+});
+
+const autoSettle = (entry: ThreadTarget, enabled: boolean): Action => ({
+  patch: { autoSettle: enabled },
+  payload: { type: "thread.autoSettle", threadId: id(entry), enabled },
+  verb: enabled ? "Turn on auto-settle" : "Turn off auto-settle",
+  failed: enabled ? "turn on auto-settle" : "turn off auto-settle",
+});
+
+const snooze = (entry: ThreadTarget, until: number | null): Action => ({
+  patch: { snoozedUntil: until },
+  payload: { type: "thread.snooze", threadId: id(entry), until },
+  verb: until === null ? "Wake" : "Snooze",
+  failed: until === null ? "wake the thread" : "snooze the thread",
+});
+
+const archive = (entry: ThreadTarget): Action => ({
+  patch: { archived: true },
+  payload: { type: "thread.archive", threadId: id(entry) },
+  verb: "Archive",
+  failed: "archive the thread",
+});
+
+const unarchive = (entry: ThreadTarget): Action => ({
+  patch: { archived: false },
+  payload: { type: "thread.unarchive", threadId: id(entry) },
+  verb: "Unarchive",
+  failed: "unarchive it",
+});
+
+/** Taking an archived thread back into the list. */
+const restore = (entry: ThreadTarget): Action => ({
+  ...unarchive(entry),
+  verb: "Restore",
+  failed: "restore it",
+});
+
+const move = (entry: ThreadTarget, to: string): Action => {
+  const workspaceId = WorkspaceId.parse(to);
+  return {
+    patch: { workspaceId },
+    payload: { type: "thread.move", threadId: id(entry), workspaceId },
+    verb: "Move",
+    failed: "move the thread",
+  };
+};
+
+const rename = (entry: ThreadTarget, title: string): Action => ({
+  patch: { title },
+  payload: { type: "thread.rename", threadId: id(entry), title },
+  verb: "Rename",
+  failed: "rename the thread",
+});
+
 /** What the actions of one machine run with: its client and overlay, and the window's dialogs. */
 export interface ThreadActionsDeps {
   overlay: OrganizeOverlay;
@@ -165,7 +253,6 @@ export interface ThreadActionsDeps {
 /** The organize actions against one machine's client (`useThreadActions` for the view's own). */
 export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
   const { overlay, confirmation, archiving, client, toast, navigate, router, machine } = deps;
-  const id = (entry: ThreadTarget) => ThreadId.parse(entry.id);
   /** Apply now, send, and say so if the daemon refuses. False after a refusal. */
   const act = (entry: ThreadTarget, action: Action) =>
     overlay
@@ -204,66 +291,6 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       return applied;
     });
   };
-  const pin = (entry: ThreadTarget, order?: number): Action => ({
-    patch: order === undefined ? { pinned: true } : { pinned: true, pinOrder: order },
-    payload: {
-      type: "thread.pin",
-      threadId: id(entry),
-      pinned: true,
-      ...(order === undefined ? {} : { order }),
-    },
-    verb: "Pin",
-    failed: "pin the thread",
-  });
-  const unpin = (entry: ThreadTarget): Action => ({
-    patch: { pinned: false },
-    payload: { type: "thread.pin", threadId: id(entry), pinned: false },
-    verb: "Unpin",
-    failed: "unpin the thread",
-  });
-  const count = (n: number) => (n === 1 ? "1 thread" : `${n} threads`);
-  const settle = (entry: ThreadTarget): Action => ({
-    patch: { settled: true },
-    payload: { type: "thread.settle", threadId: id(entry) },
-    verb: "Settle",
-    failed: "settle the thread",
-  });
-  const unsettle = (entry: ThreadTarget): Action => ({
-    patch: { settled: false, autoSettle: false },
-    payload: { type: "thread.unsettle", threadId: id(entry) },
-    verb: "Unsettle",
-    failed: "unsettle the thread",
-  });
-  const autoSettle = (entry: ThreadTarget, enabled: boolean): Action => ({
-    patch: { autoSettle: enabled },
-    payload: { type: "thread.autoSettle", threadId: id(entry), enabled },
-    verb: enabled ? "Turn on auto-settle" : "Turn off auto-settle",
-    failed: enabled ? "turn on auto-settle" : "turn off auto-settle",
-  });
-  const snooze = (entry: ThreadTarget, until: number | null): Action => ({
-    patch: { snoozedUntil: until },
-    payload: { type: "thread.snooze", threadId: id(entry), until },
-    verb: until === null ? "Wake" : "Snooze",
-    failed: until === null ? "wake the thread" : "snooze the thread",
-  });
-  const archive = (entry: ThreadTarget): Action => ({
-    patch: { archived: true },
-    payload: { type: "thread.archive", threadId: id(entry) },
-    verb: "Archive",
-    failed: "archive the thread",
-  });
-  const unarchive = (entry: ThreadTarget): Action => ({
-    patch: { archived: false },
-    payload: { type: "thread.unarchive", threadId: id(entry) },
-    verb: "Unarchive",
-    failed: "unarchive it",
-  });
-  /** Taking an archived thread back into the list. */
-  const restore = (entry: ThreadTarget): Action => ({
-    ...unarchive(entry),
-    verb: "Restore",
-    failed: "restore it",
-  });
   /** Stop the whole tree and the commands it watches, as Stop & archive promises. */
   const stopTree = (listed: ThreadListEntry) => {
     const runId = listed.live?.rootRunId ?? undefined;
@@ -348,21 +375,6 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       });
     });
   };
-  const move = (entry: ThreadTarget, to: string): Action => {
-    const workspaceId = WorkspaceId.parse(to);
-    return {
-      patch: { workspaceId },
-      payload: { type: "thread.move", threadId: id(entry), workspaceId },
-      verb: "Move",
-      failed: "move the thread",
-    };
-  };
-  const rename = (entry: ThreadTarget, title: string): Action => ({
-    patch: { title },
-    payload: { type: "thread.rename", threadId: id(entry), title },
-    verb: "Rename",
-    failed: "rename the thread",
-  });
   return {
     settle: (entry) => void act(entry, settle(entry)),
     unsettle: (entry) => void act(entry, unsettle(entry)),

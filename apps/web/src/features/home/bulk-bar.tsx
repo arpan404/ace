@@ -20,10 +20,10 @@ import {
 } from "@/components/ui/dialog.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { MenuItem, MenuLabel, MenuGroup, MenuSeparator } from "@/components/ui/menu.tsx";
-import { machineRow } from "@/lib/machine-threads.ts";
 import {
   useHomeSelection,
   useHomeSelectionState,
+  moveRequestOf,
   useThreadMover,
   useWindowThreads,
   type HomeSelection,
@@ -48,20 +48,6 @@ function usePicked(threads: WindowThreads): ThreadListEntry[] {
   });
 }
 
-/**
- * Ask which project the picked rows move to, on the machine they are all on; undefined when they
- * are on more than one. The picker runs on that machine, so it gets the ids that machine knows.
- */
-function moveOf(entries: readonly ThreadListEntry[], threads: WindowThreads) {
-  const hosts = new Set(entries.map((entry) => threads.hostOf(entry.id)));
-  if (hosts.size !== 1) return undefined;
-  const [hostId] = hosts;
-  return {
-    entries: entries.map((entry) => ({ ...entry, id: machineRow(entry.id)?.threadId ?? entry.id })),
-    ...(hostId ? { hostId } : {}),
-  };
-}
-
 const count = (n: number) => (n === 1 ? "1 thread" : `${n} threads`);
 
 /** Unpin when every picked thread is pinned; otherwise Pin pins the rest. */
@@ -77,7 +63,7 @@ function bulkActions(
 ) {
   const { actions } = threads;
   const unpin = allPinned(entries);
-  const move = moveOf(entries, threads);
+  const move = moveRequestOf(entries, threads);
   const list = [
     {
       id: "pin",

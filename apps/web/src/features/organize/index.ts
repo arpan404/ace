@@ -28,6 +28,7 @@ export { useRenameTitle } from "./selection.ts";
 export { DeleteConfirmationHost } from "./delete-host.tsx";
 export {
   OrganizeWindow,
+  moveRequestOf,
   useOverlaidMachineEntries,
   useWindowThreads,
   type WindowThreads,

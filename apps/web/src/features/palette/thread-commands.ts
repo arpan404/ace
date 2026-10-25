@@ -15,15 +15,16 @@ import {
 import type { SidebarReader } from "@ace/client";
 import { arrayEqual, useSidebarAll } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { arrange, isSettled, threadRowFlags, projectTint } from "@ace/ui-core";
 import {
   useHomeSelection,
   useHomeSelectionState,
   useOrganizerState,
-  useThreadActions,
+  moveRequestOf,
   useThreadMover,
+  useWindowThreads,
   threadActions,
 } from "@/features/organize/index.ts";
 import { useOpenProject } from "@/features/projects/index.ts";
@@ -63,13 +64,21 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
   const navigate = useNavigate();
   const openProject = useOpenProject();
   const state = useOrganizerState();
-  const actions = useThreadActions();
+  // The picked rows and the open thread may be on another machine: each acts there (ADR 0100).
+  const windowThreads = useWindowThreads();
+  const { actions } = windowThreads;
   const mover = useThreadMover();
   const transfers = useTransferOpener();
   const linked = useHasLinkedMachines();
   const now = useNow();
   const { screenActions } = useLayout();
   const current = useParams({ strict: false }).threadId;
+  const shownOn = useLocation({
+    select: (location) => {
+      const search: { machine?: unknown } = location.search;
+      return typeof search.machine === "string" ? search.machine : undefined;
+    },
+  });
   const selection = useHomeSelection();
   const picked = useHomeSelectionState().ids;
   const entries = useSidebarAll(entriesOf, arrayEqual) ?? noEntries;
@@ -212,7 +221,8 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
       { value: "Projects", items: projects },
       { value: "New thread", items: newIn },
     ];
-    const chosen = picked.flatMap((id) => byId.get(id) ?? []);
+    const chosen = picked.flatMap((id) => windowThreads.entry(id) ?? []);
+    const moving = moveRequestOf(chosen, windowThreads);
     if (chosen.length) {
       const n = chosen.length === 1 ? "1 selected thread" : `${chosen.length} selected threads`;
       const unpin = chosen.every((entry) => entry.pinned === true);
@@ -228,12 +238,16 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
               selection.clear();
             }),
           },
-          {
-            id: "selected-move",
-            label: `Move ${n} to another project…`,
-            icon: FolderOpenIcon,
-            run: run(() => mover.open({ entries: chosen, onMoved: () => selection.clear() })),
-          },
+          ...(moving
+            ? [
+                {
+                  id: "selected-move",
+                  label: `Move ${n} to another project…`,
+                  icon: FolderOpenIcon,
+                  run: run(() => mover.open({ ...moving, onMoved: () => selection.clear() })),
+                },
+              ]
+            : []),
           {
             id: "selected-archive",
             label: `Archive ${n}`,
@@ -259,9 +273,13 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
         ],
       });
     }
-    const open = current ? byId.get(current) : undefined;
-    if (open) {
-      const screen = screenActions?.scope === open.id ? screenActions : undefined;
+    // The open thread under its list row id: another machine's is listed under its machine.
+    const elsewhereOpen = shownOn && shownOn !== own ? shownOn : undefined;
+    const open = current
+      ? windowThreads.entry(elsewhereOpen ? machineListId(elsewhereOpen, current) : current)
+      : undefined;
+    if (open && current) {
+      const screen = screenActions?.scope === current ? screenActions : undefined;
       const list = threadActions(
         open,
         threadRowFlags(open, { baseline: state.baseline, now, settled: isSettled(open) }),
@@ -269,15 +287,19 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
         {
           onRename: () => screen?.rename(),
           fork: { point: undefined, onFork: () => screen?.fork?.() },
-          onMove: () => mover.open({ entries: [open] }),
+          onMove: () => {
+            const request = moveRequestOf([open], windowThreads);
+            if (request) mover.open(request);
+          },
           ...(linked
             ? {
                 onContinueOn: () =>
                   transfers.open({
                     kind: "thread",
-                    threadId: open.id,
+                    threadId: current,
                     workspaceId: open.workspaceId,
                     title: open.title,
+                    ...(elsewhereOpen ? { hostId: elsewhereOpen } : {}),
                   }),
               }
             : {}),
@@ -360,6 +382,9 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
     state,
     now,
     current,
+    shownOn,
+    own,
+    windowThreads,
     close,
     navigate,
     openProject,

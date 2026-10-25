@@ -15,7 +15,7 @@ import {
   useArchiveConfirmation,
   useDeleteConfirmation,
 } from "./delete-confirmation.ts";
-import { ThreadMoverProvider } from "./mover.ts";
+import { ThreadMoverProvider, type MoveRequest } from "./mover.ts";
 import { overlayOf } from "./overlay.ts";
 import { routedThreadActions } from "./routed-actions.ts";
 import { HomeSelectionProvider } from "./selection.ts";
@@ -112,6 +112,24 @@ export function useWindowThreads(): WindowThreads {
     };
     return { actions, entry, hostOf: (rowId) => machineRow(rowId)?.hostId };
   }, [own, machines, pool, confirmation, archiving, toast, navigate, router]);
+}
+
+/**
+ * The project picker's request for list rows, on the machine they are all on; undefined while
+ * they are on more than one, since a project belongs to one machine. The picker runs on that
+ * machine, so it gets the ids that machine knows.
+ */
+export function moveRequestOf(
+  entries: readonly ThreadListEntry[],
+  threads: WindowThreads,
+): MoveRequest | undefined {
+  const hosts = new Set(entries.map((entry) => threads.hostOf(entry.id)));
+  if (hosts.size !== 1) return undefined;
+  const [hostId] = hosts;
+  return {
+    entries: entries.map((entry) => ({ ...entry, id: machineRow(entry.id)?.threadId ?? entry.id })),
+    ...(hostId ? { hostId } : {}),
+  };
 }
 
 const noPending: readonly (readonly PendingAction[])[] = [];
