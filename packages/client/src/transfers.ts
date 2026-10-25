@@ -125,6 +125,7 @@ export class TransferStore {
   private listeners = new Set<() => void>();
   private dismissals = new Set<string>();
   private listed = false;
+  private generation = 0;
 
   /** Newest first. The same array until something changes. */
   all = (): readonly Transfer[] => this.snapshot;
@@ -135,10 +136,27 @@ export class TransferStore {
   apply(transfer: Transfer): void {
     if (this.merge(transfer)) this.publish();
   }
-  /** A `list` result: merged, never dropping a newer push. */
-  seed(transfers: readonly Transfer[]): void {
-    let changed = !this.listed;
-    this.listed = true;
+  /**
+   * The connection is ready again: what the last list told may be stale (another window may
+   * have started a transfer meanwhile), so the store isn't seeded until this connection's list
+   * answers. Returns the generation to hand back with that list's answer.
+   */
+  relist(): number {
+    this.generation++;
+    if (this.listed) {
+      this.listed = false;
+      this.publish();
+    }
+    return this.generation;
+  }
+  /**
+   * A `list` result: merged, never dropping a newer push. Only the latest connection's list
+   * (`generation` from `relist`) seeds the store; an older one just merges.
+   */
+  seed(transfers: readonly Transfer[], generation = this.generation): void {
+    const current = generation === this.generation;
+    let changed = current && !this.listed;
+    if (current) this.listed = true;
     for (const transfer of transfers) changed = this.merge(transfer) || changed;
     if (changed) this.publish();
   }
@@ -148,8 +166,8 @@ export class TransferStore {
    */
   seeded = (): boolean => this.listed;
   /** The machine couldn't list its transfers; only pushes will tell. */
-  unlisted(): void {
-    if (this.listed) return;
+  unlisted(generation = this.generation): void {
+    if (this.listed || generation !== this.generation) return;
     this.listed = true;
     this.publish();
   }

@@ -55,3 +55,20 @@ test("it is seeded once a list answered or couldn't be read, and listeners hear 
   failed.unlisted();
   expect(failed.seeded()).toBe(true);
 });
+
+test("after a reconnect only that connection's list seeds the store; an older one just merges", () => {
+  const store = new TransferStore();
+  const first = store.relist();
+  store.seed([], first);
+  expect(store.seeded()).toBe(true);
+
+  const second = store.relist();
+  expect(store.seeded()).toBe(false);
+  store.seed([report({ phase: "sending", updatedAt: 2 })], first);
+  store.unlisted(first);
+  expect(store.seeded()).toBe(false);
+  expect(store.forThread("thread-forecast")?.phase).toBe("sending");
+
+  store.seed([], second);
+  expect(store.seeded()).toBe(true);
+});

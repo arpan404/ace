@@ -6,8 +6,8 @@ import { useClient } from "./context.ts";
 /*
  * One machine's transfers (ADR 0099), followed from the first view that asks: every
  * `transfer.progress` push lands in the store, and each time the connection becomes ready the
- * list is read again, so what moved while the window was away still shows. Pushes from agents'
- * transfers arrive the same way as the person's own.
+ * list is read again, so what moved while the window was away still shows; until it answers the
+ * store isn't seeded. Pushes from agents' transfers arrive the same way as the person's own.
  */
 
 const stores = new WeakMap<ClientApi, TransferStore>();
@@ -23,15 +23,18 @@ export function transferStore(client: ClientApi): TransferStore {
   let ready = false;
   const check = () => {
     const now = connection.getSnapshot() === "ready";
-    if (now && !ready)
+    if (now && !ready) {
+      // Until this connection's list answers, a transfer started while away may be unknown.
+      const generation = store.relist();
       client.transfers.list().then(
-        (transfers) => store.seed(transfers),
+        (transfers) => store.seed(transfers, generation),
         // Lost with the connection: the reconnect asks again. A machine that can't list
         // transfers still sends their pushes, so then pushes are all there is.
         () => {
-          if (connection.getSnapshot() === "ready") store.unlisted();
+          if (connection.getSnapshot() === "ready") store.unlisted(generation);
         },
       );
+    }
     ready = now;
   };
   connection.subscribe(check);
