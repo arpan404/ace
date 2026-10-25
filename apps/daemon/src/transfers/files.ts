@@ -95,20 +95,35 @@ export async function freeFolder(
   throw new Error("No free folder name");
 }
 
+/** A folder's identity, `dev:ino`, recorded once a transfer made it. */
+export function folderIdentity(info: { dev: number | bigint; ino: number | bigint }): string {
+  return `${info.dev}:${info.ino}`;
+}
+
+/**
+ * Removes `name` from a held parent only while it is still the folder with identity `id`.
+ * Answers false when the name is gone or leads somewhere else; a failed removal throws.
+ */
+export function removeIfOwned(parent: { handle: PinnedDirectory }, name: string, id: string) {
+  let there;
+  try {
+    there = parent.handle.metadata(name);
+  } catch {
+    return false;
+  }
+  if (folderIdentity(there) !== id) return false;
+  removeUnder(parent, name);
+  return true;
+}
+
 /**
  * Removes `name` and everything under it through descriptors from a held parent, never
- * following a link (a link is removed itself). A folder too large to list that way is removed
- * by path, only while the parent's path still leads to the held parent.
+ * following a link (a link is removed itself). Nothing is ever removed by path: a folder it
+ * can't remove that way (one holding more than 10,000 entries can't be listed) fails, and the
+ * caller keeps a record of it instead.
  */
-export async function removeUnder(
-  parent: { path: string; handle: PinnedDirectory },
-  name: string,
-): Promise<void> {
-  try {
-    removeTree(parent.handle, name);
-  } catch {
-    if (parent.handle.matches(parent.path)) await removeQuietly(join(parent.path, name));
-  }
+export function removeUnder(parent: { handle: PinnedDirectory }, name: string): void {
+  removeTree(parent.handle, name);
 }
 
 function removeTree(directory: PinnedDirectory, name: string): void {

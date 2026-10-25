@@ -19,6 +19,7 @@ const Row = z.object({
   workspace_id: z.string().nullable(),
   registered_id: z.string().nullable(),
   created_path: z.string().nullable(),
+  created_id: z.string().nullable(),
   result: z.string().nullable(),
   error: z.string().nullable(),
   created_at: z.number(),
@@ -38,8 +39,12 @@ export interface IncomingRecord {
   workspaceId?: string | undefined;
   /** A project this transfer registered, unregistered again if the import fails. */
   registeredId?: string | undefined;
-  /** A folder this transfer made, removed if the import fails before it registers. */
+  /**
+   * A folder this transfer reserved, then made. Only with `createdId` (its `dev:ino` once made)
+   * is it known to be this transfer's, and only then is it removed when the import fails.
+   */
   createdPath?: string | undefined;
+  createdId?: string | undefined;
   result?: IncomingTransfer["result"];
   error?: IncomingTransfer["error"];
   updatedAt: number;
@@ -56,6 +61,7 @@ const decode = (row: Row): IncomingRecord => ({
   ...(row.workspace_id ? { workspaceId: row.workspace_id } : {}),
   ...(row.registered_id ? { registeredId: row.registered_id } : {}),
   ...(row.created_path ? { createdPath: row.created_path } : {}),
+  ...(row.created_id ? { createdId: row.created_id } : {}),
   ...(row.result ? { result: IncomingTransfer.shape.result.parse(JSON.parse(row.result)) } : {}),
   ...(row.error ? { error: IncomingTransfer.shape.error.parse(JSON.parse(row.error)) } : {}),
   updatedAt: row.updated_at,
@@ -73,6 +79,22 @@ export class IncomingRows {
         workspace_id TEXT, registered_id TEXT, created_path TEXT, result TEXT, error TEXT,
         created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`),
     );
+    store.atomic((db) => {
+      const columns = db.prepare("PRAGMA table_info(transfer_incoming)").all();
+      if (!columns.some((column) => column["name"] === "created_id"))
+        db.exec("ALTER TABLE transfer_incoming ADD COLUMN created_id TEXT");
+      // Folders a rollback couldn't prove were its own: left in place, recorded here.
+      db.exec(`CREATE TABLE IF NOT EXISTS transfer_incoming_left (
+        path TEXT PRIMARY KEY, transfer_id TEXT NOT NULL, at INTEGER NOT NULL)`);
+    });
+  }
+  /** Records a folder a rollback left in place because it couldn't prove it made it. */
+  leftInPlace(transferId: string, path: string, at: number): void {
+    this.store
+      .statement(
+        "INSERT INTO transfer_incoming_left (path,transfer_id,at) VALUES (?,?,?) ON CONFLICT(path) DO UPDATE SET transfer_id=excluded.transfer_id, at=excluded.at",
+      )
+      .run(path, transferId, at);
   }
   get(transferId: string): IncomingRecord | undefined {
     const raw = this.store
@@ -154,6 +176,7 @@ export class IncomingRows {
     if ("workspaceId" in change) columns.push(["workspace_id", change.workspaceId ?? null]);
     if ("registeredId" in change) columns.push(["registered_id", change.registeredId ?? null]);
     if ("createdPath" in change) columns.push(["created_path", change.createdPath ?? null]);
+    if ("createdId" in change) columns.push(["created_id", change.createdId ?? null]);
     if ("result" in change)
       columns.push(["result", change.result ? JSON.stringify(change.result) : null]);
     if ("error" in change)

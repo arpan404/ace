@@ -101,6 +101,8 @@ export class OutgoingTransfers {
   private rows: OutgoingRows;
   private running = new Map<string, AbortController>();
   private flights = new Set<Promise<void>>();
+  /** Each running drive, so a cancel can wait for it to stop before asking the target. */
+  private drives = new Map<string, Promise<void>>();
   private closed = false;
   private progress = new Set<(transfer: Transfer) => void>();
   private settled = new Set<(record: OutgoingRecord) => void>();
@@ -241,26 +243,51 @@ export class OutgoingTransfers {
     for (const controller of this.running.values()) controller.abort();
     await Promise.allSettled(this.flights);
   }
-  /** Stops a transfer before its thread exists there; after that its result stands. */
+  /**
+   * Stops a transfer before its thread exists there; after that its result stands. Only the
+   * target's answer settles it: `cancelled` when it confirms, its result once complete. A target
+   * past the cutoff (`too_late`) or one that can't be asked leaves the outcome open: the transfer
+   * carries on and its status tells how it ends, and the cancel fails with that code.
+   */
   async cancel(transferId: string): Promise<Transfer> {
     const record = this.rows.get(transferId);
     if (!record) throw new TransferError("not_found", "No such transfer.");
     if (!cancellable.has(record.transfer.phase)) return record.transfer;
     this.running.get(transferId)?.abort();
+    // Nothing more is sent while the target decides.
+    await this.drives.get(transferId);
     const profile = this.deps.profiles().find((entry) => entry.name === record.request.profile);
     let there: IncomingTransfer | undefined;
+    let refusal: string | undefined;
     if (profile)
       there = await new TransferClient(this.deps.transport, profile)
         .call({ op: "cancel", transferId })
-        .catch(() => undefined);
-    // The target waits for an import past its cutoff and answers with how it ended.
+        .catch((error: unknown) => {
+          if (error instanceof MachineFailure && error.kind === "refused") refusal = error.refusal;
+          return undefined;
+        });
+    if (there?.state === "cancelled") return this.finish(record, { phase: "cancelled" });
+    // The target waited for an import past its cutoff and answers with how it ended.
     if (there?.state === "completed" && there.result) return this.complete(record, there.result);
     if (there?.state === "failed")
       return this.finish(record, {
         phase: "failed",
         ...(there.error ? { error: there.error } : {}),
       });
-    return this.finish(record, { phase: "cancelled" });
+    // The target holds nothing of it: nothing can land there.
+    if (refusal === "not_found") return this.finish(record, { phase: "cancelled" });
+    // Unknown here: never assumed cancelled. Status says how it ends.
+    this.run(transferId);
+    const name = record.transfer.target.name;
+    if (refusal === "too_late")
+      throw new TransferError(
+        "too_late",
+        `It already reached ${name}; the work is landing there and can't be cancelled.`,
+      );
+    throw new TransferError(
+      "cancel_unconfirmed",
+      `${name} didn't confirm the cancel, so the transfer carries on. Try cancelling again.`,
+    );
   }
   private run(transferId: string): void {
     if (this.running.has(transferId) || this.closed) return;
@@ -291,8 +318,10 @@ export class OutgoingTransfers {
       .finally(() => {
         this.running.delete(transferId);
         this.flights.delete(flight);
+        if (this.drives.get(transferId) === flight) this.drives.delete(transferId);
       });
     this.flights.add(flight);
+    this.drives.set(transferId, flight);
   }
   /**
    * Retries calls that couldn't reach the target, or that it answered while starting or stopping,

@@ -138,12 +138,15 @@ export function targetThreads(context: ServiceContext): TargetThreadStarter {
           // From here the thread is the transfer's result; a cancel can no longer undo it.
           if (!cut) input.cutoff();
           cut = true;
-          return await store.recordCommand(command.id, command.deviceId, () =>
-            engine.internalHandler.handle(command, {
+          return await store.recordCommand(command.id, command.deviceId, () => {
+            const result = engine.internalHandler.handle(command, {
               ...commandContext(store),
               ...(prepared ? { preparedWorkspace: prepared.workspace } : {}),
-            }),
-          );
+            });
+            // The thread and the transfer's record of it commit together, before any await.
+            if (result.ok) input.made(threadId);
+            return result;
+          });
         } finally {
           await prepared?.release();
         }

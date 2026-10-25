@@ -17,9 +17,9 @@ import {
   ensureDirectory,
   fileBytes,
   fileDigest,
+  removeIfOwned,
   removeQuietly,
   removeStray,
-  removeUnder,
 } from "./files.ts";
 import { neverPlaced } from "./ignored-files.ts";
 import {
@@ -67,6 +67,16 @@ const gitFailures: Partial<Record<string, { code: string; message: string }>> = 
   },
 };
 
+/** A name in a held folder, without following it. */
+function exists(parent: { handle: { metadata(name: string): unknown } }, name: string): boolean {
+  try {
+    parent.handle.metadata(name);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function failure(error: unknown): { code: string; message: string } {
   if (error instanceof TransferError) return { code: error.code, message: error.message };
   const known = error instanceof GitError ? gitFailures[error.code] : undefined;
@@ -102,16 +112,8 @@ export class IncomingTransfers {
     for (const record of this.rows.unsettled()) {
       // Past the cutoff the result stands: finish setting it up instead of undoing it.
       if (record.result) {
-        try {
-          this.finish(record, record.result);
-          await this.removeFiles(record.transferId);
-        } catch (error) {
-          // Left importing: the next start tries the setup again.
-          this.deps.log("Transfer setup not finished", {
-            transferId: record.transferId,
-            error: String(error),
-          });
-        }
+        // Left importing when it fails: the next start tries the setup again.
+        await this.complete(record, record.result);
         continue;
       }
       await this.rollback(record);
@@ -321,8 +323,8 @@ export class IncomingTransfers {
           // Ignored files go in once the checkout is there, never over a file it already has.
           ...(ignored
             ? {
-                landed: async (path: string, landing: AbortSignal) => {
-                  const merged = await this.deps.archive.mergeArchive(ignored, path, {
+                landed: async (destination, landing: AbortSignal) => {
+                  const merged = await this.deps.archive.mergeArchive(ignored, destination, {
                     signal: landing,
                     exclude: neverPlaced,
                   });
@@ -354,8 +356,13 @@ export class IncomingTransfers {
       await this.removeFiles(record.transferId);
     } catch (error) {
       const current = this.rows.get(record.transferId) ?? record;
-      // Past the cutoff (only the setup failed): the next start finishes it.
-      if (current.result) return;
+      // Past the cutoff, the result stands and is never rolled back: what failed came after it
+      // (the thread's setup, or releasing its worktree). Setting it up is tried once more now;
+      // otherwise the row stays importing and the next start finishes it.
+      if (current.result) {
+        await this.complete(current, current.result);
+        return;
+      }
       // Landing undid what it made; a crash mid-way is undone by the next start.
       await this.rollback(current);
       // Shutting down: the row stays importing, and the next start runs it again.
@@ -377,12 +384,33 @@ export class IncomingTransfers {
       for (const path of mine) this.held.delete(path);
     }
   }
+  /** `finish`, keeping the row importing (for the next start) when the setup fails again. */
+  private async complete(
+    record: IncomingRecord,
+    result: NonNullable<IncomingRecord["result"]>,
+  ): Promise<void> {
+    try {
+      this.finish(record, result);
+      await this.removeFiles(record.transferId);
+    } catch (error) {
+      this.deps.log("Transfer setup not finished", {
+        transferId: record.transferId,
+        error: String(error),
+      });
+    }
+  }
   /** Completes an import past its cutoff: the thread's setup and the row in one transaction. */
   private finish(record: IncomingRecord, result: NonNullable<IncomingRecord["result"]>): void {
     const complete = () =>
       this.rows.update(
         record.transferId,
-        { state: "completed", result, createdPath: undefined, registeredId: undefined },
+        {
+          state: "completed",
+          result,
+          createdPath: undefined,
+          createdId: undefined,
+          registeredId: undefined,
+        },
         this.deps.now(),
       );
     const thread = record.commit?.thread;
@@ -399,29 +427,40 @@ export class IncomingTransfers {
   }
   /**
    * Unregisters a project this transfer registered and removes the folder it made, through the
-   * folder's parent, validated again against the allowed roots and held open.
+   * folder's parent, validated again against the allowed roots and held open, and only while the
+   * name still leads to the folder with the identity recorded when it was made. A folder whose
+   * ownership can't be shown (reserved, but a crash came before its identity was recorded) or
+   * that can't be removed is left in place and recorded, never removed by guess.
    */
   private async rollback(record: IncomingRecord): Promise<void> {
     if (record.registeredId)
       await this.deps.projects
         .unregister(WorkspaceId.parse(record.registeredId))
         .catch(() => undefined);
-    if (record.createdPath) {
-      const parent = await this.deps.projects
-        .parent(dirname(record.createdPath))
-        .catch(() => undefined);
-      if (parent) {
-        try {
-          if (parent.path === dirname(record.createdPath))
-            await removeUnder(parent, basename(record.createdPath)).catch(() => undefined);
-        } finally {
-          await parent.close();
-        }
-      } else this.deps.log("Transfer folder left in place", { transferId: record.transferId });
+    const path = record.createdPath;
+    if (path) {
+      const parent = await this.deps.projects.parent(dirname(path)).catch(() => undefined);
+      let left = false;
+      try {
+        if (!parent || parent.path !== dirname(path)) left = true;
+        else if (record.createdId) {
+          try {
+            removeIfOwned(parent, basename(path), record.createdId);
+          } catch {
+            left = true;
+          }
+        } else left = exists(parent, basename(path));
+      } finally {
+        await parent?.close();
+      }
+      if (left) {
+        this.rows.leftInPlace(record.transferId, path, this.deps.now());
+        this.deps.log("Transfer folder left in place", { transferId: record.transferId });
+      }
     }
     this.rows.update(
       record.transferId,
-      { createdPath: undefined, registeredId: undefined },
+      { createdPath: undefined, createdId: undefined, registeredId: undefined },
       this.deps.now(),
     );
   }
@@ -442,8 +481,15 @@ export class IncomingTransfers {
     if (settled.has(record.state)) return this.view(record);
     const flight = this.imports.get(transferId);
     if (this.past.has(transferId) || record.result) {
+      // Too late: the import passed its cutoff. Its result once it completes, else a refusal;
+      // the sender learns the rest through status.
       await flight;
-      return this.view(this.owned(device, transferId));
+      const now = this.owned(device, transferId);
+      if (now.state === "completed") return this.view(now);
+      throw new TargetRefusal(
+        "too_late",
+        "The transfer can no longer be cancelled: the work is landing on this machine.",
+      );
     }
     this.rows.update(transferId, { state: "cancelled" }, this.deps.now());
     this.running.get(transferId)?.abort();

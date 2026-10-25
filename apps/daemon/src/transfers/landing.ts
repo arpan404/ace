@@ -3,7 +3,8 @@ import type { PinnedDirectory } from "@ace/workspace";
 import { basename, dirname, join } from "node:path";
 import type { IncomingTransfer, ThreadId, TransferCommit, WorkspaceId } from "@ace/protocol";
 import type { IncomingRecord } from "./incoming-rows.ts";
-import { freeFolder, removeQuietly, removeUnder } from "./files.ts";
+import { lstat } from "node:fs/promises";
+import { folderIdentity, freeFolder, removeIfOwned, removeQuietly } from "./files.ts";
 import { TransferError, type TransferArchive, type TransferGit } from "./ports.ts";
 
 /**
@@ -52,13 +53,15 @@ export interface TargetThreadStarter {
    * Makes the thread with `thread.prepare`, without a turn. `prepare` runs in a worktree
    * thread's folder first. `cutoff` runs right before the thread is made and throws when the
    * transfer was cancelled, so a thread exists only for a transfer that can no longer be
-   * cancelled. The same key returns the same thread.
+   * cancelled. `made` runs inside the store transaction that makes the thread, so the thread and
+   * the transfer's record of it commit together. The same key returns the same thread.
    */
   create(
     input: ContinuedThread & {
       key: string;
       prepare?: ((path: string) => Promise<void>) | undefined;
       cutoff(): void;
+      made(threadId: ThreadId): void;
     },
   ): Promise<ThreadId>;
   /**
@@ -84,18 +87,33 @@ export interface LandingDeps {
   threads: TargetThreadStarter;
   /** Folders other transfers are filling right now. */
   held: Set<string>;
-  /** Records what this transfer made, durably, before it is made (cleared once removed). */
-  made(change: { createdPath?: string | undefined; registeredId?: string | undefined }): void;
+  /**
+   * Records what this transfer made, durably: a folder's path before it is made, and its
+   * identity (`createdId`, `dev:ino`) once it is; cleared once removed.
+   */
+  made(change: {
+    createdPath?: string | undefined;
+    createdId?: string | undefined;
+    registeredId?: string | undefined;
+  }): void;
   /** Distinct per attempt, so a retried import never reuses an earlier attempt's receipt. */
   attempt: string;
-  /** Runs in the final checkout once the branch and changes are there (ignored files). */
-  landed?: ((path: string, signal: AbortSignal) => Promise<void>) | undefined;
+  /**
+   * Runs in the final checkout once the branch and changes are there (ignored files): the
+   * folder this transfer made, held open, or the path of one it didn't make.
+   */
+  landed?:
+    | ((destination: string | PinnedDirectory, signal: AbortSignal) => Promise<void>)
+    | undefined;
   /**
    * The point after which the transfer can't be cancelled: right before the thread is made, or,
    * without a thread, once everything has landed. Synchronous; throws when it was cancelled.
    */
   cutoff(): void;
-  /** Records the result durably, right after the cutoff (and the thread) are passed. */
+  /**
+   * Records the result durably, right after the cutoff is passed; with a thread, in the same
+   * store transaction that makes it.
+   */
   created(result: Landed): void;
 }
 
@@ -110,12 +128,18 @@ export const headRef = (transferId: string) => `refs/ace/transfer-head/${transfe
 /** The branch a detached HEAD lands on: it is the only name the commit gets there. */
 const detachedBranch = (head: string) => `detached-${head.slice(0, 12)}`;
 
-/** What one landing made, undone through the descriptors it was made with when it fails. */
+/**
+ * What one landing made, undone when it fails. A reserved name is only a reservation: undo
+ * removes a folder only once this landing made it and only while the name still leads to it.
+ */
 class Made {
   private deps: LandingDeps;
-  /** The new project's folder: its held parent, its name there, and its own handle once made. */
-  private folder: { parent: TransferParent; name: string; handle?: PinnedDirectory } | undefined;
-  private paths: string[] = [];
+  /** The new project's folder: its held parent, its name there, and once made its handle. */
+  private folder:
+    | { parent: TransferParent; name: string; handle?: PinnedDirectory; id?: string }
+    | undefined;
+  /** A branch's worktree beside a project, made by path; its identity once made. */
+  private beside: { path: string; id?: string } | undefined;
   private registered: WorkspaceId | undefined;
   /** Past the cutoff: what was made is the result and stays. */
   kept = false;
@@ -128,7 +152,7 @@ class Made {
     try {
       const path = await freeFolder(parent.path, name, this.deps.held);
       this.deps.held.add(path);
-      this.deps.made({ createdPath: path });
+      this.deps.made({ createdPath: path, createdId: undefined });
       this.folder = { parent, name: basename(path) };
       return parent;
     } catch (error) {
@@ -136,57 +160,83 @@ class Made {
       throw error;
     }
   }
-  get path(): string {
+  private need() {
     if (!this.folder) throw new TransferError("import_failed", "No folder was reserved.");
-    return join(this.folder.parent.path, this.folder.name);
+    return this.folder;
+  }
+  get path(): string {
+    const folder = this.need();
+    return join(folder.parent.path, folder.name);
   }
   get name(): string {
-    if (!this.folder) throw new TransferError("import_failed", "No folder was reserved.");
-    return this.folder.name;
+    return this.need().name;
   }
-  /** Makes the reserved folder inside the held parent, without following links. */
+  /** The folder this landing made, held open, once it is made. */
+  get handle(): PinnedDirectory | undefined {
+    return this.folder?.handle;
+  }
+  /**
+   * Makes the reserved folder inside the held parent, without following links. A name someone
+   * else took meanwhile fails here and stays theirs: nothing of it is ever removed.
+   */
   mkdir(): PinnedDirectory {
-    if (!this.folder) throw new TransferError("import_failed", "No folder was reserved.");
-    this.folder.handle = this.folder.parent.handle.mkdir(this.folder.name);
-    return this.folder.handle;
+    const folder = this.need();
+    const handle = folder.parent.handle.mkdir(folder.name);
+    // Swapped between making and opening: that folder isn't this landing's.
+    if (!handle.empty()) {
+      handle.closeSync();
+      throw new TransferError(
+        "import_failed",
+        "The new project's folder changed while it was made.",
+      );
+    }
+    return this.own(folder, handle);
   }
-  /** A folder made by path outside a held parent (a branch's worktree beside the project). */
-  beside(path: string): void {
+  /** The folder `workspace.clone` made under the reserved name, held open from here. */
+  cloned(): PinnedDirectory {
+    const folder = this.need();
+    return this.own(folder, folder.parent.handle.child(folder.name));
+  }
+  private own(folder: NonNullable<Made["folder"]>, handle: PinnedDirectory): PinnedDirectory {
+    folder.handle = handle;
+    folder.id = folderIdentity(handle.stat());
+    this.deps.made({ createdPath: this.path, createdId: folder.id });
+    return handle;
+  }
+  /** Reserves a folder made by path outside a held parent (a branch's worktree beside it). */
+  reserveBeside(path: string): void {
     this.deps.held.add(path);
-    this.deps.made({ createdPath: path });
-    this.paths.push(path);
+    this.deps.made({ createdPath: path, createdId: undefined });
+    this.beside = { path };
+  }
+  /** The worktree beside it was made: from here it is this landing's to remove. */
+  async madeBeside(): Promise<void> {
+    if (!this.beside) return;
+    this.beside.id = folderIdentity(await lstat(this.beside.path));
+    this.deps.made({ createdPath: this.beside.path, createdId: this.beside.id });
   }
   registeredAs(workspaceId: WorkspaceId): void {
     this.registered = workspaceId;
     this.deps.made({ registeredId: workspaceId });
   }
+  /** Removes only what this landing made; the record stays when a removal fails. */
   async undo(): Promise<void> {
     if (this.kept) return;
     if (this.registered)
       await this.deps.projects.unregister(this.registered).catch(() => undefined);
-    for (const path of this.paths) await removeQuietly(path);
-    if (this.folder) {
-      const { parent, name, handle } = this.folder;
-      // Only the folder this landing made: the name must still lead to the same inode.
-      const there = statIn(parent.handle, name);
-      const made = handle?.stat();
-      if (there && (!made || (there.dev === made.dev && there.ino === made.ino)))
-        await removeUnder(parent, name);
+    const beside = this.beside;
+    if (beside?.id) {
+      const there = await lstat(beside.path).catch(() => undefined);
+      if (there && folderIdentity(there) === beside.id) await removeQuietly(beside.path);
     }
-    this.deps.made({ createdPath: undefined, registeredId: undefined });
+    const folder = this.folder;
+    if (folder?.id) removeIfOwned(folder.parent, folder.name, folder.id);
+    this.deps.made({ createdPath: undefined, createdId: undefined, registeredId: undefined });
   }
   async close(): Promise<void> {
     await this.folder?.handle?.close();
     await this.folder?.parent.close();
     this.folder = undefined;
-  }
-}
-
-function statIn(directory: PinnedDirectory, name: string) {
-  try {
-    return directory.metadata(name);
-  } catch {
-    return undefined;
   }
 }
 
@@ -240,13 +290,14 @@ async function land(
     if (!file) throw new TransferError("transfer_invalid", "The repository's bundle is missing.");
     await made.reserve(begin.parent, begin.name);
     path = made.path;
+    const directory = made.mkdir();
     await deps.git.cloneFromBundle(
       {
         parent: dirname(path),
         path,
         bundle: file,
         origin: begin.remote?.url,
-        directoryFd: made.mkdir().fd,
+        directoryFd: directory.fd,
         ...(commit.branch ? { branch: commit.branch } : {}),
       },
       deps.gitPolicy,
@@ -279,24 +330,28 @@ async function land(
         throw new NeedsFullBundle();
       }
       made.registeredAs(workspaceId);
+      made.cloned();
     }
     signal.throwIfAborted();
+    const held = made.handle ? { directoryFd: made.handle.fd } : undefined;
     try {
       if (file) {
-        if (!(await deps.git.verifyBundle(path, file))) throw new NeedsFullBundle();
+        if (!(await deps.git.verifyBundle(path, file, held))) throw new NeedsFullBundle();
         const pinned = !commit.branch && commit.head ? headRef(record.transferId) : undefined;
         const head = commit.branch ? `refs/heads/${commit.branch}` : pinned;
         const changes = commit.changes ? [`${commit.changes.ref}:${commit.changes.ref}`] : [];
         try {
-          await deps.git.fetchBundle(path, file, [
-            ...(head ? [`${head}:refs/ace/incoming/${record.transferId}`] : []),
-            ...changes,
-          ]);
+          await deps.git.fetchBundle(
+            path,
+            file,
+            [...(head ? [`${head}:refs/ace/incoming/${record.transferId}`] : []), ...changes],
+            held,
+          );
         } catch (error) {
           // A bundle of only what origin lacks leaves out a branch origin already has: its
           // commit is here already, and only the changes travel.
           if (!head || !changes.length) throw error;
-          await deps.git.fetchBundle(path, file, changes);
+          await deps.git.fetchBundle(path, file, changes, held);
         }
       }
     } catch (error) {
@@ -305,16 +360,25 @@ async function land(
     }
   }
   signal.throwIfAborted();
-  return place(deps, made, record, commit, { path, workspaceId, fresh }, signal);
+  const directory = made.handle;
+  return place(deps, made, record, commit, { path, workspaceId, fresh, directory }, signal);
 }
 
-/** Puts the branch and the uncommitted changes in a checkout, and starts the thread. */
+/**
+ * Puts the branch and the uncommitted changes in a checkout, and starts the thread. In a folder
+ * this transfer made, every write goes through its held descriptor, never its path.
+ */
 async function place(
   deps: LandingDeps,
   made: Made,
   record: IncomingRecord,
   commit: TransferCommit,
-  project: { path: string; workspaceId: WorkspaceId; fresh: boolean },
+  project: {
+    path: string;
+    workspaceId: WorkspaceId;
+    fresh: boolean;
+    directory?: PinnedDirectory | undefined;
+  },
   signal: AbortSignal,
 ): Promise<Landed> {
   const { git } = deps;
@@ -324,9 +388,10 @@ async function place(
   // A detached HEAD lands on a branch of its own at that exact commit.
   let branch = commit.branch ?? (commit.head ? detachedBranch(commit.head) : undefined);
   let inCheckout = true;
+  const held = project.directory ? { directoryFd: project.directory.fd } : undefined;
   if (isGit && branch && commit.head) {
     if (project.fresh) {
-      await git.checkoutBranch(project.path, { name: branch, commit: commit.head });
+      await git.checkoutBranch(project.path, { name: branch, commit: commit.head }, held);
     } else {
       const state = await git.checkoutState(project.path);
       if (!wantsWorktree && state.clean && state.branch === branch) {
@@ -345,12 +410,15 @@ async function place(
   }
   signal.throwIfAborted();
   const changes = commit.changes;
-  const apply = async (path: string) => {
-    if (changes) await git.applyChanges(path, changes.commit);
+  const apply = async (path: string, directory?: PinnedDirectory) => {
+    const pin = directory ? { directoryFd: directory.fd } : undefined;
+    if (changes) await git.applyChanges(path, changes.commit, pin);
     signal.throwIfAborted();
-    await deps.landed?.(path, signal);
+    await deps.landed?.(directory ?? path, signal);
     signal.throwIfAborted();
   };
+  // The project's own checkout: the folder this transfer made, held, or one it reused.
+  const inProject = () => apply(project.path, project.directory);
   let path = project.path;
   const result = (threadId?: ThreadId): Landed => ({
     workspaceId: project.workspaceId,
@@ -361,7 +429,11 @@ async function place(
   let landed: Landed;
   if (commit.thread) {
     const worktree = isGit && (wantsWorktree || !inCheckout);
-    if (!worktree) await apply(path);
+    if (!worktree) await inProject();
+    const keep = (threadId: ThreadId) => {
+      made.kept = true;
+      deps.created(result(threadId));
+    };
     const threadId = await deps.threads.create({
       key: `transfer:${record.transferId}:${deps.attempt}`,
       deviceId: record.deviceId,
@@ -375,18 +447,21 @@ async function place(
         signal.throwIfAborted();
         deps.cutoff();
       },
+      // In the thread's own transaction: a crash right after can't roll the thread back.
+      made: keep,
     });
-    made.kept = true;
+    // A thread this attempt had already made, returned again.
+    if (!made.kept) keep(threadId);
     landed = result(threadId);
-    deps.created(landed);
   } else {
     if (inCheckout) {
-      await apply(path);
+      await inProject();
     } else if (branch) {
       // The person's checkout there is busy: the branch gets its own folder beside it.
       path = await freeFolder(dirname(project.path), `${record.begin.name}-${branch}`, deps.held);
-      made.beside(path);
+      made.reserveBeside(path);
       await git.addBranchWorktree(project.path, { path, branch });
+      await made.madeBeside();
       await apply(path);
     }
     signal.throwIfAborted();
@@ -401,7 +476,7 @@ async function place(
       headRef(record.transferId),
       `refs/ace/incoming/${record.transferId}`,
     ];
-    for (const ref of refs) await git.deleteRef(project.path, ref).catch(() => undefined);
+    for (const ref of refs) await git.deleteRef(project.path, ref, held).catch(() => undefined);
   }
   return landed;
 }

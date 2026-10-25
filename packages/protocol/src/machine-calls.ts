@@ -158,6 +158,8 @@ export const MachineRefusal = z.object({
     "not_found",
     "invalid",
     "unavailable",
+    /** A transfer cancel that came after the import's cutoff (ADR 0099). */
+    "too_late",
   ]),
   message: z.string().max(512).optional(),
 });
