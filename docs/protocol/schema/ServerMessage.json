@@ -54,6 +54,12 @@
       "$ref": "https://ace.local/protocol/v1/FleetResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/TransfersResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/TransferProgress.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ProvidersResult.json"
     },
     {

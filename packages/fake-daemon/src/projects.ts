@@ -1,3 +1,4 @@
+import { normalizeRemoteUrl } from "@ace/git/remote-url";
 import { parseCloneUrl, projectIconMatches } from "@ace/project-picker";
 import { fakeSearch, fakeComplete } from "./project-picker.ts";
 import {
@@ -30,6 +31,8 @@ export interface FolderSeed {
   favicon?: string;
   /** A repository root (a `.git` inside). */
   git?: boolean;
+  /** Its `origin` fetch URL, for a repository root. */
+  remote?: string;
   modifiedAt?: number;
 }
 /** Host filesystem fixture and registered catalog, including projects without threads. */
@@ -145,11 +148,13 @@ export class FakeProjects {
         thread.details?.workspace ?? { id, name: id, path: `/fake/${id}` },
       );
       this.projects.set(id, project);
+      const remote = this.directories.get(project.path)?.remote;
       this.directories.set(project.path, {
         empty: false,
         git: project.kind !== "chat",
         modifiedAt: thread.createdAt,
         initialBranch: thread.details?.baseBranch ?? "main",
+        ...(remote ? { remote } : {}),
       });
     }
   }
@@ -193,6 +198,7 @@ export class FakeProjects {
         ensure(`${top}/${relative.slice(0, depth).join("/")}`);
       ensure(folder.path, {
         git: folder.git ?? false,
+        ...(folder.remote ? { remote: folder.remote } : {}),
         ...(folder.favicon === undefined ? {} : { favicon: folder.favicon }),
         ...(folder.modifiedAt === undefined ? {} : { modifiedAt: folder.modifiedAt }),
       });
@@ -289,6 +295,52 @@ export class FakeProjects {
         workspace: project,
       });
     return { ok: true, workspace: project, inspection: this.inspection(path) };
+  }
+  /** What a transfer sends from: whether the project is a Git repository, and its origin. */
+  source(id: string): { name: string; git: boolean; origin?: string } | undefined {
+    const project = this.get(id);
+    if (!project) return undefined;
+    const directory = this.directories.get(project.path);
+    return {
+      name: project.name,
+      git: directory?.git ?? false,
+      ...(directory?.remote ? { origin: directory.remote } : {}),
+    };
+  }
+  /** The project here whose origin is the same repository as `origin`, as a transfer reuses. */
+  withOrigin(origin: string): Project | undefined {
+    this.seed();
+    const wanted = normalizeRemoteUrl(origin);
+    return [...this.projects.values()].find((project) => {
+      const remote = this.directories.get(project.path)?.remote;
+      return remote !== undefined && normalizeRemoteUrl(remote) === wanted;
+    });
+  }
+  /**
+   * A project another machine sent here (ADR 0101): the project with the same origin when there
+   * is one, else a new Git checkout in `parent` (or the home), named after the source with `-2`,
+   * `-3`… when the folder is taken.
+   */
+  receive(input: { name: string; parent?: string | undefined; origin?: string | undefined }): {
+    workspaceId: string;
+    path: string;
+    reused: boolean;
+  } {
+    const known = input.origin ? this.withOrigin(input.origin) : undefined;
+    if (known) return { workspaceId: known.id, path: known.path, reused: true };
+    const base = `${(input.parent ?? this.home).replace(/\/+$/, "")}/${input.name}`;
+    let path = base;
+    for (let n = 2; this.directories.get(path)?.empty === false; n++) path = `${base}-${n}`;
+    this.makeFolders(path);
+    this.directories.set(path, {
+      empty: false,
+      git: true,
+      initialBranch: "main",
+      modifiedAt: this.context.now(),
+      ...(input.origin ? { remote: input.origin } : {}),
+    });
+    const result = this.register(path, input.name);
+    return { workspaceId: result.workspace.id, path, reused: false };
   }
   /** `mkdir -p` on the fake host: each missing folder on the way, empty. */
   private makeFolders(path: string): void {

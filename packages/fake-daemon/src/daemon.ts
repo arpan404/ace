@@ -51,6 +51,7 @@ import {
   type SubscriptionScope,
   type ThreadListView,
   type ServerMessage,
+  FleetLink,
 } from "@ace/protocol";
 import { Connection, matches, type Host, type Wire } from "./connection.ts";
 import { CommandFlights } from "./command-status.ts";
@@ -59,6 +60,7 @@ import { FakeAccess } from "./access.ts";
 import { FakeScreen } from "./screen.ts";
 import { FakeAppDevices } from "./app-devices.ts";
 import { FakeReviewDesk } from "./review-desk.ts";
+import { fakeTransfers, type FakeTransfers } from "./transfers.ts";
 import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
@@ -140,6 +142,8 @@ export class FakeDaemon implements Host {
   readonly appDevices: FakeAppDevices;
   readonly screen: FakeScreen;
   readonly commandFlights = new CommandFlights();
+  /** Transfers to other fake machines (ADR 0101); `linkTo` makes a machine reachable. */
+  readonly transfers: FakeTransfers;
   constructor(options: FakeDaemonOptions) {
     this.options = options;
     this.worktreeCreations = new FakeWorktreeCreations(
@@ -246,10 +250,7 @@ export class FakeDaemon implements Host {
       clock: options.clock,
       access: this.access,
       threads: () => [...this.threads.values()].map((host) => host.view.thread),
-      broadcast: (message) => {
-        for (const connection of this.connections)
-          if (connection.authenticated) connection.push(message);
-      },
+      broadcast: (message) => this.broadcast(message),
       thread: (threadId) => {
         const host = this.threads.get(threadId);
         return (
@@ -258,6 +259,17 @@ export class FakeDaemon implements Host {
       },
     });
     Object.assign(this.services, options.catalog);
+    this.transfers = fakeTransfers(this, {
+      clock: options.clock,
+      broadcast: (message) => this.broadcast(message),
+      thread: (id) => this.threads.get(id)?.view.thread,
+      continued: (id, on) => {
+        const host = this.thread(id);
+        const changes = { details: { ...host.view.thread.details, continuedOn: on } };
+        this.append(host, [{ type: "thread.client.updated", changes }], options.clock());
+      },
+      ...(options.projectScheduler ? { schedule: options.projectScheduler } : {}),
+    });
     this.servicesWire = new FakeServicesWire(
       {
         now: options.clock,
@@ -839,7 +851,12 @@ export class FakeDaemon implements Host {
       if (refusal !== "silent") connection.push(refusal);
       return true;
     }
+    if (this.transfers.handle(message, connection.push)) return true;
     return this.services.handle(message, connection.push, connection.deviceId);
+  }
+  /** Link this machine to `other` so it can send work there (`FakeTransfers.link`). */
+  linkTo(other: FakeDaemon, link: Partial<FleetLink> = {}): void {
+    this.transfers.link(other, link);
   }
   release(connection: Connection): void {
     this.connections.delete(connection);
@@ -857,6 +874,11 @@ export class FakeDaemon implements Host {
   /** A scripted Offshift run change, on the same stream as the daemon's run writes. */
   updateOffshift(id: string, card: OffshiftRunCard, agoMs = 0): void {
     this.append(this.thread(id), [{ type: "offshift.updated", card }], this.at(agoMs));
+  }
+  /** Push to every signed-in connection. */
+  private broadcast(message: ServerMessage): void {
+    for (const connection of this.connections)
+      if (connection.authenticated) connection.push(message);
   }
   /** Drop every socket, as a daemon restart or network loss would. */
   disconnectAll(code = 1006): void {
@@ -936,6 +958,16 @@ export class FakeDaemon implements Host {
         ? previous.result
         : { commandId: command.id, ok: false, error: "forbidden" };
     const payload = command.payload;
+    if (payload.type === "workspace.transfer" || payload.type === "thread.continueOn") {
+      const refused = this.canManageProjects(command.deviceId)
+        ? this.refusals.get(payload.type)
+        : "forbidden";
+      const result = refused
+        ? { commandId: command.id, ok: false, error: refused }
+        : this.transfers.start({ ...command, payload });
+      this.receipts.set(command.id, { deviceId: command.deviceId, result });
+      return result;
+    }
     const configurations = ProviderConfigurations.parse(
       this.services.settings.get("providers.configuration"),
     );

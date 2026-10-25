@@ -18,6 +18,8 @@ function CommandStepRow(props: {
   onBack: (() => void) | undefined;
   children: ReactNode;
   closeLabel?: string;
+  /** In place of the magnifier when there is no Back: a step with nothing to search. */
+  leading?: ReactNode;
 }) {
   return (
     <CommandSearchRow
@@ -25,7 +27,9 @@ function CommandStepRow(props: {
       leading={
         props.onBack ? (
           <IconButton icon={ArrowLeftIcon} label="Back" size="sm" onClick={props.onBack} />
-        ) : undefined
+        ) : (
+          props.leading
+        )
       }
     >
       {props.children}

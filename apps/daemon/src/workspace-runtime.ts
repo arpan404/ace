@@ -24,7 +24,7 @@ import { CreationDrafts } from "./creation-drafts.ts";
 import { clearWorkspaceChange, settleWorkspaceChange } from "./workspace-change-clear.ts";
 import { threadCleaning, initializeThreadCleanup } from "./thread-cleanup-journal.ts";
 import type { WorkspaceChangeReservation } from "./engine/workspace-change.ts";
-import { moveThread } from "./thread-move.ts";
+import { continueError, moveThread } from "./thread-move.ts";
 import { WorkspaceRoots, type WorkspaceGit } from "./workspace-roots.ts";
 import { hostname, homedir } from "node:os";
 import { join } from "node:path";
@@ -362,6 +362,13 @@ export class WorkspaceRuntime {
   /** Threads with an open terminal, where a person may commit outside any agent turn. */
   terminalThreads(): ThreadId[] {
     return [...new Set([...this.terminals.values()].map((entry) => entry.threadId))];
+  }
+  /** thread.continueOn's refusal: what dead work left is settled first, as for thread.move. */
+  async continueRefusal(id: ThreadId): Promise<string | undefined> {
+    await this.reconcileTerminals(id);
+    await this.options.reconcileThread?.(id);
+    await this.settleBeforeAttempt(id);
+    return continueError(this.store, id, (owner) => this.hasOwnedWork(owner));
   }
   hasOwnedWork(id: ThreadId): boolean {
     return this.liveTerminalCount(id) > 0;

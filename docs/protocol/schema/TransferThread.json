@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/TransferThread.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "handoff": {
+      "$ref": "https://ace.local/protocol/v1/PortableHandoff.json"
+    },
+    "mode": {
+      "enum": [
+        "local",
+        "worktree"
+      ],
+      "type": "string"
+    },
+    "model": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "sourceThreadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "title": {
+      "maxLength": 256,
+      "type": "string"
+    }
+  },
+  "required": [
+    "sourceThreadId",
+    "title",
+    "mode",
+    "provider",
+    "handoff"
+  ],
+  "type": "object"
+}

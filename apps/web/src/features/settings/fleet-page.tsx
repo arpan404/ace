@@ -9,7 +9,7 @@ import { primaryMachineId, type Machine } from "@/lib/machines.ts";
 import { AddMachine } from "./add-machine.tsx";
 import { fleetProblem } from "./data/fleet.ts";
 import { listNames } from "./data/list-names.ts";
-import { reach, unlinkedWith, type LinkGap } from "./data/fleet-links.ts";
+import { machineGaps, reach, unlinkedWith, type LinkGap } from "./data/fleet-links.ts";
 import { useFleet, type Fleet } from "./data/use-fleet.ts";
 import { FleetDevices } from "./fleet-devices.tsx";
 import { FleetRules } from "./fleet-rules.tsx";
@@ -106,6 +106,21 @@ function machineLine(machine: Machine, fleet: Fleet): string {
   return parts.join(" · ");
 }
 
+/**
+ * What a machine is missing, per direction: "Not linked with A" when neither holds a link, and
+ * which side can't use the other when only one does.
+ */
+function gapLine(machine: string, fleet: Fleet): string {
+  const names = (ids: readonly string[]) =>
+    listNames(ids.map((id) => fleet.byId(id)?.name ?? "a machine"));
+  const gaps = machineGaps(machine, fleet.gaps);
+  const parts: string[] = [];
+  if (gaps.unlinked.length) parts.push(`Not linked with ${names(gaps.unlinked)}`);
+  if (gaps.cantUse.length) parts.push(`Can't use ${names(gaps.cantUse)}`);
+  if (gaps.notUsedBy.length) parts.push(`${names(gaps.notUsedBy)} can't use it`);
+  return parts.join(" · ");
+}
+
 function MachineRow(props: {
   machine: Machine;
   fleet: Fleet;
@@ -137,7 +152,7 @@ function MachineRow(props: {
       {missing.length > 0 ? (
         <>
           <span className="hidden text-xs text-muted-foreground @[30rem]:inline">
-            Not linked with {listNames(missing.map((id) => fleet.byId(id)?.name ?? "a machine"))}
+            {gapLine(machine.id, fleet)}
           </span>
           <Button
             size="sm"

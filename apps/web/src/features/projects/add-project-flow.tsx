@@ -1,14 +1,13 @@
-import { DesktopIcon } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
-import { CommandChoices, type CommandChoice } from "@/components/ui/command-choices.tsx";
+import { CommandChoices } from "@/components/ui/command-choices.tsx";
 import type { PaletteStart } from "@/lib/layout.tsx";
-import { machineStatus } from "@/lib/machine-status.ts";
 import { useMachines, type Machine } from "@/lib/machines.ts";
 import { CloneProjectStep } from "./clone-project-step.tsx";
 import { CreateProjectStep } from "./create-project-step.tsx";
 import { GithubStep } from "./github-step.tsx";
 import { useLandInProject } from "./land.ts";
 import { LocalFolderStep } from "./local-folder-step.tsx";
+import { MachineChip, machineChoices } from "./machine-step.tsx";
 import { projectSources, type AddPage } from "./project-sources.ts";
 import { useProjectDialogs } from "./projects-context.ts";
 
@@ -29,7 +28,10 @@ export function AddProjectFlow(props: {
   const { clone } = useProjectDialogs();
   const land = useLandInProject();
   const [chosen, setChosen] = useState<{ id: string; name: string; primary: boolean }>();
-  const [picking, setPicking] = useState(machines.length > 1);
+  // Only machines that can take a project now make it a choice, as in New thread.
+  const reachable = machines.filter((each) => each.status === "online");
+  const online = reachable.length;
+  const [picking, setPicking] = useState(online > 1);
   const [cloneUrl, setCloneUrl] = useState<{ machine: string; url: string }>();
   // This window's daemon is found by being primary: its id becomes its host id once known.
   const found =
@@ -38,26 +40,13 @@ export function AddProjectFlow(props: {
   // nothing typed for it may land on a different machine.
   const machine: Machine | undefined = chosen
     ? (found ?? { ...chosen, status: "offline", client: undefined })
-    : machines[0];
-  const several = machines.length > 1 || (chosen !== undefined && found === undefined);
-  const choices = useMemo(
-    () =>
-      machines.map((each): CommandChoice => ({
-        id: each.id,
-        label: each.name,
-        icon: DesktopIcon,
-        ...(each.status === "online"
-          ? {}
-          : {
-              aside: (
-                <span className="text-xs text-muted-foreground">
-                  {machineStatus[each.status].label}
-                </span>
-              ),
-            }),
-      })),
-    [machines],
-  );
+    : // This machine first; when it's down, the one that can take a project now.
+      (reachable[0] ?? machines[0]);
+  // A machine other than this one always shows which, so the chip can change it.
+  const several =
+    online > 1 ||
+    (chosen === undefined ? machine?.primary === false : found === undefined || !found.primary);
+  const choices = useMemo(() => machineChoices(machines, { onlineOnly: false }), [machines]);
 
   if (!machine) return null;
   if (several && picking)
@@ -77,14 +66,7 @@ export function AddProjectFlow(props: {
       />
     );
   const chip = several ? (
-    <button
-      type="button"
-      aria-label={`Machine: ${machine.name}`}
-      onClick={() => setPicking(true)}
-      className="h-6 max-w-40 shrink-0 truncate rounded-sm px-2 text-sm text-muted-foreground focus-ring hover:bg-accent hover:text-foreground"
-    >
-      {machine.name}
-    </button>
+    <MachineChip name={machine.name} onClick={() => setPicking(true)} />
   ) : undefined;
 
   if (props.page === "add-local")

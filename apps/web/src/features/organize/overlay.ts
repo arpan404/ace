@@ -121,17 +121,20 @@ const browserTimers: Timers = {
 };
 const overlays = new WeakMap<ClientApi, OrganizeOverlay>();
 
+/** One client's overlay of organize actions not yet confirmed, shared by the whole window. */
+export function overlayOf(client: ClientApi): OrganizeOverlay {
+  let overlay = overlays.get(client);
+  if (!overlay) {
+    overlay = new OrganizeOverlay(client, browserTimers);
+    overlays.set(client, overlay);
+  }
+  return overlay;
+}
+
 /** This client's overlay of organize actions not yet confirmed. */
 export function useOrganizeOverlay(): OrganizeOverlay {
   const client = useClient();
-  return useMemo(() => {
-    let overlay = overlays.get(client);
-    if (!overlay) {
-      overlay = new OrganizeOverlay(client, browserTimers);
-      overlays.set(client, overlay);
-    }
-    return overlay;
-  }, [client]);
+  return useMemo(() => overlayOf(client), [client]);
 }
 
 /** `entry` as this window shows it: with its organize actions applied before the daemon's. */

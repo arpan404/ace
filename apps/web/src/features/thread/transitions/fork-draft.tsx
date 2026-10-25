@@ -30,6 +30,7 @@ import { ThreadLoading } from "../thread-loading.tsx";
 import { ForkModelPicker } from "./fork-model-picker.tsx";
 import type { ForkDraftSearch } from "./fork-opener.ts";
 import { forkDraftKey, removeForkDraft, saveForkDraft, type ForkDraft } from "./fork-drafts.ts";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 /** Desktop widths put the caret in the composer when the fork opens; a phone's keyboard waits. */
 const wideEnoughToFocus = () =>
@@ -95,6 +96,7 @@ function ForkComposer(props: {
 }) {
   const sources = useThreadSources();
   const navigate = useNavigate();
+  const machine = useMachineSearch();
   const toast = useToast();
   const catalog = useModelCatalog();
   const choices = useModelChoices();
@@ -140,7 +142,7 @@ function ForkComposer(props: {
         title: props.title || undefined,
       });
       if (host) removeForkDraft(storage, host, draftKey);
-      void navigate({ to: "/t/$threadId", params: { threadId }, replace: true });
+      void navigate({ to: "/t/$threadId", params: { threadId }, search: machine, replace: true });
       return true;
     } catch (error) {
       toast.error({

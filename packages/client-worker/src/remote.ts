@@ -5,6 +5,7 @@ import {
   pendingSendsEqual,
   type PendingSend,
   deferredProjectsApi,
+  transfersApi,
   type AttachmentInput,
   type FileDownloadInput,
   type FileUploadInput,
@@ -158,6 +159,7 @@ const isState = (state: string): state is ConnectionState => states.has(state);
 
 export class RemoteClient implements ClientApi {
   readonly projects = deferredProjectsApi(this, () => import("@ace/client/project-calls"));
+  readonly transfers = transfersApi(this);
   private link: WorkerLink;
   private config: unknown;
   private options: RemoteOptions;

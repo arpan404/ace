@@ -5,7 +5,8 @@
  * the person, then a usage or rate limit, then the person's messages on their way (or that didn't go), then trouble with
  * the connection, then background commands a stopped turn left running, then the queue, then
  * what the main agent waits on while it does nothing itself (with its Stop), then the goal the
- * agent is pursuing, then its task list. The person can switch the slot to any present item; a
+ * agent is pursuing, then its task list, then where its work went or came from on another
+ * machine. The person can switch the slot to any present item; a
  * request that arrives after that, or one a notification opens, takes it back. Pure.
  */
 export const stripPriority = [
@@ -19,6 +20,7 @@ export const stripPriority = [
   "waiting",
   "goal",
   "plan",
+  "transfer",
 ] as const;
 export type StripKind = (typeof stripPriority)[number];
 
@@ -43,6 +45,8 @@ export interface StripFacts {
   /** The provider has a native goal set on the thread. */
   goal: boolean;
   plan: boolean;
+  /** A transfer to another machine runs or failed, or the thread was continued on or from one. */
+  transfer?: boolean;
 }
 
 /** The person moved the slot to `kind`, while these requests were already open. */
@@ -64,7 +68,7 @@ const present = (facts: StripFacts, kind: StripKind) =>
     ? facts.requests.length > 0
     : kind === "confirm-stop"
       ? facts.confirmStop
-      : facts[kind];
+      : facts[kind] === true;
 
 export function stripSlot(facts: StripFacts, pick: StripPick | undefined): StripSlot {
   const items = stripPriority.filter((kind) => present(facts, kind));

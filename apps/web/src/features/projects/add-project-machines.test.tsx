@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -57,7 +57,7 @@ test("with two machines Add project asks which machine first, and its folders fo
   expect(await option("code")).toBeTruthy();
 });
 
-test("a folder added on the build server is added there, not on this machine", async () => {
+test("a folder added on the build server is added there and opens New thread there", async () => {
   const { made, build } = twoMachines();
   await addProjectOn(made, "Build server", "Local folder");
   const field = await screen.findByRole("combobox", { name: "Folder path" });
@@ -66,18 +66,21 @@ test("a folder added on the build server is added there, not on this machine", a
   await screen.findByText("~/services/api");
   await userEvent.keyboard("{Enter}");
 
-  expect(await screen.findByText("Added api on Build server")).toBeTruthy();
+  // New thread opens on the build server, in the project just added.
+  expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Project: api" })).toBeTruthy();
   expect(paths(build)).toEqual(["/home/ci/services/api"]);
   expect(paths(made.daemon)).toEqual([]);
 });
 
-test("a new project is created on the chosen machine", async () => {
+test("a new project is created on the chosen machine and New thread opens there", async () => {
   const { made, build } = twoMachines();
   await addProjectOn(made, "Build server", "New project");
   await userEvent.type(await screen.findByRole("textbox", { name: "Project name" }), "jobs");
   expect(await screen.findByText("~/jobs")).toBeTruthy();
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
-  expect(await screen.findByText("Created jobs on Build server")).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Project: jobs" })).toBeTruthy();
   expect(paths(build)).toEqual(["/home/ci/jobs"]);
   expect(paths(made.daemon)).toEqual([]);
 });
@@ -150,4 +153,31 @@ test("a chosen machine that leaves the pool stays chosen, so nothing lands on an
   await screen.findByText("/srv/app");
   await userEvent.keyboard("{Enter}");
   await waitFor(() => expect(paths(made.daemon)).toEqual(["/srv/app"]));
+});
+
+test("with the other machine offline Add project doesn't ask which machine", async () => {
+  const { made } = twoMachines();
+  await made.open("/settings");
+  await screen.findByRole("heading", { level: 1 });
+  made.crashMachine("build");
+  await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
+  expect(await screen.findByRole("option", { name: "Local folder" })).toBeTruthy();
+  expect(screen.queryByRole("listbox", { name: "Machines" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Machine:/ })).toBeNull();
+});
+
+test("with this machine offline Add project works on the one machine that's online, and says so", async () => {
+  const { made, build } = twoMachines();
+  await made.open("/settings");
+  await screen.findByRole("heading", { level: 1 });
+  act(() => made.daemon.refuseConnections(true));
+  await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
+  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
+  expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  const field = await screen.findByRole("combobox", { name: "Folder path" });
+  await userEvent.clear(field);
+  await userEvent.type(field, "~/services/api/");
+  await screen.findByText("~/services/api");
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() => expect(paths(build)).toEqual(["/home/ci/services/api"]));
 });
