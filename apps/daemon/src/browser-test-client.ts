@@ -2,6 +2,7 @@ import { once } from "node:events";
 import { WebSocket } from "ws";
 import { z } from "zod";
 import { BrowserServerMessage, ServerMessage } from "@ace/protocol";
+import { decodeStreamMessage, StreamAssembler, type StreamMessage } from "@ace/browser/stream";
 
 const Message = z.union([BrowserServerMessage, ServerMessage]);
 type Message = z.infer<typeof Message>;
@@ -14,10 +15,24 @@ export class BrowserClient {
     reject: (error: Error) => void;
   }[] = [];
   private closed = false;
+  /** Binary stream messages (live video), assembled from their pieces. */
+  private streamed: StreamMessage[] = [];
+  private streamWaiters = new Set<() => void>();
+  private assembler = new StreamAssembler();
   receiveCatalogPushes = false;
   constructor(url: string, options: import("ws").ClientOptions = {}) {
     this.socket = new WebSocket(url, options);
-    this.socket.on("message", (data) => {
+    this.socket.on("message", (data, binary) => {
+      if (binary) {
+        const pieces = Array.isArray(data) ? data : [data];
+        for (const piece of pieces) {
+          const envelope = this.assembler.push(new Uint8Array(Buffer.from(piece)));
+          const message = envelope && decodeStreamMessage(envelope);
+          if (message) this.streamed.push(message);
+        }
+        for (const waiter of this.streamWaiters) waiter();
+        return;
+      }
       const message = Message.parse(JSON.parse(data.toString()));
       if (message.type === "models.changed" && !this.receiveCatalogPushes) return;
       const index = this.waiters.findIndex((waiter) => waiter.predicate(message));
@@ -31,6 +46,26 @@ export class BrowserClient {
       this.closed = true;
       for (const waiter of this.waiters.splice(0))
         waiter.reject(new Error("Browser socket closed"));
+      for (const waiter of this.streamWaiters) waiter();
+    });
+  }
+  /** The first binary stream message that matches, waiting for it if none has come yet. */
+  nextStream<T>(pick: (message: StreamMessage) => T | undefined): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const check = () => {
+        for (const message of this.streamed) {
+          const picked = pick(message);
+          if (picked === undefined) continue;
+          this.streamWaiters.delete(check);
+          resolve(picked);
+          return;
+        }
+        if (!this.closed) return;
+        this.streamWaiters.delete(check);
+        reject(new Error("Browser socket closed"));
+      };
+      this.streamWaiters.add(check);
+      check();
     });
   }
   next(predicate: (message: Message) => boolean): Promise<Message> {
