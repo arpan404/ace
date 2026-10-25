@@ -10,6 +10,7 @@ import {
   type DeviceOperation,
   type DevicePermission,
   type DevicePermissions,
+  type DevicePosture,
   type DeviceServerMessage,
   DeviceState,
 } from "@ace/protocol/devices";
@@ -116,6 +117,11 @@ export class FakeAppDevices {
   private channels = new Set<Channel>();
   private sequence = 0;
   private streams = 0;
+  /**
+   * Foldable devices and how each sits, as the daemon reports an iPhone Duo Simulator's posture.
+   * Tests seed the devices that fold; every other device has no posture and refuses to fold.
+   */
+  readonly folds = new Map<string, DevicePosture>();
   /** Every input a person sent, in order, as the device received it. */
   readonly inputs: { deviceId: string; input: DeviceInput }[] = [];
   /** macOS permissions of the daemon's screen helper; iOS views and input need them. */
@@ -311,6 +317,7 @@ export class FakeAppDevices {
       holder: session.holder,
       ...(session.leaseExpiresAt ? { leaseExpiresAt: session.leaseExpiresAt } : {}),
       ...(session.activity ? { activity: session.activity } : {}),
+      ...(this.folds.has(session.device.id) ? { posture: this.folds.get(session.device.id) } : {}),
     });
   }
 
@@ -553,6 +560,18 @@ export class FakeAppDevices {
         this.log(session, `input ${operation.input.kind}`);
         this.paint(session);
         return { completed: true };
+      case "posture":
+        this.controlled(session, channel);
+        if (!this.folds.has(session.device.id))
+          throw new Refusal(
+            "not_supported",
+            "This device doesn't fold",
+            "Only foldable simulators, such as the iPhone Duo, have a posture.",
+          );
+        this.folds.set(session.device.id, operation.posture);
+        this.actions.push(operation);
+        this.publish(session);
+        return { posture: operation.posture };
       case "open_app":
       case "open_url":
       case "install":
