@@ -9,6 +9,7 @@ import {
   type ThreadId,
 } from "@ace/protocol";
 import type { AgentControlPort } from "@ace/mcp-server";
+import { decodeTextPage } from "@ace/projection";
 import { roleTask, withRoleContext, type RoleLookup } from "./run-roles.ts";
 import type { Store } from "../store.ts";
 import type { DelegationService } from "./delegations.ts";
@@ -430,10 +431,13 @@ export function createAgentControlPort(
       case "thread.read_output": {
         if (store.outputThread(operation.streamId) !== operation.threadId)
           return { ok: false, code: "forbidden" };
-        return {
-          ok: true,
-          data: store.readOutput(operation.streamId, operation.offset, operation.limit),
-        };
+        // Agents get text, never the stored bytes. Four bytes always hold one whole character.
+        const page = store.readOutputBytes(
+          operation.streamId,
+          operation.offset,
+          Math.max(4, operation.limit),
+        );
+        return { ok: true, data: decodeTextPage(page, operation.offset, page.encoding) };
       }
       case "thread.search": {
         // Search owns FTS and paging. Scope is enforced in its query, before ranking/pagination.

@@ -96,8 +96,12 @@ const ThreadPage = z.looseObject({
     ),
   linkedPrs: z.array(z.unknown()).optional(),
   previews: z.array(z.unknown()).optional(),
-  bytes: z.string().optional().describe("Base64 output bytes, when reading a stream"),
-  nextOffset: z.number().optional(),
+  text: z.string().optional().describe("With streamId: this page of the part's text, decoded."),
+  nextOffset: z
+    .number()
+    .optional()
+    .describe("With streamId: pass back unchanged as offset for the next page."),
+  eof: z.boolean().optional().describe("With streamId: true when the text ends with this page."),
   queue: z.unknown().optional().describe("Messages waiting for the thread, oldest first."),
 });
 const threadRead = controlTool({
@@ -107,7 +111,7 @@ const threadRead = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Read a thread: title, status, branch, linked PRs, preview servers, queued messages (with entryIds for queue_edit) and a page of its latest transcript items, oldest first. Omit threadId for this thread. Page back with before = itemsBefore until it is null; an item too large for a page is listed in omitted. A truncated part with source.streamId continues with streamId and offset (base64 bytes, then nextOffset).",
+    "Read a thread: title, status, branch, linked PRs, preview servers, queued messages (with entryIds for queue_edit) and a page of its latest transcript items, oldest first. Omit threadId for this thread. Page back with before = itemsBefore until it is null; an item too large for a page is listed in omitted. A truncated part with source.streamId continues as plain text: pass streamId with offset 0, then each page's nextOffset unchanged, until eof.",
   input: z.strictObject({
     threadId: ThreadId.optional().describe("Default: this thread."),
     before: z.number().int().positive().optional().describe("The previous page's itemsBefore."),
@@ -124,14 +128,16 @@ const threadRead = controlTool({
       .nonnegative()
       .max(Number.MAX_SAFE_INTEGER)
       .default(0)
-      .describe("With streamId: byte offset, from nextOffset."),
+      .describe("With streamId: 0 to start, then the previous page's nextOffset, unchanged."),
     maxBytes: z
       .number()
       .int()
       .min(1)
       .max(16_384)
       .default(8192)
-      .describe("With streamId: bytes to read, up to 16384."),
+      .describe(
+        "With streamId: page size, up to 16384 (about 8,000 characters of message text). Pages end on whole characters.",
+      ),
   }),
   output: controlResult(ThreadPage),
   async run(input, control) {
