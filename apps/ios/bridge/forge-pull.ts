@@ -1,5 +1,6 @@
 import { ClientError } from "@ace/client";
 import {
+  ForgeMergeCommit,
   ForgeRepository,
   WorkspaceId,
   type CommandPayload,
@@ -9,6 +10,7 @@ import {
 import {
   actionErrorText,
   autoMergeBlocker,
+  defaultMergeCommit,
   mergeBlockers,
   mergeMethods,
   noAutoMerge,
@@ -59,13 +61,20 @@ export const ForgePullRequest = z.discriminatedUnion("type", [
     repository: ForgeRepository.optional(),
     method: method.default("squash"),
   }),
-  z.object({ type: z.literal("forge.merge"), ...target, method, headSha: sha }),
+  z.object({
+    type: z.literal("forge.merge"),
+    ...target,
+    method,
+    headSha: sha,
+    commit: ForgeMergeCommit.optional(),
+  }),
   z.object({
     type: z.literal("forge.auto-merge"),
     ...target,
     method,
     headSha: sha,
     action: z.enum(["enable", "disable"]),
+    commit: ForgeMergeCommit.optional(),
   }),
 ]);
 export type ForgePullRequest = z.infer<typeof ForgePullRequest>;
@@ -111,6 +120,8 @@ export interface PullReply {
   blockers: string[];
   methods: { method: MergeMethod; label: string }[];
   method: MergeMethod;
+  /** The commit a merge or squash by `method` writes, as GitHub would prefill it; null for rebase. */
+  commit: { title: string; message: string } | null;
   reviewers: { login: string; outcome: string | null }[];
   checks: { name: string; tone: string; word: string }[];
   files: { path: string; additions: number; deletions: number; status: string }[];
@@ -236,6 +247,8 @@ export async function readPull(
     blockers: primary.kind === "blocked" ? primary.blockers : [],
     methods: mergeMethods.map((each) => ({ method: each.method, label: each.label })),
     method: request.method,
+    commit:
+      request.method === "rebase" ? null : defaultMergeCommit(detail, request.method, mergeState),
     reviewers: [...new Set([...detail.reviewers, ...outcomes.keys()])].slice(0, 30).map((login) => {
       const outcome = outcomes.get(login);
       return { login: preview(login, 100), outcome: outcome ? reviewOutcomeLabels[outcome] : null };
@@ -286,16 +299,30 @@ export async function writePull(
   const thread = reads.linked().pulls.get(keyOf({ ref: pr }));
   const link = thread ? { threadId: thread.id, pr } : undefined;
   const workspaceId = WorkspaceId.parse(request.project);
+  // Rebase writes no commit of its own; disabling auto-merge takes none.
+  const commit =
+    request.commit &&
+    request.method !== "rebase" &&
+    !(request.type === "forge.auto-merge" && request.action === "disable")
+      ? { commit: request.commit }
+      : {};
   const payload: CommandPayload =
     request.type === "forge.merge"
       ? link
-        ? { type: "forge.pr.merge", link, headSha: request.headSha, method: request.method }
+        ? {
+            type: "forge.pr.merge",
+            link,
+            headSha: request.headSha,
+            method: request.method,
+            ...commit,
+          }
         : {
             type: "forge.hosted.merge",
             workspaceId,
             pr,
             headSha: request.headSha,
             method: request.method,
+            ...commit,
           }
       : link
         ? {
@@ -304,6 +331,7 @@ export async function writePull(
             headSha: request.headSha,
             action: request.action,
             method: request.method,
+            ...commit,
           }
         : {
             type: "forge.hosted.merge-state",
@@ -312,6 +340,7 @@ export async function writePull(
             headSha: request.headSha,
             action: request.action,
             method: request.method,
+            ...commit,
           };
   const enabling = request.type === "forge.auto-merge" && request.action === "enable";
   try {

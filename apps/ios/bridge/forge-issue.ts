@@ -52,9 +52,20 @@ export interface IssueReply {
   /** More conversation than the first page; the rest opens on GitHub. */
   moreEvents: boolean;
   threads: { id: string; title: string; archived: boolean; needsYou: boolean }[];
+  /** The comment box; `off` says why GitHub won't take a comment from this account. */
+  box: { off: string | null };
+  /** Writes on this issue GitHub hasn't confirmed, to check before anything else. */
+  unconfirmed: { id: string; label: string }[];
   /** New thread from this issue: its first message, and the issue it links. */
   start: { text: string; issue: ForgeIssueRef };
 }
+
+const actionWords = {
+  create: "Opening the issue",
+  comment: "Your comment",
+  edit: "Your edit",
+  state: "The state change",
+} as const;
 
 const epoch = (at: string | null | undefined) => {
   const parsed = at ? Date.parse(at) : Number.NaN;
@@ -82,6 +93,18 @@ export async function readIssue(
     .catch(() => undefined);
   const events = timeline?.resource === "issueTimeline" ? timeline : undefined;
   const live = reads.linked().issues.get(keyOf(issue));
+  const actions = await reads
+    .read(
+      {
+        op: "forge.issue.actions",
+        workspaceId: request.project,
+        repository: issue.ref.repository,
+        number: issue.ref.number,
+      },
+      false,
+    )
+    .then((value) => (value.resource === "issueActions" ? value.actions : []))
+    .catch(() => []);
   return {
     type: "forge.issue",
     number: issue.ref.number,
@@ -117,6 +140,15 @@ export async function readIssue(
       archived: thread.archived,
       needsYou: live?.id === thread.id && live.needsYou,
     })),
+    box: {
+      off: issue.permissions.comment
+        ? null
+        : issue.permissions.reason || "GitHub doesn't let this account comment here.",
+    },
+    unconfirmed: actions
+      // The read names this issue's writes only.
+      .filter((action) => action.state === "uncertain" || action.state === "pending")
+      .map((action) => ({ id: action.id, label: actionWords[action.action] })),
     start: { text: preview(issueSourceText(issue), 32_768), issue: issue.ref },
   };
 }

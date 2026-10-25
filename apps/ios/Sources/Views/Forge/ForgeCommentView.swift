@@ -39,6 +39,7 @@ struct ForgeCommentView: View {
                 ForgeReactionsRow(comment: comment, desk: actions.desk)
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("forge.comment.\(comment.id)")
         .confirmationDialog("Delete this comment?", isPresented: $deleting, titleVisibility: .visible) {
             Button("Delete comment", role: .destructive) {

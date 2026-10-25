@@ -17,7 +17,6 @@ struct ForgeRichView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .textSelection(.enabled)
     }
 }
 
@@ -51,9 +50,25 @@ private struct ForgeRichBlockView: View {
         case .list(let ordered, let start, let items):
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                    HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
-                        marker(item, ordered ? "\(start + index)." : "•")
-                        ForgeRichView(blocks: item.blocks, scope: scope, tick: tick)
+                    if let task = item.task, let offset = task.offset, let tick {
+                        // A box that ticks takes the whole item as its target.
+                        Button { tick(offset, !task.checked) } label: {
+                            HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
+                                box(task.checked)
+                                ForgeRichView(blocks: item.blocks, scope: scope)
+                            }
+                            .frame(minHeight: 32)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityValue(task.checked ? "Done" : "Not done")
+                        .accessibilityIdentifier("forge.task.\(offset)")
+                    } else {
+                        HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
+                            marker(item, ordered ? "\(start + index)." : "•")
+                            ForgeRichView(blocks: item.blocks, scope: scope, tick: tick)
+                        }
                     }
                 }
             }
@@ -99,24 +114,18 @@ private struct ForgeRichBlockView: View {
         }
     }
 
-    /// A list item's marker: its task box (ticking where allowed), else its number or bullet.
+    /// A list item's marker: its task box (showing its state), else its number or bullet.
     @ViewBuilder private func marker(_ item: ForgeRichBlock.Item, _ word: String) -> some View {
         if let task = item.task {
-            let tickable = tick != nil && task.offset != nil
-            Button {
-                if let offset = task.offset { tick?(offset, !task.checked) }
-            } label: {
-                AceIcon(task.checked ? .checkSquare : .square, size: 16, relativeTo: .body)
-                    .foregroundStyle(task.checked ? AceTheme.Colours.foreground : AceTheme.Colours.subtleForeground)
-            }
-            .buttonStyle(.plain)
-            .disabled(!tickable)
-            .accessibilityLabel(task.checked ? "Done" : "Not done")
-            .accessibilityIdentifier("forge.task.\(task.offset ?? -1)")
-            .accessibilityAddTraits(tickable ? .isButton : [])
+            box(task.checked).accessibilityLabel(task.checked ? "Done" : "Not done")
         } else {
             Text(verbatim: word).monospacedDigit().foregroundStyle(AceTheme.Colours.mutedForeground)
         }
+    }
+
+    private func box(_ checked: Bool) -> some View {
+        AceIcon(checked ? .checkSquare : .square, size: 16, relativeTo: .body)
+            .foregroundStyle(checked ? AceTheme.Colours.foreground : AceTheme.Colours.subtleForeground)
     }
 
     private func alert(_ kind: String, _ blocks: [ForgeRichBlock]) -> some View {

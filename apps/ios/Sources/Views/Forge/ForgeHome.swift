@@ -31,6 +31,7 @@ struct ForgeHome: View {
     @State private var pullsFilter = PullsFilter()
     @State private var issuesFilter = IssuesFilter()
     @State private var notificationsFilter = NotificationsFilter()
+    @State private var creating = false
     @State private var pulls = ForgeListModel<ForgePullList>()
     @State private var issues = ForgeListModel<ForgeIssueList>()
     @AppStorage(ForgeProjectChoice.key) private var remembered = ""
@@ -71,6 +72,13 @@ struct ForgeHome: View {
             .inboxTopBar { chips }
             .task(id: "\(session?.hostId ?? "")|\(session?.client.connection ?? "")") { await loadProjects() }
             .task(id: "\(listKey)|\(listGeneration)") { await load(fresh: false) }
+            .sheet(isPresented: $creating) {
+                if let session, let chosen {
+                    ForgeNewPullSheet(client: session.client, project: chosen) { number in
+                        actions.open(ForgeRoute(kind: .pull, machineId: session.hostId, project: chosen, number: number))
+                    }
+                }
+            }
     }
 
     private var listKey: String {
@@ -135,6 +143,13 @@ struct ForgeHome: View {
                     .accessibilityIdentifier("forge.project")
             }
             Spacer(minLength: AceTheme.Spacing.none)
+            if kind == .pulls, session?.client.canOperate == true, chosen != nil {
+                Button { creating = true } label: {
+                    Image(ace: .plus).frame(width: 36, height: 36).contentShape(Rectangle())
+                }
+                .accessibilityLabel("New pull request")
+                .accessibilityIdentifier("forge.newpr")
+            }
             if kind == .inbox {
                 ForgeNotificationsFilterMenu(filter: $notificationsFilter, reasons: notificationReasons)
             } else {

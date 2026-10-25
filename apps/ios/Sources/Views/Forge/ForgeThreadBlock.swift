@@ -27,6 +27,7 @@ struct ForgeThreadBlock: View {
         .overlay(alignment: .leading) {
             Rectangle().fill(AceTheme.Colours.separator).frame(width: AceTheme.Dimensions.border)
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("forge.thread.\(thread.id)")
     }
 

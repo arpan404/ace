@@ -6,30 +6,12 @@ import {
   type ForgeLifecycleAction,
   type ForgePrDetail,
 } from "@ace/protocol";
-import { actionErrorText } from "@ace/ui-core";
+import { actionErrorText, lifecycleLabels } from "@ace/ui-core";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { readForge } from "@/lib/forge-read.ts";
-
-/** What each lifecycle write is called wherever it shows: menu rows, result strips, toasts. */
-export const lifecycleLabels: Record<ForgeLifecycleAction["kind"], string> = {
-  edit: "Edit pull request",
-  ready: "Ready for review",
-  draft: "Convert to draft",
-  close: "Close pull request",
-  reopen: "Reopen pull request",
-  "update.merge": "Update branch",
-  "update.rebase": "Update with rebase",
-  revert: "Revert changes",
-  lock: "Lock conversation",
-  unlock: "Unlock conversation",
-  "branch.delete": "Delete branch",
-  "branch.restore": "Restore branch",
-  "issue.link": "Link the issue",
-  "issue.unlink": "Unlink the issue",
-};
 
 type Operation = z.infer<typeof ForgeHostedLifecycleCommand>["operation"];
 

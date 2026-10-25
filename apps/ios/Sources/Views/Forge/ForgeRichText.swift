@@ -41,5 +41,7 @@ struct ForgeRunsText: View {
             .multilineTextAlignment(align == "center" ? .center : align == "right" ? .trailing : .leading)
             .frame(maxWidth: .infinity, alignment: align == "center" ? .center : align == "right" ? .trailing : .leading)
             .fixedSize(horizontal: false, vertical: true)
+            // Selection sits on the text alone, so task boxes and links beside it still take taps.
+            .textSelection(.enabled)
     }
 }

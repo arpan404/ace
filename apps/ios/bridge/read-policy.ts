@@ -83,6 +83,9 @@ export function readFamily(request: unknown): ReadFamily | undefined {
     case "forge.pull.files":
     case "forge.pull.reviewers":
     case "forge.inbox":
+    case "forge.pull.manage":
+    case "forge.newpr.context":
+    case "forge.newpr.compare":
       return "forge";
     default:
       return undefined;
@@ -113,6 +116,10 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
     case "forge.review":
     case "forge.inbox.write":
     case "forge.task":
+    case "forge.manage":
+    case "forge.newpr.create":
+    case "forge.issue.comment":
+    case "forge.issue.check":
       return ["forge"];
     default:
       return [];

@@ -11,6 +11,7 @@ import { shownKey, type ShownBodies } from "./forge-conversation.ts";
 import { prLifecycle, scopeOf } from "./forge-pr-reads.ts";
 import { ForgeRefusal, type ForgeOwner, type ForgeReads } from "./forge-reads.ts";
 import { writeReview } from "./forge-review-write.ts";
+import { lifecycleOutcome } from "./forge-manage.ts";
 
 /*
  * A task box ticked on the phone, saved as the web saves it: only that box's mark changes, in
@@ -117,21 +118,19 @@ export async function writeTask(
     if (lifecycle.snapshot.metadata.body !== seen) return refuse(changed);
     if (!lifecycle.snapshot.editableFields.includes("body"))
       return refuse("GitHub doesn't let this account edit the description.");
-    return await send(
-      owner,
-      reads,
-      request,
-      ForgeHostedLifecycleCommand.parse({
-        type: "forge.hosted.lifecycle",
-        workspaceId: request.project,
-        pr: { repository: request.repository, number: request.number },
-        operation: {
-          kind: "apply",
-          expectedVersion: lifecycle.snapshot.version,
-          action: { kind: "edit", changes: { body: next } },
-        },
-      }),
-    );
+    const command = ForgeHostedLifecycleCommand.parse({
+      type: "forge.hosted.lifecycle",
+      workspaceId: request.project,
+      pr: { repository: request.repository, number: request.number },
+      operation: {
+        kind: "apply",
+        expectedVersion: lifecycle.snapshot.version,
+        action: { kind: "edit", changes: { body: next } },
+      },
+    });
+    const result = await owner.command(command).catch(() => undefined);
+    reads.forget(request.project);
+    return lifecycleOutcome(result);
   }
   const value = await reads.read({ op: "forge.issue.detail", ...scopeOf(request) }, false);
   if (value.resource !== "issueDetail") throw new ForgeRefusal("forge_invalid_data");

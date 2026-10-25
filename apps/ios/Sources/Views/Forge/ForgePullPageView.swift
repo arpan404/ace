@@ -17,6 +17,8 @@ struct ForgePullPageView: View {
     @State private var writing = false
     @State private var outcome: ForgeWrite?
     @State private var confirming: ForgeWriteTarget?
+    /// A merge or squash shows its commit to edit before it goes.
+    @State private var editingCommit: ForgeWriteTarget?
     /// Review writes from this page (reviewers), made once the page knows its repository.
     @State private var desk: ForgeReviewDesk?
     @State private var composing: ForgeCompose?
@@ -33,7 +35,9 @@ struct ForgePullPageView: View {
         self.openThread = openThread
         let saved = UserDefaults.standard.string(forKey: "ace.git.mergeMethod") ?? ""
         let method = saved.isEmpty ? "squash" : saved
-        _page = State(initialValue: client.kept(ClientModel.forgePullRead(project: route.project, number: route.number, repository: route.repository, method: method), as: ForgePullPage.self))
+        let kept = client.kept(ClientModel.forgePullRead(project: route.project, number: route.number, repository: route.repository, method: method), as: ForgePullPage.self)
+        _page = State(initialValue: kept)
+        _desk = State(initialValue: kept.map { ForgeReviewDesk(client: client, target: ForgePullTarget(project: route.project, number: $0.number, repository: $0.repository)) })
     }
 
     var body: some View {
@@ -66,6 +70,14 @@ struct ForgePullPageView: View {
             }
         }
         .task(id: "\(method)|\(client.readGeneration(request))") { await load() }
+        .sheet(isPresented: Binding(get: { editingCommit != nil }, set: { if !$0 { editingCommit = nil } })) {
+            if let target = editingCommit, let page {
+                ForgeMergeCommitSheet(target: target, title: "#\(page.number) \(page.title)") { edited in
+                    editingCommit = nil
+                    Task { await write(edited) }
+                }
+            }
+        }
         .sheet(item: $composing) { compose in
             if let desk { ForgeWriteSheet(compose: compose, desk: desk) }
         }
@@ -78,6 +90,7 @@ struct ForgePullPageView: View {
         // A refresh that moves the head or the method ends the question asked against the old one.
         .onChange(of: "\(page?.headSha ?? "")|\(method)") {
             if let target = confirming, !target.matches(page, method: method) { confirming = nil }
+            if let target = editingCommit, !target.matches(page, method: method) { editingCommit = nil }
         }
     }
 
@@ -106,6 +119,7 @@ struct ForgePullPageView: View {
                 }
             }
             if let desk { ForgeReviewersSection(desk: desk, compose: { composing = $0 }) }
+            if let desk { ForgeManageSection(desk: desk, route: route, open: open) }
             if !page.checks.isEmpty {
                 ForgeSection(title: "Checks") {
                     ForEach(page.checks, id: \.self) { check in
@@ -165,7 +179,7 @@ struct ForgePullPageView: View {
             }
             if let action = page.action {
                 HStack(spacing: AceTheme.Spacing.sm) {
-                    Button { confirming = ForgeWriteTarget(action: action, project: route.project, page: page, method: method) } label: {
+                    Button { ask(action, page) } label: {
                         HStack {
                             if writing { ProgressView().controlSize(.small) }
                             Text(action.label).fontWeight(.semibold)
@@ -211,6 +225,17 @@ struct ForgePullPageView: View {
         .padding(.horizontal, AceTheme.Spacing.lg)
         .padding(.vertical, AceTheme.Spacing.sm)
         .background(AceTheme.Colours.background)
+    }
+
+    /// Merge and auto-merge by merge or squash open their commit to edit; the rest confirm.
+    private func ask(_ action: ForgePullPage.Action, _ page: ForgePullPage) {
+        var target = ForgeWriteTarget(action: action, project: route.project, page: page, method: method)
+        if action.kind != "disable-auto-merge", let commit = page.commit {
+            target.commit = commit
+            editingCommit = target
+        } else {
+            confirming = target
+        }
     }
 
     /// The description's boxes tick only where GitHub lets this account edit it.

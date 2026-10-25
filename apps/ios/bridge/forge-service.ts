@@ -19,6 +19,26 @@ import { ForgeInboxRequest, ForgeInboxWriteRequest, readInbox, writeInbox } from
 import { ForgeTimelineRequest, readTimeline } from "./forge-timeline.ts";
 import { ForgeMediaRequest, readMedia, type Download } from "./forge-media-read.ts";
 import { ForgeTaskRequest, writeTask } from "./forge-task.ts";
+import {
+  checkIssueWrite,
+  commentOnIssue,
+  ForgeIssueCommentRequest,
+  ForgeIssueReconcileRequest,
+} from "./forge-issue-write.ts";
+import {
+  ForgeManageRequest,
+  ForgeManageWriteRequest,
+  readManage,
+  writeManage,
+} from "./forge-manage.ts";
+import {
+  createPr,
+  ForgeNewPrCompareRequest,
+  ForgeNewPrContextRequest,
+  ForgeNewPrCreateRequest,
+  readNewPrCompare,
+  readNewPrContext,
+} from "./forge-new-pr.ts";
 
 /*
  * The phone's Pull requests and Issues as native service calls: Swift asks for a list, a page
@@ -42,6 +62,13 @@ export const ForgeRequest = z.intersection(
     ForgeInboxWriteRequest,
     ForgeMediaRequest,
     ForgeTaskRequest,
+    ForgeManageRequest,
+    ForgeManageWriteRequest,
+    ForgeNewPrContextRequest,
+    ForgeNewPrCompareRequest,
+    ForgeNewPrCreateRequest,
+    ForgeIssueCommentRequest,
+    ForgeIssueReconcileRequest,
   ]),
   z.object({ fresh: z.boolean().default(false) }),
 );
@@ -121,6 +148,20 @@ export class ForgeService {
           return await complete(reads, request, this.#preview);
         case "forge.pull.reviewers":
           return await readReviewers(reads, request, this.#preview);
+        case "forge.pull.manage":
+          return await readManage(reads, request, this.#preview);
+        case "forge.manage":
+          return await writeManage(this.#owner, reads, request);
+        case "forge.newpr.context":
+          return await readNewPrContext(reads, request, this.#preview);
+        case "forge.newpr.compare":
+          return await readNewPrCompare(reads, request, this.#preview);
+        case "forge.newpr.create":
+          return await createPr(this.#owner, reads, request);
+        case "forge.issue.comment":
+          return await commentOnIssue(this.#owner, reads, request, this.#newId);
+        case "forge.issue.check":
+          return await checkIssueWrite(this.#owner, reads, request);
         case "forge.task":
           return await writeTask(this.#owner, reads, request, this.#shown);
         case "forge.media":

@@ -10,7 +10,7 @@ import XCTest
     func testCommentFromTheTimelineJoinsIt() {
         let app = openPull()
         let timeline = app.buttons["forge.pull.timeline"]
-        for _ in 0..<6 where !timeline.isHittable { app.swipeUp() }
+        app.reveal(timeline)
         timeline.tap()
         XCTAssertTrue(element(app, "forge.comment.issue:2451").waitForExistence(timeout: 20))
         XCTAssertTrue(element(app, "forge.thread.RT_2454").exists)
@@ -29,11 +29,11 @@ import XCTest
     func testLineConversationAndNewLineCommentInTheCodeView() {
         let app = openPull()
         let files = app.buttons["forge.pull.files"]
-        for _ in 0..<6 where !files.isHittable { app.swipeUp() }
+        app.reveal(files)
         files.tap()
         let file = app.buttons["forge.files.0"]
         XCTAssertTrue(file.waitForExistence(timeout: 20))
-        for _ in 0..<6 where !file.isHittable { app.swipeUp() }
+        app.reveal(file)
         file.tap()
         let conversation = element(app, "forge.thread.RT_2454")
         if !conversation.waitForExistence(timeout: 40) { screenshot("code-missing") }
@@ -55,7 +55,7 @@ import XCTest
     func testMentionCompletesInTheCommentBox() {
         let app = openPull()
         let timeline = app.buttons["forge.pull.timeline"]
-        for _ in 0..<6 where !timeline.isHittable { app.swipeUp() }
+        app.reveal(timeline)
         timeline.tap()
         let box = app.textFields["forge.editor"].firstMatch
         XCTAssertTrue(box.waitForExistence(timeout: 20))
@@ -71,7 +71,7 @@ import XCTest
     func testRequestingAReviewerAddsThemAwaitingReview() {
         let app = openPull()
         let request = app.buttons["forge.reviewers.request"]
-        for _ in 0..<6 where !request.isHittable { app.swipeUp() }
+        app.reveal(request)
         screenshot("reviewers")
         request.tap()
         let jonas = app.buttons["forge.request.jonas"]
@@ -89,19 +89,22 @@ import XCTest
         for _ in 0..<2 { app.swipeUp() }
         screenshot("rich-description-more")
         let timeline = app.buttons["forge.pull.timeline"]
-        for _ in 0..<6 where !timeline.isHittable { app.swipeUp() }
+        app.reveal(timeline)
         timeline.tap()
         let comment = element(app, "forge.comment.issue:2452")
         XCTAssertTrue(comment.waitForExistence(timeout: 20))
-        let boxes = app.buttons
-        let open = boxes.matching(NSPredicate(format: "label == 'Not done'")).firstMatch
+        let boxes = comment.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'forge.task.'"))
+        let open = boxes.matching(NSPredicate(format: "value == 'Not done'")).firstMatch
         if !open.waitForExistence(timeout: 10) { screenshot("task-missing") }
         XCTAssertTrue(open.exists)
-        let done = boxes.matching(NSPredicate(format: "label == 'Done'"))
+        XCTAssertTrue(open.isEnabled, "The box in your own comment ticks")
+        app.lower(open)
+        let done = boxes.matching(NSPredicate(format: "value == 'Done'"))
         let before = done.count
         open.tap()
         let ticked = expectation(for: NSPredicate(format: "count > \(before)"), evaluatedWith: done)
-        wait(for: [ticked], timeout: 20)
+        if XCTWaiter().wait(for: [ticked], timeout: 20) != .completed { screenshot("task-unticked") }
+        XCTAssertGreaterThan(done.count, before)
         screenshot("task-ticked")
     }
 
