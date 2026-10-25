@@ -300,12 +300,18 @@ export class TargetThreads {
         throw new TargetRefusal("unavailable", `This machine could not stop it: ${stopped.error}`);
     }
     const id = CommandId.parse(`machine-message:${key}`);
-    const sent = run(id, {
-      type: "thread.send",
-      threadId: call.threadId,
-      input: [{ type: "text", text: call.text }],
-      delivery: restart ? "queue" : call.delivery,
-      trigger: "parent_agent",
+    // New work reopens a child that settled before it ever ran: its old outcome goes in the
+    // transaction that admits the work, so no poll can read it while the new work runs.
+    const sent = this.deps.store.atomic(() => {
+      const result = run(id, {
+        type: "thread.send",
+        threadId: call.threadId,
+        input: [{ type: "text", text: call.text }],
+        delivery: restart ? "queue" : call.delivery,
+        trigger: "parent_agent",
+      });
+      if (result.ok) this.launches.reopen(call.threadId);
+      return result;
     });
     if (!sent.ok)
       throw new TargetRefusal(
@@ -421,7 +427,8 @@ export class TargetThreads {
         status: queuedStatus,
         step: queuedStep,
       };
-    const outcome = this.launches.unlaunched(thread.id);
+    // An outcome only describes a thread that has still never run.
+    const outcome = thread.status.state === "new" ? this.launches.unlaunched(thread.id) : undefined;
     if (!outcome) return undefined;
     return {
       ...base,

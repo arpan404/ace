@@ -129,3 +129,42 @@ it("a waiting task whose start is later refused there settles failed instead of 
   expect(pair.target.daemon.store.getThread(queued)?.queuedLaunch).toBeUndefined();
   expect(pair.target.h.contexts.get(queued)).toBeUndefined();
 }, 60_000);
+
+it("a task stopped while waiting and then given new work reads working until its new result", async () => {
+  const { pair, delegate, stateHere } = await limitedPair();
+  const first = await delegate("busy");
+  const reopened = await delegate("reopened");
+  await pair.source.call({ op: "agent.cancel", threadId: reopened, requestId: "stop-reopened" });
+  const stopped = await pair.source.call({
+    op: "wait",
+    threadIds: [reopened],
+    mode: "all",
+    timeoutSeconds: 60,
+  });
+  expect(WaitResult.parse(stopped.data).threads[0]?.state).toBe("cancelled");
+
+  const sent = await pair.source.call({
+    op: "thread.message",
+    threadId: reopened,
+    requestId: "new-work",
+    text: "Do this instead",
+  });
+  expect(sent.ok).toBe(true);
+  await vi.waitFor(() => expect(pair.target.h.contexts.get(reopened)).toBeDefined());
+  // Polls after the new work started never bring back the old cancellation.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect((await stateHere(reopened))?.state).toBe("working");
+
+  await pair.finish(first, "Busy part done.");
+  await pair.finish(reopened, "Did it instead.");
+  const waited = await pair.source.call({
+    op: "wait",
+    threadIds: [reopened],
+    mode: "all",
+    timeoutSeconds: 60,
+  });
+  expect(WaitResult.parse(waited.data).threads[0]).toMatchObject({
+    state: "done",
+    result: "Did it instead.",
+  });
+}, 60_000);

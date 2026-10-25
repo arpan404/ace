@@ -104,6 +104,12 @@ export class TargetLaunches {
   unlaunched(threadId: ThreadId): "cancelled" | "failed" | undefined {
     return this.row(threadId)?.outcome ?? undefined;
   }
+  /** New work was admitted for the thread: how it settled before it ran no longer applies. */
+  reopen(threadId: ThreadId): void {
+    this.deps.store
+      .statement("UPDATE machine_launches SET outcome=NULL WHERE thread_id=?")
+      .run(threadId);
+  }
   /** Stops a waiting child before it starts. False when it was not waiting. */
   cancel(threadId: ThreadId): boolean {
     return this.deps.store.atomic(() => {
