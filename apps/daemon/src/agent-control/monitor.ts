@@ -34,7 +34,6 @@ import {
   watchedState,
 } from "./watch-view.ts";
 
-
 export interface MonitorDependencies {
   store: Store;
   journal: DelegationJournal;

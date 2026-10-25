@@ -22,7 +22,8 @@ export class LaunchQueue {
   constructor(store: Store, table: LaunchTable = "delegation_launch_queue") {
     this.store = store;
     this.table = table;
-    const order = table === "delegation_launch_queue" ? "delegation_launch_order" : `${table}_order`;
+    const order =
+      table === "delegation_launch_queue" ? "delegation_launch_order" : `${table}_order`;
     store.atomic((db) =>
       db.exec(`
       CREATE TABLE IF NOT EXISTS ${table} (

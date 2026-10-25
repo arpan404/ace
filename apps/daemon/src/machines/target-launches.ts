@@ -75,7 +75,11 @@ export class TargetLaunches {
     task: string;
   }): "started" | "queued" {
     const { store } = this.deps;
-    const parent = JSON.stringify([input.parent.deviceId, input.parent.hostId, input.parent.threadId]);
+    const parent = JSON.stringify([
+      input.parent.deviceId,
+      input.parent.hostId,
+      input.parent.threadId,
+    ]);
     const launch = { childId: input.threadId, parentId: parent, text: input.text };
     const state = store.atomic(() => {
       store
