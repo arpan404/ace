@@ -18,6 +18,12 @@ import type { RequestMirror } from "./mirror.ts";
 import { MachineFailure } from "./transport.ts";
 import { ChildOutbox } from "./child-outbox.ts";
 import { queuedStatus, queuedStep } from "../agent-control/child-status.ts";
+import {
+  RECHECK_POLLS,
+  RECHECK_WINDOW_MS,
+  recheckBatches,
+  recheckOutcome,
+} from "./child-recheck.ts";
 
 const Row = z.object({
   id: ThreadId,
@@ -73,6 +79,8 @@ export class MachineChildren implements RemoteChildren {
   private unreachable = new Map<string, string>();
   private cancelTimer: (() => void) | undefined;
   private polling = false;
+  /** Polls since settled children were last re-checked for work started on their machine. */
+  private sinceRecheck = 0;
   private closed = false;
   private outbox: ChildOutbox;
   constructor(deps: ChildrenDeps) {
@@ -353,13 +361,17 @@ export class MachineChildren implements RemoteChildren {
   private arm() {
     if (this.closed || this.cancelTimer) return;
     let due = true;
+    let watchingSettled = false;
     try {
       due = this.rows("settled=0 OR delivered=0").length > 0 || this.outbox.hasUnsent();
+      watchingSettled = !due && this.recentlySettled(1).length > 0;
     } catch (error) {
       this.deps.log("Machine children poll failed", { error });
     }
-    if (!due) return;
-    this.cancelTimer = this.deps.schedule(this.deps.pollMs, () => {
+    if (!due && !watchingSettled) return;
+    // With only settled children to re-check, the poll comes at the slower re-check pace.
+    const delay = due ? this.deps.pollMs : this.deps.pollMs * RECHECK_POLLS;
+    this.cancelTimer = this.deps.schedule(delay, () => {
       this.cancelTimer = undefined;
       void this.poll()
         .catch((error: unknown) => this.deps.log("Machine children poll failed", { error }))
@@ -374,8 +386,8 @@ export class MachineChildren implements RemoteChildren {
       const byMachine = new Map<string, Row[]>();
       for (const row of active)
         byMachine.set(row.machine, [...(byMachine.get(row.machine) ?? []), row]);
-      await Promise.all(
-        [...byMachine].map(async ([machine, rows]) => {
+      await Promise.all([
+        ...[...byMachine].map(async ([machine, rows]) => {
           const ids = rows.slice(0, 16).map((row) => row.id);
           const first = rows[0];
           if (!first) return;
@@ -394,13 +406,68 @@ export class MachineChildren implements RemoteChildren {
             this.emit(ids);
           }
         }),
-      );
+        ...this.recheckDue(active.length > 0).map(async ([machine, rows]) => {
+          const first = rows[0];
+          if (!first) return;
+          try {
+            const views = await this.deps.status(
+              machine,
+              first.parent_thread,
+              rows.map((row) => row.id),
+            );
+            for (const view of views) {
+              const row = rows.find((candidate) => candidate.id === view.threadId);
+              if (row && !this.closed) this.recheck(row, view);
+            }
+          } catch (error) {
+            // A settled child stays settled while its machine can't be asked; the next
+            // re-check tries again.
+            this.deps.log("Machine children re-check failed", { error });
+          }
+        }),
+      ]);
       for (const row of this.rows("settled=1 AND delivered=0"))
         this.queueResult(row, this.saved(row));
       this.drain();
     } finally {
       this.polling = false;
     }
+  }
+  /**
+   * Settled children due a re-check, grouped by machine: every `RECHECK_POLLS` polls while
+   * others are watched, and on every poll once only settled ones are, as those polls already
+   * come at the slower pace.
+   */
+  private recheckDue(watchingUnsettled: boolean): [string, Row[]][] {
+    if (watchingUnsettled && ++this.sinceRecheck < RECHECK_POLLS) return [];
+    this.sinceRecheck = 0;
+    return [...recheckBatches(this.recentlySettled(256))];
+  }
+  /** Children settled within the re-check window, most recent first; an indexed read. */
+  private recentlySettled(limit: number): Row[] {
+    return this.deps.store
+      .atomic((db) =>
+        db
+          .prepare(
+            "SELECT * FROM machine_children WHERE settled=1 AND settled_at>=? ORDER BY settled_at DESC LIMIT ?",
+          )
+          .all(this.deps.now() - RECHECK_WINDOW_MS, limit),
+      )
+      .map((raw) => Row.parse(raw));
+  }
+  /**
+   * A settled child re-read: work started on its machine reopens it, so its parent reads it
+   * running and waits again; a different result from that work reaches the parent.
+   */
+  private recheck(polled: Row, view: MachineThreadView) {
+    const row = this.row(polled.id);
+    if (!row || row.settled !== 1 || row.generation !== polled.generation || row.sending > 0)
+      return;
+    const outcome = recheckOutcome(this.saved(row), view);
+    if (outcome === "ignore") return;
+    if (outcome === "reopen") this.reopenSettled(row);
+    const current = this.row(row.id);
+    if (current) this.update(current, view);
   }
   /** Applies a status reply read under `polled`; one from before newer work is dropped. */
   private update(polled: Row, view: MachineThreadView) {
@@ -426,6 +493,12 @@ export class MachineChildren implements RemoteChildren {
         settled ? 1 : 0,
         row.id,
       );
+      // Each settle starts the window in which work started there is still noticed.
+      if (settled)
+        db.prepare("UPDATE machine_children SET settled_at=? WHERE id=?").run(
+          this.deps.now(),
+          row.id,
+        );
       this.deps.engine()?.machineChild(
         {
           id: row.id,

@@ -63,6 +63,27 @@ for such a child (the parent's message, or a run the person starts there) clears
 so it reads working again. The parent's own message to a waiting remote child starts it first,
 past the limit, as it does for a local child.
 
+**A settled remote child that runs again.** New work can reopen a child the caller already saw
+settle, and the caller must notice so the parent never reads done while it runs.
+
+- _Work the parent sends._ Before the message leaves, the caller saves the child as reopened
+  (the parent's row shows it running again), advances its generation and counts the message as
+  in flight; no status reply settles it while one is. If the caller stops before the reply, the
+  child is still open after the restart and the next poll checks it against its machine: the
+  machine either took the message (it runs) or did not (it settles again under the same result,
+  which the parent is not handed twice).
+- _Work started on that machine_ (the person there messages the thread). Pairing is one-way:
+  the caller holds a device token for the target, the target has no route or credential back
+  (ADR 0078), so a push would need a new channel. The caller instead keeps re-checking recently
+  settled children with the ordinary `status` call: children settled within the last 24 hours,
+  at most 16 per machine per check (one call each), every 10 polls (10 s by default) or on every
+  poll once only settled children are watched, as those polls already come at that pace. A child
+  found running again reopens: the parent's row shows it running and the parent waits until it
+  settles again. One that ran and settled with a different result hands the parent that result;
+  changes that leave the outcome and result alone (a title, a pin) are ignored. Work started
+  there more than 24 hours after the child settled is not noticed; the parent was told its result
+  long before.
+
 ## Consequences
 
 - A person with many children can run them all; one who wants fewer sets a number.

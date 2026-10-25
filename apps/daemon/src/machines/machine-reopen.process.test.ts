@@ -1,6 +1,13 @@
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
-import { MonitorSnapshot, ThreadId, WaitResult, type AgentControlOperation } from "@ace/protocol";
+import {
+  Command,
+  MonitorSnapshot,
+  ThreadId,
+  WaitResult,
+  type AgentControlOperation,
+} from "@ace/protocol";
+import { commandContext } from "../commands.ts";
 import { pairedMachines } from "./machine-test-support.ts";
 import { machineRequest, type MachineTransport } from "./transport.ts";
 
@@ -75,6 +82,59 @@ it("a finished remote child given new work stays open through a caller restart b
       expect(await waitFor(pair, child)).toMatchObject({
         state: "done",
         result: "Second pass done.",
+      }),
+    { timeout: 15_000 },
+  );
+}, 90_000);
+
+it("a remote child stopped while waiting and then given work by the person on its machine reads running again here, then reports its result", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  await pair.target.daemon.settings.set("agents.maxRunningChildren", 1, { kind: "global" });
+  await pair.source.call({ op: "machines" });
+  const holder = Delegated.parse((await pair.source.call(task("holder"))).data).threadId;
+  const child = Delegated.parse((await pair.source.call(task("stopped-here"))).data).threadId;
+  expect(
+    (await pair.source.call({ op: "agent.cancel", threadId: child, requestId: "stop-it" })).ok,
+  ).toBe(true);
+  expect(await waitFor(pair, child)).toMatchObject({
+    state: "cancelled",
+    result: "Stopped before it started.",
+  });
+
+  // The person on that machine opens the stopped thread and gives it work there.
+  const engine = pair.target.daemon.engine;
+  if (!engine) throw new Error("Engine unavailable");
+  const send = Command.parse({
+    id: "person-works-there",
+    deviceId: "person",
+    payload: {
+      type: "thread.send",
+      threadId: child,
+      input: [{ type: "text", text: "Fix it here instead" }],
+      trigger: "user",
+    },
+  });
+  expect(
+    pair.target.daemon.store.recordCommand(send.id, send.deviceId, () =>
+      engine.handler.handle(send, commandContext(pair.target.daemon.store)),
+    ).ok,
+  ).toBe(true);
+
+  // Here it reads running again, and its parent waits for it.
+  await vi.waitFor(async () => expect(await stateHere(pair, child)).toBe("working"), {
+    timeout: 15_000,
+  });
+  expect(pair.source.daemon.store.getThread(pair.source.caller.threadId)?.status.state).not.toBe(
+    "done",
+  );
+
+  await pair.finishTask(holder, "Do the holder part", "Held the slot.");
+  await pair.finishTask(child, "Fix it here instead", "Fixed it on that machine.");
+  await vi.waitFor(
+    async () =>
+      expect(await waitFor(pair, child)).toMatchObject({
+        state: "done",
+        result: "Fixed it on that machine.",
       }),
     { timeout: 15_000 },
   );
