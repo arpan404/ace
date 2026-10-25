@@ -114,6 +114,10 @@ export class SkillLibrary {
     this.watchers.clear();
     await this.updates?.close();
   }
+  /** Sources outside the watched folders changed, such as installed plugins. */
+  invalidate(): void {
+    this.notify();
+  }
   private notify(): void {
     for (const listener of this.listeners) {
       try {

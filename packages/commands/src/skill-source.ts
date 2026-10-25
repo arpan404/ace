@@ -103,5 +103,6 @@ export function diffFolders(
   }
   for (const [path, file] of before)
     if (!after.has(path)) files.push({ path, change: "removed", flagged: flag(path, file) });
-  return files.toSorted((a, b) => a.path.localeCompare(b.path));
+  // Code-point order: the same on every machine and locale.
+  return files.toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }

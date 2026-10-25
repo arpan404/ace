@@ -12,11 +12,13 @@ import { join } from "node:path";
 import { builtinSkillsDirectory } from "@ace/plugins";
 import { WorkspaceId, type Thread } from "@ace/protocol";
 import type { ServiceContext } from "./types.ts";
+import { createDaemonSkillLibrary, type DaemonSkillOptions } from "../skill-library.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export interface DaemonCommandIntegration {
   instances?: readonly ProviderInstance[];
   instanceForThread?: (thread: Thread) => string;
   events?: CommandEventSource;
+  skills?: DaemonSkillOptions;
 }
 export async function startCommands(context: ServiceContext): Promise<void> {
   const initialization = warmup(context, "commands", async () => {
@@ -44,6 +46,23 @@ async function initializeCommands({
   services.promptFiles = promptFiles;
   resources.own(() => promptFiles.close());
   const integration = options.commands ?? {};
+  const plugins = services.plugins;
+  const skillLibrary = createDaemonSkillLibrary({
+    dataDir: config.dataDir,
+    env: process.env,
+    workspace: (workspaceId) => {
+      const parsed = WorkspaceId.safeParse(workspaceId);
+      return parsed.success ? store.getWorkspacePath(parsed.data) : undefined;
+    },
+    pluginEntries: plugins ? () => plugins.extensions("claude") : undefined,
+    options: integration.skills,
+    now,
+    id,
+  });
+  await skillLibrary.start().catch(() => {});
+  services.skillLibrary = skillLibrary;
+  resources.own(() => skillLibrary.close());
+  if (plugins) resources.own(plugins.subscribeCatalog(() => skillLibrary.invalidate()));
   const registered = () => services.accountRegistry?.list() ?? [];
   const defaults = defaultCommandInstances(process.env);
   let discoveryTail: Promise<unknown> = Promise.resolve();

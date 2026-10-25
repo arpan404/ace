@@ -368,6 +368,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
       get promptFiles() {
         return services.promptFiles;
       },
+      get skillLibrary() {
+        return services.skillLibrary;
+      },
       get commands() {
         return services.commands;
       },

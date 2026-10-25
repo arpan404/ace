@@ -179,17 +179,13 @@ export async function readGitTree(
   path: string,
   runtime: GitRuntime,
 ): Promise<string> {
-  const hash = (
-    await git(
-      ["rev-parse", "--verify", `${PluginCommit.parse(commit)}:${normalizePath(path)}^{tree}`],
-      gitRoot,
-      runtime,
-    )
-  )
-    .toString("utf8")
-    .trim();
-  if (!/^[a-f0-9]{40,64}$/.test(hash)) throw new Error("Invalid Git tree");
-  return hash;
+  const folder = normalizePath(path);
+  const line = (
+    await git(["ls-tree", "-z", PluginCommit.parse(commit), "--", folder], gitRoot, runtime)
+  ).toString("utf8");
+  const match = /^040000 tree ([a-f0-9]{40,64})\t(.+)\0$/.exec(line);
+  if (!match || match[2] !== folder) throw new Error("Git folder missing");
+  return match[1] ?? "";
 }
 /** The repository's plugin catalog at `commit`, from the first marketplace file it has. */
 export async function readMarketplace(
