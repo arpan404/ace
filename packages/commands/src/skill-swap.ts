@@ -81,8 +81,8 @@ export class SkillSwap {
     const fd = await this.disk.openDirectory(root, name);
     if (fd === undefined) return;
     try {
-      const now = await this.disk.identity(root, name);
-      if (!sameDirectory(now, identity)) return;
+      // The descriptor's own identity: a directory swapped in after the open is never emptied.
+      if (!sameDirectory(await this.disk.identityOf(fd), identity)) return;
       await this.disk.empty(fd);
     } finally {
       await this.disk.closeDirectory(fd);
@@ -212,7 +212,7 @@ export class SkillSwap {
     if (moved === undefined) return false;
     try {
       return (
-        sameDirectory(await this.disk.identity(root, name), identity) &&
+        sameDirectory(await this.disk.identityOf(moved), identity) &&
         folderFingerprint(await this.disk.walk(moved)) === fingerprint
       );
     } catch {

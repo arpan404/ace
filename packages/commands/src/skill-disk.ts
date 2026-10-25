@@ -165,6 +165,11 @@ export class SkillDisk {
     if (!(await renameCommandEntryAs("exchange", directory, first, directory, second)))
       throw new SkillError("unavailable", "Couldn't move this skill's files.");
   }
+  /** Device and inode of an open descriptor: exactly the directory that will be acted on. */
+  async identityOf(fd: number): Promise<DirectoryIdentity> {
+    const info = await statFd(fd);
+    return { dev: info.dev, ino: info.ino };
+  }
   /** Device and inode of a child directory that isn't a link, or `undefined`. */
   async identity(parent: number, name: string): Promise<DirectoryIdentity | undefined> {
     const fd = await this.openDirectory(parent, name);

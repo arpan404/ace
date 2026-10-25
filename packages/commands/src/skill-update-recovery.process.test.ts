@@ -67,7 +67,7 @@ const hidden = (folder: Record<string, string>) =>
 // (lock not yet written); the lock written, backup not yet removed.
 const movedAside = [".demo.ace-old-", 1] as const;
 const swappedIn = ["demo", 2] as const;
-const committed = [".demo.ace-old-", 3] as const;
+const committed = [".demo.ace-old-", 2] as const;
 
 test("a restart after a crash mid-swap puts the original back", async () => {
   const h = await home();
@@ -218,4 +218,26 @@ test("recovery waits for another ace's apply instead of undoing it", async () =>
   await recovering;
   expect(await h.folder()).toEqual(updated);
   await rm(join(h.root, "shared"), { recursive: true, force: true });
+});
+
+test("removing the backup never empties a directory swapped in under its name", async () => {
+  const h = await home();
+  let opens = 0;
+  const openChild: OpenCommandChild = async (directory, name, flags) => {
+    // The second open of the backup is the removal. Just before it, another program puts its own
+    // folder at that name; right after, it puts the real backup back.
+    if (!name.startsWith(".demo.ace-old-") || ++opens !== 2)
+      return openCommandChild(directory, name, flags);
+    await rename(join(h.skills, name), join(h.skills, ".kept"));
+    await put(join(h.skills, name, "mine.md"), "Someone else's.\n");
+    const fd = await openCommandChild(directory, name, flags);
+    await rename(join(h.skills, name), join(h.skills, ".theirs"));
+    await rename(join(h.skills, ".kept"), join(h.skills, name));
+    return fd;
+  };
+  const library = h.library({ openChild });
+  const entry = await demo(library);
+  expect(errorCode(await apply(library, entry, await prepare(library, entry)))).toBe("skill");
+  expect(await readFile(join(h.skills, ".theirs/mine.md"), "utf8")).toBe("Someone else's.\n");
+  expect((await h.folder())["demo/SKILL.md"]).toBe(updated["demo/SKILL.md"]);
 });
