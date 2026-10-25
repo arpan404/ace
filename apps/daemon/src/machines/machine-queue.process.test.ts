@@ -241,3 +241,43 @@ it("children that already finished there never hold a slot, and raising the limi
   });
   expect(pair.target.daemon.store.getThread(waiting)?.queuedLaunch).toBeUndefined();
 }, 60_000);
+
+it("a waiting task that can no longer start there does not hold back the task queued behind it", async () => {
+  const { pair, delegate } = await limitedPair();
+  const first = await delegate("ahead-running");
+  const unlaunchable = await delegate("ahead-refused");
+  const behind = Delegated.parse(
+    (await pair.source.call({ ...task("behind-launchable"), provider: "codex" })).data,
+  ).threadId;
+  await vi.waitFor(() => expect(pair.target.h.contexts.get(first)).toBeDefined(), {
+    timeout: 15_000,
+  });
+  // Claude is turned off there: the task first in line can never start, the one behind it can.
+  await pair.target.daemon.settings.set(
+    "providers.configuration",
+    [{ provider: "claude", enabled: false }],
+    { kind: "global" },
+  );
+  await pair.finishTask(first, "Do the ahead-running part", "Done ahead.");
+
+  expect(
+    WaitResult.parse(
+      (
+        await pair.source.call({
+          op: "wait",
+          threadIds: [unlaunchable],
+          mode: "all",
+          timeoutSeconds: 60,
+        })
+      ).data,
+    ).threads[0],
+  ).toMatchObject({ state: "failed", result: "It could not be started." });
+  // The slot the refused task never used goes to the next one in line, with nothing else freeing.
+  await vi.waitFor(
+    () =>
+      expect((pair.target.h.inputs.get(behind) ?? []).join("\n")).toContain(
+        "Do the behind-launchable part",
+      ),
+    { timeout: 15_000 },
+  );
+}, 60_000);
