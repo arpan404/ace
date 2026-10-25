@@ -1,6 +1,4 @@
-import { useClient } from "@ace/client-react";
-import type { ClientApi } from "@ace/client";
-import { useMemo } from "react";
+import { perWindow } from "@/lib/per-window.ts";
 
 export interface DeleteRequest {
   title: string;
@@ -41,28 +39,15 @@ class Confirmation<Request> {
   }
 }
 
-/** One confirmation per client, so every window part opening it reaches the same dialog. */
-function perClient<Request>() {
-  const confirmations = new WeakMap<ClientApi, Confirmation<Request>>();
-  return (client: ClientApi) => {
-    let confirmation = confirmations.get(client);
-    if (!confirmation) {
-      confirmation = new Confirmation<Request>();
-      confirmations.set(client, confirmation);
-    }
-    return confirmation;
-  };
-}
+/*
+ * One confirmation per window, so every part opening it reaches the dialog the shell hosts, also
+ * from another machine's thread or row (ADR 0100). A request carries its own `confirm`, made
+ * against the asking view's client, so the dialog needs no machine of its own.
+ */
+const deletes = perWindow(() => new Confirmation<DeleteRequest>());
+const archives = perWindow(() => new Confirmation<ArchiveRequest>());
 
-const deletes = perClient<DeleteRequest>();
-const archives = perClient<ArchiveRequest>();
-
-export function useDeleteConfirmation() {
-  const client = useClient();
-  return useMemo(() => deletes(client), [client]);
-}
-
-export function useArchiveConfirmation() {
-  const client = useClient();
-  return useMemo(() => archives(client), [client]);
-}
+export const DeleteConfirmationProvider = deletes.Provider;
+export const ArchiveConfirmationProvider = archives.Provider;
+export const useDeleteConfirmation = deletes.use;
+export const useArchiveConfirmation = archives.use;

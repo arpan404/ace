@@ -50,6 +50,11 @@ page's machine, never another. A draft already names its machine through its key
 (`newThreadDraftKey(hostId, …)`), so reopening a draft reopens its machine. Bare ⌘N opens the
 machine picked last while it is online, and each machine remembers its own last project. A
 project added on another machine opens New thread there.
+`other-machine-thread.test.tsx`: the header names the machine only on another machine's thread,
+and forking it forks there and opens the fork there. `other-machine-organize.test.tsx`: pin,
+archive, delete (after its question), rename and move on a build server row run on the build
+server, the picker lists only its projects, and rows picked on both machines archive each on its
+own.
 
 Create-attempt recovery is kept per machine: a start on another machine is recorded under
 `createAttemptsKey("machine:<hostId>", deviceId)` and recovered only by that machine's client,
@@ -64,6 +69,41 @@ renders under its machine's scope and is marked with the machine. While a machin
 its rows say so instead of a status, because the last status heard may no longer hold. Other
 machines' unsent drafts join the Unsent rows the same way.
 
+### Thread header and links
+
+Another machine's thread names its machine first in the header's crumb (`Build server / api /
+Title`), with the mark and name every machine uses; a thread on this window's own machine names
+none. Every link and navigation inside a scoped thread and its panels keeps `?machine=`
+(`useMachineSearch()`): subagents, parents, forks (`/t/<id>/fork?machine=`), merges back, a
+continued or retried thread, search hits, requests, and the PR panel's linked tasks. Where a
+destination reads only this window's daemon it is left out instead: issue pages (issue links
+stay on GitHub), and the Sign in, Usage and Advanced settings links. "Machine settings…" opens
+that machine's page in Fleet.
+
+### Organizing another machine's threads
+
+Every organize action works on another machine's rows and threads: pin, snooze, settle, read,
+archive, restore, rename, delete, move, drag and bulk select. Each runs as that machine's own
+durable command through that machine's client and its own pending overlay, so the row changes at
+once and Undo and refusals behave as they do here.
+
+- The Home selection, the project picker and the delete and archive questions are one per window
+  (`perWindow`, `OrganizeWindow`), as the transfer chooser is, so a menu inside a `MachineScope`
+  reaches the dialog the shell hosts. A request carries the client it was made with; the picker
+  carries the machine (`MoveRequest.hostId`) and runs in its scope, so Move to project lists only
+  that machine's projects. A thread never moves between machines that way; that is Continue on.
+- The list works in row ids: another machine's thread is picked, renamed and dragged as
+  `machine:[hostId,threadId]`. `useWindowThreads()` resolves a row to its machine's actions and
+  entry (`routedThreadActions`); actions on several rows run once per machine, each with its own
+  Undo. Bulk Move shows only while every picked row is on one machine.
+- Order across machines: each machine stores the pin and hand-sorted places (`pinOrder`,
+  `listOrder`) of its own threads. Both are numbers on one scale (a time, or a place between two
+  neighbours'), so the merged list compares them directly, then by activity, then by row id. A
+  drop between two rows of different machines sends the place between their numbers to the
+  dropped row's machine only, and the merged order is the same on every reload.
+- Other machines' archived threads are restored from their thread's menu; the Archive screen
+  still lists this window's daemon only.
+
 ## Rejected
 
 - **A path prefix (`/m/<hostId>/t/<id>`).** A second copy of every thread route and its
@@ -75,11 +115,8 @@ machines' unsent drafts join the Unsent rows the same way.
 
 ## Follow-ups
 
-- Organize actions (pin, snooze, settle, archive, rename, drag, bulk) on another machine's
-  rows. They answer to this window's daemon today, so those rows only open.
-- Thread-to-thread steps (⌥⌘↓) and the palette's thread search across machines.
-- Links inside a scoped thread that don't use `useMachineSearch()` yet (fork, merge, forge
-  pages) still open on this window's daemon.
+- The Archive screen across machines.
+- Issue and pull request pages (`/issues`, `/pulls`) on another machine's projects.
 - iOS and Android use the same addressing when they gain the pool.
 
 ## Verification
@@ -89,3 +126,8 @@ UI tests against fake daemons in a real machine pool (`new-thread-machines.test.
 not here, opens it here and lists it in Home marked with the machine; an offline machine can't
 be picked; a draft reopens on its machine; an offline machine's thread says so; a project added
 on another machine opens New thread there.
+`other-machine-thread.test.tsx`: the header names the machine only on another machine's thread,
+and forking it forks there and opens the fork there. `other-machine-organize.test.tsx`: pin,
+archive, delete (after its question), rename and move on a build server row run on the build
+server, the picker lists only its projects, and rows picked on both machines archive each on its
+own.

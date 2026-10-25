@@ -239,13 +239,13 @@ export function ThreadActionItems(props: {
   const mover = useThreadMover();
   const transfers = useTransferOpener();
   const linked = useHasLinkedMachines();
-  // Another machine's thread (ADR 0100): its move, archive and delete dialogs answer to this
-  // window's daemon, so they wait for that follow-up; Continue on is sent from that machine.
+  // Another machine's thread (ADR 0100): every action runs on that machine's client, the picker
+  // lists that machine's projects, and Continue on is sent from that machine.
   const scoped = useScopedMachine()?.id;
   const allActions = threadActions(entry, flags, actions, {
     onRename: props.onRename,
     fork: props.fork,
-    onMove: () => mover.open({ entries: [entry] }),
+    onMove: () => mover.open({ entries: [entry], ...(scoped ? { hostId: scoped } : {}) }),
     ...(linked
       ? {
           onContinueOn: () =>
@@ -260,9 +260,8 @@ export function ThreadActionItems(props: {
       : {}),
     ...(props.onLeave ? { onLeave: props.onLeave } : {}),
   });
-  const here = scoped ? allActions.filter((action) => !windowOnly.has(action.id)) : allActions;
   const list = props.compact
-    ? here.filter((action) =>
+    ? allActions.filter((action) =>
         [
           "rename",
           "unread",
@@ -275,7 +274,7 @@ export function ThreadActionItems(props: {
           "delete",
         ].includes(action.id),
       )
-    : here.filter((action) => !action.disabled);
+    : allActions.filter((action) => !action.disabled);
   const section = (name: ThreadAction["section"]) =>
     list.filter((action) => action.section === name).map(renderThreadAction);
   return (
@@ -297,9 +296,6 @@ export function ThreadActionItems(props: {
     </>
   );
 }
-
-/** Actions whose dialogs only reach this window's own daemon. */
-const windowOnly = new Set(["move", "archive", "restore", "delete"]);
 
 function renderThreadAction(action: ThreadAction) {
   return (

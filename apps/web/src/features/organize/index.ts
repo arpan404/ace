@@ -26,5 +26,11 @@ export {
 } from "./use-thread-actions.ts";
 export { useRenameTitle } from "./selection.ts";
 export { DeleteConfirmationHost } from "./delete-host.tsx";
+export {
+  OrganizeWindow,
+  useOverlaidMachineEntries,
+  useWindowThreads,
+  type WindowThreads,
+} from "./window.tsx";
 export { InlineRename } from "./inline-rename.tsx";
 export { InlineRenameField } from "./inline-rename-host.tsx";

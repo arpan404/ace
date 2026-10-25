@@ -28,9 +28,20 @@ export function MachineRow(props: { id: string; settled: boolean; leaving: boole
       unavailable={<AwayRow machine={machine} threadKey={ref.key} threadId={ref.threadId} />}
     >
       {props.settled ? (
-        <SettledRow threadId={ref.threadId} leaving={props.leaving} machine={mark} />
+        <SettledRow
+          threadId={ref.threadId}
+          rowId={props.id}
+          leaving={props.leaving}
+          machine={mark}
+        />
       ) : (
-        <ThreadRow threadId={ref.threadId} settled={false} leaving={props.leaving} machine={mark} />
+        <ThreadRow
+          threadId={ref.threadId}
+          rowId={props.id}
+          settled={false}
+          leaving={props.leaving}
+          machine={mark}
+        />
       )}
     </MachineScope>
   );

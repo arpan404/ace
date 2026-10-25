@@ -24,18 +24,20 @@ const row =
 /**
  * A settled thread at rest: its project badge and title on one line. Under the pointer or focus,
  * Unsettle and the row's ⋯ menu take the right end; the context menu is the task row's own.
- * Another machine's settled thread (`machine`) only opens.
+ * Another machine's settled thread (`machine`) acts on that machine, under its list `rowId`.
  */
 export function SettledRow(props: {
   threadId: string;
   leaving?: boolean | undefined;
   machine?: RowMachine | undefined;
+  rowId?: string | undefined;
 }) {
   const { machine } = props;
+  const rowId = props.rowId ?? props.threadId;
   const data = useThreadCard(props.threadId, true, props.leaving);
   const selection = useHomeSelection();
   const actions = useThreadActions();
-  const editing = useRenameTitle(props.threadId);
+  const editing = useRenameTitle(rowId);
   const refused = useRefusedTitle(props.threadId);
   const renaming = editing !== undefined || refused !== undefined;
   const current = useOpenHere(props.threadId, machine?.id);
@@ -44,7 +46,7 @@ export function SettledRow(props: {
   const card = machine
     ? { ...data.card, machine: machine.name, machineIcon: machine.icon }
     : data.card;
-  const rename = () => selection.rename(props.threadId, card.title);
+  const rename = () => selection.rename(rowId, card.title);
   const unsettle = settleAction(entry, card.flags, actions);
   const body = (
     <>
@@ -59,6 +61,7 @@ export function SettledRow(props: {
         {renaming ? (
           <RenameField
             entry={entry}
+            rowId={rowId}
             title={editing ?? refused ?? card.title}
             onDone={() => selection.finishRename()}
           />
@@ -108,7 +111,7 @@ export function SettledRow(props: {
           {body}
         </Link>
       )}
-      {!renaming && !machine && (
+      {!renaming && (
         <div
           className="absolute top-1/2 right-1.5 hidden -translate-y-1/2 items-center gap-0.5 group-focus-within/row:flex group-hover/row:flex has-[[data-popup-open]]:flex"
           role="presentation"
@@ -130,10 +133,8 @@ export function SettledRow(props: {
       )}
     </div>
   );
-  // Organize actions answer to this window's daemon, so another machine's row has none.
-  if (machine) return drawn;
   return (
-    <ThreadMenu entry={entry} state={card.flags} onRename={rename}>
+    <ThreadMenu entry={entry} rowId={rowId} state={card.flags} onRename={rename}>
       {drawn}
     </ThreadMenu>
   );

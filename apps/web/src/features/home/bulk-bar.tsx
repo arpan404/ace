@@ -1,4 +1,3 @@
-import { useSidebarStore } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
 import {
   ArchiveIcon,
@@ -21,31 +20,46 @@ import {
 } from "@/components/ui/dialog.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { MenuItem, MenuLabel, MenuGroup, MenuSeparator } from "@/components/ui/menu.tsx";
+import { machineRow } from "@/lib/machine-threads.ts";
 import {
   useHomeSelection,
   useHomeSelectionState,
-  useOrganizeOverlay,
-  useThreadActions,
   useThreadMover,
+  useWindowThreads,
   type HomeSelection,
+  type WindowThreads,
 } from "@/features/organize/index.ts";
 
 /*
  * Bulk actions on the picked Home threads: the bar under the list, the context menu of a picked
  * row and the palette all offer Pin or Unpin, Move to project, Archive and Delete. Move asks
  * which project; Delete asks first. Move and Archive act at once and offer one Undo for all,
- * while Delete is permanent (no Undo). Loaded once something is picked.
+ * while Delete is permanent (no Undo). Loaded once something is picked. Picked rows may be on
+ * several machines (ADR 0100): each action runs on each row's own machine. A project belongs to
+ * one machine, so Move shows only while every picked row is on the same one.
  */
 
 /** The picked threads as this window shows them (with organize actions not yet confirmed). */
-function usePicked(): ThreadListEntry[] {
+function usePicked(threads: WindowThreads): ThreadListEntry[] {
   const { ids } = useHomeSelectionState();
-  const store = useSidebarStore();
-  const overlay = useOrganizeOverlay();
   return ids.flatMap((id) => {
-    const entry = store?.thread(id);
-    return entry ? [overlay.apply(entry)] : [];
+    const entry = threads.entry(id);
+    return entry ? [entry] : [];
   });
+}
+
+/**
+ * Ask which project the picked rows move to, on the machine they are all on; undefined when they
+ * are on more than one. The picker runs on that machine, so it gets the ids that machine knows.
+ */
+function moveOf(entries: readonly ThreadListEntry[], threads: WindowThreads) {
+  const hosts = new Set(entries.map((entry) => threads.hostOf(entry.id)));
+  if (hosts.size !== 1) return undefined;
+  const [hostId] = hosts;
+  return {
+    entries: entries.map((entry) => ({ ...entry, id: machineRow(entry.id)?.threadId ?? entry.id })),
+    ...(hostId ? { hostId } : {}),
+  };
 }
 
 const count = (n: number) => (n === 1 ? "1 thread" : `${n} threads`);
@@ -58,11 +72,13 @@ const allPinned = (entries: readonly ThreadListEntry[]) =>
 function bulkActions(
   entries: readonly ThreadListEntry[],
   selection: HomeSelection,
-  actions: ReturnType<typeof useThreadActions>,
+  threads: WindowThreads,
   mover: ReturnType<typeof useThreadMover>,
 ) {
+  const { actions } = threads;
   const unpin = allPinned(entries);
-  return [
+  const move = moveOf(entries, threads);
+  const list = [
     {
       id: "pin",
       label: unpin ? `Unpin ${count(entries.length)}` : `Pin ${count(entries.length)}`,
@@ -78,7 +94,7 @@ function bulkActions(
       label: `Move ${count(entries.length)} to project…`,
       icon: FolderSimpleIcon,
       danger: false,
-      run: () => mover.open({ entries, onMoved: () => selection.clear() }),
+      run: () => move && mover.open({ ...move, onMoved: () => selection.clear() }),
     },
     {
       id: "archive",
@@ -98,14 +114,15 @@ function bulkActions(
       run: () => selection.ask("delete"),
     },
   ];
+  return move ? list : list.filter((action) => action.id !== "move");
 }
 
 /** Under the list while threads are picked: how many, what to do with them, and Clear. */
 export function BulkBar() {
   const selection = useHomeSelection();
-  const actions = useThreadActions();
+  const threads = useWindowThreads();
   const mover = useThreadMover();
-  const entries = usePicked();
+  const entries = usePicked(threads);
   if (!entries.length) return null;
   return (
     <>
@@ -117,7 +134,7 @@ export function BulkBar() {
         <span className="mr-auto font-medium whitespace-nowrap tabular-nums" aria-live="polite">
           {entries.length} selected
         </span>
-        {bulkActions(entries, selection, actions, mover).map((action) => (
+        {bulkActions(entries, selection, threads, mover).map((action) => (
           <IconButton
             key={action.id}
             icon={action.icon}
@@ -141,10 +158,10 @@ export function BulkBar() {
 /** For a picked row's context menu: the bulk actions in place of the row's own. */
 export function BulkMenuItems() {
   const selection = useHomeSelection();
-  const actions = useThreadActions();
+  const threads = useWindowThreads();
   const mover = useThreadMover();
-  const entries = usePicked();
-  const list = bulkActions(entries, selection, actions, mover);
+  const entries = usePicked(threads);
+  const list = bulkActions(entries, selection, threads, mover);
   return (
     <>
       <MenuGroup>
@@ -172,7 +189,7 @@ export function BulkMenuItems() {
 function BulkConfirmDialog(props: { entries: readonly ThreadListEntry[] }) {
   const selection = useHomeSelection();
   const { confirm } = useHomeSelectionState();
-  const actions = useThreadActions();
+  const { actions } = useWindowThreads();
   const cancel = useRef<HTMLButtonElement>(null);
   const n = props.entries.length;
   const shown = props.entries.slice(0, 5);
