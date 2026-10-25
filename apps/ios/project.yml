@@ -49,6 +49,19 @@ targets:
         UILaunchScreen:
           UIColorName: LaunchBackground
         CADisableMinimumFrameDurationOnPhone: true
+        # Every orientation on iPad, so iPadOS resizes the window (Split View, Slide Over,
+        # Stage Manager, windowed apps) instead of scaling a full-screen app. Phones turn to
+        # landscape too: the folded iPhone Duo is held as a tent, and its inner display ignores
+        # this list altogether. Layout follows size classes, never orientation.
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         NSLocalNetworkUsageDescription: Connect to your own ace daemon.
         NSFaceIDUsageDescription: Unlock your paired machines.
         NSCameraUsageDescription: Scan the pairing code shown by ace on your computer, or take a photo for an agent.

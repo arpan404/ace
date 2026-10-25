@@ -25,6 +25,7 @@ struct FullMessageView: View {
                 }.padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.lg).frame(maxWidth: .infinity, alignment: .leading)
             }
             .navigationTitle(item.type == "reasoning" ? "Thought" : "Message").navigationBarTitleDisplayMode(.inline)
+            .escapeCloses { dismiss() }
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }.readWhenConnected(model) { await read() }
     }

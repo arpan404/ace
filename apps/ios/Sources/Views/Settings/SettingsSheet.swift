@@ -81,6 +81,7 @@ struct SettingsSheet: View {
             }
             .navigationDestination(for: SettingsRoute.self) { route in destination(route) }
         }
+        .escapeCloses { dismiss() }
         .tint(AceTheme.Colours.foreground)
         .toggleStyle(.systemSwitch)
         .presentationDetents([.large]).presentationDragIndicator(.visible)

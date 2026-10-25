@@ -102,6 +102,7 @@ struct AgentLaneSheet: View {
             .listStyle(.plain)
             .accessibilityIdentifier("lane.transcript")
             .navigationTitle(entry.title).navigationBarTitleDisplayMode(.inline)
+            .escapeCloses { dismiss() }
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: AceTheme.Spacing.xxs) {

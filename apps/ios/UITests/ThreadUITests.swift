@@ -31,8 +31,7 @@ import XCTest
         XCTAssertTrue(app.staticTexts["Writing the PID-reuse regression."].waitForExistence(timeout: 10))
         screenshot("thread-agent-lane")
         app.buttons["Done"].tap()
-        XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 10))
-        app.buttons["composer.model"].tap()
+        app.composerControl("composer.model").tap()
         XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10))
         sleep(2)
         screenshot("thread-models")
@@ -295,7 +294,7 @@ import XCTest
     private func reveal(_ identifier: String, in app: XCUIApplication) {
         let row = app.buttons[identifier]
         _ = row.waitForExistence(timeout: 25)
-        for _ in 0..<4 where !row.isHittable { app.swipeUp() }
+        for _ in 0..<4 where !row.isHittable { app.dragListUp() }
         XCTAssertTrue(row.waitForExistence(timeout: 5))
     }
     private func launch() -> XCUIApplication {
