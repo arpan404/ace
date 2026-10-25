@@ -170,7 +170,10 @@ test("editing saves the description, instructions and Runs together", async () =
   await userEvent.click(form.getByRole("button", { name: "Save" }));
 
   expect(await screen.findByText("Hide the details.")).toBeTruthy();
-  expect(screen.getByText("Agents never load it by themselves")).toBeTruthy();
+  // Codex ignores the manual flag, so the page doesn't promise it for every agent.
+  expect(
+    screen.getByText("Cursor never loads it by itself. Codex may still load it."),
+  ).toBeTruthy();
   const saved = (await listed(app)).find((s) => s.name === "setup-ts-deep-modules");
   expect(saved).toMatchObject({ description: "Deep modules.", manual: true });
 });
