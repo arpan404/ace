@@ -29075,6 +29075,7 @@ Example:
   "kind": "updateReview",
   "review": {
     "after": "example",
+    "baseHash": "9973d7358a74c42e1d1b430ca79f5508dbda961759de40f92c0ed11a9c18aaf7",
     "before": "example",
     "commit": "e2b10f9d2b4fbd753f89602e41f0a469aaa3c263",
     "files": [],
@@ -29245,6 +29246,7 @@ Example:
     "kind": "updateReview",
     "review": {
       "after": "example",
+      "baseHash": "cc0a706caa9c050d68447331a2de9776f113b4142f8c3340e6815c2a1ca75ddd",
       "before": "example",
       "commit": "ba60e82bc3a3cbf0926aeb88c7959a829d9573ff65535cf5815893bc8",
       "files": [],
@@ -29305,6 +29307,7 @@ Example:
 | skillId | yes | [SkillId.json](schema/SkillId.json) |  |
 | commit | yes | string | {"pattern":"^[a-f0-9]{40,64}$"} |
 | folderHash | yes | string | {"maxLength":64} |
+| baseHash | yes | [SkillHash.json](schema/SkillHash.json) |  |
 | files | yes | array | {"maxItems":512,"items":{"$ref":"https://ace.local/protocol/v1/SkillUpdateFile.json"}} |
 | before | yes | string | {"maxLength":262144} |
 | after | yes | string | {"maxLength":262144} |
@@ -29314,6 +29317,7 @@ Example:
 ```json
 {
   "after": "example",
+  "baseHash": "e2abf01c9e3da206563abaadbc1caaa1833a7a85eb9f66f56d1d6d857b059186",
   "before": "example",
   "commit": "b827be834e9ed7a594506e7775b1f2d56b5081296b471e98e9",
   "files": [],

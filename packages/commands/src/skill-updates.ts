@@ -1,31 +1,22 @@
-import { createHash } from "node:crypto";
-import {
-  chmod,
-  copyFile,
-  lstat,
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  open,
-} from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { mkdir, readFile, readdir, realpath, rename, rm, open } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import type { SkillUpdateReview } from "@ace/protocol";
 import {
   diffFolders,
+  folderFingerprint,
   readLock,
   updateLock,
-  type FolderFile,
   type LockedSkill,
 } from "./skill-source.ts";
-import { readSkillFile, SkillError, writableDirectory } from "./skill-files.ts";
+import type { SkillDisk } from "./skill-disk.ts";
+import { SkillError } from "./skill-errors.ts";
+import { readPinnedSkill, withSkillFolder } from "./skill-files.ts";
 import type { SkillFolder } from "./skill-model.ts";
 
 /** Git access, injected so tests use local repositories and the daemon reuses the plugin fetcher. */
 export interface SkillFetcher {
   fetch(url: string, ref: string, temporary: string): Promise<{ gitRoot: string; commit: string }>;
-  /** Git tree SHA of `folder` at `commit`: the lock's `skillFolderHash`. */
+  /** Git tree SHA of `folder` (`.` for the repository root) at `commit`: the lock's `skillFolderHash`. */
   treeHash(gitRoot: string, commit: string, folder: string): Promise<string>;
   /** Write the folder's blobs under `destination`, refusing symlinks and submodules. */
   extract(gitRoot: string, commit: string, folder: string, destination: string): Promise<void>;
@@ -41,37 +32,26 @@ export interface SkillUpdateOptions {
 interface Pending {
   review: SkillUpdateReview;
   staged: string;
+  /** Every file of the installed folder when the review was made (`folderFingerprint`). */
+  fingerprint: string;
   expires: number;
 }
 const reviewLifetime = 30 * 60_000;
-async function walk(root: string): Promise<Map<string, FolderFile>> {
-  const files = new Map<string, FolderFile>();
-  const visit = async (directory: string, depth: number): Promise<void> => {
-    if (depth > 16) throw new SkillError("limit", "This skill folder is nested too deeply.");
-    for (const name of await readdir(directory)) {
-      const path = join(directory, name);
-      const info = await lstat(path);
-      if (info.isDirectory()) await visit(path, depth + 1);
-      else if (info.isFile() || info.isSymbolicLink()) {
-        if (files.size >= 512) throw new SkillError("limit", "This skill has too many files.");
-        const hash = info.isFile()
-          ? createHash("sha256")
-              .update(await readFile(path))
-              .digest("hex")
-          : `link:${path}`;
-        files.set(relative(root, path), { hash, executable: (info.mode & 0o111) !== 0 });
-      }
-    }
-  };
-  await visit(root, 0);
-  return files;
-}
+const gitHash = /^[a-f0-9]{40,64}$/;
+// `.<name>.ace-update-<token>`: a replacement being built, or one rolled back. Always removed.
+const building = /^\.(.+)\.ace-update-[A-Za-z0-9-]+$/;
+// `.<name>.ace-old-<folderHash>-<token>`: the original, kept until the lock records folderHash.
+const backup = /^\.(.+)\.ace-old-([a-f0-9]{40,64})-[A-Za-z0-9-]+$/;
+const conflict = () =>
+  new SkillError("conflict", "This skill changed since the review. Check for updates again.");
 /** Check, stage, review and apply updates for skills installed by the `skills` CLI. */
 export class SkillUpdates {
   private readonly options: SkillUpdateOptions;
   private readonly pending = new Map<string, Pending>();
-  constructor(options: SkillUpdateOptions) {
+  private readonly disk: SkillDisk;
+  constructor(options: SkillUpdateOptions, disk: SkillDisk) {
     this.options = options;
+    this.disk = disk;
   }
   async locked(): Promise<Map<string, LockedSkill>> {
     return readLock(await readFile(this.options.lockPath, "utf8").catch(() => undefined));
@@ -121,19 +101,33 @@ export class SkillUpdates {
     const staged = join(this.options.temporaryRoot, id);
     return this.fetched(locked, async ({ gitRoot, commit, folderHash }) => {
       try {
+        if (!gitHash.test(folderHash)) throw new SkillError("update_failed", "Invalid tree.");
         await this.options.fetcher.extract(gitRoot, commit, locked.folder, staged);
-        const after = await readSkillFile(staged);
-        const before = await readSkillFile(canonical.real);
+        const next = await this.withStaged(staged, async (folder) => ({
+          skill: await readPinnedSkill(this.disk, folder),
+          files: await this.disk.walk(folder),
+        }));
+        const current = await withSkillFolder(this.disk, canonical, async (_root, folder) => ({
+          skill: await readPinnedSkill(this.disk, folder),
+          files: await this.disk.walk(folder),
+        }));
+        if (!next.skill || !current.skill) throw new SkillError("not_found", "No SKILL.md.");
         const review: SkillUpdateReview = {
           id,
           skillId,
           commit,
           folderHash,
-          files: diffFolders(await walk(canonical.real), await walk(staged)),
-          before: before.text,
-          after: after.text,
+          baseHash: current.skill.hash,
+          files: diffFolders(current.files, next.files),
+          before: current.skill.text,
+          after: next.skill.text,
         };
-        this.pending.set(id, { review, staged, expires: this.options.now() + reviewLifetime });
+        this.pending.set(id, {
+          review,
+          staged,
+          fingerprint: folderFingerprint(current.files),
+          expires: this.options.now() + reviewLifetime,
+        });
         return review;
       } catch (error) {
         await rm(staged, { recursive: true, force: true });
@@ -142,43 +136,69 @@ export class SkillUpdates {
       }
     });
   }
-  /** Swap the folder's contents for the staged ones, then record the new hash in the lock. */
+  private async withStaged<T>(staged: string, work: (folder: number) => Promise<T>): Promise<T> {
+    const real = await realpath(staged);
+    return this.disk.withFolder(dirname(real), basename(real), (_root, folder) => work(folder));
+  }
+  /**
+   * Swap the folder for the staged one, then record the new hash in the lock. The original stays
+   * beside it, named after the new hash, until the lock commits; any failure puts it back.
+   * `expectedHash` is the SKILL.md hash the review started from (`review.baseHash`).
+   */
   async apply(reviewId: string, skillId: string, canonical: SkillFolder, expectedHash: string) {
     this.expire();
     const pending = this.pending.get(reviewId);
     if (!pending || pending.review.skillId !== skillId)
       throw new SkillError("not_found", "This update review expired. Check for updates again.");
-    const real = await writableDirectory(canonical);
-    if ((await readSkillFile(real)).hash !== expectedHash)
-      throw new SkillError(
-        "conflict",
-        "This skill changed since the review. Check for updates again.",
-      );
+    if (expectedHash !== pending.review.baseHash) throw conflict();
+    const { name } = canonical;
     const token = this.options.id();
-    const next = join(dirname(real), `.${canonical.name}.ace-update-${token}`);
-    const old = join(dirname(real), `.${canonical.name}.ace-old-${token}`);
-    let moved = false;
-    try {
-      for (const [path, file] of await walk(pending.staged)) {
-        const target = join(next, path);
-        await mkdir(dirname(target), { recursive: true });
-        await copyFile(join(pending.staged, path), target);
-        await chmod(target, file.executable ? 0o755 : 0o644);
+    const next = `.${name}.ace-update-${token}`;
+    const old = `.${name}.ace-old-${pending.review.folderHash}-${token}`;
+    await withSkillFolder(this.disk, canonical, async (root, folder) => {
+      try {
+        if (!(await this.disk.makeDirectory(root, next)))
+          throw new SkillError("update_failed", "Couldn't stage this update.");
+        const target = await this.disk.openDirectory(root, next);
+        if (target === undefined)
+          throw new SkillError("update_failed", "Couldn't stage this update.");
+        try {
+          await this.withStaged(pending.staged, (staged) => this.disk.copy(staged, target));
+        } finally {
+          await this.disk.closeDirectory(target);
+        }
+        // Right before the swap: every file still as reviewed, not only SKILL.md.
+        if (folderFingerprint(await this.disk.walk(folder)) !== pending.fingerprint)
+          throw conflict();
+        await this.disk.rename(root, name, root, old);
+        try {
+          await this.disk.rename(root, next, root, name);
+        } catch (error) {
+          await this.disk.rename(root, old, root, name);
+          throw error;
+        }
+      } catch (error) {
+        await this.disk.remove(root, next).catch(() => {});
+        if (error instanceof SkillError && error.code === "conflict") throw error;
+        throw new SkillError(
+          "update_failed",
+          "Couldn't replace this skill's files. Nothing changed.",
+        );
       }
-      await rename(real, old);
-      moved = true;
-      await rename(next, real);
-    } catch {
-      if (moved) await rename(old, real).catch(() => {});
-      throw new SkillError(
-        "update_failed",
-        "Couldn't replace this skill's files. Nothing changed.",
-      );
-    } finally {
-      await rm(next, { recursive: true, force: true });
-    }
-    await rm(old, { recursive: true, force: true });
-    await this.writeLock(canonical.name, pending.review.folderHash);
+      try {
+        await this.writeLock(name, pending.review.folderHash);
+      } catch {
+        // The lock still names the old version: put the old folder back.
+        await this.disk.rename(root, name, root, next);
+        await this.disk.rename(root, old, root, name);
+        await this.disk.remove(root, next).catch(() => {});
+        throw new SkillError(
+          "update_failed",
+          "Couldn't record the update in the skills lock file. Nothing changed.",
+        );
+      }
+      await this.disk.remove(root, old).catch(() => {});
+    });
     await this.cancel(reviewId);
   }
   private async writeLock(name: string, folderHash: string) {
@@ -209,21 +229,47 @@ export class SkillUpdates {
       if (pending.expires <= this.options.now()) void this.cancel(id);
   }
   /**
-   * After a crash: drop staged reviews, put back a folder caught between its two renames and
-   * remove half-built replacements in `root`.
+   * After a crash: drop staged reviews and half-built replacements, then settle any original kept
+   * beside its folder. The update stands only if the lock already records its hash; otherwise the
+   * original goes back.
    */
   async recover(roots: readonly string[]): Promise<void> {
     await rm(this.options.temporaryRoot, { recursive: true, force: true });
-    for (const root of roots)
-      for (const entry of await readdir(root).catch(() => [] as string[])) {
-        const swap = /^\.(.+)\.ace-(old|update)-[A-Za-z0-9-]+$/.exec(entry);
-        if (!swap?.[1]) continue;
-        const path = join(root, entry);
-        const original = join(root, swap[1]);
-        if (swap[2] === "old" && !(await lstat(original).catch(() => undefined)))
-          await rename(path, original).catch(() => {});
-        else await rm(path, { recursive: true, force: true });
+    const lockDirectory = dirname(this.options.lockPath);
+    const lockName = basename(this.options.lockPath);
+    for (const entry of await readdir(lockDirectory).catch(() => [] as string[]))
+      if (entry.startsWith(`${lockName}.ace-`))
+        await rm(join(lockDirectory, entry), { force: true });
+    const locked = await this.locked();
+    for (const path of new Set(roots)) {
+      const real = await realpath(path).catch(() => undefined);
+      const root = real === undefined ? undefined : await this.disk.openPath(real);
+      if (root === undefined) continue;
+      try {
+        await this.settle(root, locked);
+      } finally {
+        await this.disk.closeDirectory(root);
       }
+    }
+  }
+  private async settle(root: number, locked: ReadonlyMap<string, LockedSkill>): Promise<void> {
+    const names = await this.disk.names(root);
+    for (const entry of names)
+      if (building.test(entry)) await this.disk.remove(root, entry).catch(() => {});
+    for (const entry of names) {
+      const kept = backup.exec(entry);
+      const name = kept?.[1];
+      if (!kept || !name) continue;
+      const present = names.includes(name);
+      if (present && locked.get(name)?.folderHash === kept[2]) {
+        await this.disk.remove(root, entry).catch(() => {});
+        continue;
+      }
+      const aside = `.${name}.ace-update-recover-${this.options.id()}`;
+      if (present) await this.disk.rename(root, name, root, aside).catch(() => {});
+      await this.disk.rename(root, entry, root, name).catch(() => {});
+      if (present) await this.disk.remove(root, aside).catch(() => {});
+    }
   }
   async close(): Promise<void> {
     for (const id of this.pending.keys()) await this.cancel(id);

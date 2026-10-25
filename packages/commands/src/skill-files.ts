@@ -1,39 +1,12 @@
-import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import {
-  lstat,
-  mkdir,
-  open,
-  readdir,
-  realpath,
-  rename,
-  rm,
-  stat,
-  symlink,
-  unlink,
-} from "node:fs/promises";
+import { lstat, mkdir, open, readdir, realpath, stat, symlink, unlink } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import { inside, type SkillFolder } from "./skill-model.ts";
+import type { SkillFolder } from "./skill-model.ts";
+import type { SkillDisk } from "./skill-disk.ts";
+import { SkillError, sha256 } from "./skill-errors.ts";
 import { skillFileLimit } from "./skill-markdown.ts";
 import type { SkillRoot } from "./skill-roots.ts";
 
-export type SkillErrorCode =
-  | "not_found"
-  | "conflict"
-  | "exists"
-  | "invalid"
-  | "limit"
-  | "read_only"
-  | "update_failed"
-  | "unavailable";
-export class SkillError extends Error {
-  readonly code: SkillErrorCode;
-  constructor(code: SkillErrorCode, message: string) {
-    super(message);
-    this.code = code;
-  }
-}
-export const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 const missing = (error: unknown) =>
   error instanceof Error &&
   "code" in error &&
@@ -92,25 +65,25 @@ export async function readSkillFile(directory: string): Promise<{ text: string; 
     await handle.close();
   }
 }
-/** The canonical folder, checked again right before a write: real, inside its root, unchanged. */
-export async function writableDirectory(folder: SkillFolder): Promise<string> {
-  const info = await lstat(folder.path).catch(() => undefined);
-  const rootReal = await realpath(folder.root.path).catch(() => undefined);
-  const real = await realpath(folder.path).catch(() => undefined);
-  if (
-    !info?.isDirectory() ||
-    info.isSymbolicLink() ||
-    !rootReal ||
-    rootReal !== folder.rootReal ||
-    real !== folder.real ||
-    !inside(rootReal, real)
-  )
-    throw new SkillError("read_only", "This skill's folder moved. Reload the list.");
-  return real;
+const conflict = () =>
+  new SkillError("conflict", "This skill changed elsewhere. Reload it before saving.");
+/** SKILL.md through a pinned folder: text and hash, or `undefined` when there is none. */
+export async function readPinnedSkill(
+  disk: SkillDisk,
+  folder: number,
+): Promise<{ text: string; hash: string } | undefined> {
+  const bytes = await disk.readFile(folder, "SKILL.md", skillFileLimit);
+  if (!bytes) return undefined;
+  const text = bytes.toString("utf8");
+  return { text, hash: sha256(text) };
 }
-/** Replace SKILL.md through a temporary file and rename, checking the hash before and after. */
-export async function replaceSkillFile(
-  directory: string,
+/**
+ * Replace SKILL.md in a pinned folder through a temporary file and rename, checking the hash
+ * before and after. Every step is relative to the folder's descriptor, never its path.
+ */
+export async function replacePinnedSkill(
+  disk: SkillDisk,
+  folder: number,
   text: string,
   expected: string | null,
   token: string,
@@ -118,46 +91,64 @@ export async function replaceSkillFile(
   if (Buffer.byteLength(text) > skillFileLimit)
     throw new SkillError("limit", "SKILL.md can be up to 256 KB. Shorten it and save again.");
   if (!/^[a-zA-Z0-9-]{1,64}$/.test(token)) throw new SkillError("invalid", "Invalid write token.");
-  const current = async () => {
-    try {
-      return (await readSkillFile(directory)).hash;
-    } catch (error) {
-      if (error instanceof SkillError && error.code === "not_found") return null;
-      throw error;
-    }
-  };
-  const conflict = () =>
-    new SkillError("conflict", "This skill changed elsewhere. Reload it before saving.");
+  const current = async () => (await readPinnedSkill(disk, folder))?.hash ?? null;
   if ((await current()) !== expected) throw conflict();
-  const temporary = join(directory, `.SKILL.md.${token}.tmp`);
+  const temporary = `.SKILL.md.${token}.tmp`;
   try {
-    const handle = await open(temporary, "wx", 0o644);
-    try {
-      await handle.writeFile(text);
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
+    await disk.writeNew(folder, temporary, Buffer.from(text), 0o644);
     if ((await current()) !== expected) throw conflict();
-    await rename(temporary, join(directory, "SKILL.md"));
+    await disk.rename(folder, temporary, folder, "SKILL.md");
   } finally {
-    await rm(temporary, { force: true });
+    await disk.removeFile(folder, temporary);
   }
   return sha256(text);
 }
-/** Make `<root>/<name>` for a new skill. The root may be created; the folder must not exist. */
-export async function createSkillDirectory(root: SkillRoot, name: string): Promise<string> {
+/** The canonical folder pinned for a mutation; a moved or swapped folder fails closed. */
+export function withSkillFolder<T>(
+  disk: SkillDisk,
+  canonical: SkillFolder,
+  work: (root: number, folder: number) => Promise<T>,
+): Promise<T> {
+  if (canonical.real !== join(canonical.rootReal, canonical.name))
+    throw new SkillError("read_only", "This skill's folder moved. Reload the list.");
+  return disk.withFolder(canonical.rootReal, canonical.name, work);
+}
+/**
+ * Make `<root>/<name>` with its SKILL.md. The root may be created; the folder must not exist.
+ * Returns the folder's real path.
+ */
+export async function createSkill(
+  disk: SkillDisk,
+  root: SkillRoot,
+  name: string,
+  text: string,
+  token: string,
+): Promise<string> {
   await mkdir(root.path, { recursive: true });
   const rootReal = await realpath(root.path);
-  const directory = join(rootReal, name);
+  const pinned = await disk.openPath(rootReal);
+  if (pinned === undefined) throw new SkillError("unavailable", "Couldn't open the skill folder.");
   try {
-    await mkdir(directory, { mode: 0o755 });
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "EEXIST")
-      throw new SkillError("exists", `A skill called ${name} already exists there.`);
-    throw error;
+    if (!(await disk.makeDirectory(pinned, name))) {
+      const existing = await disk.openDirectory(pinned, name);
+      if (existing !== undefined) {
+        await disk.closeDirectory(existing);
+        throw new SkillError("exists", `A skill called ${name} already exists there.`);
+      }
+      throw new SkillError("unavailable", "Couldn't make the skill folder. Check its permissions.");
+    }
+    try {
+      await disk.withFolder(rootReal, name, (_root, folder) =>
+        replacePinnedSkill(disk, folder, text, null, token),
+      );
+    } catch (error) {
+      await disk.remove(pinned, name);
+      throw error;
+    }
+  } finally {
+    await disk.closeDirectory(pinned);
   }
-  return directory;
+  return join(rootReal, name);
 }
 /** A relative link `<root>/<name> -> canonical`, as the `skills` CLI lays them out. */
 export async function linkSkill(root: SkillRoot, name: string, canonical: SkillFolder) {
@@ -182,8 +173,4 @@ export async function unlinkSkill(link: SkillFolder): Promise<void> {
   if (!info.isSymbolicLink() || (await realpath(link.path).catch(() => "")) !== link.real)
     throw new SkillError("conflict", "A skill link changed elsewhere. Reload the list.");
   await unlink(link.path);
-}
-export async function removeSkillDirectory(canonical: SkillFolder): Promise<void> {
-  const real = await writableDirectory(canonical);
-  await rm(real, { recursive: true });
 }

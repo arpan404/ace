@@ -76,6 +76,8 @@ export const SkillUpdateReview = z.object({
   skillId: SkillId,
   commit: z.string().regex(/^[a-f0-9]{40,64}$/),
   folderHash: z.string().max(64),
+  /** SKILL.md hash of the installed folder the review compared against; applyUpdate sends it back. */
+  baseHash: SkillHash,
   files: z.array(SkillUpdateFile).max(512),
   before: z.string().max(262144),
   after: z.string().max(262144),

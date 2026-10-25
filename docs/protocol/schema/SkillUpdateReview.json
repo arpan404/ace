@@ -6,6 +6,9 @@
       "maxLength": 262144,
       "type": "string"
     },
+    "baseHash": {
+      "$ref": "https://ace.local/protocol/v1/SkillHash.json"
+    },
     "before": {
       "maxLength": 262144,
       "type": "string"
@@ -39,6 +42,7 @@
     "skillId",
     "commit",
     "folderHash",
+    "baseHash",
     "files",
     "before",
     "after"

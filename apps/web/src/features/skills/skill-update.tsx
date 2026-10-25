@@ -187,7 +187,9 @@ function UpdateReviewDialog(props: {
                   id: props.entry.id,
                   workspaceId: props.workspaceId,
                   reviewId: review.id,
-                  expectedHash: props.entry.hash,
+                  // The folder the review compared against, not the latest one: an edit since
+                  // the review makes the daemon refuse rather than overwrite it.
+                  expectedHash: review.baseHash,
                 },
                 {
                   onSuccess: () => {

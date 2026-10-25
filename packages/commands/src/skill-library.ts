@@ -5,19 +5,19 @@ import type { RecoveryScheduler } from "./recovery-loop.ts";
 import type { DiscoveryRoot } from "./roots.ts";
 import { editSkill, newSkill } from "./skill-markdown.ts";
 import {
-  createSkillDirectory,
+  createSkill,
   linkSkill,
-  readSkillFile,
-  removeSkillDirectory,
-  replaceSkillFile,
-  SkillError,
+  readPinnedSkill,
+  replacePinnedSkill,
   unlinkSkill,
-  writableDirectory,
+  withSkillFolder,
 } from "./skill-files.ts";
+import { SkillDisk } from "./skill-disk.ts";
+import { SkillError } from "./skill-errors.ts";
+import type { OpenCommandChild } from "./posix.ts";
 import { planAgents } from "./skill-model.ts";
 import { canonicalRoot, skillRoots, type SkillHomes } from "./skill-roots.ts";
 import { SkillUpdates, type SkillUpdateOptions } from "./skill-updates.ts";
-import { rm } from "node:fs/promises";
 import { listSkills, type Listed, type PluginSkill } from "./skill-listing.ts";
 export type { PluginSkill } from "./skill-listing.ts";
 
@@ -34,6 +34,8 @@ export interface SkillLibraryOptions {
   usage?: SkillUsageReader | undefined;
   watch?: WatchSource | undefined;
   schedule?: RecoveryScheduler | undefined;
+  /** The descriptor primitive every mutation opens through; tests wrap it to race a swap. */
+  openChild?: OpenCommandChild | undefined;
   id(): string;
 }
 const watchedRoot = (path: string, scope: "user" | "workspace", home: string): DiscoveryRoot => ({
@@ -47,6 +49,7 @@ const watchedRoot = (path: string, scope: "user" | "workspace", home: string): D
 export class SkillLibrary {
   private readonly options: SkillLibraryOptions;
   private readonly updates: SkillUpdates | undefined;
+  private readonly disk: SkillDisk;
   private readonly watchers = new Map<string, { files: CommandFiles; users: number }>();
   private readonly listeners = new Set<() => void>();
   private tail: Promise<unknown> = Promise.resolve();
@@ -54,7 +57,8 @@ export class SkillLibrary {
   private closed = false;
   constructor(options: SkillLibraryOptions) {
     this.options = options;
-    this.updates = options.updates ? new SkillUpdates(options.updates) : undefined;
+    this.disk = new SkillDisk(options.openChild);
+    this.updates = options.updates ? new SkillUpdates(options.updates, this.disk) : undefined;
   }
   /** Self-heal after a crash mid-update, before the first request. */
   async start(): Promise<void> {
@@ -231,18 +235,13 @@ export class SkillLibrary {
           throw new SkillError("exists", `You already have a skill called ${op.name}.`);
         const workspace = workspaceId ? this.workspace(workspaceId) : undefined;
         const root = canonicalRoot(skillRoots(this.options.homes, workspace), op.scope.kind);
-        const directory = await createSkillDirectory(root, op.name);
-        try {
-          await replaceSkillFile(
-            directory,
-            newSkill(op.name, op.description, op.body, op.manual),
-            null,
-            this.options.id(),
-          );
-        } catch (error) {
-          await rm(directory, { recursive: true, force: true });
-          throw error;
-        }
+        const directory = await createSkill(
+          this.disk,
+          root,
+          op.name,
+          newSkill(op.name, op.description, op.body, op.manual),
+          this.options.id(),
+        );
         const created = (await this.listAll(workspaceId)).find(
           (l) => l.place.canonical?.real === directory,
         );
@@ -252,15 +251,17 @@ export class SkillLibrary {
         return this.skill(created.entry.id, workspaceId);
       }
       case "edit": {
-        const { canonical, text } = await this.editable(op.id, op.workspaceId);
-        const directory = await writableDirectory(canonical);
-        if (text === undefined || (await readSkillFile(directory)).hash !== op.expectedHash)
-          throw new SkillError(
-            "conflict",
-            "This skill changed elsewhere. Reload it before saving.",
-          );
-        const next = editSkill(text, op);
-        await replaceSkillFile(directory, next, op.expectedHash, this.options.id());
+        const { canonical } = await this.editable(op.id, op.workspaceId);
+        await withSkillFolder(this.disk, canonical, async (_root, folder) => {
+          const current = await readPinnedSkill(this.disk, folder);
+          if (current?.hash !== op.expectedHash)
+            throw new SkillError(
+              "conflict",
+              "This skill changed elsewhere. Reload it before saving.",
+            );
+          const next = editSkill(current.text, op);
+          await replacePinnedSkill(this.disk, folder, next, op.expectedHash, this.options.id());
+        });
         this.notify();
         return this.skill(op.id, op.workspaceId);
       }
@@ -271,13 +272,17 @@ export class SkillLibrary {
       }
       case "delete": {
         const { place, canonical } = await this.editable(op.id, op.workspaceId);
-        if ((await readSkillFile(await writableDirectory(canonical))).hash !== op.expectedHash)
-          throw new SkillError(
-            "conflict",
-            "This skill changed elsewhere. Reload it before deleting.",
-          );
-        for (const link of place.members.filter((m) => m.link)) await unlinkSkill(link);
-        await removeSkillDirectory(canonical);
+        await withSkillFolder(this.disk, canonical, async (root, folder) => {
+          if ((await readPinnedSkill(this.disk, folder))?.hash !== op.expectedHash)
+            throw new SkillError(
+              "conflict",
+              "This skill changed elsewhere. Reload it before deleting.",
+            );
+          for (const link of place.members.filter((m) => m.link)) await unlinkSkill(link);
+          // Contents go through the pinned folder; the name is removed only if it is still it.
+          await this.disk.empty(folder);
+          await this.disk.removeEmptyDirectory(root, canonical.name);
+        });
         this.notify();
         return { kind: "deleted", id: op.id };
       }

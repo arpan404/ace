@@ -1,6 +1,6 @@
 import * as koffi from "koffi";
 import { z } from "zod";
-import { constants } from "node:fs";
+import { close as closeDescriptor, constants } from "node:fs";
 export type OpenCommandChild = (directory: number, name: string, flags: number) => Promise<number>;
 export interface DirectoryReader {
   read(): Promise<string | undefined>;
@@ -135,4 +135,59 @@ export async function readCommandLink(directory: number, name: string): Promise<
   const count = integer.parse(await call(api().readlink, directory, name, bytes, bytes.length));
   if (count < 1 || count >= bytes.length) throw new EntryUnavailable("Unavailable skill link");
   return bytes.subarray(0, count).toString("utf8");
+}
+
+// unlinkat's AT_REMOVEDIR, from <fcntl.h>.
+const removeDirectoryFlag = process.platform === "darwin" ? 0x80 : 0x200;
+/** mkdirat; false when the entry already exists or can't be made. */
+export async function makeCommandDirectory(
+  directory: number,
+  name: string,
+  mode: number,
+): Promise<boolean> {
+  return integer.parse(await call(api().mkdir, directory, name, mode)) === 0;
+}
+/** unlinkat of a file, symlink (never its target) or, with `folder`, an empty directory. */
+export async function removeCommandEntry(
+  directory: number,
+  name: string,
+  folder: boolean,
+): Promise<boolean> {
+  return (
+    integer.parse(await call(api().unlink, directory, name, folder ? removeDirectoryFlag : 0)) === 0
+  );
+}
+/** renameat between two pinned directories; neither name is followed. */
+export async function renameCommandEntry(
+  fromDirectory: number,
+  from: string,
+  toDirectory: number,
+  to: string,
+): Promise<boolean> {
+  return integer.parse(await call(api().rename, fromDirectory, from, toDirectory, to)) === 0;
+}
+const closeQuietly = (fd: number) =>
+  new Promise<void>((accept) => closeDescriptor(fd, () => accept()));
+/**
+ * Open an absolute, already-resolved directory path one component at a time from `/`, with
+ * O_NOFOLLOW at every step: a component swapped for a symlink fails closed.
+ */
+export async function openResolvedDirectory(
+  openChild: OpenCommandChild,
+  path: string,
+): Promise<number> {
+  let fd = await openChild(-100, "/", directoryFlags);
+  try {
+    const parts = path.split("/").filter(Boolean);
+    if (parts.length > 128) throw new Error("Trusted root depth limit");
+    for (const name of parts) {
+      const child = await openChild(fd, name, directoryFlags);
+      await closeQuietly(fd);
+      fd = child;
+    }
+    return fd;
+  } catch (error) {
+    await closeQuietly(fd);
+    throw error;
+  }
 }

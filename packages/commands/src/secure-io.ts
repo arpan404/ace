@@ -18,6 +18,7 @@ import {
   type OpenCommandChild,
   type DirectoryReader,
   EntryUnavailable,
+  openResolvedDirectory,
 } from "./posix.ts";
 const statFd = promisify(fstat),
   closeFd = promisify(close);
@@ -49,20 +50,7 @@ export class SecureCommandIo implements CommandFileIo {
   }
   private async openAnchor(path: string): Promise<number> {
     // Starting at / avoids following even a replaced ancestor of the registered root.
-    let fd = await this.openChild(-100, "/", directoryFlags);
-    try {
-      const parts = path.split(sep).filter(Boolean);
-      if (parts.length > 128) throw new Error("Trusted root depth limit");
-      for (const name of parts) {
-        const child = await this.openChild(fd, name, directoryFlags);
-        await closeFd(fd);
-        fd = child;
-      }
-      return fd;
-    } catch (error) {
-      await closeFd(fd);
-      throw error;
-    }
+    return openResolvedDirectory(this.openChild, resolve(path));
   }
   private async open(root: DiscoveryRoot, path: string, flags: number): Promise<number> {
     const anchor = resolve(root.trustedRoot ?? dirname(root.path));

@@ -306,6 +306,7 @@ export class FakeSkillLibrary {
           skillId: operation.id,
           commit,
           folderHash: digest(after, 40),
+          baseHash: current.hash,
           files: [
             { path: "SKILL.md", change: "changed", flagged: false },
             { path: "scripts/check.sh", change: "added", flagged: true },

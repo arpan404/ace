@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { posix } from "node:path";
 import { z } from "zod";
 import type { SkillSource } from "@ace/protocol";
@@ -105,4 +106,14 @@ export function diffFolders(
     if (!after.has(path)) files.push({ path, change: "removed", flagged: flag(path, file) });
   // Code-point order: the same on every machine and locale.
   return files.toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+/** One hash for a whole folder: every path, content hash and executable bit. */
+export function folderFingerprint(files: ReadonlyMap<string, FolderFile>): string {
+  const lines = [...files].map(
+    ([path, file]) => `${path}\0${file.hash}\0${file.executable ? 1 : 0}`,
+  );
+  // Code-point order, as in diffFolders.
+  return createHash("sha256")
+    .update(lines.toSorted((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join("\n"))
+    .digest("hex");
 }
