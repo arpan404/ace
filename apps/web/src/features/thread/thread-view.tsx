@@ -20,16 +20,10 @@ import { ThreadLoadError } from "./thread-load-error.tsx";
 import { SyncingNote, ThreadLoading } from "./thread-loading.tsx";
 import { useLatestForkPoint } from "./transitions/use-fork-point.ts";
 
+import { DeferredPendingThread } from "./pending-thread-deferred.ts";
+
 const ThreadBrowser = lazy(loadThreadBrowser);
 
-/**
- * A thread being started, off the thread route's first paint. New thread warms it as it opens
- * and waits for it before it moves here, so the move never shows an empty pane.
- */
-const DeferredPendingThread = deferredComponent(() =>
-  import("./pending-thread.tsx").then((m) => m.PendingThreadView),
-);
-export const preloadPendingThread = DeferredPendingThread.preload;
 const AttachmentsSheet = lazy(() =>
   import("./attachments-sheet.tsx").then((module) => ({ default: module.AttachmentsSheet })),
 );
@@ -45,7 +39,6 @@ import { useLayout } from "@/lib/layout.tsx";
 import { findInThread } from "./long/nav-keys.tsx";
 import { Transcript } from "./transcript/transcript.tsx";
 import { whenIdle } from "@/lib/idle.ts";
-import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { DeferredThreadHotkeys, DeferredThreadMenu, preloadDeferred } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
 import { isPendingThread } from "./composer/send-store.ts";

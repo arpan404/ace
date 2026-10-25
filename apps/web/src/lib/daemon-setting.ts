@@ -1,18 +1,20 @@
 import { subscribeSettings } from "./settings-subscription.ts";
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
-import {
+import type {
   SettingsValues,
-  SettingsSet,
-  type SettingsEntry,
-  type SettingsKey,
-  type SettingsLayer,
-  type SettingsProvenance,
-  type SettingsScope,
+  SettingsEntry,
+  SettingsKey,
+  SettingsLayer,
+  SettingsProvenance,
+  SettingsScope,
 } from "@ace/protocol";
 import { useCallback, useSyncExternalStore } from "react";
 
 type Value<K extends SettingsKey> = SettingsValues[K];
+
+/** Starts loading with this module, so it is usually there before the daemon first answers. */
+const schemas = import("./settings-schemas.ts");
 
 /**
  * One daemon setting resolved for a scope, kept live: a `settings.subscribe` for that key while
@@ -57,11 +59,15 @@ class SettingWatch {
       if (!this.listeners.size) this.stop();
     };
   };
-  private apply(entries: readonly SettingsEntry[]) {
+  /** Pushes wait for the schemas in arrival order: they share one promise. */
+  private receive(entries: readonly SettingsEntry[]) {
+    void schemas.then(({ SettingsValues }) => this.apply(SettingsValues, entries));
+  }
+  private apply(values: typeof SettingsValues, entries: readonly SettingsEntry[]) {
     this.failed = false;
     const entry = entries.find((candidate) => candidate.key === this.key);
     if (!entry) return;
-    const parsed = SettingsValues.shape[this.key].safeParse(entry.value);
+    const parsed = values.shape[this.key].safeParse(entry.value);
     this.value = parsed.success ? parsed.data : undefined;
     this.provenance = entry.provenance;
     this.localValue = entry.localValue;
@@ -72,7 +78,7 @@ class SettingWatch {
       this.client,
       [this.key],
       this.scope,
-      (entries) => this.apply(entries),
+      (entries) => this.receive(entries),
       () => {
         this.failed = true;
         for (const listener of this.listeners) listener();
@@ -124,11 +130,11 @@ export function useDaemonSetting<K extends SettingsKey>(
 ): [Value<K> | undefined, (value: Value<K>, layer?: SettingsLayer) => Promise<void>] {
   const client = useClient();
   const watch = watchFor(client, key, scope);
-  const raw = useSyncExternalStore(watch.subscribe, watch.get, watch.get);
-  const parsed = SettingsValues.shape[key].safeParse(raw);
-  const value = raw === undefined || !parsed.success ? undefined : (parsed.data as Value<K>);
+  // The watch keeps only values its key's schema accepted, so what it holds is already a Value<K>.
+  const value = useSyncExternalStore(watch.subscribe, watch.get, watch.get) as Value<K> | undefined;
   const set = useCallback(
     async (stored: Value<K>, layer: SettingsLayer = { kind: "global" }) => {
+      const { SettingsSet } = await schemas;
       const reply = await client.request({
         type: "settings.set",
         key,
