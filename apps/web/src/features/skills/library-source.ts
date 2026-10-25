@@ -16,7 +16,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { z } from "zod";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 
-type Operation = z.input<typeof import("@ace/protocol").SkillOperation>;
+type Operation = z.input<typeof SkillOperation>;
 type Result<K extends SkillResult["kind"]> = Extract<SkillResult, { kind: K }>;
 
 /** A request the daemon refused, with its typed reason (`conflict`, `exists`, `read_only`…). */
@@ -36,7 +36,7 @@ async function skills<K extends SkillResult["kind"]>(
   signal?: AbortSignal,
 ): Promise<Result<K>> {
   const reply = await client.request(
-    { type: "skills.request", operation: operation as SkillOperation },
+    { type: "skills.request", operation },
     signal ? { signal } : {},
   );
   const result = reply.result;

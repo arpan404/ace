@@ -1,4 +1,4 @@
-import { ProviderKind } from "@ace/protocol";
+import { ProviderKind, SkillAgent } from "@ace/protocol";
 import { diffTexts, providerNames, type DiffText } from "@ace/ui-core";
 
 /*
@@ -43,10 +43,12 @@ export function rowMarks(providers: readonly ProviderKind[]): ProviderKind[] {
   return ordered.length > 0 && ordered.length <= 2 ? ordered : [];
 }
 
-/** The agents that read skills from folders; a generic ACP agent has none of its own. */
-export const skillAgents: readonly ProviderKind[] = ProviderKind.options.filter(
-  (provider) => provider !== "acp",
-);
+/** The agents with skill folders of their own (ADR 0103); others receive skills through ace. */
+export const skillAgents: readonly SkillAgent[] = SkillAgent.options;
+
+/** Whether ace can give this agent a skill by linking it into the agent's folder. */
+export const isSkillAgent = (provider: ProviderKind): provider is SkillAgent =>
+  SkillAgent.safeParse(provider).success;
 
 /** "Every agent", "Codex only", "Claude Code, Codex and OpenCode". */
 export function agentsText(providers: readonly ProviderKind[]): string {

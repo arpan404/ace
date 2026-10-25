@@ -1,9 +1,8 @@
-import type { ProviderKind } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
 import { useProviderStatuses } from "@/lib/provider-statuses.ts";
-import { skillAgents } from "./library-model.ts";
+import { isSkillAgent, skillAgents } from "./library-model.ts";
 import { SkillRequestError, useCreateSkill } from "./library-source.ts";
 import { NewSkillForm, type NewSkill } from "./new-skill-form.tsx";
 import { SkillPageSkeleton } from "./skills-landing-screen.tsx";
@@ -86,4 +85,3 @@ export function NewSkillPage() {
   );
 }
 
-const isSkillAgent = (provider: ProviderKind) => skillAgents.includes(provider);

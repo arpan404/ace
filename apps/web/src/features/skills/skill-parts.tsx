@@ -18,13 +18,16 @@ export function SkillHeading(props: { title: string; description: string; childr
   );
 }
 
-/** Start a thread with the skill picked in the composer, on the person's current agent. */
-export function UseInThread(props: { name: string }) {
+/**
+ * Start a thread with the skill named first in the message, on the person's current agent; the
+ * composer sends a leading `/name` as that agent's skill. A project's skill starts in its project.
+ */
+export function UseInThread(props: { name: string; project?: string | undefined }) {
   return (
     <div className="mt-4">
       <Link
         to="/new"
-        search={{ skill: props.name }}
+        search={{ skill: props.name, ...(props.project ? { project: props.project } : {}) }}
         className={buttonVariants({ variant: "primary", size: "sm" })}
       >
         Use in a thread
@@ -34,7 +37,10 @@ export function UseInThread(props: { name: string }) {
 }
 
 /** The agents' marks, then their names: "Claude Code, Codex and OpenCode", "Every agent". */
-export function AgentsLine(props: { providers: readonly ProviderKind[]; extra?: string }) {
+export function AgentsLine(props: {
+  providers: readonly ProviderKind[];
+  extra?: string | undefined;
+}) {
   return (
     <span className="flex flex-wrap items-center gap-1.5">
       <ProviderMarks providers={props.providers} size={14} decorative />

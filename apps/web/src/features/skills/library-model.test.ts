@@ -13,7 +13,7 @@ test("agents read by name, and all of them as every agent", () => {
   expect(agentsText(["claude"])).toBe("Claude Code only");
   expect(agentsText(["opencode", "claude", "codex"])).toBe("Claude Code, Codex and OpenCode");
   expect(agentsText([])).toBe("No agent");
-  expect(agentsText(["antigravity", "claude", "codex", "cursor", "opencode", "pi"])).toBe(
+  expect(agentsText(["claude", "codex", "cursor", "opencode", "pi"])).toBe(
     "Every agent",
   );
 });
