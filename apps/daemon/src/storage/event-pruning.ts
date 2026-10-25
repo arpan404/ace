@@ -150,16 +150,29 @@ export function pruneBatch(
   };
 }
 
-/** Deletes what the update at `seq` replaces for its item. */
+/**
+ * Deletes what the update at `seq` replaces for its item. Candidates come from the item's own
+ * indexes, not a scan of the thread: its revisions mark its updates, and the stream versions
+ * of its text and output streams mark its deltas. Each candidate is checked against the event
+ * row itself. A delta without a stream version is not found and simply stays.
+ */
 function supersede(sql: Sql, thread: string, item: string, seq: number) {
   const since = previousSurvivor(sql, item, seq);
   if (since === undefined) return { events: 0, revisions: 0 };
   const doomed = sql(
-    `SELECT seq FROM events WHERE thread_id=? AND seq>=? AND seq<?
-        AND type IN ('item.updated','item.delta') AND json_valid(payload)
-        AND COALESCE(json_extract(payload,'$.item.id'),json_extract(payload,'$.itemId'))=?`,
+    `WITH streams(id) AS (
+        SELECT id FROM item_text_streams WHERE item_id=?
+        UNION SELECT id FROM output_streams WHERE item_id=?
+      ), candidates(seq) AS (
+        SELECT seq FROM history_item_revisions WHERE item_id=? AND seq>=? AND seq<?
+        UNION SELECT v.seq FROM history_stream_versions v JOIN streams s ON s.id=v.stream_id
+          WHERE v.seq>=? AND v.seq<?
+      )
+      SELECT e.seq FROM candidates c JOIN events e ON e.seq=c.seq
+      WHERE e.thread_id=? AND e.type IN ('item.updated','item.delta') AND json_valid(e.payload)
+        AND COALESCE(json_extract(e.payload,'$.item.id'),json_extract(e.payload,'$.itemId'))=?`,
   )
-    .all(thread, since, seq, item)
+    .all(item, item, item, since, seq, since, seq, thread, item)
     .map((row) => Row.parse(row).seq);
   if (!doomed.length) return { events: 0, revisions: 0 };
   // The first complete revision marks when the item finished; history reads cite it.
