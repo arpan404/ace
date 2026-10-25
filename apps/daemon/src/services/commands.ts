@@ -13,6 +13,7 @@ import { builtinSkillsDirectory } from "@ace/plugins";
 import { WorkspaceId, type Thread } from "@ace/protocol";
 import type { ServiceContext } from "./types.ts";
 import { createDaemonSkillLibrary, type DaemonSkillOptions } from "../skill-library.ts";
+import { readSkillUsage } from "../skill-usage.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export interface DaemonCommandIntegration {
   instances?: readonly ProviderInstance[];
@@ -56,6 +57,7 @@ async function initializeCommands({
     },
     pluginEntries: plugins ? () => plugins.extensions("claude") : undefined,
     options: integration.skills,
+    usage: async (names) => readSkillUsage((sql) => store.statement(sql), names),
     now,
     id,
   });
