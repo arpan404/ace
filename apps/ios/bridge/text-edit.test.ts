@@ -2,7 +2,6 @@ import { expect, test } from "vitest";
 import { itemPatch, textEdit } from "./text-edit.ts";
 
 const utf8 = (text: string) => Buffer.byteLength(text, "utf8");
-const row = (text: string) => ({ id: "i", index: 3, complete: false, text });
 
 /** A thread item row holding `text`, as the bridge sends it. */
 const textRow = (text: string) => ({ id: "i", index: 3, complete: false, text });

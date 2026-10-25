@@ -24,9 +24,6 @@ let bytes = 0;
 let rejected = 0;
 let pump: PatchPump;
 
-// Native measures and cuts in UTF-8 bytes, as Swift's strings do.
-const length = (id: string) => Buffer.byteLength(shown.get(id) ?? "");
-
 function receive(frame: string): boolean {
   const patches = JSON.parse(frame) as Edit[];
   for (const patch of patches)
