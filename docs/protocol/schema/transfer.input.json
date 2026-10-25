@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/transfer.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "includeChanges": {
+      "description": "Send uncommitted changes. Default true.",
+      "type": "boolean"
+    },
+    "includeIgnored": {
+      "description": "Send ignored files like .env. Default: setting.",
+      "type": "boolean"
+    },
+    "machine": {
+      "description": "A machine from `machines` whose transfers is true.",
+      "pattern": "^[a-zA-Z0-9_.-]{1,64}$",
+      "type": "string"
+    },
+    "project": {
+      "description": "A project on this machine, by id or name. Default: this thread's.",
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "thread": {
+      "const": "self",
+      "description": "Continue this thread there; the person sends its next message there.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "machine"
+  ],
+  "type": "object"
+}

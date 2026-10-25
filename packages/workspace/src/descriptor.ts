@@ -31,6 +31,10 @@ const Binding = z.object({
   removeDirectoryAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
   renameAt: z.function({ input: [z.number().int(), z.string(), z.string()], output: z.void() }),
   mkdirAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
+  symlinkAt: z.function({
+    input: [z.number().int(), z.string(), z.string()],
+    output: z.void(),
+  }),
   statAt: z.function({
     input: [z.number().int(), z.string()],
     output: z.object({
@@ -96,6 +100,14 @@ export function openMetadataAt(parent: number, name: string): Descriptor {
 export function mkdirAt(parent: number, name: string): void {
   try {
     binding().mkdirAt(parent, name);
+  } catch (error) {
+    nativeFailure(error);
+  }
+}
+/** Creates a symlink in `parent` without resolving its target or following `name`. */
+export function symlinkAt(parent: number, target: string, name: string): void {
+  try {
+    binding().symlinkAt(parent, target, name);
   } catch (error) {
     nativeFailure(error);
   }

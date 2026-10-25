@@ -27,7 +27,6 @@ import { whenIdle } from "@/lib/idle.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useProjectMetadata, useRegisteredProjects } from "@/lib/projects.ts";
 import { useStartingProvider } from "@/lib/provider-statuses.ts";
-import { ProjectsEmptyState } from "@/features/projects/index.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
 import {
   defaultWorktreeBase,
@@ -55,6 +54,10 @@ import { useNewThreadOptions } from "@/features/models/index.ts";
 import { useCreateThread } from "./use-create-thread.ts";
 import { noWorktreeReason, useDefaultWorkMode } from "./work-mode.ts";
 import { useHostIdentity } from "@/lib/host-name.ts";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
+import { useScopedMachine } from "@/lib/machines.ts";
+import { rememberMachine, rememberedProject } from "./machine-choice.ts";
+import { MachineLine } from "./machine-picker.tsx";
 import {
   preparation,
   preparationSaveFailed,
@@ -65,6 +68,7 @@ import {
   type Preparation,
   usePreparationsChanged,
 } from "./preparations.ts";
+import { NoProjects } from "./no-projects.tsx";
 import { UnavailablePreparation } from "./unavailable-preparation.tsx";
 import { NewThreadSkeleton } from "./new-thread-skeleton.tsx";
 import { launchBeforeCatalog, loadLaunch, saveLaunch } from "./remembered-launch.ts";
@@ -139,10 +143,18 @@ export function NewThreadPage(props: {
   const { ids: projects, loaded } = useRegisteredProjects();
   const host = useHostIdentity()?.hostId;
   const navigate = useNavigate();
+  // On another machine every link from here stays on it (ADR 0102).
+  const machine = useMachineSearch();
+  const scoped = useScopedMachine()?.id;
   // "No project" is offered after every project, and is the choice when there are none.
   const choice =
     props.project ??
-    pickProject([...projects, chatChoice], undefined, loadChoices(storage).project, filter);
+    pickProject(
+      [...projects, chatChoice],
+      undefined,
+      (host && rememberedProject(storage, host)) ?? loadChoices(storage).project,
+      filter,
+    );
   const chat = useChatProject(choice === chatChoice, storage);
   if (!loaded || !host) return <NewThreadSkeleton />;
   if (props.project && props.project !== chatChoice && !projects.includes(props.project))
@@ -179,9 +191,11 @@ export function NewThreadPage(props: {
       chat={choice === chatChoice}
       onProject={(next) => {
         saveChoices(storage, { ...loadChoices(storage), project: next });
+        rememberMachine(storage, scoped, { host, id: next });
         void navigate({
           to: "/new",
           search: {
+            ...machine,
             project: next,
             skill: props.skill,
             pullRequest: props.pullRequest,
@@ -192,7 +206,7 @@ export function NewThreadPage(props: {
       onSource={(source) =>
         void navigate({
           to: "/new",
-          search: { project, pullRequest: source.pullRequest, issue: source.issue },
+          search: { ...machine, project, pullRequest: source.pullRequest, issue: source.issue },
         })
       }
     />
@@ -216,6 +230,7 @@ function PreparationPage(props: {
   // rendering, by version (`usePreparationsChanged`), and a memoized read would show stale rows.
   "use no memo";
   const { storage } = useLayout();
+  const scopedMachine = useScopedMachine()?.id;
   const readinessId = useId();
   const { ids: projects, name, loaded } = useRegisteredProjects();
   usePreparationsChanged();
@@ -607,6 +622,10 @@ function PreparationPage(props: {
     // ⌘N opens the project of the thread started last; the next one may start on this model
     // before the catalog loads.
     saveChoices(storage, { ...loadChoices(storage), project: props.chat ? chatChoice : project });
+    rememberMachine(storage, scopedMachine, {
+      host: props.host,
+      id: props.chat ? chatChoice : project,
+    });
     if (resolved.model)
       saveLaunch(storage, {
         scope: resolved.model.scope,
@@ -699,12 +718,7 @@ function PreparationPage(props: {
   // the project directory on a fresh load.
   if (!loaded) return <NewThreadSkeleton />;
   // Nothing to start a thread in until a project is added, unless it's a chat.
-  if (loaded && !projects.length && !props.chat)
-    return (
-      <Screen title="New thread">
-        <ProjectsEmptyState />
-      </Screen>
-    );
+  if (loaded && !projects.length && !props.chat) return <NoProjects />;
   const recoverable =
     readDraft(storage, draftKey) ?? preparation(storage, props.host, draftKey)?.discardRecovery;
   const promoted = preparation(storage, props.host, draftKey)?.handoffCleanupPending;
@@ -741,7 +755,7 @@ function PreparationPage(props: {
         className="flex h-full min-h-0 flex-col overflow-y-auto pt-6 pb-[max(1rem,env(safe-area-inset-bottom))] [scrollbar-gutter:stable]"
       >
         {/* The thread's reading column: a question naming the project (its name picks another),
-            the composer high on the page, and the project's open work to start from below it. */}
+            the machine under it while there are several, the composer high on the page, and the project's open work to start from below it. */}
         <div className={cn(readingColumn, "flex flex-col pt-[clamp(1rem,22vh,12rem)]")}>
           {props.chat ? (
             // A chat names no project: a plain question, with the picker after it to choose one.
@@ -768,6 +782,7 @@ function PreparationPage(props: {
               ?
             </h2>
           )}
+          <MachineLine returnFocus={messageField} />
           <div className="shrink-0">
             <Composer
               ref={composer}

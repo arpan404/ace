@@ -1,5 +1,5 @@
 import type { ChangeTap, ClientCore, PendingSend, SidebarSource } from "@ace/client";
-import { settledTotal } from "@ace/ui-core";
+import { settledTotal, type HomeSort } from "@ace/ui-core";
 import {
   inboxNextChange,
   snoozePresets,
@@ -14,6 +14,7 @@ import { preview } from "./presentation.ts";
 import { followAccounts } from "./inbox-accounts.ts";
 import { inboxLayout, inboxRow, type InboxClock } from "./inbox-rows.ts";
 import { followCheckpoint, inboxCheckpoint } from "./inbox-checkpoint.ts";
+import { followInboxSort } from "./inbox-sort.ts";
 import { dispatchCommand } from "./commands.ts";
 import type { PatchSink } from "./agents.ts";
 
@@ -75,6 +76,8 @@ export function followInbox(
   clock: InboxClock,
   generation: ActivityGeneration = makeActivityGeneration(),
   save?: (checkpoint: string) => void,
+  /** The sort the phone last drew this machine's inbox in, until the machine says (`inbox-sort.ts`). */
+  lastSort?: HomeSort,
 ): () => void {
   const store = owner.threads().store;
   const sends = owner.pendingSends();
@@ -82,7 +85,15 @@ export function followInbox(
   const online = () => connection.getSnapshot() === "ready";
   // Results that finished before this phone started following count as seen.
   const baseline = clock.now();
-  const context = () => ({ machineId, now: clock.now(), baseline, accounts: accounts.views() });
+  // A sort chosen on any device regroups the list at once.
+  const sort = followInboxSort(owner, clock, lastSort, () => sections());
+  const context = () => ({
+    machineId,
+    now: clock.now(),
+    baseline,
+    accounts: accounts.views(),
+    sortBy: sort.current(),
+  });
   const row = (id: string) =>
     pump.put(`inbox:${id}`, () => {
       const thread = inboxThread(store, machineId, id);
@@ -147,6 +158,7 @@ export function followInbox(
       // Only the daemon's own copy has a Settled section, so only it carries the daemon's total.
       return inboxLayout(threads, unsent, now, (store.homeWindow ?? store.window)?.before != null, {
         settledTotal: store.unconfirmed === true ? undefined : settledTotal(store.homeWindow),
+        sortBy: sort.current(),
       });
     });
   };
@@ -230,6 +242,7 @@ export function followInbox(
   change("all");
   return () => {
     for (const stop of stops) stop();
+    sort.stop();
     checkpoint.stop();
     arm(undefined);
   };

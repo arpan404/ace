@@ -169,14 +169,14 @@ struct UsageView: View {
         do {
             let reply = try await model.read(read, as: UsageReply.self)
             result = reply.result
-        } catch { problem = error.localizedDescription }
+        } catch is CancellationError {} catch { if !Task.isCancelled { problem = error.localizedDescription } }
     }
     private func readLimits() async {
         limitsLoading = true; limitsProblem = nil
         defer { limitsLoading = false }
         do {
             limits = try await model.read(Self.limitsRead, as: UsageLimitsReply.self)
-        } catch { limitsProblem = error.localizedDescription }
+        } catch is CancellationError {} catch { if !Task.isCancelled { limitsProblem = error.localizedDescription } }
     }
 }
 

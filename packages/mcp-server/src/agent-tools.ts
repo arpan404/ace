@@ -42,16 +42,10 @@ const DelegateTask = z.strictObject({
   role: DelegationRole,
   runRole: RunRole.optional().describe("Run as a role from your Roles line."),
   provider: ProviderKind.optional().describe(
-    "Provider that runs the child. Default: yours, or the one whose catalog has `model`.",
+    "Provider that runs the child. Default: yours, or the one serving `model`.",
   ),
-  model: z
-    .string()
-    .min(1)
-    .max(256)
-    .optional()
-    .describe(
-      "A model id from `models`. Default: the provider's default model. ace picks the account and instance that serve it.",
-    ),
+  model: z.string().min(1).max(256).optional().describe('Model id or name ("opus 5.5").'),
+  accountId: z.string().min(1).max(256).optional().describe("Account id or label."),
   effort: z
     .string()
     .min(1)
@@ -197,15 +191,54 @@ const machines = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Other machines the person paired that let agents in: name (pass as machine), online or offline, access (read or operate), projects, tool groups and providers. Use with delegate {machine, project}; delegated children there join wait and agents_status.",
+    "Other machines the person paired: name (pass as machine), online or offline, access (read or operate), projects, tool groups, providers, and transfers (true: transfer can move work there). Use with delegate {machine, project}; delegated children there join wait and agents_status.",
   input: z.strictObject({}),
   output: controlResult(z.unknown()),
   run: (_, control) => control.run({ op: "machines" }),
 });
 
+const transfer = controlTool({
+  ...agents,
+  name: "transfer",
+  title: "Move work to another machine",
+  riskClass: "external-effect",
+  capability: "agents",
+  description:
+    'Carry a project, or this thread, to another paired machine: same branch, uncommitted changes included. Default: this thread\'s project. thread: "self" continues this thread there as a new thread with its history. Returns at once with transferId; the result arrives as a new turn, so end your turn. Never poll.',
+  input: z.strictObject({
+    machine: MachineName.describe("A machine from `machines` whose transfers is true."),
+    project: z
+      .string()
+      .min(1)
+      .max(256)
+      .optional()
+      .describe("A project on this machine, by id or name. Default: this thread's."),
+    thread: z
+      .literal("self")
+      .optional()
+      .describe("Continue this thread there; the person sends its next message there."),
+    includeChanges: z.boolean().optional().describe("Send uncommitted changes. Default true."),
+    includeIgnored: z
+      .boolean()
+      .optional()
+      .describe("Send ignored files like .env. Default: setting."),
+  }),
+  output: controlResult(z.looseObject({ transferId: z.string() })),
+  run: (input, control) => control.run({ op: "transfer", ...input }),
+});
+
 const CatalogPage = z.looseObject({
-  models: z.array(z.looseObject({ id: z.string() })),
-  instances: z.array(z.looseObject({ provider: z.string() })),
+  models: z.array(
+    z.looseObject({
+      id: z.string(),
+      provider: z.string(),
+      instance: z.string(),
+      accounts: z.array(z.string()).optional(),
+    }),
+  ),
+  instances: z.array(
+    z.looseObject({ provider: z.string(), instance: z.string(), accountId: z.string().optional() }),
+  ),
 });
 const models = controlTool({
   ...agents,
@@ -214,16 +247,23 @@ const models = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Models a child can run on, with their efforts, and the installed providers with their login state and the access modes a child may take. Pass a model's id to delegate. Page with offset.",
+    "Models a child can run on, with their efforts and the accounts that serve each, plus every account with its login state and the access modes a child may take. With query, the nearest models to a name across all providers and accounts, nearest first. Pass a model's id to delegate. Page with offset.",
   input: z.strictObject({
     provider: ProviderKind.optional().describe("Only this provider's models."),
+    query: z
+      .string()
+      .min(1)
+      .max(256)
+      .optional()
+      .describe('A model name as the person wrote it, such as "opus 5.5" or "gpt 6.1 sol".'),
     offset: z.number().int().min(0).max(40_960).default(0).describe("From nextOffset."),
   }),
   output: controlResult(z.unknown()),
-  async run({ provider, offset }, control) {
+  async run({ provider, query, offset }, control) {
     const result = await control.run({
       op: "agents.catalog",
       ...(provider ? { provider } : {}),
+      ...(query ? { query } : {}),
       offset,
       limit: 20,
     });
@@ -235,9 +275,19 @@ const models = controlTool({
 const pick = (value: Record<string, unknown>, keys: readonly string[]) =>
   Object.fromEntries(keys.flatMap((key) => (value[key] === undefined ? [] : [[key, value[key]]])));
 /** The catalog fields a model chooses by; native selectors and refresh state stay in ace. */
-function compactCatalog(page: z.infer<typeof CatalogPage>) {
-  return {
-    models: page.models.map((model) => ({
+/** One entry per model, naming the accounts that serve it, in the catalog's order. */
+function compactModels(rows: z.infer<typeof CatalogPage>["models"]) {
+  const byModel = new Map<string, Record<string, unknown> & { accounts: string[] }>();
+  for (const model of rows) {
+    const key = `${model.provider}\u0000${model.id}`;
+    const serving = model.accounts ?? [model.instance];
+    const entry = byModel.get(key);
+    if (entry) {
+      for (const account of serving)
+        if (!entry.accounts.includes(account)) entry.accounts.push(account);
+      continue;
+    }
+    byModel.set(key, {
       ...pick(model, ["id", "displayName", "provider", "defaultEffort", "isDefault"]),
       ...(Array.isArray(model["efforts"])
         ? {
@@ -246,10 +296,25 @@ function compactCatalog(page: z.infer<typeof CatalogPage>) {
             ),
           }
         : {}),
+      accounts: [...serving],
+    });
+  }
+  return [...byModel.values()];
+}
+function compactCatalog(page: z.infer<typeof CatalogPage>) {
+  return {
+    models: compactModels(page.models),
+    accounts: page.instances.map((instance) => ({
+      accountId: instance.accountId ?? instance.instance,
+      ...pick(instance, [
+        "provider",
+        "accountLabel",
+        "installed",
+        "auth",
+        "availability",
+        "allowedAccessModes",
+      ]),
     })),
-    providers: page.instances.map((instance) =>
-      pick(instance, ["provider", "accountLabel", "installed", "auth", "allowedAccessModes"]),
-    ),
     ...pick(page, ["nextOffset", "caller"]),
   };
 }
@@ -261,5 +326,6 @@ export const agentTools = [
   agentMessage,
   agentCancel,
   machines,
+  transfer,
   models,
 ];

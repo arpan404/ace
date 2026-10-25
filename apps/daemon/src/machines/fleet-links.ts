@@ -22,6 +22,11 @@ export interface FleetLinkDeps {
   redeem(url: string, name: string): Promise<DeviceCredential>;
   /** This machine's display name, which the other machine shows for the device. */
   hostName(): Promise<string>;
+  /**
+   * Whether that machine takes transfers from this device (`operate` and `projects` there),
+   * answered without its agent access (ADR 0101).
+   */
+  transfers?(profile: RemoteProfile): Promise<{ hostId: HostId; name: string; accepts: boolean }>;
 }
 
 /**
@@ -143,13 +148,20 @@ export class FleetLinks {
         name: description.name,
         status: "online",
         access: description.access,
+        ...(description.transfers === undefined ? {} : { projects: description.transfers }),
       };
     } catch (error) {
+      const refused = error instanceof MachineFailure && error.kind === "refused";
+      // Agents may be shut out there while the person's transfers still go (ADR 0101).
+      const probe = refused
+        ? await this.deps.transfers?.(profile).catch(() => undefined)
+        : undefined;
       return {
         ...base,
-        ...(profile.hostId ? { hostId: profile.hostId } : {}),
-        name: profile.label ?? profile.name,
-        status: error instanceof MachineFailure && error.kind === "refused" ? "refused" : "offline",
+        ...(profile.hostId || probe ? { hostId: profile.hostId ?? probe?.hostId } : {}),
+        name: profile.label ?? probe?.name ?? profile.name,
+        status: refused ? "refused" : "offline",
+        ...(probe ? { projects: probe.accepts } : {}),
       };
     }
   }

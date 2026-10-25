@@ -1250,6 +1250,18 @@
     },
     {
       "properties": {
+        "type": {
+          "const": "workspace.chat.create",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "archiveThreads": {
           "default": false,
           "type": "boolean"
@@ -1265,6 +1277,78 @@
       "required": [
         "type",
         "workspaceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "hostId": {
+          "$ref": "https://ace.local/protocol/v1/HostId.json"
+        },
+        "includeChanges": {
+          "default": true,
+          "type": "boolean"
+        },
+        "includeIgnored": {
+          "type": "boolean"
+        },
+        "parent": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "workspace.transfer",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId",
+        "hostId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "hostId": {
+          "$ref": "https://ace.local/protocol/v1/HostId.json"
+        },
+        "includeChanges": {
+          "default": true,
+          "type": "boolean"
+        },
+        "includeIgnored": {
+          "type": "boolean"
+        },
+        "model": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "parent": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.continueOn",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "hostId"
       ],
       "type": "object"
     },

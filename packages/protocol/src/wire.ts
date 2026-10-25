@@ -38,6 +38,7 @@ import {
   WorkspaceChanged,
   WorkspaceCloneProgress,
 } from "./project-requests.ts";
+import { TransferProgress, TransfersRequest, TransfersResult } from "./transfers.ts";
 import {
   TurnsPageRequest,
   TurnsPageResponse,
@@ -205,6 +206,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   HostIdentityRequest,
   MachinesRequest,
   FleetRequest,
+  TransfersRequest,
   ProvidersRequest,
   ...ProviderLoginRequest.options,
   ...ProviderInstallRequest.options,
@@ -291,6 +293,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   HostIdentityResult,
   MachinesResult,
   FleetResult,
+  TransfersResult,
+  TransferProgress,
   ProvidersResult,
   ProviderLoginResult,
   ProviderLoginEvent,

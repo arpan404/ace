@@ -47,6 +47,7 @@ import { useOpenWebAddress } from "@/components/web-link.tsx";
 import type { PrWorkspaceExtensions } from "./pr-extensions.ts";
 import type { PrActions } from "./pr-actions.ts";
 import { lifecycleLabels } from "./pr-lifecycle.ts";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 const icon = (Glyph: typeof LinkIcon) => <Glyph aria-hidden size={16} />;
 
@@ -86,6 +87,7 @@ export function PrOverflowMenu(props: {
   const toast = useToast();
   const openWeb = useOpenWebAddress();
   const navigate = useNavigate();
+  const machine = useMachineSearch();
   const tasks = useProjectTasks(context.workspaceId);
   const [closing, setClosing] = useState(false);
   const related = detail.relatedThreads;
@@ -174,7 +176,11 @@ export function PrOverflowMenu(props: {
                   <MenuItem
                     key={task.id}
                     onClick={() =>
-                      void navigate({ to: "/t/$threadId", params: { threadId: task.id } })
+                      void navigate({
+                        to: "/t/$threadId",
+                        params: { threadId: task.id },
+                        search: machine,
+                      })
                     }
                   >
                     {task.archived ? `${task.title} · Archived` : task.title}
@@ -200,7 +206,7 @@ export function PrOverflowMenu(props: {
             onClick={() =>
               void navigate({
                 to: "/new",
-                search: { project: context.workspaceId, pullRequest: status.url },
+                search: { project: context.workspaceId, pullRequest: status.url, ...machine },
               })
             }
           >

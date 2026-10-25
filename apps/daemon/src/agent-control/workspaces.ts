@@ -1,4 +1,5 @@
 import { realpath } from "node:fs/promises";
+import type { ModelLoadBudget } from "./model-load-budget.ts";
 import {
   Command,
   type AgentWorkspace,
@@ -59,8 +60,13 @@ export function createWorkspaceDelegations(
     string,
     { identity: string; work: Promise<import("@ace/protocol").DelegationRecord> }
   >();
-  async function create(caller: McpAttribution, request: DelegationRequest, signal: AbortSignal) {
-    const configured = await service.prepareModels(caller, request);
+  async function create(
+    caller: McpAttribution,
+    request: DelegationRequest,
+    signal: AbortSignal,
+    budget: ModelLoadBudget,
+  ) {
+    const configured = await service.prepareModels(caller, request, budget);
     signal.throwIfAborted();
     const receipt = service.journal.receipt(caller.threadId, request.requestId);
     if (receipt) {
@@ -116,7 +122,12 @@ export function createWorkspaceDelegations(
       }
     }
   }
-  return async (caller: McpAttribution, request: DelegationRequest, signal: AbortSignal) => {
+  return async (
+    caller: McpAttribution,
+    request: DelegationRequest,
+    signal: AbortSignal,
+    budget?: ModelLoadBudget,
+  ) => {
     const key = `${caller.threadId}:${request.requestId}`;
     const identity = JSON.stringify([caller.agentId, request]);
     const existing = pending.get(key);
@@ -127,12 +138,15 @@ export function createWorkspaceDelegations(
     }
     if (pending.size >= 4)
       throw new AgentControlError("delegation_limit", "Workspace admission busy");
-    const work = create(caller, request, signal);
+    // The caller's budget when it brings one, so matching the name and preparing share it.
+    const used = budget ?? service.loadBudget(signal);
+    const work = create(caller, request, signal, used);
     pending.set(key, { identity, work });
     try {
       return await work;
     } finally {
       pending.delete(key);
+      if (!budget) used.end();
     }
   };
 }

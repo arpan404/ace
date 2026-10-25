@@ -52,8 +52,6 @@ export interface ThreadNav {
   following: Watched<boolean>;
   /** The newest root turn the live tail shows: the turn index is read again when it moves. */
   liveTurn: Watched<number | undefined>;
-  turnsOpen: boolean;
-  setTurnsOpen(open: boolean): void;
   searchOpen: boolean;
   setSearchOpen(open: boolean): void;
   /** Bumped by ⌘F, so an open search bar takes focus again. */
@@ -111,7 +109,6 @@ export function ThreadNavProvider(props: { threadId: string; children: ReactNode
   const [liveTurn] = useState(() => new Watched<number | undefined>(undefined));
   const newestTurn = useThread(props.threadId, ["order", "agents"], readLiveTurn);
   useEffect(() => liveTurn.set(newestTurn), [liveTurn, newestTurn]);
-  const [turnsOpen, setTurnsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchFocus] = useState(() => new Watched(0));
   const value = useMemo<ThreadNav>(
@@ -122,23 +119,11 @@ export function ThreadNavProvider(props: { threadId: string; children: ReactNode
       bottomTurn,
       following,
       liveTurn,
-      turnsOpen,
-      setTurnsOpen,
       searchOpen,
       setSearchOpen,
       searchFocus,
     }),
-    [
-      props.threadId,
-      jump,
-      currentTurn,
-      bottomTurn,
-      following,
-      liveTurn,
-      turnsOpen,
-      searchOpen,
-      searchFocus,
-    ],
+    [props.threadId, jump, currentTurn, bottomTurn, following, liveTurn, searchOpen, searchFocus],
   );
   return <NavContext.Provider value={value}>{props.children}</NavContext.Provider>;
 }

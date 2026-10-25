@@ -112,10 +112,28 @@ test("the page asks what to build in the project, and the project's name picks a
   );
 });
 
-test("the strip names the machine only while more than one device is connected", async () => {
+test("the machine is named under the question only while more than one device is connected", async () => {
   const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/new?project=relay");
-  const where = await screen.findByRole("region", { name: "Where this thread runs" });
-  expect(await within(where).findByRole("img", { name: /machine icon/ })).toBeTruthy();
+  const machine = await screen.findByRole("button", { name: "Machine: This Mac" });
+  const question = within(screen.getByRole("main")).getByRole("heading", { level: 2 });
+  const composer = document.querySelector("[data-slot=composer]");
+  // Between the question and the composer, and not in the composer's strip.
+  expect(question.compareDocumentPosition(machine) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(
+    composer && machine.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  const where = screen.getByRole("region", { name: "Where this thread runs" });
+  expect(where.contains(machine)).toBe(false);
+  expect(machine.closest("p")?.textContent).toBe("on This Mac");
+});
+
+test("with one device the page doesn't name the machine", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  await app.open("/new?project=relay");
+  await screen.findByRole("combobox", { name: "Message" });
+  expect(screen.queryByRole("button", { name: /^Machine:/ })).toBeNull();
+  expect(within(screen.getByRole("main")).queryByText(/^on /)).toBeNull();
 });

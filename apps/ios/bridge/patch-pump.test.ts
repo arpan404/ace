@@ -49,8 +49,8 @@ test("a transcript reaches the phone while the inbox keeps changing", async () =
   let revision = 0;
   const churn = () => {
     revision++;
-    for (let row = 0; row < 40; row++)
-      queue.put(`inbox:t${row}`, () => ({ type: "inbox.row", id: `t${row}`, revision }));
+    for (let n = 0; n < 40; n++)
+      queue.put(`inbox:t${n}`, () => ({ type: "inbox.row", id: `t${n}`, revision }));
   };
   const emit = globalThis.aceHost.emit;
   globalThis.aceHost.emit = (frame: string) => {

@@ -1,6 +1,10 @@
 import { currentAttention } from "@ace/ui-core";
 import { DotsSixVerticalIcon } from "@phosphor-icons/react";
 import { Link, useLocation } from "@tanstack/react-router";
+import type { MachineIcon } from "@ace/protocol";
+import type { ReactElement } from "react";
+import { threadOn } from "@/lib/machine-routes.ts";
+import { useMachines } from "@/lib/machines.ts";
 import {
   useRefusedTitle,
   useSelected,
@@ -31,34 +35,65 @@ import { useThreadCard } from "./use-thread-card.ts";
 const row =
   "relative flex w-full items-center rounded-md px-3 text-left text-ui outline-none transition-colors duration-(--motion-fast)";
 
+/**
+ * Another machine's thread (ADR 0102), drawn under that machine's client. It opens on that
+ * machine and is marked with it; its menus and hover actions run on that machine, and it is
+ * picked, dragged and renamed under its list row id (`machine:[hostId,threadId]`).
+ */
+export interface RowMachine {
+  id: string;
+  name: string;
+  icon: MachineIcon;
+}
+
+/** Whether the location shows `threadId` on `machine` (undefined: this window's own). */
+export function useOpenHere(threadId: string, machine: string | undefined): boolean {
+  // `?machine=` naming this window's own daemon is this window's own (ADR 0102).
+  const own = useMachines().find((each) => each.primary)?.id;
+  return useLocation({
+    select: (location) => {
+      const search: { machine?: unknown } = location.search;
+      const shown = search.machine === own ? undefined : (search.machine ?? undefined);
+      return (
+        shown === machine &&
+        (location.pathname === `/t/${threadId}` ||
+          location.pathname.startsWith(`/t/${threadId}/agents/`))
+      );
+    },
+  });
+}
+
 /** Every task shows project and status/time, title, then branch, environment and provider. */
 export function ThreadRow(props: {
   threadId: string;
   settled: boolean;
   leaving?: boolean | undefined;
+  machine?: RowMachine | undefined;
+  /** The list's id for the row, when it isn't the thread's own (another machine's thread). */
+  rowId?: string | undefined;
 }) {
+  const { machine } = props;
   const { settled } = props;
+  const rowId = props.rowId ?? props.threadId;
   const data = useThreadCard(props.threadId, settled, props.leaving);
   const selection = useHomeSelection();
-  const editing = useRenameTitle(props.threadId);
+  const editing = useRenameTitle(rowId);
   const hover = useThreadHover();
   // A rename the daemon refused opens the field again, with what was typed.
   const refused = useRefusedTitle(props.threadId);
   const renaming = editing !== undefined || refused !== undefined;
   const started = useStartedTitle(props.threadId);
-  const selected = useSelected(props.threadId);
+  const selected = useSelected(rowId);
   const rowActive = useRowActive();
   // One of its provider subagents open as the whole chat is still this thread.
-  const current = useLocation({
-    select: (location) =>
-      location.pathname === `/t/${props.threadId}` ||
-      location.pathname.startsWith(`/t/${props.threadId}/agents/`),
-  });
+  const current = useOpenHere(props.threadId, machine?.id);
   if (!data) return null;
   const { entry } = data;
   // A thread this window started reads its provisional title until the daemon titles it.
-  const card =
+  const titled =
     started && data.card.title === "New thread" ? { ...data.card, title: started } : data.card;
+  // Read under its own machine's client, the card would call that machine "this machine".
+  const card = machine ? { ...titled, machine: machine.name, machineIcon: machine.icon } : titled;
   const handle = card.flags.pinned && !renaming;
   const details = threadDetails(card);
   // The open thread reads at full contrast; every other row is as loud as its attention level.
@@ -76,6 +111,7 @@ export function ThreadRow(props: {
         {renaming ? (
           <RenameField
             entry={entry}
+            rowId={rowId}
             title={editing ?? refused ?? card.title}
             onDone={() => selection.finishRename()}
           />
@@ -112,14 +148,16 @@ export function ThreadRow(props: {
       </div>
     </div>
   );
+  const rename = () => selection.rename(rowId, card.title);
+  const menu = (trigger: ReactElement) => (
+    <ThreadMenu entry={entry} rowId={rowId} state={card.flags} onRename={rename}>
+      {trigger}
+    </ThreadMenu>
+  );
   return (
     <>
       <HoverCard open={hover.open && !renaming} onOpenChange={hover.change}>
-        <ThreadMenu
-          entry={entry}
-          state={card.flags}
-          onRename={() => selection.rename(props.threadId, card.title)}
-        >
+        {menu(
           <HoverCardTrigger
             // Opens once the pointer settles; leaving the row closes it at once, so it never lingers.
             delay={450}
@@ -132,14 +170,13 @@ export function ThreadRow(props: {
             data-attention={attention.level}
             data-muted={attention.muted ? "" : undefined}
             // Settled rows stay out of picking and dragging, as they always have.
-            {...(settled ? {} : { "data-thread-row": entry.id })}
+            {...(settled ? {} : { "data-thread-row": rowId })}
           >
             {renaming ? (
               <div className={cn(row, height)}>{body}</div>
             ) : (
               <Link
-                to="/t/$threadId"
-                params={{ threadId: entry.id }}
+                {...threadOn(machine?.id, entry.id)}
                 aria-label={`${card.title}${card.announceUnread ? ", unread" : ""}${selected ? ", selected" : ""}. ${details.join(", ")}`}
                 data-row-focus=""
                 draggable={false}
@@ -171,15 +208,15 @@ export function ThreadRow(props: {
             )}
             {!renaming && (
               <RowActions
-                onRename={() => selection.rename(props.threadId, card.title)}
+                onRename={rename}
                 onHover={() => hover.change(false)}
                 shown={actions}
                 entry={entry}
                 flags={card.flags}
               />
             )}
-          </HoverCardTrigger>
-        </ThreadMenu>
+          </HoverCardTrigger>,
+        )}
         {hover.open && !renaming && (
           <ThreadHoverContent card={card} entry={entry} instance={instance} />
         )}

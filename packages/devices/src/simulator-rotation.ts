@@ -20,3 +20,11 @@ export function simulatorRotation(orientation: string): FrameRotation {
       return 0;
   }
 }
+
+/**
+ * The orientation to turn a Simulator to so it matches what serve-sim announced: an unknown
+ * name is shown upright (`simulatorRotation` gives 0), so the device is turned upright too.
+ */
+export function knownOrientation(orientation: string): string {
+  return simulatorRotation(orientation) === 0 ? "portrait" : orientation;
+}

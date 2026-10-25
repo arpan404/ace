@@ -1,7 +1,7 @@
 import type { ThreadListEntry } from "@ace/protocol";
 import type { PendingSend } from "@ace/client";
 import { threadAttention } from "@ace/projection";
-import { isDraft, isRemoved } from "./arrange.ts";
+import { homeListKey, isDraft, isRemoved, type HomeSort } from "./arrange.ts";
 import { activityOf, isSettled, isSnoozed } from "./thread-state.ts";
 import {
   mobileThreadStatus,
@@ -23,19 +23,22 @@ export type InboxGroupKey =
   | "working"
   | "syncing"
   | "unsent"
+  | "threads"
   | "done"
   | "snoozed"
   | "settled";
 
 /**
  * Top to bottom. Snoozed and Settled sit last: out of the way until a snooze wakes or the
- * person unsettles a thread.
+ * person unsettles a thread. Threads holds every live group when the list is sorted by
+ * creation or by hand.
  */
 const groupOrder: readonly InboxGroupKey[] = [
   "needs-you",
   "working",
   "syncing",
   "unsent",
+  "threads",
   "done",
   "snoozed",
   "settled",
@@ -46,6 +49,7 @@ export const inboxGroupLabels: Record<InboxGroupKey, string> = {
   working: "Working",
   syncing: "Syncing",
   unsent: "Unsent",
+  threads: "Threads",
   done: "Done",
   snoozed: "Snoozed",
   settled: "Settled",
@@ -82,7 +86,21 @@ export interface InboxSectionOptions {
    * daemon's own copy: an unconfirmed copy reads Syncing, so it has no Settled section to count.
    */
   settledTotal?: number | undefined;
+  /**
+   * The machine's `threads.sortBy`, as Home reads it. By activity (the default) the live groups
+   * stand apart; by creation or by hand they are one Threads list in that order, so a thread
+   * stays where it is while its state changes. Snoozed and Settled stay apart either way.
+   */
+  sortBy?: HomeSort | undefined;
 }
+
+/** The groups that sorting by creation or by hand folds into one Threads list. */
+const listedGroups: ReadonlySet<InboxGroupKey> = new Set([
+  "needs-you",
+  "working",
+  "syncing",
+  "done",
+]);
 
 /**
  * Where a thread sits, or undefined when the inbox leaves it out (archived, deleted, a draft
@@ -199,6 +217,32 @@ export function inboxRank(thread: InboxThread, group: InboxGroupKey): string {
   return recent + tail;
 }
 
+/**
+ * Any finite number as 16 hex digits whose string order is the number's order: the IEEE 754
+ * bits with the sign flipped for positives and every bit flipped for negatives. Hand-placed
+ * threads sit at fractions between their neighbours, so whole-number ranks would tie them.
+ */
+function ordered(value: number): string {
+  const view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, Number.isFinite(value) && value !== 0 ? value : 0);
+  const high = view.getUint32(0);
+  const low = view.getUint32(4);
+  const negative = high >>> 31 === 1;
+  return negative ? hex(~high) + hex(~low) : hex(high ^ 0x80000000) + hex(low);
+}
+const hex = (word: number) => (word >>> 0).toString(16).padStart(8, "0");
+
+/**
+ * Where a row sorts in the Threads list (sorting by creation or by hand), compared as
+ * `inboxRank` is: the higher place leads, whatever the thread's state; ties break by machine,
+ * then key.
+ */
+export function inboxListRank(thread: InboxThread, sortBy: Exclude<HomeSort, "activity">): string {
+  return (
+    ordered(-homeListKey(sortBy)(thread.entry)) + `\u0000${thread.machineId}\u0000${thread.key}`
+  );
+}
+
 /** Unsent rows: each machine's outbox in its own order, machines apart. */
 export function unsentRank(machineId: string, position: number): string {
   return `\u0000${machineId}\u0000${ascending(position)}`;
@@ -224,10 +268,16 @@ export function inboxSections(
   options: InboxSectionOptions = {},
 ): InboxSection[] {
   const groups = new Map<InboxGroupKey, { key: string; rank: string }[]>();
+  const sortBy = options.sortBy ?? "activity";
   for (const thread of threads) {
-    const group = inboxGroup(thread, now);
+    let group = inboxGroup(thread, now);
     if (!group) continue;
-    const row = { key: thread.key, rank: inboxRank(thread, group) };
+    let rank: string;
+    if (sortBy !== "activity" && listedGroups.has(group)) {
+      group = "threads";
+      rank = inboxListRank(thread, sortBy);
+    } else rank = inboxRank(thread, group);
+    const row = { key: thread.key, rank };
     const list = groups.get(group);
     if (list) list.push(row);
     else groups.set(group, [row]);

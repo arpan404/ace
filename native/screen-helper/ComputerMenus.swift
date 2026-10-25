@@ -81,7 +81,7 @@ extension CUActor {
                     throw CUError("secure_field", "The focused field is a password field. Ask the person to fill it in themselves.")
                 }
                 // A background app's Edit commands act on no first responder; do them on the text.
-                if !session.app.isActive, let command = cuMenuTextCommand(item.1), let target = CUTextTarget.focused(in: session.element),
+                if !session.app.isActive || cuScreenLocked() || session.preserveHumanFocus, let command = cuMenuTextCommand(item.1), let target = textTarget(),
                    let done = await cuRunTextCommand(command, on: target) {
                     session.settler.markChanged()
                     return "chose \(trail.joined(separator: " > ")) (\(done))"
@@ -91,6 +91,7 @@ extension CUActor {
                     return "chose \(trail.joined(separator: " > ")) (with the window's button)\(note)"
                 }
                 // AXEnabled is only refreshed when the menu is drawn; the app validates the press.
+                try requireAppResponder()
                 let note = try await perform(item.0, "AXPress")
                 return "chose \(trail.joined(separator: " > "))\(note)"
             }

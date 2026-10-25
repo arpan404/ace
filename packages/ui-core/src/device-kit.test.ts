@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   activityCaption,
+  deviceScreen,
   filterLines,
   fitFrame,
   frameGeometry,
@@ -36,12 +37,59 @@ test("a small screen is never drawn larger than one pixel per point", () => {
   expect(fit.screen.width).toBe(208);
 });
 
-test("turned on its side, an iPhone drops its island and keeps its frame even", () => {
-  const upright = frameGeometry("iphone", "iPhone 17 Pro", { width: 393, height: 852 });
-  const sideways = frameGeometry("iphone", "iPhone 17 Pro", { width: 852, height: 393 });
-  expect(upright.cutout.kind).toBe("island");
-  expect(sideways.cutout.kind).toBe("none");
-  expect(new Set(Object.values(sideways.bezel)).size).toBe(1);
+/** A frame's screen corner radius in points, for a screen `width` points wide. */
+const cornerPoints = (name: string, screen: { width: number; height: number }) =>
+  frameGeometry(name.startsWith("iPad") ? "ipad" : "iphone", name, screen).screenRadius *
+  screen.width;
+
+test("each iPhone's screen corners match its own display, whatever size its picture arrives at", () => {
+  expect(cornerPoints("iPhone 17 Pro", { width: 402, height: 874 })).toBeCloseTo(62, 5);
+  expect(cornerPoints("iPhone 16 Pro Max", { width: 440, height: 956 })).toBeCloseTo(62, 5);
+  expect(cornerPoints("iPhone 15", { width: 393, height: 852 })).toBeCloseTo(55, 5);
+  expect(cornerPoints("iPhone 14 Pro", { width: 393, height: 852 })).toBeCloseTo(55, 5);
+  expect(cornerPoints("iPhone 13", { width: 390, height: 844 })).toBeCloseTo(47.33, 5);
+  expect(cornerPoints("iPhone 16e", { width: 390, height: 844 })).toBeCloseTo(47.33, 5);
+  expect(cornerPoints("iPhone 11", { width: 414, height: 896 })).toBeCloseTo(41.5, 5);
+  expect(cornerPoints("iPhone SE (3rd generation)", { width: 375, height: 667 })).toBe(0);
+  // Turned sideways the screen is as round as upright.
+  expect(cornerPoints("iPhone 17 Pro", { width: 874, height: 402 })).toBeCloseTo(62, 5);
+});
+
+test("an iPhone or iPad ace doesn't know is drawn as the current generation", () => {
+  expect(deviceScreen("iphone", "iPhone 42 Ultra")).toEqual(
+    deviceScreen("iphone", "iPhone 17 Pro"),
+  );
+  expect(cornerPoints("iPhone 42 Ultra", { width: 402, height: 874 })).toBeCloseTo(62, 5);
+  expect(cornerPoints("iPad Something", { width: 820, height: 1180 })).toBeCloseTo(18, 5);
+});
+
+test("before its first picture, a device's screen has its own model's size", () => {
+  expect(deviceScreen("iphone", "iPhone 17 Pro Max")).toEqual({ width: 440, height: 956 });
+  expect(deviceScreen("iphone", "iPhone Air")).toEqual({ width: 420, height: 912 });
+  expect(deviceScreen("ipad", "iPad Pro 13-inch (M4)")).toEqual({ width: 1032, height: 1376 });
+  expect(deviceScreen("ipad", "iPad mini (A17 Pro)")).toEqual({ width: 744, height: 1133 });
+});
+
+test("a Face ID iPhone's body is evenly bordered and its corners sit concentric around the screen", () => {
+  const geometry = frameGeometry("iphone", "iPhone 17 Pro", { width: 402, height: 874 });
+  expect(new Set(Object.values(geometry.bezel)).size).toBe(1);
+  expect(geometry.bodyRadius).toBeCloseTo(geometry.screenRadius + geometry.bezel.left, 10);
+  expect(geometry.homeButton).toBe(false);
+});
+
+test("a home-button face keeps its chin below the screen and moves it to the sides when turned", () => {
+  const upright = frameGeometry("iphone", "iPhone SE (3rd generation)", {
+    width: 375,
+    height: 667,
+  });
+  const sideways = frameGeometry("iphone", "iPhone 8", { width: 667, height: 375 });
+  expect(upright.homeButton).toBe(true);
+  expect(upright.bezel.top).toBeGreaterThan(upright.bezel.left * 3);
+  expect(sideways.bezel.left).toBeGreaterThan(sideways.bezel.top * 3);
+  expect(
+    frameGeometry("ipad", "iPad (9th generation)", { width: 810, height: 1080 }).homeButton,
+  ).toBe(true);
+  expect(frameGeometry("ipad", "iPad (A16)", { width: 820, height: 1180 }).homeButton).toBe(false);
 });
 
 test("an agent's action reads as a short caption with its ref and the element's name", () => {

@@ -1,3 +1,4 @@
+import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import type { CommandPayload, ThreadListEntry } from "@ace/protocol";
 import { ThreadId, WorkspaceId } from "@ace/protocol";
@@ -8,7 +9,8 @@ import { CommandRefused, failureMessage, stillAlive, waitingNote } from "@/lib/d
 import type { OrganizePatch } from "@ace/ui-core";
 import { useArchiveConfirmation, useDeleteConfirmation } from "./delete-confirmation.ts";
 import { runningWork } from "./running-work.ts";
-import { useOrganizeOverlay } from "./overlay.ts";
+import { useMachineSearch } from "@/lib/machine-routes.ts";
+import { useOrganizeOverlay, type OrganizeOverlay } from "./overlay.ts";
 
 /** How long Undo stays on screen for reversible actions. */
 export const undoWindowMs = 5_000;
@@ -130,319 +132,365 @@ export function useThreadActions(): ThreadActions {
   const toast = useToast();
   const navigate = useNavigate();
   const router = useRouter();
-  return useMemo(() => {
-    const id = (entry: ThreadTarget) => ThreadId.parse(entry.id);
-    /** Apply now, send, and say so if the daemon refuses. False after a refusal. */
-    const act = (entry: ThreadTarget, action: Action) =>
-      overlay
-        .run(entry.id, action.patch, action.payload, `${action.verb} · ${entry.title}`, Date.now())
-        .then(
-          () => true,
-          (error: unknown) => {
-            toast.error({ title: `Couldn't ${action.failed}`, description: failureMessage(error) });
-            return false;
-          },
+  const machine = useMachineSearch();
+  return useMemo(
+    () =>
+      threadActionsOn({
+        overlay,
+        confirmation,
+        archiving,
+        client,
+        toast,
+        navigate,
+        router,
+        machine,
+      }),
+    [overlay, client, toast, navigate, router, confirmation, archiving, machine],
+  );
+}
+
+const id = (entry: ThreadTarget) => ThreadId.parse(entry.id);
+const count = (n: number) => (n === 1 ? "1 thread" : `${n} threads`);
+
+const pin = (entry: ThreadTarget, order?: number): Action => ({
+  patch: order === undefined ? { pinned: true } : { pinned: true, pinOrder: order },
+  payload: {
+    type: "thread.pin",
+    threadId: id(entry),
+    pinned: true,
+    ...(order === undefined ? {} : { order }),
+  },
+  verb: "Pin",
+  failed: "pin the thread",
+});
+
+const unpin = (entry: ThreadTarget): Action => ({
+  patch: { pinned: false },
+  payload: { type: "thread.pin", threadId: id(entry), pinned: false },
+  verb: "Unpin",
+  failed: "unpin the thread",
+});
+
+const settle = (entry: ThreadTarget): Action => ({
+  patch: { settled: true },
+  payload: { type: "thread.settle", threadId: id(entry) },
+  verb: "Settle",
+  failed: "settle the thread",
+});
+
+const unsettle = (entry: ThreadTarget): Action => ({
+  patch: { settled: false, autoSettle: false },
+  payload: { type: "thread.unsettle", threadId: id(entry) },
+  verb: "Unsettle",
+  failed: "unsettle the thread",
+});
+
+const autoSettle = (entry: ThreadTarget, enabled: boolean): Action => ({
+  patch: { autoSettle: enabled },
+  payload: { type: "thread.autoSettle", threadId: id(entry), enabled },
+  verb: enabled ? "Turn on auto-settle" : "Turn off auto-settle",
+  failed: enabled ? "turn on auto-settle" : "turn off auto-settle",
+});
+
+const snooze = (entry: ThreadTarget, until: number | null): Action => ({
+  patch: { snoozedUntil: until },
+  payload: { type: "thread.snooze", threadId: id(entry), until },
+  verb: until === null ? "Wake" : "Snooze",
+  failed: until === null ? "wake the thread" : "snooze the thread",
+});
+
+const archive = (entry: ThreadTarget): Action => ({
+  patch: { archived: true },
+  payload: { type: "thread.archive", threadId: id(entry) },
+  verb: "Archive",
+  failed: "archive the thread",
+});
+
+const unarchive = (entry: ThreadTarget): Action => ({
+  patch: { archived: false },
+  payload: { type: "thread.unarchive", threadId: id(entry) },
+  verb: "Unarchive",
+  failed: "unarchive it",
+});
+
+/** Taking an archived thread back into the list. */
+const restore = (entry: ThreadTarget): Action => ({
+  ...unarchive(entry),
+  verb: "Restore",
+  failed: "restore it",
+});
+
+const move = (entry: ThreadTarget, to: string): Action => {
+  const workspaceId = WorkspaceId.parse(to);
+  return {
+    patch: { workspaceId },
+    payload: { type: "thread.move", threadId: id(entry), workspaceId },
+    verb: "Move",
+    failed: "move the thread",
+  };
+};
+
+const rename = (entry: ThreadTarget, title: string): Action => ({
+  patch: { title },
+  payload: { type: "thread.rename", threadId: id(entry), title },
+  verb: "Rename",
+  failed: "rename the thread",
+});
+
+/** What the actions of one machine run with: its client and overlay, and the window's dialogs. */
+export interface ThreadActionsDeps {
+  overlay: OrganizeOverlay;
+  confirmation: ReturnType<typeof useDeleteConfirmation>;
+  archiving: ReturnType<typeof useArchiveConfirmation>;
+  client: ClientApi;
+  toast: ReturnType<typeof useToast>;
+  navigate: ReturnType<typeof useNavigate>;
+  router: ReturnType<typeof useRouter>;
+  /** `?machine=` for the threads' own links, empty on this window's daemon (ADR 0102). */
+  machine: { machine?: string };
+}
+
+/** The organize actions against one machine's client (`useThreadActions` for the view's own). */
+export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
+  const { overlay, confirmation, archiving, client, toast, navigate, router, machine } = deps;
+  /** Apply now, send, and say so if the daemon refuses. False after a refusal. */
+  const act = (entry: ThreadTarget, action: Action) =>
+    overlay
+      .run(entry.id, action.patch, action.payload, `${action.verb} · ${entry.title}`, Date.now())
+      .then(
+        () => true,
+        (error: unknown) => {
+          toast.error({ title: `Couldn't ${action.failed}`, description: failureMessage(error) });
+          return false;
+        },
+      );
+  /** Offline, the done toast says when it will apply. */
+  const waiting = () => {
+    const note = waitingNote({ online: client.state === "ready", slow: false });
+    return note ? { description: note } : {};
+  };
+  /** Apply each now with one toast offering Undo, which runs every `undo`. */
+  const reversibleAll = (
+    steps: readonly { entry: ThreadTarget; action: Action; undo: Action }[],
+    done: string,
+    afterUndo?: () => void,
+  ): Promise<boolean> => {
+    const toastId = toast.add({
+      title: done,
+      ...waiting(),
+      timeout: undoWindowMs,
+      // The button or ⌘Z (`undoLatest`), while the toast shows.
+      undo: () => {
+        for (const step of steps) void act(step.entry, step.undo);
+        afterUndo?.();
+      },
+    });
+    return Promise.all(steps.map((step) => act(step.entry, step.action))).then((results) => {
+      const applied = results.some(Boolean);
+      if (!applied) toast.close(toastId);
+      return applied;
+    });
+  };
+  /** Stop the whole tree and the commands it watches, as Stop & archive promises. */
+  const stopTree = (listed: ThreadListEntry) => {
+    const runId = listed.live?.rootRunId ?? undefined;
+    const sends = [
+      client.enqueue(
+        {
+          type: "thread.interrupt",
+          threadId: listed.id,
+          cascade: true,
+          ...(runId ? { runId } : {}),
+        },
+        crypto.randomUUID(),
+      ),
+      ...(listed.live?.watching ?? []).map((task) =>
+        client.enqueue({ type: "background_task.stop", taskId: task.id }, crypto.randomUUID()),
+      ),
+    ];
+    void Promise.all(sends).catch((error: unknown) =>
+      toast.error({ title: "Couldn't stop the thread", description: failureMessage(error) }),
+    );
+  };
+  const deleteOne = (entry: ThreadTarget, force: boolean) =>
+    overlay
+      .run(
+        entry.id,
+        { deleted: true },
+        { type: "thread.delete", threadId: id(entry), ...(force ? { force } : {}) },
+        `${force ? "Stop and delete" : "Delete"} · ${entry.title}`,
+        Date.now(),
+      )
+      .then(
+        (): Refusal | undefined => undefined,
+        (error: unknown): Refusal => ({
+          entry,
+          error,
+          live: !force && error instanceof CommandRefused && stillAlive(error.alive),
+        }),
+      );
+  /**
+   * Delete each now: the permanent command goes out at once (to the durable outbox when
+   * offline), never waiting on a toast. There is no Undo; the caller asked first. Threads
+   * refused only because their agents or terminals are still running are offered together
+   * as one Stop and delete, which stops that work on the daemon and then deletes.
+   */
+  const removeAll = (entries: readonly ThreadTarget[], force = false) => {
+    void Promise.all(entries.map((entry) => deleteOne(entry, force))).then((outcomes) => {
+      const refused = outcomes.filter((outcome) => outcome !== undefined);
+      const removed = entries.length - refused.length;
+      // The rows leaving the list are the confirmation.
+      if (removed) {
+        // The open thread is one of them only on its own machine.
+        const shown: { machine?: unknown } = router.state.location.search;
+        const activeDeleted = entries.find(
+          (entry) =>
+            router.state.location.pathname === `/t/${encodeURIComponent(entry.id)}` &&
+            (shown.machine ?? undefined) === machine.machine &&
+            !refused.some((refusal) => refusal.entry.id === entry.id),
         );
-    /** Offline, the done toast says when it will apply. */
-    const waiting = () => {
-      const note = waitingNote({ online: client.state === "ready", slow: false });
-      return note ? { description: note } : {};
-    };
-    /** Apply each now with one toast offering Undo, which runs every `undo`. */
-    const reversibleAll = (
-      steps: readonly { entry: ThreadTarget; action: Action; undo: Action }[],
-      done: string,
-      afterUndo?: () => void,
-    ): Promise<boolean> => {
-      const toastId = toast.add({
-        title: done,
-        ...waiting(),
-        timeout: undoWindowMs,
-        // The button or ⌘Z (`undoLatest`), while the toast shows.
-        undo: () => {
-          for (const step of steps) void act(step.entry, step.undo);
-          afterUndo?.();
+        if (activeDeleted)
+          void navigate({
+            to: "/new",
+            search: { project: activeDeleted.workspaceId, ...machine },
+            replace: true,
+          });
+      }
+      const live = refused.filter((refusal) => refusal.live);
+      for (const refusal of refused.filter((each) => !each.live))
+        toast.add({
+          title: force ? "Couldn't stop and delete the thread" : "Couldn't delete the thread",
+          description: failureMessage(refusal.error),
+        });
+      const only = live.length === 1 ? live[0] : undefined;
+      if (!live.length) return;
+      confirmation.open({
+        title: only ? only.entry.title : count(live.length),
+        running: "Agents or terminals are still running. They will stop before deletion.",
+        confirm: () =>
+          removeAll(
+            live.map((refusal) => refusal.entry),
+            true,
+          ),
+      });
+    });
+  };
+  return {
+    settle: (entry) => void act(entry, settle(entry)),
+    unsettle: (entry) => void act(entry, unsettle(entry)),
+    setAutoSettle: (entry, enabled) => void act(entry, autoSettle(entry, enabled)),
+    snooze: (entry, until) => void act(entry, snooze(entry, until)),
+    wake: (entry) => void act(entry, snooze(entry, null)),
+    setPinned: (entry, pinned) => void act(entry, pinned ? pin(entry) : unpin(entry)),
+    placePinned: (placements) => {
+      for (const { entry, order } of placements) void act(entry, pin(entry, order));
+    },
+    placeListed: (placements) => {
+      for (const { entry, order } of placements)
+        void act(entry, {
+          patch: { listOrder: order },
+          payload: { type: "thread.place", threadId: id(entry), order },
+          verb: "Move",
+          failed: "move the thread",
+        });
+    },
+    setPinnedMany: (entries, pinned) => {
+      const changing = entries.filter((entry) => (entry.pinned === true) !== pinned);
+      if (!changing.length) return;
+      if (pinned) {
+        // They lead the group together, in the order they were listed.
+        const top = Date.now();
+        changing.forEach((entry, index) => {
+          void act(entry, pin(entry, top + changing.length - index));
+        });
+        return;
+      }
+      for (const entry of changing) void act(entry, unpin(entry));
+    },
+    archiveMany: (entries) =>
+      void reversibleAll(
+        entries.map((entry) => ({ entry, action: archive(entry), undo: unarchive(entry) })),
+        `Archived ${count(entries.length)}`,
+      ),
+    removeMany: (entries) => removeAll(entries),
+    moveMany: (entries, to) => {
+      const moving = entries.filter((entry) => entry.workspaceId !== to.id);
+      if (!moving.length) return;
+      void reversibleAll(
+        moving.map((entry) => ({
+          entry,
+          action: move(entry, to.id),
+          undo: move({ ...entry, workspaceId: to.id }, entry.workspaceId),
+        })),
+        moving.length === 1 ? `Moved to ${to.name}` : `Moved ${count(moving.length)} to ${to.name}`,
+      );
+    },
+    setUnread: (entry, unread) =>
+      void act(entry, {
+        patch: { unread },
+        payload: { type: "thread.read", threadId: id(entry), unread },
+        verb: unread ? "Mark unread" : "Mark read",
+        failed: unread ? "mark the thread unread" : "mark the thread read",
+      }),
+    rename: (entry, title) => {
+      const trimmed = title.trim();
+      if (!trimmed || trimmed === entry.title) return;
+      overlay.takeRefusedTitle(entry.id);
+      void act(entry, rename(entry, trimmed)).then((renamed) => {
+        // The rename field opens again with what the person typed.
+        if (!renamed) overlay.refuseTitle(entry.id, title);
+      });
+    },
+    archive: (entry, leave) => {
+      const archiveNow = () => {
+        void reversibleAll(
+          [{ entry, action: archive(entry), undo: unarchive(entry) }],
+          `Archived · ${entry.title}`,
+          // Undo takes the person back to the thread they archived, wherever they went.
+          () =>
+            void navigate({ to: "/t/$threadId", params: { threadId: entry.id }, search: machine }),
+        );
+        leave?.();
+      };
+      const lease = client.threads();
+      const listed = lease.store.thread(entry.id);
+      lease.release();
+      const running = listed && runningWork(listed);
+      if (!listed || !running) return archiveNow();
+      archiving.open({
+        title: entry.title,
+        running,
+        archive: archiveNow,
+        stopAndArchive: () => {
+          stopTree(listed);
+          archiveNow();
         },
       });
-      return Promise.all(steps.map((step) => act(step.entry, step.action))).then((results) => {
-        const applied = results.some(Boolean);
-        if (!applied) toast.close(toastId);
-        return applied;
+    },
+    restore: (entry) => void act(entry, restore(entry)),
+    deleteArchived: (entry) => removeAll([entry]),
+    remove: (entry) => {
+      const lease = client.threads();
+      const status = lease.store.thread(entry.id)?.status;
+      lease.release();
+      const running = status && !["done", "failed", "stopped"].includes(status.state);
+      confirmation.open({
+        title: entry.title,
+        running: running
+          ? `${status.state === "working" ? status.agents : 1} ${status.state === "working" && status.agents !== 1 ? "agents" : "agent"} running. Running work will stop before deletion.`
+          : "",
+        confirm: () => removeAll([entry], !!running),
       });
-    };
-    const pin = (entry: ThreadTarget, order?: number): Action => ({
-      patch: order === undefined ? { pinned: true } : { pinned: true, pinOrder: order },
-      payload: {
-        type: "thread.pin",
-        threadId: id(entry),
-        pinned: true,
-        ...(order === undefined ? {} : { order }),
-      },
-      verb: "Pin",
-      failed: "pin the thread",
-    });
-    const unpin = (entry: ThreadTarget): Action => ({
-      patch: { pinned: false },
-      payload: { type: "thread.pin", threadId: id(entry), pinned: false },
-      verb: "Unpin",
-      failed: "unpin the thread",
-    });
-    const count = (n: number) => (n === 1 ? "1 thread" : `${n} threads`);
-    const settle = (entry: ThreadTarget): Action => ({
-      patch: { settled: true },
-      payload: { type: "thread.settle", threadId: id(entry) },
-      verb: "Settle",
-      failed: "settle the thread",
-    });
-    const unsettle = (entry: ThreadTarget): Action => ({
-      patch: { settled: false, autoSettle: false },
-      payload: { type: "thread.unsettle", threadId: id(entry) },
-      verb: "Unsettle",
-      failed: "unsettle the thread",
-    });
-    const autoSettle = (entry: ThreadTarget, enabled: boolean): Action => ({
-      patch: { autoSettle: enabled },
-      payload: { type: "thread.autoSettle", threadId: id(entry), enabled },
-      verb: enabled ? "Turn on auto-settle" : "Turn off auto-settle",
-      failed: enabled ? "turn on auto-settle" : "turn off auto-settle",
-    });
-    const snooze = (entry: ThreadTarget, until: number | null): Action => ({
-      patch: { snoozedUntil: until },
-      payload: { type: "thread.snooze", threadId: id(entry), until },
-      verb: until === null ? "Wake" : "Snooze",
-      failed: until === null ? "wake the thread" : "snooze the thread",
-    });
-    const archive = (entry: ThreadTarget): Action => ({
-      patch: { archived: true },
-      payload: { type: "thread.archive", threadId: id(entry) },
-      verb: "Archive",
-      failed: "archive the thread",
-    });
-    const unarchive = (entry: ThreadTarget): Action => ({
-      patch: { archived: false },
-      payload: { type: "thread.unarchive", threadId: id(entry) },
-      verb: "Unarchive",
-      failed: "unarchive it",
-    });
-    /** Taking an archived thread back into the list. */
-    const restore = (entry: ThreadTarget): Action => ({
-      ...unarchive(entry),
-      verb: "Restore",
-      failed: "restore it",
-    });
-    /** Stop the whole tree and the commands it watches, as Stop & archive promises. */
-    const stopTree = (listed: ThreadListEntry) => {
-      const runId = listed.live?.rootRunId ?? undefined;
-      const sends = [
-        client.enqueue(
-          {
-            type: "thread.interrupt",
-            threadId: listed.id,
-            cascade: true,
-            ...(runId ? { runId } : {}),
-          },
-          crypto.randomUUID(),
-        ),
-        ...(listed.live?.watching ?? []).map((task) =>
-          client.enqueue({ type: "background_task.stop", taskId: task.id }, crypto.randomUUID()),
-        ),
-      ];
-      void Promise.all(sends).catch((error: unknown) =>
-        toast.error({ title: "Couldn't stop the thread", description: failureMessage(error) }),
-      );
-    };
-    const deleteOne = (entry: ThreadTarget, force: boolean) =>
-      overlay
-        .run(
-          entry.id,
-          { deleted: true },
-          { type: "thread.delete", threadId: id(entry), ...(force ? { force } : {}) },
-          `${force ? "Stop and delete" : "Delete"} · ${entry.title}`,
-          Date.now(),
-        )
-        .then(
-          (): Refusal | undefined => undefined,
-          (error: unknown): Refusal => ({
-            entry,
-            error,
-            live: !force && error instanceof CommandRefused && stillAlive(error.alive),
-          }),
-        );
-    /**
-     * Delete each now: the permanent command goes out at once (to the durable outbox when
-     * offline), never waiting on a toast. There is no Undo; the caller asked first. Threads
-     * refused only because their agents or terminals are still running are offered together
-     * as one Stop and delete, which stops that work on the daemon and then deletes.
-     */
-    const removeAll = (entries: readonly ThreadTarget[], force = false) => {
-      void Promise.all(entries.map((entry) => deleteOne(entry, force))).then((outcomes) => {
-        const refused = outcomes.filter((outcome) => outcome !== undefined);
-        const removed = entries.length - refused.length;
-        // The rows leaving the list are the confirmation.
-        if (removed) {
-          const activeDeleted = entries.find(
-            (entry) =>
-              router.state.location.pathname === `/t/${encodeURIComponent(entry.id)}` &&
-              !refused.some((refusal) => refusal.entry.id === entry.id),
-          );
-          if (activeDeleted)
-            void navigate({
-              to: "/new",
-              search: { project: activeDeleted.workspaceId },
-              replace: true,
-            });
-        }
-        const live = refused.filter((refusal) => refusal.live);
-        for (const refusal of refused.filter((each) => !each.live))
-          toast.add({
-            title: force ? "Couldn't stop and delete the thread" : "Couldn't delete the thread",
-            description: failureMessage(refusal.error),
-          });
-        const only = live.length === 1 ? live[0] : undefined;
-        if (!live.length) return;
-        confirmation.open({
-          title: only ? only.entry.title : count(live.length),
-          running: "Agents or terminals are still running. They will stop before deletion.",
-          confirm: () =>
-            removeAll(
-              live.map((refusal) => refusal.entry),
-              true,
-            ),
-        });
-      });
-    };
-    const move = (entry: ThreadTarget, to: string): Action => {
-      const workspaceId = WorkspaceId.parse(to);
-      return {
-        patch: { workspaceId },
-        payload: { type: "thread.move", threadId: id(entry), workspaceId },
-        verb: "Move",
-        failed: "move the thread",
-      };
-    };
-    const rename = (entry: ThreadTarget, title: string): Action => ({
-      patch: { title },
-      payload: { type: "thread.rename", threadId: id(entry), title },
-      verb: "Rename",
-      failed: "rename the thread",
-    });
-    return {
-      settle: (entry) => void act(entry, settle(entry)),
-      unsettle: (entry) => void act(entry, unsettle(entry)),
-      setAutoSettle: (entry, enabled) => void act(entry, autoSettle(entry, enabled)),
-      snooze: (entry, until) => void act(entry, snooze(entry, until)),
-      wake: (entry) => void act(entry, snooze(entry, null)),
-      setPinned: (entry, pinned) => void act(entry, pinned ? pin(entry) : unpin(entry)),
-      placePinned: (placements) => {
-        for (const { entry, order } of placements) void act(entry, pin(entry, order));
-      },
-      placeListed: (placements) => {
-        for (const { entry, order } of placements)
-          void act(entry, {
-            patch: { listOrder: order },
-            payload: { type: "thread.place", threadId: id(entry), order },
-            verb: "Move",
-            failed: "move the thread",
-          });
-      },
-      setPinnedMany: (entries, pinned) => {
-        const changing = entries.filter((entry) => (entry.pinned === true) !== pinned);
-        if (!changing.length) return;
-        if (pinned) {
-          // They lead the group together, in the order they were listed.
-          const top = Date.now();
-          changing.forEach((entry, index) => {
-            void act(entry, pin(entry, top + changing.length - index));
-          });
-          return;
-        }
-        for (const entry of changing) void act(entry, unpin(entry));
-      },
-      archiveMany: (entries) =>
-        void reversibleAll(
-          entries.map((entry) => ({ entry, action: archive(entry), undo: unarchive(entry) })),
-          `Archived ${count(entries.length)}`,
-        ),
-      removeMany: (entries) => removeAll(entries),
-      moveMany: (entries, to) => {
-        const moving = entries.filter((entry) => entry.workspaceId !== to.id);
-        if (!moving.length) return;
-        void reversibleAll(
-          moving.map((entry) => ({
-            entry,
-            action: move(entry, to.id),
-            undo: move({ ...entry, workspaceId: to.id }, entry.workspaceId),
-          })),
-          moving.length === 1
-            ? `Moved to ${to.name}`
-            : `Moved ${count(moving.length)} to ${to.name}`,
-        );
-      },
-      setUnread: (entry, unread) =>
-        void act(entry, {
-          patch: { unread },
-          payload: { type: "thread.read", threadId: id(entry), unread },
-          verb: unread ? "Mark unread" : "Mark read",
-          failed: unread ? "mark the thread unread" : "mark the thread read",
-        }),
-      rename: (entry, title) => {
-        const trimmed = title.trim();
-        if (!trimmed || trimmed === entry.title) return;
-        overlay.takeRefusedTitle(entry.id);
-        void act(entry, rename(entry, trimmed)).then((renamed) => {
-          // The rename field opens again with what the person typed.
-          if (!renamed) overlay.refuseTitle(entry.id, title);
-        });
-      },
-      archive: (entry, leave) => {
-        const archiveNow = () => {
-          void reversibleAll(
-            [{ entry, action: archive(entry), undo: unarchive(entry) }],
-            `Archived · ${entry.title}`,
-            // Undo takes the person back to the thread they archived, wherever they went.
-            () => void navigate({ to: "/t/$threadId", params: { threadId: entry.id } }),
-          );
-          leave?.();
-        };
-        const lease = client.threads();
-        const listed = lease.store.thread(entry.id);
-        lease.release();
-        const running = listed && runningWork(listed);
-        if (!listed || !running) return archiveNow();
-        archiving.open({
-          title: entry.title,
-          running,
-          archive: archiveNow,
-          stopAndArchive: () => {
-            stopTree(listed);
-            archiveNow();
-          },
-        });
-      },
-      restore: (entry) => void act(entry, restore(entry)),
-      deleteArchived: (entry) => removeAll([entry]),
-      remove: (entry) => {
-        const lease = client.threads();
-        const status = lease.store.thread(entry.id)?.status;
-        lease.release();
-        const running = status && !["done", "failed", "stopped"].includes(status.state);
-        confirmation.open({
-          title: entry.title,
-          running: running
-            ? `${status.state === "working" ? status.agents : 1} ${status.state === "working" && status.agents !== 1 ? "agents" : "agent"} running. Running work will stop before deletion.`
-            : "",
-          confirm: () => removeAll([entry], !!running),
-        });
-      },
-      newThreadOnMain: (entry) =>
-        // No base: New thread starts from the project's own default branch, whatever it's named.
-        void navigate({ to: "/new", search: { project: entry.workspaceId } }),
-      copyLink: (entry) => {
-        const link = new URL(`/t/${entry.id}`, location.href).href;
-        const copied =
-          navigator.clipboard?.writeText(link) ?? Promise.reject(new Error("no clipboard"));
-        void copied.catch(() => toast.error({ title: "Couldn't copy the link" }));
-      },
-    };
-  }, [overlay, client, toast, navigate, router, confirmation, archiving]);
+    },
+    newThreadOnMain: (entry) =>
+      // No base: New thread starts from the project's own default branch, whatever it's named.
+      void navigate({ to: "/new", search: { project: entry.workspaceId, ...machine } }),
+    copyLink: (entry) => {
+      const link = new URL(`/t/${entry.id}`, location.href);
+      if (machine.machine) link.searchParams.set("machine", machine.machine);
+      const copied =
+        navigator.clipboard?.writeText(link.href) ?? Promise.reject(new Error("no clipboard"));
+      void copied.catch(() => toast.error({ title: "Couldn't copy the link" }));
+    },
+  };
 }

@@ -146,7 +146,7 @@ Required capability: agents. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| tasks | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"object","properties":{"requestId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."},"task":{"type":"string","minLength":1,"maxLength":262144,"description":"The whole assignment: goal, files, constraints, project notes that apply, and how to verify. The child sees none of your conversation."},"role":{"$ref":"https://ace.local/protocol/v1/DelegationRole.json"},"runRole":{"description":"Run as a role from your Roles line.","$ref":"https://ace.local/protocol/v1/RunRole.json"},"provider":{"description":"Provider that runs the child. Default: yours, or the one whose catalog has `model`.","$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"model":{"description":"A model id from `models`. Default: the provider's default model. ace picks the account and instance that serve it.","type":"string","minLength":1,"maxLength":256},"effort":{"description":"Reasoning effort, such as low, medium, high or xhigh. Default inherit: yours on the same model, else the model's default.","type":"string","minLength":1,"maxLength":64},"access":{"description":"The child's access mode. Default inherit (yours); never broader than yours.","$ref":"https://ace.local/protocol/v1/AccessRequest.json"},"workspace":{"description":"Where the child works. Default: this project's checkout. new_worktree starts a Git worktree from base; existing_worktree reuses one by path.","$ref":"https://ace.local/protocol/v1/AgentWorkspace.json"},"machine":{"description":"Run on this paired machine (a name from `machines`). Requires project.","$ref":"https://ace.local/protocol/v1/MachineName.json"},"project":{"description":"The project on that machine, as `machines` lists it.","type":"string","minLength":1,"maxLength":256}},"required":["requestId","task","role"],"additionalProperties":false},"description":"One entry per child. Roles must be unique among your live children."} |
+| tasks | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"object","properties":{"requestId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."},"task":{"type":"string","minLength":1,"maxLength":262144,"description":"The whole assignment: goal, files, constraints, project notes that apply, and how to verify. The child sees none of your conversation."},"role":{"$ref":"https://ace.local/protocol/v1/DelegationRole.json"},"runRole":{"description":"Run as a role from your Roles line.","$ref":"https://ace.local/protocol/v1/RunRole.json"},"provider":{"description":"Provider that runs the child. Default: yours, or the one serving `model`.","$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"model":{"description":"Model id or name (\"opus 5.5\").","type":"string","minLength":1,"maxLength":256},"accountId":{"description":"Account id or label.","type":"string","minLength":1,"maxLength":256},"effort":{"description":"Reasoning effort, such as low, medium, high or xhigh. Default inherit: yours on the same model, else the model's default.","type":"string","minLength":1,"maxLength":64},"access":{"description":"The child's access mode. Default inherit (yours); never broader than yours.","$ref":"https://ace.local/protocol/v1/AccessRequest.json"},"workspace":{"description":"Where the child works. Default: this project's checkout. new_worktree starts a Git worktree from base; existing_worktree reuses one by path.","$ref":"https://ace.local/protocol/v1/AgentWorkspace.json"},"machine":{"description":"Run on this paired machine (a name from `machines`). Requires project.","$ref":"https://ace.local/protocol/v1/MachineName.json"},"project":{"description":"The project on that machine, as `machines` lists it.","type":"string","minLength":1,"maxLength":256}},"required":["requestId","task","role"],"additionalProperties":false},"description":"One entry per child. Roles must be unique among your live children."} |
 | waitSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"description":"Wait up to this many seconds for the children before returning, as `wait` does. Omit to return at once."} |
 | waitFor | no | [WaitMode.json](schema/WaitMode.json) | {"default":"all","description":"With waitSeconds: return when all children settle (default) or when any does."} |
 
@@ -156,16 +156,18 @@ Example:
 {
   "tasks": [
     {
+      "access": "full-access",
       "model": "example",
-      "project": "example",
       "provider": "antigravity",
       "requestId": "r",
       "role": "example",
       "runRole": "build",
       "task": "example",
       "workspace": {
-        "kind": "existing_worktree",
-        "path": "example"
+        "base": {
+          "ref": "example"
+        },
+        "kind": "new_worktree"
       }
     }
   ]
@@ -372,7 +374,7 @@ Example:
 
 ## machines
 
-Other machines the person paired that let agents in: name (pass as machine), online or offline, access (read or operate), projects, tool groups and providers. Use with delegate {machine, project}; delegated children there join wait and agents_status.
+Other machines the person paired: name (pass as machine), online or offline, access (read or operate), projects, tool groups, providers, and transfers (true: transfer can move work there). Use with delegate {machine, project}; delegated children there join wait and agents_status.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -408,9 +410,56 @@ Example:
 }
 ```
 
+## transfer
+
+Carry a project, or this thread, to another paired machine: same branch, uncommitted changes included. Default: this thread's project. thread: "self" continues this thread there as a new thread with its history. Returns at once with transferId; the result arrives as a new turn, so end your turn. Never poll.
+
+Required capability: agents. Timeout: 630000 ms.
+
+## transfer.input
+
+[JSON Schema](schema/transfer.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| machine | yes | string | {"pattern":"^[a-zA-Z0-9_.-]{1,64}$","description":"A machine from `machines` whose transfers is true."} |
+| project | no | string | {"description":"A project on this machine, by id or name. Default: this thread's.","minLength":1,"maxLength":256} |
+| thread | no | `"self"` | {"description":"Continue this thread there; the person sends its next message there."} |
+| includeChanges | no | boolean | {"description":"Send uncommitted changes. Default true."} |
+| includeIgnored | no | boolean | {"description":"Send ignored files like .env. Default: setting."} |
+
+Example:
+
+```json
+{
+  "includeIgnored": true,
+  "machine": "PNgdRfaTasLnIVrkYf9tiEPHNcFsjRjRPL3Fys_PEnXFyNXRY0U.Aptjx-4xmHcw"
+}
+```
+
+## transfer.output
+
+[JSON Schema](schema/transfer.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | object | {"properties":{"transferId":{"type":"string"}},"required":["transferId"],"additionalProperties":{}} |
+
+Example:
+
+```json
+{
+  "code": "not_found",
+  "ok": false
+}
+```
+
 ## models
 
-Models a child can run on, with their efforts, and the installed providers with their login state and the access modes a child may take. Pass a model's id to delegate. Page with offset.
+Models a child can run on, with their efforts and the accounts that serve each, plus every account with its login state and the access modes a child may take. With query, the nearest models to a name across all providers and accounts, nearest first. Pass a model's id to delegate. Page with offset.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -421,14 +470,15 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) | {"description":"Only this provider's models."} |
+| query | no | string | {"description":"A model name as the person wrote it, such as \"opus 5.5\" or \"gpt 6.1 sol\".","minLength":1,"maxLength":256} |
 | offset | no | integer | {"default":0,"description":"From nextOffset.","minimum":0,"maximum":40960} |
 
 Example:
 
 ```json
 {
-  "offset": 7,
-  "provider": "opencode"
+  "provider": "opencode",
+  "query": "example"
 }
 ```
 
@@ -610,7 +660,7 @@ Required capability: thread_control. Timeout: 630000 ms.
 | project | no | string | {"description":"Another project on this machine: its name, folder path or id from projects_find. Default: this project.","minLength":1,"maxLength":4096} |
 | workspace | no | [AgentWorkspace.json](schema/AgentWorkspace.json) | {"default":{"kind":"project"},"description":"Where it works. Default: the project's checkout; new_worktree starts a Git worktree from base."} |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) | {"description":"Default: yours."} |
-| model | no | string | {"description":"A model id from `models`.","minLength":1,"maxLength":256} |
+| model | no | string | {"description":"A model id from `models`, or its name as written (\"opus 5.5\").","minLength":1,"maxLength":256} |
 | effort | no | string | {"description":"Reasoning effort, such as high.","minLength":1,"maxLength":64} |
 | access | no | [AccessRequest.json](schema/AccessRequest.json) | {"description":"Default inherit; never broader than yours."} |
 
@@ -666,7 +716,7 @@ Required capability: thread_control. Timeout: 630000 ms.
 | text | yes | string | {"minLength":1,"maxLength":262144,"description":"The fork's first message: the other approach, standing on its own."} |
 | title | no | string | {"description":"Its sidebar title.","minLength":1,"maxLength":256} |
 | runId | no | string | {"description":"Fork after this finished run. Default: the latest finished one.","minLength":1,"maxLength":128} |
-| model | no | string | {"description":"Another model of the same provider, from `models`. Default: the thread's.","minLength":1,"maxLength":256} |
+| model | no | string | {"description":"Another model of the same provider and account: an id from `models` or its name (\"opus 5.5\"). Default: the thread's.","minLength":1,"maxLength":256} |
 | effort | no | string | {"description":"Reasoning effort, with model.","minLength":1,"maxLength":64} |
 
 Example:
@@ -919,7 +969,7 @@ Semantic rule: configure needs requestId and model; interrupt needs requestId; h
 | requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
 | title | no | string | {"description":"rename: the new title.","minLength":1,"maxLength":256} |
 | onlyIfProvisional | no | boolean | {"description":"rename: only replace a title ace generated, never one the person chose."} |
-| model | no | string | {"description":"configure: a model id from `models`.","minLength":1,"maxLength":256} |
+| model | no | string | {"description":"configure: a model id from `models`, or its name (\"opus 5.5\") on the thread's account.","minLength":1,"maxLength":256} |
 | effort | no | string | {"description":"configure: reasoning effort.","minLength":1,"maxLength":64} |
 | serviceTier | no | ["default","priority","flex"] | {"description":"configure."} |
 | branch | no | string | {"description":"handoff: the new branch name.","minLength":1,"maxLength":256} |

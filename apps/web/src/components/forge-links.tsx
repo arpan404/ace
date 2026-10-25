@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { repositoryParam } from "@/lib/pull-request-route.ts";
 import { pullRequestTab, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { IssueOpener, PullRequestOpener } from "./web-link.tsx";
+import { useScopedMachine } from "@/lib/machines.ts";
 
 /*
  * Where links to GitHub pull requests and issues open on a screen: ace's own PR and issue views.
@@ -41,10 +42,12 @@ export function PullRequestPages(props: { project: string; children: ReactNode }
 
 /**
  * A thread's links: a pull request opens in the thread's side panel, beside the conversation; an
- * issue opens its page.
+ * issue opens its page. The issue pages read this window's own machine, so on another machine's
+ * thread (ADR 0102) issue links stay on GitHub; the side panel runs on the thread's machine.
  */
 export function ThreadForgeLinks(props: { threadId: string; children: ReactNode }) {
   const workspaceId = useThreadMeta(props.threadId)?.workspaceId;
+  const elsewhere = useScopedMachine() !== undefined;
   const actions = useWorkspaceActions(props.threadId);
   const open = workspaceId
     ? (pr: ForgePrRef) =>
@@ -52,7 +55,7 @@ export function ThreadForgeLinks(props: { threadId: string; children: ReactNode 
     : undefined;
   return (
     <PullRequestOpener value={open}>
-      <IssuePages project={workspaceId}>{props.children}</IssuePages>
+      <IssuePages project={elsewhere ? undefined : workspaceId}>{props.children}</IssuePages>
     </PullRequestOpener>
   );
 }

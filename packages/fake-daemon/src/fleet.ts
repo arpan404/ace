@@ -31,6 +31,10 @@ export class FakeFleet {
   constructor(access: FakeAccess) {
     this.access = access;
   }
+  /** Stage a link to another machine, as `link` would keep it (tests and the dev world). */
+  seed(link: FleetLink): void {
+    this.entries = [...this.entries.filter((entry) => entry.hostId !== link.hostId), link];
+  }
   /** This machine's links, as `links` answers them. */
   links(): FleetLink[] {
     return [...this.entries];
