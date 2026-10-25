@@ -152,22 +152,19 @@ async function darwin(): Promise<GitProcess[] | undefined> {
     const match =
       /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(\w{3} \w{3} [ \d]\d \d\d:\d\d:\d\d \d{4})\s?(.*)$/.exec(line);
     if (!match?.[1] || !match[2] || match[3] === undefined || match[4] === undefined) continue;
-    const pid = Number(match[1]);
+    const listed = Number(match[1]);
     // A zombie has exited: it holds nothing.
-    if (match[3].startsWith("Z") || longLived(match[5] ?? "")) skipped.add(pid);
-    facts.set(pid, { startedAt: psStart(match[4]), group: Number(match[2]) });
+    if (match[3].startsWith("Z") || longLived(match[5] ?? "")) skipped.add(listed);
+    facts.set(listed, { startedAt: psStart(match[4]), group: Number(match[2]) });
   }
   const groups = await darwinGitGroups([...new Set([...facts.values()].map((f) => f.group))]);
-  return found
-    .filter((entry) => !skipped.has(entry.pid))
-    .map((entry) => {
-      const fact = facts.get(entry.pid);
-      return {
-        ...entry,
-        startedAt: fact?.startedAt,
-        gitGroup: fact && groups.get(fact.group),
-      };
-    });
+  const alive = found.filter((entry) => !skipped.has(entry.pid));
+  for (const entry of alive) {
+    const fact = facts.get(entry.pid);
+    entry.startedAt = fact?.startedAt;
+    entry.gitGroup = fact && groups.get(fact.group);
+  }
+  return alive;
 }
 
 const gitCommand = (name: string) => name.startsWith("git");
