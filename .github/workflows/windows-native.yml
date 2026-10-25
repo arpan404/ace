@@ -22,6 +22,7 @@ on:
       - scripts/test-failure-reporter.ts
       - packages/workspace/**
       - packages/preview/**
+      - packages/service/**
       - native/screen-helper-windows/**
       - packages/screen/**
       - packages/browser/**

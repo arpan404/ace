@@ -45,6 +45,7 @@ export default defineConfig({
       "apps/daemon/src/windows-startup.process.test.ts",
       "apps/daemon/src/windows-local-files.process.test.ts",
       "packages/service/src/windows-home.process.test.ts",
+      "packages/service/src/windows-pointer.process.test.ts",
       "packages/git/src/windows-guid-cwd.process.test.ts",
       "packages/preview/src/discovery.process.test.ts",
       "packages/plugins/src/windows-ownership.process.test.ts",
