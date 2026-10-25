@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import type { DeviceChrome } from "@ace/protocol";
 import {
   chromeButtonEdge,
+  chromeTurn,
   chromeButtonKey,
   chromeButtonLabel,
   chromeLayout,
@@ -96,4 +97,12 @@ test("an upright mask is used as it is, and a turned one is wrapped turned", () 
   const turned = decodeURIComponent(turnedImage(image, { width: 402, height: 874 }, 90));
   expect(turned).toContain('viewBox="0 0 874 402"');
   expect(turned).toContain("rotate(90)");
+});
+
+test("a tablet skin drawn landscape is upright when Android shows it on its side", () => {
+  const tablet = { screen: { x: 119, y: 117, width: 2560, height: 1600 } };
+  // Android's first rotation (the picture arrives landscape) is the skin's own way up.
+  expect(chromeTurn(tablet, 270)).toBe(0);
+  expect(chromeTurn(tablet, 0)).toBe(90);
+  expect(chromeTurn(phone, 90)).toBe(90);
 });

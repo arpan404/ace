@@ -51,15 +51,17 @@ const fileName = (value: string | undefined) =>
 export type SkinImageReader = (file: string) => Promise<string | undefined>;
 
 /**
- * The skin's upright look: the portrait picture as the body, the display's place in it, and the
- * screen mask when the skin has one. Undefined when the layout has no usable portrait.
+ * The skin's upright look: the portrait picture as the body (or, for a skin with no portrait
+ * layout, such as a tablet's, its first layout: its natural way up), the display's place in it,
+ * and the screen mask when the skin has one. Undefined when the layout has none usable.
  */
 export async function androidSkinChrome(
   layout: string,
   read: SkinImageReader,
 ): Promise<DeviceChrome | undefined> {
   const tree = parseSkinLayout(layout);
-  const portrait = child(tree, "layouts", "portrait");
+  const layouts = child(tree, "layouts");
+  const portrait = layouts?.children.get("portrait") ?? [...(layouts?.children.values() ?? [])][0];
   const width = number(portrait, "width");
   const height = number(portrait, "height");
   if (!portrait || !width || !height || width <= 0 || height <= 0) return undefined;

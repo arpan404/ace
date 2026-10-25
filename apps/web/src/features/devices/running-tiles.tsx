@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn.ts";
 import {
   bodyTurn,
   chromeLayout,
+  chromeTurn,
   deviceButtons,
   deviceKind,
   deviceScreen,
@@ -62,7 +63,8 @@ function RunningTile(props: {
       : fallbackRoom;
   // The real body, asked once per model for the whole list, once the tile is on screen.
   const chrome = useDeviceChrome(session, row, visible);
-  const layout = chrome && chromeLayout(chrome, turn, screen, room);
+  const bodyTurned = chrome ? chromeTurn(chrome, turn) : turn;
+  const layout = chrome && chromeLayout(chrome, bodyTurned, screen, room);
   const picture =
     watching && session ? (
       <DeviceScreen
@@ -106,7 +108,13 @@ function RunningTile(props: {
           className="relative grid h-44 w-full place-items-center bg-(--device-stage)"
         >
           {chrome && layout ? (
-            <ChromeFrame chrome={chrome} layout={layout} kind={kind} turn={turn}>
+            <ChromeFrame
+              chrome={chrome}
+              layout={layout}
+              kind={kind}
+              turn={bodyTurned}
+              hardware={hardware}
+            >
               {picture}
             </ChromeFrame>
           ) : (

@@ -11,7 +11,13 @@ import {
   type DeviceKind,
   type Turn,
 } from "@ace/ui-core/devices";
-import { PressableHardware, pushIn, type HardwarePress } from "./hardware-buttons.tsx";
+import {
+  PressableHardware,
+  pushIn,
+  SideButtons,
+  type Hardware,
+  type HardwarePress,
+} from "./hardware-buttons.tsx";
 
 const px = (value: number) => `${Math.round(value * 10) / 10}px`;
 
@@ -69,6 +75,8 @@ export function ChromeFrame(props: {
   turn: Turn;
   /** Absent, the buttons are drawn only (a thumbnail). */
   press?: HardwarePress | undefined;
+  /** ace's own side buttons, drawn around the body when the SDK draws none (an emulator skin). */
+  hardware?: Hardware | undefined;
   children?: ReactNode;
   overlay?: ReactNode;
   className?: string;
@@ -149,6 +157,13 @@ export function ChromeFrame(props: {
         )}
         {buttons(true)}
       </div>
+      {chrome.buttons.length === 0 && props.hardware && (
+        <SideButtons
+          hardware={props.hardware}
+          body={layout.box}
+          unit={Math.min(layout.screen.width, layout.screen.height)}
+        />
+      )}
     </div>
   );
 }

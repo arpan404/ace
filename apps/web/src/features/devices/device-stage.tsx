@@ -5,6 +5,7 @@ import { cn } from "@/lib/cn.ts";
 import { ActivityRipple, type ShownActivity } from "./activity-overlay.tsx";
 import {
   chromeLayout,
+  chromeTurn,
   screenFraction,
   bodyTurn,
   deviceButtons,
@@ -106,7 +107,8 @@ export function DeviceStage({
   const chrome = useDeviceChrome(props.session, row, !props.bare);
   // Before the first picture, the chrome's own screen stands in for its shape.
   const picture = framed || !chrome ? screen : chrome.screen;
-  const layout = chrome && chromeLayout(chrome, turn, picture, fit);
+  const bodyTurned = chrome ? chromeTurn(chrome, turn) : turn;
+  const layout = chrome && chromeLayout(chrome, bodyTurned, picture, fit);
   const dimmed = !props.live && !row.running && "opacity-40";
   const overlay = (
     <>
@@ -146,8 +148,9 @@ export function DeviceStage({
             chrome={chrome}
             layout={layout}
             kind={kind}
-            turn={turn}
+            turn={bodyTurned}
             press={props.press}
+            hardware={hardware}
             className={cn("transition-opacity duration-(--motion-slow)", dimmed)}
             overlay={overlay}
           >

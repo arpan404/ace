@@ -105,3 +105,20 @@ test("an AVD naming a skin outside the SDK by a relative path is never followed 
   avd("Sneaky", "skin.path=../elsewhere\n");
   expect(await readAndroidSkin(source(), "Sneaky")).toBeUndefined();
 });
+
+test("a tablet skin whose only layout is landscape is read at its natural way up", async () => {
+  skin(
+    "pixel_tablet",
+    pixelLayout
+      .replace("width 1080\n      height 2400", "width 2560\n      height 1600")
+      .replace(
+        "  portrait {\n    width 1200\n    height 2541",
+        "  landscape {\n    width 2798\n    height 1837",
+      )
+      .replace("x 59\n      y 58", "x 119\n      y 117"),
+  );
+  avd("Tablet", "hw.device.name=pixel_tablet\n");
+  const chrome = await readAndroidSkin(source(), "Tablet");
+  expect(chrome?.body).toMatchObject({ width: 2798, height: 1837 });
+  expect(chrome?.screen).toEqual({ x: 119, y: 117, width: 2560, height: 1600 });
+});

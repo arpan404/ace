@@ -109,3 +109,25 @@ test("a device the SDK doesn't describe keeps the drawn frame", async () => {
   expect(iphone.querySelector("[data-device-frame]")).not.toBeNull();
   expect(iphone.querySelector("[data-device-chrome]")).toBeNull();
 });
+
+test("an emulator in its real skin, which draws no buttons, keeps ace's side buttons", async () => {
+  const { app, panel } = await openDevices();
+  // A skin around the fake picture's 390 × 844 screen.
+  app.daemon.appDevices.chromes.set("android:Pixel_9_API_35", {
+    body: { width: 430, height: 884, image: svg("<rect/>") },
+    screen: { x: 20, y: 20, width: 390, height: 844 },
+    buttons: [],
+  });
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  const pixel = await openDevice(panel, "Pixel 9");
+  await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
+  await within(pixel).findByRole("img", { name: "Pixel 9 screen" });
+  await waitFor(() => expect(pixel.querySelector("[data-device-chrome]")).not.toBeNull());
+
+  await userEvent.click(within(pixel).getByRole("button", { name: "Power button" }));
+  await waitFor(() =>
+    expect(app.daemon.appDevices.inputs.map((entry) => entry.input)).toEqual([
+      { kind: "key", key: "power" },
+    ]),
+  );
+});

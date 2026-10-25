@@ -36,6 +36,18 @@ const aspectTolerance = 0.05;
 
 const sideways = (turn: Turn) => turn === 90 || turn === 270;
 
+const nextQuarter: Record<Turn, Turn> = { 0: 90, 90: 180, 180: 270, 270: 0 };
+
+/**
+ * The turn to draw a chrome at for a body turned `turn` from portrait. A chrome whose natural way
+ * up is landscape (a tablet's emulator skin) is already a quarter anticlockwise from portrait,
+ * as Android's first rotation is.
+ */
+export function chromeTurn(chrome: Pick<DeviceChrome, "screen">, turn: Turn): Turn {
+  if (chrome.screen.width <= chrome.screen.height) return turn;
+  return nextQuarter[turn];
+}
+
 /**
  * Where the chrome and the picture go in `room`, with the body turned `turn` degrees clockwise.
  * `picture` is the live picture's size in points as shown (already turned). Undefined when the
