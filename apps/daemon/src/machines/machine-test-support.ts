@@ -174,7 +174,12 @@ export async function pairedMachines(
       engine.handler.handle(command, commandContext(source.daemon.store)),
     );
   }
+  /** Restarts the source daemon on the same data, as the machine calling the target. */
+  async function restartSource() {
+    source.daemon = await source.restart();
+  }
   return {
+    restartSource,
     source,
     target,
     credential,

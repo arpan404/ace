@@ -100,7 +100,12 @@ export async function daemonFixture(
     controls,
     workspace,
     caller,
+    /** An agent tool call from the parent, on the daemon running now (after any restart). */
     call: (operation: AgentControlOperation) =>
-      controls.port.execute(caller, operation, new AbortController().signal),
+      (current.agentControl ?? controls).port.execute(
+        caller,
+        operation,
+        new AbortController().signal,
+      ),
   };
 }

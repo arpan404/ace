@@ -35,8 +35,14 @@ export const machineChildLaunches = `${machineThreads}
     WHERE m.kind = 'delegate';`;
 
 /**
- * A child's generation advances whenever its parent sends it new work, so a status reply
- * read before that work can't settle it afterwards.
+ * Keeps a child watched across new work. `generation` advances whenever its parent sends it new
+ * work, so a status reply read before that work can't settle it afterwards; `sending` counts
+ * messages on their way, during which no reply settles it; `settled_at` lets the caller keep
+ * re-checking recently settled children that work started on their machine may reopen.
  */
 export const machineChildGenerations = `${machineChildren}
-  ALTER TABLE machine_children ADD COLUMN generation INTEGER NOT NULL DEFAULT 0;`;
+  ALTER TABLE machine_children ADD COLUMN generation INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE machine_children ADD COLUMN sending INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE machine_children ADD COLUMN settled_at INTEGER;
+  UPDATE machine_children SET settled_at = created_at WHERE settled = 1;
+  CREATE INDEX IF NOT EXISTS machine_children_settled ON machine_children(settled, settled_at);`;
