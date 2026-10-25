@@ -63,6 +63,9 @@
     "ownedHere": {
       "type": "boolean"
     },
+    "posture": {
+      "$ref": "https://ace.local/protocol/v1/DevicePosture.json"
+    },
     "recording": {
       "type": "boolean"
     },

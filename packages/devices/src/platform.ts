@@ -14,8 +14,10 @@ import {
   type DeviceSettings,
   type DeviceFailure,
   type DeviceChrome,
+  type DevicePosture,
 } from "@ace/protocol/devices";
 import { DeviceChromeReader } from "./device-chrome-reader.ts";
+import { SimulatorPostures } from "./simulator-posture.ts";
 import { deviceChromeSources } from "./device-chrome-sources.ts";
 import { DeviceError, resolveXcode, type SDKOptions } from "./sdk.ts";
 import {
@@ -93,6 +95,7 @@ export class DevicePlatform {
   private toolsDownload: Promise<DeviceTools> | undefined;
   private readonly appProcesses = new Map<string, string>();
   private readonly chromes: DeviceChromeReader;
+  private readonly postures: SimulatorPostures | undefined;
   diagnostics(): DeviceFailure[] {
     // Each issue says which platform it concerns, so a missing Android SDK never reads as a
     // fault of a working Simulator.
@@ -115,6 +118,25 @@ export class DevicePlatform {
       this.input(device, input, undefined, authorize),
     );
     this.simulators = this.iosSimulators();
+    // The screen helper folds simulators (`--sim-posture`), on a Mac that has it.
+    this.postures =
+      options.platform === "darwin" && options.frameEncoder
+        ? new SimulatorPostures({
+            helper: options.frameEncoder,
+            xcrun: async () => (await this.xcode()).xcrun,
+            run: async (command, args, authorize) => {
+              this.controller.signal.throwIfAborted();
+              authorize?.();
+              const output = await this.probe(command, args, {
+                env: this.options.env,
+                maxBytes: 256 * 1024,
+                timeoutMs: 20_000,
+                signal: this.controller.signal,
+              });
+              return { code: output.code, stdout: output.stdout };
+            },
+          })
+        : undefined;
     this.chromes = new DeviceChromeReader(
       deviceChromeSources({
         home: options.home,
@@ -138,6 +160,28 @@ export class DevicePlatform {
   async chrome(device: Device, format?: "svg" | "png"): Promise<DeviceChrome | undefined> {
     if (device.platform === "ios" && this.options.platform !== "darwin") return undefined;
     return this.chromes.chrome(device, format);
+  }
+  /**
+   * A foldable Simulator's posture (the iPhone Duo's), or undefined for a device ace can't fold:
+   * anything else, or a Simulator on an Xcode without the hinge service.
+   */
+  async posture(device: Device, authorize?: () => void): Promise<DevicePosture | undefined> {
+    if (device.platform !== "ios" || device.state !== "booted" || !this.postures) return undefined;
+    return this.postures.read(nativeId(device), authorize);
+  }
+  /** Folds a foldable Simulator; returns its posture afterwards. */
+  async setPosture(
+    device: Device,
+    posture: DevicePosture,
+    authorize?: () => void,
+  ): Promise<DevicePosture> {
+    if (device.platform !== "ios" || !this.postures)
+      throw new DeviceError(
+        "not_supported",
+        "This device doesn't fold",
+        "Only foldable simulators, such as the iPhone Duo, have a posture.",
+      );
+    return this.postures.set(nativeId(device), posture, authorize);
   }
   private iosSimulators(authorize?: () => void) {
     return new Simulators(this.options.platform, async (command, args, probeOptions) => {

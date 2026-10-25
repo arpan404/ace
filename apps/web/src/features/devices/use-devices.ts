@@ -5,6 +5,7 @@ import type {
   DeviceInput,
   DeviceOperation,
   DevicePermission,
+  DevicePosture,
   DeviceSettings,
   DeviceState,
 } from "@ace/protocol";
@@ -294,6 +295,10 @@ export function useDevices(threadId: string, deviceId?: string) {
       target && act(() => withControl({ op: "open_app", deviceId: target, appId })),
     configure: (settings: DeviceSettings) =>
       target && act(() => withControl({ op: "configure", deviceId: target, settings })),
+    /** A foldable device's posture; absent for every device ace can't fold. */
+    posture: state?.posture,
+    fold: (posture: DevicePosture) =>
+      target && act(() => withControl({ op: "posture", deviceId: target, posture })),
     /** The accessibility tree agents read, with their `@eN` refs. */
     uiTree: async (): Promise<ScreenUITreeResult | undefined> => {
       if (!target || !session) return undefined;

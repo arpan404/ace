@@ -2236,13 +2236,8 @@ Example:
 {
   "operation": {
     "deviceId": "android:xa1LROrPTxrsIUhCh6xPHQAwtLr6Ln4rrGps-aheAnb59V2Mtrsz9NbL_fhKGjoqYjMNPt694KAxZ25td0KluhXCF8gWOeD5S-_TXO2rrV09Psw-h0b-1mVBqbO02y1skfC3eyAETSjMnhf-OQG-",
-    "input": {
-      "kind": "pointer",
-      "phase": "down",
-      "x": 2,
-      "y": 4
-    },
-    "op": "input"
+    "op": "posture",
+    "posture": "closed"
   },
   "requestId": "bfwyyjE_kEJgW-gRif",
   "type": "devices.request"

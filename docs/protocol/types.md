@@ -3354,12 +3354,14 @@ Example:
 | state | yes | ["booted","shutdown","offline","unauthorized"] |  |
 | runtime | no | string | {"maxLength":256} |
 | serial | no | string | {"maxLength":256} |
+| model | no | string | {"maxLength":256} |
 
 Example:
 
 ```json
 {
   "id": "android:XwDhxD8WbA7bOQfefuv8DICSGRJdvTvoa0CH9X7B36PaoVXM7xZJeo-kOe7u-aJqSakJxt8yUG_B7CkhG_ueDrb7pyKU7cW_LfyS533ctzcSkOBJeGja9YNGYoF7.qIP3hy6EvAMokknS2bftnjwO-MpMPWMrVY5l.eS",
+  "model": "example",
   "name": "example",
   "platform": "android",
   "runtime": "example",
@@ -10499,6 +10501,130 @@ Example:
 }
 ```
 
+## DeviceChrome
+
+[JSON Schema](schema/DeviceChrome.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| body | yes | object | {"properties":{"width":{"type":"number","exclusiveMinimum":0,"maximum":100000},"height":{"type":"number","exclusiveMinimum":0,"maximum":100000},"image":{"$ref":"https://ace.local/protocol/v1/DeviceChromeImage.json"}},"required":["width","height","image"]} |
+| screen | yes | [DeviceChromeRect.json](schema/DeviceChromeRect.json) |  |
+| mask | no | [DeviceChromeImage.json](schema/DeviceChromeImage.json) |  |
+| cutout | no | object | {"properties":{"rect":{"$ref":"https://ace.local/protocol/v1/DeviceChromeRect.json"},"image":{"$ref":"https://ace.local/protocol/v1/DeviceChromeImage.json"}},"required":["rect","image"]} |
+| buttons | yes | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/DeviceChromeButton.json"}} |
+
+Example:
+
+```json
+{
+  "body": {
+    "height": 3,
+    "image": "data:image/webp;base64,h===",
+    "width": 1
+  },
+  "buttons": [],
+  "screen": {
+    "height": 3,
+    "width": 5,
+    "x": 0,
+    "y": 9
+  }
+}
+```
+
+## DeviceChromeButton
+
+[JSON Schema](schema/DeviceChromeButton.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string | {"minLength":1,"maxLength":64} |
+| title | no | string | {"maxLength":64} |
+| rect | yes | [DeviceChromeRect.json](schema/DeviceChromeRect.json) |  |
+| image | yes | [DeviceChromeImage.json](schema/DeviceChromeImage.json) |  |
+| pressed | no | [DeviceChromeImage.json](schema/DeviceChromeImage.json) |  |
+| onTop | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "image": "data:image/webp;base64,Mne2b=====",
+  "name": "example",
+  "onTop": true,
+  "rect": {
+    "height": 2,
+    "width": 7,
+    "x": 2,
+    "y": 9
+  },
+  "title": "example"
+}
+```
+
+## DeviceChromeImage
+
+[JSON Schema](schema/DeviceChromeImage.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"data:image/png;base64,V16m======"
+```
+
+## DeviceChromeRect
+
+[JSON Schema](schema/DeviceChromeRect.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| x | yes | number | {"minimum":-100000,"maximum":100000} |
+| y | yes | number | {"minimum":-100000,"maximum":100000} |
+| width | yes | number | {"exclusiveMinimum":0,"maximum":100000} |
+| height | yes | number | {"exclusiveMinimum":0,"maximum":100000} |
+
+Example:
+
+```json
+{
+  "height": 2,
+  "width": 4,
+  "x": 8,
+  "y": 0
+}
+```
+
+## DeviceChromeResult
+
+[JSON Schema](schema/DeviceChromeResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| chrome | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/DeviceChrome.json"},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "chrome": {
+    "body": {
+      "height": 8,
+      "image": "data:image/webp;base64,ob+==",
+      "width": 3
+    },
+    "buttons": [],
+    "screen": {
+      "height": 3,
+      "width": 6,
+      "x": 5,
+      "y": 2
+    }
+  }
+}
+```
+
 ## DeviceClientMessage
 
 [JSON Schema](schema/DeviceClientMessage.json), input validation.
@@ -10828,6 +10954,24 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| op | yes | `"chrome"` |  |
+| deviceId | yes | [AppDeviceId.json](schema/AppDeviceId.json) |  |
+| format | no | ["svg","png"] |  |
+
+Example:
+
+```json
+{
+  "deviceId": "android:oZgVNBfnBQEF.iwM4qYIq7zlkrYDeM8J26DDiuahR7oqf0rtbMNq3AQl",
+  "format": "svg",
+  "op": "chrome"
+}
+```
+
+### Variant 9
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
 | op | yes | `"boot"` |  |
 | deviceId | yes | [AppDeviceId.json](schema/AppDeviceId.json) |  |
 
@@ -10835,12 +10979,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:oZgVNBfnBQEF.iwM4qYIq7zlkrYDeM8J26DDiuahR7oqf0rtbMNq3AQl",
+  "deviceId": "android:EGXfrajcR836J_eiYZnpHtuewv3fhx-L8XPgIIjP1L5AH9w7j35gZ.LOvTonadzkZU7mVtJhaHri_zT61tSw9FWcjLoQhff0_27k",
   "op": "boot"
 }
 ```
 
-### Variant 9
+### Variant 10
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -10851,12 +10995,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:EGXfrajcR836J_eiYZnpHtuewv3fhx-L8XPgIIjP1L5AH9w7j35gZ.LOvTonadzkZU7mVtJhaHri_zT61tSw9FWcjLoQhff0_27k",
+  "deviceId": "android:9a0ckRDgNqmEG4cfNNfCYbf-xqqncvncU1LNK3Y2MfaAamG0tbCPlBmLqr",
   "op": "shutdown"
 }
 ```
 
-### Variant 10
+### Variant 11
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -10868,13 +11012,13 @@ Example:
 
 ```json
 {
-  "deviceId": "android:9a0ckRDgNqmEG4cfNNfCYbf-xqqncvncU1LNK3Y2MfaAamG0tbCPlBmLqr",
+  "deviceId": "ios:Fb86-8B1eb8414Ba74bdeCEDe92ccea17d1c",
   "op": "install",
   "path": "example"
 }
 ```
 
-### Variant 11
+### Variant 12
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -10887,12 +11031,12 @@ Example:
 ```json
 {
   "appId": "example",
-  "deviceId": "ios:Fb86-8B1eb8414Ba74bdeCEDe92ccea17d1c",
+  "deviceId": "ios:a177bfa0f40d26Baa8e9924Feaf-ee5dbc22",
   "op": "open_app"
 }
 ```
 
-### Variant 12
+### Variant 13
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -10904,13 +11048,13 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:a177bfa0f40d26Baa8e9924Feaf-ee5dbc22",
+  "deviceId": "android:Kd07lKTEuAnKQ6xemfuVS79Mlg22qoJSubThlX..WosWFRIt",
   "op": "open_url",
   "url": "example"
 }
 ```
 
-### Variant 13
+### Variant 14
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -10922,15 +11066,15 @@ Example:
 
 ```json
 {
-  "deviceId": "android:Kd07lKTEuAnKQ6xemfuVS79Mlg22qoJSubThlX..WosWFRIt",
+  "deviceId": "android:eIW_s6zAyf5.S.yhwrCIBmlRkkCUvpuoI_YMjCxZ-TkV.ByAZSFbCJKe9txKL1s5SFhJZxBucY5nzE8yc5u7bq4a4Ys",
   "op": "configure",
   "settings": {
-    "locale": "QYibT_9nA6pFc-OUy97"
+    "appearance": "dark"
   }
 }
 ```
 
-### Variant 14
+### Variant 15
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -10942,13 +11086,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:eIW_s6zAyf5.S.yhwrCIBmlRkkCUvpuoI_YMjCxZ-TkV.ByAZSFbCJKe9txKL1s5SFhJZxBucY5nzE8yc5u7bq4a4Ys",
-  "fps": 10,
+  "deviceId": "android:MbTazpfwBWJBVeAjHDKulEBXjpdMzrfWX62fhhVNmmbUGloHOH7Fdh9gbV3ulBk0iElMgefogNxTNAwiLkamjHtCDE.3KRC7hN1MDt-ProXi_lwzvRqDp610zwvlATqwXEfMlP",
   "op": "start"
 }
 ```
 
-### Variant 15
+### Variant 16
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -10959,12 +11102,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:MbTazpfwBWJBVeAjHDKulEBXjpdMzrfWX62fhhVNmmbUGloHOH7Fdh9gbV3ulBk0iElMgefogNxTNAwiLkamjHtCDE.3KRC7hN1MDt-ProXi_lwzvRqDp610zwvlATqwXEfMlP",
+  "deviceId": "ios:cF2bF15AFDe75dDe323c9537dB3EEA7A-781",
   "op": "stop"
 }
 ```
 
-### Variant 16
+### Variant 17
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -10976,19 +11119,19 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:cF2bF15AFDe75dDe323c9537dB3EEA7A-781",
+  "deviceId": "ios:2-1c19Ef0c7A6fEf77683a89cCAB0A27e5-b",
   "op": "stream.configure",
   "settings": {
-    "bitrate": 128004,
+    "bitrate": 128006,
     "codec": "jpeg",
-    "fps": 5,
-    "maxHeight": 65,
-    "maxWidth": 71
+    "fps": 3,
+    "maxHeight": 68,
+    "maxWidth": 68
   }
 }
 ```
 
-### Variant 17
+### Variant 18
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -10999,12 +11142,12 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:2-1c19Ef0c7A6fEf77683a89cCAB0A27e5-b",
+  "deviceId": "android:jEJkTqjkNXIU1wEq.b8TBtiagD5oOuyxBTbKbj3b3QQSaDW2i.p672hpqdsK9q",
   "op": "stream.keyframe"
 }
 ```
 
-### Variant 18
+### Variant 19
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11015,12 +11158,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:jEJkTqjkNXIU1wEq.b8TBtiagD5oOuyxBTbKbj3b3QQSaDW2i.p672hpqdsK9q",
+  "deviceId": "ios:CeBDde6c441AA-d41ec6ed14BC5cFb8Bb3be",
   "op": "subscribe"
 }
 ```
 
-### Variant 19
+### Variant 20
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11031,12 +11174,12 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:CeBDde6c441AA-d41ec6ed14BC5cFb8Bb3be",
+  "deviceId": "android:5TqDqHHcZypTvfkWVyoM9A01tCw-MeQ3tOjTESOWY1B282_wBBetp2RPl8LdQXP",
   "op": "unsubscribe"
 }
 ```
 
-### Variant 20
+### Variant 21
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11051,13 +11194,12 @@ Example:
 ```json
 {
   "controller": "human",
-  "deviceId": "android:5TqDqHHcZypTvfkWVyoM9A01tCw-MeQ3tOjTESOWY1B282_wBBetp2RPl8LdQXP",
-  "op": "controller",
-  "threadId": "example"
+  "deviceId": "android:obRh2chKl4ULV2EXasoCiuwUMaczqAOPJ--ZXtW1PzniPTYWWYJrHoz2_mHnl5FRfCjtGHY3DrUnMAf",
+  "op": "controller"
 }
 ```
 
-### Variant 21
+### Variant 22
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11069,18 +11211,34 @@ Example:
 
 ```json
 {
-  "deviceId": "android:obRh2chKl4ULV2EXasoCiuwUMaczqAOPJ--ZXtW1PzniPTYWWYJrHoz2_mHnl5FRfCjtGHY3DrUnMAf",
+  "deviceId": "ios:404b44D2cebd45E47cc2Cac229D0eD7cBa8B",
   "input": {
-    "durationMs": 3,
-    "kind": "longPress",
-    "x": 9,
-    "y": 8
+    "kind": "type",
+    "text": "example"
   },
   "op": "input"
 }
 ```
 
-### Variant 22
+### Variant 23
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"posture"` |  |
+| deviceId | yes | [AppDeviceId.json](schema/AppDeviceId.json) |  |
+| posture | yes | [DevicePosture.json](schema/DevicePosture.json) |  |
+
+Example:
+
+```json
+{
+  "deviceId": "ios:A-1ea4FEAebE6aF7B3Ea28681dfdDEd4-7c5",
+  "op": "posture",
+  "posture": "open"
+}
+```
+
+### Variant 24
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11091,12 +11249,12 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:404b44D2cebd45E47cc2Cac229D0eD7cBa8B",
+  "deviceId": "android:WHOk8y0GpIzaX8FZkEwo4MM0LfQruCzlX7csU-hO34ehjDO3LN.WiZY5cP.9YFxNIBnx0nCXGfmU0vGjFi9JGj9gjXHi-_qDwpnTkdUOx1vfmsRheWCG9Uuvo1",
   "op": "screenshot"
 }
 ```
 
-### Variant 23
+### Variant 25
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11107,12 +11265,12 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:A-1ea4FEAebE6aF7B3Ea28681dfdDEd4-7c5",
+  "deviceId": "android:t_Eupz4uBJyt4mK6QcUNhBtdJtF6JFSZCUoWOapcHwTfRVjlgf",
   "op": "clipboard.get"
 }
 ```
 
-### Variant 24
+### Variant 26
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11124,13 +11282,13 @@ Example:
 
 ```json
 {
-  "deviceId": "android:WHOk8y0GpIzaX8FZkEwo4MM0LfQruCzlX7csU-hO34ehjDO3LN.WiZY5cP.9YFxNIBnx0nCXGfmU0vGjFi9JGj9gjXHi-_qDwpnTkdUOx1vfmsRheWCG9Uuvo1",
+  "deviceId": "ios:6FFAdbeCC8487c08F716Cdb-0f8aEE9fe5dA",
   "op": "clipboard.set",
   "text": "example"
 }
 ```
 
-### Variant 25
+### Variant 27
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11143,13 +11301,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:upz4uBJyt4mK6QcUNhBtdJtF6JFSZCUoWOapcHwTfRVjlgfuk.G9ar9CnKt9A3xCIUuCGRKPnEiXyf.az47oB72Pi4WSiNN",
-  "maxNodes": 4,
+  "deviceId": "ios:CDEbfe084d9C1--D9e2-5fFE4230f781B41C",
   "op": "ui.tree"
 }
 ```
 
-### Variant 26
+### Variant 28
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11162,16 +11319,15 @@ Example:
 
 ```json
 {
-  "deviceId": "android:jdlyx5U42hI4F3M0xjd-Ko4bEE7qoYkqQv3pt31fk-teqq4Sy8K_mH",
+  "deviceId": "ios:B40fEfa48A196f7D740d0Cc52FEB32Af1317",
   "op": "ui.find",
   "query": {
-    "name": "example",
-    "role": "example"
+    "text": "example"
   }
 }
 ```
 
-### Variant 27
+### Variant 29
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11187,17 +11343,14 @@ Example:
 
 ```json
 {
-  "action": "select",
-  "deviceId": "ios:5B6e1e8-27d0C-cDbAcfbEc1AfE7EcfdcAC3",
+  "action": "focus",
+  "deviceId": "android:2KW8vDETGTVrztmcSXGNCzedEZHlLTwn8VAjOtVW8igj63Lmv3DxoiWIw97lsNE0yD6yshYCdAc8-M9",
   "op": "ui.act",
-  "ref": "Rv7xACeplI4Sk8yM__A9mN_XoGCSPSHo34LwUKw_P9uCdRp0zXUmgpPUgA0zT",
-  "value": {
-    "dx": 5
-  }
+  "ref": "gy5rHPVNdPobbaJPdsZmXhI"
 }
 ```
 
-### Variant 28
+### Variant 30
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11208,12 +11361,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:1DBxwVKqEocV7sL90o2z4TIjIyfYOGDvRQspMSN3V1KelF-s86WPOewdwz7_j71wtwHLbbgAVziTSemhOrSS-lP3GIw0G",
+  "deviceId": "ios:7DBE0D9c10C1-E2ad2b-CfaBFFBF50-DcFDf",
   "op": "logs.start"
 }
 ```
 
-### Variant 29
+### Variant 31
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11224,12 +11377,12 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:C8AF252b2faaa02bA6e5c0fDF19D7059BEE4",
+  "deviceId": "android:fVaE..FOCaQgCwans.Ar75J2cRMRj2fP.72M8DuZjeYA3Puvbypj5LYhRj9Fgh2wP3_gG3xjb5Dm1p_ORrsECvAnoe7tyAWoHWbwvA19",
   "op": "logs.stop"
 }
 ```
 
-### Variant 30
+### Variant 32
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11241,12 +11394,12 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:7DBE0D9c10C1-E2ad2b-CfaBFFBF50-DcFDf",
+  "deviceId": "android:Mo9IfvlJGSuIECcqDlIeRkZ8bWmJn33lo26f6iSNxKQzxzkC3mRNGjlkWMBpTUTse2bk0JbdfU9TclyxmJ-WKM2P0XO-avJZ94SbWbtrPgo66JvlpN0ryTJwBkg-CI9TeFXGvgDz9eNGL7-onOh",
   "op": "logs"
 }
 ```
 
-### Variant 31
+### Variant 33
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11257,12 +11410,12 @@ Example:
 
 ```json
 {
-  "deviceId": "android:fVaE..FOCaQgCwans.Ar75J2cRMRj2fP.72M8DuZjeYA3Puvbypj5LYhRj9Fgh2wP3_gG3xjb5Dm1p_ORrsECvAnoe7tyAWoHWbwvA19",
+  "deviceId": "ios:a5cC6Bc5B3BfCd-d-2d3DBb3b0C9-6010a42",
   "op": "record.start"
 }
 ```
 
-### Variant 32
+### Variant 34
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -11273,7 +11426,7 @@ Example:
 
 ```json
 {
-  "deviceId": "android:Mo9IfvlJGSuIECcqDlIeRkZ8bWmJn33lo26f6iSNxKQzxzkC3mRNGjlkWMBpTUTse2bk0JbdfU9TclyxmJ-WKM2P0XO-avJZ94SbWbtrPgo66JvlpN0ryTJwBkg-CI9TeFXGvgDz9eNGL7-onOh",
+  "deviceId": "ios:0fbD8263CB-3DA-ec6AFd1B5b1-6b6Bc5-5c",
   "op": "record.stop"
 }
 ```
@@ -11306,6 +11459,18 @@ Example:
   "accessibility": true,
   "screenRecording": true
 }
+```
+
+## DevicePosture
+
+[JSON Schema](schema/DevicePosture.json), input validation.
+
+Type: ["closed","partiallyOpen","open"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"open"
 ```
 
 ## DeviceScope
@@ -11380,7 +11545,6 @@ Example:
 ```json
 {
   "state": {
-    "booting": false,
     "controller": "human",
     "device": {
       "id": "android:_jMbgjbUVDOxlc-QtVbcWKG1E.wy8aZJCQsiqzx4wBzgkaSv5hwtJi2hELsXXU27OYW5.k1pOXKr",
@@ -11390,7 +11554,7 @@ Example:
       "state": "booted"
     },
     "enabled": false,
-    "lifecycle": "live"
+    "lifecycle": "starting"
   },
   "type": "devices.state"
 }
@@ -11496,12 +11660,12 @@ Example:
 | leaseExpiresAt | no | number | {"minimum":0} |
 | error | no | [DeviceFailure.json](schema/DeviceFailure.json) |  |
 | activity | no | [DeviceActivity.json](schema/DeviceActivity.json) |  |
+| posture | no | [DevicePosture.json](schema/DevicePosture.json) |  |
 
 Example:
 
 ```json
 {
-  "booting": false,
   "controller": "agent",
   "device": {
     "id": "android:fpGkYMyjKDtvn1jsrnxIGRozT60jeMmvNznkeg1BZ--reCKUktNZ-xbXftQ2C0ealAPvv21PmINzWIImCuUym6fGxAwGi-KvHTy555yN117vTbAciDiLvq1Lg7UjYlXgBTpRxK4-ugt7oOJ.v6Ht.Nh5Gip60qVE04nlWCjy6j5hCZnjo4UfbCtm",
@@ -11512,7 +11676,7 @@ Example:
     "state": "unauthorized"
   },
   "enabled": false,
-  "lifecycle": "live",
+  "lifecycle": "idle",
   "streamId": "HoyoEbrXObcJZiQFkk4mA_bl-"
 }
 ```

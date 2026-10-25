@@ -115,6 +115,11 @@ test("nobody in control leaves the line empty and the live screen touchable", ()
   expect(device?.subtitle).toBe("iOS 26.0 · Live");
 });
 
+test("a foldable device's screen carries its posture; one that doesn't fold carries none", () => {
+  expect(view([live({ posture: "partiallyOpen" })]).device?.posture).toBe("partiallyOpen");
+  expect(view([live()]).device?.posture).toBeNull();
+});
+
 test("running devices list first; the Start sheet groups the rest by kind and narrows by search", () => {
   const shown = view([live()]);
   expect(shown.running.map((tile) => [tile.name, tile.detail])).toEqual([

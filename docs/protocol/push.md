@@ -2345,7 +2345,8 @@ Example:
       "action": "example",
       "sequence": 5
     },
-    "cleanupRequired": true,
+    "booting": true,
+    "cleanupRequired": false,
     "controller": "none",
     "device": {
       "id": "android:POLHfuLPXAX98pwromexyE4pjFSP",
@@ -2355,7 +2356,7 @@ Example:
       "serial": "example",
       "state": "offline"
     },
-    "enabled": false,
+    "enabled": true,
     "error": {
       "code": "timeout",
       "hint": "example",
@@ -2363,9 +2364,8 @@ Example:
     },
     "leaseExpiresAt": 0,
     "lifecycle": "live",
+    "recording": true,
     "recordingNotice": "example",
-    "streamId": "wE",
-    "threadId": "example",
     "touch": "gestures"
   },
   "type": "devices.state"

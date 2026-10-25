@@ -168,6 +168,8 @@ function SelectedDevice(props: { devices: Devices }) {
               recording={devices.recording}
               keyboardOpen={keyboard}
               onKey={(key) => void devices.input({ kind: "key", key })}
+              posture={devices.posture}
+              onPosture={(posture) => void devices.fold(posture)}
               onKeyboard={() => setKeyboard((open) => !open)}
               onScreenshot={devices.screenshot}
               onRecord={devices.record}
