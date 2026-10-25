@@ -1,8 +1,11 @@
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { focusComposerSoon } from "@/lib/focus-composer.ts";
+import { useHostIdentity } from "@/lib/host-name.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
+import { threadOn } from "@/lib/machine-routes.ts";
+import { machineListId, machineRow, useMachineEntries } from "@/lib/machine-threads.ts";
 import { ThreadLeaveContext } from "@/lib/thread-leave.ts";
 import { useHomeList } from "./use-home-threads.ts";
 
@@ -47,10 +50,23 @@ export function nextNeedingYou(
 /**
  * Moving between threads in the sidebar's order (pinned, then the work in hand, then recent;
  * snoozed and settled stay folded away): the next, the previous, and the next that needs you.
+ * Other machines' threads are in that order as Home lists them, and open on their machine
+ * (ADR 0100).
  */
 export function useThreadSteps() {
-  const list = useHomeList();
-  const current = useParams({ strict: false }).threadId;
+  const own = useHostIdentity()?.hostId;
+  const list = useHomeList(useMachineEntries(own));
+  const threadId = useParams({ strict: false }).threadId;
+  // `?machine=` naming this window's own daemon is this window's own thread.
+  const machine = useLocation({
+    select: (location) => {
+      const search: { machine?: unknown } = location.search;
+      return typeof search.machine === "string" && search.machine !== own
+        ? search.machine
+        : undefined;
+    },
+  });
+  const current = threadId && machine ? machineListId(machine, threadId) : threadId;
   const navigate = useNavigate();
   const order = useMemo(
     () => [...list.pinned, ...list.active, ...list.recent],
@@ -58,7 +74,9 @@ export function useThreadSteps() {
   );
   const needsYou = useMemo(() => new Set(list.needsYou), [list.needsYou]);
   const go = (id: string | undefined) => {
-    if (id) void navigate({ to: "/t/$threadId", params: { threadId: id } });
+    if (!id) return;
+    const ref = machineRow(id);
+    void navigate(ref ? threadOn(ref.hostId, ref.threadId) : threadOn(undefined, id));
   };
   return {
     next: () => go(stepThread(order, current, 1)),
@@ -66,7 +84,8 @@ export function useThreadSteps() {
     nextNeedsYou: () => go(nextNeedingYou(order, needsYou, current)),
     /** `id` has left the list: open its neighbour with the caret in its composer, else Home. */
     leave: (id: string) => {
-      const to = threadAfterLeaving(order, id);
+      // The open thread's screen names it by its own id, on whichever machine it is.
+      const to = threadAfterLeaving(order, id === threadId && current ? current : id);
       if (!to) return void navigate({ to: "/" });
       go(to);
       focusComposerSoon();
