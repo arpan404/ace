@@ -19,7 +19,10 @@ afterEach(async () => {
 
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "ace" } as const;
 
-/** The fake daemon's `ace` repository on GitHub, read by a phone runtime. */
+/**
+ * The fake daemon's `ace` repository on GitHub, read by a phone runtime. It includes the
+ * rich-content samples, PR #245 and issue #246 (ADR 0096).
+ */
 async function connected(threads?: ThreadListEntry[], stamp: () => string = () => "") {
   const { daemon, client } = sheetFixture();
   seedForgeBrowse(daemon, Date.parse("2026-10-20T00:00:00Z"));
@@ -66,7 +69,7 @@ test("open pull requests come grouped by what each needs next, each row with its
     "Waiting",
     "Drafts",
   ]);
-  expect(pulls.counts).toEqual({ open: 7, merged: 1, closed: 1 });
+  expect(pulls.counts).toEqual({ open: 8, merged: 1, closed: 1 });
   const rows = pulls.groups.flatMap((group) => group.rows);
   expect(rows.find((row) => row.number === 229)).toMatchObject({
     step: "Review",
@@ -111,8 +114,8 @@ test("Merged lists the merged pull requests", async () => {
 test("issues group as assigned to you, opened by you, and the rest, and the Filters menu offers their authors and labels", async () => {
   const { ask } = await connected();
   const issues = (await ask({ type: "forge.issues", project: "ace", search: {} })) as IssuesReply;
-  expect(numbers(issues)).toEqual({ assigned: [240], created: [235], others: [238] });
-  expect(issues.counts).toEqual({ open: 3, closed: 1 });
+  expect(numbers(issues)).toEqual({ assigned: [246, 240], created: [235], others: [238] });
+  expect(issues.counts).toEqual({ open: 4, closed: 1 });
   expect(issues.authors).toContain("mira");
   expect(issues.labels).toContain("bug");
 });
