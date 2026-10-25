@@ -31,7 +31,10 @@ export interface CommandRegistration {
 }
 export interface SocketService {
   binary?(frame: Buffer): boolean;
-  authenticated?(channel: Extract<ClientMessage, { type: "hello" }>["channel"]): void;
+  /** Runs before welcome; a rejection with code "limit" refuses the socket as over capacity. */
+  authenticated?(
+    channel: Extract<ClientMessage, { type: "hello" }>["channel"],
+  ): void | Promise<void>;
   handle?(message: SocketMessage, device: DeviceId): boolean | Promise<boolean>;
   command?: CommandRegistration;
   close?(): void;

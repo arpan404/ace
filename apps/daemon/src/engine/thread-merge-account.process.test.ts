@@ -135,7 +135,8 @@ test("merge patches use git validation and duplicate command receipts do not app
   const source = await h.create();
   const fork = await h.fork(source);
   const item = Object.values(h.store.snapshotThread(fork).items).find(
-    (candidate) => candidate.type === "message",
+    // The fork's own message: what it copied from the source can't be cited back.
+    (candidate) => candidate.type === "message" && !candidate.inherited,
   );
   if (!item) throw new Error("No fork result");
   const payload = {
@@ -176,7 +177,8 @@ test("pending patch merges guard both trees until git finishes and then release 
   const source = await h.create();
   const fork = await h.fork(source);
   const item = Object.values(h.store.snapshotThread(fork).items).find(
-    (candidate) => candidate.type === "message",
+    // The fork's own message: what it copied from the source can't be cited back.
+    (candidate) => candidate.type === "message" && !candidate.inherited,
   );
   if (!item) throw new Error("No fork result");
   h.command({

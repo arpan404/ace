@@ -217,7 +217,8 @@ test.each([
     }
     if (transition === "merge" || transition === "merged handoff") {
       const item = Object.values(h.store.snapshotThread(child).items).find(
-        (candidate) => candidate.type === "message",
+        // The child's own message: what it copied from its source can't be cited back.
+        (candidate) => candidate.type === "message" && !candidate.inherited,
       );
       if (!item) throw new Error("Missing citation");
       expect(
