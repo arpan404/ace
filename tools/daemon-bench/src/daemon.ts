@@ -22,6 +22,8 @@ export interface DaemonSettings {
   fixtures: string;
   /** Recorded gaps are divided by this. */
   speed: number;
+  /** Pause before each synthetic long-text delta. */
+  deltaMs: number;
 }
 export interface RunningDaemon {
   pid: number;
@@ -56,6 +58,7 @@ export function daemonEnv(settings: DaemonSettings): NodeJS.ProcessEnv {
     ACE_HISTORY_INSTANCES: "[]",
     ACE_FAKE_CLI_FIXTURES: settings.fixtures,
     ACE_FAKE_CLI_SPEED: String(settings.speed),
+    ACE_FAKE_CLI_DELTA_MS: String(settings.deltaMs),
   };
 }
 

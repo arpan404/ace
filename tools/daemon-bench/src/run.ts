@@ -29,7 +29,10 @@ const options = {
   newThreads: count("new-threads", 20),
   sameThreadTurns: count("same-thread-turns", 40),
   longTextTurns: count("long-text-turns", 3),
-  longTextDeltas: count("long-text-deltas", 2_000),
+  longTextDeltas: count("long-text-deltas", 1_000),
+  // About a fast model's pace. Much faster and how many deltas share a write-buffer flush
+  // depends on machine load, which makes long-text CPU and transactions noisy.
+  deltaMs: count("delta-ms", 10),
   speed: count("speed", 20),
 };
 const log = (line: string) => process.stderr.write(`daemon bench: ${line}\n`);
@@ -121,6 +124,7 @@ try {
     root,
     fixtures: recordings.claude,
     speed: options.speed,
+    deltaMs: options.deltaMs,
   };
   if (options.seedThreads > 0) {
     // A first start lays out the home and its schema; history is then written while stopped.
