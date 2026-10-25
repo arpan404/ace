@@ -10,6 +10,7 @@ import {
   ExecutionSource,
   HandoffModel,
   InheritedItem,
+  QueueFacts,
 } from "./thread-transitions.ts";
 import { Attachment } from "./context.ts";
 import { z } from "zod";
@@ -124,6 +125,8 @@ export const AgentItem = z.discriminatedUnion("type", [
     role: z.string().max(1024),
     phase: z.enum(["created", "running", "cancelling", "settled"]),
     status: ThreadStatus,
+    /** While the child waits for a run slot: where it stands, so the parent's row can say. */
+    ...QueueFacts.partial().shape,
     updatedAt: Timestamp,
     generation: z.number().int().nonnegative(),
     outcome: DelegationOutcome.nullable().default(null),
