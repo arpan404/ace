@@ -53,7 +53,7 @@ export type SkinImageReader = (file: string) => Promise<string | undefined>;
 /**
  * The skin's upright look: the portrait picture as the body (or, for a skin with no portrait
  * layout, such as a tablet's, its first layout: its natural way up), the display's place in it,
- * and the screen mask when the skin has one. Undefined when the layout has none usable.
+ * and the corners and camera hole drawn over it when the skin has them. Undefined when the layout has none usable.
  */
 export async function androidSkinChrome(
   layout: string,
@@ -91,7 +91,9 @@ export async function androidSkinChrome(
   return {
     body: { width, height, image },
     screen,
-    ...(mask ? { mask } : {}),
+    // The skin's "mask" is drawn over the display, as the emulator draws it: opaque over the
+    // rounded corners and the camera hole, clear over the screen. So it's a cutout, not a mask.
+    ...(mask ? { cutout: { rect: screen, image: mask } } : {}),
     buttons: [],
   };
 }

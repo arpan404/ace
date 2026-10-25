@@ -80,7 +80,12 @@ test("an emulator wears the skin its hardware profile names, with the display wh
   expect(chrome?.body).toMatchObject({ width: 1200, height: 2541 });
   expect(chrome?.body.image).toBe(`data:image/webp;base64,${btoa("RIFFback")}`);
   expect(chrome?.screen).toEqual({ x: 59, y: 58, width: 1080, height: 2400 });
-  expect(chrome?.mask).toBe(`data:image/webp;base64,${btoa("RIFFmask")}`);
+  // The skin's corners and camera hole are drawn over the whole display.
+  expect(chrome?.cutout).toEqual({
+    rect: { x: 59, y: 58, width: 1080, height: 2400 },
+    image: `data:image/webp;base64,${btoa("RIFFmask")}`,
+  });
+  expect(chrome?.mask).toBeUndefined();
   expect(chrome?.buttons).toEqual([]);
 });
 

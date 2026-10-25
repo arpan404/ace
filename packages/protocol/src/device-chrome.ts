@@ -41,7 +41,10 @@ export const DeviceChrome = z.object({
   screen: DeviceChromeRect,
   /** The screen's exact shape (rounded corners, a punch hole), stretched over `screen`. */
   mask: DeviceChromeImage.optional(),
-  /** Hardware over the top of the screen the picture doesn't show (an iPhone's notch). */
+  /**
+   * Hardware drawn over the screen that the picture doesn't show: an iPhone's notch, or an
+   * emulator skin's rounded corners and camera hole.
+   */
   cutout: z.object({ rect: DeviceChromeRect, image: DeviceChromeImage }).optional(),
   buttons: z.array(DeviceChromeButton).max(8),
 });
