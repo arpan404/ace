@@ -41,6 +41,8 @@ export interface NativeImageOptions {
   sliceRows?: number;
   /** Resolves when the backfill may take its next step. */
   nextTurn?: () => Promise<void>;
+  /** Reads an image file; defaults to the bounded, symlink-refusing reader. */
+  readImage?: (path: string) => Promise<Buffer>;
 }
 
 /** Capture after committed provider evidence; image IO never stalls a turn's event stream. */
@@ -52,11 +54,14 @@ export function observeNativeImages(
 ): () => Promise<void> {
   const sliceRows = options.sliceRows ?? backfillSliceRows;
   const yieldTurn = options.nextTurn ?? nextTurn;
+  const readImage = options.readImage ?? ((path: string) => readImageFile(path));
   let stopped = false;
   let running = 0;
   const pending = new Map<string, { thread: string; item: Item }>();
   const tasks = new Set<Promise<void>>();
   const active = new Set<string>();
+  // The newest version of an image that changed while it was being captured.
+  const changed = new Map<string, { thread: string; item: Item }>();
   const capture = async (thread: string, item: Item) => {
     const source = nativePath(item);
     if (item.type !== "tool_call" || !source) return;
@@ -83,7 +88,7 @@ export function observeNativeImages(
           : extname(path).toLowerCase() === ".webp"
             ? "image/webp"
             : "image/png";
-      const bytes = await readImageFile(path);
+      const bytes = await readImage(path);
       if (stopped || signal.aborted) return;
       attachment = await toolImage(
         context,
@@ -203,6 +208,11 @@ export function observeNativeImages(
       const task = capture(entry.thread, entry.item).finally(() => {
         running--;
         active.delete(key);
+        // A capture that saw an older path publishes nothing; take the newest one again.
+        const latest = changed.get(key);
+        changed.delete(key);
+        if (latest && !store.nativeImages.has(latest.thread, latest.item.id))
+          pending.set(key, latest);
         tasks.delete(task);
         if (!pending.size) refill();
         pump();
@@ -217,10 +227,13 @@ export function observeNativeImages(
       item.type !== "tool_call" ||
       item.call.detail.kind !== "image" ||
       !nativePath(item) ||
-      active.has(`${thread}:${item.id}`) ||
       store.nativeImages.has(thread, item.id)
     )
       return;
+    if (active.has(`${thread}:${item.id}`)) {
+      changed.set(`${thread}:${item.id}`, { thread, item });
+      return;
+    }
     if (pending.size >= 256) {
       rescan = true; // The item is durable; a later sweep finds it.
       return;
@@ -239,6 +252,7 @@ export function observeNativeImages(
     stopped = true;
     stop();
     pending.clear();
+    changed.clear();
     await sweeping;
     await Promise.allSettled(tasks);
   };

@@ -67,6 +67,8 @@ async function fixture(withCwd = true) {
     });
   const emit = (id: string, source?: string) =>
     store.appendEvents(thread.id, [{ type: "item.created", item: image(id, source) }]);
+  const update = (id: string, source: string) =>
+    store.appendEvents(thread.id, [{ type: "item.updated", item: image(id, source) }]);
   const attachment = (id: string) => {
     const item = store.snapshotThread(thread.id).items[id];
     return item?.type === "tool_call" && item.call.detail.kind === "image"
@@ -82,6 +84,7 @@ async function fixture(withCwd = true) {
     bytes,
     path,
     emit,
+    update,
     attachment,
     async restart(options?: Parameters<typeof observeNativeImages>[3]) {
       await stop();
@@ -170,6 +173,29 @@ test("the history backfill reads in small steps and lets other work run between 
   gate.resolve();
   for (let index = 1; index <= 4; index++)
     await expect.poll(() => f.store.nativeImages.has(f.thread.id, `image-${index}`)).toBe(true);
+});
+
+test("an image whose path changes while it is being captured is captured at its new path", async () => {
+  const f = await fixture();
+  const gate = Promise.withResolvers<void>();
+  const reading = Promise.withResolvers<void>();
+  let first = true;
+  await f.restart({
+    readImage: async (path) => {
+      if (first) {
+        first = false;
+        reading.resolve();
+        await gate.promise;
+      }
+      return readFile(path);
+    },
+  });
+  f.emit("moving", "./not-there.jpg");
+  await reading.promise;
+  f.update("moving", "./chart.jpg");
+  gate.resolve();
+  await expect.poll(() => f.attachment("moving")).toBeDefined();
+  expect(f.store.nativeImages.resolve(f.thread.id, "chart.jpg")).toEqual(f.attachment("moving"));
 });
 
 test("a preparing workspace makes a relative image unavailable without repeatedly retrying it", async () => {
