@@ -49,6 +49,7 @@ export {
   utf8Tail,
 } from "./delta.ts";
 export { applyItemsPage, trackItem } from "./window.ts";
+export { decodeTextPage, wholeCharacterLength, type StreamEncoding } from "./text-page.ts";
 import type {
   DeliveryEvent,
   Event,

@@ -17,7 +17,7 @@ With **full access** (see `context` topic `status`), you act for the person: you
 ## Read threads
 
 - `threads_find` lists and searches this project's threads, or another project's with `project` (full access); with `threadId` it searches inside one thread's transcript. Page with `cursor`.
-- `thread_read` reads a thread's title, status, branch, linked PRs, preview servers, queued messages and a transcript page. Omit `threadId` for this thread. Page back with `before` set to the returned `itemsBefore`. A truncated part with a `source.streamId` continues with `streamId` and `offset`.
+- `thread_read` reads a thread's title, status, branch, linked PRs, preview servers, queued messages and a transcript page. Omit `threadId` for this thread. Page back with `before` set to the returned `itemsBefore`. A truncated part with a `source.streamId` continues as plain text: pass `streamId` with `offset` 0, then each page's `nextOffset` unchanged, until `eof`.
 - `handoff_read` pages the history a handoff from another provider cites (items, or one stream with `streamId`).
 
 ## Pull requests

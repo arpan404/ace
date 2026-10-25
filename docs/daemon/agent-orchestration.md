@@ -89,8 +89,9 @@ parent turn, with near-simultaneous results coalesced. Parents need not poll.
 
 Large outcomes contain a preview and a transcript cursor. `thread_read`
 returns a bounded timeline page; continue with `itemsBefore` as `before`.
-Retained text sources are paged with `thread_read` `streamId` and `offset` in
-byte ranges. The old spawn, list, result and thread-info tools are gone.
+Retained text sources are paged with `thread_read` `streamId` and `offset`:
+each page returns decoded `text` ending on a whole character, and the agent passes
+`nextOffset` back unchanged until `eof`. The old spawn, list, result and thread-info tools are gone.
 
 ## Ordinary conversations
 

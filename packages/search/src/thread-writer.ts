@@ -1,7 +1,7 @@
 import type { SearchReplayEvent } from "./replay.ts";
 import { z } from "zod";
 import { ThreadId, SearchKind, type Event } from "@ace/protocol";
-import { acceptsDelta } from "@ace/projection";
+import { acceptsDelta, wholeCharacterLength } from "@ace/projection";
 import { StoredText, storeText } from "./encoding.ts";
 import { FIELD_CAP, truncateText } from "./text.ts";
 import type { Statements } from "./writer.ts";
@@ -272,21 +272,8 @@ export class ThreadSearchWriter {
         if (!input?.length) break;
         const bytes = Bytes.parse(input);
         let used = bytes.length;
-        if (row.offset + used < row.target) {
-          if (row.encoding === "utf-16le") {
-            used -= used % 2;
-            if (used >= 2) {
-              const unit = (bytes[used - 2] ?? 0) + ((bytes[used - 1] ?? 0) << 8);
-              if (unit >= 0xd800 && unit <= 0xdbff) used -= 2;
-            }
-          } else {
-            let start = used - 1;
-            while (start >= 0 && ((bytes[start] ?? 0) & 0xc0) === 0x80) start--;
-            const first = bytes[start] ?? 0;
-            const width = first < 0x80 ? 1 : first < 0xe0 ? 2 : first < 0xf0 ? 3 : 4;
-            if (start + width > used) used = start;
-          }
-        }
+        if (row.offset + used < row.target)
+          used = wholeCharacterLength(bytes, row.encoding === "utf-16le" ? "utf-16le" : "utf-8");
         if (!used) break;
         this.append(
           row.id,
