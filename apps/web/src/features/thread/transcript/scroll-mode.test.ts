@@ -29,12 +29,13 @@ const wheel = (upward: boolean, at = 100, atEnd = false): ScrollEvent => ({
   detached: false,
   at,
 });
-const scrolled = (atEnd: boolean, upward = false): ScrollEvent => ({
+const scrolled = (atEnd: boolean, upward = false, at = 150): ScrollEvent => ({
   type: "scrolled",
   atEnd,
   upward,
   detached: false,
   gliding: false,
+  at,
 });
 
 test("the reader's gesture cancels a jump still re-aiming at its row", () => {
@@ -180,6 +181,16 @@ test("a small scroll up at the live end keeps following, so no Scroll to end sho
   expect(run(following, nudge, scrolled(false, true)).mode.kind).toBe("free");
 });
 
+test("a scroll that lands off the end without the reader's gesture keeps following", () => {
+  // Rows grew between a scroll and its event: no Scroll to end, and the end is kept in view.
+  const after = run(following, scrolled(false));
+  expect(after.mode.kind).toBe("following");
+  expect(correction(after.mode, undefined, undefined, 200)).toEqual({ kind: "end" });
+  // Long after a nudge at the end, the same scroll still keeps following.
+  const nudged = run(following, wheel(true, 100, true), scrolled(true, true, 150)).mode;
+  expect(transition(nudged, scrolled(false, true, 5_000)).mode.kind).toBe("following");
+});
+
 test("new content does not pull back a reader still scrolling up from the live end", () => {
   const nudged = run(following, wheel(true, 100, true), scrolled(true, true)).mode;
   expect(correction(nudged, undefined, undefined, 200)).toEqual({ kind: "none" });
@@ -230,6 +241,7 @@ test("a free reader back at the end follows again; a detached window never follo
       upward: false,
       detached: true,
       gliding: false,
+      at: 0,
     }).mode.kind,
   ).toBe("free");
   expect(transition(following, { type: "detached" }).mode.kind).toBe("free");
