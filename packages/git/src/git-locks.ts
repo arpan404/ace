@@ -47,12 +47,21 @@ async function refLocks(directory: string, found: string[], depth = 0): Promise<
 }
 
 /**
- * Whether `process` may hold a lock last written at `written`. Git creates a lock exclusively,
- * so a process that started after the lock was last written can't be the one holding it: a
- * reader an agent started a moment ago never keeps a dead writer's lock alive.
+ * How far a lock's recorded mtime and a process's estimated start may each be off. Filesystems
+ * store mtimes as coarsely as 2 seconds (FAT), so a lock written at 103.8 s can read 102 s; the
+ * start estimate has up to a second of rounding; clocks jitter. Within this much of the lock's
+ * stamp, a process may still be its writer.
+ */
+export const timestampSlackMs = 5000;
+
+/**
+ * Whether `process` may hold a lock stamped `written`. Git creates a lock exclusively, so a
+ * process that started clearly after the lock was written can't be the one holding it: a reader
+ * an agent started a while later never keeps a dead writer's lock alive. When the timestamps
+ * can't rule it out, the process counts as the writer.
  */
 const mayHold = (process: GitProcess, written: Date) =>
-  process.startedAt === undefined || process.startedAt <= written.getTime();
+  process.startedAt === undefined || process.startedAt <= written.getTime() + timestampSlackMs;
 
 /**
  * Removes `file` only if it is a plain file last written before `before` that none of the live

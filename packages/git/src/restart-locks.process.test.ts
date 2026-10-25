@@ -4,6 +4,7 @@ import { access, chmod, readdir, readFile, rm, writeFile } from "node:fs/promise
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { testGitEnvironment } from "@ace/provider-kit/test-isolation";
+import { timestampSlackMs } from "./git-locks.ts";
 import { GitService } from "./index.ts";
 import { git, scalar, scratch } from "./test-repo.ts";
 
@@ -68,8 +69,8 @@ async function interruptedCommit() {
   const committer = Number((await readFile(started, "utf8")).trim());
   groups.push(committer);
   expect(await exists(join(repo, ".git", "index.lock"))).toBe(true);
-  // The agent's reader starts after the lock was written, in a later second.
-  await pause(1100);
+  // The agent's reader starts well after the lock was written: past any timestamp slack.
+  await pause(timestampSlackMs + 1100);
   const reader = spawn("sh", ["-c", "sleep 300 | git cat-file --batch"], {
     cwd: repo,
     env: testGitEnvironment(),
@@ -78,8 +79,7 @@ async function interruptedCommit() {
   });
   await once(reader, "spawn");
   if (reader.pid) groups.push(reader.pid);
-  // Older than the grace a starting Git command gets.
-  await pause(2100);
+  // The lock is already older than the grace a starting Git command gets.
   owner.kill("SIGKILL");
   await exited;
   return { repo, head, committer, reader: reader.pid ?? 0 };
