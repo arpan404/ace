@@ -83,9 +83,9 @@ async function fixture(withCwd = true) {
     path,
     emit,
     attachment,
-    async restart() {
+    async restart(options?: Parameters<typeof observeNativeImages>[3]) {
       await stop();
-      stop = observeNativeImages(store, context, new AbortController().signal);
+      stop = observeNativeImages(store, context, new AbortController().signal, options);
     },
     stop: () => stop(),
   };
@@ -152,6 +152,24 @@ test("backfill reaches older images even when newer image tools have no saved pa
   for (let index = 0; index < 270; index++) f.emit(`pathless-${index}`);
   await f.restart();
   await expect.poll(() => f.store.nativeImages.resolve(f.thread.id, f.path)).toBeDefined();
+});
+
+test("the history backfill reads in small steps and lets other work run between them", async () => {
+  const f = await fixture();
+  await f.stop();
+  for (let index = 1; index <= 6; index++) f.emit(`image-${index}`, f.path);
+  let open = false;
+  const gate = Promise.withResolvers<void>();
+  await f.restart({ sliceRows: 2, nextTurn: () => (open ? Promise.resolve() : gate.promise) });
+  // Only the newest step was read; the rest of history waits for the next turn.
+  await expect.poll(() => f.store.nativeImages.has(f.thread.id, "image-6")).toBe(true);
+  await expect.poll(() => f.store.nativeImages.has(f.thread.id, "image-5")).toBe(true);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(f.store.nativeImages.has(f.thread.id, "image-4")).toBe(false);
+  open = true;
+  gate.resolve();
+  for (let index = 1; index <= 4; index++)
+    await expect.poll(() => f.store.nativeImages.has(f.thread.id, `image-${index}`)).toBe(true);
 });
 
 test("a preparing workspace makes a relative image unavailable without repeatedly retrying it", async () => {

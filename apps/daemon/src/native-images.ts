@@ -29,12 +29,29 @@ function nativePath(item: Item): string | undefined {
   }
 }
 
+/**
+ * Rows the history backfill reads per step. Item rows can be large, so a step stays small and
+ * the event loop gets a turn between steps; a 9 GB history otherwise blocked it for 30 s or more.
+ */
+const backfillSliceRows = 64;
+const nextTurn = () => new Promise<void>((done) => setImmediate(done));
+
+export interface NativeImageOptions {
+  /** Rows per backfill step. */
+  sliceRows?: number;
+  /** Resolves when the backfill may take its next step. */
+  nextTurn?: () => Promise<void>;
+}
+
 /** Capture after committed provider evidence; image IO never stalls a turn's event stream. */
 export function observeNativeImages(
   store: Store,
   context: ContextService,
   signal: AbortSignal,
+  options: NativeImageOptions = {},
 ): () => Promise<void> {
+  const sliceRows = options.sliceRows ?? backfillSliceRows;
+  const yieldTurn = options.nextTurn ?? nextTurn;
   let stopped = false;
   let running = 0;
   const pending = new Map<string, { thread: string; item: Item }>();
@@ -119,7 +136,61 @@ export function observeNativeImages(
       if (!published) await release();
     }
   };
-  let refill: () => void;
+  // History not yet swept for uncaptured images: rows below this rowid. Undefined when done.
+  let below: number | undefined;
+  // An image arrived while the queue was full; sweep history again once this sweep ends.
+  let rescan = false;
+  let sweeping: Promise<void> | undefined;
+  const top = () =>
+    Number(store.statement("SELECT max(rowid) AS top FROM items").get()?.top ?? 0) + 1;
+  const candidates = () =>
+    store.statement(`SELECT rowid AS position,thread_id,item FROM items
+      WHERE rowid < ? AND rowid >= ? AND json_extract(item,'$.type')='tool_call'
+      AND json_extract(item,'$.call.detail.kind')='image' AND json_extract(item,'$.complete')=1
+      AND (json_type(item,'$.call.detail.path')='text' OR EXISTS(SELECT 1 FROM json_each(items.item,'$.call.raw') raw WHERE json_extract(raw.value,'$.data.type')='imageView' AND json_type(raw.value,'$.data.path')='text'))
+      AND NOT EXISTS(SELECT 1 FROM native_images WHERE thread_id=items.thread_id AND item_id=items.id)
+      AND EXISTS(SELECT 1 FROM threads WHERE threads.id=items.thread_id AND json_extract(threads.client,'$.deletedAt') IS NULL)
+      ORDER BY rowid DESC`);
+  /** One bounded step, newest rows first. Stops early, resumable, when the queue is full. */
+  const step = (end: number) => {
+    const floor = Math.max(0, end - sliceRows);
+    for (const row of candidates().all(end, floor)) {
+      const thread = String(row.thread_id);
+      const item = Item.parse(JSON.parse(String(row.item)));
+      const key = `${thread}:${item.id}`;
+      if (!nativePath(item) || active.has(key) || pending.has(key)) continue;
+      if (pending.size >= 256) return Number(row.position) + 1;
+      pending.set(key, { thread, item });
+    }
+    return floor > 0 ? floor : undefined;
+  };
+  const sweep = async () => {
+    for (;;) {
+      if (stopped || signal.aborted) return;
+      if (below === undefined) {
+        if (!rescan) return;
+        rescan = false;
+        below = top();
+      }
+      if (pending.size >= 256) return; // Resumed from `below` once captures drain the queue.
+      below = step(below);
+      pump();
+      await yieldTurn();
+    }
+  };
+  const refill = () => {
+    if (sweeping || stopped || signal.aborted || (below === undefined && !rescan)) return;
+    sweeping = sweep()
+      .catch(() => {
+        // An unreadable history pauses the backfill until restart, like a failed publication.
+        stopped = true;
+      })
+      .finally(() => {
+        sweeping = undefined;
+        // Captures may have drained the queue while this sweep was ending.
+        if (!pending.size) refill();
+      });
+  };
   const pump = () => {
     if (stopped) return;
     while (running < 2 && pending.size) {
@@ -150,7 +221,10 @@ export function observeNativeImages(
       store.nativeImages.has(thread, item.id)
     )
       return;
-    if (pending.size >= 256) return; // Durable items are refilled as captures complete.
+    if (pending.size >= 256) {
+      rescan = true; // The item is durable; a later sweep finds it.
+      return;
+    }
     pending.set(`${thread}:${item.id}`, { thread, item });
     pump();
   };
@@ -159,29 +233,13 @@ export function observeNativeImages(
       if (event.payload.type === "item.created" || event.payload.type === "item.updated")
         consider(event.threadId, event.payload.item);
   });
-  refill = () => {
-    if (stopped || signal.aborted) return;
-    for (const row of store
-      .statement(`SELECT thread_id,item FROM items WHERE json_extract(item,'$.type')='tool_call'
-      AND json_extract(item,'$.call.detail.kind')='image' AND json_extract(item,'$.complete')=1
-      AND (json_type(item,'$.call.detail.path')='text' OR EXISTS(SELECT 1 FROM json_each(items.item,'$.call.raw') raw WHERE json_extract(raw.value,'$.data.type')='imageView' AND json_type(raw.value,'$.data.path')='text'))
-      AND NOT EXISTS(SELECT 1 FROM native_images WHERE thread_id=items.thread_id AND item_id=items.id)
-      AND EXISTS(SELECT 1 FROM threads WHERE threads.id=items.thread_id AND json_extract(threads.client,'$.deletedAt') IS NULL)
-      ORDER BY rowid DESC LIMIT 258`)
-      .all()) {
-      const thread = String(row.thread_id);
-      const item = Item.parse(JSON.parse(String(row.item)));
-      const key = `${thread}:${item.id}`;
-      if (nativePath(item) && !active.has(key) && pending.size < 256)
-        pending.set(key, { thread, item });
-    }
-  };
+  below = top();
   refill();
-  pump();
   return async () => {
     stopped = true;
     stop();
     pending.clear();
+    await sweeping;
     await Promise.allSettled(tasks);
   };
 }
