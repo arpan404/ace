@@ -21,6 +21,7 @@ on:
       - scripts/test-home-setup.ts
       - scripts/test-failure-reporter.ts
       - packages/workspace/**
+      - packages/preview/**
       - native/screen-helper-windows/**
       - packages/screen/**
       - packages/browser/**

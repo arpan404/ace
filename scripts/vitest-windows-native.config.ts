@@ -46,6 +46,7 @@ export default defineConfig({
       "apps/daemon/src/windows-local-files.process.test.ts",
       "packages/service/src/windows-home.process.test.ts",
       "packages/git/src/windows-guid-cwd.process.test.ts",
+      "packages/preview/src/discovery.process.test.ts",
       "packages/plugins/src/windows-ownership.process.test.ts",
       "packages/workspace/src/command-stdin.process.test.ts",
       "packages/workspace/src/rg-stdin.process.test.ts",
