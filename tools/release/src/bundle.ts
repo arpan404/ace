@@ -75,6 +75,8 @@ export async function bundleDaemon(
                 );
               if (args.path.endsWith("/daemon/src/pi-login-driver.ts"))
                 contents = contents.replace('"./pi-login-worker.ts"', '"./pi-login-worker.mjs"');
+              if (args.path.endsWith("/provider-kit/src/probe-thread.ts"))
+                contents = contents.replace('"./probe-worker.ts"', '"./probe-worker.mjs"');
               if (args.path.endsWith("/provider-kit/src/discovery/pi-sdk.ts"))
                 contents = contents.replace(
                   '"./pi-credentials-worker.ts"',
@@ -203,6 +205,7 @@ export async function bundleDaemon(
     ["packages/review/src/worker.ts", "review-worker.mjs"],
     ["apps/daemon/src/pi-login-worker.ts", "pi-login-worker.mjs"],
     ["packages/provider-kit/src/discovery/pi-credentials-worker.ts", "pi-credentials-worker.mjs"],
+    ["packages/provider-kit/src/probe-worker.ts", "probe-worker.mjs"],
     ["packages/history-import/src/worker.ts", "history-import-worker.mjs"],
     ["packages/browser/src/encoder-process.ts", "browser-encoder-process.mjs"],
     ["packages/devices/src/tools-entry.ts", "device-tools-process.mjs"],
