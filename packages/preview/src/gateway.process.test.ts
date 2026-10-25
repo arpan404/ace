@@ -143,8 +143,10 @@ test(
   { timeout: 60_000 },
   async () => {
     const pending: import("node:http").ServerResponse[] = [];
+    let arrived = () => {};
     const upstream = await serve((_req, res) => {
       pending.push(res);
+      arrived();
       if (pending.length === 200) for (const response of pending) response.end("concurrent");
     });
     cleanup.push(upstream.close);
@@ -152,9 +154,20 @@ test(
     cleanup.push(g.close);
     const origin = g.register({ port: upstream.port });
     const { cookie } = await g.login(upstream.port);
-    const responses = await Promise.all(
-      Array.from({ length: 200 }, () => http(origin, { cookie })),
-    );
+    // Opened in waves, each held at the upstream before the next starts: a single burst of 200
+    // connects overflows macOS's default accept queue (somaxconn 128) before this process can
+    // accept, and the kernel resets the rest. All 200 are still open at once.
+    const requests: Promise<Awaited<ReturnType<typeof http>>>[] = [];
+    for (let wave = 0; wave < 4; wave++) {
+      const reached = new Promise<void>((resolve) => {
+        arrived = () => {
+          if (pending.length >= (wave + 1) * 50) resolve();
+        };
+      });
+      for (let i = 0; i < 50; i++) requests.push(http(origin, { cookie }));
+      if (wave < 3) await reached;
+    }
+    const responses = await Promise.all(requests);
     expect(responses.every((r) => r.status === 200 && r.body === "concurrent")).toBe(true);
   },
 );
