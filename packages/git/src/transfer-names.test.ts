@@ -38,6 +38,14 @@ test("local paths and file URLs normalise to the resolved path", () => {
   expect(normalizeRemoteUrl("/srv/a")).not.toBe(normalizeRemoteUrl("/srv/b"));
 });
 
+test("file URLs decode their path, keep a drive letter and keep another host apart", () => {
+  expect(normalizeRemoteUrl("file:///srv/my%20repos/app.git/")).toBe("/srv/my repos/app.git");
+  expect(normalizeRemoteUrl("file://localhost/srv/repos/app")).toBe("/srv/repos/app");
+  expect(normalizeRemoteUrl("file:///srv/repos/../app")).toBe("/srv/app");
+  expect(normalizeRemoteUrl("file:///C:/repos/app/")).toBe("C:/repos/app");
+  expect(normalizeRemoteUrl("file://nas/repos/app")).not.toBe(normalizeRemoteUrl("/repos/app"));
+});
+
 test("an ssh remote with a path from the root keeps that path", () => {
   expect(normalizeRemoteUrl("git@host.example:/srv/git/app.git")).toBe("host.example/srv/git/app");
   expect(normalizeRemoteUrl("ssh://git@host.example/srv/git/app.git")).toBe(

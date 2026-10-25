@@ -1,3 +1,4 @@
+import { normalizeRemoteUrl } from "@ace/git/remote-url";
 import { parseCloneUrl, projectIconMatches } from "@ace/project-picker";
 import { fakeSearch, fakeComplete } from "./project-picker.ts";
 import {
@@ -309,10 +310,10 @@ export class FakeProjects {
   /** The project here whose origin is the same repository as `origin`, as a transfer reuses. */
   withOrigin(origin: string): Project | undefined {
     this.seed();
-    const wanted = sameRepository(origin);
+    const wanted = normalizeRemoteUrl(origin);
     return [...this.projects.values()].find((project) => {
       const remote = this.directories.get(project.path)?.remote;
-      return remote !== undefined && sameRepository(remote) === wanted;
+      return remote !== undefined && normalizeRemoteUrl(remote) === wanted;
     });
   }
   /**
@@ -782,19 +783,4 @@ function edited(
     else delete next.notes;
   }
   return next;
-}
-
-/**
- * One key for every spelling of a repository URL: scheme, `git@host:` form, trailing `.git`
- * and the host's case don't matter, as the daemon compares origins.
- */
-function sameRepository(url: string): string {
-  const trimmed = url
-    .trim()
-    .replace(/\/+$/, "")
-    .replace(/\.git$/, "");
-  const scp = /^[^@/:]+@([^:/]+):(.+)$/.exec(trimmed);
-  if (scp) return `${scp[1]?.toLowerCase()}/${scp[2]}`;
-  const parsed = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.+)$/i.exec(trimmed);
-  return parsed ? `${parsed[1]?.toLowerCase()}/${parsed[2]}` : trimmed;
 }
