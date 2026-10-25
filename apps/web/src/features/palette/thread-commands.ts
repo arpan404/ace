@@ -36,9 +36,15 @@ import { useProjectDirectory, useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { useTransferOpener } from "@/lib/transfer-opener.ts";
 import { useHasLinkedMachines } from "@/lib/fleet-links.ts";
+import { useHostIdentity } from "@/lib/host-name.ts";
+import { threadOn } from "@/lib/machine-routes.ts";
+import { machineListId, machineRow, useMachineEntries } from "@/lib/machine-threads.ts";
+import { useMachines, type Machine } from "@/lib/machines.ts";
+import { useMachineThreadHits } from "./machine-thread-hits.ts";
 import type { PaletteCommand, PaletteGroup } from "./types.ts";
 
 const noEntries: ThreadListEntry[] = [];
+const noMachines: readonly Machine[] = [];
 const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
   reader.ids.flatMap((id) => {
     const entry = reader.thread(id);
@@ -50,6 +56,8 @@ const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
  * name, branch and pull request; the projects themselves by name (each opens its latest thread)
  * and "New thread in" each of them; then actions on the threads picked in Home and on the open
  * thread. Mounted only while the palette is open, so the whole-list subscription is short-lived.
+ * Other online machines' threads are among them (ADR 0100), each named with its machine and
+ * opening there.
  */
 export function useThreadCommands(close: () => void, query = ""): PaletteGroup[] {
   const navigate = useNavigate();
@@ -68,6 +76,14 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
   const projectName = useProjectName();
   const directory = useProjectDirectory();
   const settledQuery = useDebouncedValue(query.trim(), searchSettleMs);
+  const own = useHostIdentity()?.hostId;
+  const others = useMachineEntries(own);
+  const machines = useMachines();
+  const online = useMemo(() => {
+    const reachable = machines.filter((machine) => !machine.primary && machine.client);
+    return reachable.length ? reachable : noMachines;
+  }, [machines]);
+  const elsewhere = useMachineThreadHits(online, settledQuery);
   const found = useDaemonQuery({
     queryKey: ["palette-threads", settledQuery],
     read: async (client, signal) => {
@@ -81,7 +97,12 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
 
   return useMemo(() => {
     const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
-    const order = arrange(entries, { ...state, project: null }, now);
+    const onMachine = new Map(online.map((machine) => [machine.id, machine]));
+    // Other machines' threads under their list ids, so an id two machines share stays two.
+    const theirs = others.filter((entry) => onMachine.has(machineRow(entry.id)?.hostId ?? ""));
+    const listed = new Map<string, ThreadListEntry>(theirs.map((entry) => [entry.id, entry]));
+    for (const [id, entry] of byId) listed.set(id, entry);
+    const order = arrange([...entries, ...theirs], { ...state, project: null }, now);
     const run = (action: () => void) => () => {
       close();
       action();
@@ -91,6 +112,25 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
       void navigate({ to: "/t/$threadId", params: { threadId } });
       focusComposerSoon();
     };
+    // Opened on its machine, with the caret in its message box there.
+    const openOn = (machine: string, threadId: string) => {
+      void navigate(threadOn(machine, threadId));
+      focusComposerSoon();
+    };
+    // Named in words after its project: the machine it is on, as Home's rows name it.
+    const machineThread = (
+      machine: Machine,
+      threadId: string,
+      thread: { title: string; project: string | undefined; at: number },
+    ): PaletteCommand => ({
+      id: `thread-${machineListId(machine.id, threadId)}`,
+      label: thread.title,
+      detail: thread.project ? `${thread.project} · ${machine.name}` : machine.name,
+      kind: "thread",
+      at: thread.at,
+      icon: "thread",
+      run: run(() => openOn(machine.id, threadId)),
+    });
     const threads = [
       ...order.pinned,
       ...order.active,
@@ -98,8 +138,18 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
       ...order.snoozed,
       ...order.settled,
     ].flatMap((id): PaletteCommand[] => {
-      const entry = byId.get(id);
+      const entry = listed.get(id);
       if (!entry) return [];
+      const ref = machineRow(id);
+      const machine = ref && onMachine.get(ref.hostId);
+      if (ref && machine)
+        return [
+          machineThread(machine, ref.threadId, {
+            title: entry.title,
+            project: entry.details?.workspace?.name,
+            at: entry.updatedAt,
+          }),
+        ];
       const branch = entry.details?.branch;
       const pr = entry.details?.linkedPrs?.[0]?.number ?? entry.details?.linkedPr?.number;
       return [
@@ -132,6 +182,16 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
         icon: "thread",
         run: run(() => openThread(hit.threadId)),
       });
+    }
+    for (const hit of elsewhere) {
+      const command = machineThread(hit.machine, hit.threadId, {
+        title: hit.title,
+        project: undefined,
+        at: hit.at,
+      });
+      if (seen.has(command.id)) continue;
+      seen.add(command.id);
+      threads.push(command);
     }
     const projects = directory.projects.map((project): PaletteCommand => ({
       id: `project-${project.id}`,
@@ -292,6 +352,9 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
     linked,
     screenActions,
     entries,
+    others,
+    online,
+    elsewhere,
     found.data,
     directory.projects,
     state,
