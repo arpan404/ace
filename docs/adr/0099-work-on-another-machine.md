@@ -149,10 +149,18 @@ So the git methods (1 and 2) send them too, unless the transfer says not to.
   its home, always inside its allowed project roots; named after the source project (`-2`, `-3`…
   when taken), registered through `workspace.add` or `workspace.clone`. The parent is validated
   and held open as a descriptor (ADR 0063) from the moment it is chosen: the new folder is made
-  inside it without following links, the archive is unpacked and the bundle cloned through the
-  new folder's descriptor, and a rollback removes the folder through the parent's descriptor,
-  only while the name still leads to the folder the transfer made. A rollback after a restart
-  validates the parent against the allowed roots again before removing anything.
+  inside it without following links and held open too. The archive is unpacked, the bundle
+  cloned, the branch checked out, the changes applied, the ignored files merged and the transfer
+  refs deleted through that descriptor (Git enters it the way `@ace/git`'s supervised helper
+  does), so a path or ancestor swapped meanwhile can't redirect a write. A folder `workspace.clone`
+  makes reports its identity as soon as it exists and is held open after the clone.
+- A free name is only a reservation. The transfer records the folder's identity (`dev:ino`) on
+  its row once it has made it; a name someone else took first is theirs and is never removed. A
+  rollback removes a folder through the parent's descriptor, only while the name still leads to
+  that identity, and never by path. After a restart it validates the parent against the allowed
+  roots again first. A folder whose ownership can't be shown (a crash came between making it and
+  recording it) or that can't be removed (more than 10,000 entries in one folder) is left in place
+  and recorded in `transfer_incoming_left`.
 - method `remote` clones origin on the target when the import starts. If that clone fails, or the
   bundle needs commits the reused project doesn't have, the target asks for a full bundle and
   the transfer carries on as `bundle`.
@@ -192,12 +200,17 @@ would refuse; for it the check is skipped and the handoff is captured when the u
   without a thread, once everything has landed. The cutoff and a cancel are decided in one
   synchronous step on the target, so exactly one of them wins. A cancel before it stops the import
   (every landing step checks for it), waits for it to stop and undoes what it made. A cancel after
-  it waits for the import and answers with its result; the sender's `transfers.request` cancel
-  then answers `too_late`, and the transfer reads completed.
+  it waits for the import and answers with its result once it is complete, or else refuses with
+  `too_late` (the setup is still to finish, for example after a restart). The sender settles a
+  transfer as cancelled only when the target answers `cancelled` (or holds nothing of it). When
+  the target answers `too_late`, or can't be asked, the sender keeps the transfer running and
+  reconciles through status; its `transfers.request` cancel answers `too_late` or
+  `cancel_unconfirmed`.
 - The new thread is made and set up as two recoverable steps. The target records the result on
-  the transfer row as soon as the thread exists; the handoff, the `continuedFrom` link and the
-  row's completion then commit in one transaction. A restart in between finishes the setup
-  instead of rolling anything back, so the thread stays unarchived and gets its handoff.
+  the transfer row in the same transaction that makes the thread, before anything is awaited;
+  the handoff, the `continuedFrom` link and the row's completion then commit in one transaction.
+  A failure or restart after the thread exists (releasing its worktree, the setup) finishes the
+  setup instead of rolling anything back, so the thread stays unarchived and gets its handoff.
 - Shutting the target down stops running imports and waits for them and for pending writes; an
   import stopped before its cutoff is undone and runs again on the next start.
 - Finished transfer files are deleted on both machines; rows are kept 24 hours for the list. An
@@ -210,7 +223,9 @@ would refuse; for it the check is skipped and the handoff is captured when the u
   `error`) and a `detail` a person reads: `transfers_unavailable`, `forbidden`,
   `thread_not_found`, `thread_busy`, `workspace_change_in_progress`, `workspace_unavailable`,
   `workspace_not_found`, `workspace_preparing`, `invalid`, `machine_not_linked`,
-  `machine_offline`, `machine_forbidden`, `transfer_failed`.
+  `machine_offline`, `machine_forbidden`, `transfer_failed`. Refusals before the command reaches
+  the transfer handler (a device without `projects`, a device mismatch, new work paused) answer
+  with the same receipt: `forbidden`, `device_mismatch`, `maintenance`.
 
 ### UI
 
@@ -247,7 +262,11 @@ branch-name collision, resume after a dropped connection and after a sender rest
 mismatch, cancel, a device without `projects`, a missing fleet link, an agent's transfer delivered as a background result and refused with the setting off, and a thread continuation
 whose new thread has the handoff and the provider fallback, a non-Git folder's continuation, a
 detached HEAD, a target already at the same commit with a dirty checkout, a cancel and a
-shutdown during import, a restart between making the thread and setting it up, the receiver's
+shutdown during import, a restart between making the thread and setting it up, a failure right
+after the thread's transaction commits, a cancel past the cutoff while the setup is unfinished, a
+reserved name another process takes first, a folder replaced at a transfer's path before a
+restart's rollback, a folder path swapped after the clone (checkout and changes still land in the
+folder the transfer made), a device without `projects` refused over its socket, the receiver's
 size cap, and an agent's undelivered result surviving retention. For ignored files: `.env` and ignored
 local config arrive with their modes while `node_modules` does not; none go with the setting off
 or `includeIgnored: false`; a reused project keeps its `.env`; no ignored file's name appears in
