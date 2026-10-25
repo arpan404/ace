@@ -175,8 +175,12 @@ it("daemon composition applies a fork's patch through git and supplies browser M
     budgetBytes: 4096,
   });
   if (!fork.forkThreadId) throw new Error("Missing fork ID");
+  // The fork opens on copies of the source's messages; a merge cites the fork's own answer.
   const item = Object.values(daemon.store.snapshotThread(fork.forkThreadId).items).find(
-    (candidate) => candidate.type === "message" && candidate.role === "assistant",
+    (candidate) =>
+      candidate.type === "message" &&
+      candidate.role === "assistant" &&
+      candidate.inherited === undefined,
   );
   if (!item) throw new Error("Missing fork answer");
   await command({
