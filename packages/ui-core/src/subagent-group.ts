@@ -22,6 +22,10 @@ export interface SubagentEntry {
   machine?: string | undefined;
   title: string;
   state: SubagentState;
+  /** While queued past its parent's run slots: where it stands. */
+  slotLimit?: number | undefined;
+  slotsInUse?: number | undefined;
+  queuePosition?: number | undefined;
   startedAt: number;
   endedAt?: number | undefined;
   /** The first line of its final result, once it has one. */
@@ -127,6 +131,16 @@ export function readSubagentGroup(
       machine: launch?.machine?.name,
       title: launch?.title ?? agentName(agent, spawn),
       state,
+      // A launch the daemon queued carries where the child stands, so the row can say.
+      ...(launch?.slotLimit !== undefined &&
+      launch?.slotsInUse !== undefined &&
+      launch?.queuePosition !== undefined
+        ? {
+            slotLimit: launch.slotLimit,
+            slotsInUse: launch.slotsInUse,
+            queuePosition: launch.queuePosition,
+          }
+        : {}),
       startedAt: launch?.createdAt ?? agent?.createdAt ?? spawn?.createdAt ?? 0,
       endedAt: subagentTerminal(state) ? (end ?? spawn?.call.endedAt) : undefined,
       result: finalResult(launch, spawn),
@@ -247,6 +261,9 @@ export function subagentEntriesEqual(
         entry.machine === other.machine &&
         entry.title === other.title &&
         entry.state === other.state &&
+        entry.slotLimit === other.slotLimit &&
+        entry.slotsInUse === other.slotsInUse &&
+        entry.queuePosition === other.queuePosition &&
         entry.startedAt === other.startedAt &&
         entry.endedAt === other.endedAt &&
         entry.result === other.result

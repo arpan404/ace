@@ -26,13 +26,16 @@ const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
  * copy never claims what an agent does now.
  */
 export function subagentDetail(
-  entry: Pick<SubagentEntry, "state" | "agentId" | "result">,
+  entry: Pick<
+    SubagentEntry,
+    "state" | "agentId" | "result" | "slotLimit" | "slotsInUse" | "queuePosition"
+  >,
   agent: Pick<Agent, "status"> | undefined,
   toolTitle: string | undefined,
   fresh: boolean,
 ): SubagentDetail {
   const status = agent?.status;
-  if (entry.state === "queued") return { detail: queuedDetail };
+  if (entry.state === "queued") return { detail: queuedDetailFor(entry) };
   if (entry.state === "human") return { detail: "Waiting for you", kind: "human" };
   if (entry.state === "failed") {
     const error = status?.state === "failed" ? status.error : undefined;
@@ -46,6 +49,57 @@ export function subagentDetail(
 
 /** Why a queued subagent hasn't started, in its row and its own thread. */
 export const queuedDetail = "Starts when a running agent finishes";
+
+/** A queued child's place, as the daemon reports it: slot limit, slots in use, queue place. */
+export interface QueuePlace {
+  slotLimit: number;
+  slotsInUse: number;
+  queuePosition: number;
+}
+
+/** 1st, 2nd, 3rd, 4th, 11th, 21st: a queue place as a person reads it. */
+export function ordinal(place: number): string {
+  const teen = place % 100;
+  if (teen >= 11 && teen <= 13) return `${place}th`;
+  switch (place % 10) {
+    case 1:
+      return `${place}st`;
+    case 2:
+      return `${place}nd`;
+    case 3:
+      return `${place}rd`;
+    default:
+      return `${place}th`;
+  }
+}
+
+/** "4 of 4 run slots in use, 2nd in line": the queued facts as one fragment. */
+export function queuedSlotFragment(place: QueuePlace): string {
+  return (
+    `${place.slotsInUse} of ${place.slotLimit} run slots in use, ` +
+    `${ordinal(place.queuePosition)} in line`
+  );
+}
+
+/**
+ * Why a queued subagent hasn't started, with its place when the daemon reported one. An older
+ * daemon without the facts still reads as before.
+ */
+export function queuedDetailFor(place: Partial<QueuePlace>): string {
+  if (
+    place.slotLimit === undefined ||
+    place.slotsInUse === undefined ||
+    place.queuePosition === undefined
+  )
+    return queuedDetail;
+  return (
+    `${queuedSlotFragment({
+      slotLimit: place.slotLimit,
+      slotsInUse: place.slotsInUse,
+      queuePosition: place.queuePosition,
+    })}. ${queuedDetail}`
+  );
+}
 
 /** Whether a subagent's row shows a ticking time: it runs. One still queued has not started. */
 export function subagentRunning(state: SubagentState): boolean {
