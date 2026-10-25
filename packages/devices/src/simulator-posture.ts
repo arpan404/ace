@@ -26,7 +26,7 @@ const HelperReply = z.object({
 
 /** The helper's one-line reply, or undefined when it printed something else. */
 function reply(stdout: string) {
-  for (const line of stdout.split("\n").reverse()) {
+  for (const line of stdout.split("\n").toReversed()) {
     if (!line.trim()) continue;
     try {
       const parsed = HelperReply.safeParse(JSON.parse(line));
