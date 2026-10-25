@@ -14,6 +14,9 @@ struct TranscriptLinks {
     var openAgents: (() -> Void)? = nil
     /// A child thread's status, as the thread list words it, for a started conversation's row.
     var threadStatus: ((String) -> StatusDisplay?)? = nil
+    /// A thread's title as the thread list has it, for a fork's "Forked from" divider; nil when
+    /// the list doesn't know it.
+    var threadTitle: ((String) -> String?)? = nil
 }
 
 /// One transcript block. Items render through their own observed rows, so streaming text
@@ -37,6 +40,10 @@ struct BlockView: View {
         case "started":
             if let started = row.started {
                 StartedThreadRow(started: started, status: links.threadStatus?(started.threadId), open: links.openThread)
+            }
+        case "forked":
+            if let forked = row.forked {
+                ForkedDivider(forked: forked, title: links.threadTitle?(forked.threadId), open: links.openThread)
             }
         case "question": if let question = row.question { QuestionAskedLine(question: question) }
         case "user", "message", "event", "item":
