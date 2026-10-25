@@ -16,6 +16,17 @@ const Input = z.looseObject({
 });
 type Input = z.infer<typeof Input>;
 
+/** A small model menu in the shape the CLI reports, so model discovery succeeds. */
+const models = [
+  {
+    value: "default",
+    displayName: "Default",
+    resolvedModel: "bench-large",
+    supportedEffortLevels: ["low", "medium", "high"],
+  },
+  { value: "small", displayName: "Small", resolvedModel: "bench-small", supportedEffortLevels: [] },
+];
+
 /** Directives in the user's text pick the scenario per turn: `fixture=NAME text-deltas=N`. */
 export function directives(text: string) {
   const fixture = /\bfixture=([A-Za-z0-9_-]+)/.exec(text)?.[1];
@@ -39,6 +50,13 @@ function flag(args: readonly string[], name: string): string | undefined {
   return args.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1);
 }
 
+const write = (frame: unknown) =>
+  new Promise<void>((resolve, reject) =>
+    process.stdout.write(`${JSON.stringify(frame)}\n`, (error) =>
+      error ? reject(error) : resolve(),
+    ),
+  );
+
 /** Claude's stream-json CLI: probes, control requests and one replayed recording per user turn. */
 export async function runClaude(args: readonly string[], settings: FakeSettings): Promise<number> {
   const recordings = new Map<string, Recording>();
@@ -50,12 +68,6 @@ export async function runClaude(args: readonly string[], settings: FakeSettings)
     }
     return value;
   };
-  const write = (frame: unknown) =>
-    new Promise<void>((resolve, reject) =>
-      process.stdout.write(`${JSON.stringify(frame)}\n`, (error) =>
-        error ? reject(error) : resolve(),
-      ),
-    );
   if (args.includes("--version") || args[0] === "-v") {
     process.stdout.write(`${recording(settings.fixture).cliVersion} (Claude Code)\n`);
     return 0;
@@ -108,7 +120,7 @@ export async function runClaude(args: readonly string[], settings: FakeSettings)
         subtype === "initialize"
           ? {
               commands: [],
-              models: [],
+              models,
               account: { email: "bench@example.invalid" },
               output_style: "default",
               available_output_styles: ["default"],

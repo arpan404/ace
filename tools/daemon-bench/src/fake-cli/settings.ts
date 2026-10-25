@@ -11,11 +11,11 @@ export interface FakeSettings {
   /** Pause before each synthetic long-text delta. */
   deltaMs: number;
 }
+const number = (value: string | undefined, fallback: number) => {
+  const parsed = Number(value);
+  return value !== undefined && Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+};
 export function readSettings(env: NodeJS.ProcessEnv, provider: string): FakeSettings {
-  const number = (value: string | undefined, fallback: number) => {
-    const parsed = Number(value);
-    return value !== undefined && Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
-  };
   const fixtures = env["ACE_FAKE_CLI_FIXTURES"];
   if (!fixtures) throw new Error(`ACE_FAKE_CLI_FIXTURES must name the ${provider} recordings`);
   return {

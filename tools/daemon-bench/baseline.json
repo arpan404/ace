@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "tolerances": [
+    { "metric": "phases.*.transactionsPerTurn", "relative": 0.1, "absolute": 3, "portable": true },
+    { "metric": "phases.*.cpuPerTurn", "relative": 0.35, "absolute": 0, "portable": true },
+    { "metric": "idle.cpuPerMinute", "relative": 0.5, "absolute": 2, "portable": false },
+    { "metric": "startup.heapUsed", "relative": 0.15, "absolute": 8388608, "portable": false },
+    { "metric": "phases.*.heapUsed", "relative": 0.15, "absolute": 8388608, "portable": false },
+    { "metric": "startup.rss", "relative": 0.2, "absolute": 25165824, "portable": false },
+    { "metric": "phases.*.rss", "relative": 0.2, "absolute": 25165824, "portable": false },
+    { "metric": "startup.footprint", "relative": 0.2, "absolute": 25165824, "portable": false },
+    { "metric": "phases.*.footprint", "relative": 0.2, "absolute": 25165824, "portable": false }
+  ],
+  "platforms": {}
+}
