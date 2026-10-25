@@ -37,7 +37,6 @@ export const shortcuts: readonly Shortcut[] = [
   { keymapId: "nextTab", accelerator: "CmdOrCtrl+Shift+]" },
   { keymapId: "previousTab", accelerator: "CmdOrCtrl+Shift+[" },
   { keymapId: "workCard", accelerator: "CmdOrCtrl+Alt+O" },
-  { keymapId: "turns", accelerator: "CmdOrCtrl+Alt+G" },
   { keymapId: "files", accelerator: "CmdOrCtrl+P" },
   { keymapId: "browser", accelerator: "Ctrl+Shift+B" },
   { keymapId: "preview", accelerator: "Ctrl+Shift+P" },
