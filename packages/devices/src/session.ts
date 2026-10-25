@@ -1,6 +1,11 @@
 import type { DeviceStreamControl } from "./stream-control.ts";
 import { FrameHub, type Frame, type Recording, type RecordingArtifact } from "@ace/screen";
-import type { AppDevice as Device, DeviceActivity, DeviceFailure } from "@ace/protocol/devices";
+import type {
+  AppDevice as Device,
+  DeviceActivity,
+  DeviceFailure,
+  DevicePosture,
+} from "@ace/protocol/devices";
 import { ControllerLease } from "./lease.ts";
 import { DeviceLogs } from "./logs.ts";
 import type { DeviceCapture } from "./capture.ts";
@@ -17,6 +22,8 @@ export interface DeviceSession {
   /** The last thing an agent did here, numbered by `activitySequence`. */
   activity?: DeviceActivity;
   activitySequence: number;
+  /** A foldable device's posture, when ace can fold it. */
+  posture?: DevicePosture;
   capture?: DeviceCapture;
   streamControl?: DeviceStreamControl;
   latest?: Frame;
