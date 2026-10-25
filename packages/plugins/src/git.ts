@@ -172,13 +172,22 @@ export async function readGitFile(
     await git(["show", `${PluginCommit.parse(commit)}:${normalizePath(path)}`], gitRoot, runtime)
   ).toString("utf8");
 }
-/** Git tree SHA of `path` at `commit` (what the `skills` CLI records as `skillFolderHash`). */
+/** Git tree SHA of `path` (`.` for the root) at `commit`: the `skills` CLI's `skillFolderHash`. */
 export async function readGitTree(
   gitRoot: string,
   commit: string,
   path: string,
   runtime: GitRuntime,
 ): Promise<string> {
+  if (path === ".")
+    return z
+      .string()
+      .regex(/^[a-f0-9]{40,64}$/)
+      .parse(
+        (await git(["rev-parse", `${PluginCommit.parse(commit)}^{tree}`], gitRoot, runtime))
+          .toString("utf8")
+          .trim(),
+      );
   const folder = normalizePath(path);
   const line = (
     await git(["ls-tree", "-z", PluginCommit.parse(commit), "--", folder], gitRoot, runtime)

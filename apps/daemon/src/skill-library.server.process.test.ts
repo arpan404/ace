@@ -29,16 +29,19 @@ async function put(path: string, text: string) {
 }
 const demo = "---\nname: demo\ndescription: Demo skill\n---\n# Demo\n\nFirst version.\n";
 
-/** A scratch home with one skill installed by the `skills` CLI from a local "GitHub" repo. */
-async function setup() {
+/**
+ * A scratch home with one skill installed by the `skills` CLI from a local "GitHub" repo, in
+ * `skills/demo` or, with `folder` `.`, at the repository root.
+ */
+async function setup(folder = "skills/demo") {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-skill-socket-")));
   const home = join(root, "home");
   const repo = join(root, "repo");
-  await put(join(repo, "skills/demo/SKILL.md"), demo);
+  await put(join(repo, folder, "SKILL.md"), demo);
   await git(repo, "init", "-q", "-b", "main");
   await git(repo, "add", ".");
   await git(repo, "commit", "-q", "-m", "first");
-  const folderHash = await git(repo, "rev-parse", "HEAD:skills/demo");
+  const folderHash = await git(repo, "rev-parse", `HEAD:${folder === "." ? "" : folder}`);
   await put(join(home, ".agents/skills/demo/SKILL.md"), demo);
   const lock = {
     version: 3,
@@ -47,7 +50,7 @@ async function setup() {
         source: "acme/skills",
         sourceType: "github",
         sourceUrl: "https://github.com/acme/skills.git",
-        skillPath: "skills/demo/SKILL.md",
+        skillPath: folder === "." ? "SKILL.md" : `${folder}/SKILL.md`,
         skillFolderHash: folderHash,
         installedAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
@@ -162,7 +165,7 @@ test("an installed skill updates from its source after review, and the lock reco
         op: "applyUpdate",
         id: before.id,
         reviewId: prepared.review.id,
-        expectedHash: before.hash,
+        expectedHash: prepared.review.baseHash,
       },
     });
     const applied = await result(client, "apply");
@@ -191,6 +194,53 @@ test("an installed skill updates from its source after review, and the lock reco
       },
     });
     expect(await result(client, "reapply")).toMatchObject({ kind: "error", code: "not_found" });
+  } finally {
+    await s.close();
+  }
+});
+
+test("a skill at the repository root checks and applies updates like a nested one", async () => {
+  const s = await setup(".");
+  try {
+    const client = await s.f.connect();
+    await client.next();
+    const before = await demoEntry(client);
+    expect(before.source).toMatchObject({ path: "SKILL.md" });
+    client.send({
+      type: "skills.request",
+      requestId: "check-1",
+      operation: { op: "checkUpdate", id: before.id },
+    });
+    expect(await result(client, "check-1")).toMatchObject({ status: "current" });
+    await put(join(s.repo, "SKILL.md"), demo.replace("First", "Second"));
+    await put(join(s.repo, "guide.md"), "More.\n");
+    await git(s.repo, "add", ".");
+    await git(s.repo, "commit", "-q", "-m", "second");
+    client.send({
+      type: "skills.request",
+      requestId: "prepare",
+      operation: { op: "prepareUpdate", id: before.id },
+    });
+    const prepared = await result(client, "prepare");
+    if (prepared.kind !== "updateReview") throw new Error(JSON.stringify(prepared));
+    expect(prepared.review.files).toEqual([
+      { path: "SKILL.md", change: "changed", flagged: false },
+      { path: "guide.md", change: "added", flagged: false },
+    ]);
+    client.send({
+      type: "skills.request",
+      requestId: "apply",
+      operation: {
+        op: "applyUpdate",
+        id: before.id,
+        reviewId: prepared.review.id,
+        expectedHash: prepared.review.baseHash,
+      },
+    });
+    expect(await result(client, "apply")).toMatchObject({ kind: "skill" });
+    expect(await readFile(join(s.home, ".agents/skills/demo/guide.md"), "utf8")).toBe("More.\n");
+    const lock = JSON.parse(await readFile(join(s.home, ".agents/.skill-lock.json"), "utf8"));
+    expect(lock.skills.demo.skillFolderHash).toBe(await git(s.repo, "rev-parse", "HEAD:"));
   } finally {
     await s.close();
   }

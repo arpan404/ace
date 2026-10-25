@@ -58,14 +58,19 @@ export function readLock(text: string | undefined): Map<string, LockedSkill> {
   }
   return out;
 }
-/** `skills/x/SKILL.md` -> `skills/x`. Absolute, escaping or odd paths are refused. */
+/**
+ * `skills/x/SKILL.md` -> `skills/x`; a skill at the repository root (`SKILL.md`) -> `.`.
+ * Absolute, escaping or odd paths are refused.
+ */
 export function repositoryFolder(skillPath: string): string | undefined {
   if (!skillPath.endsWith("SKILL.md") || skillPath.includes("\\") || skillPath.startsWith("/"))
     return undefined;
-  const folder = posix.dirname(posix.normalize(skillPath));
+  const normal = posix.normalize(skillPath);
+  if (normal !== "SKILL.md" && !normal.endsWith("/SKILL.md")) return undefined;
+  const folder = posix.dirname(normal);
   if (
-    folder === "." ||
-    folder.startsWith("..") ||
+    folder === ".." ||
+    folder.startsWith("../") ||
     [...folder].some((char) => char.charCodeAt(0) < 32)
   )
     return undefined;
