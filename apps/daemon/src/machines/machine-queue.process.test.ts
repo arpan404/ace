@@ -102,3 +102,30 @@ it("a task the other machine can never run is still refused at once, leaving not
   expect(titles).not.toContain("Do-missing-part");
   expect(titles).not.toContain("Do-uninstalled-part");
 }, 60_000);
+
+it("a waiting task whose start is later refused there settles failed instead of staying queued", async () => {
+  const { pair, delegate } = await limitedPair();
+  const first = await delegate("before-disable");
+  const queued = await delegate("refused-later");
+  await vi.waitFor(() => expect(pair.target.h.contexts.get(first)).toBeDefined());
+  // The person turns the provider off on that machine while the task waits.
+  await pair.target.daemon.settings.set(
+    "providers.configuration",
+    [{ provider: "claude", enabled: false }],
+    { kind: "global" },
+  );
+  await pair.finish(first, "Done before the provider was turned off.");
+
+  const waited = await pair.source.call({
+    op: "wait",
+    threadIds: [queued],
+    mode: "all",
+    timeoutSeconds: 60,
+  });
+  expect(WaitResult.parse(waited.data).threads[0]).toMatchObject({
+    state: "failed",
+    result: "It could not be started.",
+  });
+  expect(pair.target.daemon.store.getThread(queued)?.queuedLaunch).toBeUndefined();
+  expect(pair.target.h.contexts.get(queued)).toBeUndefined();
+}, 60_000);

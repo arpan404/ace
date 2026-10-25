@@ -139,8 +139,13 @@ export class TargetLaunches {
           this.slots(parent),
           (launch) => this.start(launch),
           (child, error) => {
+            // The failed start rolled back and left it queued: take it out with the failure, in
+            // one transaction, so it reads failed and is never retried.
             this.deps.report(error);
-            this.deps.store.atomic(() => this.settle(child, "failed"));
+            this.deps.store.atomic(() => {
+              this.queue.take(child);
+              this.settle(child, "failed");
+            });
           },
         );
     } catch (error) {
