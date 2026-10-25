@@ -26,7 +26,7 @@ export class BrowserClient {
       if (binary) {
         const pieces = Array.isArray(data) ? data : [data];
         for (const piece of pieces) {
-          const envelope = this.assembler.push(new Uint8Array(Buffer.from(piece)));
+          const envelope = this.assembler.push(new Uint8Array(piece));
           const message = envelope && decodeStreamMessage(envelope);
           if (message) this.streamed.push(message);
         }
