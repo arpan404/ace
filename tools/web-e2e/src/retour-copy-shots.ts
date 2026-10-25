@@ -41,10 +41,10 @@ try {
       };
       await page.goto(`${base}/skills/engineering~skill~code-review`);
       await expect(
-        page.getByRole("heading", { name: "Code Review", exact: true, level: 1 }),
+        page.getByRole("heading", { name: "Code review", exact: true, level: 1 }),
       ).toBeVisible();
       await expect(
-        page.getByRole("heading", { name: "Code Review", exact: true, level: 3 }),
+        page.getByRole("heading", { name: "Code review", exact: true, level: 3 }),
       ).toBeVisible();
       await shot("skills");
       await page.goto(`${base}/t/thread-cold-start`);
@@ -53,7 +53,7 @@ try {
       await expect(page.getByRole("listbox", { name: "Add and commands" })).toBeVisible();
       await shot("slash");
       await message.fill("/code-review");
-      await expect(page.getByRole("option", { name: /^Code Review / })).toBeVisible();
+      await expect(page.getByRole("option", { name: /^Code review / })).toBeVisible();
       await shot("slash-skill");
       await message.fill("");
       await page.getByRole("button", { name: /^Approvals:/ }).click();
