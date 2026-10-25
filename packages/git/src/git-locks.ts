@@ -46,11 +46,27 @@ async function refLocks(directory: string, found: string[], depth = 0): Promise<
   }
 }
 
-/** Removes `file` only if it is a plain file last written before `before`. */
-async function removeStale(file: string, before: Date): Promise<boolean> {
+/**
+ * Whether `process` may hold a lock last written at `written`. Git creates a lock exclusively,
+ * so a process that started after the lock was last written can't be the one holding it: a
+ * reader an agent started a moment ago never keeps a dead writer's lock alive.
+ */
+const mayHold = (process: GitProcess, written: Date) =>
+  process.startedAt === undefined || process.startedAt <= written.getTime();
+
+/**
+ * Removes `file` only if it is a plain file last written before `before` that none of the live
+ * Git processes working where it guards could have written.
+ */
+async function removeStale(
+  file: string,
+  before: Date,
+  holders: readonly GitProcess[],
+): Promise<boolean> {
   try {
     const info = await lstat(file);
     if (!info.isFile() || info.mtime >= before) return false;
+    if (holders.some((entry) => mayHold(entry, info.mtime))) return false;
     await rm(file, { force: true });
     return true;
   } catch (error) {
@@ -59,17 +75,18 @@ async function removeStale(file: string, before: Date): Promise<boolean> {
   }
 }
 
-const idle = (processes: readonly GitProcess[], roots: readonly string[]) =>
-  !processes.some((entry) => touches(entry, roots));
+const working = (processes: readonly GitProcess[], roots: readonly string[]) =>
+  processes.filter((entry) => touches(entry, roots));
 
 /**
  * Git's own lock files that a killed or crashed Git process left behind in the repository that
  * owns `checkout`: each checkout's `index.lock` and `HEAD.lock`, the shared ref, packed-refs,
  * shallow and config locks, and a `worktree add` that never finished initializing.
  *
- * A lock is removed only when no live Git process works in what it guards and it was last
- * written before `before`, so a Git command someone starts meanwhile keeps its lock. Without a
- * process listing nothing is removed. Returns the removed paths.
+ * A lock is removed only when it was last written before `before` and every live Git process
+ * working in what it guards started after that write, so neither a running writer nor a Git
+ * command someone starts meanwhile loses its lock. Without a process listing nothing is
+ * removed. Returns the removed paths.
  */
 export async function clearLeftoverLocks(
   checkout: string,
@@ -85,30 +102,32 @@ export async function clearLeftoverLocks(
   if (!processes) return [];
   const all = await checkouts(common);
   const removed: string[] = [];
-  const clear = async (file: string) => {
-    if (await removeStale(file, before)) removed.push(file);
+  const clear = async (file: string, holders: readonly GitProcess[]) => {
+    if (await removeStale(file, before, holders)) removed.push(file);
   };
   for (const entry of all) {
-    if (!entry.path || !idle(processes, [entry.path])) continue;
-    await clear(join(entry.metadata, "index.lock"));
-    await clear(join(entry.metadata, "HEAD.lock"));
+    if (!entry.path) continue;
+    const holders = working(processes, [entry.path]);
+    await clear(join(entry.metadata, "index.lock"), holders);
+    await clear(join(entry.metadata, "HEAD.lock"), holders);
     // A partial commit's temporary index, named after the Git process that wrote it.
     const names = await readdir(entry.metadata).catch(() => []);
     for (const name of names.filter((n) => /^next-index-\d+\.lock$/.test(n)))
-      await clear(join(entry.metadata, name));
+      await clear(join(entry.metadata, name), holders);
   }
   const everywhere = [common, ...all.flatMap((entry) => (entry.path ? [entry.path] : []))];
-  if (!idle(processes, everywhere)) return removed;
+  const holders = working(processes, everywhere);
   for (const name of ["packed-refs.lock", "shallow.lock", "config.lock"])
-    await clear(join(common, name));
+    await clear(join(common, name), holders);
   const refs: string[] = [];
   await refLocks(join(common, "refs"), refs);
-  for (const file of refs) await clear(file);
+  for (const file of refs) await clear(file, holders);
   for (const entry of all) {
     if (!entry.linked) continue;
     // `worktree add` writes "initializing" while it runs; a person's own lock has their reason.
     const file = join(entry.metadata, "locked");
-    if ((await text(file).catch(() => undefined))?.trim() === "initializing") await clear(file);
+    if ((await text(file).catch(() => undefined))?.trim() === "initializing")
+      await clear(file, holders);
   }
   return removed;
 }
