@@ -53,7 +53,7 @@ A skill saved in `~/.agents/skills` is therefore always seen by Codex, OpenCode,
 
 ### Create, edit, agents, delete
 
-- Create: `name` must be a slug (`^[a-z0-9]+(-[a-z0-9]+)*$`, ≤ 64). The canonical folder is `~/.agents/skills/<name>` or `<workspace>/.agents/skills/<name>`. For each chosen agent that doesn't read that root, ace adds a relative symlink in its link root (`~/.claude/skills/<name> -> ../../.agents/skills/<name>`). A name already used in any root is refused with `exists`.
+- Create: `name` must be a slug (`^[a-z0-9]+(-[a-z0-9]+)*$`, ≤ 64). The canonical folder is `~/.agents/skills/<name>` or `<workspace>/.agents/skills/<name>`. For each chosen agent that doesn't read that root, ace adds a relative symlink in its link root (`~/.claude/skills/<name> -> ../../.agents/skills/<name>`). A name already used by a skill in the same scope (any agent folder) is refused with `exists`.
 - Edit: `expectedHash` plus `description`, `body` and `manual`. The YAML document editor from `prompt-edit.ts` keeps unknown keys and comments. The name is read-only. Writes go to a temporary file then rename, and the hash is checked before and after.
 - Set agents: adds links for added agents and removes links for removed ones. ace never removes a `copy`, the agent whose root holds the canonical folder, or a link in a root another selected agent still reads (`shared`). These come back in `kept` with the reason.
 - Delete: needs `expectedHash`. It removes the canonical folder and every symlink in a known root that resolves to it. Only for `editable` entries.
@@ -71,7 +71,13 @@ Nothing from the fetched repository is executed.
 
 ### Usage
 
-`usage` returns, per id, how many user messages mentioned the skill and the most recent thread. A small `skill_usage` table keyed by skill name is updated when a message is admitted. A forward migration backfills it once from stored message mention parts. Mentions are matched by name because catalog entry ids differ per agent.
+`usage` returns, per id, how many of the person's messages mentioned the skill and the most recent thread `{id, title, at}`. The daemon's `skill_usage` table holds one row per (message, skill name). The row is written when the message item is stored, and goes away with the message or thread. Schema 18 creates the table and backfills it once from stored user messages. Synthetic messages and fork copies are not counted. Reads are two indexed lookups per name; history is never scanned. Mentions are matched by name because catalog entry ids differ per agent.
+
+### Listing and change notices
+
+A list inspects the known roots: it reads each direct child's type, resolves its link and reads its SKILL.md. Nothing below that is walked. Change notices reuse `CommandFiles`, the catalog's watcher and recovery loop, over the same roots: one set for personal roots and one per subscribed project. No new scanner or watcher type is added. A subscription pushes a new snapshot only when the entries differ. Installed ace plugins notify through the plugin manager's catalog subscription.
+
+Plugin entries come from the plugin manager's catalog. They are listing-only (`read` answers `read_only`) because the plugin pages already own their files and review.
 
 ## Safety
 

@@ -28972,7 +28972,7 @@ Example:
 | kind | yes | `"skill"` |  |
 | entry | yes | [SkillEntry.json](schema/SkillEntry.json) |  |
 | text | yes | string | {"maxLength":262144} |
-| kept | no | array | {"maxItems":8,"items":{"type":"object","properties":{"provider":{"$ref":"https://ace.local/protocol/v1/SkillAgent.json"},"reason":{"type":"string","enum":["canonical","copy","shared","plugin"]}},"required":["provider","reason"]}} |
+| kept | no | array | {"maxItems":8,"items":{"type":"object","properties":{"provider":{"$ref":"https://ace.local/protocol/v1/SkillAgent.json"},"reason":{"type":"string","enum":["canonical","copy","shared"]}},"required":["provider","reason"]}} |
 
 Example:
 

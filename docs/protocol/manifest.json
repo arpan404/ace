@@ -3561,8 +3561,8 @@
       "sha256": "4df4bd88734401924fddbd9a4ea4fe30f9fafb18d513c03122b2e8db3d02c9c1"
     },
     "schema/SkillResult.json": {
-      "bytes": 3997,
-      "sha256": "14698ddbeaa63de9fef5252a2715cb8c8cf14170dd1c99b41a39edbfcdc5e6ff"
+      "bytes": 3969,
+      "sha256": "cd60ff8892bdf723bd27296483420c36175290b9c0945dfd9b1d2ae1c5a83659"
     },
     "schema/SkillScope.json": {
       "bytes": 218,
@@ -4533,10 +4533,10 @@
       "sha256": "571045442f6b19fd7ecf97ce180c84085c282b10849598f40e85882a4be2f437"
     },
     "types.md": {
-      "bytes": 931067,
-      "sha256": "055762504fe2a0033c9d984945ed729787a672489363cd68ab160089e8931467"
+      "bytes": 931058,
+      "sha256": "7760e7a6691a731f282a521f36bd3eb2f005b48323ab7047f6800505e78031e4"
     }
   },
-  "input": "8e27237958847ada8c0f8845d11ba44a04186e75dbf68c4b504c02b938caa4b9",
+  "input": "dd67da2b33c9ba2fb5d0866bcaa3f076926c7c7bd7aac4fd595042ab6ec9772e",
   "version": 1
 }
