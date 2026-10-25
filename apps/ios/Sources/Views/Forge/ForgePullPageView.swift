@@ -8,6 +8,8 @@ import SwiftUI
 struct ForgePullPageView: View {
     let client: ClientModel
     let route: ForgeRoute
+    /// Pushes the Timeline or a changed file on this stack.
+    let open: (ForgeRoute) -> Void
     let openThread: (InboxKey) -> Void
     @AppStorage("ace.git.mergeMethod") private var savedMethod = ""
     @State private var page: ForgePullPage?
@@ -15,15 +17,19 @@ struct ForgePullPageView: View {
     @State private var writing = false
     @State private var outcome: ForgeWrite?
     @State private var confirming: ForgeWriteTarget?
+    /// Review writes from this page (reviewers), made once the page knows its repository.
+    @State private var desk: ForgeReviewDesk?
+    @State private var composing: ForgeCompose?
     @Environment(\.openURL) private var openURL
 
     private var method: String { savedMethod.isEmpty ? "squash" : savedMethod }
     private var request: [String: Any] { ClientModel.forgePullRead(project: route.project, number: route.number, method: method) }
 
     /// Opens on the page this phone last saw for this pull request, read again behind it.
-    init(client: ClientModel, route: ForgeRoute, openThread: @escaping (InboxKey) -> Void) {
+    init(client: ClientModel, route: ForgeRoute, open: @escaping (ForgeRoute) -> Void, openThread: @escaping (InboxKey) -> Void) {
         self.client = client
         self.route = route
+        self.open = open
         self.openThread = openThread
         let saved = UserDefaults.standard.string(forKey: "ace.git.mergeMethod") ?? ""
         let method = saved.isEmpty ? "squash" : saved
@@ -60,6 +66,9 @@ struct ForgePullPageView: View {
             }
         }
         .task(id: "\(method)|\(client.readGeneration(request))") { await load() }
+        .sheet(item: $composing) { compose in
+            if let desk { ForgeWriteSheet(compose: compose, desk: desk) }
+        }
         .confirmationDialog(confirming?.action.label ?? "", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
                             titleVisibility: .visible, presenting: confirming) { target in
             Button(target.action.label) { Task { await write(target) } }
@@ -86,13 +95,12 @@ struct ForgePullPageView: View {
             if !page.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 MarkdownView(text: page.body).padding(.horizontal, AceTheme.Spacing.lg)
             }
-            if !page.reviewers.isEmpty {
-                ForgeSection(title: "Reviewers") {
-                    ForEach(page.reviewers, id: \.self) { reviewer in
-                        ForgeLine(leading: reviewer.login, trailing: reviewer.outcome ?? "Requested")
-                    }
+            ForgeSection(title: nil) {
+                ForgeLinkRow(title: "Timeline", detail: page.conversation, identifier: "forge.pull.timeline") {
+                    open(ForgeRoute(kind: .timeline, machineId: route.machineId, project: route.project, number: route.number))
                 }
             }
+            if let desk { ForgeReviewersSection(desk: desk, compose: { composing = $0 }) }
             if !page.checks.isEmpty {
                 ForgeSection(title: "Checks") {
                     ForEach(page.checks, id: \.self) { check in
@@ -100,17 +108,9 @@ struct ForgePullPageView: View {
                     }
                 }
             }
-            if !page.files.isEmpty {
-                ForgeSection(title: page.changedFiles == 1 ? "1 file changed" : "\(page.changedFiles) files changed") {
-                    ForEach(page.files, id: \.self) { file in
-                        HStack(spacing: AceTheme.Spacing.sm) {
-                            Text(file.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-                                .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1).truncationMode(.middle)
-                            Spacer(minLength: AceTheme.Spacing.sm)
-                            ForgeDiffStat(additions: file.additions, deletions: file.deletions)
-                        }
-                        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 36)
-                    }
+            ForgeSection(title: nil) {
+                ForgeLinkRow(title: "Files changed", detail: page.changedFiles == 1 ? "1 file" : "\(page.changedFiles) files", identifier: "forge.pull.files") {
+                    open(ForgeRoute(kind: .files, machineId: route.machineId, project: route.project, number: route.number))
                 }
             }
         }
@@ -209,7 +209,12 @@ struct ForgePullPageView: View {
     }
 
     private func load() async {
-        do { page = try await client.forgePull(project: route.project, number: route.number, method: method); failure = nil }
+        do {
+            let read = try await client.forgePull(project: route.project, number: route.number, method: method)
+            if desk == nil { desk = ForgeReviewDesk(client: client, target: ForgePullTarget(project: route.project, number: read.number, repository: read.repository)) }
+            page = read
+            failure = nil
+        }
         catch is CancellationError {}
         catch { failure = error.localizedDescription }
     }

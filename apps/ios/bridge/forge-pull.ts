@@ -12,6 +12,7 @@ import {
   mergeBlockers,
   mergeMethods,
   noAutoMerge,
+  plural,
   prGates,
   prPrimaryAction,
   prPrimaryLabel,
@@ -86,6 +87,8 @@ export interface PullReply {
   commits: number;
   changedFiles: number;
   body: string;
+  /** What the Timeline holds, in words: "4 comments · 2 open conversations". */
+  conversation: string;
   labels: ForgeLabelView[];
   gates: { label: string; value: string; detail: string | null; tone: string }[];
   /** The primary control's words ("Squash and merge", "Merge blocked"); empty when none. */
@@ -198,6 +201,7 @@ export async function readPull(
     commits: detail.commits,
     changedFiles: detail.changedFiles,
     body: preview(detail.body, 32_768),
+    conversation: conversationWords(status),
     labels: detail.labels.slice(0, 20).map((name) => ({
       name: preview(name, 100),
       color: detail.labelColors?.[name] ?? null,
@@ -236,6 +240,14 @@ export async function readPull(
       needsYou: live?.id === thread.id && live.needsYou,
     })),
   };
+}
+
+function conversationWords(status: ForgePrDetail["status"]): string {
+  const said = status.comments.filter((comment) => comment.kind !== "inline").length;
+  const open = status.reviewThreads.filter((thread) => !thread.resolved).length;
+  return [plural(said, "comment"), open ? plural(open, "open conversation") : ""]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /** What a refused or lost write means, in the web's words. */

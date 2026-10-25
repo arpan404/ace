@@ -32,6 +32,7 @@ struct ForgePullPage: Decodable, Sendable, Equatable {
     let commits: Int
     let changedFiles: Int
     let body: String
+    let conversation: String
     let labels: [ForgeLabel]
     let gates: [Gate]
     let primary: String

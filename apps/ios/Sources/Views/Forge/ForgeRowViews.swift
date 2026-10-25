@@ -2,11 +2,15 @@ import SwiftUI
 
 /// A pull request or issue page pushed on the second tab's stack (`InboxRoute.forge`).
 struct ForgeRoute: Hashable {
-    enum Kind: String { case pull, issue }
+    /// A pull request or issue page, a pull request's Timeline, or one of its changed files.
+    enum Kind: String { case pull, issue, timeline, files, file }
     let kind: Kind
     let machineId: String
     let project: String
     let number: Int
+    /// The changed file a `file` page shows, and where it sits in the pull request's list.
+    var path: String?
+    var index: Int?
 }
 
 /// One pull request (the web's list row, laid out for the phone): glyph, number, labels and its

@@ -6,9 +6,16 @@ import { ForgeIssueRequest, readIssue } from "./forge-issue.ts";
 import { ForgeListRequest, readIssues, readPulls } from "./forge-lists.ts";
 import { ForgePullRequest, readPull, writePull } from "./forge-pull.ts";
 import { ForgeReads, ForgeRefusal, type ForgeMemory, type ForgeOwner } from "./forge-reads.ts";
-import { ForgeFileRequest, readFile } from "./forge-code.ts";
+import { ForgeFileRequest, ForgeFilesRequest, readFile, readFiles } from "./forge-code.ts";
+import {
+  complete,
+  ForgeCompleteRequest,
+  ForgeReviewersRequest,
+  readReviewers,
+} from "./forge-people.ts";
 import type { ShownBodies } from "./forge-conversation.ts";
 import { ForgeReviewRequest, writeReview } from "./forge-review-write.ts";
+import { ForgeInboxRequest, ForgeInboxWriteRequest, readInbox, writeInbox } from "./forge-inbox.ts";
 import { ForgeTimelineRequest, readTimeline } from "./forge-timeline.ts";
 
 /*
@@ -25,7 +32,12 @@ export const ForgeRequest = z.intersection(
     ForgeIssueRequest,
     ForgeTimelineRequest,
     ForgeFileRequest,
+    ForgeFilesRequest,
     ForgeReviewRequest,
+    ForgeCompleteRequest,
+    ForgeReviewersRequest,
+    ForgeInboxRequest,
+    ForgeInboxWriteRequest,
   ]),
   z.object({ fresh: z.boolean().default(false) }),
 );
@@ -96,6 +108,16 @@ export class ForgeService {
           return this.#trimmed(await readTimeline(reads, request, this.#preview, this.#shown));
         case "forge.pull.file":
           return this.#trimmed(await readFile(reads, request, this.#preview, this.#shown));
+        case "forge.pull.files":
+          return await readFiles(reads, request, this.#preview);
+        case "forge.complete":
+          return await complete(reads, request, this.#preview);
+        case "forge.pull.reviewers":
+          return await readReviewers(reads, request, this.#preview);
+        case "forge.inbox":
+          return await readInbox(reads, request, this.#preview);
+        case "forge.inbox.write":
+          return await writeInbox(this.#owner, reads, request);
         case "forge.review":
           return await writeReview(this.#owner, reads, request, this.#shown, this.#newId);
       }

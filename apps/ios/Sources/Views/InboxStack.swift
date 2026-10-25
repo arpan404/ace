@@ -99,7 +99,10 @@ struct InboxStack<Destination: View>: View {
     @ViewBuilder private func forgePage(_ route: ForgeRoute) -> some View {
         if let client = inbox.client(route.machineId) {
             switch route.kind {
-            case .pull: ForgePullPageView(client: client, route: route, openThread: forge.openThread)
+            case .pull: ForgePullPageView(client: client, route: route, open: { path.append(.forge($0)) }, openThread: forge.openThread)
+            case .timeline: ForgeTimelineView(client: client, route: route)
+            case .file: ForgeFileView(client: client, route: route)
+            case .files: ForgeFilesView(client: client, route: route, open: { path.append(.forge($0)) })
             case .issue:
                 ForgeIssuePageView(client: client, route: route,
                                    actions: ForgeTabActions(open: { path.append(.forge($0)) }, openThread: forge.openThread, startThread: forge.startThread))

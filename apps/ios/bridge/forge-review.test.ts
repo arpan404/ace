@@ -24,9 +24,10 @@ const pr31 = { project: "ace", number: 31, repository: docs };
 const pr74 = { project: "ace", number: 74, repository: billing };
 
 type Ask = (request: Record<string, unknown>) => Promise<unknown>;
-const timeline = async (ask: Ask, target = pr31) =>
+type Target = { project: string; number: number; repository: { owner: string; name: string } };
+const timeline = async (ask: Ask, target: Target = pr31) =>
   (await ask({ type: "forge.pull.timeline", ...target })) as TimelineReply;
-const review = async (ask: Ask, action: Record<string, unknown>, target = pr31) =>
+const review = async (ask: Ask, action: Record<string, unknown>, target: Target = pr31) =>
   (await ask({ type: "forge.review", ...target, action })) as ReviewWriteReply;
 const commentRow = (reply: TimelineReply, id: string) =>
   reply.rows.find(
@@ -52,15 +53,15 @@ test("the timeline shows comments, reviews and line conversations oldest first, 
   // Someone else's: quote reply and reactions, but no edit or delete.
   const theirs = commentRow(reply, "issue:321")?.comment;
   expect(theirs).toMatchObject({ quote: true, edit: false, remove: false, hidden: null });
-  expect(theirs?.reactions.map((reaction) => reaction.emoji)).toEqual([
-    "👍",
-    "👎",
-    "😄",
-    "🎉",
-    "😕",
-    "❤️",
-    "🚀",
-    "👀",
+  expect(theirs?.reactions.map((reaction) => reaction.label)).toEqual([
+    "Thumbs up",
+    "Thumbs down",
+    "Laugh",
+    "Hooray",
+    "Confused",
+    "Heart",
+    "Rocket",
+    "Eyes",
   ]);
   const verdict = reply.rows.find((row) => row.kind === "review");
   expect(verdict).toMatchObject({ words: "requested changes", tone: "failed" });

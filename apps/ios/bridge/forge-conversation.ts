@@ -7,6 +7,7 @@ import {
   hiddenReasonOf,
   hiddenWord,
   lockedText,
+  quoted,
   threadPlace,
 } from "@ace/ui-core";
 import type { Preview } from "./agents.ts";
@@ -23,7 +24,6 @@ export type CommentSource = "issue" | "inline";
 
 export interface ReactionView {
   content: string;
-  emoji: string;
   label: string;
   count: number;
   viewer: boolean;
@@ -42,6 +42,8 @@ export interface CommentView {
   reactions: ReactionView[];
   url: string;
   quote: boolean;
+  /** What Quote reply writes: the comment as a Markdown quote. */
+  quoteText: string;
   edit: boolean;
   remove: boolean;
   hide: boolean;
@@ -99,7 +101,6 @@ function reactionsOf(conversation: Conversation, comment: ForgeComment): Reactio
     const group = groups.find((each) => each.content === reaction.content);
     return {
       content: reaction.content,
-      emoji: reaction.emoji,
       label: reaction.label,
       count: group?.count ?? 0,
       viewer: group?.viewer ?? false,
@@ -113,6 +114,8 @@ export function commentView(conversation: Conversation, comment: ForgeComment): 
   const reason = hiddenReasonOf(state, comment);
   const own = !!state && !!source && comment.author === state.viewer;
   const hideable = !!source && canHide(state, comment);
+  // Only where the viewer can answer: a quote with no box to take it would be lost.
+  const quote = writable(conversation) && !!state?.canComment && comment.body.trim() !== "";
   if (source) conversation.shown.set(shownKey(source, comment.id), comment.body);
   return {
     id: `${comment.kind}:${comment.id}`,
@@ -124,8 +127,8 @@ export function commentView(conversation: Conversation, comment: ForgeComment): 
     hidden: reason === undefined ? null : `Hidden as ${hiddenWord(reason)}`,
     reactions: reactionsOf(conversation, comment),
     url: commentUrl(conversation.url, comment),
-    // Only where the viewer can answer: a quote with no box to take it would be lost.
-    quote: writable(conversation) && !!state?.canComment && comment.body.trim() !== "",
+    quote,
+    quoteText: quote ? conversation.preview(quoted(comment.body), 66_000) : "",
     edit: own && writable(conversation),
     remove: own && !!state,
     hide: hideable && reason === undefined,

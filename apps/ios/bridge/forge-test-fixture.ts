@@ -3,7 +3,7 @@ import { seedForgeBrowse } from "@ace/fake-daemon";
 import type { CommandPayload, ThreadListEntry } from "@ace/protocol";
 import { afterEach } from "vitest";
 import type { ForgeOwner } from "./forge-reads.ts";
-import { ForgeService, type ForgeRequest } from "./forge-service.ts";
+import { ForgeRequest, ForgeService } from "./forge-service.ts";
 import { plainPreview, sheetFixture, until } from "./sheet-fixture.ts";
 
 /*
@@ -66,6 +66,7 @@ export async function connected(
     () => `draft-${++ids}`,
   );
   const ask = (request: Record<string, unknown>) =>
-    forge.answer({ fresh: false, ...request } as ForgeRequest, new AbortController().signal);
+    // Parsed as the native service parses it, defaults included.
+    forge.answer(ForgeRequest.parse(request), new AbortController().signal);
   return { daemon, client, sent, reads, ask };
 }

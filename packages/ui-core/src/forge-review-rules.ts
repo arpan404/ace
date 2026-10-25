@@ -48,20 +48,16 @@ export const reviewUncertainText = "Review change not confirmed";
 export const reviewLostText =
   "Couldn't confirm the action. Refresh and reconcile its result; your draft is retained.";
 
-/** GitHub's reactions in its own order, with their names and the emoji GitHub shows. */
-export const forgeReactions: readonly {
-  content: ForgeReactionContent;
-  label: string;
-  emoji: string;
-}[] = [
-  { content: "+1", label: "Thumbs up", emoji: "👍" },
-  { content: "-1", label: "Thumbs down", emoji: "👎" },
-  { content: "laugh", label: "Laugh", emoji: "😄" },
-  { content: "hooray", label: "Hooray", emoji: "🎉" },
-  { content: "confused", label: "Confused", emoji: "😕" },
-  { content: "heart", label: "Heart", emoji: "❤️" },
-  { content: "rocket", label: "Rocket", emoji: "🚀" },
-  { content: "eyes", label: "Eyes", emoji: "👀" },
+/** GitHub's reactions in its own order, with their names. */
+export const forgeReactions: readonly { content: ForgeReactionContent; label: string }[] = [
+  { content: "+1", label: "Thumbs up" },
+  { content: "-1", label: "Thumbs down" },
+  { content: "laugh", label: "Laugh" },
+  { content: "hooray", label: "Hooray" },
+  { content: "confused", label: "Confused" },
+  { content: "heart", label: "Heart" },
+  { content: "rocket", label: "Rocket" },
+  { content: "eyes", label: "Eyes" },
 ];
 
 /** A hosted comment's text as its author wrote it, without ace's publication marker. */

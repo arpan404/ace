@@ -36,6 +36,27 @@ export const ForgeFileRequest = z.object({
 });
 export type ForgeFileRequest = z.infer<typeof ForgeFileRequest>;
 
+export const ForgeFilesRequest = z.object({
+  type: z.literal("forge.pull.files"),
+  project: z.string().min(1).max(512),
+  number: z.number().int().positive(),
+  repository: ForgeRepository.optional(),
+});
+export type ForgeFilesRequest = z.infer<typeof ForgeFilesRequest>;
+
+export interface FilesReply {
+  type: "forge.pull.files";
+  files: {
+    path: string;
+    status: string;
+    additions: number;
+    deletions: number;
+    conversations: number;
+  }[];
+  /** More files than the phone lists; the rest are on GitHub. */
+  more: boolean;
+}
+
 export interface LineView extends MobileDiffLine {
   /** Where a comment on this line anchors; null for a hunk header. */
   anchor: { line: number; side: "LEFT" | "RIGHT" } | null;
@@ -44,6 +65,8 @@ export interface LineView extends MobileDiffLine {
 }
 export interface FileReply {
   type: "forge.pull.file";
+  number: number;
+  repository: ForgeRepository;
   path: string;
   previousPath: string | null;
   status: string;
@@ -95,6 +118,35 @@ async function findFile(
     if (value.nextPage === undefined && page >= first) break;
   }
   throw new ForgeRefusal("forge_not_found");
+}
+
+/** The changed files in GitHub's order, each with its open conversations, up to eight pages. */
+export async function readFiles(
+  reads: ForgeReads,
+  request: ForgeFilesRequest,
+  preview: Preview,
+): Promise<FilesReply> {
+  const detail = await prDetail(reads, request);
+  const shas = { headSha: detail.status.headSha, baseSha: detail.baseSha };
+  const files: ForgeFile[] = [];
+  let page: number | undefined = 1;
+  while (page !== undefined && page <= maxPages) {
+    const value: ForgePrFiles = await filePage(reads, request, page, shas);
+    files.push(...value.files);
+    page = value.nextPage;
+  }
+  const open = detail.status.reviewThreads.filter((thread) => !thread.resolved);
+  return {
+    type: "forge.pull.files",
+    files: files.map((file) => ({
+      path: preview(file.path, 4_096),
+      status: file.status,
+      additions: file.additions,
+      deletions: file.deletions,
+      conversations: open.filter((thread) => thread.file === file.path).length,
+    })),
+    more: page !== undefined,
+  };
 }
 
 const anchorOf = (line: MobileDiffLine): LineView["anchor"] =>
@@ -154,6 +206,8 @@ export async function readFile(
   const live = detail.status.state === "open" || detail.status.state === "draft";
   return {
     type: "forge.pull.file",
+    number: detail.status.ref.number,
+    repository: detail.status.ref.repository,
     path: preview(file.path, 4_096),
     previousPath: file.previousPath ? preview(file.previousPath, 4_096) : null,
     status: file.status,

@@ -1,24 +1,5 @@
-/**
- * The text a Markdown field holds and what is selected in it: the input every edit reads.
- * `start` and `end` are offsets into `value`, `start <= end`.
- */
-export interface Selection {
-  value: string;
-  start: number;
-  end: number;
-}
-
-/**
- * One edit as the browser applies it: replace `from`..`to` with `insert`, then select
- * `select` (offsets in the new text). A single range replacement, so it lands as one native,
- * undoable step.
- */
-export interface Change {
-  from: number;
-  to: number;
-  insert: string;
-  select: readonly [start: number, end: number];
-}
+export type { Change, Selection } from "@ace/ui-core";
+import type { Change, Selection } from "@ace/ui-core";
 
 /** The text after `change`, for callers and tests that need the result without a DOM. */
 export function applied(value: string, change: Change): string {
