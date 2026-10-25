@@ -274,9 +274,16 @@ export function createAgentControlPort(
                     operation.waitMs ?? 600000,
                   )
                 : undefined;
+            // Whether the child started or waits for a run slot, and its queue place.
+            const queue = service.queueFacts(child.childId);
             return {
               ok: true,
-              data: { threadId: child.childId, ...(outcome ? { outcome } : {}) },
+              data: {
+                threadId: child.childId,
+                queued: queue !== undefined,
+                ...(queue ? { ...queue } : {}),
+                ...(outcome ? { outcome } : {}),
+              },
             };
           }
           // Checked first, then admitted in order. Children past the parent's free slots queue.
@@ -295,7 +302,18 @@ export function createAgentControlPort(
               (await withRoleContext(filled[index]?.role, () => create(request, configured[index])))
                 .childId,
             );
-          if (!mode || mode === "none") return { ok: true, data: { threadIds } };
+          if (!mode || mode === "none")
+            return {
+              ok: true,
+              // Per child whether it started or waits for a run slot, and its queue place.
+              data: {
+                threadIds,
+                launches: threadIds.map((threadId) => {
+                  const queue = service.queueFacts(threadId);
+                  return { threadId, queued: queue !== undefined, ...(queue ? { ...queue } : {}) };
+                }),
+              },
+            };
           const waited = await service.monitor.wait(
             caller,
             { threadIds, mode, timeoutSeconds: timeoutSeconds ?? 120 },

@@ -18,6 +18,7 @@ import {
   DelegationPolicy,
   DelegationRequest,
   type DelegationRecord,
+  type QueueFacts,
   type WorkspaceId,
   type McpAttribution,
   type Event,
@@ -132,6 +133,7 @@ export class DelegationService {
       authorize: (caller, target, write) => this.authorize(caller, target, write),
       delivered: (caller, outcome) => this.delivered(caller, outcome),
       resuming: (id) => deps.engine.resuming(id),
+      queueFacts: (child) => this.queueFacts(child),
     });
     // Recovery visits indexed current work, never transcript history or old receipts.
     for (const participant of this.journal.activeParticipants()) {
@@ -635,12 +637,13 @@ export class DelegationService {
           if (!engineFull(error)) throw error;
         }
       this.launches.add({ childId: current.childId, parentId: current.parentId, text });
+      const facts = this.queueFacts(current.childId);
       // The child names its parent and its task while it waits, so its own thread is never blank.
       this.deps.store.appendEvents(current.childId, [
         {
           type: "thread.updated",
           ...(launchKind(current) === "spawn" ? { delegatedBy: current.parentId } : {}),
-          queuedLaunch: { text: current.request.task },
+          queuedLaunch: { text: current.request.task, ...facts },
         },
       ]);
       this.showQueued(current);
@@ -659,6 +662,50 @@ export class DelegationService {
       .filter((edge) => edge.phase === "running" && this.deps.engine.heldInterrupted(edge.childId));
     return running - held.length;
   }
+  /** Where a queued child stands: the parent's slot limit, slots in use and its queue place. */
+  queueFacts(childId: ThreadId): QueueFacts | undefined {
+    const edge = this.journal.get(childId);
+    if (!edge || edge.phase !== "created" || !this.launches.has(childId)) return undefined;
+    const position = this.launches.ordered(edge.parentId).indexOf(childId) + 1;
+    if (position < 1) return undefined;
+    return {
+      slotLimit: this.policy.maxConcurrent,
+      slotsInUse: this.running(edge.parentId),
+      queuePosition: position,
+    };
+  }
+  /**
+   * After the head of a parent's queue starts, the rest move up: rewrite their queued facts so
+   * every waiting screen stays current. Only children whose facts changed are rewritten.
+   */
+  private refreshQueue(parent: ThreadId): void {
+    const inUse = this.running(parent);
+    for (const [index, childId] of this.launches.ordered(parent).entries()) {
+      const edge = this.journal.get(childId);
+      if (!edge || edge.phase !== "created") continue;
+      const facts = {
+        slotLimit: this.policy.maxConcurrent,
+        slotsInUse: inUse,
+        queuePosition: index + 1,
+      };
+      const current = this.deps.store.getThread(childId)?.queuedLaunch;
+      if (
+        current?.slotLimit === facts.slotLimit &&
+        current?.slotsInUse === facts.slotsInUse &&
+        current?.queuePosition === facts.queuePosition
+      )
+        continue;
+      this.deps.store.atomic(() => {
+        this.deps.store.appendEvents(childId, [
+          {
+            type: "thread.updated",
+            queuedLaunch: { text: current?.text ?? edge.request.task, ...facts },
+          },
+        ]);
+        this.showQueued(edge);
+      });
+    }
+  }
   /** A queued child reads as waiting, so its parent never looks done while it waits. */
   private showQueued(edge: DelegationRecord): void {
     const child = this.deps.store.getThread(edge.childId);
@@ -673,7 +720,10 @@ export class DelegationService {
       this.deps.store.atomic(() => {
         const queued = this.launches.take(child);
         const edge = this.journal.get(child);
-        if (queued && edge?.phase === "created") this.start(edge, queued.text);
+        if (queued && edge?.phase === "created") {
+          this.start(edge, queued.text);
+          this.refreshQueue(edge.parentId);
+        }
       });
     } catch (error) {
       // A full engine keeps the task queued; the person's own input still goes through.
@@ -709,6 +759,7 @@ export class DelegationService {
           this.deps.store.atomic(() => this.settleUnlaunched(edge, "failed"));
       }
     }
+    this.refreshQueue(parent);
   }
   /** A child that never ran settles at once: no run of its will ever end to settle it. */
   private settleUnlaunched(edge: DelegationRecord, outcome: "cancelled" | "failed"): void {
@@ -731,6 +782,7 @@ export class DelegationService {
     }
     this.waiters.deliver(edge.childId, result);
     this.monitor.changed([edge.childId]);
+    this.refreshQueue(edge.parentId);
   }
   private start(current: DelegationRecord, text: string): void {
     this.deps.store.atomic(() => {
