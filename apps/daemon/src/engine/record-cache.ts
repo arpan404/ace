@@ -4,24 +4,36 @@ export interface CachedRecord<T> {
   json: string;
   bytes: number;
 }
+/** A cached record and the section bookkeeping that must forget it when the budget evicts it. */
+interface Entry {
+  record: CachedRecord<unknown>;
+  owner: Set<string>;
+  key: string;
+}
 /** Shared across every resident snapshot; keys never cross a section's typed owner. */
 export class RecordBudget {
-  private readonly entries = new BoundedCache<string, CachedRecord<unknown>>(8192, 8_388_608);
+  private readonly entries: BoundedCache<string, Entry>;
   private serial = 0;
+  constructor(maxEntries = 8192, maxBytes = 8_388_608) {
+    this.entries = new BoundedCache<string, Entry>(maxEntries, maxBytes, (_key, entry) =>
+      entry.owner.delete(entry.key),
+    );
+  }
   section<T>(): RecordSection<T> {
     const prefix = `${++this.serial}:`;
     const entries = this.entries;
-    // Keys this section has cached; an evicted key just makes its delete a no-op.
+    // Exactly this section's keys still in the cache, so it stays within the shared budget.
     const keys = new Set<string>();
     return {
       get(key: string): CachedRecord<T> | undefined {
         // Values enter only through this section's T-typed set method.
-        return entries.get(prefix + key) as CachedRecord<T> | undefined;
+        return entries.get(prefix + key)?.record as CachedRecord<T> | undefined;
       },
       set(key: string, value: CachedRecord<T>, bytes: number) {
-        keys.add(key);
+        keys.delete(key);
         // Charge decoded strings as well as the retained JSON.
-        entries.set(prefix + key, value, bytes * 4);
+        if (entries.set(prefix + key, { record: value, owner: keys, key }, bytes * 4))
+          keys.add(key);
       },
       delete(key: string) {
         keys.delete(key);
